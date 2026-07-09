@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 11:42-0400\n"
+"POT-Creation-Date: 2026-07-09 19:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Køyrer lokal OCR på valt bilete..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentforsking krev spesialisert oppgåvedelegering (USE_SUB_AGENT). "
 "Aktiver dette i oppsettet."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktøykall bytta til '{0}'. Du er i ein spesialisert verktøymodus. Du må "
@@ -58,8 +58,8 @@ msgstr "Køyring av notatblokk er berre støtta i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Dette dokumentet har inga importert notatblokk. Bruk Verktøy → Importer "
 "Jupyter-notatblokk… først."
@@ -190,8 +190,8 @@ msgstr "Feil: "
 msgid ""
 "Folder index is building in the background. Please retry search shortly."
 msgstr ""
-"Mappeindeksen vert bygd i bakgrunnen. Ver venleg og prøv søket på nytt om ei "
-"lita stund."
+"Mappeindeksen vert bygd i bakgrunnen. Ver venleg og prøv søket på nytt om ei"
+" lita stund."
 
 #: plugin/embeddings/search_ui.py
 msgid "No matches found."
@@ -252,8 +252,10 @@ msgstr ""
 "innstillingane."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr "Tilkobling nekta. Køyrer den lokale AI-tenaren din (Ollama/LM Studio)?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr ""
+"Tilkobling nekta. Køyrer den lokale AI-tenaren din (Ollama/LM Studio)?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -287,7 +289,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Eg kan hjelpe deg med formlar, dataanalyse og fargerike diagram. Prøv "
 "meg!"
@@ -306,7 +309,8 @@ msgid ""
 "without seeing or changing your document. Let's chat."
 msgstr ""
 "AI: Eg kan gjere nettsøk for å svare på kva som helst spørsmål, eller "
-"oppsummere ei nettside, utan å sjå eller endre dokumentet ditt. La oss prate."
+"oppsummere ei nettside, utan å sjå eller endre dokumentet ditt. La oss "
+"prate."
 
 #: plugin/framework/constants.py
 msgid ""
@@ -314,24 +318,25 @@ msgid ""
 "several searches, synthesis) and can insert a formatted report into your "
 "document. It takes longer but produces more thorough results."
 msgstr ""
-"AI: Deep Research-modus køyrer ei fleirstegs nettetterforsking (planlegging, "
-"fleire søk, syntese) og kan setje inn ein formatert rapport i dokumentet "
+"AI: Deep Research-modus køyrer ei fleirstegs nettetterforsking (planlegging,"
+" fleire søk, syntese) og kan setje inn ein formatert rapport i dokumentet "
 "ditt. Det tek lengre tid, men gir meir grundige resultat."
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "KI: Lat oss utforske og utforme ideen din saman. Eg vil stille spørsmål, "
-"foreslå framgangsmåtar og hjelpe deg med å byggje ein godkjend spesifikasjon "
-"i dokumentet ditt når du er klar."
+"foreslå framgangsmåtar og hjelpe deg med å byggje ein godkjend spesifikasjon"
+" i dokumentet ditt når du er klar."
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Lat oss skrive dokumentet ditt del for del. Eg hjelper deg med å laga "
 "ein disposisjon for skriveplanen, og så gjennomfører vi han stegvis med di "
@@ -343,9 +348,9 @@ msgid ""
 "Python venv (scripts + export to Impress). Describe your topic or point me "
 "at a project folder."
 msgstr ""
-"AI: PPT-Master-modus — Eg køyrer ppt-master-arbeidsflyten i det konfigurerte "
-"Python-venv-et ditt (skript + eksport til Impress). Beskriv emnet ditt eller "
-"vis til ei prosjektmappe."
+"AI: PPT-Master-modus — Eg køyrer ppt-master-arbeidsflyten i det konfigurerte"
+" Python-venv-et ditt (skript + eksport til Impress). Beskriv emnet ditt "
+"eller vis til ei prosjektmappe."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -358,8 +363,8 @@ msgid ""
 "https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
 msgstr ""
 " Viss API-nøkkelen din er frå eit GLM Coding Plan-abonnement, set "
-"endepunktet til https://api.z.ai/api/coding/paas/v4 (ikkje den generelle /"
-"api/paas-URL-en)."
+"endepunktet til https://api.z.ai/api/coding/paas/v4 (ikkje den generelle "
+"/api/paas-URL-en)."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -460,19 +465,16 @@ msgstr "Ingen Python-tolkar tilgjengeleg for redigeringsprogrammet."
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → "
-"Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Kan ikkje importere webview (pywebview) eller rocher med Python frå "
-"Innstillingar → Python:\n"
+"Kan ikkje importere webview (pywebview) eller rocher med Python frå Innstillingar → Python:\n"
 "%(exe)s\n"
 "\n"
-"Køyr denne kommandoen i det virtuelle miljøet (venv): uv pip install "
-"pywebview rocher\n"
+"Køyr denne kommandoen i det virtuelle miljøet (venv): uv pip install pywebview rocher\n"
 "(import-namnet er webview, pakkenamnet er pywebview)."
 
 #: plugin/calc/python/editor.py
@@ -496,6 +498,7 @@ msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Utvid utval (Calc)"
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Vel eit innebygd bilete, og køyr på nytt."
 
@@ -1086,7 +1089,8 @@ msgstr "[Agent-bakende '{0}' vart ikkje funnen.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agent-bakende '{0}' er ikkje tilgjengeleg. Kontroller innstillingar (bane, "
 "installasjon).]"
@@ -1289,42 +1293,6 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Eit skript med namnet «{0}» finst allereie i dette dokumentet."
 
 #: plugin/scripting/document_scripts.py
-msgid "Analysis Helpers"
-msgstr "Analysehjelparar"
-
-#: plugin/scripting/document_scripts.py
-msgid "Vision Helpers"
-msgstr "Synshjelparar"
-
-#: plugin/scripting/document_scripts.py
-msgid "Viz Helpers"
-msgstr "Visualiseringshjelparar"
-
-#: plugin/scripting/document_scripts.py
-msgid "Math Helpers"
-msgstr "Matematikkhjelparar"
-
-#: plugin/scripting/document_scripts.py
-msgid "Units Helpers"
-msgstr "Eining-hjelparar"
-
-#: plugin/scripting/document_scripts.py
-msgid "Quant Helpers"
-msgstr "Kvantumshjelparar"
-
-#: plugin/scripting/document_scripts.py
-msgid "Optimize Helpers"
-msgstr "Optimeringshjelparar"
-
-#: plugin/scripting/document_scripts.py
-msgid "Forecast Helpers"
-msgstr "Prognosehjelparar"
-
-#: plugin/scripting/document_scripts.py
-msgid "SQL Helpers"
-msgstr "SQL-hjelpeverktøy"
-
-#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Mine skript"
 
@@ -1363,8 +1331,8 @@ msgstr "Fest til dokument"
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
 msgstr ""
-"Eit skript med namnet «{0}» finst allereie i dette dokumentet. Vil du skrive "
-"over?"
+"Eit skript med namnet «{0}» finst allereie i dette dokumentet. Vil du skrive"
+" over?"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
@@ -1505,15 +1473,16 @@ msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
-"Tidsavbrot for tekst/NLP-søk (spaCy eller transformers-kaldimport kan ta 10–"
-"30 sekund ved første sjekk)."
+"Tidsavbrot for tekst/NLP-søk (spaCy eller transformers-kaldimport kan ta "
+"10–30 sekund ved første sjekk)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Tekst/NLP-søk feila (sjå writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-sonde tidsavbrot (Docling-import kan ta 10–30 sekund ved første "
 "sjekk)."
@@ -1527,8 +1496,8 @@ msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"Tidsavbrot for søk etter vektor (import av sentence-transformers kan ta 10–"
-"30 sekund ved første køyring)."
+"Tidsavbrot for søk etter vektor (import av sentence-transformers kan ta "
+"10–30 sekund ved første køyring)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
@@ -1638,8 +1607,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1647,25 +1615,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Feil frå tekstanalysetenesta:\n"
 "{err}\n"
 "\n"
-"Funksjonane i denne dialogen krev at desse pakkane er installerte i Python-"
-"miljøet som vert brukt:\n"
-"  • spacy + ein modell          (einingar, nøkkeluttrykk, grunnleggjande "
-"statistikk)\n"
+"Funksjonane i denne dialogen krev at desse pakkane er installerte i Python-miljøet som vert brukt:\n"
+"  • spacy + ein modell          (einingar, nøkkeluttrykk, grunnleggjande statistikk)\n"
 "  • textdescriptives         (faktiske lesbarheitsskårar)\n"
 "  • transformers + torch     (sentimentanalyse med fleirspråkleg modell)\n"
 "\n"
 "Installer dei med:\n"
 "  {install}\n"
 "\n"
-"Tenesta rapporterte at modulen manglar. Kontroller at pakkane er installerte "
-"i den nøyaktige Python-køyrefila som tenesta har valt for det konfigurerte "
-"virtuelle miljøet."
+"Tenesta rapporterte at modulen manglar. Kontroller at pakkane er installerte i den nøyaktige Python-køyrefila som tenesta har valt for det konfigurerte virtuelle miljøet."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1684,16 +1647,11 @@ msgstr "Analyserer..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Feil: %s\n"
 "\n"
-"Nødvendige pakkar kan mangla i det konfigurerte venv-et ditt (Innstillinger "
-"→ Python). Klikk på «Check Venv» i denne dialogen eller bruk full test i "
-"Innstillinger → Python for detaljar om spacy, textdescriptives, "
-"transformers, torch osb."
+"Nødvendige pakkar kan mangla i det konfigurerte venv-et ditt (Innstillinger → Python). Klikk på «Check Venv» i denne dialogen eller bruk full test i Innstillinger → Python for detaljar om spacy, textdescriptives, transformers, torch osb."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1741,13 +1699,181 @@ msgstr "Dokumenttypen støttar ikkje symbolsk innsetjing."
 msgid "Unsupported document type for plot insertion."
 msgstr "Dokumenttypen støttar ikkje innsetjing av plott."
 
-#: plugin/scripting/viz.py plugin/scripting/python_runner.py
+#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
 msgid "Viz helper failed."
 msgstr "Visualiseringshjelparen feila."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Visualiseringshjelparen returnerte ikkje noko bildeinnhald."
+
+#: plugin/scripting/domain_registry.py
+msgid "Unsupported document type."
+msgstr "Dokumenttypen vert ikkje støtta."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Hjelparen krev eit dataområde. Merk celler eller skriv inn eit område i "
+"datafeltet."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant-hjelpar krev eit dataområde. Marker celler eller skriv inn eit område "
+"i datafeltet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Helper failed."
+msgstr "Hjelparen feila."
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"Vision '{helper}' fullført. Sett inn HTML ({blocks} blokker, {tables} "
+"tabellar). (tok {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision '{helper}' fullført. Sett inn formatert HTML. (tok {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "{domain} «{helper}» er ferdig. Skreiv {rows} rader. (tok {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} «{helper}» er ferdig. (tok {time})"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Synshjelparar krev eit Writer- eller Calc-dokument."
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helper failed."
+msgstr "Synshjelpar feila."
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz-hjelparar krev eit Writer- eller Calc-dokument."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Viz-hjelpar krev eit dataområde. Marker celler eller skriv inn eit område i "
+"datafeltet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math-hjelparar krev eit Writer- eller Calc-dokument."
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helper failed."
+msgstr "Math-hjelpar feila."
+
+#: plugin/scripting/domain_registry.py
+msgid "Units helpers require a Writer or Calc document."
+msgstr "Eining-hjelparar krev eit Writer- eller Calc-dokument."
+
+#: plugin/scripting/domain_registry.py plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Eining-hjelpar feila."
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Hjelpemiddel for tekstanalyse krev eit Writer-dokument."
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helper failed."
+msgstr "Hjelpemiddel for tekstanalyse mislukkast."
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant failed."
+msgstr "Quant feila."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Optimeringshjelparen krev eit dataområde. Marker celler eller skriv inn eit "
+"område i datafeltet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimization failed."
+msgstr "Optimering mislukkast."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Prognosehjelparen krev eit dataområde. Marker celler eller skriv inn eit "
+"område i datafeltet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast failed."
+msgstr "Prognose mislukkast."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Analysehjelparen krev eit dataområde. Merk celler eller skriv inn eit område"
+" i datafeltet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis failed."
+msgstr "Analysen mislukkast."
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Analysehjelparar"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL-hjelpeverktøy"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Synshjelparar"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Visualiseringshjelparar"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Matematikkhjelparar"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Eining-hjelparar"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Kvantumshjelparar"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Optimeringshjelparar"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Prognosehjelparar"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1805,8 +1931,8 @@ msgid ""
 msgstr ""
 "Python-øktmodus er isolert (kvar =PYTHON()-celle brukar sine eigne "
 "variablar). Det finst inga delt celleøkt å nullstille. Legg til eit "
-"initialiseringsskript viss du treng å tømme ressurskrevjande eingongsoppsett "
-"for arbeidsboka."
+"initialiseringsskript viss du treng å tømme ressurskrevjande eingongsoppsett"
+" for arbeidsboka."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1817,10 +1943,6 @@ msgstr ""
 "Bruk Verktøy → Importer Jupyter Notebook… for å aktivere nullstilling av "
 "Python-økt for notatboka."
 
-#: plugin/scripting/units.py plugin/scripting/python_runner.py
-msgid "Units helper failed."
-msgstr "Eining-hjelpar feila."
-
 #: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Eining-hjelpar returnerte ingen formatert tekst."
@@ -1828,6 +1950,31 @@ msgstr "Eining-hjelpar returnerte ingen formatert tekst."
 #: plugin/scripting/units.py
 msgid "Unsupported document type for units insertion."
 msgstr "Dokumenttypen støttar ikkje innsetjing av einingar."
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Klarte ikkje setja inn resultatet: {error} (tok {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Plott sett inn ({title}). (tok {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' fullført. {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' fullført. Sett inn: {preview} (tok {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Einingar «{helper}» fullførte. Sett inn: {preview} (tok {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1846,161 +1993,9 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "Plott sett inn ({title}). (tok {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "Viz '{helper}' fullført. {msg}"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' fullført. Sett inn: {preview} (tok {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Einingar «{helper}» fullførte. Sett inn: {preview} (tok {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Synshjelparar krev eit Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "Synshjelpar feila."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Klarte ikkje setja inn resultatet: {error} (tok {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"Vision '{helper}' fullført. Sett inn HTML ({blocks} blokker, {tables} "
-"tabellar). (tok {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' fullført. Sett inn formatert HTML. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz-hjelparar krev eit Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz-hjelpar krev eit dataområde. Marker celler eller skriv inn eit område i "
-"datafeltet."
-
-#: plugin/scripting/python_runner.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math-hjelparar krev eit Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Math helper failed."
-msgstr "Math-hjelpar feila."
-
-#: plugin/scripting/python_runner.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Eining-hjelparar krev eit Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Hjelpemiddel for tekstanalyse krev eit Writer-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helper failed."
-msgstr "Hjelpemiddel for tekstanalyse mislukkast."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Text analytics '{helper}' completed. (took {time})"
-msgstr "Tekstanalyse «{helper}» fullført. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant-hjelpar krev eit dataområde. Marker celler eller skriv inn eit område "
-"i datafeltet."
-
-#: plugin/scripting/python_runner.py
-msgid "Quant failed."
-msgstr "Quant feila."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Kvantum '{helper}' fullført. Skreiv {rows} rader. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Optimeringshjelparen krev eit dataområde. Marker celler eller skriv inn eit "
-"område i datafeltet."
-
-#: plugin/scripting/python_runner.py
-msgid "Optimization failed."
-msgstr "Optimering mislukkast."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Optimering av '{helper}' fullført. Skreiv {rows} rader. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Prognosehjelparen krev eit dataområde. Marker celler eller skriv inn eit "
-"område i datafeltet."
-
-#: plugin/scripting/python_runner.py
-msgid "Forecast failed."
-msgstr "Prognose mislukkast."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Prognose «{helper}» er fullført. Skreiv {rows} rader. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Analysehjelparen krev eit dataområde. Merk celler eller skriv inn eit område "
-"i datafeltet."
-
-#: plugin/scripting/python_runner.py
-msgid "Analysis failed."
-msgstr "Analysen mislukkast."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Analyse '{helper}' fullført. Skreiv {rows} rader. (tok {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skriptet vart køyrt utan feil, men gav ikkje noko resultat eller utdata. "
 "(tok {time})"
@@ -2038,8 +2033,8 @@ msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"Biletet '{name}' vart ikkje funne. Bruk list_images eller lat image_name stå "
-"tomt og vel grafikken."
+"Biletet '{name}' vart ikkje funne. Bruk list_images eller lat image_name stå"
+" tomt og vel grafikken."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2057,6 +2052,27 @@ msgstr "OCR fullført."
 #: plugin/vision/vision_tools.py
 msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR fullført (berre tekst returnert; ikkje sett inn)."
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "Klarte ikkje å løyse biletankeret for innsetjing."
+
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr "Klarte ikkje å plassere innsetjinga etter biletet: %s"
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "Writer-dokumentet har ingen kontroller."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr "Biletet vart fjerna under førebuing av OCR-innsetjing."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "Biletet vart fjerna under OCR-innsetjing."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2537,11 +2553,11 @@ msgid "Path / URL"
 msgstr "Sti / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sti til backend-CLI (t.d. aider) eller ACP-tenar-URL (t.d. http://"
-"localhost:8000 for Hermes). Tom = prøv standard."
+"Sti til backend-CLI (t.d. aider) eller ACP-tenar-URL (t.d. "
+"http://localhost:8000 for Hermes). Tom = prøv standard."
 
 msgid "Extra arguments"
 msgstr "Ekstra argument"
@@ -2653,9 +2669,9 @@ msgstr "Humaniseringsferdigheit (naturleg prosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Når aktivert, vert rettleiing lagd inn i systemmeldingane slik at modellen "
 "får generert eller revidert dokumenttekst til å høyrast meir naturleg og "
@@ -2671,8 +2687,8 @@ msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
 msgstr ""
-"Pause etter at du har slutta å snakka, deretter stopp automatisk og send (Ta "
-"opp). 0 = vent til du klikkar på Stopp opptak."
+"Pause etter at du har slutta å snakka, deretter stopp automatisk og send (Ta"
+" opp). 0 = vent til du klikkar på Stopp opptak."
 
 msgid "Doc"
 msgstr "Dokument"
@@ -2738,8 +2754,8 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"Maksimalt tal på samtidige bakgrunns-API-kall for grammatikk (1–8). 1 svarar "
-"til tidlegare åtferd. Auk verdien for OpenRouter eller andre tenesteytarar "
+"Maksimalt tal på samtidige bakgrunns-API-kall for grammatikk (1–8). 1 svarar"
+" til tidlegare åtferd. Auk verdien for OpenRouter eller andre tenesteytarar "
 "som tillèt parallelle førespurnader; bruk med varsemd saman med sidepanel-"
 "chat."
 
@@ -2752,8 +2768,8 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"Kontroller språket i kvar fullstendige setning mot dokumentet sitt språk. AI "
-"brukar grammatikk-/chat-API-et ditt; Lokal brukar langdetect i Python-venv-"
+"Kontroller språket i kvar fullstendige setning mot dokumentet sitt språk. AI"
+" brukar grammatikk-/chat-API-et ditt; Lokal brukar langdetect i Python-venv-"
 "et ditt (Innstillinger → Python; ingen API-kall). Avvik oppdaterer "
 "CharLocale og sjekkar grammatikken på nytt."
 
@@ -2778,9 +2794,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Av = direkte redigering. Registrer = spor endringar som du sjølv godtek/"
-"avviser. Vent = apply_document_content blokkerer (i chat/MCP-arbeidstråd) "
-"til du har gått gjennom."
+"Av = direkte redigering. Registrer = spor endringar som du sjølv "
+"godtek/avviser. Vent = apply_document_content blokkerer (i chat/MCP-"
+"arbeidstråd) til du har gått gjennom."
 
 msgid "Record (track changes)"
 msgstr "Registrer (spor endringar)"
@@ -2838,8 +2854,8 @@ msgid "Rerank model"
 msgstr "Omrangeringsmodell"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Blir berre brukt når omrangering er aktivert. Engelsk MiniLM er rask; bge-"
 "reranker-v2-m3 er fleirspråkleg og lastar ned ~2,3 GB."
@@ -2860,11 +2876,11 @@ msgid "Enable MCP Server"
 msgstr "Aktiver MCP-tenar"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Berre localhost, inga autentisering. Klientar brukar http://localhost:<port>/"
-"mcp (strøymbar HTTP)."
+"Berre localhost, inga autentisering. Klientar brukar "
+"http://localhost:<port>/mcp (strøymbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -2908,10 +2924,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Dersom sett, køyrer verktøy i det venv-et (bin/python eller Scripts/"
-"python.exe). Dersom tomt, brukar run_venv_python_script prosessen sin "
-"sys.executable (grunnleggjande stdlib); bruk eit venv for numpy/pandas og "
-"visjonshjelparar (paddleocr, paddlepaddle)."
+"Dersom sett, køyrer verktøy i det venv-et (bin/python eller "
+"Scripts/python.exe). Dersom tomt, brukar run_venv_python_script prosessen "
+"sin sys.executable (grunnleggjande stdlib); bruk eit venv for numpy/pandas "
+"og visjonshjelparar (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Test"
@@ -2926,18 +2942,19 @@ msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
 msgstr ""
-"Tidsgrense for køyring av Python-skript, =PYTHON() og run_venv_python_script."
+"Tidsgrense for køyring av Python-skript, =PYTHON() og "
+"run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Maksimalt tal på Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maksimalt tal på celler i =PYTHON()-data eller «Køyr Python-skript»-data/"
-"dataområde. Større verdiar brukar meir minne og tid; lesing av UNO-område er "
-"framleis den største faktoren."
+"Maksimalt tal på celler i =PYTHON()-data eller «Køyr Python-"
+"skript»-data/dataområde. Større verdiar brukar meir minne og tid; lesing av "
+"UNO-område er framleis den største faktoren."
 
 msgid "Python session mode"
 msgstr "Python-øktmodus"
@@ -2946,8 +2963,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Isolert: kvar =PYTHON()-celle får eit eige namnerom. Delt: eitt namnerom per "
-"arbeidsbok (variablar vert tekne med mellom celler)."
+"Isolert: kvar =PYTHON()-celle får eit eige namnerom. Delt: eitt namnerom per"
+" arbeidsbok (variablar vert tekne med mellom celler)."
 
 msgid "Isolated (default)"
 msgstr "Isolert (standard)"
@@ -2969,9 +2986,9 @@ msgid "Convert Date/Time and Timedelta Strings"
 msgstr "Konverter dato/klokkeslett og tidsintervall-strengar"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to datetime/"
-"timedelta objects when sending data to the Python worker. Requires the "
-"'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to "
+"datetime/timedelta objects when sending data to the Python worker. Requires "
+"the 'pandas' and 'dateparser' packages in your venv."
 msgstr ""
 "Oppdag og konverter automatisk dato/klokkeslett- og varigheitsstrengar til "
 "datetime/timedelta-objekt når data vert sende til Python-arbeidaren. Krev "
@@ -2981,17 +2998,17 @@ msgid "PPT-Master data path"
 msgstr "Sti til PPT-master-data"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point here at "
-"the clone root (.../ppt-master) or the inner skill dir (.../ppt-master/"
-"skills/ppt-master). Leave empty to auto-detect (dev clone beside repo, then "
-"env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"Sti til ppt-master-ferdigheitstreet (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Klon https://github.com/hugohe3/ppt-master og peik hit til "
-"klon-rota (.../ppt-master) eller den indre ferdigheitsmappa (.../ppt-master/"
-"skills/ppt-master). Lat feltet stå tomt for automatisk deteksjon "
-"(utviklingsklon ved sida av repo, deretter env)."
+"Sti til ppt-master-ferdigheitstreet (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Klon https://github.com/hugohe3/ppt-master og peik "
+"hit til klon-rota (.../ppt-master) eller den indre ferdigheitsmappa "
+"(.../ppt-master/skills/ppt-master). Lat feltet stå tomt for automatisk "
+"deteksjon (utviklingsklon ved sida av repo, deretter env)."
 
 msgid "Vision / OCR"
 msgstr "Visjon / OCR"
@@ -3078,7 +3095,8 @@ msgid "Extract formulas (LaTeX)"
 msgstr "Trekk ut formlar (LaTeX)"
 
 msgid "Opt-in. Downloads extra VLM models on first use; slower."
-msgstr "Samtykke. Lastar ned ekstra VLM-modellar ved første bruk; går saktare."
+msgstr ""
+"Samtykke. Lastar ned ekstra VLM-modellar ved første bruk; går saktare."
 
 msgid "Code block enrichment"
 msgstr "Utviding av kodeblokker"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 11:42-0400\n"
+"POT-Creation-Date: 2026-07-09 19:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -22,8 +22,8 @@ msgid ""
 "Local OCR requires Settings → Python venv with Docling or PaddleOCR "
 "(Settings → Python → Test for install hints)."
 msgstr ""
-"A helyi OCR használatához a Beállítások → Python venv szükséges Docling vagy "
-"PaddleOCR csomaggal (Beállítások → Python → Tesztelés a telepítési "
+"A helyi OCR használatához a Beállítások → Python venv szükséges Docling vagy"
+" PaddleOCR csomaggal (Beállítások → Python → Tesztelés a telepítési "
 "tippekért)."
 
 #: plugin/doc/specialized_base.py
@@ -32,8 +32,8 @@ msgstr "Helyi OCR futtatása a kijelölt képen..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "A dokumentumkutatási olvasások speciális feladatdelegálást igényelnek "
 "(USE_SUB_AGENT). Engedélyezze ezt a konfigurációban."
@@ -41,8 +41,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Az eszközhívás átváltva erre: „{0}”. Speciális eszközkészlet módban van. A "
@@ -59,11 +59,11 @@ msgstr "A jegyzetfüzet futtatása csak a LibreOffice Writerben támogatott."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"Ez a dokumentum nem tartalmaz importált jegyzetfüzetet. Először használja az "
-"Eszközök → Jupyter-jegyzetfüzet importálása… menüpontot."
+"Ez a dokumentum nem tartalmaz importált jegyzetfüzetet. Először használja az"
+" Eszközök → Jupyter-jegyzetfüzet importálása… menüpontot."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -235,7 +235,8 @@ msgstr ""
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr "A végpont nem található (404). Ellenőrizze az URL-t és a modell nevét."
+msgstr ""
+"A végpont nem található (404). Ellenőrizze az URL-t és a modell nevét."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -250,11 +251,12 @@ msgstr "HTTP-hiba {0}: {1}"
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
-"A kérés időtúllépést szenvedett. Próbálja meg növelni a „Kérés időtúllépése” "
-"(Request Timeout) értékét a Beállításokban."
+"A kérés időtúllépést szenvedett. Próbálja meg növelni a „Kérés időtúllépése”"
+" (Request Timeout) értékét a Beállításokban."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "A kapcsolat elutasítva. Fut a helyi MI-kiszolgálója (Ollama/LM Studio)?"
 
@@ -285,15 +287,16 @@ msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
 msgstr ""
-"AI: Azonnal szerkeszthetem vagy lefordíthatom a dokumentumát professzionális "
-"formázással és színekkel. Próbáljon ki!"
+"AI: Azonnal szerkeszthetem vagy lefordíthatom a dokumentumát professzionális"
+" formázással és színekkel. Próbáljon ki!"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
-"AI: Segíthetek képletekkel, adatelemzéssel és színes diagramokkal. Próbáljon "
-"ki!"
+"AI: Segíthetek képletekkel, adatelemzéssel és színes diagramokkal. Próbáljon"
+" ki!"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -324,9 +327,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Fedezzük fel és tervezzük meg együtt az ötletét. Kérdéseket teszek fel, "
 "megközelítéseket javaslok, és segítek egy jóváhagyott specifikációt "
@@ -335,7 +338,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "MI: Írjuk meg a dokumentumát szakaszról szakaszra. Segítek egy írási terv "
 "vázlatának elkészítésében, majd az Ön jóváhagyásával fokozatosan "
@@ -348,8 +352,8 @@ msgid ""
 "at a project folder."
 msgstr ""
 "AI: PPT-Master mód — Futtatom a ppt-master munkafolyamatot a konfigurált "
-"Python venv környezetedben (parancsfájlok + exportálás az Impressbe). Írd le "
-"a témát, vagy adj meg egy projektmappát."
+"Python venv környezetedben (parancsfájlok + exportálás az Impressbe). Írd le"
+" a témát, vagy adj meg egy projektmappát."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -362,8 +366,8 @@ msgid ""
 "https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
 msgstr ""
 " Ha az API-kulcsa GLM Coding Plan előfizetésből származik, állítsa a "
-"végpontot a https://api.z.ai/api/coding/paas/v4 címre (ne az általános /api/"
-"paas URL-t használja)."
+"végpontot a https://api.z.ai/api/coding/paas/v4 címre (ne az általános "
+"/api/paas URL-t használja)."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -446,7 +450,8 @@ msgstr "A Python-szerkesztő váratlanul leállt."
 
 #: plugin/calc/python/editor.py
 msgid "Select a cell in a Calc spreadsheet to edit Python."
-msgstr "Válasszon ki egy cellát egy Calc-táblázatban a Python szerkesztéséhez."
+msgstr ""
+"Válasszon ki egy cellát egy Calc-táblázatban a Python szerkesztéséhez."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -455,8 +460,8 @@ msgid ""
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Ez a PYTHON-képlet olyan formát használ, amelyet a szerkesztő nem tud "
-"biztonságosan átírni (pl. más cellában lévő kód). Szerkessze a képletsávban, "
-"vagy használjon =PY(\"kód\"; tartomány) (vagy =PYTHON(...)) formátumot "
+"biztonságosan átírni (pl. más cellában lévő kód). Szerkessze a képletsávban,"
+" vagy használjon =PY(\"kód\"; tartomány) (vagy =PYTHON(...)) formátumot "
 "idézőjeles kóddal."
 
 #: plugin/calc/python/editor.py
@@ -466,19 +471,16 @@ msgstr "Nem érhető el Python-értelmező a szerkesztőhöz."
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → "
-"Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nem sikerült importálni a webview (pywebview) vagy rocher modult a "
-"Beállítások → Python menüpontban megadott Pythonnal:\n"
+"Nem sikerült importálni a webview (pywebview) vagy rocher modult a Beállítások → Python menüpontban megadott Pythonnal:\n"
 "%(exe)s\n"
 "\n"
-"Futtassa a következő parancsot az adott virtuális környezetben: uv pip "
-"install pywebview rocher\n"
+"Futtassa a következő parancsot az adott virtuális környezetben: uv pip install pywebview rocher\n"
 "(az import név webview, a csomagnév pywebview)."
 
 #: plugin/calc/python/editor.py
@@ -502,6 +504,7 @@ msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Kijelölés kiterjesztése (Calc)"
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Jelöljön ki egy beágyazott képet, majd futtassa újra."
 
@@ -974,8 +977,8 @@ msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
 msgstr ""
-"[Belső hiba: Nem sikerült azonosítani a dokumentumtípust ehhez: {0}. Kérjük, "
-"jelentse ezt!]"
+"[Belső hiba: Nem sikerült azonosítani a dokumentumtípust ehhez: {0}. Kérjük,"
+" jelentse ezt!]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -1055,8 +1058,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nem található szerkesztő (telepítse a Kate-et vagy a Geditet, vagy állítsa "
-"be az EDITOR környezeti változót). Útvonal:\n"
+"Nem található szerkesztő (telepítse a Kate-et vagy a Geditet, vagy állítsa be az EDITOR környezeti változót). Útvonal:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1093,7 +1095,8 @@ msgstr "[A(z) „{0}” ügynök-háttérprogram nem található.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[A(z) „{0}” ügynök-háttérprogram nem érhető el. Ellenőrizze a beállításokat "
 "(elérési út, telepítés).]"
@@ -1199,8 +1202,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"A WriterAgent újabb verziója (%s) érhető el. A frissítések ellenőrzéséhez és "
-"a legújabb bővítmény telepítéséhez használja az Eszközök → Bővítménykezelő "
+"A WriterAgent újabb verziója (%s) érhető el. A frissítések ellenőrzéséhez és"
+" a legújabb bővítmény telepítéséhez használja az Eszközök → Bővítménykezelő "
 "menüpontot."
 
 #: plugin/chatbot/librarian.py
@@ -1272,7 +1275,8 @@ msgstr "Szélesség:"
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
-"A dokumentum-szkriptek túl nagyok a dokumentumban való tároláshoz ({0} bájt)."
+"A dokumentum-szkriptek túl nagyok a dokumentumban való tároláshoz ({0} "
+"bájt)."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/editor_host.py
@@ -1295,42 +1299,6 @@ msgstr "A szkript neve nem lehet üres."
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document."
 msgstr "A(z) „{0}” nevű szkript már létezik ebben a dokumentumban."
-
-#: plugin/scripting/document_scripts.py
-msgid "Analysis Helpers"
-msgstr "Elemzési segédek"
-
-#: plugin/scripting/document_scripts.py
-msgid "Vision Helpers"
-msgstr "Látássegédek"
-
-#: plugin/scripting/document_scripts.py
-msgid "Viz Helpers"
-msgstr "Vizualizációs segédek"
-
-#: plugin/scripting/document_scripts.py
-msgid "Math Helpers"
-msgstr "Matematikai segédek"
-
-#: plugin/scripting/document_scripts.py
-msgid "Units Helpers"
-msgstr "Mértékegység-segédek"
-
-#: plugin/scripting/document_scripts.py
-msgid "Quant Helpers"
-msgstr "Mennyiségi segédek"
-
-#: plugin/scripting/document_scripts.py
-msgid "Optimize Helpers"
-msgstr "Optimalizálási segédek"
-
-#: plugin/scripting/document_scripts.py
-msgid "Forecast Helpers"
-msgstr "Előrejelzési segédek"
-
-#: plugin/scripting/document_scripts.py
-msgid "SQL Helpers"
-msgstr "SQL-segédek"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1495,7 +1463,8 @@ msgstr "Nem sikerült kommunikálni a Python-szerkesztővel."
 #: plugin/scripting/venv_diagnostics.py
 msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
 msgstr ""
-"Linuxon telepítse a rendszer PortAudio csomagját is: sudo pacman -S portaudio"
+"Linuxon telepítse a rendszer PortAudio csomagját is: sudo pacman -S "
+"portaudio"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
@@ -1520,7 +1489,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "A szöveg/NLP-vizsgálat sikertelen (lásd: writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "A vizuális szonda időtúllépést jelzett (a Docling importálása az első "
 "ellenőrzéskor 10–30 másodpercet is igénybe vehet)."
@@ -1613,7 +1583,8 @@ msgstr "Vision Libraries: betöltés (az első futtatás eltarthat egy ideig)...
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
-"Vektorkeresési könyvtárak: betöltés (az első futtatás eltarthat egy ideig)..."
+"Vektorkeresési könyvtárak: betöltés (az első futtatás eltarthat egy "
+"ideig)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -1637,7 +1608,8 @@ msgstr "A szövegelemzési párbeszédablak nem tölthető be."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "A spaCy / textdescriptives / transformers telepítésének ellenőrzése..."
+msgstr ""
+"A spaCy / textdescriptives / transformers telepítésének ellenőrzése..."
 
 #: plugin/scripting/text_analytics_ui.py
 #, python-brace-format
@@ -1645,8 +1617,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1654,25 +1625,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Hiba a szövegelemzési munkafolyamatból:\n"
 "{err}\n"
 "\n"
-"Az ebben a párbeszédablakban található funkciókhoz a használt Pythonban az "
-"alábbi csomagok szükségesek:\n"
-"  • spacy + modell          (entitások, kulcskifejezések, alapvető "
-"statisztikák)\n"
+"Az ebben a párbeszédablakban található funkciókhoz a használt Pythonban az alábbi csomagok szükségesek:\n"
+"  • spacy + modell          (entitások, kulcskifejezések, alapvető statisztikák)\n"
 "  • textdescriptives         (valós olvashatósági pontszámok)\n"
 "  • transformers + torch     (hangulatelemzés többnyelvű modellel)\n"
 "\n"
 "Telepítse őket ezzel:\n"
 "  {install}\n"
 "\n"
-"A munkafolyamat szerint a modul hiányzik. Ellenőrizze, hogy a csomagok "
-"pontosan abban a Python-futtatható állományban vannak-e telepítve, amelyet a "
-"munkafolyamat a konfigurált virtuális környezethez feloldott."
+"A munkafolyamat szerint a modul hiányzik. Ellenőrizze, hogy a csomagok pontosan abban a Python-futtatható állományban vannak-e telepítve, amelyet a munkafolyamat a konfigurált virtuális környezethez feloldott."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1691,16 +1657,11 @@ msgstr "Elemzés..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Hiba: %s\n"
 "\n"
-"A konfigurált virtuális környezetből (Beállítások → Python) hiányozhatnak a "
-"szükséges csomagok. Kattintson a „Venv ellenőrzése” gombra ebben a "
-"párbeszédablakban, vagy használja a teljes tesztet a Beállítások → Python "
-"menüpontban a spacy, textdescriptives, transformers, torch stb. részleteiért."
+"A konfigurált virtuális környezetből (Beállítások → Python) hiányozhatnak a szükséges csomagok. Kattintson a „Venv ellenőrzése” gombra ebben a párbeszédablakban, vagy használja a teljes tesztet a Beállítások → Python menüpontban a spacy, textdescriptives, transformers, torch stb. részleteiért."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1748,13 +1709,188 @@ msgstr "Nem támogatott dokumentumtípus a szimbolikus beszúráshoz."
 msgid "Unsupported document type for plot insertion."
 msgstr "Nem támogatott dokumentumtípus diagram beszúrásához."
 
-#: plugin/scripting/viz.py plugin/scripting/python_runner.py
+#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
 msgid "Viz helper failed."
 msgstr "A vizualizációs segéd sikertelen."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "A vizualizációs segéd nem adott vissza képi adatot."
+
+#: plugin/scripting/domain_registry.py
+msgid "Unsupported document type."
+msgstr "Nem támogatott dokumentumtípus."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"A segédprogramhoz adattartomány szükséges. Jelöljön ki cellákat, vagy adjon "
+"meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"A mennyiségi segédeszközhöz adattartomány szükséges. Jelöljön ki cellákat, "
+"vagy adjon meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/domain_registry.py
+msgid "Helper failed."
+msgstr "A segédprogram sikertelen."
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"A(z) „{helper}” látványelemzés befejeződött. HTML beszúrva ({blocks} blokk, "
+"{tables} táblázat). ({time} idő alatt)"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr ""
+"A(z) „{helper}” látványelemzés befejeződött. Formázott HTML beszúrva. "
+"({time} idő alatt)"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "{domain} „{helper}” befejeződött. {rows} sor írva. ({time} idő alatt)"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} „{helper}” befejeződött. ({time} idő alatt)"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "A látássegítők használatához Writer vagy Calc dokumentum szükséges."
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helper failed."
+msgstr "A látássegítő sikertelen."
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr ""
+"A vizualizációs segédeszközök használatához Writer- vagy Calc-dokumentum "
+"szükséges."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"A vizualizációs segédeszközhöz adattartomány szükséges. Jelöljön ki "
+"cellákat, vagy adjon meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr ""
+"A matematikai segédeszközök használatához Writer- vagy Calc-dokumentum "
+"szükséges."
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helper failed."
+msgstr "A matematikai segédeszköz hibát jelzett."
+
+#: plugin/scripting/domain_registry.py
+msgid "Units helpers require a Writer or Calc document."
+msgstr "Az egységsegítők Writer vagy Calc dokumentumot igényelnek."
+
+#: plugin/scripting/domain_registry.py plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Az egységsegítő (Units helper) sikertelen."
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helpers require a Writer document."
+msgstr ""
+"A szövegelemzési segédeszközök használatához Writer-dokumentum szükséges."
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helper failed."
+msgstr "A szövegelemzési segédeszköz sikertelen."
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant failed."
+msgstr "A mennyiségi segédeszköz hibát jelzett."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Az optimalizációs segédprogramhoz adat tartomány szükséges. Jelöljön ki "
+"cellákat, vagy adjon meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimization failed."
+msgstr "Az optimalizálás sikertelen."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Az előrejelzési segédhez adattartomány szükséges. Jelöljön ki cellákat, vagy"
+" adjon meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast failed."
+msgstr "Az előrejelzés sikertelen."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Az elemzési segédhez adattartomány szükséges. Jelöljön ki cellákat, vagy "
+"adjon meg egy tartományt az Adat mezőben."
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis failed."
+msgstr "Az elemzés sikertelen."
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Elemzési segédek"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL-segédek"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Látássegédek"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Vizualizációs segédek"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Matematikai segédek"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Mértékegység-segédek"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Mennyiségi segédek"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Optimalizálási segédek"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Előrejelzési segédek"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1828,10 +1964,6 @@ msgstr ""
 "Használja az Eszközök → Jupyter Notebook importálása… menüpontot a notebook "
 "Python-munkamenetének alaphelyzetbe állításához."
 
-#: plugin/scripting/units.py plugin/scripting/python_runner.py
-msgid "Units helper failed."
-msgstr "Az egységsegítő (Units helper) sikertelen."
-
 #: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Az egységsegítő nem adott vissza formázott szöveget."
@@ -1839,6 +1971,34 @@ msgstr "Az egységsegítő nem adott vissza formázott szöveget."
 #: plugin/scripting/units.py
 msgid "Unsupported document type for units insertion."
 msgstr "Nem támogatott dokumentumtípus az egységek beszúrásához."
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Az eredmény beszúrása sikertelen: {error} ({time} alatt)"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Diagram beszúrva ({title}). (időtartam: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "A(z) „{helper}” vizualizáció befejeződött. {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+"A(z) „{helper}” matematikai művelet befejeződött. Beszúrva: {preview} "
+"({time} idő alatt)"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+"'{helper}' egységek befejeződött. Beszúrva: {preview} ({time} idő alatt)"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1857,178 +2017,9 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "Diagram beszúrva ({title}). (időtartam: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "A(z) „{helper}” vizualizáció befejeződött. {msg}"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-"A(z) „{helper}” matematikai művelet befejeződött. Beszúrva: {preview} "
-"({time} idő alatt)"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-"'{helper}' egységek befejeződött. Beszúrva: {preview} ({time} idő alatt)"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "A látássegítők használatához Writer vagy Calc dokumentum szükséges."
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "A látássegítő sikertelen."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Az eredmény beszúrása sikertelen: {error} ({time} alatt)"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"A(z) „{helper}” látványelemzés befejeződött. HTML beszúrva ({blocks} blokk, "
-"{tables} táblázat). ({time} idő alatt)"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr ""
-"A(z) „{helper}” látványelemzés befejeződött. Formázott HTML beszúrva. "
-"({time} idő alatt)"
-
-#: plugin/scripting/python_runner.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr ""
-"A vizualizációs segédeszközök használatához Writer- vagy Calc-dokumentum "
-"szükséges."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"A vizualizációs segédeszközhöz adattartomány szükséges. Jelöljön ki "
-"cellákat, vagy adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/python_runner.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr ""
-"A matematikai segédeszközök használatához Writer- vagy Calc-dokumentum "
-"szükséges."
-
-#: plugin/scripting/python_runner.py
-msgid "Math helper failed."
-msgstr "A matematikai segédeszköz hibát jelzett."
-
-#: plugin/scripting/python_runner.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Az egységsegítők Writer vagy Calc dokumentumot igényelnek."
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helpers require a Writer document."
-msgstr ""
-"A szövegelemzési segédeszközök használatához Writer-dokumentum szükséges."
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helper failed."
-msgstr "A szövegelemzési segédeszköz sikertelen."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Text analytics '{helper}' completed. (took {time})"
-msgstr "A(z) „{helper}” szövegelemzés befejeződött. (időtartam: {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"A mennyiségi segédeszközhöz adattartomány szükséges. Jelöljön ki cellákat, "
-"vagy adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/python_runner.py
-msgid "Quant failed."
-msgstr "A mennyiségi segédeszköz hibát jelzett."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"A(z) „{helper}” mennyiségi művelet befejeződött. {rows} sor írva. ({time} "
-"idő alatt)"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Az optimalizációs segédprogramhoz adat tartomány szükséges. Jelöljön ki "
-"cellákat, vagy adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/python_runner.py
-msgid "Optimization failed."
-msgstr "Az optimalizálás sikertelen."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"A(z) „{helper}” optimalizálása befejeződött. {rows} sor írva. ({time} idő "
-"alatt)"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Az előrejelzési segédhez adattartomány szükséges. Jelöljön ki cellákat, vagy "
-"adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/python_runner.py
-msgid "Forecast failed."
-msgstr "Az előrejelzés sikertelen."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"A(z) „{helper}” előrejelzés befejeződött. {rows} sor írva. (időtartam: "
-"{time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Az elemzési segédhez adattartomány szükséges. Jelöljön ki cellákat, vagy "
-"adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/python_runner.py
-msgid "Analysis failed."
-msgstr "Az elemzés sikertelen."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"A(z) „{helper}” elemzés befejeződött. {rows} sor kiírva. ({time} idő alatt)"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "A szkript sikeresen lefutott, de nem adott vissza eredményt és nem generált "
 "kimenetet. ({time} alatt)"
@@ -2087,6 +2078,27 @@ msgstr "Az OCR kész."
 #: plugin/vision/vision_tools.py
 msgid "OCR complete (text returned only; not inserted)."
 msgstr "Az OCR kész (csak szöveg visszaadva; nincs beillesztve)."
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "Nem sikerült feloldani a kép horgonyát a beszúráshoz."
+
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr "Nem sikerült a beszúrást a kép után pozicionálni: %s"
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "A Writer-dokumentumnak nincs vezérlője."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr "A kép el lett távolítva az OCR-beszúrás előkészítése közben."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "A kép el lett távolítva az OCR-beszúrás során."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2335,8 +2347,7 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális "
-"környezetben.\n"
+"Adja meg a végrehajtandó Python-kódot a felhasználói virtuális környezetben.\n"
 "A végeredményt rendelje a „result” változóhoz."
 
 #: plugin/xdl_strings.py
@@ -2570,11 +2581,11 @@ msgid "Path / URL"
 msgstr "Útvonal / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Útvonal a háttér CLI-hez (pl. aider) vagy ACP szerver URL (pl. http://"
-"localhost:8000 a Hermeshez). Üres = alapértelmezett próbálkozás."
+"Útvonal a háttér CLI-hez (pl. aider) vagy ACP szerver URL (pl. "
+"http://localhost:8000 a Hermeshez). Üres = alapértelmezett próbálkozás."
 
 msgid "Extra arguments"
 msgstr "Extra argumentumok"
@@ -2634,8 +2645,8 @@ msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
 "database)."
 msgstr ""
-"Befejezett webes kutatási jelentések gyorsítótárazása normalizált lekérdezés "
-"alapján (webes gyorsítótár-adatbázist használ)."
+"Befejezett webes kutatási jelentések gyorsítótárazása normalizált lekérdezés"
+" alapján (webes gyorsítótár-adatbázist használ)."
 
 msgid "Prompt for Web Research"
 msgstr "Webes kutatás kérése"
@@ -2690,16 +2701,16 @@ msgstr "Humanizáló készség (természetes próza)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Ha engedélyezve van, útmutatást szúr be a rendszerszintű utasításba, hogy a "
 "modell által generált vagy módosított dokumentumszöveg természetesebb és "
 "emberibb hangzású legyen (eltávolítja az AI-ra jellemző sablonos mintákat). "
-"A szabályokat a LibreOffice-profiljában szerkesztheti a writeragent/skills/"
-"humanizer/SKILL.md fájlban (a fájl az első használatkor automatikusan "
-"létrejön). Egy külön Készségek lap később hozzáadható."
+"A szabályokat a LibreOffice-profiljában szerkesztheti a "
+"writeragent/skills/humanizer/SKILL.md fájlban (a fájl az első használatkor "
+"automatikusan létrejön). Egy külön Készségek lap később hozzáadható."
 
 msgid "Silence before send (ms)"
 msgstr "Csend küldés előtt (ms)"
@@ -2780,8 +2791,8 @@ msgid ""
 "requests; use with care alongside sidebar chat."
 msgstr ""
 "Maximális egyidejű háttérbeli nyelvtani API-hívások száma (1-8). Az 1 "
-"megfelel a korábbi viselkedésnek. Növelje az OpenRouter vagy más, párhuzamos "
-"kéréseket engedélyező szolgáltatók esetén; használja körültekintően az "
+"megfelel a korábbi viselkedésnek. Növelje az OpenRouter vagy más, párhuzamos"
+" kéréseket engedélyező szolgáltatók esetén; használja körültekintően az "
 "oldalsávos csevegés mellett."
 
 msgid "Sentence language detection"
@@ -2881,8 +2892,8 @@ msgid "Rerank model"
 msgstr "Újrarangsoroló modell"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Csak akkor használatos, ha az újrarangsorolás engedélyezve van. Az angol "
 "MiniLM gyors; a bge-reranker-v2-m3 többnyelvű és kb. 2,3 GB-ot tölt le."
@@ -2903,8 +2914,8 @@ msgid "Enable MCP Server"
 msgstr "MCP-kiszolgáló engedélyezése"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
 "Csak localhost, nincs hitelesítés. A kliensek a http://localhost:<port>/mcp "
 "címet használják (streamelhető HTTP)."
@@ -2927,8 +2938,8 @@ msgstr ""
 "delegált átjárón keresztül érhető el (a jelenlegi viselkedés); "
 "direct_flat=az összes MCP-n keresztül elérhető speciális eszköz közvetlen "
 "listázása, az oldalsáv-specifikus folyamatok kivételével (a saját "
-"eszközkeresővel rendelkező kliensek számára a legjobb); direct_discovery=egy "
-"kis alaplista és a find_tools használata (tartománykatalógus, majd "
+"eszközkeresővel rendelkező kliensek számára a legjobb); direct_discovery=egy"
+" kis alaplista és a find_tools használata (tartománykatalógus, majd "
 "tartományonkénti eszközkémák; minden kliens számára a legjobb)."
 
 msgid "Delegate (default)"
@@ -2952,10 +2963,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ha be van állítva, az eszközöket az adott venv-ben futtatja (bin/python vagy "
-"Scripts/python.exe). Ha üres, a run_venv_python_script az aktuális folyamat "
-"sys.executable-jét használja (alapvető stdlib); használjon venv-et a numpy/"
-"pandas és a Vision Helpers (paddleocr, paddlepaddle) számára."
+"Ha be van állítva, az eszközöket az adott venv-ben futtatja (bin/python vagy"
+" Scripts/python.exe). Ha üres, a run_venv_python_script az aktuális folyamat"
+" sys.executable-jét használja (alapvető stdlib); használjon venv-et a "
+"numpy/pandas és a Vision Helpers (paddleocr, paddlepaddle) számára."
 
 msgid "Test"
 msgstr "Teszt"
@@ -2977,8 +2988,8 @@ msgid "Max Calc data cells"
 msgstr "Maximális Calc-adatcellák"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "A =PYTHON() adatok vagy a Run Python Script data/data_range maximális "
 "cellaszáma. A nagyobb értékek több RAM-ot és időt igényelnek; az UNO-"
@@ -2991,8 +3002,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"Elszigetelt: minden =PYTHON() cella külön névtérrel rendelkezik. Megosztott: "
-"munkafüzetenként egy névtér (a változók átvihetők a cellák között)."
+"Elszigetelt: minden =PYTHON() cella külön névtérrel rendelkezik. Megosztott:"
+" munkafüzetenként egy névtér (a változók átvihetők a cellák között)."
 
 msgid "Isolated (default)"
 msgstr "Elszigetelt (alapértelmezett)"
@@ -3014,9 +3025,9 @@ msgid "Convert Date/Time and Timedelta Strings"
 msgstr "Dátum/idő és időtartam karakterláncok konvertálása"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to datetime/"
-"timedelta objects when sending data to the Python worker. Requires the "
-"'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to "
+"datetime/timedelta objects when sending data to the Python worker. Requires "
+"the 'pandas' and 'dateparser' packages in your venv."
 msgstr ""
 "Dátum/idő és időtartam karakterláncok automatikus észlelése és konvertálása "
 "datetime/timedelta objektumokká az adatok Python-feldolgozónak való "
@@ -3027,17 +3038,17 @@ msgid "PPT-Master data path"
 msgstr "PPT-Master adatútvonal"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point here at "
-"the clone root (.../ppt-master) or the inner skill dir (.../ppt-master/"
-"skills/ppt-master). Leave empty to auto-detect (dev clone beside repo, then "
-"env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"A ppt-master készségfa elérési útja (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Klónozza a https://github.com/hugohe3/ppt-master címet, és "
-"mutasson a klón gyökerére (.../ppt-master) vagy a belső készségkönyvtárra "
-"(.../ppt-master/skills/ppt-master). Hagyja üresen az automatikus észleléshez "
-"(fejlesztői klón a tárhely mellett, majd környezet)."
+"A ppt-master készségfa elérési útja (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Klónozza a https://github.com/hugohe3/ppt-master "
+"címet, és mutasson a klón gyökerére (.../ppt-master) vagy a belső "
+"készségkönyvtárra (.../ppt-master/skills/ppt-master). Hagyja üresen az "
+"automatikus észleléshez (fejlesztői klón a tárhely mellett, majd környezet)."
 
 msgid "Vision / OCR"
 msgstr "Látásmód / OCR"

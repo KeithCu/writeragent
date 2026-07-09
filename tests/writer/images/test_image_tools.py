@@ -119,16 +119,22 @@ class TestWriterImageCursorConversion(unittest.TestCase):
         image_instance.setPropertyValue.assert_any_call("Height", 20)
 
     def test_dispatch_insert_linked_graphic_passes_as_link(self):
+        from plugin.doc import visual_helpers
+
         ctx = MagicMock()
         model = MagicMock()
         frame = MagicMock()
-        model.getCurrentController.return_value.getFrame.return_value = frame
+        controller = MagicMock()
+        controller.getFrame.return_value = frame
+        selection = MagicMock()
+        selection.getCount.return_value = 1
+        inserted = MagicMock()
+        selection.getByIndex.return_value = inserted
+        controller.getSelection.return_value = selection
+        model.getCurrentController.return_value = controller
         dispatcher = MagicMock()
         ctx.ServiceManager.createInstanceWithContext.return_value = dispatcher
-        inserted = MagicMock()
-        model.CurrentController.Selection.getCount.return_value = 1
-        model.CurrentController.Selection.getByIndex.return_value = inserted
-        inserted.supportsService.return_value = True
+        inserted.supportsService.side_effect = lambda svc: svc == visual_helpers.WRITER_GRAPHIC_SERVICE
 
         result = image_tools._dispatch_insert_linked_graphic(ctx, model, "file:///home/user/photo.png")
 

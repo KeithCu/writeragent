@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 11:42-0400\n"
+"POT-Creation-Date: 2026-07-09 19:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -26,8 +26,8 @@ msgstr "Kör lokal OCR på vald bild..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Dokumentforskning kräver specialiserad uppgiftsdelegering (USE_SUB_AGENT). "
 "Aktivera detta i konfigurationen."
@@ -35,8 +35,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Verktygsanrop har växlats till '{0}'. Du befinner dig i ett läge för "
@@ -53,8 +53,8 @@ msgstr "Notebook-körning stöds endast i LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Detta dokument har ingen importerad notebook. Använd Verktyg → Importera "
 "Jupyter Notebook… först."
@@ -246,7 +246,8 @@ msgstr ""
 "Inställningar."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "Anslutning nekad. Är din lokala AI-server (Ollama/LM Studio) igång?"
 
 #: plugin/framework/errors.py
@@ -281,7 +282,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Jag kan hjälpa dig med formler, dataanalys och färgglada diagram. Prova "
 "mig!"
@@ -314,9 +316,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Låt oss utforska och utforma din idé tillsammans. Jag ställer frågor, "
 "föreslår metoder och hjälper dig att skapa en godkänd specifikation i ditt "
@@ -325,7 +327,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Låt oss utforma ditt dokument sektion för sektion. Jag hjälper dig att "
 "skapa en disposition för skrivplanen och sedan genomföra den stegvis med "
@@ -352,8 +355,8 @@ msgid ""
 "https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
 msgstr ""
 " Om din API-nyckel kommer från en GLM Coding Plan-prenumeration, ställ in "
-"slutpunkten till https://api.z.ai/api/coding/paas/v4 (inte den allmänna /api/"
-"paas-URL:en)."
+"slutpunkten till https://api.z.ai/api/coding/paas/v4 (inte den allmänna "
+"/api/paas-URL:en)."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -400,7 +403,8 @@ msgstr "Vänligen ställ in modell i Inställningar."
 
 #: plugin/framework/config.py
 msgid "Please select a valid model in Settings (not a placeholder)."
-msgstr "Vänligen välj en giltig modell i Inställningar (inte en platshållare)."
+msgstr ""
+"Vänligen välj en giltig modell i Inställningar (inte en platshållare)."
 
 #: plugin/calc/python/editor_context_menu.py plugin/main.py
 msgid "Edit Python in Cell..."
@@ -413,8 +417,8 @@ msgid ""
 "A1:B10) or =PYTHON(...)."
 msgstr ""
 "Kunde inte bevara cellens PYTHON-formelargument (t.ex. dataområden). "
-"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"code\"; "
-"A1:B10) eller =PYTHON(...)."
+"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"code\";"
+" A1:B10) eller =PYTHON(...)."
 
 #: plugin/calc/python/editor.py
 msgid "Python cell editor"
@@ -454,15 +458,13 @@ msgstr "Ingen Python-tolk tillgänglig för redigeraren."
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → "
-"Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Det går inte att importera webview (pywebview) eller rocher med Python från "
-"Inställningar → Python:\n"
+"Det går inte att importera webview (pywebview) eller rocher med Python från Inställningar → Python:\n"
 "%(exe)s\n"
 "\n"
 "Kör följande i den virtuella miljön (venv): uv pip install pywebview rocher\n"
@@ -489,6 +491,7 @@ msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Utöka markering (Calc)"
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Markera en inbäddad bild och kör sedan igen."
 
@@ -952,8 +955,8 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i "
-"det aktiva fönstret.]"
+"[Inget kompatibelt LibreOffice-dokument (Writer, Calc eller Draw) hittades i"
+" det aktiva fönstret.]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
@@ -984,8 +987,8 @@ msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"Forskningscache-träff (fuzzy, %(pct)s%% matchning: %(lang_bit)s%(cache_key)s "
-"→ %(matched)s)"
+"Forskningscache-träff (fuzzy, %(pct)s%% matchning: %(lang_bit)s%(cache_key)s"
+" → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1042,8 +1045,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). "
-"Sökväg:\n"
+"Ingen editor hittades (installera Kate eller Gedit, eller sätt EDITOR). Sökväg:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1080,10 +1082,11 @@ msgstr "[Agent-backend '{0}' hittades inte.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
-"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg, "
-"installation).]"
+"[Agent-backend '{0}' är inte tillgänglig. Kontrollera Inställningar (sökväg,"
+" installation).]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1186,8 +1189,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare "
-"för att söka efter uppdateringar och installera det senaste tillägget."
+"En nyare WriterAgent (%s) är tillgänglig. Använd Verktyg → Tilläggshanterare"
+" för att söka efter uppdateringar och installera det senaste tillägget."
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -1282,42 +1285,6 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Ett skript med namnet '{0}' finns redan i detta dokument."
 
 #: plugin/scripting/document_scripts.py
-msgid "Analysis Helpers"
-msgstr "Analyshjälpmedel"
-
-#: plugin/scripting/document_scripts.py
-msgid "Vision Helpers"
-msgstr "Vision-hjälpmedel"
-
-#: plugin/scripting/document_scripts.py
-msgid "Viz Helpers"
-msgstr "Visualiseringshjälpmedel"
-
-#: plugin/scripting/document_scripts.py
-msgid "Math Helpers"
-msgstr "Matematikhjälpmedel"
-
-#: plugin/scripting/document_scripts.py
-msgid "Units Helpers"
-msgstr "Enhetshjälpare"
-
-#: plugin/scripting/document_scripts.py
-msgid "Quant Helpers"
-msgstr "Kvantitativa hjälpmedel"
-
-#: plugin/scripting/document_scripts.py
-msgid "Optimize Helpers"
-msgstr "Optimeringshjälpmedel"
-
-#: plugin/scripting/document_scripts.py
-msgid "Forecast Helpers"
-msgstr "Prognoshjälpmedel"
-
-#: plugin/scripting/document_scripts.py
-msgid "SQL Helpers"
-msgstr "SQL-hjälpmedel"
-
-#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr "Mina skript"
 
@@ -1355,7 +1322,8 @@ msgstr "Bifoga till dokument"
 #: plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
+msgstr ""
+"Ett skript med namnet ”{0}” finns redan i detta dokument. Skriva över?"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
@@ -1478,13 +1446,14 @@ msgstr "Kunde inte kommunicera med Python-redigeraren."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr "Installera även systemets PortAudio på Linux: sudo pacman -S portaudio"
+msgstr ""
+"Installera även systemets PortAudio på Linux: sudo pacman -S portaudio"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
 msgstr ""
-"Ljudtestet tog för lång tid (import av sounddevice misslyckades eller hängde "
-"sig)."
+"Ljudtestet tog för lång tid (import av sounddevice misslyckades eller hängde"
+" sig)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe failed (see writeragent_debug.log)."
@@ -1503,7 +1472,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Text/NLP-sökning misslyckades (se writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vision-sökningen tog för lång tid (Docling-import kan ta 10–30 sekunder vid "
 "första kontrollen)."
@@ -1627,8 +1597,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1636,25 +1605,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Fel från textanalys-arbetaren:\n"
 "{err}\n"
 "\n"
-"Funktionerna i denna dialogruta kräver att följande paket finns i den Python-"
-"miljö som används:\n"
-"  • spacy + en modell          (entiteter, nyckelfraser, grundläggande "
-"statistik)\n"
+"Funktionerna i denna dialogruta kräver att följande paket finns i den Python-miljö som används:\n"
+"  • spacy + en modell          (entiteter, nyckelfraser, grundläggande statistik)\n"
 "  • textdescriptives         (faktiska läsbarhetsindex)\n"
 "  • transformers + torch     (sentimentanalys med flerspråkig modell)\n"
 "\n"
 "Installera dem med:\n"
 "  {install}\n"
 "\n"
-"Arbetaren rapporterade att modulen saknas. Kontrollera att paketen är "
-"installerade i den exakta Python-körfil som arbetaren har valt för din "
-"konfigurerade venv."
+"Arbetaren rapporterade att modulen saknas. Kontrollera att paketen är installerade i den exakta Python-körfil som arbetaren har valt för din konfigurerade venv."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1673,16 +1637,11 @@ msgstr "Analyserar..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Fel: %s\n"
 "\n"
-"Nödvändiga paket kan saknas i din konfigurerade venv (Inställningar → "
-"Python). Klicka på Kontrollera Venv i denna dialog eller använd det "
-"fullständiga testet i Inställningar → Python för detaljer om spacy, "
-"textdescriptives, transformers, torch etc."
+"Nödvändiga paket kan saknas i din konfigurerade venv (Inställningar → Python). Klicka på Kontrollera Venv i denna dialog eller använd det fullständiga testet i Inställningar → Python för detaljer om spacy, textdescriptives, transformers, torch etc."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1730,13 +1689,181 @@ msgstr "Dokumenttypen stöds inte för symbolisk infogning."
 msgid "Unsupported document type for plot insertion."
 msgstr "Dokumenttypen stöds inte för infogning av diagram."
 
-#: plugin/scripting/viz.py plugin/scripting/python_runner.py
+#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
 msgid "Viz helper failed."
 msgstr "Visualiseringshjälpmedlet misslyckades."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Visualiseringshjälpmedlet returnerade ingen bilddata."
+
+#: plugin/scripting/domain_registry.py
+msgid "Unsupported document type."
+msgstr "Dokumenttypen stöds inte."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Hjälpfunktionen kräver ett dataområde. Markera celler eller ange ett område "
+"i datafältet."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Quant-hjälpare kräver ett dataområde. Markera celler eller ange ett område i"
+" datafältet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Helper failed."
+msgstr "Hjälpfunktionen misslyckades."
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"Vision ”{helper}” slutförd. Infogad HTML ({blocks} block, {tables} "
+"tabeller). (tog {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision ”{helper}” slutförd. Infogad formaterad HTML. (tog {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "{domain} ”{helper}” slutförd. Skrev {rows} rader. (tog {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} ”{helper}” slutförd. (tog {time})"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Vision-hjälpmedel kräver ett Writer- eller Calc-dokument."
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helper failed."
+msgstr "Vision-hjälpmedel misslyckades."
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz-hjälpare kräver ett Writer- eller Calc-dokument."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Viz-hjälpare kräver ett dataområde. Markera celler eller ange ett område i "
+"datafältet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math-hjälpare kräver ett Writer- eller Calc-dokument."
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helper failed."
+msgstr "Math-hjälpare misslyckades."
+
+#: plugin/scripting/domain_registry.py
+msgid "Units helpers require a Writer or Calc document."
+msgstr "Enhetshjälpare kräver ett Writer- eller Calc-dokument."
+
+#: plugin/scripting/domain_registry.py plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Enhetshjälpen misslyckades."
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Hjälpmedel för textanalys kräver ett Writer-dokument."
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helper failed."
+msgstr "Hjälpmedel för textanalys misslyckades."
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant failed."
+msgstr "Quant misslyckades."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Optimeringshjälpen kräver ett dataområde. Markera celler eller ange ett "
+"område i datafältet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimization failed."
+msgstr "Optimering misslyckades."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Prognosverktyget kräver ett dataområde. Markera celler eller ange ett område"
+" i datafältet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast failed."
+msgstr "Prognosen misslyckades."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Analyshjälpmedlet kräver ett dataområde. Markera celler eller ange ett "
+"område i datafältet."
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis failed."
+msgstr "Analys misslyckades."
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Analyshjälpmedel"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL-hjälpmedel"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Vision-hjälpmedel"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Visualiseringshjälpmedel"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Matematikhjälpmedel"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Enhetshjälpare"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Kvantitativa hjälpmedel"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Optimeringshjälpmedel"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Prognoshjälpmedel"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1772,8 +1899,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok "
-"och försök igen."
+"Återställ Python-session gäller för Calc-kalkylblad. Öppna en Calc-arbetsbok"
+" och försök igen."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1803,13 +1930,9 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg "
-"→ Importera Jupyter Notebook… för att aktivera återställning av Python-"
+"Detta Writer-dokument har inget importerat notebook-register. Använd Verktyg"
+" → Importera Jupyter Notebook… för att aktivera återställning av Python-"
 "session för notebook."
-
-#: plugin/scripting/units.py plugin/scripting/python_runner.py
-msgid "Units helper failed."
-msgstr "Enhetshjälpen misslyckades."
 
 #: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
@@ -1818,6 +1941,31 @@ msgstr "Enhetshjälpen returnerade ingen formaterad text."
 #: plugin/scripting/units.py
 msgid "Unsupported document type for units insertion."
 msgstr "Dokumenttypen stöds inte för infogning av enheter."
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Det gick inte att infoga resultatet: {error} (tog {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Diagram infogat ({title}). (tog {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz ”{helper}” slutförd. {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math ”{helper}” slutförd. Infogat: {preview} (tog {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Enheter '{helper}' slutförda. Infogat: {preview} (tog {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1834,161 +1982,9 @@ msgstr "Resultatinfogning i Draw/Impress stöds ännu inte. PR:s välkomnas!"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "Diagram infogat ({title}). (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "Viz ”{helper}” slutförd. {msg}"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math ”{helper}” slutförd. Infogat: {preview} (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Enheter '{helper}' slutförda. Infogat: {preview} (tog {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Vision-hjälpmedel kräver ett Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "Vision-hjälpmedel misslyckades."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Det gick inte att infoga resultatet: {error} (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"Vision ”{helper}” slutförd. Infogad HTML ({blocks} block, {tables} "
-"tabeller). (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision ”{helper}” slutförd. Infogad formaterad HTML. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz-hjälpare kräver ett Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz-hjälpare kräver ett dataområde. Markera celler eller ange ett område i "
-"datafältet."
-
-#: plugin/scripting/python_runner.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math-hjälpare kräver ett Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Math helper failed."
-msgstr "Math-hjälpare misslyckades."
-
-#: plugin/scripting/python_runner.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Enhetshjälpare kräver ett Writer- eller Calc-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Hjälpmedel för textanalys kräver ett Writer-dokument."
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helper failed."
-msgstr "Hjälpmedel för textanalys misslyckades."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Text analytics '{helper}' completed. (took {time})"
-msgstr "Textanalys '{helper}' slutförd. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant-hjälpare kräver ett dataområde. Markera celler eller ange ett område i "
-"datafältet."
-
-#: plugin/scripting/python_runner.py
-msgid "Quant failed."
-msgstr "Quant misslyckades."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Kvantitet '{helper}' slutförd. Skrev {rows} rader. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Optimeringshjälpen kräver ett dataområde. Markera celler eller ange ett "
-"område i datafältet."
-
-#: plugin/scripting/python_runner.py
-msgid "Optimization failed."
-msgstr "Optimering misslyckades."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Optimering av '{helper}' slutförd. Skrev {rows} rader. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Prognosverktyget kräver ett dataområde. Markera celler eller ange ett område "
-"i datafältet."
-
-#: plugin/scripting/python_runner.py
-msgid "Forecast failed."
-msgstr "Prognosen misslyckades."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Prognosen ”{helper}” slutförd. Skrev {rows} rader. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Analyshjälpmedlet kräver ett dataområde. Markera celler eller ange ett "
-"område i datafältet."
-
-#: plugin/scripting/python_runner.py
-msgid "Analysis failed."
-msgstr "Analys misslyckades."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Analys '{helper}' slutförd. Skrev {rows} rader. (tog {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Skriptet kördes utan problem, men returnerade inget resultat och gav ingen "
 "utdata. (tog {time})"
@@ -2044,6 +2040,27 @@ msgstr "OCR slutförd."
 #: plugin/vision/vision_tools.py
 msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR slutförd (endast text returnerad; ej infogad)."
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "Kunde inte lösa bildankaret för infogning."
+
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr "Kunde inte placera infogningen efter bilden: %s"
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "Writer-dokumentet saknar en kontroller."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr "Bilden togs bort under förberedelse av OCR-infogning."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "Bilden togs bort under OCR-infogning."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2525,11 +2542,11 @@ msgid "Path / URL"
 msgstr "Sökväg / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. http://"
-"localhost:8000 för Hermes). Tom = prova standard."
+"Sökväg till backend CLI (t.ex. aider) eller ACP-serverns URL (t.ex. "
+"http://localhost:8000 för Hermes). Tom = prova standard."
 
 msgid "Extra arguments"
 msgstr "Extra argument"
@@ -2642,15 +2659,16 @@ msgstr "Humaniseringsfärdighet (naturlig prosa)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "När aktiverad injiceras vägledning i systemprompten så att modellen får "
 "genererad eller reviderad dokumenttext att låta mer naturlig och mänsklig "
 "(tar bort AI-typiska mönster). Redigera reglerna i din LibreOffice-profil "
 "under writeragent/skills/humanizer/SKILL.md (filen skapas automatiskt vid "
-"första användning). En dedikerad flik för färdigheter kan läggas till senare."
+"första användning). En dedikerad flik för färdigheter kan läggas till "
+"senare."
 
 msgid "Silence before send (ms)"
 msgstr "Tystnad före sändning (ms)"
@@ -2742,8 +2760,8 @@ msgid ""
 msgstr ""
 "Verifiera varje fullständig menings språk mot dokumentets språkinställning. "
 "AI använder ditt grammatik-/chatt-API; Lokalt använder langdetect i din "
-"Python-venv (Inställningar → Python; inget API-anrop). Felaktiga matchningar "
-"uppdaterar CharLocale och kontrollerar grammatiken på nytt."
+"Python-venv (Inställningar → Python; inget API-anrop). Felaktiga matchningar"
+" uppdaterar CharLocale och kontrollerar grammatiken på nytt."
 
 msgid "Local (langdetect)"
 msgstr "Lokalt (langdetect)"
@@ -2767,9 +2785,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Av = direktredigering. Spela in = spårade ändringar som du själv accepterar/"
-"avvisar. Vänta = apply_document_content blockeras (i chatt/MCP-arbetstråd) "
-"tills du granskar."
+"Av = direktredigering. Spela in = spårade ändringar som du själv "
+"accepterar/avvisar. Vänta = apply_document_content blockeras (i chatt/MCP-"
+"arbetstråd) tills du granskar."
 
 msgid "Record (track changes)"
 msgstr "Spela in (spåra ändringar)"
@@ -2810,8 +2828,8 @@ msgstr "Inbäddningsmodell"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"HuggingFace-modell-ID för lokal leverantör, eller slutpunktsspecifikt modell-"
-"ID"
+"HuggingFace-modell-ID för lokal leverantör, eller slutpunktsspecifikt "
+"modell-ID"
 
 msgid "Enable cross-file rerank"
 msgstr "Aktivera omrankning mellan filer"
@@ -2827,8 +2845,8 @@ msgid "Rerank model"
 msgstr "Omrankningsmodell"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Används endast när omrankning är aktiverat. Engelska MiniLM är snabb; bge-"
 "reranker-v2-m3 är flerspråkig och laddar ner ca 2,3 GB."
@@ -2849,11 +2867,11 @@ msgid "Enable MCP Server"
 msgstr "Aktivera MCP-server"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Endast localhost, ingen autentisering. Klienter använder http://localhost:"
-"<port>/mcp (strömbar HTTP)."
+"Endast localhost, ingen autentisering. Klienter använder "
+"http://localhost:<port>/mcp (strömbar HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP-port"
@@ -2897,8 +2915,8 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Om inställd, körs verktyg i den venv-miljön (bin/python eller Scripts/"
-"python.exe). Om tom använder run_venv_python_script processens "
+"Om inställd, körs verktyg i den venv-miljön (bin/python eller "
+"Scripts/python.exe). Om tom använder run_venv_python_script processens "
 "sys.executable (grundläggande stdlib); använd en venv för numpy/pandas och "
 "Vision Helpers (paddleocr, paddlepaddle)."
 
@@ -2914,18 +2932,19 @@ msgstr "Tidsgräns för Python-skript (sekunder)"
 msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
-msgstr "Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
+msgstr ""
+"Tidsgräns för Kör Python-skript, =PYTHON() och run_venv_python_script."
 
 msgid "Max Calc data cells"
 msgstr "Max antal Calc-dataceller"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Maximalt antal celler i =PYTHON()-data eller Run Python Script-data/"
-"data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning "
-"dominerar fortfarande."
+"Maximalt antal celler i =PYTHON()-data eller Run Python Script-"
+"data/data_range. Större värden förbrukar mer RAM och tid; UNO-områdesläsning"
+" dominerar fortfarande."
 
 msgid "Python session mode"
 msgstr "Python-sessionsläge"
@@ -2957,28 +2976,28 @@ msgid "Convert Date/Time and Timedelta Strings"
 msgstr "Konvertera datum/tid och tidsintervallsträngar"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to datetime/"
-"timedelta objects when sending data to the Python worker. Requires the "
-"'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to "
+"datetime/timedelta objects when sending data to the Python worker. Requires "
+"the 'pandas' and 'dateparser' packages in your venv."
 msgstr ""
 "Identifiera och konvertera automatiskt datum/tid- och varaktighetssträngar "
-"till datetime/timedelta-objekt när data skickas till Python-arbetsprocessen. "
-"Kräver paketen 'pandas' och 'dateparser' i din venv."
+"till datetime/timedelta-objekt när data skickas till Python-arbetsprocessen."
+" Kräver paketen 'pandas' och 'dateparser' i din venv."
 
 msgid "PPT-Master data path"
 msgstr "Sökväg till PPT-Master-data"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point here at "
-"the clone root (.../ppt-master) or the inner skill dir (.../ppt-master/"
-"skills/ppt-master). Leave empty to auto-detect (dev clone beside repo, then "
-"env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"Sökväg till ppt-master-färdighetsträdet (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Klona https://github.com/hugohe3/ppt-master och peka här på "
-"klonens rot (.../ppt-master) eller den inre färdighetskatalogen (.../ppt-"
-"master/skills/ppt-master). Lämna tomt för automatisk identifiering "
+"Sökväg till ppt-master-färdighetsträdet (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Klona https://github.com/hugohe3/ppt-master och peka "
+"här på klonens rot (.../ppt-master) eller den inre färdighetskatalogen "
+"(.../ppt-master/skills/ppt-master). Lämna tomt för automatisk identifiering "
 "(utvecklingsklon bredvid repo, sedan env)."
 
 msgid "Vision / OCR"
@@ -2995,7 +3014,8 @@ msgstr "Tidsgräns för arbetsprocess (sekunder)"
 
 msgid "Host subprocess limit for Vision Helpers (first model download)."
 msgstr ""
-"Gräns för värdunderprocesser för Vision Helpers (första modellnedladdningen)."
+"Gräns för värdunderprocesser för Vision Helpers (första "
+"modellnedladdningen)."
 
 msgid "Docling artifacts path"
 msgstr "Sökväg för Docling-artefakter"
@@ -3029,7 +3049,8 @@ msgid "Table cell matching"
 msgstr "Matchning av tabellceller"
 
 msgid "Align detected table cells with content (extract_structure)."
-msgstr "Justera identifierade tabellceller efter innehåll (extract_structure)."
+msgstr ""
+"Justera identifierade tabellceller efter innehåll (extract_structure)."
 
 msgid "Keep orphan text clusters"
 msgstr "Behåll fristående textkluster"

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 11:42-0400\n"
+"POT-Creation-Date: 2026-07-09 19:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bulgarian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Изпълнение на локално OCR върху избранот
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
 msgstr ""
 "Проучването на документи изисква специализирано делегиране на задачи "
 "(USE_SUB_AGENT). Активирайте това в конфигурацията."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Извикването на инструмента превключи на „{0}“. Вие сте в режим на "
@@ -59,8 +59,8 @@ msgstr "Изпълнението на тетрадка се поддържа с�
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
 "Този документ няма импортирана тетрадка. Първо използвайте Инструменти → "
 "Импортиране на Jupyter тетрадка…"
@@ -256,7 +256,8 @@ msgstr ""
 "Настройки."
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Връзката е отказана. Стартиран ли е вашият локален AI сървър (Ollama/LM "
 "Studio)?"
@@ -293,7 +294,8 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
 msgstr ""
 "AI: Мога да ви помогна с формули, анализ на данни и цветни диаграми. "
 "Опитайте ме!"
@@ -311,8 +313,8 @@ msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
 msgstr ""
-"AI: Мога да извършвам уеб проучвания, за да отговоря на всеки въпрос, или да "
-"обобщя уеб страница, без да виждам или променям вашия документ. Нека "
+"AI: Мога да извършвам уеб проучвания, за да отговоря на всеки въпрос, или да"
+" обобщя уеб страница, без да виждам или променям вашия документ. Нека "
 "поговорим."
 
 #: plugin/framework/constants.py
@@ -327,9 +329,9 @@ msgstr ""
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
 "AI: Нека проучим и разработим идеята ви заедно. Ще задавам въпроси, ще "
 "предлагам подходи и ще ви помогна да съставите одобрена спецификация във "
@@ -338,7 +340,8 @@ msgstr ""
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
+"writing plan outline, and then implement it incrementally with your "
+"approval."
 msgstr ""
 "AI: Нека съставим документа ви раздел по раздел. Ще ви помогна да създадете "
 "план за писане и след това ще го изпълняваме поетапно с ваше одобрение."
@@ -363,9 +366,9 @@ msgid ""
 " If your API key is from a GLM Coding Plan subscription, set endpoint to "
 "https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
 msgstr ""
-" Ако вашият API ключ е от абонамент за GLM Coding Plan, задайте крайна точка "
-"(endpoint) на https://api.z.ai/api/coding/paas/v4 (а не общия URL адрес /api/"
-"paas)."
+" Ако вашият API ключ е от абонамент за GLM Coding Plan, задайте крайна точка"
+" (endpoint) на https://api.z.ai/api/coding/paas/v4 (а не общия URL адрес "
+"/api/paas)."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -467,15 +470,13 @@ msgstr "Няма наличен Python интерпретатор за реда�
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → "
-"Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Неуспешно импортиране на webview (pywebview) или rocher с Python от "
-"Настройки → Python:\n"
+"Неуспешно импортиране на webview (pywebview) или rocher с Python от Настройки → Python:\n"
 "%(exe)s\n"
 "\n"
 "В тази виртуална среда (venv) изпълнете: uv pip install pywebview rocher\n"
@@ -502,6 +503,7 @@ msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: Разширяване на селекцията (Calc)"
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "Изберете вградено изображение и изпълнете отново."
 
@@ -1090,7 +1092,8 @@ msgstr "[Бекенд на агента „{0}“ не е намерен.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Бекендът на агента „{0}“ не е наличен. Проверете настройките (път, "
 "инсталация).]"
@@ -1269,8 +1272,8 @@ msgstr "Ширина:"
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
-"Скриптовете на документа са твърде големи, за да бъдат съхранени в него ({0} "
-"байта)."
+"Скриптовете на документа са твърде големи, за да бъдат съхранени в него ({0}"
+" байта)."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/editor_host.py
@@ -1293,42 +1296,6 @@ msgstr "Името на скрипта не може да бъде празно.
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document."
 msgstr "Скрипт с име „{0}“ вече съществува в този документ."
-
-#: plugin/scripting/document_scripts.py
-msgid "Analysis Helpers"
-msgstr "Помощници за анализ"
-
-#: plugin/scripting/document_scripts.py
-msgid "Vision Helpers"
-msgstr "Помощници за зрение"
-
-#: plugin/scripting/document_scripts.py
-msgid "Viz Helpers"
-msgstr "Помощници за визуализация"
-
-#: plugin/scripting/document_scripts.py
-msgid "Math Helpers"
-msgstr "Помощници за математика"
-
-#: plugin/scripting/document_scripts.py
-msgid "Units Helpers"
-msgstr "Помощни инструменти за единици"
-
-#: plugin/scripting/document_scripts.py
-msgid "Quant Helpers"
-msgstr "Помощници за количествени данни"
-
-#: plugin/scripting/document_scripts.py
-msgid "Optimize Helpers"
-msgstr "Помощници за оптимизация"
-
-#: plugin/scripting/document_scripts.py
-msgid "Forecast Helpers"
-msgstr "Помощници за прогнозиране"
-
-#: plugin/scripting/document_scripts.py
-msgid "SQL Helpers"
-msgstr "Помощници за SQL"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1422,7 +1389,8 @@ msgstr "Скриптът е изпълнен успешно."
 #: plugin/scripting/python_runner_ui.py
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
-msgstr "Скриптът е изпълнен успешно, но не върна резултат и не генерира изход."
+msgstr ""
+"Скриптът е изпълнен успешно, но не върна резултат и не генерира изход."
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Success"
@@ -1515,7 +1483,8 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Проверката на Text/NLP е неуспешна (вижте writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Времето за изчакване на визуалната сонда изтече (импортирането на Docling "
 "може да отнеме 10–30 сек. при първата проверка)."
@@ -1611,8 +1580,8 @@ msgstr ""
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
-"Библиотеки за векторно търсене: зареждане (първото стартиране може да отнеме "
-"време)..."
+"Библиотеки за векторно търсене: зареждане (първото стартиране може да отнеме"
+" време)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -1636,7 +1605,8 @@ msgstr "Неуспешно зареждане на диалоговия проз
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "Проверка на инсталацията на spaCy / textdescriptives / transformers..."
+msgstr ""
+"Проверка на инсталацията на spaCy / textdescriptives / transformers..."
 
 #: plugin/scripting/text_analytics_ui.py
 #, python-brace-format
@@ -1644,8 +1614,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1653,25 +1622,20 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Грешка от работния процес за текстов анализ:\n"
 "{err}\n"
 "\n"
-"Функциите в този диалогов прозорец изискват следните пакети в използвания "
-"Python:\n"
+"Функциите в този диалогов прозорец изискват следните пакети в използвания Python:\n"
 "  • spacy + модел          (обекти, ключови фрази, основни статистики)\n"
 "  • textdescriptives         (реални резултати за четимост)\n"
-"  • transformers + torch     (анализ на настроенията чрез многоезичен "
-"модел)\n"
+"  • transformers + torch     (анализ на настроенията чрез многоезичен модел)\n"
 "\n"
 "Инсталирайте ги с:\n"
 "  {install}\n"
 "\n"
-"Работният процес съобщи, че модулът липсва. Проверете дали пакетите са "
-"инсталирани в точно същия изпълним файл на Python, който работният процес е "
-"открил за вашата конфигурирана виртуална среда (venv)."
+"Работният процес съобщи, че модулът липсва. Проверете дали пакетите са инсталирани в точно същия изпълним файл на Python, който работният процес е открил за вашата конфигурирана виртуална среда (venv)."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1690,17 +1654,11 @@ msgstr "Анализиране..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Грешка: %s\n"
 "\n"
-"Възможно е да липсват необходими пакети във вашата конфигурирана виртуална "
-"среда (Настройки → Python). Щракнете върху „Проверка на виртуалната среда“ "
-"(Check Venv) в този диалогов прозорец или използвайте пълния тест в "
-"Настройки → Python за подробности относно spacy, textdescriptives, "
-"transformers, torch и др."
+"Възможно е да липсват необходими пакети във вашата конфигурирана виртуална среда (Настройки → Python). Щракнете върху „Проверка на виртуалната среда“ (Check Venv) в този диалогов прозорец или използвайте пълния тест в Настройки → Python за подробности относно spacy, textdescriptives, transformers, torch и др."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1748,13 +1706,181 @@ msgstr "Неподдържан тип документ за вмъкване н�
 msgid "Unsupported document type for plot insertion."
 msgstr "Неподдържан тип документ за вмъкване на графика."
 
-#: plugin/scripting/viz.py plugin/scripting/python_runner.py
+#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
 msgid "Viz helper failed."
 msgstr "Помощникът за визуализация не успя."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Помощникът за визуализация не върна изображение."
+
+#: plugin/scripting/domain_registry.py
+msgid "Unsupported document type."
+msgstr "Неподдържан тип документ."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Помощникът изисква диапазон от данни. Изберете клетки или въведете диапазон "
+"в полето „Данни“."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Помощникът Quant изисква диапазон от данни. Изберете клетки или въведете "
+"диапазон в полето „Данни“."
+
+#: plugin/scripting/domain_registry.py
+msgid "Helper failed."
+msgstr "Помощникът не успя."
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"Vision '{helper}' завърши. Вмъкнат HTML ({blocks} блока, {tables} таблици). "
+"(отне {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision '{helper}' завърши. Вмъкнат форматиран HTML. (отне {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "{domain} „{helper}“ завърши. Записани {rows} реда. (отне {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} „{helper}“ завърши. (отне {time})"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Помощниците за зрение изискват документ на Writer или Calc."
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helper failed."
+msgstr "Помощникът за зрение се провали."
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Помощниците Viz изискват документ на Writer или Calc."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+"Помощникът Viz изисква диапазон от данни. Изберете клетки или въведете "
+"диапазон в полето „Данни“."
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Помощниците Math изискват документ на Writer или Calc."
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helper failed."
+msgstr "Помощникът Math се провали."
+
+#: plugin/scripting/domain_registry.py
+msgid "Units helpers require a Writer or Calc document."
+msgstr "Помощниците за единици изискват документ на Writer или Calc."
+
+#: plugin/scripting/domain_registry.py plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Помощникът за единици не успя."
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "Помощните инструменти за текстов анализ изискват документ на Writer."
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helper failed."
+msgstr "Помощният инструмент за текстов анализ не успя."
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant failed."
+msgstr "Quant се провали."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+"Помощникът за оптимизация изисква диапазон от данни. Изберете клетки или "
+"въведете диапазон в полето „Данни“."
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimization failed."
+msgstr "Оптимизацията е неуспешна."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Помощникът за прогнозиране изисква диапазон от данни. Изберете клетки или "
+"въведете диапазон в полето „Данни“."
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast failed."
+msgstr "Прогнозирането е неуспешно."
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+"Помощникът за анализ изисква диапазон от данни. Изберете клетки или въведете"
+" диапазон в полето „Данни“."
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis failed."
+msgstr "Анализът е неуспешен."
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "Помощници за анализ"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "Помощници за SQL"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "Помощници за зрение"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "Помощници за визуализация"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "Помощници за математика"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "Помощни инструменти за единици"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "Помощници за количествени данни"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "Помощници за оптимизация"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Помощници за прогнозиране"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1802,8 +1928,8 @@ msgid ""
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
 "Инициализиращият скрипт и всяко състояние на инициализация в паметта бяха "
-"нулирани за тази работна книга. Променливите на клетките вече бяха изолирани "
-"за всяка клетка."
+"нулирани за тази работна книга. Променливите на клетките вече бяха изолирани"
+" за всяка клетка."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1825,10 +1951,6 @@ msgstr ""
 "Инструменти → Импортиране на Jupyter Notebook…, за да активирате нулирането "
 "на Python сесията на тетрадката."
 
-#: plugin/scripting/units.py plugin/scripting/python_runner.py
-msgid "Units helper failed."
-msgstr "Помощникът за единици не успя."
-
 #: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Помощникът за единици не върна форматиран текст."
@@ -1836,6 +1958,32 @@ msgstr "Помощникът за единици не върна формати�
 #: plugin/scripting/units.py
 msgid "Unsupported document type for units insertion."
 msgstr "Неподдържан тип документ за вмъкване на единици."
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "Неуспешно вмъкване на резултата: {error} (отне {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "Графиката е вмъкната ({title}). (отне {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' завърши. {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' завърши. Вмъкнато: {preview} (отне {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+"Помощникът за единици '{helper}' завърши. Вмъкнато: {preview} (отне {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1854,164 +2002,9 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "Графиката е вмъкната ({title}). (отне {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "Viz '{helper}' завърши. {msg}"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr "Math '{helper}' завърши. Вмъкнато: {preview} (отне {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-"Помощникът за единици '{helper}' завърши. Вмъкнато: {preview} (отне {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Помощниците за зрение изискват документ на Writer или Calc."
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "Помощникът за зрение се провали."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "Неуспешно вмъкване на резултата: {error} (отне {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"Vision '{helper}' завърши. Вмъкнат HTML ({blocks} блока, {tables} таблици). "
-"(отне {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr "Vision '{helper}' завърши. Вмъкнат форматиран HTML. (отне {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Помощниците Viz изискват документ на Writer или Calc."
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Помощникът Viz изисква диапазон от данни. Изберете клетки или въведете "
-"диапазон в полето „Данни“."
-
-#: plugin/scripting/python_runner.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Помощниците Math изискват документ на Writer или Calc."
-
-#: plugin/scripting/python_runner.py
-msgid "Math helper failed."
-msgstr "Помощникът Math се провали."
-
-#: plugin/scripting/python_runner.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Помощниците за единици изискват документ на Writer или Calc."
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Помощните инструменти за текстов анализ изискват документ на Writer."
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helper failed."
-msgstr "Помощният инструмент за текстов анализ не успя."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Text analytics '{helper}' completed. (took {time})"
-msgstr "Анализът на текст „{helper}“ приключи. (отне {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Помощникът Quant изисква диапазон от данни. Изберете клетки или въведете "
-"диапазон в полето „Данни“."
-
-#: plugin/scripting/python_runner.py
-msgid "Quant failed."
-msgstr "Quant се провали."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Количество '{helper}' е завършено. Записани {rows} реда. (отне {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Помощникът за оптимизация изисква диапазон от данни. Изберете клетки или "
-"въведете диапазон в полето „Данни“."
-
-#: plugin/scripting/python_runner.py
-msgid "Optimization failed."
-msgstr "Оптимизацията е неуспешна."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Оптимизирането на '{helper}' е завършено. Записани {rows} реда. (отне {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Помощникът за прогнозиране изисква диапазон от данни. Изберете клетки или "
-"въведете диапазон в полето „Данни“."
-
-#: plugin/scripting/python_runner.py
-msgid "Forecast failed."
-msgstr "Прогнозирането е неуспешно."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Прогнозата „{helper}“ е завършена. Записани са {rows} реда. (отне {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Помощникът за анализ изисква диапазон от данни. Изберете клетки или въведете "
-"диапазон в полето „Данни“."
-
-#: plugin/scripting/python_runner.py
-msgid "Analysis failed."
-msgstr "Анализът е неуспешен."
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr "Анализът „{helper}“ е завършен. Записани са {rows} реда. (отне {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
 msgstr ""
 "Скриптът беше изпълнен успешно, но не върна резултат и не генерира изход. "
 "(отне {time})"
@@ -2040,7 +2033,8 @@ msgstr "Изпълнение"
 
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Изберете диапазон от данни или въведете адрес A1 (вмъкнат като данни)."
+msgstr ""
+"Изберете диапазон от данни или въведете адрес A1 (вмъкнат като данни)."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2067,6 +2061,28 @@ msgstr "OCR завършено."
 #: plugin/vision/vision_tools.py
 msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCR завършено (върнат е само текст; не е вмъкнат)."
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "Неуспешно разрешаване на котвата на изображението за вмъкване."
+
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr "Неуспешно позициониране на вмъкването след изображението: %s"
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "Документът на Writer няма контролер."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr ""
+"Изображението беше премахнато по време на подготовката за вмъкване чрез OCR."
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "Изображението беше премахнато по време на вмъкване чрез OCR."
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2329,8 +2345,8 @@ msgstr "Увеличаване на максималния брой токени
 #: plugin/xdl_strings.py
 msgid "Extra tokens beyond original text length. 0 = same length as original."
 msgstr ""
-"Допълнителни токени извън дължината на оригиналния текст. 0 = същата дължина "
-"като оригинала."
+"Допълнителни токени извън дължината на оригиналния текст. 0 = същата дължина"
+" като оригинала."
 
 #: plugin/xdl_strings.py
 msgid "General"
@@ -2549,11 +2565,11 @@ msgid "Path / URL"
 msgstr "Път / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Път до CLI на бекенда (напр. aider) или URL на ACP сървър (напр. http://"
-"localhost:8000 за Hermes). Празно = опит по подразбиране."
+"Път до CLI на бекенда (напр. aider) или URL на ACP сървър (напр. "
+"http://localhost:8000 за Hermes). Празно = опит по подразбиране."
 
 msgid "Extra arguments"
 msgstr "Допълнителни аргументи"
@@ -2627,8 +2643,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Изберете браузър, който да се използва за посещения на уеб страници по време "
-"на проучване (Изключено използва статични HTTP заявки)."
+"Изберете браузър, който да се използва за посещения на уеб страници по време"
+" на проучване (Изключено използва статични HTTP заявки)."
 
 msgid "Off (Static HTTP)"
 msgstr "Изключено (статичен HTTP)"
@@ -2666,9 +2682,9 @@ msgstr "Умение за хуманизиране (естествена про�
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
 "Когато е активирано, вмъква насоки в системната подкана, така че моделът да "
 "прави генерирания или редактиран текст в документа да звучи по-естествено и "
@@ -2697,9 +2713,9 @@ msgid ""
 "Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
 "= use local LanguageTool server via venv pip package."
 msgstr ""
-"Изкл. = деактивирано. AI (LLM) = използване на конфигурирания текстов модел/"
-"API. LanguageTool = използване на локален сървър на LanguageTool чрез venv "
-"pip пакет."
+"Изкл. = деактивирано. AI (LLM) = използване на конфигурирания текстов "
+"модел/API. LanguageTool = използване на локален сървър на LanguageTool чрез "
+"venv pip пакет."
 
 msgid "Off"
 msgstr "Изключено"
@@ -2742,8 +2758,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Брой изречения за изпращане при всяка заявка към LLM (1-8). 1 (по "
-"подразбиране) е най-надеждно; по-високите стойности са по-бързи и по-евтини, "
-"но могат да достигнат ограниченията за токени или да причинят грешки в "
+"подразбиране) е най-надеждно; по-високите стойности са по-бързи и по-евтини,"
+" но могат да достигнат ограниченията за токени или да причинят грешки в "
 "модела."
 
 msgid "Concurrent requests"
@@ -2756,8 +2772,8 @@ msgid ""
 msgstr ""
 "Максимален брой едновременни фонови API заявки за граматика (1-8). 1 "
 "съответства на предишното поведение. Увеличете за OpenRouter или други "
-"доставчици, които позволяват паралелни заявки; използвайте внимателно заедно "
-"със страничния панел за чат."
+"доставчици, които позволяват паралелни заявки; използвайте внимателно заедно"
+" със страничния панел за чат."
 
 msgid "Sentence language detection"
 msgstr "Откриване на езика на изречението"
@@ -2769,8 +2785,8 @@ msgid ""
 "grammar."
 msgstr ""
 "Проверявайте езика на всяко пълно изречение спрямо езиковите настройки на "
-"документа. AI използва вашия API за граматика/чат; Local използва langdetect "
-"във вашия Python venv (Настройки → Python; без API повикване). "
+"документа. AI използва вашия API за граматика/чат; Local използва langdetect"
+" във вашия Python venv (Настройки → Python; без API повикване). "
 "Несъответствията актуализират CharLocale и извършват повторна проверка на "
 "граматиката."
 
@@ -2796,9 +2812,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Изкл. = директни редакции. Запис = проследени промени, които приемате/"
-"отхвърляте сами. Изчакване = apply_document_content блокира (в нишката на "
-"чата/MCP работника), докато прегледате."
+"Изкл. = директни редакции. Запис = проследени промени, които "
+"приемате/отхвърляте сами. Изчакване = apply_document_content блокира (в "
+"нишката на чата/MCP работника), докато прегледате."
 
 msgid "Record (track changes)"
 msgstr "Запис (проследяване на промени)"
@@ -2839,8 +2855,8 @@ msgstr "Модел за вграждане"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"Идентификатор на модел от HuggingFace за локален доставчик или специфичен за "
-"крайната точка идентификатор на модел"
+"Идентификатор на модел от HuggingFace за локален доставчик или специфичен за"
+" крайната точка идентификатор на модел"
 
 msgid "Enable cross-file rerank"
 msgstr "Активиране на пренареждане между файлове"
@@ -2856,8 +2872,8 @@ msgid "Rerank model"
 msgstr "Модел за пренареждане"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Използва се само когато пренареждането е активирано. Английският MiniLM е "
 "бърз; bge-reranker-v2-m3 е многоезичен и изтегля ~2.3 GB."
@@ -2878,11 +2894,11 @@ msgid "Enable MCP Server"
 msgstr "Активиране на MCP сървър"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"Само за localhost, без удостоверяване. Клиентите използват http://localhost:"
-"<port>/mcp (HTTP с възможност за стрийминг)."
+"Само за localhost, без удостоверяване. Клиентите използват "
+"http://localhost:<port>/mcp (HTTP с възможност за стрийминг)."
 
 msgid "MCP Port"
 msgstr "MCP порт"
@@ -2927,10 +2943,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ако е зададено, изпълнява инструменти в тази виртуална среда (venv) (bin/"
-"python или Scripts/python.exe). Ако е празно, run_venv_python_script "
-"използва sys.executable на текущия процес (основна stdlib); използвайте venv "
-"за numpy/pandas и помощници за визия (paddleocr, paddlepaddle)."
+"Ако е зададено, изпълнява инструменти в тази виртуална среда (venv) "
+"(bin/python или Scripts/python.exe). Ако е празно, run_venv_python_script "
+"използва sys.executable на текущия процес (основна stdlib); използвайте venv"
+" за numpy/pandas и помощници за визия (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Тест"
@@ -2954,8 +2970,8 @@ msgid "Max Calc data cells"
 msgstr "Максимален брой клетки с данни в Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Максимален брой клетки в данни на =PYTHON() или данни/диапазон от данни при "
 "изпълнение на Python скрипт. По-големите стойности използват повече RAM и "
@@ -2992,9 +3008,9 @@ msgid "Convert Date/Time and Timedelta Strings"
 msgstr "Преобразуване на низове за дата/час и времеви интервал"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to datetime/"
-"timedelta objects when sending data to the Python worker. Requires the "
-"'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to "
+"datetime/timedelta objects when sending data to the Python worker. Requires "
+"the 'pandas' and 'dateparser' packages in your venv."
 msgstr ""
 "Автоматично откриване и преобразуване на низове за дата/час и "
 "продължителност в обекти datetime/timedelta при изпращане на данни към "
@@ -3005,17 +3021,17 @@ msgid "PPT-Master data path"
 msgstr "Път до данните на PPT-Master"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point here at "
-"the clone root (.../ppt-master) or the inner skill dir (.../ppt-master/"
-"skills/ppt-master). Leave empty to auto-detect (dev clone beside repo, then "
-"env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"Път към дървото на уменията ppt-master (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Клонирайте https://github.com/hugohe3/ppt-master и посочете "
-"тук корена на клонирането (.../ppt-master) или вътрешната директория с "
-"умения (.../ppt-master/skills/ppt-master). Оставете празно за автоматично "
-"откриване (dev клонинг до хранилището, след това env)."
+"Път към дървото на уменията ppt-master (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Клонирайте https://github.com/hugohe3/ppt-master и "
+"посочете тук корена на клонирането (.../ppt-master) или вътрешната "
+"директория с умения (.../ppt-master/skills/ppt-master). Оставете празно за "
+"автоматично откриване (dev клонинг до хранилището, след това env)."
 
 msgid "Vision / OCR"
 msgstr "Визия / OCR"
@@ -3039,7 +3055,8 @@ msgstr "Път до артефактите на Docling"
 
 msgid "Optional folder from docling-tools models download (offline use)."
 msgstr ""
-"Незадължителна папка за изтеглени модели на docling-tools (за офлайн работа)."
+"Незадължителна папка за изтеглени модели на docling-tools (за офлайн "
+"работа)."
 
 msgid "OCR confidence threshold"
 msgstr "Праг на увереност при OCR"
@@ -3076,7 +3093,8 @@ msgid "Keep orphan text clusters"
 msgstr "Запазване на сираци от текстови клъстери"
 
 msgid "Group unassigned text into clusters for messy layouts."
-msgstr "Групиране на неназначения текст в клъстери при разхвърляни оформления."
+msgstr ""
+"Групиране на неназначения текст в клъстери при разхвърляни оформления."
 
 msgid "Document insert mode"
 msgstr "Режим на вмъкване в документ"
@@ -3086,8 +3104,8 @@ msgid ""
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
 "html = Docling HTML импортиране (по подразбиране). structured = оформление "
-"на колони с ограничителни кутии (bbox) в Writer; собствени клетки на Calc за "
-"таблици с извлечена структура."
+"на колони с ограничителни кутии (bbox) в Writer; собствени клетки на Calc за"
+" таблици с извлечена структура."
 
 msgid "Standard HTML"
 msgstr "Стандартен HTML"

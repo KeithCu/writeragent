@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 11:42-0400\n"
+"POT-Creation-Date: 2026-07-09 19:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -21,8 +21,8 @@ msgid ""
 "Local OCR requires Settings → Python venv with Docling or PaddleOCR "
 "(Settings → Python → Test for install hints)."
 msgstr ""
-"ローカルOCRには「設定」→「Python venv（DoclingまたはPaddleOCR）」が必要です"
-"（「設定」→「Python」→「テスト」でインストールヒントを確認してください）。"
+"ローカルOCRには「設定」→「Python "
+"venv（DoclingまたはPaddleOCR）」が必要です（「設定」→「Python」→「テスト」でインストールヒントを確認してください）。"
 
 #: plugin/doc/specialized_base.py
 msgid "Running local OCR on selected image..."
@@ -30,22 +30,19 @@ msgstr "選択した画像でローカルOCRを実行中..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT). "
-"Enable this in configuration."
-msgstr ""
-"ドキュメントのリサーチ読み取りには専門的なタスク委任（USE_SUB_AGENT）が必要で"
-"す。設定でこれを有効にしてください。"
+"Document research reads require specialized task delegation (USE_SUB_AGENT)."
+" Enable this in configuration."
+msgstr "ドキュメントのリサーチ読み取りには専門的なタスク委任（USE_SUB_AGENT）が必要です。設定でこれを有効にしてください。"
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
-"call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
+" call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っていま"
-"す。完了したら 'specialized_workflow_finished' を呼び出して、APIのフルセット"
-"を復元してください。"
+"ツールコールが '{0}' に切り替えられました。特殊ツールセットモードに入っています。完了したら "
+"'specialized_workflow_finished' を呼び出して、APIのフルセットを復元してください。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -57,11 +54,10 @@ msgstr "ノートブックの実行はLibreOffice Writerでのみサポートさ
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
-"first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
+" first."
 msgstr ""
-"このドキュメントにはインポートされたノートブックがありません。先に「ツール」→"
-"「Jupyterノートブックをインポート…」を使用してください。"
+"このドキュメントにはインポートされたノートブックがありません。先に「ツール」→「Jupyterノートブックをインポート…」を使用してください。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
@@ -85,8 +81,7 @@ msgstr "すべてのファイル"
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
-msgstr ""
-"ノートブックのインポートはLibreOffice Writerでのみサポートされています。"
+msgstr "ノートブックのインポートはLibreOffice Writerでのみサポートされています。"
 
 #: plugin/notebook/import_dialog.py
 #, python-brace-format
@@ -178,9 +173,7 @@ msgstr "アクティブなドキュメントが見つかりません。"
 msgid ""
 "Cross-file search is disabled. Enable Embeddings + FTS in Settings → "
 "Embeddings."
-msgstr ""
-"ファイル横断検索は無効です。「設定」→「埋め込み」で「埋め込み + FTS」を有効に"
-"してください。"
+msgstr "ファイル横断検索は無効です。「設定」→「埋め込み」で「埋め込み + FTS」を有効にしてください。"
 
 #: plugin/embeddings/search_ui.py
 msgid "Error: "
@@ -189,9 +182,7 @@ msgstr "エラー: "
 #: plugin/embeddings/search_ui.py
 msgid ""
 "Folder index is building in the background. Please retry search shortly."
-msgstr ""
-"フォルダーのインデックスをバックグラウンドで構築中です。しばらくしてから再度"
-"検索してください。"
+msgstr "フォルダーのインデックスをバックグラウンドで構築中です。しばらくしてから再度検索してください。"
 
 #: plugin/embeddings/search_ui.py
 msgid "No matches found."
@@ -228,14 +219,11 @@ msgstr "API キーが無効です。設定を確認してください。"
 
 #: plugin/framework/errors.py
 msgid "API access Forbidden. Your key may lack permissions for this model."
-msgstr ""
-"API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可"
-"能性があります。"
+msgstr "API アクセスは禁止されています。キーにこのモデルに対する権限が不足している可能性があります。"
 
 #: plugin/framework/errors.py
 msgid "Endpoint not found (404). Check your URL and Model name."
-msgstr ""
-"エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
+msgstr "エンドポイントが見つかりません (404)。 URLとモデル名を確認してください。"
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -249,14 +237,12 @@ msgstr "HTTP エラー {0}: {1}"
 
 #: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
-msgstr ""
-"リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やして"
-"みてください。"
+msgstr "リクエストがタイムアウトしました。設定で「リクエストタイムアウト」を増やしてみてください。"
 
 #: plugin/framework/errors.py
-msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
-msgstr ""
-"接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
+msgid ""
+"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgstr "接続拒否。ローカル AI サーバー (Ollama/LM Studio) は実行されていますか?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -284,32 +270,25 @@ msgstr "UNO スレッド違反"
 msgid ""
 "AI: I can edit or translate your document instantly with professional "
 "formatting and color. Try me!"
-msgstr ""
-"AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻"
-"訳できます。ぜひお試しください！"
+msgstr "AI: プロフェッショナルな書式設定とカラーで、ドキュメントを即座に編集または翻訳できます。ぜひお試しください！"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try me!"
-msgstr ""
-"AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しくだ"
-"さい！"
+"AI: I can help you with formulas, data analysis, and colorful charts. Try "
+"me!"
+msgstr "AI: 数式、データ分析、カラフルなグラフの作成をお手伝いします。ぜひお試しください！"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can help you create and edit polished, colorful shapes in Draw and "
 "Impress. Try me!"
-msgstr ""
-"AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いしま"
-"す。ぜひお試しください！"
+msgstr "AI: Draw と Impress で、洗練されたカラフルな図形の作成と編集をお手伝いします。ぜひお試しください！"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: ドキュメントを見たり変更したりすることなく、ウェブ検索を行って質問に答え"
-"たり、ウェブページを要約したりできます。お話ししましょう。"
+msgstr "AI: ドキュメントを見たり変更したりすることなく、ウェブ検索を行って質問に答えたり、ウェブページを要約したりできます。お話ししましょう。"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -317,27 +296,24 @@ msgid ""
 "several searches, synthesis) and can insert a formatted report into your "
 "document. It takes longer but produces more thorough results."
 msgstr ""
-"AI: Deep Researchモードは、複数ステップのWeb調査（計画、複数回の検索、統合）"
-"を実行し、フォーマットされたレポートをドキュメントに挿入できます。時間はかか"
-"りますが、より詳細な結果が得られます。"
+"AI: Deep "
+"Researchモードは、複数ステップのWeb調査（計画、複数回の検索、統合）を実行し、フォーマットされたレポートをドキュメントに挿入できます。時間はかかりますが、より詳細な結果が得られます。"
 
 #: plugin/framework/constants.py
 msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest "
-"approaches, and help you build an approved spec in your document when you're "
-"ready."
+"AI: Let's explore and design your idea together. I'll ask questions, suggest"
+" approaches, and help you build an approved spec in your document when "
+"you're ready."
 msgstr ""
-"AI: あなたのアイデアを一緒に探求し、設計しましょう。質問をしたり、アプローチ"
-"を提案したりして、準備ができたらドキュメント内に承認済みの仕様書を作成するお"
-"手伝いをします。"
+"AI: "
+"あなたのアイデアを一緒に探求し、設計しましょう。質問をしたり、アプローチを提案したりして、準備ができたらドキュメント内に承認済みの仕様書を作成するお手伝いをします。"
 
 #: plugin/framework/constants.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your approval."
-msgstr ""
-"AI: ドキュメントをセクションごとに作成しましょう。執筆計画の構成案を作成し、"
-"あなたの承認を得ながら段階的に実装をお手伝いします。"
+"writing plan outline, and then implement it incrementally with your "
+"approval."
+msgstr "AI: ドキュメントをセクションごとに作成しましょう。執筆計画の構成案を作成し、あなたの承認を得ながら段階的に実装をお手伝いします。"
 
 #: plugin/framework/constants.py
 msgid ""
@@ -345,9 +321,8 @@ msgid ""
 "Python venv (scripts + export to Impress). Describe your topic or point me "
 "at a project folder."
 msgstr ""
-"AI: PPT-Master モード — 設定された Python venv で ppt-master ワークフローを実"
-"行します（スクリプト + Impress へのエクスポート）。トピックを説明するか、プロ"
-"ジェクトフォルダーを指定してください。"
+"AI: PPT-Master モード — 設定された Python venv で ppt-master ワークフローを実行します（スクリプト + "
+"Impress へのエクスポート）。トピックを説明するか、プロジェクトフォルダーを指定してください。"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -359,9 +334,8 @@ msgid ""
 " If your API key is from a GLM Coding Plan subscription, set endpoint to "
 "https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
 msgstr ""
-" APIキーがGLM Coding Planサブスクリプションのものである場合は、エンドポイント"
-"を https://api.z.ai/api/coding/paas/v4 に設定してください（一般的な /api/"
-"paas URLではありません）。"
+" APIキーがGLM Coding Planサブスクリプションのものである場合は、エンドポイントを "
+"https://api.z.ai/api/coding/paas/v4 に設定してください（一般的な /api/paas URLではありません）。"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -382,9 +356,7 @@ msgstr "ストリームが finish_reason=error で終了しました"
 msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
-msgstr ""
-"モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただく"
-"か、別のモデルをご使用ください。"
+msgstr "モデルが同じチャンクを繰り返しています（無限ループ）。もう一度お試しいただくか、別のモデルをご使用ください。"
 
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
@@ -420,9 +392,8 @@ msgid ""
 "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
 "A1:B10) or =PYTHON(...)."
 msgstr ""
-"このセルのPYTHON数式引数（データ範囲など）を保持できませんでした。Calcで数式"
-"を編集するか、=PY(\"code\"; A1:B10) や =PYTHON(...) のように引用符で囲まれた"
-"コード文字列を使用してください。"
+"このセルのPYTHON数式引数（データ範囲など）を保持できませんでした。Calcで数式を編集するか、=PY(\"code\"; A1:B10) や "
+"=PYTHON(...) のように引用符で囲まれたコード文字列を使用してください。"
 
 #: plugin/calc/python/editor.py
 msgid "Python cell editor"
@@ -451,9 +422,8 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
-"このPYTHON数式は、エディタで安全に書き換えられない形式（別のセルにあるコード"
-"など）を使用しています。数式バーで編集するか、引用符で囲まれたコードを含む "
-"=PY(\"code\"; range) または =PYTHON(...) を使用してください。"
+"このPYTHON数式は、エディタで安全に書き換えられない形式（別のセルにあるコードなど）を使用しています。数式バーで編集するか、引用符で囲まれたコードを含む"
+" =PY(\"code\"; range) または =PYTHON(...) を使用してください。"
 
 #: plugin/calc/python/editor.py
 msgid "No Python interpreter available for the editor."
@@ -462,19 +432,16 @@ msgstr "エディタで使用可能なPythonインタプリタがありません
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → "
-"Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"設定 → Python で指定された Python から webview (pywebview) または rocher をイ"
-"ンポートできません:\n"
+"設定 → Python で指定された Python から webview (pywebview) または rocher をインポートできません:\n"
 "%(exe)s\n"
 "\n"
-"その仮想環境 (venv) で以下を実行してください: uv pip install pywebview "
-"rocher\n"
+"その仮想環境 (venv) で以下を実行してください: uv pip install pywebview rocher\n"
 "(インポート名は webview、パッケージ名は pywebview です)。"
 
 #: plugin/calc/python/editor.py
@@ -498,6 +465,7 @@ msgid "WriterAgent: Extend Selection (Calc)"
 msgstr "WriterAgent: 選択範囲の拡張 (Calc)"
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr "埋め込み画像を選択してから、もう一度実行してください。"
 
@@ -961,26 +929,21 @@ msgid ""
 "[No compatible LibreOffice document (Writer, Calc, or Draw) found in the "
 "active window.]"
 msgstr ""
-"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、"
-"または Draw) が見つかりません。]"
+"[アクティブウィンドウに互換性のある LibreOffice ドキュメント (Writer、Calc、または Draw) が見つかりません。]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Internal Error: Could not identify document type for {0}. Please report "
 "this!]"
-msgstr ""
-"[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告くださ"
-"い。]"
+msgstr "[内部エラー: {0} のドキュメント タイプを識別できませんでした。ご報告ください。]"
 
 #: plugin/chatbot/panel.py
 #, python-brace-format
 msgid ""
 "[Model {0} does not support native audio. Please select an STT Model in "
 "Settings.]"
-msgstr ""
-"[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデル"
-"を選択してください。]"
+msgstr "[モデル {0} はネイティブ オーディオをサポートしていません。設定で STT モデルを選択してください。]"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -993,8 +956,7 @@ msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"リサーチキャッシュヒット (あいまい一致、%(pct)s%% 一致: "
-"%(lang_bit)s%(cache_key)s → %(matched)s)"
+"リサーチキャッシュヒット (あいまい一致、%(pct)s%% 一致: %(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1002,8 +964,7 @@ msgid ""
 "Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
 msgstr ""
-"リサーチキャッシュヒット (埋め込み, %(pct)s%% 一致: "
-"%(lang_bit)s%(cache_key)s → %(matched)s)"
+"リサーチキャッシュヒット (埋め込み, %(pct)s%% 一致: %(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1051,8 +1012,7 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"エディタが見つかりません (Kate または Gedit をインストールするか、EDITOR を設"
-"定してください)。パス:\n"
+"エディタが見つかりません (Kate または Gedit をインストールするか、EDITOR を設定してください)。パス:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1089,10 +1049,9 @@ msgstr "[エージェントバックエンド '{0}' が見つかりません。]
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
-msgstr ""
-"[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）"
-"を確認してください。]"
+msgid ""
+"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgstr "[エージェントバックエンド '{0}' が利用できません。設定（パス、インストール）を確認してください。]"
 
 #: plugin/chatbot/send_handlers.py
 msgid "Perfect! I'm switching you to the main assistant now."
@@ -1195,8 +1154,8 @@ msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
 msgstr ""
-"より新しい WriterAgent (%s) が利用可能です。Tools → Extension Manager を使用"
-"して更新を確認し、最新の拡張機能をインストールしてください。"
+"より新しい WriterAgent (%s) が利用可能です。Tools → Extension Manager "
+"を使用して更新を確認し、最新の拡張機能をインストールしてください。"
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -1266,8 +1225,7 @@ msgstr "幅:"
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
-msgstr ""
-"ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
+msgstr "ドキュメントスクリプトが大きすぎてドキュメントに保存できません ({0} バイト)。"
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/editor_host.py
@@ -1278,9 +1236,7 @@ msgstr "スクリプトを保存するためのドキュメントが開かれて
 msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
-msgstr ""
-"ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライ"
-"ブラリにスクリプトを保存しました。"
+msgstr "ドキュメントが読み取り専用か、プロパティを書き込めません。代わりに個人用ライブラリにスクリプトを保存しました。"
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1290,42 +1246,6 @@ msgstr "スクリプト名を空にすることはできません。"
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document."
 msgstr "'{0}' という名前のスクリプトは、このドキュメント内に既に存在します。"
-
-#: plugin/scripting/document_scripts.py
-msgid "Analysis Helpers"
-msgstr "分析ヘルパー"
-
-#: plugin/scripting/document_scripts.py
-msgid "Vision Helpers"
-msgstr "ビジョンヘルパー"
-
-#: plugin/scripting/document_scripts.py
-msgid "Viz Helpers"
-msgstr "可視化ヘルパー"
-
-#: plugin/scripting/document_scripts.py
-msgid "Math Helpers"
-msgstr "数式ヘルパー"
-
-#: plugin/scripting/document_scripts.py
-msgid "Units Helpers"
-msgstr "単位ヘルパー"
-
-#: plugin/scripting/document_scripts.py
-msgid "Quant Helpers"
-msgstr "数量化ヘルパー"
-
-#: plugin/scripting/document_scripts.py
-msgid "Optimize Helpers"
-msgstr "最適化ヘルパー"
-
-#: plugin/scripting/document_scripts.py
-msgid "Forecast Helpers"
-msgstr "Forecast Helpers"
-
-#: plugin/scripting/document_scripts.py
-msgid "SQL Helpers"
-msgstr "SQL ヘルパー"
 
 #: plugin/scripting/document_scripts.py
 msgid "My Scripts"
@@ -1365,9 +1285,7 @@ msgstr "ドキュメントに添付"
 #: plugin/scripting/python_runner_ui.py
 #, python-brace-format
 msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きします"
-"か？"
+msgstr "'{0}' という名前のスクリプトは既にこのドキュメントに存在します。上書きしますか？"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
@@ -1420,8 +1338,7 @@ msgstr "スクリプトは正常に実行されました。"
 #: plugin/scripting/python_runner_ui.py
 msgid ""
 "Script executed successfully, but returned no result and produced no output."
-msgstr ""
-"スクリプトは正常に実行されましたが、結果が返されず、出力もありませんでした。"
+msgstr "スクリプトは正常に実行されましたが、結果が返されず、出力もありませんでした。"
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Success"
@@ -1489,59 +1406,47 @@ msgstr "Pythonエディターと通信できませんでした。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
-msgstr ""
-"Linuxではシステム用PortAudioもインストールしてください: sudo pacman -S "
-"portaudio"
+msgstr "Linuxではシステム用PortAudioもインストールしてください: sudo pacman -S portaudio"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
-msgstr ""
-"オーディオプローブがタイムアウトしました (sounddeviceのインポート失敗またはハ"
-"ング)。"
+msgstr "オーディオプローブがタイムアウトしました (sounddeviceのインポート失敗またはハング)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe failed (see writeragent_debug.log)."
-msgstr ""
-"オーディオプローブが失敗しました (writeragent_debug.logを参照してください)。"
+msgstr "オーディオプローブが失敗しました (writeragent_debug.logを参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
-"テキスト/NLPプローブがタイムアウトしました (spaCyまたはtransformersの初回イン"
-"ポートには10〜30秒かかる場合があります)。"
+"テキスト/NLPプローブがタイムアウトしました (spaCyまたはtransformersの初回インポートには10〜30秒かかる場合があります)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
-msgstr ""
-"テキスト/NLPプローブが失敗しました (writeragent_debug.logを参照してくださ"
-"い)。"
+msgstr "テキスト/NLPプローブが失敗しました (writeragent_debug.logを参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
-msgstr ""
-"ビジョン・プローブがタイムアウトしました (初回チェック時は Docling のインポー"
-"トに 10～30 秒かかる場合があります)。"
+msgid ""
+"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgstr "ビジョン・プローブがタイムアウトしました (初回チェック時は Docling のインポートに 10～30 秒かかる場合があります)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
-msgstr ""
-"ビジョン・プローブが失敗しました (writeragent_debug.log を参照してください)。"
+msgstr "ビジョン・プローブが失敗しました (writeragent_debug.log を参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
 msgstr ""
-"ベクトル検索プローブがタイムアウトしました (sentence-transformers のインポー"
-"トは初回チェック時に 10～30 秒かかることがあります)。"
+"ベクトル検索プローブがタイムアウトしました (sentence-transformers のインポートは初回チェック時に 10～30 "
+"秒かかることがあります)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
-msgstr ""
-"ベクトル検索プローブが失敗しました (writeragent_debug.log を参照してくださ"
-"い)。"
+msgstr "ベクトル検索プローブが失敗しました (writeragent_debug.log を参照してください)。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording"
@@ -1605,20 +1510,15 @@ msgstr "音声録音: sounddeviceを確認中..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr ""
-"テキスト / NLPライブラリ: 読み込み中 (初回実行時は時間がかかることがありま"
-"す)..."
+msgstr "テキスト / NLPライブラリ: 読み込み中 (初回実行時は時間がかかることがあります)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
-msgstr ""
-"Vision Libraries: 読み込み中 (初回実行時は時間がかかる場合があります)..."
+msgstr "Vision Libraries: 読み込み中 (初回実行時は時間がかかる場合があります)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
-msgstr ""
-"ベクトル検索ライブラリ: 読み込み中 (初回実行時は時間がかかることがありま"
-"す)..."
+msgstr "ベクトル検索ライブラリ: 読み込み中 (初回実行時は時間がかかることがあります)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -1650,8 +1550,7 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is "
-"using:\n"
+"The features in this dialog require these packages in the python it is using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1659,14 +1558,12 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed "
-"in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "テキスト分析ワーカーからのエラー:\n"
 "{err}\n"
 "\n"
-"このダイアログの機能を使用するには、使用中のPython環境に以下のパッケージが必"
-"要です:\n"
+"このダイアログの機能を使用するには、使用中のPython環境に以下のパッケージが必要です:\n"
 "  • spacy + モデル          (エンティティ、キーフレーズ、基本統計)\n"
 "  • textdescriptives         (読みやすさスコア)\n"
 "  • transformers + torch     (多言語モデルを使用した感情分析)\n"
@@ -1674,9 +1571,7 @@ msgstr ""
 "以下のコマンドでインストールしてください:\n"
 "  {install}\n"
 "\n"
-"ワーカーがモジュールが見つからないと報告しました。設定した仮想環境に対して"
-"ワーカーが解決したPython実行ファイルに、パッケージが正しくインストールされて"
-"いるか確認してください。"
+"ワーカーがモジュールが見つからないと報告しました。設定した仮想環境に対してワーカーが解決したPython実行ファイルに、パッケージが正しくインストールされているか確認してください。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1695,16 +1590,11 @@ msgstr "分析中..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → "
-"Python). Click Check Venv in this dialog or use the full Test in Settings → "
-"Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "エラー: %s\n"
 "\n"
-"設定された仮想環境（設定 → Python）に必要なパッケージが不足している可能性があ"
-"ります。このダイアログの「仮想環境を確認」をクリックするか、設定 → Pythonの"
-"「テスト」機能を使用して、spacy、textdescriptives、transformers、torchなどの"
-"詳細を確認してください。"
+"設定された仮想環境（設定 → Python）に必要なパッケージが不足している可能性があります。このダイアログの「仮想環境を確認」をクリックするか、設定 → Pythonの「テスト」機能を使用して、spacy、textdescriptives、transformers、torchなどの詳細を確認してください。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1752,7 +1642,7 @@ msgstr "数式挿入に対応していないドキュメント形式です。"
 msgid "Unsupported document type for plot insertion."
 msgstr "プロットの挿入に対応していないドキュメント形式です。"
 
-#: plugin/scripting/viz.py plugin/scripting/python_runner.py
+#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
 msgid "Viz helper failed."
 msgstr "可視化ヘルパーが失敗しました。"
 
@@ -1760,22 +1650,176 @@ msgstr "可視化ヘルパーが失敗しました。"
 msgid "Viz helper returned no image payload."
 msgstr "可視化ヘルパーから画像データが返されませんでした。"
 
+#: plugin/scripting/domain_registry.py
+msgid "Unsupported document type."
+msgstr "サポートされていないドキュメント形式です。"
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr "ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範囲を入力してください。"
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr "Quant ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範囲を入力してください。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Helper failed."
+msgstr "ヘルパーが失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+"Vision '{helper}' が完了しました。 HTMLを挿入しました ({blocks} ブロック、{tables} テーブル)。 (所要時間:"
+" {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr "Vision '{helper}' が完了しました。 書式設定されたHTMLを挿入しました。 (所要時間: {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr "{domain} '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: {time})"
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr "{domain} '{helper}' が完了しました。(所要時間: {time})"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "ビジョンヘルパーには Writer または Calc ドキュメントが必要です。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helper failed."
+msgstr "ビジョンヘルパーが失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr "Viz ヘルパーには Writer または Calc ドキュメントが必要です。"
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr "Viz ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範囲を入力してください。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr "Math ヘルパーには Writer または Calc ドキュメントが必要です。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helper failed."
+msgstr "Math ヘルパーが失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units helpers require a Writer or Calc document."
+msgstr "Units ヘルパーには Writer または Calc ドキュメントが必要です。"
+
+#: plugin/scripting/domain_registry.py plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Units ヘルパーが失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helpers require a Writer document."
+msgstr "テキスト分析ヘルパーにはWriterドキュメントが必要です。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helper failed."
+msgstr "テキスト分析ヘルパーが失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant failed."
+msgstr "Quant が失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr "最適化ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範囲を入力してください。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimization failed."
+msgstr "最適化に失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr "予測ヘルパーにはデータ範囲が必要です。セルを選択するか、[データ]フィールドに範囲を入力してください。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast failed."
+msgstr "予測に失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr "分析ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範囲を入力してください。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis failed."
+msgstr "分析に失敗しました。"
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr "分析ヘルパー"
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr "SQL ヘルパー"
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr "ビジョンヘルパー"
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr "可視化ヘルパー"
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr "数式ヘルパー"
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr "単位ヘルパー"
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr "数量化ヘルパー"
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr "最適化ヘルパー"
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
+msgstr "Forecast Helpers"
+
 #: plugin/scripting/session_manager.py
 msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"「ノートブックのPythonセッションをリセット」はLibreOffice Writerに適用されま"
-"す。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試"
-"してください。"
+"「ノートブックのPythonセッションをリセット」はLibreOffice "
+"Writerに適用されます。JupyterノートブックをインポートしたWriterドキュメントを開いて、もう一度試してください。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
 msgstr ""
-"このWriterドキュメントにはインポートされたノートブックレジストリがありませ"
-"ん。「ツール」→「Jupyterノートブックをインポート…」を先に実行してください。"
+"このWriterドキュメントにはインポートされたノートブックレジストリがありません。「ツール」→「Jupyterノートブックをインポート…」を先に実行してください。"
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -1793,9 +1837,7 @@ msgstr "Pythonセッションをリセットできませんでした。"
 msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
-msgstr ""
-"「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワー"
-"クブックを開いて、もう一度試してください。"
+msgstr "「Pythonセッションをリセット」はCalcスプレッドシートに適用されます。Calcワークブックを開いて、もう一度試してください。"
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1805,9 +1847,7 @@ msgstr "このワークブックのPythonセッションをリセットしまし
 msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
-msgstr ""
-"このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。"
-"セル変数はすでにセルごとに分離されています。"
+msgstr "このブックの初期化スクリプトおよびメモリ内の初期化状態はリセットされました。セル変数はすでにセルごとに分離されています。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1815,22 +1855,14 @@ msgid ""
 "variables). There is no shared cell session to reset. Add an initialization "
 "script if you need to clear expensive one-time workbook setup."
 msgstr ""
-"Pythonセッションモードは「分離」です（各=PYTHON()セルは独自の変数を使用しま"
-"す）。リセットすべき共有セルセッションはありません。高コストな一度限りのブッ"
-"ク設定をクリアする必要がある場合は、初期化スクリプトを追加してください。"
+"Pythonセッションモードは「分離」です（各=PYTHON()セルは独自の変数を使用します）。リセットすべき共有セルセッションはありません。高コストな一度限りのブック設定をクリアする必要がある場合は、初期化スクリプトを追加してください。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"このWriterドキュメントにはインポートされたノートブックレジストリがありませ"
-"ん。ノートブックのPythonセッションリセットを有効にするには、「ツール」→"
-"「Jupyterノートブックをインポート…」を使用してください。"
-
-#: plugin/scripting/units.py plugin/scripting/python_runner.py
-msgid "Units helper failed."
-msgstr "Units ヘルパーが失敗しました。"
+"このWriterドキュメントにはインポートされたノートブックレジストリがありません。ノートブックのPythonセッションリセットを有効にするには、「ツール」→「Jupyterノートブックをインポート…」を使用してください。"
 
 #: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
@@ -1839,6 +1871,31 @@ msgstr "Units ヘルパーが整形されたテキストを返しませんでし
 #: plugin/scripting/units.py
 msgid "Unsupported document type for units insertion."
 msgstr "単位挿入に対応していないドキュメント形式です。"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr "結果の挿入に失敗しました: {error} (所要時間: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr "プロットを挿入しました ({title})。(所要時間: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr "Viz '{helper}' が完了しました。 {msg}"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Math '{helper}' が完了しました。 挿入済み: {preview} (所要時間: {time})"
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr "Units '{helper}' が完了しました。挿入内容: {preview} (所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-format
@@ -1851,180 +1908,14 @@ msgstr "情報"
 
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-"Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎し"
-"ます！"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr "プロットを挿入しました ({title})。(所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr "Viz '{helper}' が完了しました。 {msg}"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-"Math '{helper}' が完了しました。 挿入済み: {preview} (所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-"Units '{helper}' が完了しました。挿入内容: {preview} (所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "ビジョンヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr "ビジョンヘルパーが失敗しました。"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr "結果の挿入に失敗しました: {error} (所要時間: {time})"
+msgstr "Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎します！"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-"Vision '{helper}' が完了しました。 HTMLを挿入しました ({blocks} ブロック、"
-"{tables} テーブル)。 (所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr ""
-"Vision '{helper}' が完了しました。 書式設定されたHTMLを挿入しました。 (所要時"
-"間: {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz ヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範"
-"囲を入力してください。"
-
-#: plugin/scripting/python_runner.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math ヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/python_runner.py
-msgid "Math helper failed."
-msgstr "Math ヘルパーが失敗しました。"
-
-#: plugin/scripting/python_runner.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Units ヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "テキスト分析ヘルパーにはWriterドキュメントが必要です。"
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helper failed."
-msgstr "テキスト分析ヘルパーが失敗しました。"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Text analytics '{helper}' completed. (took {time})"
-msgstr "テキスト分析 '{helper}' が完了しました。(所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに"
-"範囲を入力してください。"
-
-#: plugin/scripting/python_runner.py
-msgid "Quant failed."
-msgstr "Quant が失敗しました。"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Quant '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: "
-"{time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"最適化ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに"
-"範囲を入力してください。"
-
-#: plugin/scripting/python_runner.py
-msgid "Optimization failed."
-msgstr "最適化に失敗しました。"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"Optimize '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: "
-"{time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"予測ヘルパーにはデータ範囲が必要です。セルを選択するか、[データ]フィールドに"
-"範囲を入力してください。"
-
-#: plugin/scripting/python_runner.py
-msgid "Forecast failed."
-msgstr "予測に失敗しました。"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"予測 '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"分析ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範"
-"囲を入力してください。"
-
-#: plugin/scripting/python_runner.py
-msgid "Analysis failed."
-msgstr "分析に失敗しました。"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-"分析 '{helper}' が完了しました。{rows} 行を書き込みました。(所要時間: {time})"
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Script executed successfully, but returned no result and produced no output. "
-"(took {time})"
-msgstr ""
-"スクリプトは正常に実行されましたが、結果や出力は得られませんでした。(所要時"
-"間: {time})"
+"Script executed successfully, but returned no result and produced no output."
+" (took {time})"
+msgstr "スクリプトは正常に実行されましたが、結果や出力は得られませんでした。(所要時間: {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2050,9 +1941,7 @@ msgstr "実行"
 
 #: plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
-msgstr ""
-"データ範囲を選択するか、A1アドレスを入力してください（データとして挿入されま"
-"す）。"
+msgstr "データ範囲を選択するか、A1アドレスを入力してください（データとして挿入されます）。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2060,8 +1949,7 @@ msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"画像 '{name}' が見つかりません。list_images を使用するか、image_name を空にし"
-"てグラフィックを選択してください。"
+"画像 '{name}' が見つかりません。list_images を使用するか、image_name を空にしてグラフィックを選択してください。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2079,6 +1967,27 @@ msgstr "OCRが完了しました。"
 #: plugin/vision/vision_tools.py
 msgid "OCR complete (text returned only; not inserted)."
 msgstr "OCRが完了しました（テキストのみ取得。挿入はされません）。"
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr "挿入用の画像アンカーを解決できませんでした。"
+
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr "画像の後に挿入位置を特定できませんでした: %s"
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr "Writer ドキュメントにコントローラーがありません。"
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr "OCR 挿入の準備中に画像が削除されました。"
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
+msgstr "OCR 挿入中に画像が削除されました。"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -2102,8 +2011,7 @@ msgstr "MCPサーバーの起動に失敗しました"
 
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
-msgstr ""
-"LibreOfficeユーザー設定フォルダー内のwriteragent_debug.logを確認してください"
+msgstr "LibreOfficeユーザー設定フォルダー内のwriteragent_debug.logを確認してください"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -2558,11 +2466,11 @@ msgid "Path / URL"
 msgstr "パス / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
-"localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
+"http://localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の"
-"場合は http://localhost:8000)。空の場合はデフォルトを試行します。"
+"バックエンド CLI のパス (例: aider)、または ACP サーバーの URL (例: Hermes の場合は "
+"http://localhost:8000)。空の場合はデフォルトを試行します。"
 
 msgid "Extra arguments"
 msgstr "追加引数"
@@ -2576,9 +2484,7 @@ msgstr "ACP エージェント名"
 msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
-msgstr ""
-"ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自"
-"動検出します。"
+msgstr "ACP サーバー上のエージェント名 (例: hermes)。空の場合は最初のエージェントを自動検出します。"
 
 msgid "Calc spreadsheet tools"
 msgstr "Calc 表計算ツール"
@@ -2619,9 +2525,7 @@ msgstr "Web Research Cache"
 msgid ""
 "Cache completed web research reports by normalized query (uses web cache "
 "database)."
-msgstr ""
-"完了したWeb調査レポートを正規化されたクエリでキャッシュします (Webキャッシュ"
-"データベースを使用)。"
+msgstr "完了したWeb調査レポートを正規化されたクエリでキャッシュします (Webキャッシュデータベースを使用)。"
 
 msgid "Prompt for Web Research"
 msgstr "ウェブ調査用プロンプト"
@@ -2635,9 +2539,7 @@ msgstr "Web Research Browser"
 msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
-msgstr ""
-"リサーチ時にウェブページを閲覧するためのブラウザバックエンドを選択します"
-"（「オフ」は静的なHTTPリクエストを使用します）。"
+msgstr "リサーチ時にウェブページを閲覧するためのブラウザバックエンドを選択します（「オフ」は静的なHTTPリクエストを使用します）。"
 
 msgid "Off (Static HTTP)"
 msgstr "オフ (静的HTTP)"
@@ -2675,15 +2577,13 @@ msgstr "ヒューマナイザースキル (自然な文章)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
-"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
-"dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under "
+"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
+"use). A dedicated Skills tab can be added later."
 msgstr ""
-"有効にすると、生成または修正された文書のテキストがより自然で人間らしく聞こえ"
-"るように（AI特有の不自然なパターンを除去）、システムプロンプトにガイダンスを"
-"注入します。ルールを編集するには、LibreOfficeプロファイルの writeragent/"
-"skills/humanizer/SKILL.md を開いてください（このファイルは初回使用時に自動作"
-"成されます）。専用の「スキル」タブは後日追加される予定です。"
+"有効にすると、生成または修正された文書のテキストがより自然で人間らしく聞こえるように（AI特有の不自然なパターンを除去）、システムプロンプトにガイダンスを注入します。ルールを編集するには、LibreOfficeプロファイルの"
+" writeragent/skills/humanizer/SKILL.md "
+"を開いてください（このファイルは初回使用時に自動作成されます）。専用の「スキル」タブは後日追加される予定です。"
 
 msgid "Silence before send (ms)"
 msgstr "送信前の無音時間 (ms)"
@@ -2691,9 +2591,7 @@ msgstr "送信前の無音時間 (ms)"
 msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
-msgstr ""
-"話すのをやめた後に一時停止し、自動停止して送信します (録音)。0 = 停止ボタンを"
-"クリックするまで待機"
+msgstr "話すのをやめた後に一時停止し、自動停止して送信します (録音)。0 = 停止ボタンをクリックするまで待機"
 
 msgid "Doc"
 msgstr "文書"
@@ -2705,8 +2603,8 @@ msgid ""
 "Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
 "= use local LanguageTool server via venv pip package."
 msgstr ""
-"オフ = 無効。AI (LLM) = 設定済みのテキストモデル/APIを使用。LanguageTool = "
-"venv pipパッケージ経由でローカルのLanguageToolサーバーを使用。"
+"オフ = 無効。AI (LLM) = 設定済みのテキストモデル/APIを使用。LanguageTool = venv "
+"pipパッケージ経由でローカルのLanguageToolサーバーを使用。"
 
 msgid "Off"
 msgstr "オフ"
@@ -2736,8 +2634,7 @@ msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
 msgstr ""
-"オンにすると、サイドバーチャットまたはエージェント実行中は同時 API 呼び出しを"
-"避けるため、AI 文法のバックグラウンドリクエストをスキップします。"
+"オンにすると、サイドバーチャットまたはエージェント実行中は同時 API 呼び出しを避けるため、AI 文法のバックグラウンドリクエストをスキップします。"
 
 msgid "Batch sentences"
 msgstr "バッチ文"
@@ -2747,9 +2644,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"LLMリクエストごとに送信する文の数 (1～8)。1 (デフォルト) が最も確実です。値を"
-"大きくすると高速かつ低コストになりますが、トークン制限に達したり、モデルエ"
-"ラーが発生したりする可能性があります。"
+"LLMリクエストごとに送信する文の数 (1～8)。1 (デフォルト) "
+"が最も確実です。値を大きくすると高速かつ低コストになりますが、トークン制限に達したり、モデルエラーが発生したりする可能性があります。"
 
 msgid "Concurrent requests"
 msgstr "同時リクエスト数"
@@ -2759,9 +2655,8 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"バックグラウンドでのGrammar API同時呼び出し数（1～8）。1は従来の動作と同じで"
-"す。OpenRouterや並列リクエストを許可する他のプロバイダーを使用する場合は増や"
-"してください。サイドバーチャットと併用する場合は注意してください。"
+"バックグラウンドでのGrammar "
+"API同時呼び出し数（1～8）。1は従来の動作と同じです。OpenRouterや並列リクエストを許可する他のプロバイダーを使用する場合は増やしてください。サイドバーチャットと併用する場合は注意してください。"
 
 msgid "Sentence language detection"
 msgstr "文の言語検出"
@@ -2772,10 +2667,8 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"各完全な文の言語をドキュメントの言語設定と照合します。「AI」は文法/チャット"
-"APIを使用し、「ローカル」はPython仮想環境のlangdetectを使用します（設定 → "
-"Python; API呼び出しなし）。不一致がある場合はCharLocaleを更新し、文法を再"
-"チェックします。"
+"各完全な文の言語をドキュメントの言語設定と照合します。「AI」は文法/チャットAPIを使用し、「ローカル」はPython仮想環境のlangdetectを使用します（設定"
+" → Python; API呼び出しなし）。不一致がある場合はCharLocaleを更新し、文法を再チェックします。"
 
 msgid "Local (langdetect)"
 msgstr "ローカル (langdetect)"
@@ -2787,9 +2680,7 @@ msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
 msgstr ""
-"オンにすると、サイドバーのクエリ入力欄でEnterキーを押すと「送信」と同じ動作に"
-"なり、Shift+Enterで改行が挿入されます。オフにすると、Enterキーで改行が挿入さ"
-"れます。"
+"オンにすると、サイドバーのクエリ入力欄でEnterキーを押すと「送信」と同じ動作になり、Shift+Enterで改行が挿入されます。オフにすると、Enterキーで改行が挿入されます。"
 
 msgid "Agent edit review"
 msgstr "エージェント編集レビュー"
@@ -2799,9 +2690,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"オフ = 直接編集。記録 = 変更履歴として記録し、自身で承諾/拒否。待機 = レ"
-"ビューするまで apply_document_content をブロック（チャット/MCPワーカー・ス"
-"レッド上）。"
+"オフ = 直接編集。記録 = 変更履歴として記録し、自身で承諾/拒否。待機 = レビューするまで apply_document_content "
+"をブロック（チャット/MCPワーカー・スレッド上）。"
 
 msgid "Record (track changes)"
 msgstr "記録 (変更履歴)"
@@ -2822,8 +2712,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"document_research (corpus.db) 用のインデックス化されたセマンティック + キー"
-"ワード検索。埋め込み用 venv が必要 — Python テストを参照。"
+"document_research (corpus.db) 用のインデックス化されたセマンティック + キーワード検索。埋め込み用 venv が必要 —"
+" Python テストを参照。"
 
 msgid "Embeddings + FTS"
 msgstr "埋め込み + FTS"
@@ -2841,9 +2731,7 @@ msgid "Embedding Model"
 msgstr "埋め込みモデル"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
-msgstr ""
-"ローカルプロバイダー用のHuggingFaceモデルID、またはエンドポイント固有のモデル"
-"ID"
+msgstr "ローカルプロバイダー用のHuggingFaceモデルID、またはエンドポイント固有のモデルID"
 
 msgid "Enable cross-file rerank"
 msgstr "ファイル横断リランクを有効にする"
@@ -2852,15 +2740,14 @@ msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
 msgstr ""
-"ハイブリッド検索（埋め込みベクトル + FTS および LlamaIndex）後のセカンドス"
-"テージ・クロスエンコーダー。デフォルトではオフ。"
+"ハイブリッド検索（埋め込みベクトル + FTS および LlamaIndex）後のセカンドステージ・クロスエンコーダー。デフォルトではオフ。"
 
 msgid "Rerank model"
 msgstr "リランクモデル"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
-"is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
+" is multilingual and downloads ~2.3 GB."
 msgstr ""
 "リランクが有効な場合のみ使用されます。English MiniLMは高速ですが、bge-"
 "reranker-v2-m3は多言語対応で約2.3GBのダウンロードが必要です。"
@@ -2881,11 +2768,10 @@ msgid "Enable MCP Server"
 msgstr "MCP サーバーを有効にする"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
-"HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
+" HTTP)."
 msgstr ""
-"ローカルホストのみ、認証なし。クライアントは http://localhost:<port>/mcp (ス"
-"トリーミング可能なHTTP) を使用します。"
+"ローカルホストのみ、認証なし。クライアントは http://localhost:<port>/mcp (ストリーミング可能なHTTP) を使用します。"
 
 msgid "MCP Port"
 msgstr "MCP ポート"
@@ -2901,11 +2787,10 @@ msgid ""
 "find_tools (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"専門ツールをMCPクライアントにどのように提示するか。delegate=デリゲートゲート"
-"ウェイ経由で到達（現在の動作）; direct_flat=サイドバー専用フローを除き、MCPで"
-"到達可能なすべての専門ツールを直接リスト化（独自のツール検索機能を持つクライ"
-"アントに最適）; direct_discovery=小規模なコアリストとfind_tools（ドメインカタ"
-"ログ、その後にドメインごとのツールスキーマ。あらゆるクライアントに最適）。"
+"専門ツールをMCPクライアントにどのように提示するか。delegate=デリゲートゲートウェイ経由で到達（現在の動作）; "
+"direct_flat=サイドバー専用フローを除き、MCPで到達可能なすべての専門ツールを直接リスト化（独自のツール検索機能を持つクライアントに最適）;"
+" "
+"direct_discovery=小規模なコアリストとfind_tools（ドメインカタログ、その後にドメインごとのツールスキーマ。あらゆるクライアントに最適）。"
 
 msgid "Delegate (default)"
 msgstr "デリゲート (デフォルト)"
@@ -2928,18 +2813,16 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"設定されている場合、その仮想環境 (bin/python または Scripts/python.exe) で"
-"ツールを実行します。空の場合、run_venv_python_script はこのプロセスの "
-"sys.executable (基本的な標準ライブラリ) を使用します。numpy/pandas およびビ"
-"ジョンヘルパー (paddleocr, paddlepaddle) を使用する場合は仮想環境を指定してく"
-"ださい。"
+"設定されている場合、その仮想環境 (bin/python または Scripts/python.exe) "
+"でツールを実行します。空の場合、run_venv_python_script はこのプロセスの sys.executable (基本的な標準ライブラリ)"
+" を使用します。numpy/pandas およびビジョンヘルパー (paddleocr, paddlepaddle) "
+"を使用する場合は仮想環境を指定してください。"
 
 msgid "Test"
 msgstr "テスト"
 
 msgid "Download platform-specific audio and serialization binaries:"
-msgstr ""
-"プラットフォーム固有のオーディオおよびシリアライズ用バイナリをダウンロード:"
+msgstr "プラットフォーム固有のオーディオおよびシリアライズ用バイナリをダウンロード:"
 
 msgid "Python script timeout (seconds)"
 msgstr "Python スクリプトのタイムアウト（秒）"
@@ -2948,19 +2831,17 @@ msgid ""
 "Wall-clock limit for Run Python Script, =PYTHON(), and "
 "run_venv_python_script."
 msgstr ""
-"「Python スクリプトの実行」、=PYTHON()、および run_venv_python_script の実行"
-"時間制限（ウォールクロック時間）"
+"「Python スクリプトの実行」、=PYTHON()、および run_venv_python_script の実行時間制限（ウォールクロック時間）"
 
 msgid "Max Calc data cells"
 msgstr "Calcの最大データセル数"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
-"values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
+" values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"=PYTHON() データまたは「Pythonスクリプトを実行」の data/data_range における最"
-"大セル数。値を大きくするとメモリと時間を消費します。UNO範囲の読み取りが依然と"
-"して支配的です。"
+"=PYTHON() データまたは「Pythonスクリプトを実行」の data/data_range "
+"における最大セル数。値を大きくするとメモリと時間を消費します。UNO範囲の読み取りが依然として支配的です。"
 
 msgid "Python session mode"
 msgstr "Pythonセッションモード"
@@ -2969,8 +2850,8 @@ msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
 msgstr ""
-"分離モード: 各 =PYTHON() セルは独立した名前空間を持ちます。共有モード: ブック"
-"ごとに1つの名前空間を共有します（変数がセル間で引き継がれます）。"
+"分離モード: 各 =PYTHON() セルは独立した名前空間を持ちます。共有モード: "
+"ブックごとに1つの名前空間を共有します（変数がセル間で引き継がれます）。"
 
 msgid "Isolated (default)"
 msgstr "分離モード (デフォルト)"
@@ -2984,37 +2865,33 @@ msgstr "Calc での Python 自動スピル"
 msgid ""
 "Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
 "adjacent cells."
-msgstr ""
-"=PYTHON() の複数セル配列/DataFrame の結果を隣接するセルに自動的にスピルしま"
-"す。"
+msgstr "=PYTHON() の複数セル配列/DataFrame の結果を隣接するセルに自動的にスピルします。"
 
 msgid "Convert Date/Time and Timedelta Strings"
 msgstr "日付/時刻および時間差文字列の変換"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to datetime/"
-"timedelta objects when sending data to the Python worker. Requires the "
-"'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to "
+"datetime/timedelta objects when sending data to the Python worker. Requires "
+"the 'pandas' and 'dateparser' packages in your venv."
 msgstr ""
-"Python ワーカーにデータを送信する際、日付/時刻および期間の文字列を自動的に検"
-"出して datetime/timedelta オブジェクトに変換します。venv に 'pandas' および "
-"'dateparser' パッケージが必要です。"
+"Python ワーカーにデータを送信する際、日付/時刻および期間の文字列を自動的に検出して datetime/timedelta "
+"オブジェクトに変換します。venv に 'pandas' および 'dateparser' パッケージが必要です。"
 
 msgid "PPT-Master data path"
 msgstr "PPT-Master データパス"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
-"svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point here at "
-"the clone root (.../ppt-master) or the inner skill dir (.../ppt-master/"
-"skills/ppt-master). Leave empty to auto-detect (dev clone beside repo, then "
-"env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, "
+"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
+" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
+"repo, then env)."
 msgstr ""
-"ppt-masterスキルツリーへのパス (SKILL.md, templates/, scripts/svg_to_pptx/)。"
-"https://github.com/hugohe3/ppt-master をクローンし、そのクローンルート (.../"
-"ppt-master) または内部スキルディレクトリ (.../ppt-master/skills/ppt-master) "
-"を指定してください。空欄にすると自動検出されます（リポジトリの隣に開発用ク"
-"ローンがある場合など）。"
+"ppt-masterスキルツリーへのパス (SKILL.md, templates/, "
+"scripts/svg_to_pptx/)。https://github.com/hugohe3/ppt-master をクローンし、そのクローンルート"
+" (.../ppt-master) または内部スキルディレクトリ (.../ppt-master/skills/ppt-master) "
+"を指定してください。空欄にすると自動検出されます（リポジトリの隣に開発用クローンがある場合など）。"
 
 msgid "Vision / OCR"
 msgstr "ビジョン / OCR"
@@ -3023,9 +2900,7 @@ msgid "Image scale"
 msgstr "画像の拡大率"
 
 msgid "Upscale before OCR/layout. Try 2.0 for small screenshots."
-msgstr ""
-"OCR/レイアウト解析前に画像を拡大します。小さなスクリーンショットには2.0を試し"
-"てください。"
+msgstr "OCR/レイアウト解析前に画像を拡大します。小さなスクリーンショットには2.0を試してください。"
 
 msgid "Worker timeout (seconds)"
 msgstr "ワーカーのタイムアウト（秒）"
@@ -3037,8 +2912,7 @@ msgid "Docling artifacts path"
 msgstr "Doclingアーティファクトのパス"
 
 msgid "Optional folder from docling-tools models download (offline use)."
-msgstr ""
-"docling-toolsモデルダウンロード用のオプションフォルダ（オフライン使用）。"
+msgstr "docling-toolsモデルダウンロード用のオプションフォルダ（オフライン使用）。"
 
 msgid "OCR confidence threshold"
 msgstr "OCR信頼度しきい値"
@@ -3080,8 +2954,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = Docling HTML インポート (デフォルト)。structured = Writer での bbox カ"
-"ラムレイアウト。構造抽出テーブルにはネイティブの Calc セルを使用。"
+"html = Docling HTML インポート (デフォルト)。structured = Writer での bbox "
+"カラムレイアウト。構造抽出テーブルにはネイティブの Calc セルを使用。"
 
 msgid "Standard HTML"
 msgstr "標準 HTML"

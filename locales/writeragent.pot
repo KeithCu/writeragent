@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 13:52-0400\n"
+"POT-Creation-Date: 2026-07-09 19:03-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -440,6 +440,7 @@ msgid "WriterAgent: Extend Selection (Calc)"
 msgstr ""
 
 #: plugin/calc/vision_egress.py plugin/vision/vision_runner.py
+#: plugin/vision/vision_egress.py
 msgid "Select an embedded image, then Run again."
 msgstr ""
 
@@ -1210,42 +1211,6 @@ msgid "A script named '{0}' already exists in this document."
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
-msgid "Analysis Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "Vision Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "Viz Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "Math Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "Units Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "Quant Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "Optimize Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "Forecast Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
-msgid "SQL Helpers"
-msgstr ""
-
-#: plugin/scripting/document_scripts.py
 msgid "My Scripts"
 msgstr ""
 
@@ -1622,12 +1587,166 @@ msgstr ""
 msgid "Unsupported document type for plot insertion."
 msgstr ""
 
-#: plugin/scripting/viz.py plugin/scripting/python_runner.py
+#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
 msgid "Viz helper failed."
 msgstr ""
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Unsupported document type."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Quant helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Helper failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid ""
+"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
+"tables). (took {time})"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. Wrote {rows} rows. (took {time})"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+#, python-brace-format
+msgid "{domain} '{helper}' completed. (took {time})"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision helper failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz helpers require a Writer or Calc document."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Viz helper requires a data range. Select cells or enter a range in the Data "
+"field."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helpers require a Writer or Calc document."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Math helper failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Units helpers require a Writer or Calc document."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helpers require a Writer document."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Text analytics helper failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Optimization helper requires a data range. Select cells or enter a range in "
+"the Data field."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimization failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Forecast helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid ""
+"Analysis helper requires a data range. Select cells or enter a range in the "
+"Data field."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis failed."
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Analysis Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "SQL Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Vision Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Viz Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Math Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Units Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Quant Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Optimize Helpers"
+msgstr ""
+
+#: plugin/scripting/domain_registry.py
+msgid "Forecast Helpers"
 msgstr ""
 
 #: plugin/scripting/session_manager.py
@@ -1683,16 +1802,37 @@ msgid ""
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
 
-#: plugin/scripting/units.py plugin/scripting/python_runner.py
-msgid "Units helper failed."
-msgstr ""
-
 #: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr ""
 
 #: plugin/scripting/units.py
 msgid "Unsupported document type for units insertion."
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Failed to insert result: {error} (took {time})"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Plot inserted ({title}). (took {time})"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Viz '{helper}' completed. {msg}"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
+msgstr ""
+
+#: plugin/scripting/helper_domain.py
+#, python-brace-format
+msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
 msgstr ""
 
 #: plugin/scripting/python_runner.py
@@ -1706,146 +1846,6 @@ msgstr ""
 
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Plot inserted ({title}). (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Viz '{helper}' completed. {msg}"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Math '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Units '{helper}' completed. Inserted: {preview} (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Vision helper failed."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Failed to insert result: {error} (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid ""
-"Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
-"tables). (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Math helper failed."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helpers require a Writer document."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Text analytics helper failed."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Text analytics '{helper}' completed. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Quant failed."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Quant '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Optimization failed."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Optimize '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Forecast failed."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Forecast '{helper}' completed. Wrote {rows} rows. (took {time})"
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-msgid "Analysis failed."
-msgstr ""
-
-#: plugin/scripting/python_runner.py
-#, python-brace-format
-msgid "Analysis '{helper}' completed. Wrote {rows} rows. (took {time})"
 msgstr ""
 
 #: plugin/scripting/python_runner.py
@@ -1903,6 +1903,27 @@ msgstr ""
 
 #: plugin/vision/vision_tools.py
 msgid "OCR complete (text returned only; not inserted)."
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+msgid "Could not resolve the image anchor for insert."
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+#, python-format
+msgid "Could not position insert after the image: %s"
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+msgid "Writer document has no controller."
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed while preparing OCR insert."
+msgstr ""
+
+#: plugin/vision/vision_egress.py
+msgid "The image was removed during OCR insert."
 msgstr ""
 
 #: plugin/mcp/__init__.py
