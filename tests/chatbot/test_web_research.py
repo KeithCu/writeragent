@@ -467,6 +467,141 @@ def test_apply_override_non_dict_non_string():
 
 
 # =============================================================================
+# Web search approval chat preview tests
+# =============================================================================
+
+
+def _run_web_search_tool_call_handler(
+    *,
+    outer_query: str = "user query",
+    search_query: str = "engine query",
+    prompt_for_web_research: bool = False,
+    approval_callback=None,
+    chat_lines: list[str] | None = None,
+):
+    """Invoke only the web_search branch of _run_web_agent's tool_call_handler."""
+    from plugin.chatbot.web_research import WebAgentRunParams, _run_web_agent
+    from plugin.contrib.smolagents.memory import ToolCall
+
+    captured_chat = chat_lines if chat_lines is not None else []
+    handler_results: list[Any] = []
+
+    def _chat_append(text: str) -> None:
+        captured_chat.append(text)
+
+    params = WebAgentRunParams(
+        smol_model=MagicMock(),
+        max_steps=5,
+        cache_path=None,
+        cache_max_mb=0,
+        cache_max_age_days=30,
+        cdp_enabled=False,
+        cdp_url=None,
+        stop_checker=lambda: False,
+        status_callback=None,
+        append_thinking_callback=None,
+        approval_callback=approval_callback,
+        chat_append_callback=_chat_append,
+        prompt_for_web_research=prompt_for_web_research,
+        outer_query=outer_query,
+    )
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        if tool_call_handler:
+            step = ToolCall(name="web_search", arguments={"query": search_query}, id="t1")
+            handler_results.append(tool_call_handler(step))
+        return "done"
+
+    with patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exe_cls, \
+         patch("plugin.chatbot.web_research.WebResearchToolCallingAgent"), \
+         patch("plugin.chatbot.smol_examples.get_examples_block", return_value=""), \
+         patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool"), \
+         patch("plugin.contrib.smolagents.default_tools.VisitWebpageTool"), \
+         patch("plugin.chatbot.web_research._VisitWebpageDedupTool"):
+        mock_exe_cls.return_value.execute_safe.side_effect = fake_execute_safe
+        _run_web_agent(MagicMock(), outer_query, None, params)
+
+    return captured_chat, handler_results
+
+
+def test_web_search_preview_shown_before_approval_returns():
+    chat_lines: list[str] = []
+    approval_called_after_chat: list[bool] = []
+
+    def approval_cb(query_for_engine, tool, args):
+        approval_called_after_chat.append(len(chat_lines) > 0 and query_for_engine in chat_lines[0])
+        return True, None
+
+    chat_lines, _ = _run_web_search_tool_call_handler(
+        outer_query="What is Python?",
+        search_query="latest Python release",
+        prompt_for_web_research=True,
+        approval_callback=approval_cb,
+        chat_lines=chat_lines,
+    )
+    assert approval_called_after_chat == [True]
+    assert len(chat_lines) == 1
+    assert "latest Python release" in chat_lines[0]
+    assert "Tool: web_search" in chat_lines[0]
+
+
+def test_web_search_reject_keeps_preview_in_chat():
+    chat_lines: list[str] = []
+
+    def approval_cb(query_for_engine, tool, args):
+        return False, None
+
+    chat_lines, results = _run_web_search_tool_call_handler(
+        search_query="blocked query",
+        prompt_for_web_research=True,
+        approval_callback=approval_cb,
+        chat_lines=chat_lines,
+    )
+    assert len(chat_lines) == 1
+    assert "blocked query" in chat_lines[0]
+    assert results and results[0].get("code") == "USER_STOPPED"
+
+
+def test_web_search_change_appends_second_preview():
+    chat_lines: list[str] = []
+
+    def approval_cb(query_for_engine, tool, args):
+        return True, "edited query"
+
+    chat_lines, _ = _run_web_search_tool_call_handler(
+        search_query="original query",
+        prompt_for_web_research=True,
+        approval_callback=approval_cb,
+        chat_lines=chat_lines,
+    )
+    assert len(chat_lines) == 2
+    assert "original query" in chat_lines[0]
+    assert "edited query" in chat_lines[1]
+
+
+def test_web_search_no_prompt_dedup_when_matches_outer_query():
+    chat_lines, _ = _run_web_search_tool_call_handler(
+        outer_query="best pizza madison",
+        search_query="best pizza madison",
+        prompt_for_web_research=False,
+        chat_lines=[],
+    )
+    assert chat_lines == []
+
+
+def test_web_search_prompt_shows_preview_even_when_matches_outer_query():
+    chat_lines, _ = _run_web_search_tool_call_handler(
+        outer_query="best pizza madison",
+        search_query="best pizza madison",
+        prompt_for_web_research=True,
+        approval_callback=lambda q, tool, args: (True, None),
+        chat_lines=[],
+    )
+    assert len(chat_lines) == 1
+    assert "best pizza madison" in chat_lines[0]
+
+
+# =============================================================================
 # Web research step budget tests (from test_web_research_step_budget.py)
 # =============================================================================
 

@@ -351,7 +351,24 @@ def _run_web_agent(
             if params.append_thinking_callback:
                 params.append_thinking_callback(f"Running tool: {step.name} with {{'query': '{q}'}}\n")
 
-            if params.prompt_for_web_research and params.approval_callback:
+            prompt_and_approve = params.prompt_for_web_research and params.approval_callback
+
+            def _append_search_preview(query_for_engine: str, *, skip_dedup: bool) -> None:
+                if not params.chat_append_callback:
+                    return
+                if not skip_dedup:
+                    q_norm = _norm_research_query(query_for_engine)
+                    query_norm = _norm_research_query(params.outer_query)
+                    if web_search_step_index == 0 and q_norm == query_norm:
+                        return
+                from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
+
+                params.chat_append_callback(web_search_engine_step_chat_text(query_for_engine, web_search_step_index))
+
+            if prompt_and_approve:
+                # Show the engine query before blocking on Accept/Change/Reject so the sidebar
+                # transcript matches what the user is approving (skip outer-query dedup).
+                _append_search_preview(q, skip_dedup=True)
                 approval_result = params.approval_callback(q, "web_search", step.arguments)
                 if isinstance(approval_result, tuple):
                     proceed, query_override = approval_result[0], (approval_result[1] if len(approval_result) > 1 else None)
@@ -363,14 +380,9 @@ def _run_web_agent(
                 if query_override is not None:
                     _apply_web_search_query_override(step, query_override)
                     q = query_override
-
-            if params.chat_append_callback:
-                q_norm = _norm_research_query(q)
-                query_norm = _norm_research_query(params.outer_query)
-                if not (web_search_step_index == 0 and q_norm == query_norm):
-                    from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
-
-                    params.chat_append_callback(web_search_engine_step_chat_text(q, web_search_step_index))
+                    _append_search_preview(q, skip_dedup=True)
+            else:
+                _append_search_preview(q, skip_dedup=False)
 
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"

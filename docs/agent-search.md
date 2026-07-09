@@ -34,6 +34,12 @@ Exposed in `core/document_tools.py`, the `search_web` tool accepts a `query` and
 3. It kicks off the `smolagents` run loop, which autonomously researches the query until it calls the `final_answer` tool or hits a timeout/max-steps limit.
 4. It catches the final answer and returns it to the main agent as JSON: `{"status": "ok", "result": "<answer>"}` (or `{"status": "error", "message": "..."}` on failure/timeout).
 
+### Prompt for web research (HITL)
+
+When **Prompt for Web Research** is enabled (`chatbot.prompt_for_web_research`), each internal `web_search` step in the sub-agent blocks until the user accepts, edits, or rejects the DuckDuckGo query. This applies in **main chat** (via `web_research` / delegate) and in dedicated **Web Research** sidebar mode.
+
+Before the Accept/Change/Reject wait, the sidebar response area shows a `Tool: web_search` line plus the search-engine preview sentence (`web_research_chat.web_search_engine_step_chat_text`). Reject leaves that line in the transcript; Change appends a second preview for the edited query.
+
 ## 3. Vendored Files Overview
 
 To facilitate the sub-agent without burdening WriterAgent with dependencies, we've pulled in a specific subset of the `smolagents` library. Here is an overview of what each file does and its importance to the project:

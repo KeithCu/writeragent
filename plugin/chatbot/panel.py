@@ -590,7 +590,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             else:
                 log.exception("begin_inline_web_approval failed")
 
-        # Approval is inline (Accept / Change / Reject); no chat transcript for the pending query.
+        # Approval is inline (Accept / Change / Reject); search preview is already in the transcript.
         self._set_status(_("Waiting for approval…"))
         log.info("Inline web approval: waiting for Accept, Change, or Reject")
 

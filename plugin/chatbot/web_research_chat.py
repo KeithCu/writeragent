@@ -60,8 +60,9 @@ def search_engine_preview_line(query_for_engine: str) -> str:
 def web_search_engine_step_chat_text(query_for_engine: str, step_index: int) -> str:
     """Chat history for each internal web_search step (Tool: web_search + search-engine preview).
 
-    Appended from WebResearchTool.tool_call_handler after approval when prompt_for_web_research
-    is on (reject leaves chat unchanged). Approval UI: panel.begin_inline_web_approval.
+    Appended from WebResearchTool.tool_call_handler. When prompt_for_web_research is on, the
+    preview is shown before Accept/Change/Reject (reject leaves that line in chat). Approval UI:
+    panel.begin_inline_web_approval.
     """
     from plugin.framework.i18n import _
 
