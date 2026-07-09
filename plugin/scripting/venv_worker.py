@@ -570,7 +570,7 @@ def _worker_manager_for_ctx(
 
 def run_code_in_user_venv(
     uno_ctx: Any,
-    code: str,
+    code: str | None = None,
     *,
     data: Any = None,
     timeout_sec: int | None = None,
@@ -584,8 +584,9 @@ def run_code_in_user_venv(
     allow_heartbeat: bool = False,
     heartbeat_grace_sec: int | None = None,
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
+    action: str | None = None,
 ) -> Dict[str, Any]:
-    """Execute *code* via :class:`PythonWorkerManager` (warm process).
+    """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
 
     Without *session_id*, each call uses an isolated namespace in the child. With
     *session_id*, the child reuses one namespace per workbook (shared kernel).
@@ -595,7 +596,7 @@ def run_code_in_user_venv(
     *active_domain* / *python_tool_domain* are reserved for future venv→LO tool RPC (not wired yet).
     """
     del active_domain, python_tool_domain  # deferred — see docs/enabling_numpy_in_libreoffice.md §7
-    if not (code or "").strip():
+    if not action and not (code or "").strip():
         return {"status": "error", "message": "No code provided."}
 
     manager, err = _worker_manager_for_ctx(uno_ctx, pool=worker_pool)
@@ -606,18 +607,21 @@ def run_code_in_user_venv(
     configured = configured_python_exec_timeout(uno_ctx)
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
-    return manager.execute(
-        code,
-        data=data,
-        timeout_sec=timeout_sec,
-        session_id=session_id,
-        init_script=init_script,
-        init_session_id=init_session_id,
-        init_script_hash=init_script_hash,
-        allow_heartbeat=allow_heartbeat,
-        heartbeat_grace_sec=heartbeat_grace_sec,
-        on_heartbeat=on_heartbeat,
-    )
+    call_kwargs = {
+        "data": data,
+        "timeout_sec": timeout_sec,
+        "session_id": session_id,
+        "init_script": init_script,
+        "init_session_id": init_session_id,
+        "init_script_hash": init_script_hash,
+        "allow_heartbeat": allow_heartbeat,
+        "heartbeat_grace_sec": heartbeat_grace_sec,
+        "on_heartbeat": on_heartbeat,
+    }
+    if action is not None:
+        call_kwargs["action"] = action
+
+    return manager.execute(code, **call_kwargs)
 
 
 def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> Dict[str, Any]:

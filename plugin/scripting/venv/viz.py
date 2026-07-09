@@ -9,38 +9,19 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from plugin.scripting.venv.coerce import CoerceResult, coerce_to_dataframe
-
-# Local copy of small pure value from the host facade. The worker must not import
-# from plugin.scripting.* (those modules pull in host-only code and are not guaranteed
-# to exist or be compatible in the user's configured venv interpreter).
-HELPER_NAMES = frozenset(
-    {
-        "quick_plot",
-        "plot_data",
-        "correlation_heatmap",
-        "time_series_plot",
-    }
+from plugin.scripting.venv.coerce import (
+    CoerceResult,
+    coerce_to_dataframe,
+    error_result as _error_result,
+    missing_package_error as _missing_package_error,
 )
+
+from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
 
 log = logging.getLogger(__name__)
 
 
 # --- Core Helper Implementations (Venv Execution Path) ---
-
-def _error_result(code: str, message: str, *, helper: str | None = None) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
-    if helper:
-        out["helper"] = helper
-    return out
-
-
-def _missing_package_error(helper: str, package: str) -> dict[str, Any]:
-    return _error_result(
-        "MISSING_PACKAGE",
-        f"{package} is required for {helper}.",
-        helper=helper,
-    )
 
 
 def _resolve_df(data: Any, *, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> CoerceResult:

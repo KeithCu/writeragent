@@ -9,43 +9,21 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from plugin.scripting.analysis import MAX_TABLE_ROWS
-from plugin.scripting.optimize import HELPER_NAMES
-from plugin.scripting.venv.coerce import CoerceResult, coerce_to_dataframe
+from plugin.scripting.calc_functions_common import (
+    OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
+    OPTIMIZE_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
+)
+from plugin.scripting.venv.coerce import (
+    CoerceResult,
+    coerce_to_dataframe,
+    ok_result as _ok_result,
+    error_result as _error_result,
+    missing_package_error as _missing_package_error,
+    table_from_df as _table_from_df,
+)
+import logging
 
 log = logging.getLogger(__name__)
-
-
-def _missing_package_error(helper: str, package: str) -> dict[str, Any]:
-    return _error_result(
-        "MISSING_PACKAGE",
-        f"{package} is required for {helper}.",
-        helper=helper,
-    )
-
-
-def _table_from_df(df: Any, *, name: str, max_rows: int = MAX_TABLE_ROWS) -> dict[str, Any]:
-    limited = df.head(max_rows)
-    return {
-        "name": name,
-        "columns": [str(c) for c in limited.columns],
-        "rows": limited.where(limited.notna(), None).values.tolist(),
-        "truncated": len(df) > max_rows,
-        "total_rows": int(len(df)),
-    }
-
-
-def _ok_result(helper: str, **payload: Any) -> dict[str, Any]:
-    return {"status": "ok", "helper": helper, **payload}
-
-
-def _error_result(code: str, message: str, *, helper: str | None = None, details: dict[str, Any] | None = None) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
-    if helper:
-        out["helper"] = helper
-    if details:
-        out["details"] = details
-    return out
 
 
 def _resolve_df(data: Any, *, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> CoerceResult:

@@ -269,9 +269,9 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 - **Do not** widen the LLM whitelist to “fix” embeddings; add a trusted module instead.
 - **Do not** run sqlite-vec or NumPy encode in LibreOffice’s embedded interpreter — stay on the venv side ([embeddings](embeddings.md#why-numpy-stays-in-the-venv)).
 
-#### Future: harness `action` dispatch
+#### Harness `action` dispatch
 
-[`worker_harness.py`](../plugin/scripting/venv/worker_harness.py) already handles non-code requests (e.g. `action: "reset_session"`). A future `action: "embed_search"` could call a trusted function **without** any user code string — same trust model, less AST overhead. Not required for MVP if the fixed stub + module pattern is enough.
+[`worker_harness.py`](../plugin/scripting/venv/worker_harness.py) handles trusted action requests via `action: "run_trusted_action"`. This calls the trusted helper functions (for vision, embeddings, langdetect, and scripting domains) directly **without** generating or executing any user code strings—providing the same trust model with zero AST overhead.
 
 ### Specialized domain
 

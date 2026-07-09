@@ -27,13 +27,10 @@ from plugin.scripting.helper_domain import (
 
 log = logging.getLogger(__name__)
 
-HELPER_NAMES = {
-    "forecast_time_series",
-    "decompose_time_series",
-    "anomaly_detection_time_series",
-}
-
-MAX_TABLE_ROWS = 50
+from plugin.scripting.calc_functions_common import (
+    FORECAST_HELPER_NAMES as HELPER_NAMES,
+    FORECAST_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
+)
 
 FORECAST_HEADER_PREFIX = header_prefix("forecast")
 
@@ -78,36 +75,38 @@ _FORECAST_VENV_EXPORTS = frozenset(
 __getattr__ = make_getattr("forecast", _FORECAST_VENV_EXPORTS)
 
 
+# --- Templates ---
+
+from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
+
 ForecastScriptHeader = HelperScriptMeta
 
-
-def parse_forecast_script_header(code: str) -> ForecastScriptHeader | None:
-    return parse_helper_script_header(
-        code,
+_API = make_template_api(
+    DomainFacadeConfig(
         tag="forecast",
-        helper_names=None,
-        require_prefix=False,
-        on_bad_json="none",
-    )
-
-
-def get_forecast_template(helper: str) -> str | None:
-    if helper not in HELPER_NAMES:
-        return None
-    params = _DEFAULT_PARAMS.get(helper, {})
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper.replace("_", " ").title())
-    return build_helper_script_template(
-        tag="forecast",
-        helper=helper,
-        params=params,
-        description=desc,
+        helper_names=HELPER_NAMES,
+        default_params=_DEFAULT_PARAMS,
+        descriptions=_HELPER_DESCRIPTIONS,
+        import_module="writeragent.scripting.forecast",
+        run_name="run_forecast",
         style="header_only",
         compact_json=False,
+        require_prefix=False,
+        on_bad_json="none",
         extra_comment_lines=(
             "# This script delegates to the trusted forecast venv module.",
             "# Edit the JSON params above if needed. No other code runs.",
         ),
     )
+)
+
+parse_forecast_script_header = _API.parse_header
+
+
+def get_forecast_template(helper: str) -> str | None:
+    if helper not in HELPER_NAMES:
+        return None
+    return _API.template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {})))
 
 
 def run_trusted_forecast(

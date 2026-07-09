@@ -17,10 +17,7 @@ from plugin.framework.errors import ConfigError, ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
-_EMBED_STUB = """\
-from plugin.embeddings.venv.embeddings_index import embed_texts as _embed
-result = _embed(data["model"], data["texts"])
-"""
+# --- Client ---
 
 
 @dataclasses.dataclass(frozen=True)
@@ -91,11 +88,12 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout
     resolved_timeout_sec = embeddings_worker_timeout_sec(ctx) if timeout_sec is None else int(timeout_sec)
     response = run_code_in_user_venv(
         ctx,
-        _EMBED_STUB,
-        data={"model": model_name, "texts": list(texts)},
+        code=None,
+        data={"domain": "embedding", "model": model_name, "texts": list(texts)},
         timeout_sec=resolved_timeout_sec,
         session_id=_embedding_session_id(model_name),
         worker_pool=WORKER_POOL_EMBEDDINGS,
+        action="run_trusted_action",
     )
     if response.get("status") != "ok":
         message = str(response.get("message") or "Embedding worker failed.")

@@ -27,14 +27,7 @@ from plugin.framework.errors import ToolExecutionError
 
 log = logging.getLogger(__name__)
 
-# --- Constants & Common ---
-
-HELPER_NAMES = (
-    "fetch_historical_data",
-    "technical_analysis",
-    "portfolio_tearsheet",
-    "efficient_frontier",
-)
+from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
 
 QUANT_HEADER_PREFIX = header_prefix("quant")
 
@@ -67,36 +60,36 @@ __getattr__ = make_getattr("quant", _QUANT_VENV_EXPORTS)
 
 # --- Templates ---
 
+from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
+
 QuantScriptHeader = HelperScriptMeta
 
-
-def parse_quant_script_header(code: str) -> QuantScriptHeader | None:
-    return parse_helper_script_header(
-        code,
+_API = make_template_api(
+    DomainFacadeConfig(
         tag="quant",
-        helper_names=None,
-        require_prefix=False,
-        on_bad_json="none",
-    )
-
-
-def get_quant_template(helper: str) -> str | None:
-    if helper not in HELPER_NAMES:
-        return None
-    params = _DEFAULT_PARAMS.get(helper, {})
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper.replace("_", " ").title())
-    return build_helper_script_template(
-        tag="quant",
-        helper=helper,
-        params=params,
-        description=desc,
+        helper_names=HELPER_NAMES,
+        default_params=_DEFAULT_PARAMS,
+        descriptions=_HELPER_DESCRIPTIONS,
+        import_module="writeragent.scripting.quant",
+        run_name="run_quant",
         style="header_only",
         compact_json=False,
+        require_prefix=False,
+        on_bad_json="none",
         extra_comment_lines=(
             "# This script delegates to the trusted quant venv module.",
             "# Edit the JSON params above if needed. No other code runs.",
         ),
     )
+)
+
+parse_quant_script_header = _API.parse_header
+
+
+def get_quant_template(helper: str) -> str | None:
+    if helper not in HELPER_NAMES:
+        return None
+    return _API.template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {})))
 
 
 # --- Runner ---

@@ -18,22 +18,37 @@ from plugin.vision.vision_common import resolve_engine
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 
-def _run_trusted_helper(
+def _run_trusted_action(
     ctx: Any,
     session_id: str,
-    stub: str,
-    payload: dict[str, Any],
+    domain: str,
+    helper: str,
+    params: dict[str, Any],
+    data_range: Any,
+    context: dict[str, Any] | None,
     timeout_sec: int,
     error_code: str,
     error_label: str,
+    additional_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute a trusted helper in the user venv worker via run_code_in_user_venv."""
+    """Execute a trusted action packet in the user venv worker via run_code_in_user_venv."""
+    payload = {
+        "domain": domain,
+        "helper": helper,
+        "params": params,
+        "data_range": data_range,
+        "context": context or {},
+    }
+    if additional_data:
+        payload.update(additional_data)
+
     response = run_code_in_user_venv(
         ctx,
-        stub,
+        code=None,
         data=payload,
         timeout_sec=timeout_sec,
         session_id=session_id,
+        action="run_trusted_action",
     )
     if response.get("status") != "ok":
         message = str(response.get("message") or f"{error_label} worker failed.")
@@ -67,17 +82,12 @@ def _resolve_trusted_timeout(ctx: Any, session_id: str) -> int:
 def _make_spec_runner(
     *,
     session_prefix: str,
-    import_path: str,
-    run_name: str,
+    domain: str,
     error_code: str,
     error_label: str,
     long_timeout: bool = False,
 ):
-    """Build a ``run_*(ctx, spec, data, context=)`` client for the common stub shape."""
-    stub = (
-        f"from {import_path} import {run_name} as _run\n"
-        f'result = _run(data["spec"], data.get("data"), data.get("context") or {{}})\n'
-    )
+    """Build a ``run_*(ctx, spec, data, context=)`` client using run_trusted_action RPC."""
 
     def _runner(
         ctx: Any,
@@ -91,12 +101,21 @@ def _make_spec_runner(
             if long_timeout
             else configured_python_exec_timeout(ctx)
         )
-        payload = {"spec": spec, "data": data, "context": context or {}}
-        return _run_trusted_helper(
+        if isinstance(spec, str):
+            helper = spec
+            params = {}
+        else:
+            helper = spec.get("helper", "")
+            params = spec.get("params") or {}
+
+        return _run_trusted_action(
             ctx,
             session_id=session_prefix,
-            stub=stub,
-            payload=payload,
+            domain=domain,
+            helper=helper,
+            params=params,
+            data_range=data,
+            context=context,
             timeout_sec=timeout_sec,
             error_code=error_code,
             error_label=error_label,
@@ -109,24 +128,21 @@ def _make_spec_runner(
 
 run_analysis = _make_spec_runner(
     session_prefix="writeragent:analysis",
-    import_path="plugin.scripting.analysis",
-    run_name="run_analysis",
+    domain="analysis",
     error_code="ANALYSIS_ERROR",
     error_label="Analysis",
 )
 
 run_viz = _make_spec_runner(
     session_prefix="writeragent:viz",
-    import_path="plugin.scripting.viz",
-    run_name="run_viz",
+    domain="viz",
     error_code="VIZ_ERROR",
     error_label="Viz",
 )
 
 run_symbolic = _make_spec_runner(
     session_prefix="writeragent:symbolic",
-    import_path="plugin.scripting.symbolic",
-    run_name="run_symbolic",
+    domain="symbolic",
     error_code="SYMBOLIC_ERROR",
     error_label="Symbolic",
     long_timeout=True,
@@ -134,36 +150,29 @@ run_symbolic = _make_spec_runner(
 
 run_units = _make_spec_runner(
     session_prefix="writeragent:units",
-    import_path="plugin.scripting.units",
-    run_name="run_units",
+    domain="units",
     error_code="UNITS_ERROR",
     error_label="Units",
 )
 
 run_optimize = _make_spec_runner(
     session_prefix="writeragent:optimize",
-    import_path="plugin.scripting.optimize",
-    run_name="run_optimize",
+    domain="optimize",
     error_code="OPTIMIZE_ERROR",
     error_label="Optimization",
 )
 
 run_forecast = _make_spec_runner(
     session_prefix="writeragent:forecast",
-    import_path="plugin.scripting.forecast",
-    run_name="run_forecast",
+    domain="forecast",
     error_code="FORECAST_ERROR",
     error_label="Forecast",
 )
 
 
-# --- Quant (helper/params signature differs from spec runners) ---
+# --- Quant ---
 
 _QUANT_SESSION_PREFIX = "writeragent:quant"
-_QUANT_STUB = """\
-from plugin.scripting.quant import run_quant as _run
-result = _run(data["helper"], data["params"], data.get("data"), data.get("context") or {})
-"""
 
 
 def run_quant(
@@ -176,12 +185,14 @@ def run_quant(
 ) -> dict[str, Any]:
     """Execute a trusted quant helper in the user venv."""
     timeout_sec = configured_python_exec_timeout(ctx)
-    payload = {"helper": helper, "params": params, "data": data, "context": context or {}}
-    return _run_trusted_helper(
+    return _run_trusted_action(
         ctx,
         session_id=_QUANT_SESSION_PREFIX,
-        stub=_QUANT_STUB,
-        payload=payload,
+        domain="quant",
+        helper=helper,
+        params=params,
+        data_range=data,
+        context=context,
         timeout_sec=timeout_sec,
         error_code="QUANT_ERROR",
         error_label="Quant",
@@ -191,10 +202,6 @@ def run_quant(
 # --- Vision ---
 
 _VISION_SESSION_PREFIX = "writeragent:vision"
-_VISION_STUB = """\
-from plugin.vision.venv.vision import run_vision as _run
-result = _run(data["spec"], data.get("image"), data.get("context") or {})
-"""
 
 
 def _resolve_vision_timeout_sec(ctx: Any, spec: dict[str, Any] | str) -> int:
@@ -229,15 +236,24 @@ def run_vision(
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv."""
     timeout_sec = _resolve_vision_timeout_sec(ctx, spec)
-    payload = {"spec": spec, "image": image, "context": context or {}}
-    return _run_trusted_helper(
+    if isinstance(spec, str):
+        helper = spec
+        params = {}
+    else:
+        helper = spec.get("helper", "")
+        params = spec.get("params") or {}
+    return _run_trusted_action(
         ctx,
         session_id=_VISION_SESSION_PREFIX,
-        stub=_VISION_STUB,
-        payload=payload,
+        domain="vision",
+        helper=helper,
+        params=params,
+        data_range=None,
+        context=context,
         timeout_sec=timeout_sec,
         error_code="VISION_ERROR",
         error_label="Vision",
+        additional_data={"image": image},
     )
 
 

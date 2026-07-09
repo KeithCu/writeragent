@@ -9,29 +9,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-# Local copy of small pure value from the host facade. The worker must not import
-# from plugin.scripting.* (those modules pull in host-only code and are not guaranteed
-# to exist or be compatible in the user's configured venv interpreter).
-HELPER_NAMES = frozenset(
-    {
-        "solve_equation",
-        "symbolic_simplify",
-        "integrate",
-        "differentiate",
-        "latex_to_math_object",
-    }
-)
+from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELPER_NAMES
 
 log = logging.getLogger(__name__)
 
 _PARSE_TRANSFORMS: tuple[Any, ...] | None = None
 
 
-def _error_result(code: str, message: str, *, helper: str | None = None) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
-    if helper:
-        out["helper"] = helper
-    return out
+from plugin.scripting.venv.coerce import error_result as _error_result
 
 
 def _ok_result(helper: str, *, latex: str, text: str = "", **extra: Any) -> dict[str, Any]:

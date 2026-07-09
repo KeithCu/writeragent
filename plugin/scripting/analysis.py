@@ -21,27 +21,11 @@ from plugin.scripting.helper_domain import (
 
 # --- Constants & Common ---
 
-HELPER_NAMES = frozenset(
-    {
-        "describe_data",
-        "kpi_summary",
-        "detect_outliers",
-        "quick_stats",
-        "format_currency",
-        "format_percent",
-        "clean_and_prepare",
-        "pivot_aggregate",
-        "group_summary",
-        "compare_periods",
-        "correlation_matrix",
-        "run_regression",
-        "cluster_numeric",
-        "monte_carlo",
-    }
+from plugin.scripting.calc_functions_common import (
+    ANALYSIS_HELPER_NAMES as HELPER_NAMES,
+    ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
+    ANALYSIS_MAX_COLS as MAX_COLS,
 )
-
-MAX_TABLE_ROWS = 50
-MAX_COLS = 40
 
 ANALYSIS_HEADER_PREFIX = header_prefix("analysis")
 

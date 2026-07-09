@@ -16,11 +16,6 @@ from plugin.scripting.venv_worker import run_code_in_user_venv
 
 _LANGDETECT_SESSION_ID = f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:langdetect"
 
-_LANGDETECT_STUB = """\
-from plugin.embeddings.venv.langdetect_rpc import detect_lang_batch as _detect
-result = {"languages": _detect(data["texts"])}
-"""
-
 
 def detect_languages(ctx: Any, texts: list[str]) -> list[str | None]:
     """Detect BCP-47 tags for *texts* via the embeddings venv worker."""
@@ -30,11 +25,12 @@ def detect_languages(ctx: Any, texts: list[str]) -> list[str | None]:
     timeout_sec = embeddings_worker_timeout_sec(ctx)
     response = run_code_in_user_venv(
         ctx,
-        _LANGDETECT_STUB,
-        data={"texts": list(texts)},
+        code=None,
+        data={"domain": "langdetect", "texts": list(texts)},
         timeout_sec=timeout_sec,
         session_id=_LANGDETECT_SESSION_ID,
         worker_pool=WORKER_POOL_EMBEDDINGS,
+        action="run_trusted_action",
     )
     if response.get("status") != "ok":
         message = str(response.get("message") or "Language detection worker failed.")

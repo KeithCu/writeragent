@@ -45,8 +45,9 @@ def test_spec_runner_happy_path(ctx, runner_name, session_prefix, import_path, e
     assert result["helper"] == "demo"
     kwargs = mock_run.call_args.kwargs
     assert kwargs["session_id"] == session_prefix
-    assert import_path in mock_run.call_args.args[1]
-    assert kwargs["data"]["spec"] == spec
+    assert kwargs["action"] == "run_trusted_action"
+    assert kwargs["data"]["domain"] in import_path
+    assert kwargs["data"]["helper"] == spec["helper"]
 
 
 @pytest.mark.parametrize("runner_name,session_prefix,import_path,error_code", _SPEC_RUNNERS)

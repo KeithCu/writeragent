@@ -10,8 +10,7 @@ import json
 from collections import Counter
 from typing import Any, cast
 
-# Worker-local helper names (mirror host facade; do not import plugin.scripting.* here).
-HELPER_NAMES = frozenset({"full", "readability", "entities", "key_phrases", "topics", "sentiment", "diagnostics", "check"})
+from plugin.scripting.calc_functions_common import TEXT_ANALYTICS_HELPER_NAMES as HELPER_NAMES
 
 def _load_nlp(lang: str | None = None) -> Any:
     """Load the best available spaCy pipeline for the requested language.

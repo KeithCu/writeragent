@@ -45,8 +45,11 @@ def test_run_analysis_happy_path(ctx):
     mock_run.assert_called_once()
     args, kwargs = mock_run.call_args
     assert args[0] is ctx
-    assert "plugin.scripting.analysis" in args[1]
-    assert kwargs["data"] == {"spec": spec, "data": data, "context": context}
+    assert kwargs["action"] == "run_trusted_action"
+    assert kwargs["data"]["domain"] == "analysis"
+    assert kwargs["data"]["helper"] == spec["helper"]
+    assert kwargs["data"]["data_range"] == data
+    assert kwargs["data"]["context"] == context
     assert kwargs["session_id"] == "writeragent:analysis"
     assert kwargs["timeout_sec"] == 30
 

@@ -257,3 +257,70 @@ def units_insert_ok_outcome(
         time=formatted_time,
     )
     return rps_ok_outcome(status_ok, result=result, stdout=stdout)
+
+
+# --- Host Facade Factory ---
+
+from types import SimpleNamespace
+
+@dataclass(frozen=True)
+class DomainFacadeConfig:
+    tag: str                          # "viz", "math", "units", "quant", "optimize", "forecast"
+    helper_names: frozenset[str]      # from domains_common
+    default_params: dict[str, dict[str, Any]]
+    descriptions: dict[str, str]
+    import_module: str                # e.g. "writeragent.scripting.viz"
+    run_name: str                     # e.g. "run_viz"
+    style: Literal["run_import", "header_only"] = "run_import"
+    shipped_templates: frozenset[str] | None = None
+    data_expr: str = "data"
+    context_expr: str = "{}"
+    extra_comment_lines: tuple[str, ...] = ("# Edit params above, then Run.",)
+    compact_json: bool = True
+    require_prefix: bool = True
+    on_bad_json: Literal["empty", "none"] = "empty"
+
+
+def make_template_api(cfg: DomainFacadeConfig) -> Any:
+    """Build _template_body, get_templates, and parse_header functions dynamically."""
+    def _template_body(helper: str, params: dict[str, Any]) -> str:
+        desc = cfg.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
+        return build_helper_script_template(
+            tag=cfg.tag,
+            helper=helper,
+            params=params,
+            description=desc,
+            style=cfg.style,
+            import_module=cfg.import_module,
+            run_name=cfg.run_name,
+            data_expr=cfg.data_expr,
+            context_expr=cfg.context_expr,
+            extra_comment_lines=cfg.extra_comment_lines,
+            compact_json=cfg.compact_json,
+        )
+
+    def get_templates() -> dict[str, str]:
+        shipped = cfg.shipped_templates if cfg.shipped_templates is not None else cfg.helper_names
+        return {
+            helper: _template_body(helper, dict(cfg.default_params.get(helper, {})))
+            for helper in sorted(shipped)
+            if helper in cfg.helper_names
+        }
+
+    def parse_header(code: str) -> HelperScriptMeta | None:
+        # If we explicitly configure require_prefix=False or on_bad_json, pass them
+        return parse_helper_script_header(
+            code,
+            tag=cfg.tag,
+            helper_names=cfg.helper_names if cfg.require_prefix else None,
+            require_prefix=cfg.require_prefix,
+            on_bad_json=cfg.on_bad_json,
+        )
+
+    return SimpleNamespace(
+        template_body=_template_body,
+        get_templates=get_templates,
+        parse_header=parse_header,
+    )
+
+

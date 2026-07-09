@@ -10,31 +10,21 @@ import json
 import logging
 from typing import Any, cast
 
-from plugin.scripting.venv.coerce import CoerceResult, coerce_to_dataframe
-
-# Local copies of small pure values from the host facade. The worker must not import
-# from plugin.scripting.* (those modules pull in host-only code and are not guaranteed
-# to exist or be compatible in the user's configured venv interpreter).
-HELPER_NAMES = frozenset(
-    {
-        "describe_data",
-        "kpi_summary",
-        "detect_outliers",
-        "quick_stats",
-        "format_currency",
-        "format_percent",
-        "clean_and_prepare",
-        "pivot_aggregate",
-        "group_summary",
-        "compare_periods",
-        "correlation_matrix",
-        "run_regression",
-        "cluster_numeric",
-        "monte_carlo",
-    }
+from plugin.scripting.venv.coerce import (
+    CoerceResult,
+    coerce_to_dataframe,
+    ok_result as _ok_result,
+    error_result as _error_result,
+    missing_package_error as _missing_package_error,
+    table_from_df as _table_from_df,
+    records_from_df as _records_from_df,
 )
-MAX_TABLE_ROWS = 50
-MAX_COLS = 40
+
+from plugin.scripting.calc_functions_common import (
+    ANALYSIS_HELPER_NAMES as HELPER_NAMES,
+    ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
+    ANALYSIS_MAX_COLS as MAX_COLS,
+)
 
 log = logging.getLogger(__name__)
 
@@ -48,48 +38,11 @@ _NUMERIC_PROFILE_KEYS = (
 
 # --- Core Helper Implementations (Venv Execution Path) ---
 
-def _table_from_df(df: Any, *, name: str, max_rows: int = MAX_TABLE_ROWS) -> dict[str, Any]:
-    limited = df.head(max_rows)
-    return {
-        "name": name,
-        "columns": [str(c) for c in limited.columns],
-        "rows": limited.where(limited.notna(), None).values.tolist(),
-        "truncated": len(df) > max_rows,
-        "total_rows": int(len(df)),
-    }
-
-
-def _records_from_df(df: Any, *, max_rows: int = MAX_TABLE_ROWS) -> list[dict[str, Any]]:
-    limited = df.head(max_rows)
-    return limited.where(limited.notna(), None).to_dict(orient="records")
-
-
 def _markdown_table(columns: list[str], rows: list[list[Any]]) -> str:
     header = "| " + " | ".join(str(c) for c in columns) + " |"
     sep = "| " + " | ".join("---" for _ in columns) + " |"
     body = ["| " + " | ".join("" if v is None else str(v) for v in row) + " |" for row in rows]
     return "\n".join([header, sep, *body])
-
-
-def _ok_result(helper: str, **payload: Any) -> dict[str, Any]:
-    return {"status": "ok", "helper": helper, **payload}
-
-
-def _error_result(code: str, message: str, *, helper: str | None = None, details: dict[str, Any] | None = None) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
-    if helper:
-        out["helper"] = helper
-    if details:
-        out["details"] = details
-    return out
-
-
-def _missing_package_error(helper: str, package: str) -> dict[str, Any]:
-    return _error_result(
-        "MISSING_PACKAGE",
-        f"{package} is required for {helper}.",
-        helper=helper,
-    )
 
 
 def _resolve_df(data: Any, *, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> CoerceResult:

@@ -23,16 +23,7 @@ from plugin.scripting.helper_domain import (
     parse_helper_script_header,
 )
 
-# --- Constants & Common ---
-
-HELPER_NAMES = frozenset(
-    {
-        "convert_quantity",
-        "parse_quantity",
-        "format_quantity",
-        "check_dimensionality",
-    }
-)
+from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES
 
 UNITS_HEADER_PREFIX = header_prefix("units")
 
@@ -70,36 +61,26 @@ _EGRESS_PARAM_KEYS = frozenset({"output_style"})
 
 # --- Templates ---
 
+from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
+
 UnitsScriptMeta = HelperScriptMeta
 
-
-def _template_body(helper: str, params: dict[str, Any]) -> str:
-    return build_helper_script_template(
+_API = make_template_api(
+    DomainFacadeConfig(
         tag="units",
-        helper=helper,
-        params=params,
-        description=_HELPER_DESCRIPTIONS.get(helper, helper),
-        style="run_import",
+        helper_names=HELPER_NAMES,
+        default_params=_DEFAULT_PARAMS,
+        descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.units",
         run_name="run_units",
+        shipped_templates=_SHIPPED_TEMPLATES,
         data_expr="None",
-        context_expr="{}",
-        extra_comment_lines=("# Edit params above, then Run.",),
     )
+)
 
-
-def get_units_script_templates() -> dict[str, str]:
-    """Return built-in units helper scripts keyed by helper name."""
-    return {
-        helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {})))
-        for helper in sorted(_SHIPPED_TEMPLATES)
-        if helper in HELPER_NAMES
-    }
-
-
-def parse_units_script_header(code: str) -> UnitsScriptMeta | None:
-    """Parse the machine-readable header from a built-in or copied units script."""
-    return parse_helper_script_header(code, tag="units", helper_names=HELPER_NAMES)
+_template_body = _API.template_body
+get_units_script_templates = _API.get_templates
+parse_units_script_header = _API.parse_header
 
 
 # --- Runner ---

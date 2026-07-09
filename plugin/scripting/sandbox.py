@@ -18,34 +18,41 @@ if TYPE_CHECKING:
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
-# Mirror plugin/contrib/smolagents/utils.py BASE_BUILTIN_MODULES (keep in sync).
-BASE_BUILTIN_MODULES: tuple[str, ...] = (
-    "collections",
-    "datetime",
-    "itertools",
-    "math",
-    "queue",
-    "random",
-    "re",
-    "stat",
-    "statistics",
-    "time",
-    "unicodedata",
-)
+# Dynamically sync/mirror allowed and dangerous modules from smolagents to avoid silent drift.
+try:
+    from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES as _BASE_BUILTIN
+    BASE_BUILTIN_MODULES: tuple[str, ...] = tuple(_BASE_BUILTIN)
+except ImportError:
+    BASE_BUILTIN_MODULES = (
+        "collections",
+        "datetime",
+        "itertools",
+        "math",
+        "queue",
+        "random",
+        "re",
+        "stat",
+        "statistics",
+        "time",
+        "unicodedata",
+    )
 
-# Mirror plugin/contrib/smolagents/local_python_executor.py DANGEROUS_MODULES (keep in sync).
-DANGEROUS_MODULES: tuple[str, ...] = (
-    "builtins",
-    "io",
-    "multiprocessing",
-    "os",
-    "pathlib",
-    "pty",
-    "shutil",
-    "socket",
-    "subprocess",
-    "sys",
-)
+try:
+    from plugin.contrib.smolagents.local_python_executor import DANGEROUS_MODULES as _DANGEROUS
+    DANGEROUS_MODULES: tuple[str, ...] = tuple(_DANGEROUS)
+except ImportError:
+    DANGEROUS_MODULES = (
+        "builtins",
+        "io",
+        "multiprocessing",
+        "os",
+        "pathlib",
+        "pty",
+        "shutil",
+        "socket",
+        "subprocess",
+        "sys",
+    )
 
 # Curated by WriterAgent (see docs/enabling_numpy_in_libreoffice.md)—not "whatever is in the venv".
 VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (

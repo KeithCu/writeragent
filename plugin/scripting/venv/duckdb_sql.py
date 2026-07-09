@@ -21,25 +21,11 @@ log = logging.getLogger(__name__)
 MAX_TABLE_ROWS = 200  # generous for SQL results vs analysis 50
 
 
-def _ok_result(helper: str, **payload: Any) -> dict[str, Any]:
-    return {"status": "ok", "helper": helper, **payload}
-
-
-def _error_result(code: str, message: str, *, helper: str | None = None, details: dict[str, Any] | None = None) -> dict[str, Any]:
-    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
-    if helper:
-        out["helper"] = helper
-    if details:
-        out["details"] = details
-    return out
-
-
-def _missing_package_error(helper: str, package: str) -> dict[str, Any]:
-    return _error_result(
-        "MISSING_PACKAGE",
-        f"{package} is required for {helper}.",
-        helper=helper,
-    )
+from plugin.scripting.venv.coerce import (
+    ok_result as _ok_result,
+    error_result as _error_result,
+    missing_package_error as _missing_package_error,
+)
 
 
 @contextlib.contextmanager

@@ -119,6 +119,59 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
 
             return {"status": "error", "message": str(exc), "traceback": traceback.format_exc()}
 
+    if action == "run_trusted_action":
+        data = request.get("data")
+        if not isinstance(data, dict):
+            return {"status": "error", "message": "run_trusted_action requires data dict."}
+        domain = data.get("domain")
+        helper = data.get("helper")
+        params = data.get("params") or {}
+        data_range = data.get("data_range")
+        context = data.get("context") or {}
+
+        try:
+            if domain == "units":
+                from plugin.scripting.venv.units import run_units
+                result = run_units(helper, params, context)
+            elif domain in ("symbolic", "math"):
+                from plugin.scripting.venv.symbolic import run_symbolic
+                result = run_symbolic(helper, params, context)
+            elif domain == "viz":
+                from plugin.scripting.venv.viz import run_viz
+                result = run_viz(helper, params, context)
+            elif domain == "analysis":
+                from plugin.scripting.venv.analysis import run_analysis
+                result = run_analysis(helper, params, data_range, context)
+            elif domain == "forecast":
+                from plugin.scripting.venv.forecast import run_forecast
+                result = run_forecast(helper, params, data_range, context)
+            elif domain == "optimize":
+                from plugin.scripting.venv.optimize import run_optimize
+                result = run_optimize(helper, params, data_range, context)
+            elif domain == "quant":
+                from plugin.scripting.venv.quant import run_quant
+                result = run_quant(helper, params, data_range, context)
+            elif domain == "text":
+                from plugin.scripting.venv.text_analytics import run_text_analytics
+                result = run_text_analytics(helper, params, context)
+            elif domain == "vision":
+                from plugin.vision.venv.vision import run_vision
+                spec = {"helper": helper, "params": params}
+                result = run_vision(spec, data.get("image"), context)
+            elif domain == "embedding":
+                from plugin.embeddings.venv.embeddings_index import embed_texts
+                result = embed_texts(data.get("model"), data.get("texts"))
+            elif domain == "langdetect":
+                from plugin.embeddings.venv.langdetect_rpc import detect_lang_batch
+                result = {"languages": detect_lang_batch(data.get("texts"))}
+            else:
+                return {"status": "error", "message": f"Unknown trusted action domain: {domain}"}
+
+            return {"status": "ok", "result": result}
+        except Exception as exc:
+            import traceback
+            return {"status": "error", "message": str(exc), "traceback": traceback.format_exc()}
+
     code = request.get("code")
     if not isinstance(code, str) or not code.strip():
         return {"status": "error", "message": "No code provided."}

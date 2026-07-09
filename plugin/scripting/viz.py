@@ -29,16 +29,7 @@ from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
-# --- Constants & Common ---
-
-HELPER_NAMES = frozenset(
-    {
-        "quick_plot",
-        "plot_data",
-        "correlation_heatmap",
-        "time_series_plot",
-    }
-)
+from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
 
 VIZ_HEADER_PREFIX = header_prefix("viz")
 
@@ -71,36 +62,27 @@ __getattr__ = make_getattr("viz", _VIZ_VENV_EXPORTS)
 
 # --- Templates ---
 
+from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
+
 VizScriptMeta = HelperScriptMeta
 
-
-def _template_body(helper: str, params: dict[str, Any]) -> str:
-    return build_helper_script_template(
+_API = make_template_api(
+    DomainFacadeConfig(
         tag="viz",
-        helper=helper,
-        params=params,
-        description=_HELPER_DESCRIPTIONS.get(helper, helper),
-        style="run_import",
+        helper_names=HELPER_NAMES,
+        default_params=_DEFAULT_PARAMS,
+        descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.viz",
         run_name="run_viz",
+        shipped_templates=_SHIPPED_TEMPLATES,
         data_expr="data",
-        context_expr="{}",
         extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     )
+)
 
-
-def get_viz_script_templates() -> dict[str, str]:
-    """Return built-in viz helper scripts keyed by helper name."""
-    return {
-        helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {})))
-        for helper in sorted(_SHIPPED_TEMPLATES)
-        if helper in HELPER_NAMES
-    }
-
-
-def parse_viz_script_header(code: str) -> VizScriptMeta | None:
-    """Parse the machine-readable header from a built-in or copied viz script."""
-    return parse_helper_script_header(code, tag="viz", helper_names=HELPER_NAMES)
+_template_body = _API.template_body
+get_viz_script_templates = _API.get_templates
+parse_viz_script_header = _API.parse_header
 
 
 # --- Runner ---

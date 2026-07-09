@@ -12,15 +12,7 @@ from typing import Any
 
 from plugin.scripting.venv.coerce import CoerceResult, coerce_to_dataframe
 
-# Local copy of small pure value from the host facade. The worker must not import
-# from plugin.scripting.* (those modules pull in host-only code and are not guaranteed
-# to exist or be compatible in the user's configured venv interpreter).
-HELPER_NAMES = (
-    "fetch_historical_data",
-    "technical_analysis",
-    "portfolio_tearsheet",
-    "efficient_frontier",
-)
+from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
 
 log = logging.getLogger(__name__)
 

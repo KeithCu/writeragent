@@ -224,3 +224,49 @@ def coerce_to_dataframe(
     df = pd.DataFrame(rows, columns=cast("Any", col_names))
     df = _coerce_column_types(df)
     return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=dropped_rows))
+
+
+# --- Shared Result Shapes ---
+
+def ok_result(helper: str, **payload: Any) -> dict[str, Any]:
+    return {"status": "ok", "helper": helper, **payload}
+
+
+def error_result(
+    code: str,
+    message: str,
+    *,
+    helper: str | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {"status": "error", "code": code, "message": message}
+    if helper:
+        out["helper"] = helper
+    if details:
+        out["details"] = details
+    return out
+
+
+def missing_package_error(helper: str, package: str) -> dict[str, Any]:
+    return error_result(
+        "MISSING_PACKAGE",
+        f"{package} is required for {helper}.",
+        helper=helper,
+    )
+
+
+def table_from_df(df: Any, *, name: str, max_rows: int = 50) -> dict[str, Any]:
+    limited = df.head(max_rows)
+    return {
+        "name": name,
+        "columns": [str(c) for c in limited.columns],
+        "rows": limited.where(limited.notna(), None).values.tolist(),
+        "truncated": len(df) > max_rows,
+        "total_rows": int(len(df)),
+    }
+
+
+def records_from_df(df: Any, *, max_rows: int = 50) -> list[dict[str, Any]]:
+    limited = df.head(max_rows)
+    return limited.where(limited.notna(), None).to_dict(orient="records")
+

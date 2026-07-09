@@ -29,13 +29,10 @@ log = logging.getLogger(__name__)
 
 # --- Common & Constants ---
 
-HELPER_NAMES = {
-    "optimize_portfolio",
-    "linear_programming",
-    "solve_scheduling_problem",
-}
-
-MAX_TABLE_ROWS = 50
+from plugin.scripting.calc_functions_common import (
+    OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
+    OPTIMIZE_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
+)
 
 OPTIMIZE_HEADER_PREFIX = header_prefix("optimize")
 
@@ -65,36 +62,36 @@ __getattr__ = make_getattr("optimize", _OPTIMIZE_VENV_EXPORTS)
 
 # --- Templates ---
 
+from plugin.scripting.helper_domain import DomainFacadeConfig, make_template_api
+
 OptimizeScriptHeader = HelperScriptMeta
 
-
-def parse_optimize_script_header(code: str) -> OptimizeScriptHeader | None:
-    return parse_helper_script_header(
-        code,
+_API = make_template_api(
+    DomainFacadeConfig(
         tag="optimize",
-        helper_names=None,
-        require_prefix=False,
-        on_bad_json="none",
-    )
-
-
-def get_optimize_template(helper: str) -> str | None:
-    if helper not in HELPER_NAMES:
-        return None
-    params = _DEFAULT_PARAMS.get(helper, {})
-    desc = _HELPER_DESCRIPTIONS.get(helper, helper.replace("_", " ").title())
-    return build_helper_script_template(
-        tag="optimize",
-        helper=helper,
-        params=params,
-        description=desc,
+        helper_names=HELPER_NAMES,
+        default_params=_DEFAULT_PARAMS,
+        descriptions=_HELPER_DESCRIPTIONS,
+        import_module="writeragent.scripting.optimize",
+        run_name="run_optimize",
         style="header_only",
         compact_json=False,
+        require_prefix=False,
+        on_bad_json="none",
         extra_comment_lines=(
             "# This script delegates to the trusted optimize venv module.",
             "# Edit the JSON params above if needed. No other code runs.",
         ),
     )
+)
+
+parse_optimize_script_header = _API.parse_header
+
+
+def get_optimize_template(helper: str) -> str | None:
+    if helper not in HELPER_NAMES:
+        return None
+    return _API.template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {})))
 
 
 # --- Runner ---

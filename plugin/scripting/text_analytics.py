@@ -24,7 +24,7 @@ _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_a
 __getattr__ = make_getattr("text_analytics", _TEXT_VENV_EXPORTS)
 
 
-HELPER_NAMES = frozenset({"full", "readability", "entities", "key_phrases", "topics", "sentiment", "diagnostics", "check"})
+from plugin.scripting.calc_functions_common import TEXT_ANALYTICS_HELPER_NAMES as HELPER_NAMES
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
     "full": {},
