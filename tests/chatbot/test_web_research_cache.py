@@ -233,6 +233,8 @@ def test_lookup_research_cache_embedding_hit(tmp_path):
 
     embed_texts.assert_called_once()
     assert embed_texts.call_args.args[1] == ["pizza around good"]
+    # Must not override with a short lookup timeout; embed_texts default uses the long trusted budget.
+    assert embed_texts.call_args.kwargs.get("timeout_sec") is None
     assert hit is not None
     event, display_key, matched_raw_key, score, cached = hit
     assert event == "hit_embedding"

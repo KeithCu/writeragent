@@ -24,7 +24,6 @@ _MIN_TOKEN_LEN = 3
 # (gettext LO locale, snowball_lang) -> assembled fluff + stop words
 _FLUFF_WORDS_CACHE: dict[tuple[str, str], frozenset[str]] = {}
 _RESEARCH_CACHE_KIND = "research"
-_EMBEDDING_LOOKUP_TIMEOUT_SEC = 5
 _EMBEDDING_BACKFILL_BATCH_SIZE = 32
 _EMBEDDING_BACKFILL_IN_FLIGHT: set[tuple[str, str]] = set()
 _EMBEDDING_BACKFILL_LOCK = threading.Lock()
@@ -420,7 +419,6 @@ def find_embedding_research_match(
     similarity_min: float,
     embedding_text: str | None = None,
     embedding_model: str | None = None,
-    timeout_sec: int = _EMBEDDING_LOOKUP_TIMEOUT_SEC,
 ) -> tuple[str, float] | None:
     """Pick best stored-vector match. Caller falls back to Jaccard on any miss/error."""
     if not ctx or not cache_path or not word_key or not _research_cache_embedding_configured():
@@ -435,7 +433,8 @@ def find_embedding_research_match(
     from plugin.framework.client.embedding_client import embed_texts
 
     query_text = str(embedding_text or "").strip() or word_key
-    batch = embed_texts(ctx, [query_text], model=model, timeout_sec=timeout_sec)
+    # Omit timeout_sec so embed_texts uses embeddings_worker_timeout_sec (long trusted budget).
+    batch = embed_texts(ctx, [query_text], model=model)
     query_vector: list[float] | None = None
     for batch_index, vector in zip(batch.indices, batch.vectors):
         if batch_index == 0:
