@@ -265,7 +265,6 @@ def run_folder_sql(
     - files: list (legacy) or dict name->spec for folder files
     - flat_files: dict name -> full path for direct DuckDB flat files (CSV/Parquet)
     """
-    timeout_sec = configured_python_exec_timeout(ctx)
     payload = {
         "scoped_dir": scoped_dir,
         "sql": sql,
@@ -273,24 +272,15 @@ def run_folder_sql(
         "preloaded": preloaded or {},
         "flat_files": flat_files or {},
     }
-    # Reuse the common trusted helper runner (expects {"status":"ok", "result": ...} from worker)
-    response = run_code_in_user_venv(
+    return _run_trusted_helper(
         ctx,
-        _SQL_STUB,
-        data=payload,
-        timeout_sec=timeout_sec,
         session_id=_SQL_SESSION_PREFIX,
+        stub=_SQL_STUB,
+        payload=payload,
+        timeout_sec=configured_python_exec_timeout(ctx),
+        error_code="DUCKDB_SQL_ERROR",
+        error_label="DuckDB SQL",
     )
-    if response.get("status") != "ok":
-        message = str(response.get("message") or "DuckDB SQL worker failed.")
-        raise ToolExecutionError(message, code="DUCKDB_SQL_ERROR", details={"worker": response})
-    # For direct trusted SQL the worker result is already the dict from query_folder_sql
-    # (status inside). Return as-is so callers see the helper shape.
-    result = response.get("result")
-    if isinstance(result, dict):
-        return result
-    # Fallback shape
-    return {"status": "ok", "result": result}
 
 
 # --- Text Analytics (spaCy + textdescriptives) ---

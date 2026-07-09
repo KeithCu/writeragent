@@ -10,15 +10,12 @@ Compute is lazy-loaded from ``plugin.scripting.venv.forecast`` via ``__getattr__
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
-from plugin.calc.address_utils import index_to_column
-from plugin.scripting._lazy_venv import make_getattr
+from plugin.calc.analysis_runner import calc_tool_context
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.manipulator import CellManipulator
-from plugin.calc.python.function import to_calc_compatible
+from plugin.scripting._lazy_venv import make_getattr
 from plugin.calc.python.venv import _resolve_python_data
-from plugin.doc.document_helpers import is_calc
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.client import run_forecast as client_run_forecast
 from plugin.scripting.helper_domain import (
@@ -27,9 +24,6 @@ from plugin.scripting.helper_domain import (
     header_prefix,
     parse_helper_script_header,
 )
-
-if TYPE_CHECKING:
-    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger(__name__)
 
@@ -116,16 +110,6 @@ def get_forecast_template(helper: str) -> str | None:
     )
 
 
-def calc_tool_context(uno_ctx: Any, doc: Any) -> ToolContext:
-    """Minimal ToolContext-like object for range reads on the main thread."""
-    from types import SimpleNamespace
-
-    return cast(
-        "ToolContext",
-        SimpleNamespace(ctx=uno_ctx, doc=doc, doc_type="calc" if is_calc(doc) else None, active_domain=None),
-    )
-
-
 def run_trusted_forecast(
     uno_ctx: Any,
     doc: Any,
@@ -188,96 +172,16 @@ def is_forecast_result(value: Any) -> bool:
     return False
 
 
-def _cell(value: Any) -> Any:
-    return to_calc_compatible(value)
-
-
-def _append_blank(rows: list[list[Any]]) -> None:
-    if rows and rows[-1]:
-        rows.append([])
-
-
-def _append_key_value_block(rows: list[list[Any]], title: str, mapping: dict[str, Any]) -> None:
-    if not mapping:
-        return
-    _append_blank(rows)
-    rows.append([title])
-    rows.append(["Key", "Value"])
-    for key, val in mapping.items():
-        if isinstance(val, (dict, list)):
-            rows.append([str(key), str(val)])
-        else:
-            rows.append([str(key), _cell(val)])
-
-
 def format_forecast_for_calc(result: dict[str, Any]) -> list[list[Any]]:
     """Turn a forecast helper result dict into a row-major grid for ``write_formula_range``."""
-    rows: list[list[Any]] = []
+    from plugin.calc.tabular_egress import format_tabular_helper_for_calc
 
-    if result.get("status") == "error":
-        code = str(result.get("code") or "ERROR")
-        message = str(result.get("message") or "Forecast failed.")
-        return [[f"Forecast error ({code})"], [message]]
-
-    helper = str(result.get("helper") or "forecast")
-    raw_ctx = result.get("context")
-    ctx: dict[str, Any] = raw_ctx if isinstance(raw_ctx, dict) else {}
-    range_a1 = str(ctx.get("range_a1") or "").strip()
-    title = f"{helper} — {range_a1}" if range_a1 else helper
-    rows.append([title])
-
-    metrics = result.get("metrics")
-    if isinstance(metrics, dict) and metrics:
-        _append_key_value_block(rows, "Metrics", metrics)
-
-    flags = result.get("flags")
-    if isinstance(flags, list) and flags:
-        _append_blank(rows)
-        rows.append(["Flags"])
-        for item in flags:
-            rows.append([str(item)])
-
-    tables = result.get("tables")
-    if isinstance(tables, list):
-        for table in tables:
-            if not isinstance(table, dict):
-                continue
-            _append_blank(rows)
-            rows.append([str(table.get("name") or "table")])
-            columns = table.get("columns")
-            table_rows = table.get("rows")
-            if isinstance(columns, list) and columns:
-                rows.append([str(c) for c in columns])
-            if isinstance(table_rows, list):
-                for row in table_rows:
-                    if isinstance(row, list):
-                        rows.append([_cell(cell) for cell in row])
-                    else:
-                        rows.append([_cell(row)])
-            if table.get("truncated"):
-                total = table.get("total_rows")
-                note = f"(showing first rows; {total} total)" if total is not None else "(truncated)"
-                rows.append([note])
-
-    metadata = result.get("metadata")
-    if isinstance(metadata, dict) and metadata:
-        subset = {k: metadata[k] for k in ("n_rows", "n_cols", "numeric_cols") if k in metadata}
-        if subset:
-            _append_key_value_block(rows, "Metadata", subset)
-
-    if len(rows) == 1:
-        rows.append(["(no tabular output)"])
-    return rows
-
-
-def calc_anchor_from_selection(doc: Any) -> tuple[int, int]:
-    """Return (start_col, start_row) from the current Calc selection."""
-    controller = doc.getCurrentController()
-    selection = controller.getSelection()
-    if selection is not None and hasattr(selection, "getRangeAddress"):
-        addr = selection.getRangeAddress()
-        return int(addr.StartColumn), int(addr.StartRow)
-    return 0, 0
+    return format_tabular_helper_for_calc(
+        result,
+        domain_label="Forecast",
+        default_helper="forecast",
+        failed_message="Forecast failed.",
+    )
 
 
 def insert_forecast_result_into_calc(
@@ -289,14 +193,13 @@ def insert_forecast_result_into_calc(
     start_row: int | None = None,
 ) -> int:
     """Write formatted forecast output starting at *start_col*/*start_row* (or selection). Returns row count."""
-    if start_col is None or start_row is None:
-        col, row = calc_anchor_from_selection(doc)
-        start_col = col if start_col is None else start_col
-        start_row = row if start_row is None else start_row
+    from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
     grid = format_forecast_for_calc(result)
-    bridge = CalcBridge(doc)
-    manipulator = CellManipulator(bridge)
-    addr = f"{index_to_column(start_col)}{start_row + 1}"
-    manipulator.write_formula_range(addr, grid)
-    return len(grid)
+    return insert_tabular_result_into_calc(
+        doc,
+        uno_ctx,
+        grid,
+        start_col=start_col,
+        start_row=start_row,
+    )

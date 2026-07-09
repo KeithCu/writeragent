@@ -159,7 +159,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 
 | Component | Module | Behavior |
 |-----------|--------|----------|
-| Figure → bytes | [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py) | `_figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
+| Figure → bytes | [`venv/venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py) | `_figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
 | Wire format | [`payload_codec.py`](../plugin/scripting/payload_codec.py) | `PAYLOAD_IMAGE`, `is_image_payload()`; shared temp-file helper |
 | Calc `=PYTHON()` | [`python_function.py`](../plugin/calc/python/function.py), [`python_image_egress.py`](../plugin/calc/python/image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to active cell |
 | Chat / LLM | [`venv_python.py`](../plugin/calc/python/venv.py) | **Calc:** auto-insert on active sheet + `image_path`. **Writer/Draw:** `image_path` → `insert_image` |
@@ -192,11 +192,11 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 #### Phase B — Run Python Script + Writer image egress (shipped)
 
-[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz_egress.py`](../plugin/scripting/viz_egress.py) (Calc → [`insert_image_result_on_sheet`](../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py)). Viz header fast path mirrors Analysis/Vision. Tests: [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py).
+[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz.py`](../plugin/scripting/viz.py) egress helpers (Calc → [`insert_image_result_on_sheet`](../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py)). Viz header fast path mirrors Analysis/Vision. Tests: [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py).
 
 #### Phase C — Trusted Viz helpers (shipped)
 
-[`viz.py`](../plugin/scripting/viz.py), [`viz_templates.py`](../plugin/scripting/viz_templates.py), [`viz_client.py`](../plugin/framework/client/viz_client.py), [`viz_runner.py`](../plugin/scripting/viz_runner.py), [`viz_egress.py`](../plugin/scripting/viz_egress.py), `_viz_script_section` in [`document_scripts.py`](../plugin/scripting/document_scripts.py), fast path in `python_runner.py`, [`plot_data`](../plugin/calc/viz.py) analysis-domain tool, and `analyze_data` auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py).
+[`viz.py`](../plugin/scripting/viz.py) (templates, trusted runner, Calc/Writer egress), [`client.py`](../plugin/scripting/client.py) `run_viz`, `_viz_script_section` in [`document_scripts.py`](../plugin/scripting/document_scripts.py), fast path in `python_runner.py`, [`plot_data`](../plugin/calc/viz.py) analysis-domain tool, and `analyze_data` auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py).
 
 | Helper | Purpose | Notes |
 |--------|---------|-------|
@@ -234,7 +234,7 @@ run_venv_python_script(code="… plt.plot(…) …")
 | Period-over-period change | [`compare_periods`](../plugin/scripting/analysis.py) in analysis helpers |
 | Outlier detection | [`detect_outliers`](../plugin/scripting/analysis.py) — cross-sectional; use [`anomaly_detection_time_series`](../plugin/scripting/forecast.py) for temporal anomalies |
 | OLS / statsmodels | [`run_regression`](../plugin/scripting/analysis.py); `statsmodels` in analysis venv install line |
-| Range → pandas | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`analysis_coerce.py`](../plugin/scripting/analysis_coerce.py) |
+| Range → pandas | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`venv/analysis.py`](../plugin/scripting/venv/analysis.py) `coerce_to_dataframe` |
 
 **Shipped helpers:**
 
@@ -570,7 +570,7 @@ Override the model (or engine in future) via the JSON setting `text_analytics_se
 
 Results are inserted as compact tables and usable from scripts.
 
-**Module:** `plugin/scripting/text_analytics.py` (real spaCy + textdescriptives implementation; runs inside the user venv).
+**Module:** Host facade [`text_analytics.py`](../plugin/scripting/text_analytics.py); compute in [`venv/text_analytics.py`](../plugin/scripting/venv/text_analytics.py) (spaCy + textdescriptives; runs inside the user venv).
 
 **UI (minimal):** WriterAgent → **Text Analytics...** opens a modeless dialog with buttons for Readability (doc/sel), Entities, Key Phrases, **Topics**, Check Venv, and "Insert report here". All work is done with real spaCy pipelines (or sklearn for topics) in your configured Python venv (Settings → Python).
 

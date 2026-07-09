@@ -336,6 +336,7 @@ from plugin.scripting.helper_domain import (
     format_elapsed_time,
     plot_insert_ok_outcome,
     rps_error_outcome,
+    rps_insert_failed_outcome,
 )
 
 
@@ -402,9 +403,7 @@ def execute_and_insert_result(
     if response.get("status") != "ok":
         error_msg = response.get("message", _("Unknown error"))
         log.error("Python script failed: %s", error_msg)
-        if not ("timed out" in str(error_msg).lower() or "timeout" in str(error_msg).lower()):
-            error_msg = f"{error_msg} (took {formatted_time})"
-        return {"ok": False, "message": error_msg}
+        return rps_error_outcome(str(error_msg), t0=t0)
 
     result_data = response.get("result")
     stdout = response.get("stdout")
@@ -458,9 +457,7 @@ def execute_and_insert_result(
             else:
                 return {"ok": False, "message": _("Unsupported document type for result insertion. (took {time})").format(time=formatted_time)}
         except Exception as e:
-            elapsed_total = time.perf_counter() - t0
-            formatted_time_total = format_elapsed_time(elapsed_total)
-            return {"ok": False, "message": _("Failed to insert result: {error} (took {time})").format(error=str(e), time=formatted_time_total)}
+            return rps_insert_failed_outcome(e, t0=t0)
 
     if stdout:
         log.info("Python script stdout: %s", stdout)
@@ -483,24 +480,12 @@ def _run_python_monaco(
 ) -> bool:
     """Open Monaco for Run Python Script. Return True when the editor session started."""
     from plugin.calc.analysis_runner import calc_selection_to_a1
-    from plugin.scripting.analysis import parse_analysis_script_header
-    from plugin.scripting.viz import parse_viz_script_header
-    from plugin.scripting.quant import parse_quant_script_header
-    from plugin.scripting.optimize import parse_optimize_script_header
-    from plugin.scripting.forecast import parse_forecast_script_header
+    from plugin.scripting.domain_registry import script_header_needs_data_binding
 
     run_ok_text = _("Script executed successfully.")
     save_ok_text = _("Script saved.")
     initial_binding = calc_selection_to_a1(doc) if is_calc(doc) else ""
-    show_binding = False
-    if is_calc(doc):
-        show_binding = bool(
-            parse_analysis_script_header(initial_code)
-            or parse_viz_script_header(initial_code)
-            or parse_quant_script_header(initial_code)
-            or parse_optimize_script_header(initial_code)
-            or parse_forecast_script_header(initial_code)
-        )
+    show_binding = is_calc(doc) and script_header_needs_data_binding(initial_code, doc=doc)
 
     def on_save(
         code: str,

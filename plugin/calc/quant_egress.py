@@ -8,10 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.calc.address_utils import index_to_column
-from plugin.calc.bridge import CalcBridge
-from plugin.calc.manipulator import CellManipulator
 from plugin.calc.python.function import to_calc_compatible
+from plugin.calc.tabular_egress import insert_tabular_result_into_calc
 
 
 def is_quant_result(value: Any) -> bool:
@@ -63,7 +61,7 @@ def format_quant_for_calc(result: dict[str, Any]) -> list[list[Any]]:
     metrics = result.get("metrics")
     if isinstance(metrics, dict) and metrics:
         _append_key_value_block(rows, "Portfolio Metrics", metrics)
-        
+
     weights = result.get("weights")
     if isinstance(weights, dict) and weights:
         _append_key_value_block(rows, "Optimized Weights", weights)
@@ -87,16 +85,6 @@ def format_quant_for_calc(result: dict[str, Any]) -> list[list[Any]]:
     return rows
 
 
-def calc_anchor_from_selection(doc: Any) -> tuple[int, int]:
-    """Return (start_col, start_row) from the current Calc selection."""
-    controller = doc.getCurrentController()
-    selection = controller.getSelection()
-    if selection is not None and hasattr(selection, "getRangeAddress"):
-        addr = selection.getRangeAddress()
-        return int(addr.StartColumn), int(addr.StartRow)
-    return 0, 0
-
-
 def insert_quant_result_into_calc(
     doc: Any,
     uno_ctx: Any,
@@ -106,14 +94,11 @@ def insert_quant_result_into_calc(
     start_row: int | None = None,
 ) -> int:
     """Write formatted quant output starting at *start_col*/*start_row* (or selection). Returns row count."""
-    if start_col is None or start_row is None:
-        col, row = calc_anchor_from_selection(doc)
-        start_col = col if start_col is None else start_col
-        start_row = row if start_row is None else start_row
-
     grid = format_quant_for_calc(result)
-    bridge = CalcBridge(doc)
-    manipulator = CellManipulator(bridge)
-    addr = f"{index_to_column(start_col)}{start_row + 1}"
-    manipulator.write_formula_range(addr, grid)
-    return len(grid)
+    return insert_tabular_result_into_calc(
+        doc,
+        uno_ctx,
+        grid,
+        start_col=start_col,
+        start_row=start_row,
+    )

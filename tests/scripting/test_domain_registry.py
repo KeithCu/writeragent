@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from plugin.scripting.domain_registry import (
     POST_VENV_DOMAIN_ORDER,
     get_picker_domains,
@@ -41,6 +43,16 @@ def test_rps_domains_have_required_hooks():
 def test_post_venv_order_matches_constant():
     ids = [s.id for s in get_post_venv_domains()]
     assert ids == list(POST_VENV_DOMAIN_ORDER)
+
+
+def test_script_header_needs_data_binding_on_calc_domains():
+    from plugin.scripting.domain_registry import script_header_needs_data_binding
+
+    calc_doc = object()
+    with patch("plugin.scripting.domain_registry.is_calc", return_value=True):
+        code = '# writeragent:analysis helper=describe_data params={}\n'
+        assert script_header_needs_data_binding(code, doc=calc_doc) is True
+        assert script_header_needs_data_binding("# writeragent:text helper=full params={}\n", doc=calc_doc) is False
 
 
 def test_picker_domains_unique_origins_and_prefixes():

@@ -20,6 +20,7 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.scripting.editor_ipc import exception_traceback
 from plugin.scripting.helper_domain import (
+    HelperScriptMeta,
     format_elapsed_time,
     plot_insert_ok_outcome,
     rps_error_outcome,
@@ -201,9 +202,6 @@ def try_rps_post_venv(
         return None
     if spec.post_venv_calc_only and not is_calc(doc):
         return None
-    if not isinstance(result_data, dict) and not spec.is_result(result_data):
-        # Most domains need a dict; is_result already checks type.
-        pass
     if not spec.is_result(result_data):
         return None
     try:
@@ -215,7 +213,7 @@ def try_rps_post_venv(
     helper = ""
     if isinstance(result_data, dict):
         helper = str(result_data.get("helper") or "")
-    meta = type("M", (), {"helper": helper, "params": {}})()
+    meta = HelperScriptMeta(helper=helper, params={})
     return spec.format_ok(meta=meta, result=result_data, t0=t0, row_count=row_count, stdout=stdout)
 
 
@@ -747,6 +745,25 @@ def get_post_venv_domains() -> list[RpsDomainSpec]:
         if spec is not None and spec.is_result is not None:
             out.append(spec)
     return out
+
+
+def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
+    """True when *code* contains a trusted header for a domain that may use Calc data binding."""
+    for spec in get_rps_domains():
+        if spec.data_range_mode == "never":
+            continue
+        if spec.parse_header(code) is None:
+            continue
+        if spec.require_calc and not is_calc(doc):
+            continue
+        if spec.supports is not None:
+            try:
+                if not spec.supports(doc):
+                    continue
+            except Exception:
+                continue
+        return True
+    return False
 
 
 # --- Picker domains (order in build_xdl_script_picker_state) ---

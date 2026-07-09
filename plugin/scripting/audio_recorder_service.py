@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from plugin.framework.config import get_config_str
 from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.audio_silence_detector import SilenceDetectorConfig, load_silence_detector_config
+from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
 from plugin.scripting.ipc import read_json_line, write_json_line
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 

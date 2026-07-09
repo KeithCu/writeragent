@@ -24,6 +24,13 @@ def test_format_error_result():
     assert "need metrics" in grid[1][0]
 
 
+def test_tabular_egress_shared_forecast_label():
+    from plugin.scripting.forecast import format_forecast_for_calc
+
+    grid = format_forecast_for_calc({"status": "error", "code": "X", "message": "bad"})
+    assert grid[0][0].startswith("Forecast error")
+
+
 def test_format_describe_data_shape():
     result = {
         "status": "ok",

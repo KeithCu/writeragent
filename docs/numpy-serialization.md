@@ -138,8 +138,9 @@ plugin/scripting/
 ├── sandbox.py                # Import whitelist, env scrub, Flatpak spawn, pipe sizing, path resolve
 ├── config_limits.py          # Timeout + max data cells from module.yaml
 ├── sandbox_cache.py          # AST policy + parse hot cache
-├── worker_harness.py         # Stdin/stdout loop in venv (child entry)
-├── venv_sandbox.py           # LocalPythonExecutor + VENV_AUTHORIZED_IMPORTS
+├── venv/
+│   ├── worker_harness.py     # Stdin/stdout loop in venv (child entry)
+│   └── venv_sandbox.py       # LocalPythonExecutor + imports whitelist from sandbox.py
 └── payload_codec.py          # split_grid / multi_data pack/unpack
 ```
 
@@ -170,8 +171,8 @@ For numeric and mixed-type grids, the compute bridge implements high-performance
 | **Host Packing** | Flattens grid cells to float64; empty cells become `math.nan`. Identifies per-column `column_kinds` (`int`/`float`). **Single-pass** flattening loop; handles `None` in fast path. Packs raw binary buffer via `.tobytes()`. | Flattens grid; numbers become float64, empty cells/strings become `math.nan` in binary array. Strings are registered in parallel in a sparse `strings` index map with **integer keys**. |
 | **Child Unpacking** | **Optimized C-Speed Path**: Sees that the sparse `strings` dictionary is empty and materializes a NumPy `ndarray` directly using `np.frombuffer` in one step. Restores `int64` types if `column_kinds` are all-int. Bypasses all Python list/loop transpositions and Base64 decoding! | Uses a vectorized NumPy object-masking strategy: maps buffer via `np.frombuffer`, casts to object array, bulk-replaces `nan` with `None` via C-level boolean masking, casts integer columns at C-speed, overlays sparse strings via flat view, and generates nested lists via high-speed `.tolist()`. |
 | **Compatibility** | Namespace receives a NumPy ndarray (ideal for math operations). | Namespace receives a standard nested list of lists (fully backward compatible for all sheets and scripts). |
-| **Threshold** | `BINARY_MIN_CELLS = 100` — 2D grids with ≥ 10 cells use `split_grid`. | `BINARY_MIN_CELLS = 100` — 2D grids with ≥ 10 cells use `split_grid`. |
-| **Fallback** | Grids < 10 cells fall back to standard Pickle lists. | Grids < 10 cells or non-2D arrays fall back to standard Pickle lists. |
+| **Threshold** | `BINARY_MIN_CELLS = 100` — 2D grids with ≥ 100 cells use `split_grid`. | `BINARY_MIN_CELLS = 100` — 2D grids with ≥ 100 cells use `split_grid`. |
+| **Fallback** | Grids &lt; 100 cells fall back to standard Pickle lists. | Grids &lt; 100 cells or non-2D arrays fall back to standard Pickle lists. |
 | **Debug log tag** | `payload_codec host_pack split_grid` | `payload_codec host_pack split_grid` |
 
 ---
@@ -365,7 +366,7 @@ Use this when designing new serialization or bool tests ([`tests/calc/serializat
 | `bool` | `0.0` / `1.0` | — |
 | `str` (including `"02138"`) | `NaN` | text preserved by flat index (never treated as a numeric cell for `np.array(list)` reload) |
 
-Grids with **&lt; 10 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank).
+Grids with **&lt; 100 cells** use nested Pickle lists ([`BINARY_MIN_CELLS`](../plugin/scripting/payload_codec.py)); `_cell_for_json` only normalizes Python `None`; `float('nan')` is preserved so it becomes a Calc error on egress (not a silent blank).
 
 #### Child materialization (ingress)
 
@@ -383,7 +384,7 @@ Use `np.nansum(data)` (or mask with `np.isnan`) on numeric-only ingress when you
 |----------------|------------------------|
 | `np.ndarray` with `np.nan` | `float('nan')` preserved in nested lists (becomes Calc error on =PYTHON() egress) |
 | `np.inf` / `-np.inf` | Still **inf** (not treated as missing) |
-| Large numeric array (≥ 10 cells) | `split_grid` on wire (Pickle5); host unpack → nested lists (NaN preserved) for Calc / LLM |
+| Large numeric array (≥ 100 cells) | `split_grid` on wire (Pickle5); host unpack → nested lists (NaN preserved) for Calc / LLM |
 
 #### Empty cells vs NaN (policy)
 
@@ -424,7 +425,7 @@ To optimize speed and maintain a clean separation of concerns, the bridge delega
 
 ### Benchmark results (2026-05)
 
-Asymmetric simulation: **host** = stdlib pack/serialize; **child** = deserialize + materialize. Timings are median values; the automatic `split_grid` envelope is triggered when **at least 10 cells** (smaller grids fall back to standard JSON lists). The bench compares four transport + envelope strategies:
+Asymmetric simulation: **host** = stdlib pack/serialize; **child** = deserialize + materialize. Timings are median values; the automatic `split_grid` envelope is triggered when **at least 100 cells** (smaller grids fall back to standard Pickle lists). The bench compares four transport + envelope strategies:
 1. `json_list` (standard nested lists over JSON wire, materializing using `np.array(list)`).
 2. **`json+sg`** (split_grid envelope with Base64 `b64` buffer inside a JSON line, materializing using `np.frombuffer`).
 3. `pickle5` (Pickle protocol 5 of nested lists, which still requires expensive `np.array(list)` conversions in the child).
@@ -519,7 +520,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
 | [`tests/scripting/test_venv_worker.py`](../tests/scripting/test_venv_worker.py) | Harness integration with split_grid payloads |
 
-**Policy:** `BINARY_MIN_CELLS = 100` — 2D grids with **≥ 10 cells** use `split_grid`; smaller grids use standard Pickle lists.
+**Policy:** `BINARY_MIN_CELLS = 100` — 2D grids with **≥ 100 cells** use `split_grid`; smaller grids use standard Pickle lists.
 
 **Still deferred:** vendored codecs, mmap, payload cache, venv tool RPC.
 
@@ -584,7 +585,7 @@ Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `
 
 **Future work:** Hypothesis/CrossHair fuzz for list-of-grids (`serialization_ab_support.py` TODOs); live Calc UNO multi-range suite; chat tool multi `data_range` parity with formula varargs.
 
-User-facing varargs examples: [core §9 — Multi-Range Support](enabling_numpy_in_libreoffice.md#9-multi-range-support-varargs).
+User-facing varargs examples: [core §9 — Multi-Range Support](enabling_numpy_in_libreoffice.md#multi-range-support-varargs).
 
 ### Design constraints
 
@@ -625,12 +626,12 @@ Record: cells/sec host→child, cells/sec child→host, bytes on wire, and wheth
 
 ### Recommendation summary
 
-**Pickle5 + Split-Grid** is the unified binary wire format shipped for both numeric and mixed-type grids (dense numeric arrays use split-grid with `strings: {}` for C-speed `np.frombuffer` loading in child). Keep **Standard Pickle lists** for <10 cells, small 1D mixed arrays, and scalars.
+**Pickle5 + Split-Grid** is the unified binary wire format shipped for both numeric and mixed-type grids (dense numeric arrays use split-grid with `strings: {}` for C-speed `np.frombuffer` loading in child). Keep **Standard Pickle lists** for &lt;100 cells, small 1D mixed arrays, and scalars.
 
 | Situation | Prefer |
 |-----------|--------|
-| Dense numeric or mixed numeric/strings 2D grids (≥10 cells) | **Pickle5 + Split-Grid envelope** (shipped) |
-| Small ranges (<10 cells), 1D mixed types, scalars | **Standard Pickle lists** (no envelope) |
+| Dense numeric or mixed numeric/strings 2D grids (≥100 cells) | **Pickle5 + Split-Grid envelope** (shipped) |
+| Small ranges (&lt;100 cells), 1D mixed types, scalars | **Standard Pickle lists** (no envelope) |
 | LLM chat with huge outputs | Summaries + **tool RPC** / `write_formula_range`, not giant `result` payloads |
 | Host still slow after split_grid in LO profiles | Vendored msgpack/orjson (few MB OXT) |
 | Very large ranges / stdin size limits | **Temp file + mmap** + optional **payload cache** |

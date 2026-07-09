@@ -19,7 +19,7 @@
 import logging
 import os
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from plugin.framework.tool import ToolBase
