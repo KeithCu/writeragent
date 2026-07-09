@@ -84,4 +84,5 @@ DEFAULT_MODELS: list[dict[str, Any]] = [
     {"display_name": "Gemini 2.5 Flash Image", "capability": ModelCapability.IMAGE, "ids": {"openrouter": "google/gemini-2.5-flash-image"}, "default_image": True},
     {"display_name": "Nvidia Parakeet TDT 0.6B v3", "capability": ModelCapability.AUDIO, "ids": {"together": "nvidia/parakeet-tdt-0.6b-v3"}, "default_audio": True},
     {"display_name": "GLM 5.2", "capability": ModelCapability.CHAT | ModelCapability.TOOLS, "context_length": 200000, "ids": {"zai": "glm-5.2"}, "default_text": True},
+    {"display_name": "GLM ASR 2512", "capability": ModelCapability.AUDIO, "ids": {"zai": "glm-asr-2512"}, "default_audio": True},
 ]

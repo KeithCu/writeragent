@@ -343,7 +343,7 @@ def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
                 out.append(m)
     else:
         # Audio/STT: name heuristics for local /v1/models (hosted catalogs lack modality).
-        include = {"whisper", "voxtral", "parakeet", "transcribe", "speech"}
+        include = {"whisper", "voxtral", "parakeet", "transcribe", "speech", "asr"}
         for m in models:
             m_lower = m.lower()
             if any(kw in m_lower for kw in include):

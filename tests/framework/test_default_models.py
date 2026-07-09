@@ -32,6 +32,11 @@ class TestGetProviderDefaults(unittest.TestCase):
         d = get_provider_defaults("openrouter")
         self.assertEqual(d.get("image_model"), "google/gemini-2.5-flash-image")
 
+    def test_zai_default_stt_model_uses_glm_asr(self):
+        d = get_provider_defaults("zai")
+        self.assertEqual(d.get("stt_model"), "glm-asr-2512")
+        self.assertEqual(d.get("text_model"), "glm-5.2")
+
 
 if __name__ == "__main__":
     unittest.main()

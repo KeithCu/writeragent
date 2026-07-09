@@ -333,3 +333,15 @@ class TestHasNativeVision(unittest.TestCase):
         ctx = MagicMock()
         with patch('plugin.framework.client.model_fetcher.get_config', return_value={}):
             self.assertFalse(has_native_vision('unknown-vision-model', 'https://api.openai.com/v1'))
+
+
+class TestFilterFetchedModels(unittest.TestCase):
+    def test_audio_filter_includes_asr_models(self):
+        from plugin.framework.client.model_fetcher import _filter_fetched_models
+
+        models = ["glm-5.2", "glm-asr-2512", "whisper-1", "gpt-4o"]
+        out = _filter_fetched_models(models, "audio")
+        self.assertIn("glm-asr-2512", out)
+        self.assertIn("whisper-1", out)
+        self.assertNotIn("glm-5.2", out)
+        self.assertNotIn("gpt-4o", out)

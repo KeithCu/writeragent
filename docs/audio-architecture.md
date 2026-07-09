@@ -126,6 +126,8 @@ flowchart TD
 
 Capability detection, STT fallback, and runtime recovery are unchanged — see [`model_fetcher.py`](../plugin/framework/client/model_fetcher.py), [`llm_client.py`](../plugin/framework/client/llm_client.py), and [`panel.py`](../plugin/chatbot/panel.py).
 
+**STT providers:** OpenRouter uses JSON + base64 `input_audio`; most other providers (OpenAI Whisper, Z.ai, local servers) use multipart `file` + `model`. Z.ai default STT model is `glm-asr-2512` via `POST /api/paas/v4/audio/transcriptions`.
+
 ## Build flag: `--no-recording`
 
 Release builds may pass `--no-recording` to [`scripts/build_oxt.py`](../scripts/build_oxt.py) to omit sidebar capture modules entirely (no Record button). This is a **code-path** toggle, not a vendored-binary size knob.
