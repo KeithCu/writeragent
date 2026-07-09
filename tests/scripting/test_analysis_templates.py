@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from plugin.scripting.analysis import (
     HELPER_NAMES,
-    ANALYSIS_HEADER_PREFIX,
     get_analysis_script_templates,
     parse_analysis_script_header,
 )
@@ -19,14 +18,12 @@ def test_templates_cover_all_helpers():
     assert set(templates.keys()) == set(HELPER_NAMES)
 
 
-def test_parse_header_round_trip():
+def test_template_body_round_trip():
     templates = get_analysis_script_templates()
     code = templates["describe_data"]
-    assert ANALYSIS_HEADER_PREFIX in code
-    meta = parse_analysis_script_header(code)
-    assert meta is not None
-    assert meta.helper == "describe_data"
-    assert meta.params == {}
+    assert "# writeragent:analysis" not in code
+    assert '"helper": "describe_data"' in code
+    assert "run_analysis" in code
 
 
 def test_parse_header_with_params():

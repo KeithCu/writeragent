@@ -10,6 +10,7 @@ No imports of domain modules here (avoids cycles).
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import time
@@ -85,6 +86,56 @@ def parse_helper_script_header(
     return HelperScriptMeta(helper=helper, params=params)
 
 
+def _literal_value(node: ast.AST) -> Any:
+    """Best-effort static value for template-style literal AST nodes."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Dict):
+        out: dict[str, Any] = {}
+        for key_node, value_node in zip(node.keys, node.values, strict=False):
+            if key_node is None:
+                continue
+            key = _literal_value(key_node)
+            if not isinstance(key, str):
+                continue
+            out[key] = _literal_value(value_node)
+        return out
+    if isinstance(node, ast.List):
+        return [_literal_value(elt) for elt in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_literal_value(elt) for elt in node.elts)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub) and isinstance(node.operand, ast.Constant):
+        value = node.operand.value
+        if isinstance(value, int | float):
+            return -value
+    return None
+
+
+def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] | None:
+    """Return the ``params`` dict from ``run_name({"helper": ..., "params": {...}}, ...)`` when literal."""
+    if not code or not run_name:
+        return None
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Name) or func.id != run_name:
+            continue
+        if not node.args:
+            continue
+        spec = _literal_value(node.args[0])
+        if not isinstance(spec, dict):
+            continue
+        params = spec.get("params")
+        if isinstance(params, dict):
+            return params
+    return None
+
+
 # --- Templates ---
 
 
@@ -102,15 +153,14 @@ def build_helper_script_template(
     extra_comment_lines: tuple[str, ...] = (),
     compact_json: bool = True,
 ) -> str:
-    """Build a Run Python Script template body (header wire format preserved)."""
+    """Build a Run Python Script template body."""
     if compact_json:
         params_json = json.dumps(params, separators=(",", ":"))
     else:
         params_json = json.dumps(params)
-    prefix = header_prefix(tag)
-    header_line = f"{prefix} helper={helper} params={params_json}"
 
     if style == "header_only":
+        header_line = f"{header_prefix(tag)} helper={helper} params={params_json}"
         lines = [
             header_line,
             "#",
@@ -119,12 +169,11 @@ def build_helper_script_template(
         ]
         return "\n".join(lines) + "\n"
 
-    # run_import style (analysis / units / viz / math / …)
+    # run_import style (analysis / units / viz / math / …) — executable Python only; no header comment.
     if not import_module or not run_name:
         raise ValueError("import_module and run_name required for style='run_import'")
-    default_extra = extra_comment_lines or ("# Edit params above, then Run.",)
+    default_extra = extra_comment_lines or ("# Edit the run call below, then Run.",)
     body_lines = [
-        header_line,
         f"# {description}",
         *default_extra,
         f"from {import_module} import {run_name}\n",
@@ -275,7 +324,7 @@ class DomainFacadeConfig:
     shipped_templates: frozenset[str] | None = None
     data_expr: str = "data"
     context_expr: str = "{}"
-    extra_comment_lines: tuple[str, ...] = ("# Edit params above, then Run.",)
+    extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
     compact_json: bool = True
     require_prefix: bool = True
     on_bad_json: Literal["empty", "none"] = "empty"

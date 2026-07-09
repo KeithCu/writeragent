@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for Run Python Script symbolic math fast path."""
+"""Tests for Run Python Script symbolic math venv path."""
 
 from __future__ import annotations
 
@@ -17,23 +17,28 @@ setup_uno_mocks()
 
 @patch("plugin.scripting.symbolic.insert_symbolic_result_into_doc")
 @patch("plugin.scripting.symbolic.run_trusted_symbolic")
-def test_execute_and_insert_math_fast_path(mock_run, mock_insert):
+@patch("plugin.scripting.python_runner.run_code_in_user_venv")
+def test_execute_and_insert_math_skips_fast_path(mock_venv, mock_run, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
     with patch("plugin.scripting.python_runner.is_writer", return_value=True):
-        mock_run.return_value = {
+        mock_venv.return_value = {
             "status": "ok",
-            "helper": "solve_equation",
-            "latex": "2,-2",
-            "text": "-2, 2",
+            "result": {
+                "status": "ok",
+                "helper": "solve_equation",
+                "latex": "2,-2",
+                "text": "-2, 2",
+            },
         }
         code = get_math_script_templates()["solve_equation"]
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
     assert "solve_equation" in outcome["status_ok_text"]
-    mock_run.assert_called_once()
+    mock_run.assert_not_called()
+    mock_venv.assert_called_once()
     mock_insert.assert_called_once()
 
 

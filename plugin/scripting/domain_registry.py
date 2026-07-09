@@ -94,6 +94,8 @@ class RpsDomainSpec:
     # log label when fast path raises
     fail_log_label: str = ""
     helper_failed_fallback: str = ""
+    # When False, header is ignored for execution (venv runs user Python); post-venv routing unchanged.
+    fast_path_enabled: bool = True
 
 
 def _meta_helper(meta: Any) -> str:
@@ -115,6 +117,8 @@ def try_rps_fast_path(
     resolve_data_range: Callable[[], str | None],
 ) -> dict[str, Any] | None:
     """Run one domain's header fast path, or return None if header does not match / soft-skip."""
+    if not spec.fast_path_enabled:
+        return None
     meta = spec.parse_header(code)
     if meta is None:
         return None
@@ -196,6 +200,7 @@ def try_rps_post_venv(
     result_data: Any,
     t0: float,
     stdout: str | None,
+    code: str | None = None,
 ) -> dict[str, Any] | None:
     """Route a generic venv result through domain is_result + insert, or None."""
     if spec.is_result is None or spec.insert is None or spec.format_ok is None:
@@ -204,8 +209,18 @@ def try_rps_post_venv(
         return None
     if not spec.is_result(result_data):
         return None
+    insert_kwargs: dict[str, Any] = {}
+    if spec.id == "units" and code:
+        from plugin.scripting.helper_domain import parse_run_import_call_params
+        from plugin.scripting.units import split_helper_params
+
+        body_params = parse_run_import_call_params(code, run_name="run_units")
+        if body_params is not None:
+            _, output_style = split_helper_params(body_params)
+            if output_style is not None:
+                insert_kwargs["output_style"] = output_style
     try:
-        row_count = spec.insert(ctx, doc, result_data)
+        row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
     except Exception as e:
         return rps_insert_failed_outcome(e, t0=t0)
 
@@ -238,6 +253,7 @@ class DomainWiring:
     data_range_required_message: Callable[[], str] | None = None
     fail_log_label: str = ""
     helper_failed_fallback: Callable[[], str] | None = None
+    fast_path_enabled: bool = True
 
 
 def _resolve_fn(path: str | None) -> Any:
@@ -360,6 +376,7 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
         post_venv_calc_only=w.post_venv_calc_only,
         fail_log_label=w.fail_log_label,
         helper_failed_fallback=w.helper_failed_fallback() if w.helper_failed_fallback else "",
+        fast_path_enabled=w.fast_path_enabled,
     )
 
 
@@ -389,6 +406,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         data_range_required_message=lambda: _("Viz helper requires a data range. Select cells or enter a range in the Data field."),
         fail_log_label="viz",
         helper_failed_fallback=lambda: _("Viz helper failed."),
+        fast_path_enabled=False,
     ),
     DomainWiring(
         id="math",
@@ -401,6 +419,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         unsupported_message=lambda: _("Math helpers require a Writer or Calc document."),
         fail_log_label="math",
         helper_failed_fallback=lambda: _("Math helper failed."),
+        fast_path_enabled=False,
     ),
     DomainWiring(
         id="units",
@@ -413,6 +432,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         unsupported_message=lambda: _("Units helpers require a Writer or Calc document."),
         fail_log_label="units",
         helper_failed_fallback=lambda: _("Units helper failed."),
+        fast_path_enabled=False,
     ),
     DomainWiring(
         id="text",
@@ -481,6 +501,7 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         data_range_required_message=lambda: _("Analysis helper requires a data range. Select cells or enter a range in the Data field."),
         fail_log_label="analysis",
         helper_failed_fallback=lambda: _("Analysis failed."),
+        fast_path_enabled=False,
     ),
 )
 
@@ -537,11 +558,20 @@ def get_post_venv_domains() -> list[RpsDomainSpec]:
 
 
 def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
-    """True when *code* contains a trusted header for a domain that may use Calc data binding."""
+    """True when *code* uses a trusted helper that may bind Calc sheet data."""
+    import re
+
+    _run_import_binding_calls = {"analysis": "run_analysis", "viz": "run_viz"}
+
     for spec in get_rps_domains():
         if spec.data_range_mode == "never":
             continue
-        if spec.parse_header(code) is None:
+        matched = spec.parse_header(code) is not None
+        if not matched and not spec.fast_path_enabled:
+            run_name = _run_import_binding_calls.get(spec.id)
+            if run_name and re.search(rf"\b{re.escape(run_name)}\s*\(", code):
+                matched = True
+        if not matched:
             continue
         if spec.require_calc and not is_calc(doc):
             continue

@@ -10,6 +10,7 @@ from plugin.scripting.helper_domain import (
     build_helper_script_template,
     format_elapsed_time,
     parse_helper_script_header,
+    parse_run_import_call_params,
 )
 
 
@@ -65,11 +66,21 @@ def test_build_run_import_template_has_header_and_import():
         import_module="writeragent.scripting.units",
         run_name="run_units",
         data_expr="None",
-        extra_comment_lines=("# Edit params above, then Run.",),
+        extra_comment_lines=("# Edit the run call below, then Run.",),
     )
-    assert body.startswith("# writeragent:units helper=convert_quantity")
+    assert not body.startswith("# writeragent:")
+    assert body.startswith("# Convert")
+    assert '"value":"10"' in body
     assert "from writeragent.scripting.units import run_units" in body
     assert "result = run_units(" in body
+
+
+def test_parse_run_import_call_params_reads_body():
+    code = (
+        'result = run_units({"helper": "convert_quantity", "params": {"value":"20","to_unit":"mm/h"}}, None, {})\n'
+    )
+    params = parse_run_import_call_params(code, run_name="run_units")
+    assert params == {"value": "20", "to_unit": "mm/h"}
 
 
 def test_build_header_only_template():

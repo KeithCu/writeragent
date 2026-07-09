@@ -91,11 +91,11 @@ Shipped domains prove the stack. New domains should mirror them—not invent par
 | Layer | Analysis | Vision | Viz | Symbolic (SymPy) | Units (Pint) | Forecast | Planned |
 |-------|----------|--------|-----|------------------|--------------|----------|---------|
 | Trusted module | [`analysis.py`](../plugin/scripting/analysis.py) | [`vision.py`](../plugin/vision/venv/vision.py) | [`viz.py`](../plugin/scripting/viz.py) | [`symbolic.py`](../plugin/scripting/symbolic.py) | [`units.py`](../plugin/scripting/units.py) | [`forecast.py`](../plugin/scripting/forecast.py) | `text_analytics.py`, … |
-| Templates | `# writeragent:analysis` | `# writeragent:vision` | `# writeragent:viz` | `# writeragent:math` | `# writeragent:units` | `# writeragent:forecast` | … |
+| Templates | `run_analysis(...)` script | `# writeragent:vision` | `run_viz(...)` script | `run_symbolic(...)` script | `run_units(...)` script | `# writeragent:forecast` | … |
 | Host client | [`client.py`](../plugin/scripting/client.py) `run_analysis` | [`client.py`](../plugin/scripting/client.py) `run_vision` | [`client.py`](../plugin/scripting/client.py) `run_viz` | [`client.py`](../plugin/scripting/client.py) `run_symbolic` | [`client.py`](../plugin/scripting/client.py) `run_units` | [`client.py`](../plugin/scripting/client.py) `run_forecast` | Same RPC shape |
 | Runner / egress | [`analysis_runner.py`](../plugin/calc/analysis_runner.py), [`analysis_egress.py`](../plugin/calc/analysis_egress.py) | [`vision_runner.py`](../plugin/vision/vision_runner.py), [`vision_egress.py`](../plugin/vision/vision_egress.py) | egress in [`viz.py`](../plugin/scripting/viz.py) | egress in [`symbolic.py`](../plugin/scripting/symbolic.py) | egress in [`units.py`](../plugin/scripting/units.py) | egress in [`forecast.py`](../plugin/scripting/forecast.py) | Per domain |
 | Run Python Script | register in [`domain_registry.py`](../plugin/scripting/domain_registry.py) `PICKER` / `RPS` | same | same | same | same | same | Host glue: [`helper_domain.py`](../plugin/scripting/helper_domain.py) + registry; picker via [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
-| Fast path order | — | 1st | 2nd | 3rd | 4th (units) | after optimize | Ordered in [`get_rps_domains()`](../plugin/scripting/domain_registry.py): vision → viz → math → units → text → quant → optimize → **forecast** → analysis |
+| Fast path order | venv + post-venv | 1st (header) | venv + post-venv | venv + post-venv | venv + post-venv | header only | Ordered in [`get_rps_domains()`](../plugin/scripting/domain_registry.py). **Header fast path** remains for vision, text, quant, optimize, forecast. **Analysis, viz, math, units** execute the visible `run_*()` Python and route results via post-venv insert. |
 | Settings Test | **Data Analysis / EDA** | **Vision Libraries** | **Visualization Libraries** | **Computer Algebra** | **Data Engineering Libraries** | **Data Analysis / EDA** (`statsmodels`) | Per domain when shipped |
 | LLM surface | Calc `domain="analysis"` — [`analyze_data`](../plugin/calc/analysis.py), [`plot_data`](../plugin/calc/viz.py) | `analyze_image` deferred | `plot_data` (analysis); raw matplotlib via `run_venv_python_script` | `domain="python"` — [`symbolic_math`](../plugin/calc/symbolic_math.py) | Run Python Script **Units Helpers** only | [`forecast_data`](../plugin/calc/forecast.py) in `domain="analysis"` | Extend analysis or add domains |
 
@@ -192,11 +192,11 @@ run_venv_python_script(code="… plt.plot(…) …")
 
 #### Phase B — Run Python Script + Writer image egress (shipped)
 
-[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz.py`](../plugin/scripting/viz.py) egress helpers (Calc → [`insert_image_result_on_sheet`](../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py)). Viz header fast path mirrors Analysis/Vision. Tests: [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py).
+[`python_runner.py`](../plugin/scripting/python_runner.py) `execute_and_insert_result()` checks `is_viz_result()` / `is_image_payload()` after venv execution and inserts plots via [`viz.py`](../plugin/scripting/viz.py) egress helpers (Calc → [`insert_image_result_on_sheet`](../plugin/calc/python/image_egress.py); Writer → [`insert_image_at_locator`](../plugin/writer/images/image_tools.py)). Viz templates execute the visible `run_viz(...)` call in the venv; results route via post-venv insert. Tests: [`test_python_runner_viz.py`](../tests/scripting/test_python_runner_viz.py).
 
 #### Phase C — Trusted Viz helpers (shipped)
 
-[`viz.py`](../plugin/scripting/viz.py) (templates, trusted runner, Calc/Writer egress), [`client.py`](../plugin/scripting/client.py) `run_viz`, `_viz_script_section` in [`document_scripts.py`](../plugin/scripting/document_scripts.py), fast path in `python_runner.py`, [`plot_data`](../plugin/calc/viz.py) analysis-domain tool, and `analyze_data` auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py).
+[`viz.py`](../plugin/scripting/viz.py) (templates, trusted runner, Calc/Writer egress), [`client.py`](../plugin/scripting/client.py) `run_viz`, `_viz_script_section` in [`document_scripts.py`](../plugin/scripting/document_scripts.py), post-venv routing in `python_runner.py`, [`plot_data`](../plugin/calc/viz.py) analysis-domain tool, and `analyze_data` auto-plot via [`viz_auto_plot.py`](../plugin/calc/viz_auto_plot.py).
 
 | Helper | Purpose | Notes |
 |--------|---------|-------|
@@ -508,9 +508,9 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 
 **Packages:** `pint` (required). Settings → Python **Data Engineering Libraries** group lists pint.
 
-**Run Python Script templates:** **Units Helpers →** `[Units] convert_quantity`, `[Units] parse_quantity`, `[Units] check_dimensionality`.
+**Run Python Script templates:** **Units Helpers →** `[Units] convert_quantity`, `[Units] parse_quantity`, `[Units] check_dimensionality`. Edit parameters in the `run_units(...)` call.
 
-**Calc egress:** By default, `convert_quantity` and `parse_quantity` write a **single formatted cell** at the selection anchor (e.g. `36 km/h`). Writer inserts the same formatted string as plain text. For a debug/report layout, pass `output_style: "detailed"` in template params — this writes a key-value grid (formatted value on the first row, then magnitude/units or compatibility fields). `check_dimensionality` defaults to `detailed`.
+**Calc egress:** By default, `convert_quantity` and `parse_quantity` write a **single formatted cell** at the selection anchor (e.g. `36 km/h`). Writer inserts the same formatted string as plain text. For a debug/report layout, pass `output_style: "detailed"` in the `run_units` **params** dict — this writes a key-value grid (formatted value on the first row, then magnitude/units or compatibility fields). `check_dimensionality` defaults to `detailed`.
 
 ```text
 # formatted (default for convert/parse) — anchor cell:

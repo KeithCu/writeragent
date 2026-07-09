@@ -6,19 +6,18 @@
 
 from __future__ import annotations
 
-from plugin.scripting.units import get_units_script_templates, parse_units_script_header
+from plugin.scripting.units import get_units_script_templates
 
 
-def test_get_units_script_templates_include_header():
+def test_get_units_script_templates_include_run_call():
     templates = get_units_script_templates()
     assert "convert_quantity" in templates
-    assert "# writeragent:units" in templates["convert_quantity"]
+    assert '"value":"10"' in templates["convert_quantity"]
     assert "run_units" in templates["convert_quantity"]
+    assert "# writeragent:units" not in templates["convert_quantity"]
 
 
-def test_parse_units_script_header_round_trip():
+def test_units_template_body_includes_helper_params():
     code = get_units_script_templates()["parse_quantity"]
-    meta = parse_units_script_header(code)
-    assert meta is not None
-    assert meta.helper == "parse_quantity"
-    assert meta.params.get("quantity") == "10 m/s"
+    assert '"quantity":"10 m/s"' in code
+    assert '"helper": "parse_quantity"' in code

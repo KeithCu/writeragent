@@ -40,6 +40,13 @@ def test_rps_domains_have_required_hooks():
         assert callable(spec.is_result)
 
 
+def test_run_import_domains_disable_fast_path():
+    disabled = {s.id for s in get_rps_domains() if not s.fast_path_enabled}
+    assert disabled == {"viz", "math", "units", "analysis"}
+    enabled = {s.id for s in get_rps_domains() if s.fast_path_enabled}
+    assert enabled >= {"vision", "quant", "optimize", "forecast", "text"}
+
+
 def test_post_venv_order_matches_constant():
     ids = [s.id for s in get_post_venv_domains()]
     assert ids == list(POST_VENV_DOMAIN_ORDER)
@@ -50,8 +57,11 @@ def test_script_header_needs_data_binding_on_calc_domains():
 
     calc_doc = object()
     with patch("plugin.scripting.domain_registry.is_calc", return_value=True):
-        code = '# writeragent:analysis helper=describe_data params={}\n'
-        assert script_header_needs_data_binding(code, doc=calc_doc) is True
+        assert script_header_needs_data_binding(
+            "from writeragent.scripting.analysis import run_analysis\nresult = run_analysis(...)\n",
+            doc=calc_doc,
+        ) is True
+        assert script_header_needs_data_binding('# writeragent:forecast helper=forecast_time_series params={}\n', doc=calc_doc) is True
         assert script_header_needs_data_binding("# writeragent:text helper=full params={}\n", doc=calc_doc) is False
 
 

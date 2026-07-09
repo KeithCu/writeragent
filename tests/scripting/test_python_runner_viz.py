@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for Run Python Script viz fast path and image egress."""
+"""Tests for Run Python Script viz venv path and image egress."""
 
 from __future__ import annotations
 
@@ -19,18 +19,22 @@ _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
 
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.scripting.viz.run_trusted_viz")
-def test_execute_and_insert_viz_fast_path(mock_run, mock_insert):
+@patch("plugin.scripting.python_runner.run_code_in_user_venv")
+def test_execute_and_insert_viz_skips_fast_path(mock_venv, mock_run, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
     doc.getCurrentController.return_value = MagicMock()
     doc.getCurrentController.return_value.getSelection.return_value = None
 
     with patch("plugin.scripting.python_runner.is_calc", return_value=True):
-        mock_run.return_value = {
+        mock_venv.return_value = {
             "status": "ok",
-            "helper": "quick_plot",
-            "title": "Quick plot: Sales",
-            "image": _SAMPLE_IMAGE,
+            "result": {
+                "status": "ok",
+                "helper": "quick_plot",
+                "title": "Quick plot: Sales",
+                "image": _SAMPLE_IMAGE,
+            },
         }
         code = get_viz_script_templates()["quick_plot"]
         outcome = execute_and_insert_result(ctx, doc, code, data_range="Sheet1.A1:B5")
@@ -38,7 +42,8 @@ def test_execute_and_insert_viz_fast_path(mock_run, mock_insert):
     assert outcome["ok"] is True
     assert "quick_plot" in outcome["status_ok_text"]
     assert "Plot inserted" in outcome["status_ok_text"]
-    mock_run.assert_called_once()
+    mock_run.assert_not_called()
+    mock_venv.assert_called_once()
     mock_insert.assert_called_once()
 
 

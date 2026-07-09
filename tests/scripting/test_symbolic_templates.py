@@ -6,19 +6,17 @@
 
 from __future__ import annotations
 
-from plugin.scripting.symbolic import get_math_script_templates, parse_math_script_header
+from plugin.scripting.symbolic import get_math_script_templates
 
 
-def test_get_math_script_templates_include_header():
+def test_get_math_script_templates_include_run_call():
     templates = get_math_script_templates()
     assert "solve_equation" in templates
-    assert "# writeragent:math" in templates["solve_equation"]
     assert "run_symbolic" in templates["solve_equation"]
+    assert "# writeragent:math" not in templates["solve_equation"]
 
 
-def test_parse_math_script_header_round_trip():
+def test_math_template_body_includes_helper_params():
     code = get_math_script_templates()["integrate"]
-    meta = parse_math_script_header(code)
-    assert meta is not None
-    assert meta.helper == "integrate"
-    assert meta.params.get("expression") == "sin(x)"
+    assert '"expression":"sin(x)"' in code
+    assert '"helper": "integrate"' in code

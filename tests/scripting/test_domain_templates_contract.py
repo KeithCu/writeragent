@@ -19,7 +19,6 @@ from plugin.scripting.text_analytics import (
 )
 from plugin.scripting.units import (
     get_units_script_templates,
-    parse_units_script_header,
 )
 
 
@@ -42,9 +41,8 @@ def test_units_templates_cover_shipped_helpers():
     templates = get_units_script_templates()
     assert set(templates.keys()) == set(_SHIPPED_TEMPLATES)
     for helper, code in templates.items():
-        meta = parse_units_script_header(code)
-        assert meta is not None
-        assert meta.helper == helper
+        assert f'"helper": "{helper}"' in code
+        assert "run_units" in code
 
 
 @pytest.mark.parametrize(

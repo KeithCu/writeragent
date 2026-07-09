@@ -422,7 +422,7 @@ def execute_and_insert_result(
             for spec in get_post_venv_domains():
                 if spec.id == "viz":
                     # Viz domain result first, then raw matplotlib envelope below.
-                    post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout)
+                    post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout, code=code)
                     if post is not None:
                         return post
                     if try_insert_plot_result(ctx, doc, result_data):
@@ -434,7 +434,7 @@ def execute_and_insert_result(
                             result=result_data,
                         )
                     continue
-                post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout)
+                post = try_rps_post_venv(spec, ctx=ctx, doc=doc, result_data=result_data, t0=t0, stdout=stdout, code=code)
                 if post is not None:
                     return post
 

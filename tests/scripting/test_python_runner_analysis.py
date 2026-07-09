@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for Run Python Script analysis fast path."""
+"""Tests for Run Python Script analysis venv path."""
 
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ setup_uno_mocks()
 
 @patch("plugin.calc.analysis_egress.insert_analysis_result_into_calc")
 @patch("plugin.calc.analysis_runner.run_trusted_analysis")
-def test_execute_and_insert_analysis_fast_path(mock_run, mock_insert):
+@patch("plugin.scripting.python_runner.run_code_in_user_venv")
+def test_execute_and_insert_analysis_skips_fast_path(mock_venv, mock_run, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
     doc.getCurrentController.return_value = MagicMock()
@@ -27,14 +28,18 @@ def test_execute_and_insert_analysis_fast_path(mock_run, mock_insert):
         patch("plugin.scripting.domain_registry.is_calc", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
     ):
-        mock_run.return_value = {"status": "ok", "helper": "describe_data", "metrics": {"row_count": 1}}
+        mock_venv.return_value = {
+            "status": "ok",
+            "result": {"status": "ok", "helper": "describe_data", "metrics": {"row_count": 1}},
+        }
         mock_insert.return_value = 5
         code = get_analysis_script_templates()["describe_data"]
         outcome = execute_and_insert_result(ctx, doc, code, data_range="Sheet1.A1:B2")
 
     assert outcome["ok"] is True
     assert "describe_data" in outcome["status_ok_text"]
-    mock_run.assert_called_once()
+    mock_run.assert_not_called()
+    mock_venv.assert_called_once()
     mock_insert.assert_called_once()
 
 

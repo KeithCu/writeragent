@@ -19,12 +19,19 @@ _VISION_HTML_FIXTURE = "<p>Vision OCR line after image.</p>"
 
 _test_doc = None
 _test_ctx = None
-_logo_path = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "extension",
-    "assets",
-    "logo_32.png",
-)
+
+
+def _vision_test_logo_path() -> str:
+    """Return logo_32.png in dev tree or release bundle (assets path is remapped)."""
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for rel in ("extension/assets/logo_32.png", "assets/logo_32.png"):
+        path = os.path.join(root, *rel.split("/"))
+        if os.path.isfile(path):
+            return path
+    return os.path.join(root, "extension", "assets", "logo_32.png")
+
+
+_logo_path = _vision_test_logo_path()
 
 
 @setup
