@@ -308,6 +308,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         allow_heartbeat=False,
         heartbeat_grace_sec=None,
         on_heartbeat=None,
+        action=None,
     )
 
     mock_execute.reset_mock()
@@ -325,6 +326,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         allow_heartbeat=False,
         heartbeat_grace_sec=None,
         on_heartbeat=None,
+        action=None,
     )
 
     mock_execute.reset_mock()
@@ -342,6 +344,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         allow_heartbeat=False,
         heartbeat_grace_sec=None,
         on_heartbeat=None,
+        action=None,
     )
 
     mock_execute.reset_mock()
@@ -359,6 +362,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
         allow_heartbeat=False,
         heartbeat_grace_sec=None,
         on_heartbeat=None,
+        action=None,
     )
 
 

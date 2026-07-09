@@ -12,7 +12,7 @@ from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
 from plugin.framework.constants import EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
-from plugin.scripting.venv_worker import run_code_in_user_venv
+from plugin.scripting.trusted_rpc import run_trusted_worker_action
 
 _LANGDETECT_SESSION_ID = f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:langdetect"
 
@@ -23,28 +23,28 @@ def detect_languages(ctx: Any, texts: list[str]) -> list[str | None]:
         texts = []
 
     timeout_sec = embeddings_worker_timeout_sec(ctx)
-    response = run_code_in_user_venv(
-        ctx,
-        code=None,
-        data={"domain": "langdetect", "texts": list(texts)},
-        timeout_sec=timeout_sec,
-        session_id=_LANGDETECT_SESSION_ID,
-        worker_pool=WORKER_POOL_EMBEDDINGS,
-        action="run_trusted_action",
-    )
-    if response.get("status") != "ok":
-        message = str(response.get("message") or "Language detection worker failed.")
-        if "venv" in message.lower() or "langdetect" in message.lower():
-            message = f"{message} Install with: {EMBEDDINGS_VENV_PIP_INSTALL}"
-        raise ToolExecutionError(message, code="LANGDETECT_ERROR", details={"worker": response})
-
-    result = response.get("result")
-    if not isinstance(result, dict):
-        raise ToolExecutionError(
-            "Language detection worker returned an unexpected result.",
-            code="LANGDETECT_ERROR",
-            details={"result_type": type(result).__name__},
+    try:
+        result = run_trusted_worker_action(
+            ctx,
+            domain="langdetect",
+            helper="detect",
+            params={},
+            additional_data={"texts": list(texts)},
+            session_id=_LANGDETECT_SESSION_ID,
+            timeout_sec=timeout_sec,
+            worker_pool=WORKER_POOL_EMBEDDINGS,
+            error_code="LANGDETECT_ERROR",
+            error_label="Language detection",
         )
+    except ToolExecutionError as exc:
+        message = str(exc)
+        if "venv" in message.lower() or "langdetect" in message.lower():
+            raise ToolExecutionError(
+                f"{message} Install with: {EMBEDDINGS_VENV_PIP_INSTALL}",
+                code="LANGDETECT_ERROR",
+                details=getattr(exc, "details", None),
+            ) from exc
+        raise
     languages = result.get("languages")
     if not isinstance(languages, list):
         raise ToolExecutionError(

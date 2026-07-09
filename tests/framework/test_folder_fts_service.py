@@ -25,21 +25,21 @@ def ctx():
 
 def test_search_folder_fts_happy_path(ctx):
     worker_payload = {"hits": [{"doc_url": "file:///a.odt", "para_index": 0, "score": -1.2}], "match": 'NEAR("web" "search", 10)'}
-    with patch("plugin.framework.client.folder_fts_service.run_code_in_user_venv", return_value={"status": "ok", "result": worker_payload}) as mock_run:
+    with patch("plugin.framework.client.folder_fts_service.run_trusted_worker_action", return_value=worker_payload) as mock_run:
         with patch("plugin.framework.client.folder_fts_service.embeddings_worker_timeout_sec", return_value=120):
             result = folder_fts_service.search_folder_fts(ctx, "/tmp/fts5.db", "web search", 5, near_slop=10)
     assert result["hits"][0]["doc_url"] == "file:///a.odt"
     assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
     assert mock_run.call_args.kwargs["session_id"] == "embeddings:folder_fts"
-    payload = mock_run.call_args.kwargs["data"]
+    payload = mock_run.call_args.kwargs["params"]
     assert payload["fts_db_path"] == "/tmp/fts5.db"
     assert payload["query"] == "web search"
 
 
 def test_maintain_folder_fts_uses_heartbeat(ctx):
     with patch(
-        "plugin.framework.client.folder_fts_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"mode": "cold", "indexed_paragraphs": 2}},
+        "plugin.framework.client.folder_fts_service.run_trusted_worker_action",
+        return_value={"mode": "cold", "indexed_paragraphs": 2},
     ) as mock_run:
         with patch("plugin.framework.client.folder_fts_service.embeddings_worker_timeout_sec", return_value=120):
             result = folder_fts_service.maintain_folder_fts(ctx, "/tmp/folder", mode="auto")
@@ -49,7 +49,10 @@ def test_maintain_folder_fts_uses_heartbeat(ctx):
 
 
 def test_search_worker_error(ctx):
-    with patch("plugin.framework.client.folder_fts_service.run_code_in_user_venv", return_value={"status": "error", "message": "boom"}):
+    with patch(
+        "plugin.framework.client.folder_fts_service.run_trusted_worker_action",
+        side_effect=ToolExecutionError("boom", code="FOLDER_FTS_ERROR"),
+    ):
         with patch("plugin.framework.client.folder_fts_service.embeddings_worker_timeout_sec", return_value=120):
             with pytest.raises(ToolExecutionError, match="boom"):
                 folder_fts_service.search_folder_fts(ctx, "/tmp/fts5.db", "q", 5)

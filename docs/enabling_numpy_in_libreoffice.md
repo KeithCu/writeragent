@@ -248,18 +248,25 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 #### How trusted venv code runs
 
 1. **Ship a normal module** under `plugin/scripting/venv/` (implementation) with a public facade at `plugin/scripting/*.py` for script authors, or under `plugin/embeddings/venv/` (e.g. [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) for [embeddings](embeddings.md) Phase A encode).
-2. **Host calls** [`run_code_in_user_venv`](../plugin/scripting/venv_worker.py) with a **fixed stub** string — not LLM output — for example:
+2. **Host calls** [`run_trusted_worker_action`](../plugin/scripting/trusted_rpc.py) with `action: "run_trusted_action"` and a `domain` + `helper` packet — not LLM output. Example host path:
 
    ```python
-   from plugin.embeddings.venv.embeddings_index import knn_search
-   result = knn_search(persist_dir, collection_name, query, k, model_name=model)
+   run_trusted_worker_action(
+       ctx,
+       domain="embeddings_index",
+       helper="knn_search",
+       params={"db_path": db_path, "query": query, "k": k, "model": model_name},
+       session_id=session_id,
+       timeout_sec=timeout_sec,
+       worker_pool=WORKER_POOL_EMBEDDINGS,
+   )
    ```
 
-3. The harness still routes the request through [`run_sandboxed_code`](../plugin/scripting/venv/venv_sandbox.py), but only the **stub** is AST-walked. The **imported module** executes as ordinary Python bytecode — filesystem access, sqlite-vec, LangGraph, etc. live **inside that module**, not in user scripts.
+3. [`worker_harness.py`](../plugin/scripting/venv/worker_harness.py) looks up the domain in [`trusted_action_registry.py`](../plugin/scripting/trusted_action_registry.py) and calls the registered venv dispatcher **directly** — zero AST overhead, same trust model as reviewed modules.
 
-4. **Optional whitelist entry** — add trusted `plugin.scripting.*` modules to [`VENV_AUTHORIZED_IMPORTS`](../plugin/scripting/sandbox.py) so the stub’s `import` passes static policy. **Do not** add `sqlite_vec`, `langgraph`, or `os` to the LLM import list; keep those imports inside the trusted module only.
+4. **Run Python Script templates** still use `writeragent:<tag>` headers and may import public facades in user-visible script text; that path is unchanged.
 
-5. **IPC for bulk data** — pass paragraph lists, query text, and `k` via worker **`data=`** (Pickle5); trusted code opens the per-folder **`corpus.db`** path by reference from the host.
+5. **IPC for bulk data** — pass paragraph lists, query text, and `k` via the action `data` dict (Pickle5 over the worker pipe); trusted code opens the per-folder **`corpus.db`** path by reference from the host.
 
 **Embeddings worker pool:** Folder maintain, hybrid search, and grammar **Local (langdetect)** language detection use **`WORKER_POOL_EMBEDDINGS`** — a second warm venv child isolated from Calc `=PYTHON()` and chat scripts ([embeddings.md § Dedicated embeddings subprocess](embeddings.md#dedicated-embeddings-subprocess)). Grammar langdetect RPC: [`langdetect_service.py`](../plugin/framework/client/langdetect_service.py) → [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py) (requires `langdetect` in the venv; see [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py)).
 
@@ -271,7 +278,7 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 
 #### Harness `action` dispatch
 
-[`worker_harness.py`](../plugin/scripting/venv/worker_harness.py) handles trusted action requests via `action: "run_trusted_action"`. This calls the trusted helper functions (for vision, embeddings, langdetect, and scripting domains) directly **without** generating or executing any user code strings—providing the same trust model with zero AST overhead.
+[`worker_harness.py`](../plugin/scripting/venv/worker_harness.py) handles trusted action requests via `action: "run_trusted_action"`. Domains are registered in [`trusted_action_registry.py`](../plugin/scripting/trusted_action_registry.py); dispatch modules call trusted helper functions directly **without** user code strings. Long-running maintain jobs stream heartbeats when `allow_heartbeat` is set (see [scripting-domain-debt-dev-plan.md](scripting-domain-debt-dev-plan.md) Phase 5).
 
 ### Specialized domain
 

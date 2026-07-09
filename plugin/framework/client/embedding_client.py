@@ -15,7 +15,7 @@ from plugin.framework.config import get_config
 from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ConfigError, ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
-from plugin.scripting.venv_worker import run_code_in_user_venv
+from plugin.scripting.trusted_rpc import run_trusted_worker_action
 
 # --- Client ---
 
@@ -86,17 +86,16 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout
         texts = []
 
     resolved_timeout_sec = embeddings_worker_timeout_sec(ctx) if timeout_sec is None else int(timeout_sec)
-    response = run_code_in_user_venv(
+    result = run_trusted_worker_action(
         ctx,
-        code=None,
-        data={"domain": "embedding", "model": model_name, "texts": list(texts)},
-        timeout_sec=resolved_timeout_sec,
+        domain="embedding",
+        helper="embed_texts",
+        params={},
+        additional_data={"model": model_name, "texts": list(texts)},
         session_id=_embedding_session_id(model_name),
+        timeout_sec=resolved_timeout_sec,
         worker_pool=WORKER_POOL_EMBEDDINGS,
-        action="run_trusted_action",
+        error_code="EMBEDDING_ERROR",
+        error_label="Embedding",
     )
-    if response.get("status") != "ok":
-        message = str(response.get("message") or "Embedding worker failed.")
-        raise ToolExecutionError(message, code="EMBEDDING_ERROR", details={"worker": response})
-
-    return _parse_worker_result(response.get("result") or {}, model=model_name)
+    return _parse_worker_result(result, model=model_name)

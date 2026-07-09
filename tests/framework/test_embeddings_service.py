@@ -25,7 +25,7 @@ def ctx():
 
 def test_hybrid_search_happy_path(ctx):
     worker_payload = {"hits": [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]}
-    with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "ok", "result": worker_payload}) as mock_run:
+    with patch("plugin.framework.client.embeddings_service.run_trusted_worker_action", return_value=worker_payload) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             result = embeddings_service.hybrid_search(
                 ctx,
@@ -37,12 +37,12 @@ def test_hybrid_search_happy_path(ctx):
             )
     assert result["hits"][0]["doc_url"] == "file:///a.odt"
     assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
-    assert "hybrid_search" in mock_run.call_args.args[1]
+    assert mock_run.call_args.kwargs["helper"] == "hybrid_search"
 
 
 def test_knn_search_happy_path(ctx):
     worker_payload = {"hits": [{"doc_url": "file:///a.odt", "para_index": 0, "score": 0.9}]}
-    with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "ok", "result": worker_payload}) as mock_run:
+    with patch("plugin.framework.client.embeddings_service.run_trusted_worker_action", return_value=worker_payload) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             result = embeddings_service.knn_search(
                 ctx,
@@ -53,12 +53,12 @@ def test_knn_search_happy_path(ctx):
             )
     assert result["hits"][0]["doc_url"] == "file:///a.odt"
     assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
-    payload = mock_run.call_args.kwargs["data"]
+    payload = mock_run.call_args.kwargs["params"]
     assert payload["db_path"] == "/tmp/corpus.db"
 
 
 def test_index_paragraphs_worker_error(ctx):
-    with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "error", "message": "boom"}):
+    with patch("plugin.framework.client.embeddings_service.run_trusted_worker_action", side_effect=ToolExecutionError("boom", code="EMBEDDING_INDEX_ERROR")):
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             with pytest.raises(ToolExecutionError, match="boom"):
                 embeddings_service.index_paragraphs(
@@ -71,7 +71,7 @@ def test_index_paragraphs_worker_error(ctx):
 
 
 def test_collection_stats_rpc(ctx):
-    with patch("plugin.framework.client.embeddings_service.run_code_in_user_venv", return_value={"status": "ok", "result": {"chunk_count": 5}}):
+    with patch("plugin.framework.client.embeddings_service.run_trusted_worker_action", return_value={"chunk_count": 5}):
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             result = embeddings_service.collection_stats(ctx, "/tmp/corpus.db", "/tmp/meta.json")
     assert result["chunk_count"] == 5
@@ -79,8 +79,8 @@ def test_collection_stats_rpc(ctx):
 
 def test_maintain_folder_index_uses_heartbeat_rpc(ctx):
     with patch(
-        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"mode": "cold", "indexed_paragraphs": 3}},
+        "plugin.framework.client.embeddings_service.run_trusted_worker_action",
+        return_value={"mode": "cold", "indexed_paragraphs": 3},
     ) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             result = embeddings_service.maintain_folder_index(
@@ -93,38 +93,38 @@ def test_maintain_folder_index_uses_heartbeat_rpc(ctx):
     assert result["mode"] == "cold"
     assert mock_run.call_args.kwargs["allow_heartbeat"] is True
     assert mock_run.call_args.kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
-    assert mock_run.call_args.kwargs["data"]["listing_root"] == "/tmp/folder"
-    assert mock_run.call_args.kwargs["data"]["search_mode"] == "hybrid"
+    assert mock_run.call_args.kwargs["params"]["listing_root"] == "/tmp/folder"
+    assert mock_run.call_args.kwargs["params"]["search_mode"] == "hybrid"
 
 
 def test_maintain_folder_index_defaults_to_config_mode(ctx):
     with patch(
-        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"mode": "cold"}},
+        "plugin.framework.client.embeddings_service.run_trusted_worker_action",
+        return_value={"mode": "cold"},
     ) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index"):
                 embeddings_service.maintain_folder_index(ctx, "/tmp/folder", model=DEFAULT_EMBEDDING_MODEL)
-    assert mock_run.call_args.kwargs["data"]["search_mode"] == "llama_index"
+    assert mock_run.call_args.kwargs["params"]["search_mode"] == "llama_index"
 
 
 def test_hybrid_search_passes_config_search_mode(ctx):
     with patch(
-        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"hits": []}},
+        "plugin.framework.client.embeddings_service.run_trusted_worker_action",
+        return_value={"hits": []},
     ) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index"):
                 embeddings_service.hybrid_search(ctx, "/tmp/corpus.db", "q", 5, model=DEFAULT_EMBEDDING_MODEL)
-    assert mock_run.call_args.kwargs["data"]["search_mode"] == "llama_index"
+    assert mock_run.call_args.kwargs["params"]["search_mode"] == "llama_index"
 
 
 def test_hybrid_search_passes_rerank_model_when_llama_index_enabled(ctx):
     from plugin.framework.constants import FOLDER_RERANK_MODEL_ENGLISH_SMALL
 
     with patch(
-        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"hits": []}},
+        "plugin.framework.client.embeddings_service.run_trusted_worker_action",
+        return_value={"hits": []},
     ) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index"):
@@ -133,15 +133,15 @@ def test_hybrid_search_passes_rerank_model_when_llama_index_enabled(ctx):
                     return_value={"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL},
                 ):
                     embeddings_service.hybrid_search(ctx, "/tmp/corpus.db", "q", 5, model=DEFAULT_EMBEDDING_MODEL)
-    data = mock_run.call_args.kwargs["data"]
+    data = mock_run.call_args.kwargs["params"]
     assert data["rerank_model"] == FOLDER_RERANK_MODEL_ENGLISH_SMALL
     assert data["use_mmr"] is True
 
 
 def test_hybrid_search_disables_rerank_when_llama_index_rerank_off(ctx):
     with patch(
-        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"hits": []}},
+        "plugin.framework.client.embeddings_service.run_trusted_worker_action",
+        return_value={"hits": []},
     ) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="llama_index"):
@@ -150,20 +150,20 @@ def test_hybrid_search_disables_rerank_when_llama_index_rerank_off(ctx):
                     return_value={"use_mmr": False},
                 ):
                     embeddings_service.hybrid_search(ctx, "/tmp/corpus.db", "q", 5, model=DEFAULT_EMBEDDING_MODEL)
-    data = mock_run.call_args.kwargs["data"]
+    data = mock_run.call_args.kwargs["params"]
     assert "rerank_model" not in data
     assert data["use_mmr"] is False
 
 
 def test_hybrid_search_omits_rerank_when_disabled_for_hybrid_backend(ctx):
     with patch(
-        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"hits": []}},
+        "plugin.framework.client.embeddings_service.run_trusted_worker_action",
+        return_value={"hits": []},
     ) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="hybrid"):
                 embeddings_service.hybrid_search(ctx, "/tmp/corpus.db", "q", 5, model=DEFAULT_EMBEDDING_MODEL)
-    data = mock_run.call_args.kwargs["data"]
+    data = mock_run.call_args.kwargs["params"]
     assert "rerank_model" not in data
     assert data["use_mmr"] is False
 
@@ -172,8 +172,8 @@ def test_hybrid_search_passes_rerank_model_when_hybrid_rerank_enabled(ctx):
     from plugin.framework.constants import FOLDER_RERANK_MODEL_ENGLISH_SMALL
 
     with patch(
-        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"hits": []}},
+        "plugin.framework.client.embeddings_service.run_trusted_worker_action",
+        return_value={"hits": []},
     ) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="hybrid"):
@@ -182,7 +182,7 @@ def test_hybrid_search_passes_rerank_model_when_hybrid_rerank_enabled(ctx):
                     return_value={"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL},
                 ):
                     embeddings_service.hybrid_search(ctx, "/tmp/corpus.db", "q", 5, model=DEFAULT_EMBEDDING_MODEL)
-    data = mock_run.call_args.kwargs["data"]
+    data = mock_run.call_args.kwargs["params"]
     assert data["rerank_model"] == FOLDER_RERANK_MODEL_ENGLISH_SMALL
     assert data["use_mmr"] is True
 
@@ -237,12 +237,12 @@ def test_folder_search_rerank_options_lancedb_enabled(ctx):
 
 def test_maintain_folder_index_lancedb_mode(ctx):
     with patch(
-        "plugin.framework.client.embeddings_service.run_code_in_user_venv",
-        return_value={"status": "ok", "result": {"mode": "cold"}},
+        "plugin.framework.client.embeddings_service.run_trusted_worker_action",
+        return_value={"mode": "cold"},
     ) as mock_run:
         with patch("plugin.framework.client.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             with patch("plugin.framework.client.embeddings_service._folder_search_mode", return_value="lancedb"):
                 embeddings_service.maintain_folder_index(ctx, "/tmp/folder", model=DEFAULT_EMBEDDING_MODEL)
-    assert mock_run.call_args.kwargs["data"]["search_mode"] == "lancedb"
+    assert mock_run.call_args.kwargs["params"]["search_mode"] == "lancedb"
 
 

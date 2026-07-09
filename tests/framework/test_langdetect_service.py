@@ -25,22 +25,18 @@ def ctx():
 
 
 def test_detect_languages_happy_path(ctx) -> None:
-    worker_result = {
-        "status": "ok",
-        "result": {"languages": ["fr-FR", None]},
-    }
+    worker_result = {"languages": ["fr-FR", None]}
     with (
         patch("plugin.framework.client.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
-        patch("plugin.framework.client.langdetect_service.run_code_in_user_venv", return_value=worker_result) as mock_run,
+        patch("plugin.framework.client.langdetect_service.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         out = detect_languages(ctx, ["Bonjour.", ""])
 
     assert out == ["fr-FR", None]
     mock_run.assert_called_once()
-    _args, kwargs = mock_run.call_args
-    assert _args[0] is ctx
-    assert "langdetect_rpc" in _args[1]
-    assert kwargs["data"] == {"texts": ["Bonjour.", ""]}
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["domain"] == "langdetect"
+    assert kwargs["additional_data"] == {"texts": ["Bonjour.", ""]}
     assert kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:langdetect"
     assert kwargs["timeout_sec"] == long_trusted_worker_timeout_sec()
     assert kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
@@ -50,8 +46,8 @@ def test_detect_languages_worker_error(ctx) -> None:
     with (
         patch("plugin.framework.client.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
         patch(
-            "plugin.framework.client.langdetect_service.run_code_in_user_venv",
-            return_value={"status": "error", "message": "Embeddings venv not configured"},
+            "plugin.framework.client.langdetect_service.run_trusted_worker_action",
+            side_effect=ToolExecutionError("Embeddings venv not configured", code="LANGDETECT_ERROR"),
         ),
         pytest.raises(ToolExecutionError, match="Embeddings venv not configured"),
     ):
@@ -59,10 +55,10 @@ def test_detect_languages_worker_error(ctx) -> None:
 
 
 def test_detect_languages_mismatched_batch(ctx) -> None:
-    worker_result = {"status": "ok", "result": {"languages": ["en-US"]}}
+    worker_result = {"languages": ["en-US"]}
     with (
         patch("plugin.framework.client.langdetect_service.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
-        patch("plugin.framework.client.langdetect_service.run_code_in_user_venv", return_value=worker_result),
+        patch("plugin.framework.client.langdetect_service.run_trusted_worker_action", return_value=worker_result),
         pytest.raises(ToolExecutionError, match="mismatched batch"),
     ):
         detect_languages(ctx, ["a", "b"])

@@ -48,19 +48,16 @@ def test_get_embedding_model_override(ctx):
 
 def test_embed_texts_happy_path(ctx, config_data):
     worker_result = {
-        "status": "ok",
-        "result": {
-            "model": DEFAULT_EMBEDDING_MODEL,
-            "dim": 384,
-            "vectors": [[0.1, 0.2], [0.3, 0.4]],
-            "indices": [0, 2],
-        },
+        "model": DEFAULT_EMBEDDING_MODEL,
+        "dim": 384,
+        "vectors": [[0.1, 0.2], [0.3, 0.4]],
+        "indices": [0, 2],
     }
 
     with (
         patch("plugin.framework.client.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
         patch("plugin.framework.client.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
-        patch("plugin.framework.client.embedding_client.run_code_in_user_venv", return_value=worker_result) as mock_run,
+        patch("plugin.framework.client.embedding_client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         batch = embed_texts(ctx, ["hello", "", "world"])
 
@@ -71,10 +68,9 @@ def test_embed_texts_happy_path(ctx, config_data):
     assert batch.indices == [0, 2]
 
     mock_run.assert_called_once()
-    _args, kwargs = mock_run.call_args
-    assert _args[0] is ctx
-    assert "plugin.embeddings.venv.embeddings_index" in _args[1]
-    assert kwargs["data"] == {"model": DEFAULT_EMBEDDING_MODEL, "texts": ["hello", "", "world"]}
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["domain"] == "embedding"
+    assert kwargs["additional_data"] == {"model": DEFAULT_EMBEDDING_MODEL, "texts": ["hello", "", "world"]}
     expected_session_slug = DEFAULT_EMBEDDING_MODEL.replace("/", "_").replace(":", "_")
     assert kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:{expected_session_slug}"
     assert kwargs["timeout_sec"] == long_trusted_worker_timeout_sec()
@@ -82,15 +78,12 @@ def test_embed_texts_happy_path(ctx, config_data):
 
 
 def test_embed_texts_custom_model_session_slug(ctx, config_data):
-    worker_result = {
-        "status": "ok",
-        "result": {"model": "BAAI/bge-small-en-v1.5", "dim": 384, "vectors": [], "indices": []},
-    }
+    worker_result = {"model": "BAAI/bge-small-en-v1.5", "dim": 384, "vectors": [], "indices": []}
 
     with (
         patch("plugin.framework.client.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
         patch("plugin.framework.client.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
-        patch("plugin.framework.client.embedding_client.run_code_in_user_venv", return_value=worker_result) as mock_run,
+        patch("plugin.framework.client.embedding_client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         embed_texts(ctx, [], model="BAAI/bge-small-en-v1.5")
 
@@ -98,15 +91,12 @@ def test_embed_texts_custom_model_session_slug(ctx, config_data):
 
 
 def test_embed_texts_uses_timeout_override(ctx, config_data):
-    worker_result = {
-        "status": "ok",
-        "result": {"model": DEFAULT_EMBEDDING_MODEL, "dim": 384, "vectors": [], "indices": []},
-    }
+    worker_result = {"model": DEFAULT_EMBEDDING_MODEL, "dim": 384, "vectors": [], "indices": []}
 
     with (
         patch("plugin.framework.client.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
         patch("plugin.framework.client.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
-        patch("plugin.framework.client.embedding_client.run_code_in_user_venv", return_value=worker_result) as mock_run,
+        patch("plugin.framework.client.embedding_client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         embed_texts(ctx, ["hello"], timeout_sec=5)
 
@@ -118,8 +108,8 @@ def test_embed_texts_worker_error(ctx, config_data):
         patch("plugin.framework.client.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
         patch("plugin.framework.client.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
         patch(
-            "plugin.framework.client.embedding_client.run_code_in_user_venv",
-            return_value={"status": "error", "message": "sentence_transformers not installed"},
+            "plugin.framework.client.embedding_client.run_trusted_worker_action",
+            side_effect=ToolExecutionError("sentence_transformers not installed", code="EMBEDDING_ERROR"),
         ),
     ):
         with pytest.raises(ToolExecutionError, match="sentence_transformers"):
@@ -137,8 +127,8 @@ def test_embed_texts_malformed_worker_result(ctx, config_data):
         patch("plugin.framework.client.embedding_client.get_config", side_effect=_mock_get_config(config_data)),
         patch("plugin.framework.client.embedding_client.embeddings_worker_timeout_sec", return_value=long_trusted_worker_timeout_sec()),
         patch(
-            "plugin.framework.client.embedding_client.run_code_in_user_venv",
-            return_value={"status": "ok", "result": {"dim": "bad"}},
+            "plugin.framework.client.embedding_client.run_trusted_worker_action",
+            side_effect=ToolExecutionError("malformed", code="EMBEDDING_ERROR"),
         ),
     ):
         with pytest.raises(ToolExecutionError, match="malformed"):

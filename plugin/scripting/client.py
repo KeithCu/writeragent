@@ -8,14 +8,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import (
     configured_python_exec_timeout,
     long_trusted_worker_timeout_sec,
     VISION_WORKER_TIMEOUT_SEC,
 )
+from plugin.scripting.trusted_rpc import run_trusted_worker_action
 from plugin.vision.vision_common import resolve_engine
-from plugin.scripting.venv_worker import run_code_in_user_venv
 
 
 def _run_trusted_action(
@@ -31,36 +30,20 @@ def _run_trusted_action(
     error_label: str,
     additional_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute a trusted action packet in the user venv worker via run_code_in_user_venv."""
-    payload = {
-        "domain": domain,
-        "helper": helper,
-        "params": params,
-        "data_range": data_range,
-        "context": context or {},
-    }
-    if additional_data:
-        payload.update(additional_data)
-
-    response = run_code_in_user_venv(
+    """Execute a trusted action packet in the user venv worker."""
+    return run_trusted_worker_action(
         ctx,
-        code=None,
-        data=payload,
-        timeout_sec=timeout_sec,
+        domain=domain,
+        helper=helper,
+        params=params,
+        data_range=data_range,
+        context=context,
         session_id=session_id,
-        action="run_trusted_action",
+        timeout_sec=timeout_sec,
+        additional_data=additional_data,
+        error_code=error_code,
+        error_label=error_label,
     )
-    if response.get("status") != "ok":
-        message = str(response.get("message") or f"{error_label} worker failed.")
-        raise ToolExecutionError(message, code=error_code, details={"worker": response})
-    result = response.get("result")
-    if not isinstance(result, dict):
-        raise ToolExecutionError(
-            f"{error_label} worker returned an unexpected result.",
-            code=error_code,
-            details={"result_type": type(result).__name__},
-        )
-    return result
 
 
 # --- Long-running trusted helpers (use the single long budget instead of user python_exec_timeout) ---
@@ -103,7 +86,7 @@ def _make_spec_runner(
         )
         if isinstance(spec, str):
             helper = spec
-            params = {}
+            params: dict[str, Any] = {}
         else:
             helper = spec.get("helper", "")
             params = spec.get("params") or {}
@@ -238,7 +221,7 @@ def run_vision(
     timeout_sec = _resolve_vision_timeout_sec(ctx, spec)
     if isinstance(spec, str):
         helper = spec
-        params = {}
+        params: dict[str, Any] = {}
     else:
         helper = spec.get("helper", "")
         params = spec.get("params") or {}
@@ -260,10 +243,6 @@ def run_vision(
 # --- DuckDB SQL (folder) ---
 
 _SQL_SESSION_PREFIX = "writeragent:sql"
-_SQL_STUB = """\
-from plugin.scripting.duckdb_sql import query_folder_sql as _run
-result = _run(data.get("scoped_dir"), data.get("sql"), data.get("files"), data.get("preloaded"), data.get("flat_files"))
-"""
 
 
 def run_folder_sql(
@@ -281,31 +260,30 @@ def run_folder_sql(
     - files: list (legacy) or dict name->spec for folder files
     - flat_files: dict name -> full path for direct DuckDB flat files (CSV/Parquet)
     """
-    payload = {
-        "scoped_dir": scoped_dir,
-        "sql": sql,
-        "files": files or [] if isinstance(files, list) else (files or {}),
-        "preloaded": preloaded or {},
-        "flat_files": flat_files or {},
-    }
-    return _run_trusted_helper(
+    return _run_trusted_action(
         ctx,
         session_id=_SQL_SESSION_PREFIX,
-        stub=_SQL_STUB,
-        payload=payload,
+        domain="sql",
+        helper="query_folder_sql",
+        params={},
+        data_range=None,
+        context=None,
         timeout_sec=configured_python_exec_timeout(ctx),
         error_code="DUCKDB_SQL_ERROR",
         error_label="DuckDB SQL",
+        additional_data={
+            "scoped_dir": scoped_dir,
+            "sql": sql,
+            "files": files or [] if isinstance(files, list) else (files or {}),
+            "preloaded": preloaded or {},
+            "flat_files": flat_files or {},
+        },
     )
 
 
 # --- Text Analytics (spaCy + textdescriptives) ---
 
 _TEXT_SESSION_PREFIX = "writeragent:text"
-_TEXT_STUB = """\
-from plugin.scripting.text_analytics import run_text_analytics as _run
-result = _run(data.get("spec"), data.get("text"), data.get("context") or {})
-"""
 
 
 def run_text_analytics(
@@ -339,81 +317,90 @@ def run_text_analytics(
         pass  # config optional; fall back to hard-coded default in _extract_sentiment
 
     timeout_sec = _resolve_trusted_timeout(ctx, _TEXT_SESSION_PREFIX)
-    payload = {"spec": spec, "text": text, "context": context or {}}
-    return _run_trusted_helper(
+    if isinstance(spec, str):
+        helper = spec
+        params: dict[str, Any] = {}
+    else:
+        helper = str(spec.get("helper", "") or "")
+        params = spec.get("params") or {}
+    return _run_trusted_action(
         ctx,
         session_id=_TEXT_SESSION_PREFIX,
-        stub=_TEXT_STUB,
-        payload=payload,
+        domain="text",
+        helper=helper,
+        params=params if isinstance(params, dict) else {},
+        data_range=None,
+        context=context,
         timeout_sec=timeout_sec,
         error_code="TEXT_ANALYTICS_ERROR",
         error_label="Text Analytics",
+        additional_data={"text": text},
     )
 
 
 # --- LanguageTool ---
 
 _LT_SESSION_PREFIX = "writeragent:languagetool"
-_LT_STUB = """\
-from plugin.scripting.venv.languagetool import run_languagetool_check as _run
-result = _run(data["text"], data["bcp47"])
-"""
 
 
 def run_languagetool_check(ctx: Any, text: str, bcp47: str) -> dict[str, Any]:
     """Execute a trusted LanguageTool check helper inside the user venv worker."""
-    return _run_trusted_helper(
+    return _run_trusted_action(
         ctx,
         session_id=_LT_SESSION_PREFIX,
-        stub=_LT_STUB,
-        payload={"text": text, "bcp47": bcp47},
-        timeout_sec=15,  # LanguageTool is fast
+        domain="languagetool",
+        helper="check",
+        params={},
+        data_range=None,
+        context=None,
+        timeout_sec=15,
         error_code="LANGUAGETOOL_ERROR",
         error_label="LanguageTool",
+        additional_data={"text": text, "bcp47": bcp47},
     )
 
 
 # --- Vale Style Linter ---
 
 _VALE_SESSION_PREFIX = "writeragent:vale"
-_VALE_STUB = """\
-from plugin.scripting.venv.vale import run_vale_check as _run
-result = _run(data["text"], data["config_dir"], data["styles"])
-"""
 
 
 def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[str, Any]:
     """Execute a trusted Vale linter helper inside the user venv worker."""
-    return _run_trusted_helper(
+    return _run_trusted_action(
         ctx,
         session_id=_VALE_SESSION_PREFIX,
-        stub=_VALE_STUB,
-        payload={"text": text, "config_dir": config_dir, "styles": styles},
-        timeout_sec=25,  # Sync might take a bit longer on first check
+        domain="vale",
+        helper="check",
+        params={},
+        data_range=None,
+        context=None,
+        timeout_sec=25,
         error_code="VALE_ERROR",
         error_label="Vale Linter",
+        additional_data={"text": text, "config_dir": config_dir, "styles": styles},
     )
 
 
 # --- Harper Rust Linter ---
 
 _HARPER_SESSION_PREFIX = "writeragent:harper"
-_HARPER_STUB = """\
-from plugin.scripting.venv.harper import run_harper_check as _run
-result = _run(data["text"], data["config_dir"], data.get("bcp47") or "en-US")
-"""
 
 
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
     """Execute a trusted Harper linter helper inside the user venv worker."""
-    return _run_trusted_helper(
+    return _run_trusted_action(
         ctx,
         session_id=_HARPER_SESSION_PREFIX,
-        stub=_HARPER_STUB,
-        payload={"text": text, "config_dir": config_dir, "bcp47": bcp47},
-        timeout_sec=30,  # Auto-download on first run might take a bit
+        domain="harper",
+        helper="check",
+        params={},
+        data_range=None,
+        context=None,
+        timeout_sec=30,
         error_code="HARPER_ERROR",
         error_label="Harper Linter",
+        additional_data={"text": text, "config_dir": config_dir, "bcp47": bcp47},
     )
 
 

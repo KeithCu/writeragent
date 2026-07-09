@@ -64,13 +64,10 @@ def ctx():
 
 
 def test_client_run_quant_happy_path(ctx):
-    worker_result = {
-        "status": "ok",
-        "result": {"status": "ok", "helper": "fetch_historical_data", "table": {"columns": ["Date"], "rows": []}},
-    }
+    worker_result = {"status": "ok", "helper": "fetch_historical_data", "table": {"columns": ["Date"], "rows": []}}
     with (
         patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
-        patch("plugin.scripting.client.run_code_in_user_venv", return_value=worker_result) as mock_run,
+        patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         result = run_quant(ctx, "fetch_historical_data", {"tickers": ["AAPL"]})
 
@@ -78,15 +75,15 @@ def test_client_run_quant_happy_path(ctx):
     mock_run.assert_called_once()
     kwargs = mock_run.call_args.kwargs
     assert kwargs["session_id"] == "writeragent:quant"
-    assert kwargs["data"]["helper"] == "fetch_historical_data"
+    assert kwargs["helper"] == "fetch_historical_data"
 
 
 def test_client_run_quant_worker_error(ctx):
     with (
         patch("plugin.scripting.client.configured_python_exec_timeout", return_value=10),
         patch(
-            "plugin.scripting.client.run_code_in_user_venv",
-            return_value={"status": "error", "message": "boom"},
+            "plugin.scripting.client.run_trusted_worker_action",
+            side_effect=ToolExecutionError("boom", code="QUANT_ERROR"),
         ),
     ):
         with pytest.raises(ToolExecutionError, match="boom"):

@@ -70,34 +70,49 @@ def _unpack_request_data(data: Any | None) -> dict[str, Any]:
     return {}
 
 
-def _handle_maintain_with_heartbeat(request: dict[str, Any], stdout: Any) -> None:
-    """Run maintain_folder_index and stream heartbeat frames before the result frame."""
-    from plugin.embeddings.venv.embeddings_index import maintain_folder_index
+def _handle_trusted_action(
+    request: dict[str, Any],
+    data: dict[str, Any],
+    *,
+    stdout: Any | None = None,
+) -> dict[str, Any] | None:
+    """Dispatch run_trusted_action via the declarative registry."""
+    from plugin.scripting.trusted_action_registry import get_trusted_action_wiring
     from plugin.scripting.venv.worker_heartbeat import HeartbeatEmitter, write_result_frame
 
-    req_id = str(request.get("id", ""))
-    payload = _unpack_request_data(request.get("data"))
-    emitter = HeartbeatEmitter(stdout)
+    domain = str(data.get("domain") or "")
+    wiring = get_trusted_action_wiring(domain)
+    if wiring is None:
+        return {"status": "error", "message": f"Unknown trusted action domain: {domain}"}
+
+    use_heartbeat = bool(request.get("allow_heartbeat")) and wiring.supports_heartbeat and stdout is not None
+    heartbeat_fn = None
+    emitter: HeartbeatEmitter | None = None
+    if use_heartbeat:
+        emitter = HeartbeatEmitter(stdout)
+        heartbeat_fn = emitter.emit
+
     try:
-        result = maintain_folder_index(
-            str(payload.get("listing_root") or ""),
-            str(payload.get("model") or ""),
-            str(payload.get("mode") or "auto"),
-            search_mode=str(payload.get("search_mode") or "hybrid"),
-            heartbeat_fn=emitter.emit,
-        )
+        result = wiring.dispatch(data, heartbeat_fn=heartbeat_fn)
+    except Exception as exc:
+        import traceback
+
+        err = {"status": "error", "message": str(exc), "traceback": traceback.format_exc()}
+        if use_heartbeat and stdout is not None:
+            req_id = str(request.get("id", ""))
+            write_result_frame(stdout, {"id": req_id, **err})
+            return None
+        return err
+
+    if use_heartbeat and stdout is not None:
+        req_id = str(request.get("id", ""))
         write_result_frame(stdout, {"id": req_id, "status": "ok", "result": result})
-    except Exception as e:
-        write_result_frame(stdout, {"id": req_id, "status": "error", "message": str(e)})
+        return None
+
+    return {"status": "ok", "result": result}
 
 
 def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> dict[str, Any] | None:
-    if request.get("allow_heartbeat") and stdout is not None:
-        stub_code = str(request.get("code") or "")
-        if "maintain_folder_index" in stub_code:
-            _handle_maintain_with_heartbeat(request, stdout)
-            return None
-
     action = request.get("action")
     if action == "reset_session":
         session_id = request.get("session_id")
@@ -123,54 +138,7 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
         data = request.get("data")
         if not isinstance(data, dict):
             return {"status": "error", "message": "run_trusted_action requires data dict."}
-        domain = data.get("domain")
-        helper = data.get("helper")
-        params = data.get("params") or {}
-        data_range = data.get("data_range")
-        context = data.get("context") or {}
-
-        try:
-            if domain == "units":
-                from plugin.scripting.venv.units import run_units
-                result = run_units(helper, params, context)
-            elif domain in ("symbolic", "math"):
-                from plugin.scripting.venv.symbolic import run_symbolic
-                result = run_symbolic(helper, params, context)
-            elif domain == "viz":
-                from plugin.scripting.venv.viz import run_viz
-                result = run_viz(helper, params, context)
-            elif domain == "analysis":
-                from plugin.scripting.venv.analysis import run_analysis
-                result = run_analysis(helper, params, data_range, context)
-            elif domain == "forecast":
-                from plugin.scripting.venv.forecast import run_forecast
-                result = run_forecast(helper, params, data_range, context)
-            elif domain == "optimize":
-                from plugin.scripting.venv.optimize import run_optimize
-                result = run_optimize(helper, params, data_range, context)
-            elif domain == "quant":
-                from plugin.scripting.venv.quant import run_quant
-                result = run_quant(helper, params, data_range, context)
-            elif domain == "text":
-                from plugin.scripting.venv.text_analytics import run_text_analytics
-                result = run_text_analytics(helper, params, context)
-            elif domain == "vision":
-                from plugin.vision.venv.vision import run_vision
-                spec = {"helper": helper, "params": params}
-                result = run_vision(spec, data.get("image"), context)
-            elif domain == "embedding":
-                from plugin.embeddings.venv.embeddings_index import embed_texts
-                result = embed_texts(data.get("model"), data.get("texts"))
-            elif domain == "langdetect":
-                from plugin.embeddings.venv.langdetect_rpc import detect_lang_batch
-                result = {"languages": detect_lang_batch(data.get("texts"))}
-            else:
-                return {"status": "error", "message": f"Unknown trusted action domain: {domain}"}
-
-            return {"status": "ok", "result": result}
-        except Exception as exc:
-            import traceback
-            return {"status": "error", "message": str(exc), "traceback": traceback.format_exc()}
+        return _handle_trusted_action(request, data, stdout=stdout)
 
     code = request.get("code")
     if not isinstance(code, str) or not code.strip():

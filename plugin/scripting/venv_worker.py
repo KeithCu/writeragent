@@ -607,21 +607,19 @@ def run_code_in_user_venv(
     configured = configured_python_exec_timeout(uno_ctx)
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
-    call_kwargs = {
-        "data": data,
-        "timeout_sec": timeout_sec,
-        "session_id": session_id,
-        "init_script": init_script,
-        "init_session_id": init_session_id,
-        "init_script_hash": init_script_hash,
-        "allow_heartbeat": allow_heartbeat,
-        "heartbeat_grace_sec": heartbeat_grace_sec,
-        "on_heartbeat": on_heartbeat,
-    }
-    if action is not None:
-        call_kwargs["action"] = action
-
-    return manager.execute(code, **call_kwargs)
+    return manager.execute(
+        code,
+        data=data,
+        timeout_sec=timeout_sec,
+        session_id=session_id,
+        init_script=init_script,
+        init_session_id=init_session_id,
+        init_script_hash=init_script_hash,
+        allow_heartbeat=allow_heartbeat,
+        heartbeat_grace_sec=heartbeat_grace_sec,
+        on_heartbeat=on_heartbeat,
+        action=action,
+    )
 
 
 def reset_python_session(uno_ctx: Any, session_id: str, *, timeout_sec: int | None = None) -> Dict[str, Any]:

@@ -484,8 +484,12 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
     ),
 )
 
+def _rps_builder_for(wiring: DomainWiring) -> Callable[[], RpsDomainSpec]:
+    return lambda: build_rps_spec(wiring)
+
+
 _RPS_BUILDERS: tuple[Callable[[], RpsDomainSpec], ...] = tuple(
-    (lambda w=wiring: build_rps_spec(w)) for wiring in WIRING_TABLE
+    _rps_builder_for(wiring) for wiring in WIRING_TABLE
 )
 
 _rps_cache: list[RpsDomainSpec] | None = None

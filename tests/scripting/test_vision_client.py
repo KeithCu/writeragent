@@ -26,18 +26,15 @@ def ctx():
 def test_run_vision_uses_docling_timeout_by_default(ctx):
     worker_result = {
         "status": "ok",
-        "result": {
-            "status": "ok",
-            "helper": "extract_text",
-            "full_text": "hi",
-            "regions": [],
-            "warnings": [],
-        },
+        "helper": "extract_text",
+        "full_text": "hi",
+        "regions": [],
+        "warnings": [],
     }
     spec = {"helper": "extract_text", "params": {}}
     image = b"png-bytes"
 
-    with patch("plugin.scripting.client.run_code_in_user_venv", return_value=worker_result) as mock_run:
+    with patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run:
         result = run_vision(ctx, spec, image, context={"source": "selection"})
 
     assert result["full_text"] == "hi"
@@ -47,13 +44,10 @@ def test_run_vision_uses_docling_timeout_by_default(ctx):
 
 
 def test_run_vision_uses_paddle_timeout_when_engine_paddle(ctx):
-    worker_result = {
-        "status": "ok",
-        "result": {"status": "ok", "helper": "extract_text", "full_text": "hi"},
-    }
+    worker_result = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
     spec = {"helper": "extract_text", "params": {"engine": "paddle"}}
 
-    with patch("plugin.scripting.client.run_code_in_user_venv", return_value=worker_result) as mock_run:
+    with patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run:
         run_vision(ctx, spec, b"png")
 
     assert mock_run.call_args.kwargs["timeout_sec"] == VISION_WORKER_TIMEOUT_SEC
@@ -62,18 +56,15 @@ def test_run_vision_uses_paddle_timeout_when_engine_paddle(ctx):
 def test_run_vision_uses_dedicated_timeout_not_script_timeout(ctx):
     worker_result = {
         "status": "ok",
-        "result": {
-            "status": "ok",
-            "helper": "extract_text",
-            "full_text": "hi",
-            "regions": [],
-            "warnings": [],
-        },
+        "helper": "extract_text",
+        "full_text": "hi",
+        "regions": [],
+        "warnings": [],
     }
     spec = {"helper": "extract_text", "params": {}}
     image = b"png-bytes"
 
-    with patch("plugin.scripting.client.run_code_in_user_venv", return_value=worker_result) as mock_run:
+    with patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run:
         result = run_vision(ctx, spec, image, context={"source": "selection"})
 
     assert result["full_text"] == "hi"
@@ -82,15 +73,12 @@ def test_run_vision_uses_dedicated_timeout_not_script_timeout(ctx):
 
 
 def test_run_vision_uses_config_worker_timeout(ctx):
-    worker_result = {
-        "status": "ok",
-        "result": {"status": "ok", "helper": "extract_text", "full_text": "hi"},
-    }
+    worker_result = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
     spec = {"helper": "extract_text", "params": {}}
 
     with (
         patch("plugin.framework.config.get_config_int", return_value=999),
-        patch("plugin.scripting.client.run_code_in_user_venv", return_value=worker_result) as mock_run,
+        patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
         run_vision(ctx, spec, b"png")
 
@@ -99,8 +87,8 @@ def test_run_vision_uses_config_worker_timeout(ctx):
 
 def test_run_vision_worker_error(ctx):
     with patch(
-        "plugin.scripting.client.run_code_in_user_venv",
-        return_value={"status": "error", "message": "boom"},
+        "plugin.scripting.client.run_trusted_worker_action",
+        side_effect=ToolExecutionError("boom", code="VISION_ERROR"),
     ):
         with pytest.raises(ToolExecutionError, match="boom"):
             run_vision(ctx, {"helper": "extract_text", "params": {}}, b"x")
