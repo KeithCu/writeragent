@@ -18,9 +18,7 @@ from plugin.scripting._lazy_venv import make_getattr
 from plugin.scripting.client import run_units as client_run_units
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
-    build_helper_script_template,
     header_prefix,
-    parse_helper_script_header,
 )
 
 from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES as HELPER_NAMES

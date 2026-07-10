@@ -26,6 +26,8 @@ from plugin.framework.i18n import _
 # keep working without any behavior change.
 from plugin.framework.errors import format_error_message  # noqa: F401
 
+_ZAI_CODING_PLAN_ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
+
 
 def _format_http_error_response(status, reason, err_body):
     """Build error message including response body for display in chat/UI.
@@ -67,8 +69,8 @@ def append_zai_unknown_model_hint(message, err_body, path, provider, request_mod
         return message
     hint = _(
         " If your API key is from a GLM Coding Plan subscription, set endpoint to "
-        "https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
-    )
+        "{0} (not the general /api/paas URL)."
+    ).format(_ZAI_CODING_PLAN_ENDPOINT)
     if request_model:
         return message + hint + _(" Request model was: {0}.").format(repr(request_model))
     return message + hint

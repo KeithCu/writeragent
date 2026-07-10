@@ -19,9 +19,7 @@ from plugin.doc.document_helpers import is_calc, is_writer
 from plugin.scripting.client import run_quant as client_run_quant
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
-    build_helper_script_template,
     header_prefix,
-    parse_helper_script_header,
 )
 from plugin.framework.errors import ToolExecutionError
 

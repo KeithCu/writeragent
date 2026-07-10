@@ -11,12 +11,16 @@ import os
 import subprocess
 import sys
 import tempfile
-import threading
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.config import get_config_str
 from plugin.framework.worker_pool import run_in_background
-from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
+
+if TYPE_CHECKING:
+    import threading
+    from collections.abc import Callable
+
+    from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
 from plugin.scripting.ipc import read_json_line, write_json_line
 from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
 

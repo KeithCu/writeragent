@@ -19,9 +19,7 @@ from plugin.doc.document_helpers import is_calc, is_draw, is_writer
 from plugin.scripting.client import run_viz as client_run_viz
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
-    build_helper_script_template,
     header_prefix,
-    parse_helper_script_header,
 )
 from plugin.scripting.payload_codec import is_image_payload, find_image_payloads, write_image_payload_to_temp
 from plugin.framework.errors import ToolExecutionError

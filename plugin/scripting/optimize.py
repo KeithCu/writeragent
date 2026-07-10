@@ -20,9 +20,7 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.client import run_optimize as client_run_optimize
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
-    build_helper_script_template,
     header_prefix,
-    parse_helper_script_header,
 )
 
 log = logging.getLogger(__name__)
@@ -31,7 +29,6 @@ log = logging.getLogger(__name__)
 
 from plugin.scripting.calc_functions_common import (
     OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
-    OPTIMIZE_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
 )
 
 OPTIMIZE_HEADER_PREFIX = header_prefix("optimize")

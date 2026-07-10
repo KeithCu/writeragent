@@ -16,9 +16,7 @@ from plugin.scripting._lazy_venv import make_getattr
 from plugin.scripting.client import run_symbolic as client_run_symbolic
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
-    build_helper_script_template,
     header_prefix,
-    parse_helper_script_header,
 )
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
