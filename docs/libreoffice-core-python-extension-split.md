@@ -35,6 +35,7 @@ Aligned with [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md
 - DuckDB — `plugin/scripting/venv/duckdb_sql.py`, `SCRIPT_ORIGIN_SQL`, `domain=sql`
 - Jupyter — `plugin/notebook/`, `scripting.import_ipynb`
 - Spreadsheet import — `plugin/calc/spreadsheet_import/` (proposed), `calc.convert_spreadsheet_to_python`
+- Calc-parity `xl` helpers — `plugin/scripting/calc_functions.py`, `plugin/scripting/venv/calc_functions*.py` (spreadsheet-import parity; **WriterAgent only for now**; may return to LibrePy when spreadsheet conversion ships in core). LibrePy still ships [`calc_functions_common.py`](../plugin/scripting/calc_functions_common.py) for domain helper name frozensets.
 
 ---
 

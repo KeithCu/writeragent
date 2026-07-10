@@ -4,9 +4,22 @@ from __future__ import annotations
 
 import os
 
+# Spreadsheet-import xl parity helpers — WriterAgent only for now; see
+# docs/libreoffice-core-python-extension-split.md (Explicit exclusions).
+LIBREPY_CALC_FUNCTIONS_EXCLUDES: tuple[str, ...] = (
+    "calc_functions.py",
+    "venv/calc_functions.py",
+    "venv/calc_functions_a_c.py",
+    "venv/calc_functions_d_h.py",
+    "venv/calc_functions_i_m.py",
+    "venv/calc_functions_n_s.py",
+    "venv/calc_functions_t_z.py",
+)
+
 # Whole subtrees under plugin/, minus relative paths in the exclude set.
 LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
     "plugin/scripting/": (
+        *LIBREPY_CALC_FUNCTIONS_EXCLUDES,
         "duckdb_sql.py",
         "venv/duckdb_sql.py",
         "venv/languagetool.py",
