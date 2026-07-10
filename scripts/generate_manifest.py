@@ -135,7 +135,18 @@ def _json_to_python(text):
     return "".join(result)
 
 
-def generate_manifest_py(modules, output_path):
+def _filter_librepy_config(config):
+    """Drop WriterAgent-only settings keys from LibrePy manifest/XDL generation."""
+    if not isinstance(config, dict):
+        return config
+    return {
+        field_name: schema
+        for field_name, schema in config.items()
+        if not (isinstance(schema, dict) and schema.get("librepy_exclude"))
+    }
+
+
+def generate_manifest_py(modules, output_path, *, librepy_flavor=False):
     """Generate _manifest.py with module descriptors as Python dicts."""
     from plugin.version import EXTENSION_VERSION
     from manifest_common import write_if_changed
@@ -148,13 +159,16 @@ def generate_manifest_py(modules, output_path):
         "MODULES = [",
     ]
     for m in modules:
+        config = m.get("config", {})
+        if librepy_flavor:
+            config = _filter_librepy_config(config)
         # Clean repr — only keep runtime-relevant keys
         entry = {
             "name": m["name"],
             "title": m.get("title", ""),
             "requires": m.get("requires", []),
             "provides_services": m.get("provides_services", []),
-            "config": m.get("config", {}),
+            "config": config,
             "config_inline": m.get("config_inline"),
             "actions": list(m.get("actions", {}).keys()),
             "action_icons": {k: v["icon"] for k, v in m.get("actions", {}).items() if v.get("icon")},
@@ -233,6 +247,8 @@ def main():
     names = [m["name"] for m in sorted_modules]
     print("  Module order: %s" % " -> ".join(names))
 
+    librepy_flavor = args.skip_writeragent_extension
+
     build_dir = os.path.join(PROJECT_ROOT, "build", "generated")
 
     # Read Tools -> Options enable flag
@@ -248,7 +264,7 @@ def main():
 
     # 2. _manifest.py
     manifest_path = args.manifest_output or os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
-    generate_manifest_py(sorted_modules, manifest_path)
+    generate_manifest_py(sorted_modules, manifest_path, librepy_flavor=librepy_flavor)
 
     # 4. XDL dialog pages
     dialogs_dir = os.path.join(build_dir, "dialogs")
@@ -273,7 +289,8 @@ def main():
     generate_settings_dialog_tabs(
         sorted_modules,
         os.path.join(PROJECT_ROOT, "extension", "WriterAgentDialogs", "SettingsDialog.xdl.tpl"),
-        os.path.join(PROJECT_ROOT, "build", "generated", "WriterAgentDialogs", "SettingsDialog.xdl")
+        os.path.join(PROJECT_ROOT, "build", "generated", "WriterAgentDialogs", "SettingsDialog.xdl"),
+        librepy_flavor=librepy_flavor,
     )
 
     # 8. Patch version

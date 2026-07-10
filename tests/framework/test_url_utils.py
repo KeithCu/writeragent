@@ -1,6 +1,12 @@
 import pytest
 import unittest
-from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_suffix, get_url_query_dict
+from plugin.framework.url_utils import (
+    dispatch_command_from_url,
+    get_api_version_suffix,
+    get_url_query_dict,
+    matches_librepy_dispatch_url,
+    normalize_endpoint_url,
+)
 
 class TestNormalizeEndpointUrl():
 
@@ -71,3 +77,24 @@ class TestGetUrlQueryDict:
 
     def test_empty_input(self):
         assert get_url_query_dict("") == {}
+
+
+class TestLibrePyDispatchUrl(unittest.TestCase):
+    class _Url:
+        def __init__(self, complete="", path="", protocol=""):
+            self.Complete = complete
+            self.Path = path
+            self.Protocol = protocol
+
+    def test_command_from_path(self):
+        url = self._Url(path="main.settings")
+        assert dispatch_command_from_url(url) == "main.settings"
+
+    def test_command_from_complete_when_path_empty(self):
+        url = self._Url(complete="org.extension.librepy:scripting.run_python_dialog", path="")
+        assert dispatch_command_from_url(url) == "scripting.run_python_dialog"
+
+    def test_matches_protocol_and_complete(self):
+        assert matches_librepy_dispatch_url(self._Url(protocol="org.extension.librepy:", path="main.settings"))
+        assert matches_librepy_dispatch_url(self._Url(complete="org.extension.librepy:main.settings"))
+        assert not matches_librepy_dispatch_url(self._Url(protocol="org.extension.writeragent:", path="main.settings"))

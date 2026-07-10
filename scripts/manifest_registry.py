@@ -334,7 +334,7 @@ def generate_accelerators_xcu(modules, output_path):
 
 
 
-def generate_settings_dialog_tabs(modules, tpl_path, output_path):
+def generate_settings_dialog_tabs(modules, tpl_path, output_path, *, librepy_flavor=False):
     """Auto-generate tabs and pages for SettingsDialog.xdl using a template."""
     if not os.path.exists(tpl_path):
         return
@@ -372,8 +372,8 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
     tabs = []
     pages = []
     
-    # Start after the 'Image' tab
-    tab_x = 131
+    # LibrePy ships only module tabs (General/Image are hidden at runtime).
+    tab_x = 5 if librepy_flavor else 131
     page_num = 3
 
     from plugin.chatbot.settings_tab_order import iter_settings_tab_modules
@@ -396,6 +396,8 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
         def add_fields(prefix, cfg, curr_y):
             for field_name, schema in cfg.items():
                 if schema.get("internal") or schema.get("widget") == "list_detail":
+                    continue
+                if librepy_flavor and schema.get("librepy_exclude"):
                     continue
                 
                 widget = schema.get("widget", "text")
@@ -455,6 +457,7 @@ def generate_settings_dialog_tabs(modules, tpl_path, output_path):
                 visible_child_fields = [
                     (fn, s) for fn, s in child_cfg.items()
                     if not s.get("internal") and s.get("widget") != "list_detail"
+                    and not (librepy_flavor and s.get("librepy_exclude"))
                 ]
                 if not visible_child_fields:
                     continue

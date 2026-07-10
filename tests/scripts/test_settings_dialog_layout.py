@@ -137,3 +137,35 @@ def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
 
     assert "mcp__mcp_enabled" in tops
     assert "scripting__python_venv_path" in tops
+
+
+def test_librepy_flavor_omits_ppt_master_from_scripting_page(tmp_path: Path) -> None:
+    modules = [
+        {
+            "name": "scripting",
+            "title": "Python",
+            "config": {
+                "python_venv_path": {"type": "string", "widget": "text", "label": "Python venv path"},
+                "ppt_master_data_path": {
+                    "type": "string",
+                    "widget": "folder",
+                    "label": "PPT-Master data path",
+                    "librepy_exclude": True,
+                },
+                "test_ppt_master_data": {
+                    "type": "string",
+                    "widget": "button",
+                    "label": "Test",
+                    "librepy_exclude": True,
+                },
+            },
+        }
+    ]
+    tpl = _REPO / "extension" / "WriterAgentDialogs" / "SettingsDialog.xdl.tpl"
+    out = tmp_path / "SettingsDialog-librepy.xdl"
+    generate_settings_dialog_tabs(modules, str(tpl), str(out), librepy_flavor=True)
+    tops = _control_tops(out)
+
+    assert "scripting__python_venv_path" in tops
+    assert "scripting__ppt_master_data_path" not in tops
+    assert "scripting__test_ppt_master_data" not in tops

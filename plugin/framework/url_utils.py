@@ -6,7 +6,39 @@
 """
 URL parsing utilities for WriterAgent.
 """
+from __future__ import annotations
+
 import urllib.parse
+from typing import Any
+
+LIBREPY_DISPATCH_PROTOCOL = "org.extension.librepy:"
+
+
+def matches_librepy_dispatch_url(url: Any) -> bool:
+    """Return True when *url* is a LibrePy menu/protocol dispatch URL."""
+    proto = str(getattr(url, "Protocol", None) or "")
+    if proto.startswith("org.extension.librepy"):
+        return True
+    complete = str(getattr(url, "Complete", None) or "")
+    return complete.startswith(LIBREPY_DISPATCH_PROTOCOL)
+
+
+def dispatch_command_from_url(url: Any, *, protocol_prefix: str = LIBREPY_DISPATCH_PROTOCOL) -> str:
+    """Extract handler command from a LibreOffice dispatch URL.
+
+    LO usually sets ``Path`` (e.g. ``main.settings``). Some dispatch paths only
+    populate ``Complete`` (``org.extension.librepy:main.settings``); derive Path
+    from that so menu handlers still run.
+    """
+    path = str(getattr(url, "Path", None) or "").strip().lstrip("/")
+    if path:
+        return path
+    complete = str(getattr(url, "Complete", None) or "").strip()
+    if complete.startswith(protocol_prefix):
+        return complete[len(protocol_prefix) :].lstrip("/")
+    if ":" in complete:
+        return complete.split(":", 1)[1].lstrip("/")
+    return complete
 
 
 def _is_zai_host(url):

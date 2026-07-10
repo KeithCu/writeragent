@@ -20,7 +20,7 @@ Provides helpers for message boxes, clipboard operations, rich dialogs
 (with buttons, live updates, etc.), and XDL dialog loading.
 
 XDL loading rules (sidebar / extension dialogs):
-- Use ``DialogProvider2`` + extension ``base_url`` from
+- Use ``DialogProvider`` (``DialogProvider2`` fallback) + extension ``base_url`` from
   ``PackageInformationProvider`` (see ``load_writeragent_dialog`` /
   ``_load_xdl``). **Never** ``vnd.sun.star.script:…?location=application``
   with sidebar components — that path deadlocks.
@@ -758,6 +758,23 @@ def load_framework_dialog(dialog_name):
     return dlg
 
 
+def _create_xdl_dialog(smgr: Any, ctx: Any, dialog_url: str) -> Any | None:
+    """Load an XDL dialog URL; prefer DialogProvider (Linux), fall back to DialogProvider2."""
+    last_error: Exception | None = None
+    for service in ("com.sun.star.awt.DialogProvider", "com.sun.star.awt.DialogProvider2"):
+        try:
+            dp = smgr.createInstanceWithContext(service, ctx)
+            dlg = dp.createDialog(dialog_url)
+            if dlg is not None:
+                return dlg
+        except Exception as exc:
+            last_error = exc
+            log.debug("createDialog via %s failed for %s: %s", service, dialog_url, exc)
+    if last_error is not None:
+        log.warning("Failed to load XDL dialog %s: %s", dialog_url, last_error)
+    return None
+
+
 def load_writeragent_dialog(dialog_name, ctx=None):
     """Load an XDL dialog from the WriterAgentDialogs/ directory."""
     if ctx is None:
@@ -774,17 +791,16 @@ def load_writeragent_dialog(dialog_name, ctx=None):
     if "Mock" in type(smgr).__name__ or "Mock" in type(ctx).__name__:
         return smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any)
 
-    base = get_extension_url()
+    base = get_extension_url(ctx)
     url = base + "/WriterAgentDialogs/" + dialog_name + ".xdl"
-    dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider2", ctx_any)
-    dlg = dp.createDialog(url)
+    dlg = _create_xdl_dialog(smgr, ctx_any, url)
     if dlg:
         translate_dialog(dlg)
     return dlg
 
 
 def _load_xdl(relative_path):
-    """Load an XDL file from the extension bundle via DialogProvider2."""
+    """Load an XDL file from the extension bundle via DialogProvider (+ DP2 fallback)."""
 
     ctx = get_ctx()
     assert ctx is not None
@@ -794,10 +810,9 @@ def _load_xdl(relative_path):
     else:
         smgr = getattr(ctx_any, "ServiceManager", None)
     assert smgr is not None
-    base = get_extension_url()
+    base = get_extension_url(ctx)
     url = base + "/" + relative_path
-    dp = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.DialogProvider2", ctx_any)
-    return dp.createDialog(url)
+    return _create_xdl_dialog(smgr, ctx_any, url)
 
 
 def get_optional(root_window, name):

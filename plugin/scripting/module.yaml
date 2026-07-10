@@ -94,6 +94,7 @@ config:
     helper: Path to the ppt-master skill tree (SKILL.md, templates/, scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-master/skills/ppt-master). Leave empty to auto-detect (dev clone beside repo, then env).
     width: 200
     inline: true
+    librepy_exclude: true
 
   test_ppt_master_data:
     type: string
@@ -104,6 +105,7 @@ config:
     settings_persist: false
     x: 314
     width: 48
+    librepy_exclude: true
 
   force_internal_script_editor:
     type: bool

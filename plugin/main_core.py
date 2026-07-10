@@ -35,8 +35,9 @@ from com.sun.star.lang import XInitialization, XServiceInfo
 from com.sun.star.task import XJob, XJobExecutor
 from com.sun.star.util import URL as UnoURL
 
-from plugin.framework.logging import init_logging
+from plugin.framework.logging import init_logging, log as wa_log, log_exception
 from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id
+from plugin.framework.url_utils import dispatch_command_from_url, matches_librepy_dispatch_url
 
 EXTENSION_ID = "org.extension.librepy"
 _DISPATCH_PROTOCOL = "org.extension.librepy:"
@@ -62,17 +63,14 @@ def _open_dialog_safely(dialog_func, error_msg: str, *args, **kwargs) -> None:
         log.warning("UNO error opening dialog: %s", e.message)
     except Exception as e:
         log.exception("%s", error_msg)
-        from plugin.chatbot.dialogs import msgbox_with_report
+        from plugin.chatbot.dialogs import msgbox
         from plugin.framework.i18n import _
 
-        msgbox_with_report(
+        msgbox(
             get_ctx(),
             _("Error"),
             _(f"{error_msg}: {str(e)}"),
             box_type=3,
-            reportable=True,
-            report_title=error_msg,
-            report_extra=str(e),
         )
 
 
@@ -210,7 +208,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
         return self.SERVICE_NAMES
 
     def queryDispatch(self, URL: UnoURL, TargetFrameName: str, SearchFlags: int) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
-        if URL.Protocol == "org.extension.librepy:":
+        if matches_librepy_dispatch_url(URL):
             return cast("XDispatch", self)
         return cast("XDispatch", None)
 
@@ -218,26 +216,23 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in Requests)
 
     def dispatch(self, URL, Arguments) -> None:
-        from plugin.framework.logging import log_exception
-
+        command = dispatch_command_from_url(URL)
         try:
             bootstrap(self.ctx)
             init_logging(self.ctx)
-            _dispatch_command(URL.Path, self.ctx)
+            wa_log.warning(
+                "LibrePy dispatch: command=%r complete=%r path=%r",
+                command,
+                getattr(URL, "Complete", ""),
+                getattr(URL, "Path", ""),
+            )
+            _dispatch_command(command, self.ctx)
         except Exception as e:
             log_exception(e, context="LibrePy dispatch")
-            from plugin.chatbot.dialogs import msgbox_with_report
+            from plugin.chatbot.dialogs import msgbox
             from plugin.framework.i18n import _
 
-            msgbox_with_report(
-                self.ctx,
-                _("Dispatch Error"),
-                _(str(e)),
-                box_type=3,
-                reportable=True,
-                report_title="Dispatch Error",
-                report_extra=str(e),
-            )
+            msgbox(self.ctx, _("Dispatch Error"), _(str(e)), box_type=3)
 
     def addStatusListener(self, Control, URL) -> None:
         pass

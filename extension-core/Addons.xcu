@@ -17,6 +17,9 @@
             <prop oor:name="URL">
               <value>org.extension.librepy:main.settings</value>
             </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.sheet.SpreadsheetDocument,com.sun.star.text.GlobalDocument,com.sun.star.text.TextDocument,com.sun.star.text.WebDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.presentation.PresentationDocument</value>
+            </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
             </prop>
@@ -28,6 +31,9 @@
             <prop oor:name="URL">
               <value>org.extension.librepy:scripting.run_python_dialog</value>
             </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.sheet.SpreadsheetDocument,com.sun.star.text.GlobalDocument,com.sun.star.text.TextDocument,com.sun.star.text.WebDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.presentation.PresentationDocument</value>
+            </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
             </prop>
@@ -38,6 +44,9 @@
             </prop>
             <prop oor:name="URL">
               <value>org.extension.librepy:vision.open_settings</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.sheet.SpreadsheetDocument,com.sun.star.text.GlobalDocument,com.sun.star.text.TextDocument,com.sun.star.text.WebDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.presentation.PresentationDocument</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>
@@ -77,6 +86,9 @@
             </prop>
             <prop oor:name="URL">
               <value>org.extension.librepy:scripting.reset_python_session</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.sheet.SpreadsheetDocument,com.sun.star.text.GlobalDocument,com.sun.star.text.TextDocument,com.sun.star.text.WebDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.presentation.PresentationDocument</value>
             </prop>
             <prop oor:name="Target" oor:type="xs:string">
               <value>_self</value>

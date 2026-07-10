@@ -603,7 +603,9 @@ Register as `org.extension.librepy.Main` in a core-only [`Jobs.xcu`](../extensio
 
 ### 5. Config and session (shared)
 
-**Recommended:** keep **`writeragent.json`** for both extensions ([`CONFIG_FILENAME`](../plugin/framework/config.py)) so venv path, session mode, and timeouts are shared. Core owns Settings → Python (`scripting.*` keys); WriterAgent Settings focus on LLM / AI keys.
+**Recommended:** keep **`writeragent.json`** for both extensions ([`CONFIG_FILENAME`](../plugin/framework/config.py)) so venv path, session mode, and timeouts are shared. Core owns **Python Settings** ([`plugin/librepy/settings.py`](../plugin/librepy/settings.py): Python tab only; General/Image tabs hidden); WriterAgent Settings focus on LLM / AI keys.
+
+WriterAgent-only `module.yaml` settings keys can carry **`librepy_exclude: true`** (e.g. `scripting.ppt_master_data_path`). LibrePy manifest generation (`make manifest-core` / `generate_manifest.py --skip-writeragent-extension`) omits those keys from `_manifest_librepy.py` and from generated `SettingsDialog.xdl` page 3 controls.
 
 One venv + one shared-kernel session for `=PY()` and chat `run_venv_python_script` — desirable when both are installed.
 
@@ -631,6 +633,8 @@ Makefile (suggested targets)
   bundle-core / deploy-core            # unopkg org.extension.librepy
   bundle / deploy                      # WriterAgent slim OXT (no PYTHON overlap)
 ```
+
+**LibrePy menu Context:** In [`extension-core/Addons.xcu`](../extension-core/Addons.xcu), every submenu item must set an explicit `Context` property. Do not rely on “empty Context = all applications” when the same submenu mixes Writer-only and Calc-only entries — LibreOffice may hide shared items (Settings, Run Python Script, Reset Python Session) in Calc. Shared items use the full menubar context string (Writer, Calc, Draw, Impress, Web, Global); doc-specific items set `TextDocument` or `SpreadsheetDocument` only. Regression test: [`tests/scripts/test_librepy_addons_xcu.py`](../tests/scripts/test_librepy_addons_xcu.py).
 
 - **`make manifest`** for core: include `scripting` + `vision` `module.yaml` only; exclude `embeddings`.
 - **`make bundle-core`**: copy/filter files from [Layers 0–6](#feature-bundles-layers); substitute `org.extension.librepy` in XCU/IDL/addin.

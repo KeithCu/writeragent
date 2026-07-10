@@ -6,7 +6,7 @@
   <node oor:name="HandlerSet">
     <node oor:name="org.extension.librepy.DispatchHandler" oor:op="replace">
       <prop oor:name="Protocols" oor:type="oor:string-list">
-        <value>org.extension.librepy:</value>
+        <value>org.extension.librepy:*</value>
       </prop>
     </node>
   </node>
