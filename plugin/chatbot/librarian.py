@@ -225,7 +225,7 @@ TOOLS FOR COMPLETION:
 #Unused for now
 # Tip 7: In Writer, the sidebar mode dropdown includes Brainstorming. Choose Brainstorming to start a multi-turn design session: the agent asks one question at a time, can read the open document, search nearby files, and do web research, then discusses approaches with you. 
 
-            from plugin.framework.constants import get_chat_response_format_instructions
+            from plugin.framework.prompts import get_chat_response_format_instructions
 
             instructions += (
                 "\n\n"

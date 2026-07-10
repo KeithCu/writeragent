@@ -191,7 +191,7 @@ def _run_brainstorming_agent(ctx: ToolContext, *, query: str, history_text: str 
     from plugin.chatbot.smol_agent import SmolToolAdapter, build_toolcalling_agent
     from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
     from plugin.chatbot.smol_examples import get_examples_block
-    from plugin.framework.constants import get_brainstorming_sub_agent_instructions
+    from plugin.framework.prompts import get_brainstorming_sub_agent_instructions
 
     status_callback = getattr(ctx, "status_callback", None)
     append_thinking_callback = getattr(ctx, "append_thinking_callback", None)

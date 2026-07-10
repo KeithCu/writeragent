@@ -166,7 +166,7 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
     agent_label = getattr(tool, "_agent_label", None)
     special_base = getattr(tool, "_special_base_class", None)
     if agent_label and special_base is not None:
-        from plugin.framework.constants import format_specialized_domains_description
+        from plugin.framework.prompts import format_specialized_domains_description
 
         # For MCP schemas, use a compact description to avoid duplicating the long domain list
         # (the detailed domain guidance lives in the 'domain' property description instead).
@@ -669,7 +669,7 @@ class ToolRegistry:
                     if req:
                         required_core.update(req)
 
-            from plugin.framework.constants import WRITER_SIDEBAR_ONLY_DOMAINS
+            from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS
 
             filtered_tools = []
             for t in tools:

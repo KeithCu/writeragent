@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.constants import get_specialized_domain_catalog
+from plugin.framework.prompts import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolContext
 
 _FINISH_TOOL = "specialized_workflow_finished"
@@ -84,7 +84,7 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx:
                     "cell values as `data`; in Writer or Draw/Impress it does not inject "
                     "spreadsheet data -- use document tools for content.")
         try:
-            from plugin.framework.constants import python_specialized_sub_agent_hint
+            from plugin.framework.prompts import python_specialized_sub_agent_hint
             return (python_specialized_sub_agent_hint(agent_label) or "").strip()
         except Exception:
             return ""
@@ -106,7 +106,7 @@ def sidebar_only_tool_names(
 ) -> frozenset:
     """Tool names in sidebar-only domains (brainstorming, writing_plan, ppt-master)."""
     try:
-        from plugin.framework.constants import IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS, WRITER_SIDEBAR_ONLY_DOMAINS
+        from plugin.framework.prompts import IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS, WRITER_SIDEBAR_ONLY_DOMAINS
 
         sidebar_only = WRITER_SIDEBAR_ONLY_DOMAINS | IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS
         tools = registry.get_tools(
@@ -183,7 +183,7 @@ class FindTools(ToolBase):
                                "Open the matching document before calling an app-specific tool.")
             return out
 
-        from plugin.framework.constants import WRITER_SIDEBAR_ONLY_DOMAINS
+        from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS
         if domain in WRITER_SIDEBAR_ONLY_DOMAINS:
             schemas = []
         else:

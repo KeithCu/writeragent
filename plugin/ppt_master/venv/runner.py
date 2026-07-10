@@ -200,7 +200,7 @@ def _build_tools() -> list[Tool]:
 
 
 def _instructions_for_session(session_id: str, *, topic: str | None, ctx_block: str) -> str:
-    from plugin.framework.constants import get_chat_response_format_instructions
+    from plugin.framework.prompts import get_chat_response_format_instructions
 
     parts = [
         "PPT-MASTER MODE (venv worker):\n",

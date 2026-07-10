@@ -25,7 +25,7 @@ import logging
 import re
 from typing import Any, cast
 
-from plugin.framework.constants import LLM_DEV_BUILD_SYSTEM_PREFIX, should_prepend_dev_llm_system_prefix
+from plugin.framework.prompts import LLM_DEV_BUILD_SYSTEM_PREFIX, should_prepend_dev_llm_system_prefix
 from plugin.framework.url_utils import get_url_path_and_query
 
 log = logging.getLogger(__name__)

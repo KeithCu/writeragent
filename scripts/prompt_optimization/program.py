@@ -15,7 +15,7 @@ if str(repo_root) not in sys.path:
 import dspy
 from tools_lo import set_document, get_content_as_html, get_tools_subset
 
-from plugin.framework.constants import get_writer_eval_chat_system_prompt
+from plugin.framework.prompts import get_writer_eval_chat_system_prompt
 
 # Same rules/HTML contract as Writer chat; tools limited to tools_lo (see get_writer_eval_chat_system_prompt).
 DEFAULT_CHAT_SYSTEM_PROMPT = get_writer_eval_chat_system_prompt()

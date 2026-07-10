@@ -20,7 +20,7 @@ import logging
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.calc.base import ToolCalcSpecialBase
-from plugin.framework.constants import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
+from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 
 log = logging.getLogger("writeragent.calc")
 

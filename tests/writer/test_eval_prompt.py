@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Unit tests for the Writer eval harness system prompt."""
 
-from plugin.framework.constants import get_writer_eval_chat_system_prompt
+from plugin.framework.prompts import get_writer_eval_chat_system_prompt
 
 
 def test_get_writer_eval_chat_system_prompt_lists_eval_tools() -> None:

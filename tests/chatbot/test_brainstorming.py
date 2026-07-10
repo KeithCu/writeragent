@@ -16,7 +16,7 @@ from plugin.chatbot.brainstorming import (
     collect_brainstorming_tools,
 )
 from plugin.chatbot.smol_examples import get_examples_block
-from plugin.framework.constants import get_brainstorming_sub_agent_instructions
+from plugin.framework.prompts import get_brainstorming_sub_agent_instructions
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
@@ -163,7 +163,7 @@ def test_collect_brainstorming_tools_excludes_specialized_workflow_finished():
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_examples.get_examples_block", return_value="")
-@patch("plugin.framework.constants.get_brainstorming_sub_agent_instructions", return_value="instr")
+@patch("plugin.framework.prompts.get_brainstorming_sub_agent_instructions", return_value="instr")
 def test_brainstorming_session_tool_returns_ok(mock_instr, mock_examples, mock_build):
     from plugin.contrib.smolagents.memory import FinalAnswerStep
 

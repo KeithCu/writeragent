@@ -18,7 +18,7 @@
 
 (Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
-from plugin.framework.constants import PARAGRAPH_INDEX_DIRECTIVE
+from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase
 
 from .specialized_base import ToolWriterStructuralBase

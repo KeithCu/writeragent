@@ -22,7 +22,8 @@ from typing import ClassVar
 from plugin.framework.tool import ToolBase
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawFormBase
-from plugin.framework.constants import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT, USE_SUB_AGENT
+from plugin.framework.constants import USE_SUB_AGENT
+from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 
 log = logging.getLogger("writeragent.writer")

@@ -232,7 +232,7 @@ def test_extract_text_rejects_unsupported_doc(tool_ctx):
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
-    from plugin.framework.constants import get_vision_core_directive
+    from plugin.framework.prompts import get_vision_core_directive
 
     assert get_vision_core_directive(MagicMock(), MagicMock()) == ""
 
@@ -285,7 +285,7 @@ def test_delegate_vision_no_document_lock():
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_get_vision_core_directive_when_available(_mock_avail, writer_doc):
-    from plugin.framework.constants import get_vision_core_directive
+    from plugin.framework.prompts import get_vision_core_directive
 
     text = get_vision_core_directive(writer_doc, MagicMock())
     assert "domain=\"vision\"" in text

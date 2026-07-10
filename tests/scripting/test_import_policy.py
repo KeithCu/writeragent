@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from plugin.framework.constants import (
+from plugin.framework.prompts import (
     PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE,
     PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE,
     python_specialized_sub_agent_hint,

@@ -8,7 +8,7 @@ Every model-facing tool that returns a para_index / paragraph_index to the model
 cite that number to the user (the index is internal and shifts as the document changes). This pins
 that coverage so a future tool can't quietly start leaking an index without the directive.
 """
-from plugin.framework.constants import PARAGRAPH_INDEX_DIRECTIVE
+from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.writer.outline import GetDocumentTree, GetHeadingChildren
 from plugin.writer.search import SearchInDocument
 from plugin.writer.structural import GetPageObjects

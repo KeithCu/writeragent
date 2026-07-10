@@ -69,7 +69,7 @@ class MockPropertyValue:
 def _disable_dev_llm_prefix_for_deterministic_http_tests():
     """Real dev bundles prepend a system prompt; keep unit test request JSON stable."""
     with patch(
-        "plugin.framework.constants.should_prepend_dev_llm_system_prefix",
+        "plugin.framework.prompts.should_prepend_dev_llm_system_prefix",
         return_value=False,
     ):
         yield

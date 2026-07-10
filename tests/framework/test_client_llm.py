@@ -469,7 +469,7 @@ def test_make_chat_request_mixed_structured_blocks():
 
 
 def test_make_chat_request_includes_dev_build_prefix_when_enabled():
-    from plugin.framework.constants import LLM_DEV_BUILD_SYSTEM_PREFIX
+    from plugin.framework.prompts import LLM_DEV_BUILD_SYSTEM_PREFIX
 
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
@@ -484,7 +484,7 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
 
 
 def test_make_chat_request_skips_dev_build_prefix_when_disabled():
-    from plugin.framework.constants import LLM_DEV_BUILD_SYSTEM_PREFIX
+    from plugin.framework.prompts import LLM_DEV_BUILD_SYSTEM_PREFIX
 
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
@@ -509,7 +509,7 @@ def test_make_chat_request_skips_dev_build_prefix_when_disabled():
 
 def test_make_chat_request_does_not_duplicate_dev_prefix_on_repeated_calls():
     """Tool loops reuse the same messages list; date + dev-prefix injection must stay idempotent."""
-    from plugin.framework.constants import LLM_DEV_BUILD_SYSTEM_PREFIX
+    from plugin.framework.prompts import LLM_DEV_BUILD_SYSTEM_PREFIX
 
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
@@ -866,7 +866,7 @@ def test_make_chat_request_coalesces_mixed_system_messages(client):
 
 def test_prepend_dev_build_prefix_supports_list_content():
     from plugin.framework.client.llm_client import _prepend_dev_build_system_prefix_to_messages
-    from plugin.framework.constants import LLM_DEV_BUILD_SYSTEM_PREFIX
+    from plugin.framework.prompts import LLM_DEV_BUILD_SYSTEM_PREFIX
 
     messages = [
         {"role": "system", "content": [{"type": "text", "text": "Existing text."}]}

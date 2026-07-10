@@ -291,7 +291,7 @@ def _run_web_agent(
     from plugin.chatbot.smol_agent import SmolAgentExecutor
     from plugin.chatbot.smol_examples import get_examples_block
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
-    from plugin.framework.constants import WEB_RESEARCH_PLAIN_TEXT_FORMAT
+    from plugin.framework.prompts import WEB_RESEARCH_PLAIN_TEXT_FORMAT
 
     max_steps = params.max_steps_override if params.max_steps_override else params.max_steps
     base_intro = (
@@ -629,7 +629,7 @@ class WebResearchTool(ToolCalcWebResearchBase, ToolDrawWebResearchBase):
             outer_query=query_str,
         )
 
-        from plugin.framework.constants import WEB_RESEARCH_PLAIN_TEXT_FORMAT
+        from plugin.framework.prompts import WEB_RESEARCH_PLAIN_TEXT_FORMAT
 
         deep = bool(kwargs.get("deep"))
 

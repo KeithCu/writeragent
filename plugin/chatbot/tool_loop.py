@@ -41,7 +41,8 @@ from plugin.framework.client.model_fetcher import (
     set_native_audio_support,
 )
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
-from plugin.framework.constants import get_chat_system_prompt_for_document, CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+from plugin.framework.prompts import get_chat_system_prompt_for_document
 from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.framework.errors import format_error_payload, UnoObjectError, NetworkError
 from plugin.framework.queue_executor import llm_request_lane

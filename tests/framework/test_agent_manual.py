@@ -106,7 +106,7 @@ def test_no_document_serves_neutral_generic_index():
 def test_shared_pieces_are_identical_in_both_channels():
     """The heart of the architecture: a topic served through get_guidance IS the same string the
     prompt templates embed — one piece, per-channel assemblies, drift impossible."""
-    from plugin.framework import constants as c
+    from plugin.framework import prompts as c
 
     # Topic -> the exact constants piece (identity, not a copy that could be edited apart).
     assert MANUAL_SECTIONS["editing-html"] is c.WRITER_APPLY_DOCUMENT_HTML_RULES
@@ -135,7 +135,7 @@ def test_sidebar_hybrid_prompt_composition():
     images) stay OUT of the ambient text and are pulled on demand via get_guidance, which must
     therefore be visible to the sidebar (tier core)."""
     from plugin.doc.document_research_tools import GetGuidance
-    from plugin.framework import constants as c
+    from plugin.framework import prompts as c
 
     template = c.DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE
     for piece in (
@@ -154,7 +154,7 @@ def test_sidebar_hybrid_prompt_composition():
 def test_mcp_only_extras_stay_out_of_the_sidebar_prompt():
     """The HTTP 429 concurrency contract is real for MCP clients and the agent-backend path,
     meaningless for the in-process sidebar — channel-specific text must not leak across."""
-    from plugin.framework import constants as c
+    from plugin.framework import prompts as c
 
     assert "429" in get_section("concurrency", "writer")   # MCP topic has it
     assert "429" in full_manual("writer")                  # agent backend (HTTP) gets it

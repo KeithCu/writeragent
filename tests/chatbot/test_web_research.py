@@ -358,7 +358,7 @@ def test_cache_hit_does_not_stream_chat_append_callback():
              patch("plugin.framework.config.user_config_dir", return_value=td), \
              patch("plugin.framework.config.get_config_int_safe", return_value=50), \
              patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-             patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+             patch("plugin.framework.prompts.should_prepend_dev_llm_system_prefix", return_value=False), \
              patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
             tool = WebResearchTool()
             res = tool.execute(ctx, query="Search for caching test unique info")
@@ -608,7 +608,7 @@ def test_web_search_prompt_shows_preview_even_when_matches_outer_query():
 
 def test_web_research_agent_instructions_include_response_format():
     from plugin.chatbot.web_research import WebResearchTool
-    from plugin.framework.constants import WEB_RESEARCH_PLAIN_TEXT_FORMAT
+    from plugin.framework.prompts import WEB_RESEARCH_PLAIN_TEXT_FORMAT
     from plugin.tests.testing_utils import MockContext
 
     ctx = MagicMock()
@@ -768,7 +768,7 @@ def test_web_research_caching_logic(tmp_path):
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.framework.prompts.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")):
 
         # Pre-populate the cache using _web_cache_set
@@ -820,7 +820,7 @@ def test_web_research_cache_lookup_uses_embedding_threshold(tmp_path):
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.framework.prompts.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache.enqueue_research_cache_embedding_backfill"), \
          patch("plugin.chatbot.web_research_cache.lookup_research_cache", side_effect=fake_lookup):
@@ -861,7 +861,7 @@ def test_web_research_caching_write(tmp_path):
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.framework.prompts.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
@@ -928,7 +928,7 @@ def test_web_research_caching_disabled_bypasses_cache(tmp_path):
          patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
          patch("plugin.framework.config.get_config_int_safe", return_value=50), \
          patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.constants.should_prepend_dev_llm_system_prefix", return_value=False), \
+         patch("plugin.framework.prompts.should_prepend_dev_llm_system_prefix", return_value=False), \
          patch("plugin.framework.config.get_api_config", return_value={}), \
          patch("plugin.chatbot.smol_agent.SmolAgentExecutor") as mock_exec:
 

@@ -38,7 +38,7 @@ def execute_prompt_addin(
         else:
             resolved_system = get_config_str("extend_selection_system_prompt")
             if not str(resolved_system).strip():
-                from plugin.framework.constants import CALC_PYTHON_FORMULA_LLM_HINT
+                from plugin.framework.prompts import CALC_PYTHON_FORMULA_LLM_HINT
 
                 resolved_system = CALC_PYTHON_FORMULA_LLM_HINT
         model_name = model if model is not None else get_text_model()

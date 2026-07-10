@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import logging
 
-from plugin.framework.constants import (
+from plugin.framework.prompts import (
     GENERIC_EDIT_CONFIRMATION_RULES,
     TOOL_USAGE_PATTERNS,
     TRANSLATION_RULES,

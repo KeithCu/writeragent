@@ -22,7 +22,7 @@ import os
 import threading
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
-from plugin.framework.constants import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
+from plugin.framework.prompts import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
 from plugin.doc.document_helpers import normalize_linebreaks, get_string_without_tracked_deletions, collect_tracked_changes
 from plugin.writer.edit_review import EditReviewSession, edit_review_wait_seconds, review_recording_enabled, get_agent_edit_review_mode
 from plugin.framework.errors import safe_json_loads, ToolExecutionError

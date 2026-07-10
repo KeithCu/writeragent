@@ -527,7 +527,7 @@ def run_eval_on_examples_llm(
     - ``judge_model``: OpenAI-compatible model id for LLM judge (preferred over ``judge_lm``).
     - ``gold_model``: model id for on-the-fly gold generation (preferred over ``gold_lm``).
     """
-    from plugin.framework.constants import get_writer_eval_chat_system_prompt
+    from plugin.framework.prompts import get_writer_eval_chat_system_prompt
 
     from llm_chat_eval import run_llm_chat_eval
 

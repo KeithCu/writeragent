@@ -16,7 +16,7 @@ from plugin.calc.base import ToolCalcPythonBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_addin_data import check_python_data_size, finalize_python_data, pack_calc_data_for_wire, values_from_inspector_range
 from plugin.calc.inspector import CellInspector
-from plugin.framework.constants import PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
+from plugin.framework.prompts import PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import find_image_payloads, write_image_payload_to_temp

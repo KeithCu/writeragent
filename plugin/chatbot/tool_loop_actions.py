@@ -30,7 +30,8 @@ from plugin.chatbot.tool_loop_state import (
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
 from plugin.framework.config import get_config_bool, get_config_str, get_current_endpoint
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS, get_chat_system_prompt_for_document
+from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+from plugin.framework.prompts import get_chat_system_prompt_for_document
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, format_error_payload
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.tool import ToolContext

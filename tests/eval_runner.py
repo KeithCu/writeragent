@@ -20,7 +20,7 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config import get_api_config
 from plugin.framework.logging import log
 from plugin.doc.document_helpers import get_document_context_for_chat
-from plugin.framework.constants import get_chat_system_prompt_for_document
+from plugin.framework.prompts import get_chat_system_prompt_for_document
 from scripts.lib.pricing import fetch_openrouter_pricing, calculate_cost
 from plugin.main import get_tools
 

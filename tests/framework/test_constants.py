@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
-from plugin.framework.constants import (
+from plugin.framework.prompts import (
     DELEGATION_USER_FILE_DATA_HINT,
     RESEARCH_DELEGATE_TO_DOCUMENT,
     SIDEBAR_VS_DOCUMENT,
@@ -47,7 +47,7 @@ def test_get_greeting_for_document_draw():
     assert get_greeting_for_document(model) == DEFAULT_DRAW_GREETING
 
 def test_get_chat_response_format_instructions_plain_when_rich_disabled():
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions
+    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, get_chat_response_format_instructions
 
     with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
         fmt = get_chat_response_format_instructions(MagicMock())
@@ -56,7 +56,7 @@ def test_get_chat_response_format_instructions_plain_when_rich_disabled():
 
 
 def test_get_chat_response_format_instructions_html_when_rich_enabled():
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS, get_chat_response_format_instructions
+    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS, get_chat_response_format_instructions
 
     with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
         fmt = get_chat_response_format_instructions(MagicMock())
@@ -69,7 +69,7 @@ def test_get_chat_response_format_instructions_html_when_rich_enabled():
 def test_get_chat_system_prompt_plain_text_when_rich_disabled():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT
+    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT
 
     with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
         prompt = get_chat_system_prompt_for_document(model)
@@ -81,7 +81,7 @@ def test_get_chat_system_prompt_plain_text_when_rich_disabled():
 def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
+    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
     with patch("plugin.framework.config.get_config_bool_safe") as mock_bool:
         mock_bool.side_effect = lambda key: key == "rich_text_control_sidebar"
@@ -95,7 +95,7 @@ def test_get_chat_system_prompt_allows_html_by_default_fallback():
     model = MagicMock()
     model.supportsService.return_value = False
     from plugin.framework.config import _get_schema_default, as_bool
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
+    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
     rich_default = as_bool(_get_schema_default("rich_text_control_sidebar"))
 
@@ -144,7 +144,7 @@ def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
 
 
 def test_writer_chat_prompt_research_delegate_to_document():
-    from plugin.framework.constants import WRITER_SIDEBAR_ONLY_DOMAINS
+    from plugin.framework.prompts import WRITER_SIDEBAR_ONLY_DOMAINS
 
     model = MagicMock()
     model.supportsService.return_value = False
@@ -166,7 +166,7 @@ def test_writer_eval_chat_prompt_includes_sidebar_vs_document_routing():
 
 
 def test_writer_apply_document_math_latex_rules_document_only():
-    from plugin.framework.constants import HTML_FRAGMENT_RULES, WRITER_APPLY_DOCUMENT_HTML_RULES
+    from plugin.framework.prompts import HTML_FRAGMENT_RULES, WRITER_APPLY_DOCUMENT_HTML_RULES
 
     assert "Use LaTeX inline delimiters" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert r"\(" in WRITER_APPLY_DOCUMENT_HTML_RULES
@@ -194,7 +194,7 @@ def test_get_chat_system_prompt_for_document_calc():
     def supportsService(service):
         return service == "com.sun.star.sheet.SpreadsheetDocument"
     model.supportsService.side_effect = supportsService
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT
+    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT
 
     with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
         prompt = get_chat_system_prompt_for_document(model)
@@ -207,7 +207,7 @@ def test_get_chat_system_prompt_for_document_draw():
     def supportsService(service):
         return service in ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument")
     model.supportsService.side_effect = supportsService
-    from plugin.framework.constants import CHAT_RESPONSE_FORMAT
+    from plugin.framework.prompts import CHAT_RESPONSE_FORMAT
 
     with patch("plugin.framework.config.get_config_bool_safe", return_value=False):
         prompt = get_chat_system_prompt_for_document(model)
@@ -238,7 +238,7 @@ def test_writer_chat_prompt_delegation_routing_local_vs_web():
 
 
 def test_specialized_delegation_block_is_single_line():
-    from plugin.framework.constants import SPECIALIZED_TASK_RULES, get_specialized_delegation_for_model, get_specialized_delegation_tool_hint
+    from plugin.framework.prompts import SPECIALIZED_TASK_RULES, get_specialized_delegation_for_model, get_specialized_delegation_tool_hint
     from plugin.writer.specialized_base import ToolWriterSpecialBase
 
     model = MagicMock()

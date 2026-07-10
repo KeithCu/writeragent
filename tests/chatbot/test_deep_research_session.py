@@ -10,7 +10,7 @@ from plugin.chatbot.deep_research_session import (
     collect_deep_research_tools,
 )
 from plugin.chatbot.smol_examples import get_examples_block
-from plugin.framework.constants import get_deep_research_sub_agent_instructions
+from plugin.framework.prompts import get_deep_research_sub_agent_instructions
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
@@ -85,7 +85,7 @@ def test_collect_deep_research_tools_includes_apply_on_writer():
 
 @patch("plugin.chatbot.smol_agent.build_toolcalling_agent")
 @patch("plugin.chatbot.smol_examples.get_examples_block", return_value="")
-@patch("plugin.framework.constants.get_deep_research_sub_agent_instructions", return_value="instr")
+@patch("plugin.framework.prompts.get_deep_research_sub_agent_instructions", return_value="instr")
 def test_deep_research_session_tool_returns_ok(mock_instr, mock_examples, mock_build):
     from plugin.contrib.smolagents.memory import FinalAnswerStep
 
