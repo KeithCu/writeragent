@@ -33,6 +33,8 @@
 #   make help                      Show this help
 
 EXTENSION_NAME = WriterAgent
+LIBREPY_EXTENSION_ID = org.extension.librepy
+LIBREPY_OXT = build/LibrePy.oxt
 COMPONENTS := writer calc draw impress
 SELECTED_COMPONENT := $(filter $(COMPONENTS),$(MAKECMDGOALS))
 
@@ -127,7 +129,7 @@ endif
 
 # ── Phony targets ────────────────────────────────────────────────────────────
 
-.PHONY: help build build-no-recording release release-build repack repack-deploy register-built-oxt manifest xcu clean \
+.PHONY: help build build-no-recording release release-build repack repack-deploy register-built-oxt manifest manifest-core rdb-core build-core deploy-core register-librepy-oxt xcu clean \
         native build-native clean-native update-vec \
         proxy-stubs \
         openrouter-catalog \
@@ -156,6 +158,8 @@ help:
 	@echo "  make release                Regular build with full verification: test source, build stripped bundle,"
 	@echo "                              test bundle, build final .oxt. (Includes Cython if pre-built via 'make native')"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no Record button)"
+	@echo "  make build-core             Build standalone LibrePy.oxt (scientific Python prototype)"
+	@echo "  make deploy-core            Build + install LibrePy (removes WriterAgent if present)"
 	@echo "  make xcu                    Generate XCS/XCU from config schemas"
 	@echo "  make clean                  Remove build artifacts"
 	@echo ""
@@ -328,6 +332,33 @@ register-built-oxt:
 
 manifest:
 	$(PYTHON) $(SCRIPTS)/generate_manifest.py
+
+manifest-core: manifest
+	@true
+
+rdb-core:
+	$(RUN_SH) $(SCRIPTS)/rebuild_librepy_rdb$(EXT)
+
+build-core: vendor manifest-core rdb-core compile-translations
+	@echo "Building LibrePy.oxt (prototype core extension)..."
+	$(PYTHON) $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT)
+	@echo "Done: $(LIBREPY_OXT)  (bundle in build/bundle-librepy/)"
+
+register-librepy-oxt:
+	@echo "Registering $(LIBREPY_OXT)..."
+	$(MAKE) lo-kill
+	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
+	-$(UNOPKG) remove $(LIBREPY_EXTENSION_ID) 2>/dev/null
+	-$(UNOPKG) remove org.extension.writeragent 2>/dev/null
+	@rm -f $(LO_CONF)/user/extensions/tmp/extensions.pmap
+	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
+	$(UNOPKG) add $(LIBREPY_OXT)
+	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
+	@rm -f $(LO_CONF)/user/writeragent_debug.log $(LO_CONF)/user/writeragent_agent.log
+	@echo "Registered $(LIBREPY_EXTENSION_ID) (start LibreOffice manually to load it)."
+
+deploy-core: build-core register-librepy-oxt
+	@$(if $(SELECTED_COMPONENT),$(MAKE) lo-start-log COMPONENT=$(SELECTED_COMPONENT))
 
 native:
 	cd native/writeragent_vec && $(PYTHON) setup.py build_ext --inplace

@@ -1,0 +1,39 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:name="CalcAddIns" oor:package="org.openoffice.Office">
+  <node oor:name="AddInInfo">
+    <node oor:name="org.extension.librepy.PythonFunction" oor:op="replace">
+      <node oor:name="AddInFunctions">
+        <node oor:name="py" oor:op="replace">
+          <prop oor:name="DisplayName"><value xml:lang="en">PY</value></prop>
+          <prop oor:name="Description"><value xml:lang="en">Executes Python code in the configured venv and returns the result (short alias for PYTHON).</value></prop>
+          <prop oor:name="Category"><value>Add-In</value></prop>
+          <node oor:name="Parameters">
+            <node oor:name="code" oor:op="replace">
+              <prop oor:name="DisplayName"><value xml:lang="en">code</value></prop>
+              <prop oor:name="Description"><value xml:lang="en">The Python code to execute. Assign output to 'result'.</value></prop>
+            </node>
+            <node oor:name="data" oor:op="replace">
+              <prop oor:name="DisplayName"><value xml:lang="en">data</value></prop>
+              <prop oor:name="Description"><value xml:lang="en">Optional one or more cell ranges injected as data.</value></prop>
+            </node>
+          </node>
+        </node>
+        <node oor:name="python" oor:op="replace">
+          <prop oor:name="DisplayName"><value xml:lang="en">PYTHON</value></prop>
+          <prop oor:name="Description"><value xml:lang="en">Executes Python code in the configured venv and returns the result (alias for PY).</value></prop>
+          <prop oor:name="Category"><value>Add-In</value></prop>
+          <node oor:name="Parameters">
+            <node oor:name="code" oor:op="replace">
+              <prop oor:name="DisplayName"><value xml:lang="en">code</value></prop>
+              <prop oor:name="Description"><value xml:lang="en">The Python code to execute. Assign output to 'result'.</value></prop>
+            </node>
+            <node oor:name="data" oor:op="replace">
+              <prop oor:name="DisplayName"><value xml:lang="en">data</value></prop>
+              <prop oor:name="Description"><value xml:lang="en">Optional one or more cell ranges injected as data.</value></prop>
+            </node>
+          </node>
+        </node>
+      </node>
+    </node>
+  </node>
+</oor:component-data>

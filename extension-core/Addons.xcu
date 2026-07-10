@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:name="Addons" oor:package="org.openoffice.Office">
+  <node oor:name="AddonUI">
+    <node oor:name="OfficeMenuBar">
+      <node oor:name="org.extension.librepy.menubar" oor:op="replace">
+        <prop oor:name="Title" oor:type="xs:string">
+          <value xml:lang="en-US">LibrePy</value>
+        </prop>
+        <prop oor:name="Context" oor:type="xs:string">
+          <value>com.sun.star.sheet.SpreadsheetDocument,com.sun.star.text.GlobalDocument,com.sun.star.text.TextDocument,com.sun.star.text.WebDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.presentation.PresentationDocument</value>
+        </prop>
+        <node oor:name="Submenu">
+          <node oor:name="M_settings" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Settings</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:main.settings</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M_run_python" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Run Python Script...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:scripting.run_python_dialog</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M_vision" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Vision OCR Settings...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:vision.open_settings</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M_text" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Text Analytics...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:textanalytics.open_dialog</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.text.TextDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M_edit_cell" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Edit Python in Cell...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:scripting.edit_python_cell</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.sheet.SpreadsheetDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M_reset" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Reset Python Session</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:scripting.reset_python_session</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M_latex" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Insert LaTeX Math...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:writer.insert_latex_dialog</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.text.TextDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+        </node>
+      </node>
+    </node>
+  </node>
+</oor:component-data>
