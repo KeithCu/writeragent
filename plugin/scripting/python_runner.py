@@ -397,8 +397,8 @@ def execute_and_insert_result(
         from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
 
         if script_uses_run_import(code, run_name="run_text_analytics"):
-            spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
-            helper = str(spec.get("helper") or "full")
+            call_spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
+            helper = str(call_spec.get("helper") or "full")
             text, document_context = resolve_text_analytics_document_inputs(doc, helper)
             exec_code = prepend_run_import_document_bindings(
                 code,
