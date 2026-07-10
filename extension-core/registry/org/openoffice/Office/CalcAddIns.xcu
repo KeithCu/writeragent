@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:name="CalcAddIns" oor:package="org.openoffice.Office">
   <node oor:name="AddInInfo">
-    <node oor:name="org.extension.librepy.PythonFunction" oor:op="replace">
+    <node oor:name="org.extension.writeragent.PythonFunction" oor:op="replace">
       <node oor:name="AddInFunctions">
         <node oor:name="py" oor:op="replace">
           <prop oor:name="DisplayName"><value xml:lang="en">PY</value></prop>

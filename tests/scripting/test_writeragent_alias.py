@@ -6,14 +6,33 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import pytest
 from unittest.mock import MagicMock, patch
 
-from plugin.framework.uno_bootstrap import register_alias_importer
+from plugin.framework.uno_bootstrap import (
+    _WRITERAGENT_API,
+    register_alias_importer,
+)
 from tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()
+
+
+def _clear_writeragent_modules() -> None:
+    for key in list(sys.modules):
+        if key == "writeragent" or key.startswith("writeragent."):
+            del sys.modules[key]
+
+
+_ORIGINAL_FIND_SPEC = importlib.util.find_spec
+
+
+def _find_spec_without_writeragent_api(name: str, package=None):
+    if name == _WRITERAGENT_API:
+        return None
+    return _ORIGINAL_FIND_SPEC(name, package)
 
 
 def test_alias_importer_redirects_writeragent():
@@ -106,4 +125,33 @@ def test_venv_worker_bidirectional_tool_call():
         res = run_code_in_user_venv(ctx, code)
         assert res.get("status") == "ok", res.get("message")
         assert res.get("result") == "mocked_bookmarks_list"
+
+
+def test_writeragent_namespace_fallback_when_api_missing():
+    _clear_writeragent_modules()
+    with patch("importlib.util.find_spec", side_effect=_find_spec_without_writeragent_api):
+        register_alias_importer()
+        import writeragent
+
+        assert "writeragent" in sys.modules
+        from writeragent.scripting.analysis import run_analysis
+        from plugin.scripting.analysis import run_analysis as real_run_analysis
+
+        assert run_analysis is real_run_analysis
+        assert "writeragent.scripting.analysis" in sys.modules
+
+
+def test_sandboxed_code_writeragent_analysis_without_api():
+    from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
+
+    _clear_writeragent_modules()
+    code = (
+        "from writeragent.scripting.analysis import coerce_to_dataframe\n"
+        "result = coerce_to_dataframe"
+    )
+    with patch("importlib.util.find_spec", side_effect=_find_spec_without_writeragent_api):
+        register_alias_importer()
+        response = run_sandboxed_code(code)
+    assert response["status"] == "ok", response.get("message")
+    assert response["result"] is not None
 

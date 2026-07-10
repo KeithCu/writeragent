@@ -18,7 +18,6 @@ LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
         "audio_recorder_service.py",
         "audio_silence_detector.py",
         "writeragent_api.py",
-        "sandbox_cache.py",
     ),
     "plugin/vision/": ("vision_tools.py",),
     "plugin/contrib/scripting/assets/editor/": (),
@@ -95,6 +94,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/module_base.py",
     "plugin/framework/client/__init__.py",
     "plugin/framework/client/errors.py",
+    "plugin/scripting/sandbox_cache.py",
     "plugin/contrib/__init__.py",
     "plugin/contrib/smolagents/__init__.py",
     "plugin/contrib/smolagents/local_python_executor.py",
@@ -119,6 +119,22 @@ LIBREPY_SMOLAGENTS_EXCLUDE = frozenset(
         "vision",
     }
 )
+
+# Venv worker imports local_python_executor only; full __init__.py star-imports excluded modules.
+LIBREPY_SMOLAGENTS_INIT = '''\
+"""Slim smolagents package init for LibrePy (venv worker needs local_python_executor only)."""
+
+__version__ = "1.25.0.dev0"
+'''
+
+
+def slim_librepy_smolagents_init(bundle_plugin_dir: str) -> None:
+    """Replace vendored smolagents __init__.py so excluded modules are not imported."""
+    init_path = os.path.join(bundle_plugin_dir, "contrib", "smolagents", "__init__.py")
+    if not os.path.isfile(init_path):
+        raise FileNotFoundError("LibrePy bundle missing smolagents __init__: %s" % init_path)
+    with open(init_path, "w", encoding="utf-8") as fh:
+        fh.write(LIBREPY_SMOLAGENTS_INIT)
 
 
 def _norm(path: str) -> str:

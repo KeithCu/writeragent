@@ -221,6 +221,8 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/contrib/smolagents/tool_validation.py`](../plugin/contrib/smolagents/tool_validation.py) | Imported by `tools.py` |
 | [`plugin/contrib/smolagents/_function_type_hints_utils.py`](../plugin/contrib/smolagents/_function_type_hints_utils.py) | Imported by `tools.py` |
 | [`plugin/contrib/smolagents/__init__.py`](../plugin/contrib/smolagents/__init__.py) | Package |
+
+**LibrePy bundle:** [`scripts/build_librepy_oxt.py`](../scripts/build_librepy_oxt.py) replaces `smolagents/__init__.py` with a slim stub (no `agents` import) so the venv worker can load `local_python_executor` without shipping chat-only smolagents modules.
 | [`plugin/contrib/__init__.py`](../plugin/contrib/__init__.py) | Package |
 
 ### Package root
@@ -522,15 +524,15 @@ Do **not** reuse `org.extension.writeragent` for the core OXT — `unopkg` must 
 |----------|-------------------|----------------|
 | Extension id | `org.extension.writeragent` | `org.extension.librepy` |
 | `description.xml` | [`extension/description.xml.tpl`](../extension/description.xml.tpl) | `extension-core/description.xml` (new identifier + display name) |
-| UNO add-in impl | `org.extension.writeragent.PythonFunction` | `org.extension.librepy.PythonFunction` |
-| IDL / RDB | `org.extension.writeragent.PythonFunction.XPythonFunction` | Fork [`XPythonFunction.idl`](../extension/idl/XPythonFunction.idl) under `librepy` module path; rebuild RDB |
-| CalcAddIns node | `org.extension.writeragent.PythonFunction` | `org.extension.librepy.PythonFunction` — keep function names **`py`** and **`python`** (users still type `=PY()`) |
+| UNO add-in impl | `org.extension.writeragent.PythonFunction` | **`org.extension.writeragent.PythonFunction`** (alias — same namespace as WriterAgent so `ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.*` formulas are portable; extension id stays `org.extension.librepy`) |
+| IDL / RDB | `org.extension.writeragent.PythonFunction.XPythonFunction` | Same IDL module path as WriterAgent ([`extension-core/idl/XPythonFunction.idl`](../extension-core/idl/XPythonFunction.idl)); rebuild via `make rdb-core` |
+| CalcAddIns node | `org.extension.writeragent.PythonFunction` | **`org.extension.writeragent.PythonFunction`** — keep function names **`py`** and **`python`** (users still type `=PY()`) |
 | Protocol handler | `org.extension.writeragent:*` | `org.extension.librepy:*` |
 | Menu URLs | `org.extension.writeragent:scripting.run_python_dialog` | `org.extension.librepy:scripting.run_python_dialog` |
 | Startup job | `org.extension.writeragent.Main` | `org.extension.librepy.Main` |
 | Menubar node | `org.extension.writeragent.menubar` | `org.extension.librepy.menubar` |
 
-Update hardcoded strings in [`python_addin.py`](../plugin/calc/python/addin.py) (`implementationName`, IDL import) for the core build. [`scripts/manifest_registry.py`](../scripts/manifest_registry.py) uses `_PROTOCOL = "org.extension.writeragent"` — core build needs a parallel constant or template substitution.
+Update hardcoded strings in [`addin_librepy.py`](../plugin/calc/python/addin_librepy.py) (`implementationName`, IDL import) — registers as `org.extension.writeragent.PythonFunction` while menus/protocol use `org.extension.librepy`. [`scripts/manifest_registry.py`](../scripts/manifest_registry.py) uses `_PROTOCOL = "org.extension.writeragent"` — core build needs a parallel constant or template substitution.
 
 Core registers **`=PY()` / `=PYTHON()`** only. Do **not** register `prompt_addin` / `=PROMPT()` in core.
 
@@ -651,7 +653,7 @@ Makefile (suggested targets)
 
 ### 8. What not to do
 
-- **Do not** install both OXTs with both registering `py`/`python` in CalcAddIns — Calc shows duplicate add-ins; behavior is undefined.
+- **Do not** install both OXTs with both registering `py`/`python` in CalcAddIns — Calc shows duplicate add-ins; behavior is undefined. LibrePy already registers `org.extension.writeragent.PythonFunction`; WriterAgent must skip its own PythonFunction when LibrePy is present.
 - **Do not** ship two full copies of `plugin/scripting/` without `extend_path` — import shadowing is nondeterministic.
 - **Do not** use `org.extension.writeragent` as the core extension id — conflicts with existing WriterAgent `unopkg` identity and protocol namespace.
 

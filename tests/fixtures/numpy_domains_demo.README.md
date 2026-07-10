@@ -2,7 +2,7 @@
 
 Open **`tests/fixtures/numpy_domains_demo.ods`** in LibreOffice Calc.
 
-Native ODS preserves uppercase `=PYTHON()` and semicolon argument separators (LibreOffice does not lowercase custom add-ins on ODS open the way it does for imported XLSX).
+Native ODS uses fully qualified `ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON()` formulas and semicolon argument separators (LibreOffice does not lowercase custom add-ins on ODS open the way it does for imported XLSX).
 
 ## Setup
 

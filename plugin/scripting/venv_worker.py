@@ -55,6 +55,26 @@ def _worker_error_message(exc: BaseException) -> str:
     return f"Python worker failed: {text}"
 
 
+def _maybe_dispatch_ppt_master_response(
+    response: dict[str, Any],
+    *,
+    stdin_write: Callable[[bytes], None],
+    on_worker_event: Callable[[dict[str, Any]], None] | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+) -> bool:
+    """Handle ppt-master intermediate worker frames; no-op when ppt_master is not bundled."""
+    try:
+        from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
+    except ImportError:
+        return False
+    return dispatch_worker_response(
+        response,
+        stdin_write=stdin_write,
+        on_worker_event=on_worker_event,
+        stop_checker=stop_checker,
+    )
+
+
 _HARNESS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "worker_harness.py")
 _instances: dict[str, PythonWorkerManager] = {}
 _registry_lock = threading.Lock()
@@ -212,13 +232,11 @@ class PythonWorkerManager:
                     if not isinstance(response, dict):
                         raise RuntimeError("Worker response must be a dict")
                     if isinstance(response, dict):
-                        from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
-
                         def _stdin_write(blob: bytes) -> None:
                             stdin.write(blob)
                             stdin.flush()
 
-                        if dispatch_worker_response(
+                        if _maybe_dispatch_ppt_master_response(
                             response,
                             stdin_write=_stdin_write,
                             on_worker_event=on_worker_event,
@@ -287,6 +305,13 @@ class PythonWorkerManager:
         stop_checker: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Run one PPT-Master sidebar turn in the venv worker (LLM + scripts + host UNO RPC)."""
+        try:
+            import plugin.ppt_master  # noqa: F401
+        except ImportError:
+            return {
+                "status": "error",
+                "message": "PPT-Master is not available in this extension build.",
+            }
         with self._io_lock:
             warm_err = self._ensure_warmed_unlocked()
             if warm_err is not None:

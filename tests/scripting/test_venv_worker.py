@@ -675,3 +675,27 @@ class TestExecuteOSErrorRetry:
         assert "10038" in result["message"]
         assert call_count[0] == 2  # retried once
 
+
+def test_maybe_dispatch_ppt_master_skips_when_module_missing(monkeypatch):
+    import builtins
+
+    from plugin.scripting.venv_worker import _maybe_dispatch_ppt_master_response
+
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "plugin.ppt_master.venv.host_rpc" or (
+            name == "plugin.ppt_master" and fromlist and "venv" in fromlist
+        ):
+            raise ImportError(f"No module named {name!r}")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    assert (
+        _maybe_dispatch_ppt_master_response(
+            {"status": "ok", "result": 2},
+            stdin_write=MagicMock(),
+        )
+        is False
+    )
+

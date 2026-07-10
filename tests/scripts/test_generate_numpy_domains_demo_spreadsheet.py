@@ -31,6 +31,7 @@ from tests.calc.numpy_domains_demo_cases import (
     goal_seek_solver_layout,
     forecast_demo_cases,
     math_demo_cases,
+    matplotlib_demo_blocks,
     optimize_demo_cases,
     quant_demo_cases,
     units_demo_cases,
@@ -38,6 +39,7 @@ from tests.calc.numpy_domains_demo_cases import (
 )
 
 _LOWERCASE_PYTHON_FN_RE = re.compile(r"of:=python\(")
+_FQ_PYTHON_ADDIN_RE = re.compile(r"ORG\.EXTENSION\.WRITERAGENT\.PYTHONFUNCTION\.PYTHON\(")
 
 
 def test_case_counts_per_domain():
@@ -102,5 +104,8 @@ def test_generator_writes_ods(tmp_path: Path):
     for sheet in expected_sheets:
         assert f'table:name="{sheet}"' in content
 
-    assert "PYTHON(" in content
+    assert "forecast" in DOMAIN_SHEET_ORDER
+    expected_fq = len(all_domain_demo_cases()) + len(matplotlib_demo_blocks())
+    fq_count = len(_FQ_PYTHON_ADDIN_RE.findall(content))
+    assert fq_count == expected_fq, f"expected {expected_fq} FQ PYTHON formulas, got {fq_count}"
     assert _LOWERCASE_PYTHON_FN_RE.search(content) is None

@@ -28,7 +28,7 @@ from scripts.build_oxt import (  # noqa: E402
     strip_production_code,
     _vendor_copy_ignore,
 )
-from scripts.librepy_bundle_paths import collect_librepy_plugin_paths  # noqa: E402
+from scripts.librepy_bundle_paths import collect_librepy_plugin_paths, slim_librepy_smolagents_init  # noqa: E402
 from scripts.manifest_registry import patch_description_xml  # noqa: E402
 
 LIBREPY_BUNDLE_DIR = "build/bundle-librepy"
@@ -164,6 +164,9 @@ def assemble_librepy_bundle(base_dir: str, *, with_tests: bool = False, strip: b
 
     if strip and not with_tests:
         strip_production_code(bundle_path, dry_run=False)
+
+    slim_librepy_smolagents_init(os.path.join(bundle_path, "plugin"))
+    print("  Slimmed plugin/contrib/smolagents/__init__.py for venv worker")
 
     print(
         "Assembled %d files in %s (%d plugin modules)"

@@ -2,7 +2,12 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO Calc add-in for LibrePy =PY() / =PYTHON() (no LLM imports at module load)."""
+"""UNO Calc add-in for LibrePy =PY() / =PYTHON() (no LLM imports at module load).
+
+Registers under ``org.extension.writeragent.PythonFunction`` so spreadsheets saved with
+fully qualified ``ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.*`` formulas work when opened
+under WriterAgent. Extension id / menus remain ``org.extension.librepy``.
+"""
 
 from __future__ import annotations
 
@@ -35,7 +40,7 @@ from plugin.calc.addin_common import CalcFunctionSpec, SingleFunctionAddInBase  
 from plugin.calc.python.function import execute_python_addin  # noqa: E402
 
 log = logging.getLogger(__name__)
-_IMPL_NAME = "org.extension.librepy.PythonFunction"
+_IMPL_NAME = "org.extension.writeragent.PythonFunction"
 
 _PYTHON_ARGS = (
     "The Python code to execute. Assign output to 'result'.",
@@ -62,7 +67,7 @@ _PY_SPEC = CalcFunctionSpec(
 _PYTHON_FUNCTION_SPECS = (_PY_SPEC, _PYTHON_SPEC)
 
 try:
-    from org.extension.librepy.PythonFunction import (  # type: ignore
+    from org.extension.writeragent.PythonFunction import (  # type: ignore
         XPythonFunction as _XPythonFunctionBase,
     )
 except ImportError:
@@ -74,7 +79,7 @@ except ImportError:
 
 
 class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright: ignore[reportGeneralTypeIssues]  # pyrefly: ignore[invalid-inheritance]
-    """Calc add-in: org.extension.librepy.PythonFunction (=PY / =PYTHON)."""
+    """Calc add-in: org.extension.writeragent.PythonFunction (=PY / =PYTHON)."""
 
     def __init__(self, ctx: Any) -> None:
         log.debug("=== LibrePy PythonFunction.__init__ ===")

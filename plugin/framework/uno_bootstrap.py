@@ -15,11 +15,30 @@ duplicated (with slight variations) in several places.
 
 import os
 import sys
+import types
+import importlib
 import importlib.util
+import importlib.machinery
 from typing import Any
 
 
 import importlib.abc
+
+_WRITERAGENT_API = "plugin.scripting.writeragent_api"
+_WRITERAGENT_NAMESPACE = "plugin.scripting.writeragent_namespace"
+
+
+class _WriteragentNamespaceLoader(importlib.abc.Loader):
+    """Empty namespace package when the full tool-proxy API is not bundled (LibrePy)."""
+
+    def create_module(self, spec: Any) -> Any:
+        mod = types.ModuleType("writeragent")
+        mod.__package__ = "writeragent"
+        mod.__path__ = []
+        return mod
+
+    def exec_module(self, module: Any) -> None:
+        pass
 
 
 class AliasLoader(importlib.abc.Loader):
@@ -28,7 +47,6 @@ class AliasLoader(importlib.abc.Loader):
         self.real_name = real_name
 
     def create_module(self, spec: Any) -> Any:
-        import importlib
         return importlib.import_module(self.real_name)
 
     def exec_module(self, module: Any) -> None:
@@ -38,29 +56,46 @@ class AliasLoader(importlib.abc.Loader):
 class AliasImporter:
     """Import hook to dynamically map 'writeragent' and 'writeragent.*' imports to 'plugin' equivalents."""
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> Any:
-        if fullname == "writeragent" or fullname.startswith("writeragent."):
-            if fullname == "writeragent":
-                real_name = "plugin.scripting.writeragent_api"
-            else:
-                real_name = fullname.replace("writeragent", "plugin", 1)
+        if fullname != "writeragent" and not fullname.startswith("writeragent."):
+            return None
+        if fullname == "writeragent":
+            real_name = _WRITERAGENT_API
+        else:
+            real_name = fullname.replace("writeragent", "plugin", 1)
+        try:
+            real_spec = importlib.util.find_spec(real_name)
+        except Exception:
+            return None
+        if real_spec is None and fullname == "writeragent":
+            # LibrePy excludes writeragent_api; fall back to namespace stub or in-memory package.
             try:
-                import importlib.util
-                real_spec = importlib.util.find_spec(real_name)
-                if real_spec is None:
-                    return None
+                real_spec = importlib.util.find_spec(_WRITERAGENT_NAMESPACE)
             except Exception:
-                return None
-            try:
-                import importlib.machinery
-                spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(real_name))
-                if fullname == "writeragent":
+                real_spec = None
+            if real_spec is not None:
+                try:
+                    spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(_WRITERAGENT_NAMESPACE))
                     spec.submodule_search_locations = []
-                elif real_spec.submodule_search_locations is not None:
-                    spec.submodule_search_locations = list(real_spec.submodule_search_locations)
+                    return spec
+                except Exception:
+                    return None
+            try:
+                spec = importlib.machinery.ModuleSpec(fullname, _WriteragentNamespaceLoader())
+                spec.submodule_search_locations = []
                 return spec
             except Exception:
                 return None
-        return None
+        if real_spec is None:
+            return None
+        try:
+            spec = importlib.machinery.ModuleSpec(fullname, AliasLoader(real_name))
+            if fullname == "writeragent":
+                spec.submodule_search_locations = []
+            elif real_spec.submodule_search_locations is not None:
+                spec.submodule_search_locations = list(real_spec.submodule_search_locations)
+            return spec
+        except Exception:
+            return None
 
 
 def register_alias_importer() -> None:

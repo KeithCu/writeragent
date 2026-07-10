@@ -1,9 +1,9 @@
-#ifndef __org_extension_librepy_PythonFunction_XPythonFunction_idl__
-#define __org_extension_librepy_PythonFunction_XPythonFunction_idl__
+#ifndef __org_extension_writeragent_PythonFunction_XPythonFunction_idl__
+#define __org_extension_writeragent_PythonFunction_XPythonFunction_idl__
 
 #include <com/sun/star/uno/XInterface.idl>
 
-module org { module extension { module librepy { module PythonFunction {
+module org { module extension { module writeragent { module PythonFunction {
     interface XPythonFunction : com::sun::star::uno::XInterface
     {
         any python( [in] string code, [in] sequence< any > data );

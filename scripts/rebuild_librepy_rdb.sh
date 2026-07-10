@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Rebuild LibrePy Calc add-in typelibrary from extension-core IDL.
+# IDL uses org.extension.writeragent.PythonFunction (shared namespace with WriterAgent
+# for formula portability); extension id remains org.extension.librepy.
 # Requires LibreOffice SDK (libreoffice-fresh-sdk): unoidl-write
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

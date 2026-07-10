@@ -42,6 +42,8 @@ _MAX_INPUT_COLS = 9
 # Native ODS: semicolon argument separators (LibreOffice locale default).
 _ARG_SEP = ";"
 _CALC_PYTHON_FN = "PYTHON"
+# LibreOffice portable add-in token (matches CalcAddIns + addin_librepy registration).
+_CALC_PYTHON_ADDIN_FN = "ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON"
 
 COL_TEST_ID = 0
 COL_DOMAIN = 1
@@ -252,7 +254,10 @@ def _is_empty_cell(val: Any) -> bool:
 
 
 def _ods_formula(calc_formula: str) -> str:
-    """OpenFormula prefix for LibreOffice Calc (keeps =PYTHON uppercase)."""
+    """OpenFormula for Calc; PYTHON calls use the fully qualified add-in name."""
+    if calc_formula.startswith(f"={_CALC_PYTHON_FN}("):
+        body = f"{_CALC_PYTHON_ADDIN_FN}(" + calc_formula[len(f"={_CALC_PYTHON_FN}(") :]
+        return f"of:={body}"
     return f"of:{calc_formula}"
 
 
@@ -302,7 +307,7 @@ def _readme_lines() -> list[str]:
     return [
         "NumPy Domains Demo Workbook",
         "",
-        "Open this .ods file in LibreOffice Calc (native format preserves =PYTHON()).",
+        "Open this .ods file in LibreOffice Calc (formulas use fully qualified =PYTHON add-in names).",
         "",
         "SETUP",
         "1. Settings → Python — set scripting.python_venv_path to your venv.",
@@ -422,7 +427,7 @@ def _write_readme_md(path: Path) -> None:
 
 Open **`tests/fixtures/numpy_domains_demo.ods`** in LibreOffice Calc.
 
-Native ODS preserves uppercase `=PYTHON()` and semicolon argument separators (LibreOffice does not lowercase custom add-ins on ODS open the way it does for imported XLSX).
+Native ODS uses fully qualified `ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON()` formulas and semicolon argument separators (LibreOffice does not lowercase custom add-ins on ODS open the way it does for imported XLSX).
 
 ## Setup
 
