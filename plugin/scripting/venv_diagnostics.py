@@ -310,11 +310,16 @@ _VISION_PROBE_TIMEOUT_HINT = _(
 )
 _VISION_PROBE_FAILED_HINT = _("Vision probe failed (see writeragent_debug.log).")
 
-# Vector Search stack (docs/embeddings.md): probed outside the AST sandbox because
-# sqlite_vec/langgraph/langchain_* are not whitelisted for LLM-submitted venv scripts.
-from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
+# Vector Search stack: probed outside the AST sandbox (WriterAgent embeddings only).
+def _embeddings_venv_pip_install() -> str:
+    try:
+        from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
+    except ImportError:
+        return ""
+    return EMBEDDINGS_VENV_PIP_INSTALL
 
-_VECTOR_SEARCH_INSTALL_CMD = EMBEDDINGS_VENV_PIP_INSTALL
+
+_VECTOR_SEARCH_INSTALL_CMD = _embeddings_venv_pip_install()
 _VECTOR_SEARCH_PACKAGE_KEYS = (
     "envwrap",
     "sentence_transformers",

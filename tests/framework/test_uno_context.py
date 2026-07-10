@@ -130,3 +130,35 @@ def test_process_events_to_idle_calls_toolkit():
         process_events_to_idle(MagicMock(), rounds=3)
 
     assert toolkit.processEventsToIdle.call_count == 3
+
+
+def test_resolve_package_extension_id_prefers_librepy():
+    from plugin.framework.uno_context import (
+        get_extension_url,
+        reset_package_extension_id_for_tests,
+        resolve_package_extension_id,
+        set_package_extension_id,
+    )
+
+    reset_package_extension_id_for_tests()
+    pip = MagicMock()
+    pip.getPackageLocation.side_effect = lambda eid: (
+        "file:///tmp/LibrePy.oxt" if eid == "org.extension.librepy" else ""
+    )
+    with patch("plugin.framework.uno_context.get_package_info", return_value=pip):
+        assert resolve_package_extension_id() == "org.extension.librepy"
+        assert get_extension_url() == "file:///tmp/LibrePy.oxt"
+    reset_package_extension_id_for_tests()
+
+
+def test_set_package_extension_id_override():
+    from plugin.framework.uno_context import (
+        reset_package_extension_id_for_tests,
+        resolve_package_extension_id,
+        set_package_extension_id,
+    )
+
+    reset_package_extension_id_for_tests()
+    set_package_extension_id("org.extension.librepy")
+    assert resolve_package_extension_id() == "org.extension.librepy"
+    reset_package_extension_id_for_tests()

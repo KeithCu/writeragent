@@ -2,6 +2,7 @@
 import unittest
 import json
 import logging
+import os
 import tempfile
 from logging.handlers import MemoryHandler
 from unittest.mock import MagicMock, patch
@@ -16,12 +17,61 @@ from plugin.framework.logging import (
     agent_log,
     format_tool_call_for_display,
     format_tool_result_for_display,
+    get_debug_log_path,
+    init_logging,
     redact_sensitive_payload_for_log,
     safe_log_exception,
     update_activity_state,
     _activity_state,
     log,
 )
+
+class TestInitLogging(unittest.TestCase):
+
+    def setUp(self):
+        import plugin.framework.config as config_mod
+        import plugin.framework.logging as logging_mod
+
+        self._saved_config_path = config_mod._resolved_config_path
+        self._saved_debug_path = logging_mod._debug_log_path
+        self._saved_hooks = logging_mod._exception_hooks_installed
+        config_mod._resolved_config_path = None
+        logging_mod._debug_log_path = None
+        logging_mod._exception_hooks_installed = False
+        for h in list(log.handlers):
+            log.removeHandler(h)
+
+    def tearDown(self):
+        import plugin.framework.config as config_mod
+        import plugin.framework.logging as logging_mod
+
+        config_mod._resolved_config_path = self._saved_config_path
+        logging_mod._debug_log_path = self._saved_debug_path
+        logging_mod._exception_hooks_installed = self._saved_hooks
+        for h in list(log.handlers):
+            log.removeHandler(h)
+
+    def test_init_logging_uses_ctx_config_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "writeragent.json")
+            with open(config_path, "w", encoding="utf-8") as fh:
+                fh.write("{}")
+
+            mock_ctx = MagicMock()
+            with (
+                patch("plugin.framework.config._resolve_config_path_from_ctx", return_value=config_path),
+                patch("plugin.framework.config.user_config_dir", return_value=tmp),
+            ):
+                init_logging(mock_ctx)
+
+            expected_log = os.path.join(tmp, "writeragent_debug.log")
+            self.assertEqual(get_debug_log_path(), expected_log)
+            self.assertTrue(os.path.isfile(expected_log))
+            with open(expected_log, encoding="utf-8") as fh:
+                contents = fh.read()
+            self.assertIn("Debug log active", contents)
+            self.assertIn(expected_log, contents)
+
 
 class TestLogRedaction(unittest.TestCase):
 

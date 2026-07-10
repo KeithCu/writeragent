@@ -33,9 +33,10 @@ import unohelper
 from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 from com.sun.star.task import XJob, XJobExecutor
+from com.sun.star.util import URL as UnoURL
 
 from plugin.framework.logging import init_logging
-from plugin.framework.uno_context import get_ctx
+from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id
 
 EXTENSION_ID = "org.extension.librepy"
 _DISPATCH_PROTOCOL = "org.extension.librepy:"
@@ -76,9 +77,9 @@ def _open_dialog_safely(dialog_func, error_msg: str, *args, **kwargs) -> None:
 
 
 def _register_librepy_handlers() -> None:
-    from plugin.chatbot.dialog_views import settings_box
+    from plugin.librepy.settings import open_librepy_settings
 
-    register_action_handler("main", "settings", lambda: _open_dialog_safely(settings_box, "Failed to open settings"))
+    register_action_handler("main", "settings", lambda: _open_dialog_safely(open_librepy_settings, "Failed to open settings"))
 
     def _run_python() -> None:
         from plugin.scripting.python_runner import run_python_dialog
@@ -132,6 +133,8 @@ def bootstrap(ctx=None) -> None:
             return
         if ctx is None:
             ctx = get_ctx()
+        set_fallback_ctx(ctx)
+        set_package_extension_id(EXTENSION_ID)
         from plugin.framework.config import init_config
 
         init_config(ctx)
@@ -148,8 +151,8 @@ def bootstrap(ctx=None) -> None:
         _initialized = True
 
 
-def _dispatch_command(command: str) -> None:
-    bootstrap()
+def _dispatch_command(command: str, ctx: Any | None = None) -> None:
+    bootstrap(ctx)
     handler = _ACTION_HANDLERS.get(command)
     if handler:
         try:
@@ -172,21 +175,19 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
         except Exception:
             pass
         try:
-            init_logging(self.ctx)
-        except Exception:
-            pass
-        try:
             bootstrap(self.ctx)
+            init_logging(self.ctx)
         except Exception as e:
             log.exception("LibrePy bootstrap failed: %s", e)
         return ()
 
     def trigger(self, Event) -> None:
+        bootstrap(self.ctx)
         init_logging(self.ctx)
         args = Event
         if args and isinstance(args, str) and "." in args:
             cmd = args[7:] if args.startswith("plugin.") else args
-            _dispatch_command(cmd)
+            _dispatch_command(cmd, self.ctx)
 
 
 class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitialization, XServiceInfo):
@@ -208,20 +209,21 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     def getSupportedServiceNames(self) -> tuple[str, ...]:
         return self.SERVICE_NAMES
 
-    def queryDispatch(self, URL, TargetFrameName: str, SearchFlags: int) -> XDispatch | None:
+    def queryDispatch(self, URL: UnoURL, TargetFrameName: str, SearchFlags: int) -> XDispatch:  # pyright: ignore[reportIncompatibleMethodOverride]
         if URL.Protocol == "org.extension.librepy:":
             return cast("XDispatch", self)
-        return None
+        return cast("XDispatch", None)
 
-    def queryDispatches(self, Requests: tuple[DispatchDescriptor, ...]) -> tuple[XDispatch, ...]:
+    def queryDispatches(self, Requests: tuple[DispatchDescriptor, ...]) -> tuple[XDispatch, ...]:  # pyright: ignore[reportIncompatibleMethodOverride]
         return tuple(self.queryDispatch(r.FeatureURL, r.FrameName, r.SearchFlags) for r in Requests)
 
     def dispatch(self, URL, Arguments) -> None:
         from plugin.framework.logging import log_exception
 
         try:
+            bootstrap(self.ctx)
             init_logging(self.ctx)
-            _dispatch_command(URL.Path)
+            _dispatch_command(URL.Path, self.ctx)
         except Exception as e:
             log_exception(e, context="LibrePy dispatch")
             from plugin.chatbot.dialogs import msgbox_with_report

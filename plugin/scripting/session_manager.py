@@ -18,10 +18,18 @@ from plugin.doc.document_helpers import get_document_property, is_calc, is_write
 from plugin.framework.config import get_config_str
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop
-from plugin.notebook.cell_registry import has_notebook_registry
 from plugin.scripting.venv_worker import reset_python_session
 
 log = logging.getLogger(__name__)
+
+
+def _has_notebook_registry(doc: Any) -> bool:
+    """Optional Writer notebook integration (excluded from LibrePy core bundle)."""
+    try:
+        from plugin.notebook.cell_registry import has_notebook_registry
+    except ImportError:
+        return False
+    return has_notebook_registry(doc)
 
 PYTHON_WORKBOOK_SESSION_PROP = "WriterAgentPythonSessionId"
 _SESSION_MODE_KEY = "scripting.python_session_mode"
@@ -124,7 +132,7 @@ def reset_notebook_python_session(ctx: Any) -> None:
             ),
         )
         return
-    if not has_notebook_registry(doc):
+    if not _has_notebook_registry(doc):
         msgbox(
             ctx,
             "WriterAgent",
@@ -198,7 +206,7 @@ def _reset_calc_python_sessions(ctx: Any) -> None:
 def reset_workbook_python_session(ctx: Any) -> None:
     """Menubar handler: reset notebook kernel (Writer) or shared Calc workbook session."""
     doc = _active_document(ctx)
-    if doc is not None and is_writer(doc) and has_notebook_registry(doc):
+    if doc is not None and is_writer(doc) and _has_notebook_registry(doc):
         reset_notebook_python_session(ctx)
         return
     if doc is not None and is_writer(doc):

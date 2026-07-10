@@ -35,6 +35,7 @@
 EXTENSION_NAME = WriterAgent
 LIBREPY_EXTENSION_ID = org.extension.librepy
 LIBREPY_OXT = build/LibrePy.oxt
+LO_DEBUG_LOG = $(LO_CONF)/user/config/writeragent_debug.log
 COMPONENTS := writer calc draw impress
 SELECTED_COMPONENT := $(filter $(COMPONENTS),$(MAKECMDGOALS))
 
@@ -327,14 +328,16 @@ register-built-oxt:
 	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
 	$(UNOPKG) add build/$(EXTENSION_NAME).oxt
 	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
-	@rm -f $(LO_CONF)/user/writeragent_debug.log $(LO_CONF)/user/writeragent_agent.log
+	@rm -f $(LO_DEBUG_LOG) $(LO_CONF)/user/writeragent_debug.log $(LO_CONF)/user/writeragent_agent.log
 	@echo "Registered org.extension.writeragent (start LibreOffice manually to load it)."
 
 manifest:
 	$(PYTHON) $(SCRIPTS)/generate_manifest.py
 
-manifest-core: manifest
-	@true
+manifest-core:
+	$(PYTHON) $(SCRIPTS)/generate_manifest.py --modules scripting vision \
+		--manifest-output build/generated/_manifest_librepy.py \
+		--skip-writeragent-extension --skip-addons
 
 rdb-core:
 	$(RUN_SH) $(SCRIPTS)/rebuild_librepy_rdb$(EXT)
@@ -354,7 +357,7 @@ register-librepy-oxt:
 	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
 	$(UNOPKG) add $(LIBREPY_OXT)
 	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
-	@rm -f $(LO_CONF)/user/writeragent_debug.log $(LO_CONF)/user/writeragent_agent.log
+	@rm -f $(LO_DEBUG_LOG) $(LO_CONF)/user/writeragent_debug.log $(LO_CONF)/user/writeragent_agent.log
 	@echo "Registered $(LIBREPY_EXTENSION_ID) (start LibreOffice manually to load it)."
 
 deploy-core: build-core register-librepy-oxt
@@ -546,10 +549,10 @@ writer calc draw impress:
 	@$(if $(filter deploy repack-deploy,$(MAKECMDGOALS)),,@echo "Stand-alone 'make $@' is disabled. Use 'make deploy $@' to build and launch.")
 
 log:
-	@cat $(LO_CONF)/user/writeragent_debug.log 2>/dev/null || echo "No writeragent_debug.log found"
+	@cat $(LO_DEBUG_LOG) 2>/dev/null || echo "No writeragent_debug.log found (expected at $(LO_DEBUG_LOG))"
 
 log-tail:
-	@tail -f $(LO_CONF)/user/writeragent_debug.log
+	@tail -f $(LO_DEBUG_LOG)
 
 lo-log:
 	@cat $(HOME_DIR)/soffice-debug.log 2>/dev/null || echo "No soffice-debug.log found"

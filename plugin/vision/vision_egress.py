@@ -90,12 +90,11 @@ def prepare_vision_writer_insert(doc: Any, ctx: Any, *, image_name: str | None =
     hold focus during Run Script).
     """
     from plugin.doc.visual_helpers import get_graphic_object_by_name, list_graphic_objects, selected_graphic_object
-    from plugin.writer.images.images import _get_graphic_object
 
     graphic = selected_graphic_object(doc)
     name = str(image_name or "").strip()
     if graphic is None and name:
-        graphic = _get_graphic_object(ctx, doc, name)
+        graphic = get_graphic_object_by_name(doc, name)
     if graphic is None:
         raise ToolExecutionError(
             _("Select an embedded image, then Run again."),

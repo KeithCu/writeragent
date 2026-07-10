@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Build the LibrePy standalone .oxt (scientific Python core prototype).
 
-Assembles build/bundle-librepy/ from extension-core/ metadata plus the full
-plugin/ tree (prototype: single extension install, no filtered module set).
+Copies only the plugin files required for Layers 0–6 (see scripts/librepy_bundle_paths.py).
 
 Usage:
     python3 scripts/build_librepy_oxt.py
@@ -14,6 +13,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import subprocess
 import sys
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,17 +22,18 @@ if PROJECT_ROOT not in sys.path:
 
 from scripts.build_oxt import (  # noqa: E402
     collect_files,
-    get_always_include_plugin,
     prune_vendored_websockets,
     remap_path,
     should_exclude,
     strip_production_code,
     _vendor_copy_ignore,
 )
+from scripts.librepy_bundle_paths import collect_librepy_plugin_paths  # noqa: E402
 from scripts.manifest_registry import patch_description_xml  # noqa: E402
 
 LIBREPY_BUNDLE_DIR = "build/bundle-librepy"
 LIBREPY_EXTENSION_ID = "org.extension.librepy"
+LIBREPY_MANIFEST = "build/generated/_manifest_librepy.py"
 
 LIBREPY_EXTENSION_INCLUDES = [
     "extension-core/description.xml",
@@ -48,13 +49,18 @@ LIBREPY_EXTENSION_INCLUDES = [
     "build/generated/dialogs/",
 ]
 
-LIBREPY_PLUGIN_FILES = [
-    "plugin/__init__.py",
-    "plugin/main_core.py",
-    "plugin/version.py",
-    "plugin/_manifest.py",
-    "plugin/plugin.yaml",
-]
+LIBREPY_DIALOG_FILES = (
+    "extension/WriterAgentDialogs/PythonScriptDialog.xdl",
+    "extension/WriterAgentDialogs/PythonTestProgressDialog.xdl",
+    "extension/WriterAgentDialogs/TextAnalyticsDialog.xdl",
+    "extension/WriterAgentDialogs/LatexInputDialog.xdl",
+    "extension/WriterAgentDialogs/MsgBoxWithCopyDialog.xdl",
+    "extension/WriterAgentDialogs/ErrorReportDialog.xdl",
+    "extension/WriterAgentDialogs/ShortTextInputDialog.xdl",
+    "extension/WriterAgentDialogs/EditInputDialog.xdl",
+    "extension/WriterAgentDialogs/dialog.xlb",
+    "extension/WriterAgentDialogs/script.xlb",
+)
 
 
 def _librepy_remap_path(path: str) -> str:
@@ -68,11 +74,29 @@ def _librepy_remap_path(path: str) -> str:
     return remap_path(path)
 
 
+def _ensure_librepy_manifest(base_dir: str) -> None:
+    manifest_out = os.path.join(base_dir, LIBREPY_MANIFEST)
+    cmd = [
+        sys.executable,
+        os.path.join(base_dir, "scripts", "generate_manifest.py"),
+        "--modules",
+        "scripting",
+        "vision",
+        "--manifest-output",
+        manifest_out,
+        "--skip-writeragent-extension",
+        "--skip-addons",
+    ]
+    print("  Generating slim LibrePy manifest...")
+    subprocess.run(cmd, cwd=base_dir, check=True)
+
+
 def assemble_librepy_bundle(base_dir: str, *, with_tests: bool = False, strip: bool = True) -> int:
     bundle_path = os.path.join(base_dir, LIBREPY_BUNDLE_DIR)
     if os.path.exists(bundle_path):
         shutil.rmtree(bundle_path)
 
+    _ensure_librepy_manifest(base_dir)
     patch_description_xml(os.path.join(base_dir, "extension-core"))
 
     rdb_path = os.path.join(base_dir, "extension-core", "XPythonFunction.rdb")
@@ -84,9 +108,15 @@ def assemble_librepy_bundle(base_dir: str, *, with_tests: bool = False, strip: b
         )
         return 0
 
+    plugin_paths = collect_librepy_plugin_paths(base_dir)
+    manifest_src = os.path.join(base_dir, LIBREPY_MANIFEST)
+    if not os.path.isfile(manifest_src):
+        print("ERROR: %s not found after manifest generation" % manifest_src, file=sys.stderr)
+        return 0
+
     include = list(LIBREPY_EXTENSION_INCLUDES)
-    include.extend(LIBREPY_PLUGIN_FILES)
-    include.extend(get_always_include_plugin(base_dir))
+    include.extend(LIBREPY_DIALOG_FILES)
+    include.extend(plugin_paths)
     include.append("locales/")
 
     files = collect_files(base_dir, include, with_tests=with_tests)
@@ -102,6 +132,12 @@ def assemble_librepy_bundle(base_dir: str, *, with_tests: bool = False, strip: b
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
         count += 1
+
+    shutil.copy2(
+        manifest_src,
+        os.path.join(bundle_path, "plugin", "_manifest.py"),
+    )
+    count += 1
 
     vendor_dir = os.path.join(base_dir, "vendor")
     if os.path.isdir(vendor_dir):
@@ -129,7 +165,10 @@ def assemble_librepy_bundle(base_dir: str, *, with_tests: bool = False, strip: b
     if strip and not with_tests:
         strip_production_code(bundle_path, dry_run=False)
 
-    print("Assembled %d files in %s" % (count, LIBREPY_BUNDLE_DIR))
+    print(
+        "Assembled %d files in %s (%d plugin modules)"
+        % (count, LIBREPY_BUNDLE_DIR, len(plugin_paths))
+    )
     return count
 
 

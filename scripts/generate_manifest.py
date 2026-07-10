@@ -192,6 +192,15 @@ def main():
     parser.add_argument(
         "--modules", nargs="*", default=None,
         help="Only process these modules (default: all)")
+    parser.add_argument(
+        "--manifest-output", default=None,
+        help="Write _manifest.py to this path (default: plugin/_manifest.py)")
+    parser.add_argument(
+        "--skip-writeragent-extension", action="store_true",
+        help="Do not update extension/ description.xml, META-INF, or update.xml")
+    parser.add_argument(
+        "--skip-addons", action="store_true",
+        help="Do not generate build/generated/Addons.xcu or Accelerators.xcu")
     args = parser.parse_args()
 
     modules_dir = os.path.join(PROJECT_ROOT, "plugin")
@@ -232,12 +241,13 @@ def main():
         print("  WRITERAGENT_ENABLE_OPTIONS is false. Skipping Tools -> Options generation.")
 
     # 1. Addons.xcu (menus) — run first to collect conditional menus
-    addons_xcu_path = os.path.join(build_dir, "Addons.xcu")
-    generate_addons_xcu(
-        sorted_modules, framework_manifest, addons_xcu_path)
+    if not args.skip_addons:
+        addons_xcu_path = os.path.join(build_dir, "Addons.xcu")
+        generate_addons_xcu(
+            sorted_modules, framework_manifest, addons_xcu_path)
 
     # 2. _manifest.py
-    manifest_path = os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
+    manifest_path = args.manifest_output or os.path.join(PROJECT_ROOT, "plugin", "_manifest.py")
     generate_manifest_py(sorted_modules, manifest_path)
 
     # 4. XDL dialog pages
@@ -250,12 +260,14 @@ def main():
     update_dialog_xlb(wa_dialogs_gen, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
 
     # 5. Accelerators.xcu (shortcuts)
-    accel_xcu_path = os.path.join(build_dir, "Accelerators.xcu")
-    generate_accelerators_xcu(sorted_modules, accel_xcu_path)
+    if not args.skip_addons:
+        accel_xcu_path = os.path.join(build_dir, "Accelerators.xcu")
+        generate_accelerators_xcu(sorted_modules, accel_xcu_path)
 
     # 6. META-INF/manifest.xml
-    manifest_xml_path = os.path.join(PROJECT_ROOT, "extension", "META-INF", "manifest.xml")
-    generate_manifest_xml(sorted_modules, manifest_xml_path)
+    if not args.skip_writeragent_extension:
+        manifest_xml_path = os.path.join(PROJECT_ROOT, "extension", "META-INF", "manifest.xml")
+        generate_manifest_xml(sorted_modules, manifest_xml_path)
 
     # 7. SettingsDialog Tabs
     generate_settings_dialog_tabs(
@@ -265,8 +277,9 @@ def main():
     )
 
     # 8. Patch version
-    patch_description_xml(os.path.join(PROJECT_ROOT, "extension"))
-    generate_update_xml(PROJECT_ROOT)
+    if not args.skip_writeragent_extension:
+        patch_description_xml(os.path.join(PROJECT_ROOT, "extension"))
+        generate_update_xml(PROJECT_ROOT)
 
     print("Done.")
     return 0

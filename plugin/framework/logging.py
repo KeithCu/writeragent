@@ -119,24 +119,33 @@ def redact_sensitive_payload_for_log(obj: Any) -> Any:
     return out
 
 
-def init_logging(ctx):
+def get_debug_log_path() -> str | None:
+    """Return the active writeragent_debug.log path, or None if logging is not initialized."""
+    return _debug_log_path
+
+
+def init_logging(ctx=None):
     """Set global debug log path (LO user config dir) and enable_agent_log from ctx. Idempotent."""
     global _debug_log_path, _enable_agent_log
     with _init_lock:
         first_init = _debug_log_path is None
-        _debug_log_path = None
-        _enable_agent_log = False
         try:
+            if ctx is not None:
+                config.init_config(ctx)
             udir = config.user_config_dir()
             if udir:
                 _debug_log_path = os.path.join(udir, DEBUG_LOG_FILENAME)
                 _enable_agent_log = config.get_config_bool("enable_agent_log")
-        except (OSError, ImportError, ValueError, ConfigError):
-            pass
+        except (OSError, ImportError, ValueError, ConfigError) as exc:
+            if first_init:
+                print(f"WriterAgent: init_logging config unavailable: {exc}", file=sys.stderr)
+            _debug_log_path = None
+            _enable_agent_log = False
 
+        level_str = "WARN"
         try:
-            level_str = config.get_config_str("log_level")
-            numeric_level = getattr(logging, level_str.upper(), logging.WARNING)
+            level_str = config.get_config_str("log_level") or "WARN"
+            numeric_level = getattr(logging, str(level_str).upper(), logging.WARNING)
             global _log_level_numeric
             _log_level_numeric = numeric_level
 
@@ -187,8 +196,19 @@ def init_logging(ctx):
                 # Prevent double-logging for loggers under "writeragent.*" since
                 # they are handled by `logger` above.
                 logger.propagate = False
-        except OSError:
-            pass
+
+                if first_init:
+                    logger.warning(
+                        "Debug log active: %s (level=%s)",
+                        _debug_log_path,
+                        level_str,
+                    )
+                    for handler in list(logger.handlers):
+                        if isinstance(handler, logging.FileHandler):
+                            logging.FileHandler.flush(handler)
+        except OSError as exc:
+            if first_init:
+                print(f"WriterAgent: init_logging file handler failed: {exc}", file=sys.stderr)
 
         if first_init:
             _install_global_exception_hooks()

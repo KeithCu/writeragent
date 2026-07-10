@@ -35,12 +35,53 @@ from plugin.framework.thread_guard import main_thread_only, _wrap_uno
 log = logging.getLogger("writeragent.context")
 
 _fallback_ctx = None
+# Set by main.py / main_core.py bootstrap; auto-detected from installed packages when unset.
+_package_extension_id: str | None = None
+
+_KNOWN_EXTENSION_IDS = (
+    "org.extension.librepy",
+    "org.extension.writeragent",
+)
 
 
 def set_fallback_ctx(ctx):
     """Store a fallback ctx for use when uno module is not available."""
     global _fallback_ctx
     _fallback_ctx = ctx
+
+
+def set_package_extension_id(extension_id: str) -> None:
+    """Pin the OXT package id used by get_extension_url() (LibrePy vs WriterAgent)."""
+    global _package_extension_id
+    _package_extension_id = extension_id
+
+
+def reset_package_extension_id_for_tests() -> None:
+    """Clear cached extension id (unit tests only)."""
+    global _package_extension_id
+    _package_extension_id = None
+
+
+def resolve_package_extension_id(ctx=None) -> str:
+    """Return the installed WriterAgent-family extension id (LibrePy or WriterAgent)."""
+    global _package_extension_id
+    if _package_extension_id:
+        return _package_extension_id
+
+    for extension_id in _KNOWN_EXTENSION_IDS:
+        try:
+            pip = get_package_info(ctx)
+            if pip is None:
+                continue
+            location = pip.getPackageLocation(extension_id)
+            if location:
+                _package_extension_id = extension_id
+                return extension_id
+        except Exception:
+            log.debug("getPackageLocation(%s) failed", extension_id, exc_info=True)
+
+    # Last resort: preserve WriterAgent default for older call sites.
+    return "org.extension.writeragent"
 
 
 @main_thread_only
@@ -114,18 +155,23 @@ def get_package_info(ctx=None):
 
 
 @main_thread_only
-def get_extension_url(ctx=None, extension_id="org.extension.writeragent"):
+def get_extension_url(ctx=None, extension_id=None):
     """Return the base URL of the extension package."""
+    if extension_id is None:
+        extension_id = resolve_package_extension_id(ctx)
     try:
         pip = get_package_info(ctx)
         if not pip:
             return ""
-        return pip.getPackageLocation(extension_id)
+        location = pip.getPackageLocation(extension_id)
+        if location:
+            return location
     except Exception:
-        return "vnd.sun.star.extension://" + extension_id
+        log.debug("get_extension_url(%s) failed", extension_id, exc_info=True)
+    return "vnd.sun.star.extension://" + extension_id
 
 
-def get_extension_path(ctx=None, extension_id="org.extension.writeragent"):
+def get_extension_path(ctx=None, extension_id=None):
     """Return the local filesystem path of the extension package."""
     url = get_extension_url(ctx, extension_id)
     if not url:

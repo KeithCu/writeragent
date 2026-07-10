@@ -16,8 +16,8 @@ from plugin.scripting.client import run_vision
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
 from plugin.vision.venv.vision import HELPER_NAMES
+from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object
 from plugin.writer.images.image_tools import export_graphic_object_to_bytes, get_selected_image_base64
-from plugin.writer.images.images import _get_graphic_object
 
 
 def supports_vision_manual(doc: Any) -> bool:
