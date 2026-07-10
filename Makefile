@@ -141,7 +141,7 @@ endif
         log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy ensure-uno \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
-        set-config vendor docker-build compile-translations merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
+        set-config vendor docker-build compile-translations compile-translations-core merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
         eval-deps run_eval run_eval-smoke
 
@@ -342,7 +342,7 @@ manifest-core:
 rdb-core:
 	$(RUN_SH) $(SCRIPTS)/rebuild_librepy_rdb$(EXT)
 
-build-core: vendor manifest-core rdb-core compile-translations
+build-core: vendor manifest-core rdb-core compile-translations-core
 	@echo "Building LibrePy.oxt (prototype core extension)..."
 	$(PYTHON) $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT)
 	@echo "Done: $(LIBREPY_OXT)  (bundle in build/bundle-librepy/)"
@@ -532,6 +532,9 @@ compile-translations:
 	else \
 		echo "Skipping .mo compilation (msgfmt not found; install gettext: choco install gettext.install)"; \
 	fi
+
+compile-translations-core:
+	$(PYTHON) $(SCRIPTS)/build_librepy_locales.py
 
 
 # ── Shortcuts ───────────────────────────────────────────────────────────────

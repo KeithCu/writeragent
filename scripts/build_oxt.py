@@ -129,9 +129,10 @@ def should_exclude(path, with_tests=False):
     if path_norm.startswith("plugin/tests/") or path_norm == "plugin/tests":
         return not with_tests
     # gettext source/template only; runtime loads .mo (see plugin/framework/i18n.py)
-    if path_norm.startswith("locales/") and (
-        path_norm.endswith(".po") or path_norm.endswith(".pot")
-    ):
+    if (
+        path_norm.startswith("locales/")
+        or path_norm.startswith("build/generated/locales/")
+    ) and (path_norm.endswith(".po") or path_norm.endswith(".pot")):
         return True
     for pat in EXCLUDE_PATTERNS:
         if pat in path:

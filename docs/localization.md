@@ -30,6 +30,7 @@ There is **no separate “UI language” override in `writeragent.json`** today:
 | `make preview-translations` | `refresh-pot` then `scripts/translate_missing.py --preview` (status table of completion vs POT). Used by normal `make build`. |
 | `make merge-translations` | For each `writeragent.po`: `msgmerge --update` from `writeragent.pot`, then `msgattrib --no-obsolete` so removed strings do not linger as obsolete entries. |
 | `make compile-translations` | `msgfmt` every `.po` to `.mo` (required for LibreOffice to load catalogs efficiently). |
+| `make compile-translations-core` | LibrePy only: build `build/generated/librepy.pot` from bundled sources, filter each `writeragent.po` to those msgids, compile slim `.mo` under `build/generated/locales/` (part of `make build-core`). |
 | `make add-language LANG=xx` | Creates `locales/xx/LC_MESSAGES/writeragent.po` from the POT and compiles an initial `.mo`. |
 
 **Note:** `make build` runs `preview-translations` (refresh POT + preview), not necessarily the full `extract-strings` + merge. Run **`make extract-strings`** when you add or change marked strings and need all locale files updated from the new template.

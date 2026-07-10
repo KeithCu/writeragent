@@ -325,7 +325,7 @@ Config keys: `last_python_script_writer`, `last_python_script_calc`, `last_pytho
 
 **Refactor note:** `plugin/doc/doc_type.py` with `is_writer`/`is_calc` only would avoid loading `calc.analyzer` for Writer menus.
 
-Optional gettext: `locales/` for translated menu/dialog strings.
+Optional gettext: filtered catalogs via `make compile-translations-core` (part of `make build-core`) — [`scripts/build_librepy_locales.py`](../scripts/build_librepy_locales.py) extracts strings from the LibrePy file closure only and bundles slim `.mo` files from `build/generated/locales/`, not the full WriterAgent `locales/` tree.
 
 ---
 

@@ -117,7 +117,15 @@ def assemble_librepy_bundle(base_dir: str, *, with_tests: bool = False, strip: b
     include = list(LIBREPY_EXTENSION_INCLUDES)
     include.extend(LIBREPY_DIALOG_FILES)
     include.extend(plugin_paths)
-    include.append("locales/")
+    locales_dir = os.path.join(base_dir, "build", "generated", "locales")
+    if not os.path.isdir(locales_dir):
+        print(
+            "ERROR: %s not found. Run: make compile-translations-core (or make build-core)"
+            % locales_dir,
+            file=sys.stderr,
+        )
+        return 0
+    include.append("build/generated/locales/")
 
     files = collect_files(base_dir, include, with_tests=with_tests)
 
