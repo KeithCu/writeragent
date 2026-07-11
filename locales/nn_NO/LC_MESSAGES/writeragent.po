@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -1838,37 +1838,13 @@ msgstr "Dokumenttypen støttar ikkje symbolsk innsetjing."
 msgid "Unsupported document type for plot insertion."
 msgstr "Dokumenttypen støttar ikkje innsetjing av plott."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Visualiseringshjelparen feila."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Visualiseringshjelparen returnerte ikkje noko bildeinnhald."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Dokumenttypen vert ikkje støtta."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Hjelparen krev eit dataområde. Merk celler eller skriv inn eit område i "
-"datafeltet."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant-hjelpar krev eit dataområde. Marker celler eller skriv inn eit område "
-"i datafeltet."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Hjelparen feila."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1893,90 +1869,6 @@ msgstr "{domain} «{helper}» er ferdig. Skreiv {rows} rader. (tok {time})"
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} «{helper}» er ferdig. (tok {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Synshjelparar krev eit Writer- eller Calc-dokument."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Synshjelpar feila."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz-hjelparar krev eit Writer- eller Calc-dokument."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz-hjelpar krev eit dataområde. Marker celler eller skriv inn eit område i "
-"datafeltet."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math-hjelparar krev eit Writer- eller Calc-dokument."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Math-hjelpar feila."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Eining-hjelparar krev eit Writer- eller Calc-dokument."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Eining-hjelpar feila."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Hjelpemiddel for tekstanalyse krev eit Writer-dokument."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Hjelpemiddel for tekstanalyse mislukkast."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant feila."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Optimeringshjelparen krev eit dataområde. Marker celler eller skriv inn eit "
-"område i datafeltet."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Optimering mislukkast."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Prognosehjelparen krev eit dataområde. Marker celler eller skriv inn eit "
-"område i datafeltet."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Prognose mislukkast."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Analysehjelparen krev eit dataområde. Merk celler eller skriv inn eit område "
-"i datafeltet."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Analysen mislukkast."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2083,6 +1975,10 @@ msgstr ""
 "Python-økt for notatboka."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Eining-hjelpar feila."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Eining-hjelpar returnerte ingen formatert tekst."
 
@@ -2129,6 +2025,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Innsetjing av resultat i Draw/Impress er førebels ikkje støtta. PR-ar er "
 "velkomne!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Synshjelparar krev eit Writer- eller Calc-dokument."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

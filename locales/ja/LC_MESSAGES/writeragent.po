@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Japanese <LL@li.org>\n"
@@ -1854,37 +1854,13 @@ msgstr "数式挿入に対応していないドキュメント形式です。"
 msgid "Unsupported document type for plot insertion."
 msgstr "プロットの挿入に対応していないドキュメント形式です。"
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "可視化ヘルパーが失敗しました。"
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "可視化ヘルパーから画像データが返されませんでした。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "サポートされていないドキュメント形式です。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範囲を"
-"入力してください。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに"
-"範囲を入力してください。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "ヘルパーが失敗しました。"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1913,90 +1889,6 @@ msgstr ""
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' が完了しました。(所要時間: {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "ビジョンヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "ビジョンヘルパーが失敗しました。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz ヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範"
-"囲を入力してください。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math ヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Math ヘルパーが失敗しました。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Units ヘルパーには Writer または Calc ドキュメントが必要です。"
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Units ヘルパーが失敗しました。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "テキスト分析ヘルパーにはWriterドキュメントが必要です。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "テキスト分析ヘルパーが失敗しました。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant が失敗しました。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"最適化ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに"
-"範囲を入力してください。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "最適化に失敗しました。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"予測ヘルパーにはデータ範囲が必要です。セルを選択するか、[データ]フィールドに"
-"範囲を入力してください。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "予測に失敗しました。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"分析ヘルパーにはデータ範囲が必要です。セルを選択するか、データフィールドに範"
-"囲を入力してください。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "分析に失敗しました。"
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2103,6 +1995,10 @@ msgstr ""
 "「Jupyterノートブックをインポート…」を使用してください。"
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Units ヘルパーが失敗しました。"
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Units ヘルパーが整形されたテキストを返しませんでした。"
 
@@ -2151,6 +2047,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Draw/Impressへの結果挿入はまだサポートされていません。プルリクエストを歓迎し"
 "ます！"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "ビジョンヘルパーには Writer または Calc ドキュメントが必要です。"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

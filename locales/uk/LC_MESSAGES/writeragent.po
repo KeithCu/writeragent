@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Ukrainian <LL@li.org>\n"
@@ -1849,37 +1849,13 @@ msgstr "Непідтримуваний тип документа для вста
 msgid "Unsupported document type for plot insertion."
 msgstr "Непідтримуваний тип документа для вставлення графіка."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Помилка помічника візуалізації."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Помічник візуалізації не повернув зображення."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Непідтримуваний тип документа."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Помічнику потрібен діапазон даних. Виберіть клітинки або введіть діапазон у "
-"полі «Дані»."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Помічник Quant потребує діапазону даних. Виділіть клітинки або введіть "
-"діапазон у полі «Дані»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Помилка помічника."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1906,91 +1882,6 @@ msgstr ""
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} «{helper}» завершено. (витрачено {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Для роботи помічників зору потрібен документ Writer або Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Помилка помічника зору."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Помічники Viz потребують документа Writer або Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Помічник Viz потребує діапазону даних. Виділіть клітинки або введіть "
-"діапазон у полі «Дані»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Помічники Math потребують документа Writer або Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Помилка помічника Math."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr ""
-"Для допоміжних модулів одиниць вимірювання потрібен документ Writer або Calc."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Помилка допоміжного модуля одиниць вимірювання."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Для роботи помічників з аналізу тексту потрібен документ Writer."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Помилка помічника з аналізу тексту."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Помилка Quant."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Помічник оптимізації потребує діапазону даних. Виділіть клітинки або введіть "
-"діапазон у полі «Дані»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Помилка оптимізації."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Помічник прогнозування потребує діапазону даних. Виділіть клітинки або "
-"введіть діапазон у полі «Дані»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Помилка прогнозування."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Помічник аналізу потребує діапазону даних. Виберіть клітинки або введіть "
-"діапазон у полі «Дані»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Помилка аналізу."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2097,6 +1988,10 @@ msgstr ""
 "Python для блокнота."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Помилка допоміжного модуля одиниць вимірювання."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr ""
 "Допоміжний модуль одиниць вимірювання не повернув відформатований текст."
@@ -2143,6 +2038,10 @@ msgstr "Інформація"
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Вставлення результату в Draw/Impress ще не підтримується. PR вітаються!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Для роботи помічників зору потрібен документ Writer або Calc."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

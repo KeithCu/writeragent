@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -1784,33 +1784,13 @@ msgstr "不支援此文件類型進行符號插入。"
 msgid "Unsupported document type for plot insertion."
 msgstr "不支援此文件類型進行圖表插入。"
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "視覺化輔助工具失敗。"
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "視覺化輔助工具未回傳影像內容。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "不支援的文件類型。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr "輔助程式需要資料範圍。請選取儲存格或在「資料」欄位中輸入範圍。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr "Quant 輔助程式需要資料範圍。請選取儲存格或在「資料」欄位中輸入範圍。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "輔助程式失敗。"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1835,82 +1815,6 @@ msgstr "{domain} '{helper}' 已完成。寫入 {rows} 列。（耗時 {time}）"
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' 已完成。（耗時 {time}）"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "視覺輔助工具需要 Writer 或 Calc 文件。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "視覺輔助工具失敗。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz 輔助程式需要 Writer 或 Calc 文件。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr "Viz 輔助程式需要資料範圍。請選取儲存格或在「資料」欄位中輸入範圍。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math 輔助程式需要 Writer 或 Calc 文件。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Math 輔助程式失敗。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "單位輔助程式需要 Writer 或 Calc 文件。"
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "單位輔助程式失敗。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "文字分析輔助工具需要 Writer 文件。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "文字分析輔助工具失敗。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant 失敗。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr "最佳化輔助程式需要資料範圍。請選取儲存格或在「資料」欄位中輸入範圍。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "最佳化失敗。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr "預測助手需要資料範圍。請選取儲存格或在「資料」欄位中輸入範圍。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "預測失敗。"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr "分析輔助程式需要資料範圍。請選取儲存格或在「資料」欄位中輸入範圍。"
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "分析失敗。"
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2015,6 +1919,10 @@ msgstr ""
 "來啟用筆記本 Python 工作階段重設功能。"
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "單位輔助程式失敗。"
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "單位輔助程式未傳回格式化文字。"
 
@@ -2059,6 +1967,10 @@ msgstr "資訊"
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr "尚不支援將結果插入 Draw/Impress。歡迎提交 PR！"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "視覺輔助工具需要 Writer 或 Calc 文件。"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

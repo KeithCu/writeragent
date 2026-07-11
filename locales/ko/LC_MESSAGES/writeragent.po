@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -1833,37 +1833,13 @@ msgstr "기호 삽입을 지원하지 않는 문서 형식입니다."
 msgid "Unsupported document type for plot insertion."
 msgstr "플롯 삽입을 지원하지 않는 문서 형식입니다."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "시각화 도우미가 실패했습니다."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "시각화 도우미가 이미지 페이로드를 반환하지 않았습니다."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "지원되지 않는 문서 형식입니다."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"도우미에 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위를 입력"
-"하십시오."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant 도우미는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위"
-"를 입력하십시오."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "도우미가 실패했습니다."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1889,90 +1865,6 @@ msgstr ""
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' 완료. (소요 시간: {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "비전 도우미는 Writer 또는 Calc 문서가 필요합니다."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "비전 도우미가 실패했습니다."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz 도우미는 Writer 또는 Calc 문서가 필요합니다."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz 도우미는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위를 "
-"입력하십시오."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math 도우미는 Writer 또는 Calc 문서가 필요합니다."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Math 도우미 실패."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "단위 도우미는 Writer 또는 Calc 문서가 필요합니다."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "단위 도우미가 실패했습니다."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "텍스트 분석 도우미는 Writer 문서가 필요합니다."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "텍스트 분석 도우미가 실패했습니다."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant 실패."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"최적화 도우미에는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범"
-"위를 입력하십시오."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "최적화에 실패했습니다."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"예측 도우미를 사용하려면 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필"
-"드에 범위를 입력하십시오."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "예측에 실패했습니다."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"분석 도우미에는 데이터 범위가 필요합니다. 셀을 선택하거나 데이터 필드에 범위"
-"를 입력하십시오."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "분석에 실패했습니다."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2077,6 +1969,10 @@ msgstr ""
 "설정을 활성화하려면 도구 → Jupyter 노트북 가져오기…를 사용하십시오."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "단위 도우미가 실패했습니다."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "단위 도우미가 서식 있는 텍스트를 반환하지 않았습니다."
 
@@ -2122,6 +2018,10 @@ msgstr "정보"
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Draw/Impress에 대한 결과 삽입은 아직 지원되지 않습니다. PR을 환영합니다!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "비전 도우미는 Writer 또는 Calc 문서가 필요합니다."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

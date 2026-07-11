@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Bengali <LL@li.org>\n"
@@ -1822,37 +1822,13 @@ msgstr "সিম্বলিক ইনসারশনের জন্য অস
 msgid "Unsupported document type for plot insertion."
 msgstr "প্লট সন্নিবেশের জন্য অসমর্থিত নথির ধরন।"
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Viz সহায়তাকারী ব্যর্থ হয়েছে।"
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Viz সহায়তাকারী কোনো চিত্র পেলোড প্রদান করেনি।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "সমর্থিত নয় এমন নথির ধরন।"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"সহায়কের জন্য একটি ডেটা পরিসীমা প্রয়োজন। সেল নির্বাচন করুন অথবা ডেটা ক্ষেত্রে একটি "
-"পরিসীমা লিখুন।"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant হেল্পারের জন্য একটি ডেটা রেঞ্জ প্রয়োজন। সেল নির্বাচন করুন অথবা ডেটা ফিল্ডে "
-"একটি রেঞ্জ লিখুন।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "সহায়ক ব্যর্থ হয়েছে।"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1880,90 +1856,6 @@ msgstr ""
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' সম্পন্ন হয়েছে। ({time} সময় লেগেছে)"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "ভিশন হেল্পারসের জন্য একটি Writer বা Calc ডকুমেন্ট প্রয়োজন।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "ভিশন হেল্পার ব্যর্থ হয়েছে।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz হেল্পারের জন্য একটি Writer বা Calc ডকুমেন্ট প্রয়োজন।"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz হেল্পারের জন্য একটি ডেটা রেঞ্জ প্রয়োজন। সেল নির্বাচন করুন অথবা ডেটা ফিল্ডে একটি "
-"রেঞ্জ লিখুন।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math হেল্পারের জন্য একটি Writer বা Calc ডকুমেন্ট প্রয়োজন।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Math হেল্পার ব্যর্থ হয়েছে।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Units helper-এর জন্য একটি Writer বা Calc ডকুমেন্ট প্রয়োজন।"
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Units helper ব্যর্থ হয়েছে।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "টেক্সট অ্যানালিটিক্স হেল্পারের জন্য একটি Writer ডকুমেন্ট প্রয়োজন।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "টেক্সট অ্যানালিটিক্স হেল্পার ব্যর্থ হয়েছে।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant ব্যর্থ হয়েছে।"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"অপ্টিমাইজেশন হেল্পারের জন্য একটি ডেটা রেঞ্জ প্রয়োজন। সেল নির্বাচন করুন অথবা ডেটা "
-"ফিল্ডে একটি রেঞ্জ লিখুন।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "অপ্টিমাইজেশন ব্যর্থ হয়েছে।"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"পূর্বাভাস সহায়কের জন্য একটি ডেটা পরিসীমা প্রয়োজন। সেল নির্বাচন করুন অথবা ডেটা "
-"ক্ষেত্রে একটি পরিসীমা লিখুন।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "পূর্বাভাস ব্যর্থ হয়েছে।"
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"বিশ্লেষণ সহায়কের জন্য একটি ডেটা পরিসীমা প্রয়োজন। সেল নির্বাচন করুন অথবা ডেটা "
-"ফিল্ডে একটি পরিসীমা লিখুন।"
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "বিশ্লেষণ ব্যর্থ হয়েছে।"
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2068,6 +1960,10 @@ msgstr ""
 "সক্ষম করতে Tools → Import Jupyter Notebook… ব্যবহার করুন।"
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Units helper ব্যর্থ হয়েছে।"
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Units helper কোনো ফরম্যাট করা টেক্সট প্রদান করেনি।"
 
@@ -2113,6 +2009,10 @@ msgstr "তথ্য"
 #: plugin/scripting/python_runner.py
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr "Draw/Impress-এ ফলাফল সন্নিবেশ করা এখনও সমর্থিত নয়। PR স্বাগত!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "ভিশন হেল্পারসের জন্য একটি Writer বা Calc ডকুমেন্ট প্রয়োজন।"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

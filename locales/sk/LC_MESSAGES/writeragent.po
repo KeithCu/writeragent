@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Slovak <LL@li.org>\n"
@@ -1837,37 +1837,13 @@ msgstr "Nepodporovaný typ dokumentu pre symbolické vloženie."
 msgid "Unsupported document type for plot insertion."
 msgstr "Nepodporovaný typ dokumentu na vloženie grafu."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Vizualizačný pomocník zlyhal."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Vizualizačný pomocník nevrátil žiadne obrazové dáta."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Nepodporovaný typ dokumentu."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Pomocník vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do poľa "
-"Údaje."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Pomocník Quant vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do "
-"poľa Údaje."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Pomocník zlyhal."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1893,90 +1869,6 @@ msgstr ""
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} „{helper}“ dokončený. (trvalo {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Pomocníci pre videnie vyžadujú dokument Writer alebo Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Pomocník pre videnie zlyhal."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Pomocníci Viz vyžadujú dokument Writer alebo Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Pomocník Viz vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do "
-"poľa Údaje."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Pomocníci Math vyžadujú dokument Writer alebo Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Pomocník Math zlyhal."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Pomocníci pre jednotky vyžadujú dokument Writer alebo Calc."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Pomocník pre jednotky zlyhal."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Pomocníci pre analýzu textu vyžadujú dokument Writer."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Pomocník pre analýzu textu zlyhal."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant zlyhal."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Pomocník pre optimalizáciu vyžaduje rozsah údajov. Vyberte bunky alebo "
-"zadajte rozsah do poľa Údaje."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Optimalizácia zlyhala."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Pomocník pre predpovede vyžaduje rozsah údajov. Vyberte bunky alebo zadajte "
-"rozsah do poľa Údaje."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Predpoveď zlyhala."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Pomocník analýzy vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah "
-"do poľa Údaje."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Analýza zlyhala."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2084,6 +1976,10 @@ msgstr ""
 "Pythonu pre poznámkový blok."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Pomocník pre jednotky zlyhal."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Pomocník pre jednotky nevrátil žiadny formátovaný text."
 
@@ -2129,6 +2025,10 @@ msgstr "Informácie"
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Vloženie výsledku do Draw/Impress zatiaľ nie je podporované. PR sú vítané!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Pomocníci pre videnie vyžadujú dokument Writer alebo Calc."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

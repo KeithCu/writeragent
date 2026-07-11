@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Finnish <LL@li.org>\n"
@@ -1840,36 +1840,13 @@ msgstr "Tuetun asiakirjatyypin puute symbolista lisäystä varten."
 msgid "Unsupported document type for plot insertion."
 msgstr "Tiedostotyyppi ei tue kaavion lisäämistä."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Visualisointiapulainen epäonnistui."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Visualisointiapulainen ei palauttanut kuvadataa."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Tukematon asiakirjatyyppi."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Apuohjelma vaatii tietoalueen. Valitse solut tai syötä alue Tieto-kenttään."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant-apulainen vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
-"kenttään."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Apuohjelma epäonnistui."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1894,90 +1871,6 @@ msgstr "{domain} '{helper}' valmis. Kirjoitettiin {rows} riviä. (kesti {time})"
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' valmis. (kesti {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Näköapulaiset vaativat Writer- tai Calc-asiakirjan."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Näköapulainen epäonnistui."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz-apulaiset vaativat Writer- tai Calc-asiakirjan."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz-apulainen vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
-"kenttään."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math-apulaiset vaativat Writer- tai Calc-asiakirjan."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Math-apulainen epäonnistui."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Yksikköapulaiset vaativat Writer- tai Calc-asiakirjan."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Yksikköapulainen epäonnistui."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Tekstianalyysin apuvälineet vaativat Writer-asiakirjan."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Tekstianalyysin apuväline epäonnistui."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant epäonnistui."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Optimointiapulainen vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
-"kenttään."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Optimointi epäonnistui."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Ennusteavustaja vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
-"kenttään."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Ennustaminen epäonnistui."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Analyysiapulainen vaatii tietoalueen. Valitse solut tai syötä alue Tieto-"
-"kenttään."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Analyysi epäonnistui."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2084,6 +1977,10 @@ msgstr ""
 "nollauksen käyttöön."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Yksikköapulainen epäonnistui."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Yksikköapulainen ei palauttanut muotoiltua tekstiä."
 
@@ -2130,6 +2027,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Tuloksen lisäämistä Draw- tai Impress-tiedostoihin ei vielä tueta. Pull-"
 "pyynnöt ovat tervetulleita!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Näköapulaiset vaativat Writer- tai Calc-asiakirjan."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

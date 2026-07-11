@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -1863,37 +1863,13 @@ msgstr "Tipus de document no admès per a la inserció simbòlica."
 msgid "Unsupported document type for plot insertion."
 msgstr "Tipus de document no admès per a la inserció de gràfics."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "L'assistent de visualització ha fallat."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "L'assistent de visualització no ha retornat cap càrrega útil d'imatge."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Tipus de document no admès."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"L'assistent requereix un interval de dades. Seleccioneu cel·les o introduïu "
-"un interval al camp Dades."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"L'ajudant de Quant requereix un interval de dades. Seleccioneu cel·les o "
-"introduïu un interval al camp Dades."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "L'assistent ha fallat."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1919,90 +1895,6 @@ msgstr ""
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} «{helper}» completat. (ha trigat {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Els assistents de visió requereixen un document de Writer o Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "L'assistent de visió ha fallat."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Els ajudants de Viz requereixen un document de Writer o Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"L'ajudant de Viz requereix un interval de dades. Seleccioneu cel·les o "
-"introduïu un interval al camp Dades."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Els ajudants de Math requereixen un document de Writer o Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "L'ajudant de Math ha fallat."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Els ajudants d'unitats requereixen un document de Writer o Calc."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "L'ajudant d'unitats ha fallat."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Els ajudants d'anàlisi de text requereixen un document del Writer."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "L'ajudant d'anàlisi de text ha fallat."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant ha fallat."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"L'assistent d'optimització requereix un interval de dades. Seleccioneu "
-"cel·les o introduïu un interval al camp Dades."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "L'optimització ha fallat."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"L'assistent de previsió requereix un interval de dades. Seleccioneu cel·les "
-"o introduïu un interval al camp Dades."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "La previsió ha fallat."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"L'ajudant d'anàlisi requereix un interval de dades. Seleccioneu cel·les o "
-"introduïu un interval al camp Dades."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "L'anàlisi ha fallat."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2111,6 +2003,10 @@ msgstr ""
 "sessió de Python del quadern."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "L'ajudant d'unitats ha fallat."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "L'ajudant d'unitats no ha retornat cap text formatat."
 
@@ -2157,6 +2053,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "La inserció de resultats al Draw/Impress encara no està implementada. Les "
 "contribucions són benvingudes!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Els assistents de visió requereixen un document de Writer o Calc."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Romanian <LL@li.org>\n"
@@ -1839,37 +1839,13 @@ msgstr "Tip de document neacceptat pentru inserarea simbolică."
 msgid "Unsupported document type for plot insertion."
 msgstr "Tip de document neacceptat pentru inserarea graficelor."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Asistentul de vizualizare a eșuat."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Asistentul de vizualizare nu a returnat nicio imagine."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Tip de document neacceptat."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Asistentul necesită un interval de date. Selectați celule sau introduceți un "
-"interval în câmpul Date."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Asistentul Quant necesită un interval de date. Selectați celule sau "
-"introduceți un interval în câmpul Date."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Asistentul a eșuat."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1895,90 +1871,6 @@ msgstr ""
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} „{helper}” finalizat. (a durat {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Asistenții vizuali necesită un document Writer sau Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Asistentul vizual a eșuat."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Asistenții Viz necesită un document Writer sau Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Asistentul Viz necesită un interval de date. Selectați celule sau "
-"introduceți un interval în câmpul Date."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Asistenții Math necesită un document Writer sau Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Asistentul Math a eșuat."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Asistenții de unități necesită un document Writer sau Calc."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Asistentul de unități a eșuat."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Instrumentele de analiză a textului necesită un document Writer."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Instrumentul de analiză a textului a eșuat."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant a eșuat."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Asistentul de optimizare necesită un interval de date. Selectați celule sau "
-"introduceți un interval în câmpul Date."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Optimizarea a eșuat."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Asistentul de prognoză necesită un interval de date. Selectați celule sau "
-"introduceți un interval în câmpul Date."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Prognoza a eșuat."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Asistentul de analiză necesită un interval de date. Selectați celule sau "
-"introduceți un interval în câmpul Date."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Analiza a eșuat."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2087,6 +1979,10 @@ msgstr ""
 "Python a notebook-ului."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Asistentul de unități a eșuat."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Asistentul de unități nu a returnat niciun text formatat."
 
@@ -2133,6 +2029,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Inserarea rezultatului în Draw/Impress nu este încă suportată. Contribuțiile "
 "sunt binevenite!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Asistenții vizuali necesită un document Writer sau Calc."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

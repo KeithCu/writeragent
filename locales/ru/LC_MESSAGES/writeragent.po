@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Russian <LL@li.org>\n"
@@ -1849,37 +1849,13 @@ msgstr "Неподдерживаемый тип документа для сим
 msgid "Unsupported document type for plot insertion."
 msgstr "Неподдерживаемый тип документа для вставки графика."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Ошибка помощника визуализации."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Помощник визуализации не вернул изображение."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Неподдерживаемый тип документа."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Помощнику требуется диапазон данных. Выделите ячейки или введите диапазон в "
-"поле «Данные»."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Для работы помощника Quant требуется диапазон данных. Выделите ячейки или "
-"введите диапазон в поле «Данные»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Ошибка помощника."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1905,92 +1881,6 @@ msgstr "{domain} «{helper}» завершено. Записано строк: {
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} «{helper}» завершено. (заняло {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Для работы помощников зрения требуется документ Writer или Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Ошибка помощника зрения."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Для работы помощников Viz требуется документ Writer или Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Для работы помощника Viz требуется диапазон данных. Выделите ячейки или "
-"введите диапазон в поле «Данные»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Для работы помощников Math требуется документ Writer или Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Ошибка помощника Math."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr ""
-"Для работы вспомогательных модулей единиц измерения требуется документ "
-"Writer или Calc."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Ошибка вспомогательного модуля единиц измерения."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Для работы помощников по анализу текста требуется документ Writer."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Ошибка помощника по анализу текста."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Ошибка Quant."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Для помощника оптимизации требуется диапазон данных. Выделите ячейки или "
-"введите диапазон в поле «Данные»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Ошибка оптимизации."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Для помощника прогнозирования требуется диапазон данных. Выделите ячейки или "
-"введите диапазон в поле «Данные»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Ошибка прогнозирования."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Для помощника анализа требуется диапазон данных. Выделите ячейки или введите "
-"диапазон в поле «Данные»."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Ошибка анализа."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2097,6 +1987,10 @@ msgstr ""
 "сброс сеанса Python для блокнота."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Ошибка вспомогательного модуля единиц измерения."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr ""
 "Вспомогательный модуль единиц измерения не вернул отформатированный текст."
@@ -2145,6 +2039,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Вставка результата в Draw/Impress пока не поддерживается. Pull-реквесты "
 "приветствуются!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Для работы помощников зрения требуется документ Writer или Calc."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

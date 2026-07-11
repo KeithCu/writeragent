@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -1840,37 +1840,13 @@ msgstr "Nepodržana vrsta dokumenta za simboličko umetanje."
 msgid "Unsupported document type for plot insertion."
 msgstr "Nepodržana vrsta dokumenta za umetanje grafikona."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Pomoćnik za vizualizaciju nije uspio."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Pomoćnik za vizualizaciju nije vratio slikovni sadržaj."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Nepodržana vrsta dokumenta."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Pomoćnik zahtijeva raspon podataka. Odaberite ćelije ili unesite raspon u "
-"polje Podaci."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant pomoćnik zahtijeva raspon podataka. Odaberite ćelije ili unesite "
-"raspon u polje Podaci."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Pomoćnik nije uspio."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1895,90 +1871,6 @@ msgstr "{domain} '{helper}' dovršeno. Zapisano {rows} redaka. (trajalo {time})"
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' dovršeno. (trajalo {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Pomoćnici za vid zahtijevaju dokument u Writeru ili Calcu."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Pomoćnik za vid nije uspio."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz pomoćnici zahtijevaju Writer ili Calc dokument."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz pomoćnik zahtijeva raspon podataka. Odaberite ćelije ili unesite raspon "
-"u polje Podaci."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math pomoćnici zahtijevaju Writer ili Calc dokument."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Math pomoćnik nije uspio."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Pomoćnici za jedinice zahtijevaju Writer ili Calc dokument."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Pomoćnik za jedinice nije uspio."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Pomoćnici za analizu teksta zahtijevaju Writer dokument."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Pomoćnik za analizu teksta nije uspio."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant nije uspio."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Pomoćnik za optimizaciju zahtijeva raspon podataka. Odaberite ćelije ili "
-"unesite raspon u polje Podaci."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Optimizacija nije uspjela."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Pomoćnik za predviđanje zahtijeva raspon podataka. Odaberite ćelije ili "
-"unesite raspon u polje Podaci."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Predviđanje nije uspjelo."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Pomoćnik za analizu zahtijeva raspon podataka. Odaberite ćelije ili unesite "
-"raspon u polje Podaci."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Analiza nije uspjela."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2087,6 +1979,10 @@ msgstr ""
 "bilježnice."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Pomoćnik za jedinice nije uspio."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Pomoćnik za jedinice nije vratio oblikovani tekst."
 
@@ -2132,6 +2028,10 @@ msgstr "Informacije"
 msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Umetanje rezultata u Draw/Impress još nije podržano. PR-ovi su dobrodošli!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Pomoćnici za vid zahtijevaju dokument u Writeru ili Calcu."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

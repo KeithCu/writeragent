@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Dutch <LL@li.org>\n"
@@ -1842,37 +1842,13 @@ msgstr "Niet-ondersteund documenttype voor symbolische invoeging."
 msgid "Unsupported document type for plot insertion."
 msgstr "Niet-ondersteund documenttype voor het invoegen van een grafiek."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Viz-helper mislukt."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "Viz-helper heeft geen afbeeldingspayload geretourneerd."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Niet-ondersteund documenttype."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Helper vereist een gegevensbereik. Selecteer cellen of voer een bereik in "
-"het veld Gegevens in."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Quant-helper vereist een gegevensbereik. Selecteer cellen of voer een bereik "
-"in het veld Gegevens in."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Helper mislukt."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1897,90 +1873,6 @@ msgstr "{domain} '{helper}' voltooid. {rows} rijen geschreven. (duurde {time})"
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' voltooid. (duurde {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Vision-helpers vereisen een Writer- of Calc-document."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Vision-helper mislukt."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Viz-helpers vereisen een Writer- of Calc-document."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"Viz-helper vereist een gegevensbereik. Selecteer cellen of voer een bereik "
-"in het veld Gegevens in."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Math-helpers vereisen een Writer- of Calc-document."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Math-helper mislukt."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Units-helpers vereisen een Writer- of Calc-document."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Units-helper mislukt."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Hulpmiddelen voor tekstanalyse vereisen een Writer-document."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Hulpmiddel voor tekstanalyse mislukt."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant mislukt."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Optimalisatiehulp vereist een gegevensbereik. Selecteer cellen of voer een "
-"bereik in het veld Gegevens in."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Optimalisatie mislukt."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Forecast helper vereist een gegevensbereik. Selecteer cellen of voer een "
-"bereik in het veld Gegevens in."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Voorspelling mislukt."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Analysehulp vereist een gegevensbereik. Selecteer cellen of voer een bereik "
-"in het veld Gegevens in."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Analyse mislukt."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2088,6 +1980,10 @@ msgstr ""
 "notebook in te schakelen."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Units-helper mislukt."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Units-helper gaf geen opgemaakte tekst terug."
 
@@ -2134,6 +2030,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "Resultaat invoegen in Draw/Impress wordt nog niet ondersteund. PR's zijn "
 "welkom!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Vision-helpers vereisen een Writer- of Calc-document."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

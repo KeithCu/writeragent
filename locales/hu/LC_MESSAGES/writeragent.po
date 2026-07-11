@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -1852,37 +1852,13 @@ msgstr "Nem támogatott dokumentumtípus a szimbolikus beszúráshoz."
 msgid "Unsupported document type for plot insertion."
 msgstr "Nem támogatott dokumentumtípus diagram beszúrásához."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "A vizualizációs segéd sikertelen."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "A vizualizációs segéd nem adott vissza képi adatot."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Nem támogatott dokumentumtípus."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"A segédprogramhoz adattartomány szükséges. Jelöljön ki cellákat, vagy adjon "
-"meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"A mennyiségi segédeszközhöz adattartomány szükséges. Jelöljön ki cellákat, "
-"vagy adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "A segédprogram sikertelen."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1909,95 +1885,6 @@ msgstr "{domain} „{helper}” befejeződött. {rows} sor írva. ({time} idő a
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} „{helper}” befejeződött. ({time} idő alatt)"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "A látássegítők használatához Writer vagy Calc dokumentum szükséges."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "A látássegítő sikertelen."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr ""
-"A vizualizációs segédeszközök használatához Writer- vagy Calc-dokumentum "
-"szükséges."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"A vizualizációs segédeszközhöz adattartomány szükséges. Jelöljön ki "
-"cellákat, vagy adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr ""
-"A matematikai segédeszközök használatához Writer- vagy Calc-dokumentum "
-"szükséges."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "A matematikai segédeszköz hibát jelzett."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Az egységsegítők Writer vagy Calc dokumentumot igényelnek."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "Az egységsegítő (Units helper) sikertelen."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr ""
-"A szövegelemzési segédeszközök használatához Writer-dokumentum szükséges."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "A szövegelemzési segédeszköz sikertelen."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "A mennyiségi segédeszköz hibát jelzett."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"Az optimalizációs segédprogramhoz adat tartomány szükséges. Jelöljön ki "
-"cellákat, vagy adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Az optimalizálás sikertelen."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Az előrejelzési segédhez adattartomány szükséges. Jelöljön ki cellákat, vagy "
-"adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Az előrejelzés sikertelen."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"Az elemzési segédhez adattartomány szükséges. Jelöljön ki cellákat, vagy "
-"adjon meg egy tartományt az Adat mezőben."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Az elemzés sikertelen."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2108,6 +1995,10 @@ msgstr ""
 "Python-munkamenetének alaphelyzetbe állításához."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "Az egységsegítő (Units helper) sikertelen."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "Az egységsegítő nem adott vissza formázott szöveget."
 
@@ -2157,6 +2048,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "A végeredmény beszúrása a Draw/Impress alkalmazásokba még nem támogatott. A "
 "PR-eket szívesen fogadjuk!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "A látássegítők használatához Writer vagy Calc dokumentum szükséges."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format

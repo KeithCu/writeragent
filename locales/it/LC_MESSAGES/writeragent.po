@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-11 12:23-0400\n"
+"POT-Creation-Date: 2026-07-11 18:19-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Italian <LL@li.org>\n"
@@ -1855,37 +1855,13 @@ msgstr "Tipo di documento non supportato per l'inserimento simbolico."
 msgid "Unsupported document type for plot insertion."
 msgstr "Tipo di documento non supportato per l'inserimento del grafico."
 
-#: plugin/scripting/viz.py plugin/scripting/domain_registry.py
+#: plugin/scripting/viz.py
 msgid "Viz helper failed."
 msgstr "Assistente visualizzazione non riuscito."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
 msgstr "L'assistente visualizzazione non ha restituito alcun payload immagine."
-
-#: plugin/scripting/domain_registry.py
-msgid "Unsupported document type."
-msgstr "Tipo di documento non supportato."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"L'assistente richiede un intervallo di dati. Selezionare le celle o inserire "
-"un intervallo nel campo Dati."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Quant helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"L'assistente Quant richiede un intervallo di dati. Selezionare le celle o "
-"inserire un intervallo nel campo Dati."
-
-#: plugin/scripting/domain_registry.py
-msgid "Helper failed."
-msgstr "Assistente non riuscito."
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1911,90 +1887,6 @@ msgstr "{domain} '{helper}' completato. Scritte {rows} righe. (durata {time})"
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
 msgstr "{domain} '{helper}' completato. (durata {time})"
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helpers require a Writer or Calc document."
-msgstr "Gli assistenti visione richiedono un documento Writer o Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision helper failed."
-msgstr "Assistente visione non riuscito."
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz helpers require a Writer or Calc document."
-msgstr "Gli assistenti Viz richiedono un documento Writer o Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Viz helper requires a data range. Select cells or enter a range in the Data "
-"field."
-msgstr ""
-"L'assistente Viz richiede un intervallo di dati. Selezionare le celle o "
-"inserire un intervallo nel campo Dati."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helpers require a Writer or Calc document."
-msgstr "Gli assistenti Math richiedono un documento Writer o Calc."
-
-#: plugin/scripting/domain_registry.py
-msgid "Math helper failed."
-msgstr "Assistente Math non riuscito."
-
-#: plugin/scripting/domain_registry.py
-msgid "Units helpers require a Writer or Calc document."
-msgstr "Gli helper delle unità richiedono un documento Writer o Calc."
-
-#: plugin/scripting/domain_registry.py plugin/scripting/units.py
-msgid "Units helper failed."
-msgstr "L'helper delle unità non è riuscito."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helpers require a Writer document."
-msgstr "Gli assistenti per l'analisi del testo richiedono un documento Writer."
-
-#: plugin/scripting/domain_registry.py
-msgid "Text analytics helper failed."
-msgstr "Assistente per l'analisi del testo non riuscito."
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant failed."
-msgstr "Quant non riuscito."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Optimization helper requires a data range. Select cells or enter a range in "
-"the Data field."
-msgstr ""
-"L'assistente di ottimizzazione richiede un intervallo di dati. Selezionare "
-"le celle o inserire un intervallo nel campo Dati."
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimization failed."
-msgstr "Ottimizzazione non riuscita."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Forecast helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"L'assistente alle previsioni richiede un intervallo di dati. Selezionare le "
-"celle o inserire un intervallo nel campo Dati."
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast failed."
-msgstr "Previsione non riuscita."
-
-#: plugin/scripting/domain_registry.py
-msgid ""
-"Analysis helper requires a data range. Select cells or enter a range in the "
-"Data field."
-msgstr ""
-"L'helper di analisi richiede un intervallo di dati. Selezionare le celle o "
-"inserire un intervallo nel campo Dati."
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis failed."
-msgstr "Analisi non riuscita."
 
 #: plugin/scripting/domain_registry.py
 msgid "Analysis Helpers"
@@ -2103,6 +1995,10 @@ msgstr ""
 "sessione Python del notebook."
 
 #: plugin/scripting/units.py
+msgid "Units helper failed."
+msgstr "L'helper delle unità non è riuscito."
+
+#: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
 msgstr "L'helper delle unità non ha restituito alcun testo formattato."
 
@@ -2150,6 +2046,10 @@ msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
 msgstr ""
 "L'inserimento del risultato in Draw/Impress non è ancora supportato. I "
 "contributi sono benvenuti!"
+
+#: plugin/scripting/python_runner.py
+msgid "Vision helpers require a Writer or Calc document."
+msgstr "Gli assistenti visione richiedono un documento Writer o Calc."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
