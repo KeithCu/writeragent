@@ -99,6 +99,8 @@ def write_json_line(stream: IO[str], payload: dict[str, Any]) -> None:
 
 def _peek_pipe_bytes_available(fd: int) -> int | None:
     """Return queued byte count for a Windows pipe fd, or None when the pipe is closed."""
+    if sys.platform != "win32":
+        return None
     import ctypes
     import msvcrt
     from ctypes import wintypes
