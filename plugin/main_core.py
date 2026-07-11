@@ -28,7 +28,6 @@ ensure_plugin_on_path(
     also_add_vendor=True,
 )
 
-import uno
 import unohelper
 from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo

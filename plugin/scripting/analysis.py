@@ -23,7 +23,6 @@ from plugin.scripting.helper_domain import (
 
 from plugin.scripting.calc_functions_common import (
     ANALYSIS_HELPER_NAMES as HELPER_NAMES,
-    ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
 )
 
 ANALYSIS_HEADER_PREFIX = header_prefix("analysis")

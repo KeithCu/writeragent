@@ -16,9 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from __future__ import annotations
 
-import os
 
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 
 # Prepended to the first string `system` message in LlmClient for non-release bundles only
 # (``make build`` includes ``plugin/tests``; ``make release`` / ``--no-tests`` does not).

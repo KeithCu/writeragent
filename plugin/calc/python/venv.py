@@ -13,7 +13,7 @@ import logging
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
-from plugin.calc.calc_addin_data import _resolve_python_data, resolve_python_data_on_main_thread
+from plugin.calc.calc_addin_data import resolve_python_data_on_main_thread
 from plugin.framework.prompts import PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
 from plugin.scripting.payload_codec import find_image_payloads, write_image_payload_to_temp
