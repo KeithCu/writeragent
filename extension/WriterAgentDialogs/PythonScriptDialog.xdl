@@ -12,7 +12,7 @@
   <dlg:button dlg:id="BtnAttach" dlg:left="260" dlg:top="8" dlg:width="44" dlg:height="14" dlg:value="Attach" dlg:tabstop="true"/>
   <dlg:button dlg:id="BtnSaveAs" dlg:left="308" dlg:top="8" dlg:width="44" dlg:height="14" dlg:value="Save As..." dlg:tabstop="true"/>
   <dlg:button dlg:id="BtnDelete" dlg:left="356" dlg:top="8" dlg:width="34" dlg:height="14" dlg:value="Delete" dlg:tabstop="true"/>
-  <dlg:text dlg:id="InstructionLbl" dlg:left="8" dlg:top="26" dlg:width="334" dlg:height="20" dlg:value="Enter Python code to execute in the user virtual environment.\nAssign the result to the 'result' variable." dlg:align="left" dlg:multiline="true"/>
+  <dlg:textfield dlg:id="InstructionLbl" dlg:left="8" dlg:top="26" dlg:width="334" dlg:height="20" dlg:value="Enter Python code to execute in the user virtual environment.\nAssign the result to the 'result' variable." dlg:tabstop="true" dlg:readonly="true" dlg:multiline="true" dlg:vscroll="true"/>
   <dlg:textfield dlg:id="CodeEdit" dlg:left="8" dlg:top="48" dlg:width="334" dlg:height="164" dlg:tabstop="true" dlg:multiline="true" dlg:vscroll="true"/>
  </dlg:bulletinboard>
 </dlg:window>

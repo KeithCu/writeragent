@@ -40,7 +40,7 @@
       if (label.indexOf("Status: ") !== 0) {
         label = "Status: " + label;
       }
-      el.textContent = label;
+      el.value = label;
       el.className = "";
       if (kind === "ok") el.classList.add("status-ok");
       if (kind === "error") el.classList.add("status-error");

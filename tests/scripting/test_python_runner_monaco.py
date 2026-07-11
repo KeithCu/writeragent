@@ -39,7 +39,7 @@ def test_run_python_dialog_uses_monaco_when_available():
                 with patch.object(pr, "is_calc", return_value=False):
                     with patch.object(pr, "is_draw", return_value=False):
                         with patch.object(pr, "get_config_str", return_value="print('hi')"):
-                            with patch.object(pr, "monaco_editor_available", return_value=("/venv/bin/python", True)):
+                            with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
                                 with patch.object(pr, "_run_python_monaco", return_value=True) as mock_monaco:
                                     with patch.object(pr, "show_python_input_dialog") as mock_native:
                                         pr.run_python_dialog()
@@ -60,7 +60,7 @@ def test_run_python_dialog_falls_back_to_native_dialog():
                 with patch.object(pr, "is_calc", return_value=False):
                     with patch.object(pr, "is_draw", return_value=False):
                         with patch.object(pr, "get_config_str", return_value="x = 1"):
-                            with patch.object(pr, "monaco_editor_available", return_value=(None, False)):
+                            with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
                                 with patch.object(pr, "_run_python_monaco") as mock_monaco:
                                     with patch.object(pr, "show_python_input_dialog") as mock_native:
                                         with patch.object(pr, "set_config") as mock_set:
@@ -71,6 +71,149 @@ def test_run_python_dialog_falls_back_to_native_dialog():
     mock_native.assert_called_once()
     mock_set.assert_not_called()
     mock_execute.assert_not_called()
+
+
+def test_run_python_dialog_no_msgbox_when_monaco_succeeds():
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with patch.object(pr, "get_ctx", return_value=ctx):
+        with patch.object(pr, "get_desktop") as mock_desktop:
+            mock_desktop.return_value.getCurrentComponent.return_value = doc
+            with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                with patch.object(pr, "_run_python_monaco", return_value=True):
+                    with patch.object(pr, "show_python_input_dialog") as mock_native:
+                        with patch.object(pr, "_report_run_python_open_failed") as mock_report:
+                            pr.run_python_dialog()
+
+    mock_native.assert_not_called()
+    mock_report.assert_not_called()
+
+
+def test_run_python_dialog_msgbox_when_monaco_and_native_fail():
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with patch.object(pr, "get_ctx", return_value=ctx):
+        with patch.object(pr, "get_desktop") as mock_desktop:
+            mock_desktop.return_value.getCurrentComponent.return_value = doc
+            with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
+                with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                    with patch.object(pr, "_run_python_monaco", return_value=False):
+                        with patch.object(pr, "show_python_input_dialog", return_value=False):
+                            with patch.object(pr, "_report_run_python_open_failed") as mock_report:
+                                pr.run_python_dialog()
+
+    mock_report.assert_not_called()
+
+
+def test_run_python_dialog_msgbox_when_native_only_path_fails():
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with patch.object(pr, "get_ctx", return_value=ctx):
+        with patch.object(pr, "get_desktop") as mock_desktop:
+            mock_desktop.return_value.getCurrentComponent.return_value = doc
+            with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
+                with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+                    with patch.object(pr, "show_python_input_dialog", return_value=False):
+                        with patch.object(pr, "_report_run_python_open_failed") as mock_report:
+                            pr.run_python_dialog()
+
+    mock_report.assert_called_once()
+    assert "built-in script dialog" in mock_report.call_args.args[1]
+
+
+def test_show_python_input_dialog_returns_false_when_xdl_missing():
+    ctx = MagicMock()
+
+    with patch.object(ui, "native_run_script_modeless_enabled", return_value=False):
+        with patch.object(ui, "load_writeragent_dialog", return_value=None):
+            assert ui.show_python_input_dialog(ctx, "x = 1", "last_python_script_writer") is False
+
+
+def test_run_python_dialog_msgbox_includes_monaco_exception_when_native_fails():
+    ctx = MagicMock()
+    doc = MagicMock()
+    monaco_exc = ImportError("No module named 'plugin.framework.prompts'")
+
+    with patch.object(pr, "get_ctx", return_value=ctx):
+        with patch.object(pr, "get_desktop") as mock_desktop:
+            mock_desktop.return_value.getCurrentComponent.return_value = doc
+            with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
+                with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                    with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
+                        with patch.object(pr, "show_python_input_dialog", return_value=False):
+                            with patch.object(pr, "_report_run_python_open_failed") as mock_report:
+                                pr.run_python_dialog()
+
+    mock_report.assert_called_once()
+    assert mock_report.call_args.kwargs.get("exc") is monaco_exc
+    assert "Monaco editor" in mock_report.call_args.args[1]
+
+
+def test_run_python_dialog_immediate_msgbox_on_monaco_exception_then_native():
+    ctx = MagicMock()
+    doc = MagicMock()
+    monaco_exc = ImportError("broken monaco path")
+    call_order: list[str] = []
+
+    def report(*args, **kwargs):
+        call_order.append("report")
+
+    def native(*args, **kwargs):
+        call_order.append("native")
+        return True
+
+    with patch.object(pr, "get_ctx", return_value=ctx):
+        with patch.object(pr, "get_desktop") as mock_desktop:
+            mock_desktop.return_value.getCurrentComponent.return_value = doc
+            with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
+                with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
+                    with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
+                        with patch.object(pr, "show_python_input_dialog", side_effect=native):
+                            with patch.object(pr, "_report_run_python_open_failed", side_effect=report):
+                                pr.run_python_dialog()
+
+    assert call_order == ["report", "native"]
+
+
+def test_run_python_dialog_no_msgbox_when_monaco_not_expected_and_native_opens():
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with patch.object(pr, "get_ctx", return_value=ctx):
+        with patch.object(pr, "get_desktop") as mock_desktop:
+            mock_desktop.return_value.getCurrentComponent.return_value = doc
+            with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
+                with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+                    with patch.object(pr, "_run_python_monaco") as mock_monaco:
+                        with patch.object(pr, "show_python_input_dialog", return_value=True):
+                            with patch.object(pr, "_report_run_python_open_failed") as mock_report:
+                                pr.run_python_dialog()
+
+    mock_monaco.assert_not_called()
+    mock_report.assert_not_called()
+
+
+def test_run_python_monaco_writer_skips_calc_selection_import():
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with patch.object(pr, "is_calc", return_value=False):
+        with patch("plugin.calc.analysis_runner.calc_selection_to_a1") as mock_sel:
+            with patch.object(pr, "launch_monaco_editor", return_value=True):
+                with patch.object(pr, "terminate_persistent_editor"):
+                    ok = pr._run_python_monaco(
+                        ctx,
+                        doc,
+                        initial_code="# wa_vision extract_text",
+                        selected_script_name="[Vision] extract_text",
+                        exe="/venv/bin/python",
+                    )
+
+    assert ok is True
+    mock_sel.assert_not_called()
 
 
 def test_run_python_monaco_on_save_persists_and_executes():

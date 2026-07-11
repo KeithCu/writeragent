@@ -16,7 +16,7 @@ from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import msgbox
 from plugin.scripting.editor_ipc import exception_traceback
-from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available, terminate_persistent_editor
+from plugin.scripting.editor_host import launch_monaco_editor, monaco_open_expected, terminate_persistent_editor
 from plugin.scripting.venv_worker import run_code_in_user_venv
 from plugin.scripting.python_runner_ui import show_python_input_dialog
 from plugin.writer.format import insert_content_at_position
@@ -491,12 +491,15 @@ def _run_python_monaco(
     exe: str,
 ) -> bool:
     """Open Monaco for Run Python Script. Return True when the editor session started."""
-    from plugin.calc.analysis_runner import calc_selection_to_a1
     from plugin.scripting.domain_registry import script_header_needs_data_binding
 
     run_ok_text = _("Script executed successfully.")
     save_ok_text = _("Script saved.")
-    initial_binding = calc_selection_to_a1(doc) if is_calc(doc) else ""
+    initial_binding = ""
+    if is_calc(doc):
+        from plugin.calc.analysis_runner import calc_selection_to_a1
+
+        initial_binding = calc_selection_to_a1(doc) or ""
     show_binding = is_calc(doc) and script_header_needs_data_binding(initial_code, doc=doc)
 
     def on_save(
@@ -560,32 +563,86 @@ def _run_python_monaco(
     return launch_monaco_editor(ctx, exe=exe, load_message=load_msg, on_save=on_save)
 
 
+def _report_run_python_open_failed(
+    ctx: Any,
+    reason: str,
+    *,
+    detail: str | None = None,
+    exc: BaseException | None = None,
+) -> None:
+    from plugin.chatbot.dialogs import msgbox_with_report
+    from plugin.scripting.editor_ipc import exception_traceback, failure_message
+
+    message = failure_message(reason, detail=detail, exc=exc)
+    msgbox_with_report(
+        ctx,
+        _("Error"),
+        message,
+        box_type=3,
+        reportable=True,
+        report_title="Run Python Script failed to open",
+        report_extra=message if exc is None else exception_traceback(exc),
+    )
+
+
 def run_python_dialog(uno_ctx: Any = None) -> None:
     """Entry point for the 'Run Python Script...' menu command."""
     if uno_ctx is None:
         uno_ctx = get_ctx()
-    
-    desktop = get_desktop(uno_ctx)
-    doc = desktop.getCurrentComponent()
 
-    from plugin.scripting.document_scripts import resolve_run_script_selection
-    from plugin.scripting.python_runner import resolve_run_script_name_config_key
+    exe, monaco_expected = monaco_open_expected(uno_ctx)
 
-    name_config_key = resolve_run_script_name_config_key(doc)
-    saved_scripts = get_config("saved_python_scripts")
-    if not isinstance(saved_scripts, dict):
-        saved_scripts = {}
-    last_name, initial_code, _merged_scripts = resolve_run_script_selection(uno_ctx, doc, saved_scripts)
+    try:
+        desktop = get_desktop(uno_ctx)
+        doc = desktop.getCurrentComponent()
 
-    _exe, monaco_ok = monaco_editor_available(uno_ctx)
-    if monaco_ok and _exe:
-        if _run_python_monaco(
-            uno_ctx,
-            doc,
-            initial_code=initial_code,
-            selected_script_name=last_name,
-            exe=_exe,
-        ):
+        from plugin.scripting.document_scripts import resolve_run_script_selection
+
+        name_config_key = resolve_run_script_name_config_key(doc)
+        saved_scripts = get_config("saved_python_scripts")
+        if not isinstance(saved_scripts, dict):
+            saved_scripts = {}
+        last_name, initial_code, _merged_scripts = resolve_run_script_selection(uno_ctx, doc, saved_scripts)
+
+        user_alerted = False
+        if monaco_expected and exe:
+            monaco_launch_ok = False
+            try:
+                monaco_launch_ok = _run_python_monaco(
+                    uno_ctx,
+                    doc,
+                    initial_code=initial_code,
+                    selected_script_name=last_name,
+                    exe=exe,
+                )
+            except Exception as exc:
+                log.exception("run_python_dialog: Monaco path raised; trying native dialog")
+                _report_run_python_open_failed(
+                    uno_ctx,
+                    _("Run Python Script failed to open the Monaco editor."),
+                    exc=exc,
+                )
+                user_alerted = True
+            else:
+                if monaco_launch_ok:
+                    return
+                # launch_monaco_editor already reported spawn/ready/IPC failures.
+                user_alerted = True
+
+        if show_python_input_dialog(uno_ctx, initial_text=initial_code, config_key=name_config_key, doc=doc):
             return
 
-    show_python_input_dialog(uno_ctx, initial_text=initial_code, config_key=name_config_key, doc=doc)
+        log.error("run_python_dialog: native script dialog failed to open")
+        if not user_alerted:
+            _report_run_python_open_failed(
+                uno_ctx,
+                _("Could not open the built-in script dialog."),
+            )
+    except Exception as exc:
+        log.exception("run_python_dialog failed")
+        if monaco_expected:
+            _report_run_python_open_failed(
+                uno_ctx,
+                _("An unexpected error occurred while opening Run Python Script."),
+                exc=exc,
+            )

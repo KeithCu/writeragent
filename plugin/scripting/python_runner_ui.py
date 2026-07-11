@@ -14,7 +14,7 @@ from com.sun.star.awt import XActionListener, XItemListener, XTopWindowListener
 
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, show_approval_dialog
+from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, set_control_text, show_approval_dialog
 from plugin.chatbot.dialogs import show_text_input_dialog
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.document_scripts import (
@@ -65,7 +65,7 @@ class NativePythonScriptDialog:
         self._script_origin_map: dict[str, str] = {}
         self._closed = False
         self._top_listener: Any | None = None
-        self._open(initial_text)
+        self._opened = self._open(initial_text)
 
     @classmethod
     def show(
@@ -76,14 +76,14 @@ class NativePythonScriptDialog:
         config_key: str,
         doc: Any | None,
         modeless: bool,
-    ) -> None:
-        cls(
+    ) -> bool:
+        return cls(
             ctx,
             initial_text=initial_text,
             config_key=config_key,
             initial_doc=doc,
             modeless=modeless,
-        )
+        )._opened
 
     def close(self) -> None:
         if self._closed:
@@ -144,13 +144,14 @@ class NativePythonScriptDialog:
                     break
 
 
-    def _open(self, initial_text: str) -> None:
+    def _open(self, initial_text: str) -> bool:
         ctx = self._ctx
         try:
             dlg = load_writeragent_dialog("PythonScriptDialog", ctx)
             if dlg is None:
+                log.error("NativePythonScriptDialog: PythonScriptDialog XDL load returned None")
                 self.close()
-                return
+                return False
             self._dlg = dlg
 
             # Trigger background pre-warming of the venv subprocess for the native fallback case as well
@@ -207,13 +208,15 @@ class NativePythonScriptDialog:
                 self._top_listener = _TopWindowListener()
                 dlg.addTopWindowListener(self._top_listener)
                 dlg.setVisible(True)
-            else:
-                dlg.execute()
-                dlg.dispose()
-                self._dlg = None
+                return True
+            dlg.execute()
+            dlg.dispose()
+            self._dlg = None
+            return True
         except Exception:
             log.exception("NativePythonScriptDialog._open failed")
             self.close()
+            return False
 
     def _save_current_script(self, t: str) -> str | None:
         select_ctrl = self._select_ctrl
@@ -297,7 +300,7 @@ class NativePythonScriptDialog:
                     lbl = dlg.getControl("InstructionLbl")
                     res = owner._save_current_script(t)
                     if res:
-                        lbl.getModel().Label = res
+                        set_control_text(lbl, res)
                 except Exception:
                     log.exception("Save failed in dialog")
 
@@ -309,7 +312,7 @@ class NativePythonScriptDialog:
                 try:
                     lbl = dlg.getControl("InstructionLbl")
                     if doc is None:
-                        lbl.getModel().Label = _("No document is open to attach scripts.")
+                        set_control_text(lbl, _("No document is open to attach scripts."))
                         return
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
@@ -334,10 +337,10 @@ class NativePythonScriptDialog:
                         return
                     err = attach_document_script(doc, name, t, overwrite=True)
                     if err:
-                        lbl.getModel().Label = err
+                        set_control_text(lbl, err)
                         return
                     owner._refresh_script_dropdown(document_script_display_name(name))
-                    lbl.getModel().Label = _("Script '%s' attached to this document.") % name
+                    set_control_text(lbl, _("Script '%s' attached to this document.") % name)
                 except Exception:
                     log.exception("Attach failed in dialog")
 
@@ -384,9 +387,9 @@ class NativePythonScriptDialog:
                                 user_scripts = {}
                             user_scripts[name] = t
                             set_config("saved_python_scripts", user_scripts)
-                            lbl.getModel().Label = _("%s Saved to My Scripts instead.") % err
+                            set_control_text(lbl, _("%s Saved to My Scripts instead.") % err)
                         else:
-                            lbl.getModel().Label = _("Script '%s' saved to this document.") % name
+                            set_control_text(lbl, _("Script '%s' saved to this document.") % name)
                         owner._refresh_script_dropdown(document_script_display_name(name))
                         return
 
@@ -396,7 +399,7 @@ class NativePythonScriptDialog:
                     user_scripts[name] = t
                     set_config("saved_python_scripts", user_scripts)
                     owner._refresh_script_dropdown(name)
-                    lbl.getModel().Label = _("Script '%s' saved successfully.") % name
+                    set_control_text(lbl, _("Script '%s' saved successfully.") % name)
                 except Exception:
                     log.exception("Save As failed in dialog")
 
@@ -422,7 +425,7 @@ class NativePythonScriptDialog:
                     ):
                         if origin == SCRIPT_ORIGIN_DOCUMENT:
                             if doc is None:
-                                lbl.getModel().Label = _("No document is open.")
+                                set_control_text(lbl, _("No document is open."))
                                 return
                             delete_document_script(doc, real_name)
                         else:
@@ -432,7 +435,7 @@ class NativePythonScriptDialog:
                             user_scripts.pop(real_name, None)
                             set_config("saved_python_scripts", user_scripts)
                         owner._refresh_script_dropdown()
-                        lbl.getModel().Label = _("Script '%s' deleted.") % real_name
+                        set_control_text(lbl, _("Script '%s' deleted.") % real_name)
                 except Exception:
                     log.exception("Delete failed in dialog")
 
@@ -463,11 +466,14 @@ def show_python_input_dialog(
     initial_text: str = "",
     config_key: str = "last_python_script_writer",
     doc: Any | None = None,
-) -> None:
-    """Show the plain-text Run Python Script dialog (modeless when configured)."""
+) -> bool:
+    """Show the plain-text Run Python Script dialog (modeless when configured).
+
+    Returns True when the dialog opened successfully.
+    """
     try:
         modeless = native_run_script_modeless_enabled(ctx)
-        NativePythonScriptDialog.show(
+        return NativePythonScriptDialog.show(
             ctx,
             initial_text=initial_text,
             config_key=config_key,
@@ -476,6 +482,7 @@ def show_python_input_dialog(
         )
     except Exception:
         log.exception("show_python_input_dialog failed")
+        return False
 
 
 def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> None:
@@ -491,4 +498,4 @@ def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> N
     elif outcome.get("stdout") and outcome.get("result") is None:
         msgbox(ctx, _("Output"), outcome.get("stdout"))
     if lbl is not None:
-        lbl.getModel().Label = status_text
+        set_control_text(lbl, status_text)

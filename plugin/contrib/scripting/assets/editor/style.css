@@ -73,6 +73,14 @@ body {
   font-size: 12px;
   opacity: 0.85;
   text-align: left;
+  border: none;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  outline: none;
+  cursor: text;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 #status.status-ok {

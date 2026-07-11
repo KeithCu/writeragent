@@ -151,6 +151,7 @@ tests/
 11. **Run Python Script…** (Writer/Calc/Draw): with venv + pywebview, opens Monaco with colored Python, **Run** / **Save** / **Close** buttons (no Data/plain-text controls). **Run** executes and inserts result; **Save** persists script to config only; **Close** hides the editor. Without pywebview, the plain multiline dialog appears (no error msgbox).
 12. **Run Python Script… script picker:** save scratchpad content via **Save** while **Sample** is selected; switch to a **My Scripts** entry — editor changes; switch back to **Sample** — scratchpad content must reload (not a no-op). **Delete** on Sample clears the scratchpad.
 13. **Theme follows LO:** Change LibreOffice appearance (Tools ▸ Options ▸ LibreOffice ▸ Appearance or system dark mode with LO on "System"). Re-open editor (cell or Run Python Script). Toolbar must use matching dark/light colors; Monaco must use `vs-dark` vs `vs`; no white-on-white or black-on-black. Switching between cells re-applies current theme. Check both light and dark.
+14. **Status copyable:** After **Run** (Monaco) or **Run** in the native fallback dialog, the status line text must be selectable and copyable (drag-select or Ctrl+A, then Ctrl+C). Paste into another app to confirm.
 
 **If it fails:** the msgbox should include child stderr and a Python traceback. Also check `writeragent_debug.log` under the LO user profile (`writeragent.json` directory). Common causes: wrong venv path in Settings, pywebview not installed in *that* venv, or missing display/GTK backend on Linux.
 

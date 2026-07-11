@@ -91,7 +91,7 @@ config:
     default: ""
     widget: folder
     label: PPT-Master data path
-    helper: Path to the ppt-master skill tree (SKILL.md, templates/, scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-master/skills/ppt-master). Leave empty to auto-detect (dev clone beside repo, then env).
+    helper: Path to the ppt-master skill tree (SKILL.md, templates/, scripts/svg_to_pptx/). Clone hugohe3/ppt-master on GitHub and point here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-master/skills/ppt-master). Leave empty to auto-detect (dev clone beside repo, then env).
     width: 200
     inline: true
     librepy_exclude: true

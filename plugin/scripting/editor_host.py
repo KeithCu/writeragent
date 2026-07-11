@@ -757,6 +757,12 @@ def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
     return exe, True
 
 
+def monaco_open_expected(ctx: Any) -> tuple[str | None, bool]:
+    """Return (venv python exe, True) when Run Python Script should use Monaco."""
+    exe, ok = monaco_editor_available(ctx)
+    return exe, ok and bool(exe)
+
+
 def launch_monaco_editor(
     ctx: Any,
     *,

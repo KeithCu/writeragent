@@ -31,7 +31,7 @@
     </label>
     <label id="data-binding-label" class="data-binding-label toolbar-hidden" for="data-binding-input">Data:</label>
     <input type="text" id="data-binding-input" class="toolbar-hidden" placeholder="A1:C1  or  A1:C1, C1:C5" spellcheck="false" />
-    <span id="status">Status: Ready</span>
+    <input type="text" id="status" readonly value="Status: Ready" spellcheck="false" aria-live="polite" />
   </header>
   <div id="editor"></div>
   <script src="vs/loader.js"></script>

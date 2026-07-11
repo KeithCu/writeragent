@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from plugin.calc.address_utils import index_to_column
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.python.venv import _resolve_python_data
 from plugin.doc.document_helpers import is_calc
 from plugin.scripting.client import run_analysis
 from plugin.framework.errors import ToolExecutionError
@@ -74,6 +73,8 @@ def run_trusted_analysis(
     dr = str(data_range).strip() if data_range else None
     if not dr and data is None:
         raise ToolExecutionError("Provide data_range or data", code="ANALYSIS_ERROR")
+
+    from plugin.calc.python.venv import _resolve_python_data
 
     tool_ctx = calc_tool_context(uno_ctx, doc)
     py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=data)

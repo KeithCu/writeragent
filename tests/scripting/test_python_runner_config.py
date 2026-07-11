@@ -9,7 +9,7 @@ sys.path.append(os.getcwd())
 from plugin.scripting.python_runner import run_python_dialog
 
 class TestPythonRunnerConfig(unittest.TestCase):
-    @patch('plugin.scripting.python_runner.monaco_editor_available', return_value=(None, False))
+    @patch('plugin.scripting.python_runner.monaco_open_expected', return_value=(None, False))
     @patch('plugin.scripting.python_runner.get_ctx')
     @patch('plugin.scripting.python_runner.get_desktop')
     @patch('plugin.scripting.python_runner.is_writer')
