@@ -177,7 +177,7 @@
               } else if (msg.type === "saved") {
                 var okText = msg.status_ok_text || defaultStatusOkText;
                 if (msg.save_as_plain && !msg.status_ok_text) {
-                  okText = "Saved as plain text.";
+                  okText = "Saved without =PY().";
                 }
                 setStatus(okText, "ok");
               } else if (msg.type === "error") {

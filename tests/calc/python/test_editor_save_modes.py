@@ -161,7 +161,10 @@ def test_apply_cell_save_plain_text_mode():
         save_as_plain=True,
     )
 
-    assert result == {"type": "saved", "ok": True, "save_as_plain": True}
+    assert result["type"] == "saved"
+    assert result["ok"] is True
+    assert result["save_as_plain"] is True
+    assert "Saved without =PY()" in result["status_ok_text"]
     cell.setString.assert_called_once_with(code)
     cell.setFormula.assert_not_called()
     doc.calculateAll.assert_called_once()

@@ -3,22 +3,27 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 import pytest
 
-from scripts.librepy_bundle_paths import LIBREPY_VENDOR_PACKAGES, iter_librepy_vendor_packages
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_VENDOR = os.path.join(_REPO_ROOT, "vendor")
+from scripts.librepy_bundle_paths import LIBREPY_VENDOR_PACKAGES, iter_librepy_vendor_packages  # noqa: E402
+
+_VENDOR = _REPO_ROOT / "vendor"
 
 _WRITERAGENT_ONLY_VENDOR = frozenset({"snowballstemmer", "websockets", "defusedxml"})
 
 
 @pytest.fixture(scope="module")
 def vendor_dir() -> str:
-    if not os.path.isdir(_VENDOR):
+    if not _VENDOR.is_dir():
         pytest.skip("vendor/ missing — run: make vendor")
-    return _VENDOR
+    return str(_VENDOR)
 
 
 def test_librepy_vendor_packages_match_filter(vendor_dir: str) -> None:

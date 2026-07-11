@@ -30,11 +30,10 @@ def test_open_second_cell_reuses_running_editor_and_sends_load():
     with patch.object(pe, "get_active_session", return_value=existing_session):
         with patch.object(pe, "_get_active_calc_cell", return_value=(doc_b, cell_b, "")):
             with patch.object(pe, "_load_cell_editor_code", return_value=("print(2)", None, None)):
-                with patch.object(pe, "resolve_editor_python", return_value=("/venv/bin/python", None)):
-                    with patch.object(pe, "probe_webview_import", return_value=(True, "")):
-                        with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
-                            with patch.object(pe, "launch_monaco_editor", side_effect=fake_launch):
-                                pe.open_python_cell_editor(ctx)
+                with patch.object(pe, "monaco_editor_available", return_value=("/venv/bin/python", True)):
+                    with patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+                        with patch.object(pe, "launch_monaco_editor", side_effect=fake_launch):
+                            pe.open_python_cell_editor(ctx)
 
     load_msg = captured.get("load_message")
     assert load_msg is not None, "expected a load message for the new cell"
@@ -44,4 +43,5 @@ def test_open_second_cell_reuses_running_editor_and_sends_load():
     assert load_msg.get("show_plain_text") is True
     assert load_msg.get("show_data_binding") is True
     assert load_msg.get("save_as_plain") is True
+    assert load_msg.get("plain_text_label") == "Save without =PY()"
     assert captured.get("on_save") is not None

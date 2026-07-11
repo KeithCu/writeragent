@@ -24,13 +24,14 @@ from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_desktop
 from plugin.scripting.editor_host import (
-    _PERSISTENT_EDITOR,
     get_active_session,
     launch_monaco_editor,
+    monaco_editor_available,
     probe_webview_import,
     resolve_editor_python,
     set_active_session,
 )
+from plugin.framework.config import get_config
 from plugin.scripting.editor_ipc import failure_message
 
 log = logging.getLogger("writeragent.scripting")
@@ -183,7 +184,12 @@ def _apply_formula_save(
 def _apply_plain_text_save(doc: Any, cell: Any, *, new_code: str) -> dict[str, Any]:
     cell.setString(new_code)
     _recalculate_after_save(doc)
-    return {"type": "saved", "ok": True, "save_as_plain": True}
+    return {
+        "type": "saved",
+        "ok": True,
+        "save_as_plain": True,
+        "status_ok_text": _("Saved without =PY()."),
+    }
 
 
 def editor_load_save_as_plain(*, parsed_parts: PythonFormulaParts | None, initial_code: str) -> bool:
@@ -242,7 +248,7 @@ def _launch_editor_with_code(
         "language": "python",
         "code": initial_code,
         "title": _("Python cell editor"),
-        "plain_text_label": _("Save as plain text"),
+        "plain_text_label": _("Save without =PY()"),
         "save_as_plain": editor_load_save_as_plain(parsed_parts=parsed_parts, initial_code=initial_code),
         "save_label": _("Save"),
         "show_plain_text": True,
@@ -302,15 +308,24 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
         )
         return
 
-    exe, err = resolve_editor_python(ctx)
-    if not exe:
-        msgbox(ctx, "WriterAgent", err or _("No Python interpreter available for the editor."))
-        return
-    log.info("python_editor: using interpreter %s", exe)
-
-    if _PERSISTENT_EDITOR.is_running:
-        log.info("python_editor: Monaco editor process already running, skipping webview probe")
-    else:
+    exe, monaco_available = monaco_editor_available(ctx)
+    if not monaco_available:
+        if get_config("scripting.force_internal_script_editor"):
+            msgbox(
+                ctx,
+                "WriterAgent",
+                _(
+                    "Edit Python in Cell requires the Monaco editor, which is disabled by "
+                    "\"scripting.force_internal_script_editor\" in writeragent.json.\n\n"
+                    "Set it to false and restart LibreOffice to use this command, "
+                    "or edit PYTHON formulas in the Calc formula bar."
+                ),
+            )
+            return
+        if not exe:
+            unused, err = resolve_editor_python(ctx)
+            msgbox(ctx, "WriterAgent", err or _("No Python interpreter available for the editor."))
+            return
         webview_ok, webview_detail = probe_webview_import(exe)
         log.info("python_editor: webview probe exe=%s ok=%s detail=%r", exe, webview_ok, webview_detail[:200] if webview_detail else "")
         if not webview_ok:
@@ -323,6 +338,9 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
             msgbox(ctx, "WriterAgent", failure_message(summary, detail=webview_detail or _("unknown error")))
             return
 
+    assert exe is not None
+
+    log.info("python_editor: using interpreter %s", exe)
     log.info("python_editor: launching Monaco subprocess")
     _launch_editor_with_code(
         ctx,

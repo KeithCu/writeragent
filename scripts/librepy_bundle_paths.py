@@ -38,6 +38,7 @@ LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
     ),
     "plugin/vision/": ("vision_tools.py",),
     "plugin/contrib/scripting/assets/editor/": (),
+    "plugin/contrib/vec_pack/": (),
 }
 
 # Explicit files outside the directory rules above.
@@ -119,6 +120,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/contrib/smolagents/agent_types.py",
     "plugin/contrib/smolagents/tool_validation.py",
     "plugin/contrib/smolagents/_function_type_hints_utils.py",
+    "plugin/contrib/vec_pack/__init__.py",
 )
 
 LIBREPY_SMOLAGENTS_EXCLUDE = frozenset(

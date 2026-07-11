@@ -130,8 +130,8 @@ endif
 
 # ── Phony targets ────────────────────────────────────────────────────────────
 
-.PHONY: help build build-no-recording release release-build repack repack-deploy register-built-oxt manifest manifest-core rdb-core build-core deploy-core register-librepy-oxt xcu clean \
-        native build-native clean-native update-vec \
+.PHONY: help build build-no-recording release release-build repack repack-deploy register-built-oxt manifest manifest-core rdb-core build-core build-core-native deploy-core register-librepy-oxt xcu clean \
+        native build-native clean-native update-vec sync-vec \
         proxy-stubs \
         openrouter-catalog \
         install install-force uninstall cache \
@@ -272,13 +272,13 @@ ifeq ($(USE_DOCKER),1)
 build: ty ruff-for-build preview-translations compile-translations
 	@$(MAKE) docker-build
 else
-build: ty ruff-for-build preview-translations vendor manifest compile-translations
+build: ty ruff-for-build preview-translations vendor manifest sync-vec compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
 
-build-no-recording: ty ruff-for-build preview-translations vendor manifest compile-translations
+build-no-recording: ty ruff-for-build preview-translations vendor manifest sync-vec compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -302,7 +302,7 @@ openrouter-catalog:
 	$(PYTHON) scripts/sync_orca_openrouter_catalog.py
 	$(PYTHON) -m ruff format plugin/framework/default_models.py
 
-release-build: auto-translate vendor manifest openrouter-catalog compile-translations
+release-build: auto-translate vendor manifest openrouter-catalog sync-vec compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (release, bundle without tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-tests --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -342,10 +342,12 @@ manifest-core:
 rdb-core:
 	$(RUN_SH) $(SCRIPTS)/rebuild_librepy_rdb$(EXT)
 
-build-core: vendor manifest-core rdb-core compile-translations-core
+build-core: vendor manifest-core rdb-core sync-vec compile-translations-core
 	@echo "Building LibrePy.oxt (prototype core extension)..."
 	$(PYTHON) $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT)
 	@echo "Done: $(LIBREPY_OXT)  (bundle in build/bundle-librepy/)"
+
+build-core-native: sync-vec build-core
 
 register-librepy-oxt:
 	@echo "Registering $(LIBREPY_OXT)..."
@@ -362,6 +364,11 @@ register-librepy-oxt:
 
 deploy-core: build-core register-librepy-oxt
 	@$(if $(SELECTED_COMPONENT),$(MAKE) lo-start-log COMPONENT=$(SELECTED_COMPONENT))
+
+# Copy prebuilt writeragent_vec wheels from contrib/vec_pack into plugin/contrib/vec_pack (runtime import path).
+sync-vec:
+	$(MKDIR) plugin/contrib/vec_pack
+	cp contrib/vec_pack/pack.* plugin/contrib/vec_pack/ 2>/dev/null || true
 
 native:
 	cd native/writeragent_vec && $(PYTHON) setup.py build_ext --inplace

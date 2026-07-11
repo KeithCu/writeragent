@@ -525,29 +525,22 @@ class ScriptingVenvTestListener(BaseActionListener):
         self._dlg = dlg
 
     def on_action_performed(self, rEvent):
-        from plugin.scripting.venv_worker import probe_venv_path_with_progress
         from plugin.scripting.audio_recorder_service import ensure_downloaded_audio_on_path
-        
-        # Reload the Cython accelerator dynamic check
+        from plugin.scripting.payload_codec import host_cython_status_line
+        from plugin.scripting.venv_worker import probe_venv_path_with_progress
+
+        # WriterAgent-only: user-downloaded writeragent_vec may be on sys.path via audio_binaries.
         ensure_downloaded_audio_on_path()
-        import plugin.scripting.payload_codec as pc
-        pc._CYTHON_ACCELERATOR_DISABLED = False
-        pc.load_cython_accelerator()
 
         path_ctrl = get_optional(self._dlg, "scripting__python_venv_path")
         raw = get_control_text(path_ctrl) if path_ctrl else ""
-
-        host_optimized = pc.fast_flatten_grid_2d is not None
-        host_status = "Active (Optimized)" if host_optimized else "Inactive (Pure Python)"
-
-        cython_line = f"Cython Accelerator: {host_status}"
 
         def probe(on_display, on_status):
             return probe_venv_path_with_progress(
                 raw,
                 on_display,
                 on_status=on_status,
-                extra_lines_after_header=(cython_line,),
+                extra_lines_after_header=(host_cython_status_line(),),
             )
 
         progress = _VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg)

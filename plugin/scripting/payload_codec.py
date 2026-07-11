@@ -146,6 +146,20 @@ def load_cython_accelerator() -> None:
         log.debug("payload_codec: Cython accelerator not found, using pure Python")
 
 
+def reload_host_cython_accelerator() -> None:
+    """Re-attempt loading the host-side Cython pack accelerator (Settings → Python Test)."""
+    global _CYTHON_ACCELERATOR_DISABLED
+    _CYTHON_ACCELERATOR_DISABLED = False
+    load_cython_accelerator()
+
+
+def host_cython_status_line() -> str:
+    """Human-readable host Cython status for Settings → Python Test probe header."""
+    reload_host_cython_accelerator()
+    status = "Active (Optimized)" if fast_flatten_grid_2d is not None else "Inactive (Pure Python)"
+    return f"Cython Accelerator: {status}"
+
+
 # Initial load attempt
 load_cython_accelerator()
 

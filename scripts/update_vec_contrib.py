@@ -15,7 +15,7 @@ from pathlib import Path
 import argparse
 
 REPO_ROOT = Path(__file__).parent.parent.resolve()
-DEST_DIR = REPO_ROOT / "contrib" / "vec_pack"
+DEST_DIR = REPO_ROOT / "plugin" / "contrib" / "vec_pack"
 WORKFLOW_NAME = "build-vec-wheels.yml"
 
 def strip_binary(filepath):
