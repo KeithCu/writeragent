@@ -15,7 +15,7 @@ from typing import Any
 from plugin.calc.analysis_runner import calc_tool_context
 from plugin.calc.bridge import CalcBridge
 from plugin.scripting._lazy_venv import make_getattr
-from plugin.calc.python.venv import _resolve_python_data
+from plugin.calc.calc_addin_data import _resolve_python_data
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.client import run_forecast as client_run_forecast
 from plugin.scripting.helper_domain import (

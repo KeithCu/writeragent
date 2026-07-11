@@ -15,7 +15,7 @@ from plugin.framework.tool import ToolContext
 def test_resolve_python_data_prefers_data_range():
     ctx = MagicMock()
     ctx.doc = MagicMock()
-    with patch("plugin.calc.python.venv.CalcBridge") as bridge_cls, patch("plugin.calc.python.venv.CellInspector") as insp_cls:
+    with patch("plugin.calc.bridge.CalcBridge") as bridge_cls, patch("plugin.calc.inspector.CellInspector") as insp_cls:
         insp = insp_cls.return_value
         insp.read_range.return_value = [[{"value": 1}, {"value": 2}]]
         py_data, err = _resolve_python_data(ctx, data_range="A1:B1", data=[[99]])
@@ -57,7 +57,7 @@ def test_run_venv_python_resolves_calc_data_on_main_thread(mock_run, mock_main_t
 
     tool = RunVenvPythonScript()
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="calc", services=MagicMock())
-    with patch("plugin.calc.python.venv._resolve_python_data", return_value=([42], None)) as mock_resolve:
+    with patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([42], None)) as mock_resolve:
         out = tool.execute(ctx, code="result = data[0]", data_range="A1")
 
     assert out["status"] == "ok"

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import builtins
+import sys
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting.python_runner import execute_and_insert_result
@@ -176,3 +178,43 @@ def test_execute_and_insert_vision_surfaces_no_image_selected(mock_run):
 
     assert outcome["ok"] is False
     assert "embedded image" in outcome["message"]
+
+
+def _import_without_prompts(name, globals=None, locals=None, fromlist=(), level=0):
+    """Block ``plugin.framework.prompts`` to simulate a LibrePy install."""
+    if name == "plugin.framework.prompts" or name.startswith("plugin.framework.prompts."):
+        raise ImportError(f"No module named {name!r}")
+    if fromlist:
+        for item in fromlist:
+            full = f"{name}.{item}" if name else item
+            if full == "plugin.framework.prompts" or full.startswith("plugin.framework.prompts."):
+                raise ImportError(f"No module named {full!r}")
+    return _REAL_IMPORT(name, globals, locals, fromlist, level)
+
+
+_REAL_IMPORT = builtins.__import__
+
+
+@patch("plugin.vision.vision_egress.insert_vision_result")
+@patch("plugin.vision.vision_runner.run_trusted_vision")
+def test_execute_and_insert_vision_fast_path_without_prompts_module(mock_run, mock_insert):
+    """Run Python Script vision path must not require framework.prompts (LibrePy)."""
+    sys.modules.pop("plugin.framework.prompts", None)
+    ctx = MagicMock()
+    doc = MagicMock()
+
+    with patch("builtins.__import__", side_effect=_import_without_prompts):
+        with patch("plugin.scripting.python_runner.is_writer", return_value=True), patch(
+            "plugin.scripting.python_runner.is_calc", return_value=False
+        ), patch("plugin.vision.vision_runner.supports_vision_manual", return_value=True):
+            mock_run.return_value = {
+                "status": "ok",
+                "helper": "extract_text",
+                "html": "<p>line1</p>",
+                "metrics": {"line_count": 1},
+            }
+            code = get_vision_script_templates()["extract_text"]
+            outcome = execute_and_insert_result(ctx, doc, code)
+
+    assert outcome["ok"] is True
+    mock_run.assert_called_once()

@@ -13,12 +13,9 @@ import logging
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
-from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_addin_data import check_python_data_size, finalize_python_data, pack_calc_data_for_wire, values_from_inspector_range
-from plugin.calc.inspector import CellInspector
+from plugin.calc.calc_addin_data import _resolve_python_data, resolve_python_data_on_main_thread
 from plugin.framework.prompts import PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
-from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import find_image_payloads, write_image_payload_to_temp
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
@@ -130,35 +127,6 @@ def _venv_tool_description(doc_type: str | None) -> str:
     if hint:
         return f"{base} {hint}"
     return base
-
-
-def _resolve_python_data(ctx: ToolContext, *, data_range: str | None, data: Any) -> tuple[Any | None, str | None]:
-    """Return (py_data, error_message). Calc only; ``data_range`` wins over ``data`` when both set."""
-    py_data: Any | None = None
-    if data_range and str(data_range).strip():
-        try:
-            bridge = CalcBridge(ctx.doc)
-            inspector = CellInspector(bridge)
-            range_data = inspector.read_range(str(data_range).strip())
-            py_data = values_from_inspector_range(range_data)
-        except Exception as e:
-            return None, f"Failed to read data_range: {e}"
-    elif data is not None:
-        py_data = finalize_python_data(data)
-
-    if py_data is not None:
-        size_err = check_python_data_size(py_data, max_cells=configured_python_max_data_cells(ctx.ctx))
-        if size_err:
-            return None, size_err
-        py_data = pack_calc_data_for_wire(py_data)
-    return py_data, None
-
-
-def resolve_python_data_on_main_thread(ctx: ToolContext, *, data_range: str | None, data: Any) -> tuple[Any | None, str | None]:
-    """Marshal Calc range reads to the LO main thread (``is_async`` tools run on workers)."""
-    from plugin.framework.queue_executor import execute_on_main_thread
-
-    return execute_on_main_thread(_resolve_python_data, ctx, data_range=data_range, data=data)
 
 
 class RunVenvPythonScript(ToolCalcPythonBase):

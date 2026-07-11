@@ -354,7 +354,7 @@ def execute_and_insert_result(
     """Run *code* in the user venv and insert the result into *doc* when possible."""
     from plugin.calc.analysis_runner import calc_selection_to_a1, calc_tool_context
     from plugin.calc.python.formula_edit import parse_data_binding_text
-    from plugin.calc.python.venv import _resolve_python_data
+    from plugin.calc.calc_addin_data import _resolve_python_data
     from plugin.scripting.domain_registry import get_post_venv_domains, get_rps_domains, try_rps_fast_path, try_rps_post_venv
     from plugin.scripting.viz import try_insert_plot_result
 

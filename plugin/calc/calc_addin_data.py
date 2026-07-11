@@ -249,3 +249,36 @@ def values_from_inspector_range(range_data: list[list[dict]]) -> list[Any] | lis
     """Strip ``CellInspector.read_range`` dicts to a 2D value list."""
     grid = [[cell.get("value") for cell in row] for row in range_data]
     return normalize_python_data_shape(grid)
+
+
+def _resolve_python_data(ctx: Any, *, data_range: str | None, data: Any) -> tuple[Any | None, str | None]:
+    """Return (py_data, error_message). Calc only; ``data_range`` wins over ``data`` when both set."""
+    from plugin.calc.bridge import CalcBridge
+    from plugin.calc.inspector import CellInspector
+    from plugin.scripting.config_limits import configured_python_max_data_cells
+
+    py_data: Any | None = None
+    if data_range and str(data_range).strip():
+        try:
+            bridge = CalcBridge(ctx.doc)
+            inspector = CellInspector(bridge)
+            range_data = inspector.read_range(str(data_range).strip())
+            py_data = values_from_inspector_range(range_data)
+        except Exception as e:
+            return None, f"Failed to read data_range: {e}"
+    elif data is not None:
+        py_data = finalize_python_data(data)
+
+    if py_data is not None:
+        size_err = check_python_data_size(py_data, max_cells=configured_python_max_data_cells(ctx.ctx))
+        if size_err:
+            return None, size_err
+        py_data = pack_calc_data_for_wire(py_data)
+    return py_data, None
+
+
+def resolve_python_data_on_main_thread(ctx: Any, *, data_range: str | None, data: Any) -> tuple[Any | None, str | None]:
+    """Marshal Calc range reads to the LO main thread (``is_async`` tools run on workers)."""
+    from plugin.framework.queue_executor import execute_on_main_thread
+
+    return execute_on_main_thread(_resolve_python_data, ctx, data_range=data_range, data=data)

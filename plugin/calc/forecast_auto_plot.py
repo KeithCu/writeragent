@@ -149,7 +149,7 @@ def run_auto_plot_after_forecast(
         return None
 
     from plugin.scripting.forecast import calc_tool_context
-    from plugin.calc.python.venv import _resolve_python_data
+    from plugin.calc.calc_addin_data import _resolve_python_data
 
     tool_ctx = calc_tool_context(uno_ctx, doc)
     py_data, err = _resolve_python_data(tool_ctx, data_range=data_range, data=None)

@@ -200,7 +200,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/calc/python/addin.py`](../plugin/calc/python/addin.py) | UNO add-in: `python()` |
 | [`plugin/calc/python/function.py`](../plugin/calc/python/function.py) | `execute_python_addin`, matrix session, spill, `finalize_python_return` |
 | [`plugin/calc/addin_common.py`](../plugin/calc/addin_common.py) | Shared add-in helpers |
-| [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, wire packing |
+| [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, wire packing; `_resolve_python_data` for Run Python Script / trusted helpers |
 | [`plugin/calc/__init__.py`](../plugin/calc/__init__.py) | Package (`CalcError`) |
 | [`plugin/calc/prompt_addin.py`](../plugin/calc/prompt_addin.py) | **WriterAgent only** — do not register in core |
 | [`plugin/calc/prompt_function.py`](../plugin/calc/prompt_function.py) | **WriterAgent only** |
@@ -580,7 +580,7 @@ Then:
 | OXT | Ships under `plugin/` (examples) |
 |-----|----------------------------------|
 | **Core** | `scripting/`, `calc/python/{addin,function,editor,...}`, `framework/` (config subset), `writer/format`, `vision/`, `main_core.py`, … — [Layers 0–6](#feature-bundles-layers) |
-| **WriterAgent** | `chatbot/`, `mcp/`, `calc/prompt_*`, `calc/python/venv.py` (chat tool), `calc/analysis.py` (chat tools), `embeddings/`, `main.py`, `framework/client/llm_*`, … — [WriterAgent-only](#writeragent-only-surfaces) |
+| **WriterAgent** | `chatbot/`, `mcp/`, `calc/prompt_*`, `calc/base.py`, `calc/python/venv.py` (chat tool), `calc/analysis.py` (chat tools), `framework/prompts.py`, `embeddings/`, `main.py`, `framework/client/llm_*`, … — [WriterAgent-only](#writeragent-only-surfaces) |
 
 Chat `run_venv_python_script` imports `plugin.scripting.venv_worker` — resolved from **core’s** extension root. WriterAgent must **not** bundle duplicate `plugin/scripting/` in its OXT after the strip.
 
@@ -809,7 +809,7 @@ See [numpy-domains.md](numpy-domains.md) and [image-recognition.md](image-recogn
 
 ### Do not ship in core
 
-`prompt_addin.py`, `prompt_function.py`, `plugin/embeddings/**`, `plugin/notebook/**`, `plugin/scripting/venv/duckdb_sql.py`, `plugin/calc/spreadsheet_import/**`, `plugin/scripting/calc_functions.py`, `plugin/scripting/venv/calc_functions*.py` ([deferred — see § Scope](#calc-parity-xl-helpers-deferred-from-librepy)), `plugin/calc/python/venv.py`, `plugin/calc/analysis.py` (chat tool), `plugin/vision/vision_tools.py` (if menu-only), `plugin/framework/client/llm_client.py`, `plugin/chatbot/panel.py`, grammar venv modules, full chat stack.
+`prompt_addin.py`, `prompt_function.py`, `plugin/framework/prompts.py`, `plugin/calc/base.py`, `plugin/embeddings/**`, `plugin/notebook/**`, `plugin/scripting/venv/duckdb_sql.py`, `plugin/calc/spreadsheet_import/**`, `plugin/scripting/calc_functions.py`, `plugin/scripting/venv/calc_functions*.py` ([deferred — see § Scope](#calc-parity-xl-helpers-deferred-from-librepy)), `plugin/calc/python/venv.py`, `plugin/calc/analysis.py` (chat tool), `plugin/vision/vision_tools.py` (if menu-only), `plugin/framework/client/llm_client.py`, `plugin/chatbot/panel.py`, grammar venv modules, full chat stack.
 
 ---
 
