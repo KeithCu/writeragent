@@ -23,6 +23,8 @@ fail() { echo -e "  ${RED}FAIL${NC} $1"; ERRORS=$((ERRORS+1)); BRIEF+="FAIL $1"$
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=lo_paths.sh
+source "$SCRIPT_DIR/lo_paths.sh"
 
 echo ""
 echo -e "${BOLD}WriterAgent — Development Stack Check${NC}"
@@ -95,43 +97,31 @@ fi
 
 # ── LibreOffice ────────────────────────────────────────────────────────
 
-LO=""
-for cmd in soffice libreoffice; do
-    if command -v "$cmd" &>/dev/null; then
-        LO="$cmd"
-        break
-    fi
-done
+LO=$(find_soffice)
 
 if [[ -n "$LO" ]]; then
     LO_VER=$("$LO" --version 2>&1 | head -1 || echo "?")
     ok "LibreOffice: $LO_VER"
 else
-    fail "LibreOffice (soffice) not found"
+    if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]]; then
+        fail "LibreOffice (soffice) not found — install: brew install --cask libreoffice"
+    else
+        fail "LibreOffice (soffice) not found"
+    fi
 fi
 
 # ── unopkg ─────────────────────────────────────────────────────────────
 
-UNOPKG=""
-for candidate in \
-    /usr/bin/unopkg \
-    /usr/lib/libreoffice/program/unopkg \
-    /usr/lib64/libreoffice/program/unopkg \
-    /opt/libreoffice*/program/unopkg \
-    /snap/bin/libreoffice.unopkg; do
-    for c in $candidate; do
-        if [[ -x "$c" ]]; then
-            UNOPKG="$c"
-            break 2
-        fi
-    done
-done
-[[ -z "$UNOPKG" ]] && UNOPKG=$(command -v unopkg 2>/dev/null || true)
+UNOPKG=$(find_unopkg)
 
 if [[ -n "$UNOPKG" ]]; then
     ok "unopkg: $UNOPKG"
 else
-    fail "unopkg not found — check LibreOffice installation"
+    if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]]; then
+        fail "unopkg not found — install LibreOffice .app (brew install --cask libreoffice)"
+    else
+        fail "unopkg not found — check LibreOffice installation"
+    fi
 fi
 
 # ── make ───────────────────────────────────────────────────────────────
@@ -140,7 +130,23 @@ if command -v make &>/dev/null; then
     MAKE_VER=$(make --version 2>&1 | head -1)
     ok "make: $MAKE_VER"
 else
-    fail "make not found — install: sudo dnf install make / sudo apt install make"
+    if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]]; then
+        fail "make not found — install: xcode-select --install or brew install make"
+    else
+        fail "make not found — install: sudo dnf install make / sudo apt install make"
+    fi
+fi
+
+# ── gettext (msgfmt for make build) ───────────────────────────────────
+
+if command -v msgfmt &>/dev/null; then
+    ok "msgfmt: $(command -v msgfmt)"
+else
+    if [[ "$(uname -s 2>/dev/null)" == "Darwin" ]]; then
+        warn "msgfmt not found — install: brew install gettext (needed for make build translations)"
+    else
+        warn "msgfmt not found — install gettext (needed for make build translations)"
+    fi
 fi
 
 # ── Opengrep (Layer C UNO thread lint; required for make test) ───────────

@@ -15,6 +15,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=lo_paths.sh
+source "$SCRIPT_DIR/lo_paths.sh"
 BUILD_DIR="$PROJECT_ROOT/build"
 OXT_FILE="$BUILD_DIR/WriterAgent.oxt"
 
@@ -48,23 +50,6 @@ confirm_or_force() {
     if $FORCE; then return 0; fi
     read -rp "$prompt (Y/n) " response
     [[ -z "$response" || "$response" =~ ^[Yy] ]]
-}
-
-find_unopkg() {
-    for candidate in \
-        /usr/bin/unopkg \
-        /usr/lib/libreoffice/program/unopkg \
-        /usr/lib64/libreoffice/program/unopkg \
-        /opt/libreoffice*/program/unopkg \
-        /snap/bin/libreoffice.unopkg; do
-        for c in $candidate; do
-            if [ -x "$c" ]; then
-                echo "$c"
-                return
-            fi
-        done
-    done
-    command -v unopkg 2>/dev/null || true
 }
 
 is_lo_running() {
@@ -148,11 +133,7 @@ install_extension() {
 
     ensure_lo_stopped || return 1
 
-    # Clear stale profile locks (same as make register-built-oxt)
-    local lo_conf="${XDG_CONFIG_HOME:-$HOME/.config}/libreoffice/4"
-    rm -f "$lo_conf/.lock" "$lo_conf/user/.lock"
-    rm -f "$lo_conf/user/extensions/tmp/extensions.pmap"
-    rm -rf "$lo_conf/user/extensions/tmp/"*.tmp_ 2>/dev/null || true
+    clear_lo_profile_locks
 
     # Remove previous version
     echo "[*] Removing previous version (if any)..."
@@ -199,25 +180,6 @@ uninstall_extension() {
 }
 
 # ── Cache install (hot-deploy) ───────────────────────────────────────────────
-
-find_unopkg_cache_dir() {
-    local candidates=(
-        "$HOME/.config/libreoffice/4/user/uno_packages"
-    )
-    for profile_dir in "$HOME/.config/libreoffice"; do
-        if [ -d "$profile_dir" ]; then
-            while IFS= read -r -d '' d; do
-                candidates+=("$d")
-            done < <(find "$profile_dir" -type d -name "uno_packages" -print0 2>/dev/null)
-        fi
-    done
-    for c in "${candidates[@]}"; do
-        if [ -d "$c" ]; then
-            echo "$c"
-            return
-        fi
-    done
-}
 
 extension_registered() {
     local unopkg="$1"
@@ -399,7 +361,12 @@ install_extension "$UNOPKG" || exit 1
 # Restart LibreOffice?
 if confirm_or_force "Start LibreOffice now?"; then
     echo "[*] Starting LibreOffice..."
-    soffice &
+    SOFFICE=$(find_soffice)
+    if [ -z "$SOFFICE" ]; then
+        echo "[X] soffice not found. Install LibreOffice first."
+        exit 1
+    fi
+    "$SOFFICE" &
     echo "[OK] LibreOffice started"
 fi
 

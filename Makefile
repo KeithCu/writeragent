@@ -91,7 +91,12 @@ else
     PYTHON  ?= python3
     RM_RF   = rm -rf
     MKDIR   = mkdir -p
-    LO_CONF = $(HOME)/.config/libreoffice/4
+    UNAME_S := $(shell uname -s 2>/dev/null)
+    ifeq ($(UNAME_S),Darwin)
+    LO_CONF := $(HOME)/Library/Application Support/LibreOffice/4
+    else
+    LO_CONF := $(HOME)/.config/libreoffice/4
+    endif
     HOME_DIR = $(HOME)
     UNOPKG := unopkg
 endif
@@ -320,13 +325,13 @@ repack-deploy: repack register-built-oxt
 register-built-oxt:
 	@echo "Registering build/$(EXTENSION_NAME).oxt..."
 	$(MAKE) lo-kill
-	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
+	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
 	-$(UNOPKG) remove org.extension.writeragent 2>/dev/null
-	@rm -f $(LO_CONF)/user/extensions/tmp/extensions.pmap
+	@rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
 	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
 	$(UNOPKG) add build/$(EXTENSION_NAME).oxt
 	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
-	@rm -f $(LO_DEBUG_LOG) $(LO_CONF)/user/writeragent_debug.log $(LO_CONF)/user/writeragent_agent.log
+	@rm -f "$(LO_DEBUG_LOG)" "$(LO_CONF)/user/writeragent_debug.log" "$(LO_CONF)/user/writeragent_agent.log"
 	@echo "Registered org.extension.writeragent (start LibreOffice manually to load it)."
 
 manifest:
@@ -350,14 +355,14 @@ build-core-native: native build-core
 register-librepy-oxt:
 	@echo "Registering $(LIBREPY_OXT)..."
 	$(MAKE) lo-kill
-	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
+	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
 	-$(UNOPKG) remove $(LIBREPY_EXTENSION_ID) 2>/dev/null
 	-$(UNOPKG) remove org.extension.writeragent 2>/dev/null
-	@rm -f $(LO_CONF)/user/extensions/tmp/extensions.pmap
+	@rm -f "$(LO_CONF)/user/extensions/tmp/extensions.pmap"
 	@$(RM_RF) "$(LO_CONF)/user/extensions/tmp/extensions/"*.tmp_
 	$(UNOPKG) add $(LIBREPY_OXT)
 	@rm -f $(HOME_DIR)/writeragent.log $(HOME_DIR)/writeragent_agent.log $(HOME_DIR)/writeragent_debug.log
-	@rm -f $(LO_DEBUG_LOG) $(LO_CONF)/user/writeragent_debug.log $(LO_CONF)/user/writeragent_agent.log
+	@rm -f "$(LO_DEBUG_LOG)" "$(LO_CONF)/user/writeragent_debug.log" "$(LO_CONF)/user/writeragent_agent.log"
 	@echo "Registered $(LIBREPY_EXTENSION_ID) (start LibreOffice manually to load it)."
 
 deploy-core: build-core register-librepy-oxt
@@ -547,7 +552,7 @@ compile-translations-core:
 lo-restart:
 	$(MAKE) lo-kill
 	sleep 3
-	rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
+	rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
 	$(MAKE) lo-start
 
 ifeq ($(OS),Windows_NT)
@@ -564,10 +569,10 @@ writer calc draw impress:
 	@$(if $(filter deploy repack-deploy,$(MAKECMDGOALS)),,@echo "Stand-alone 'make $@' is disabled. Use 'make deploy $@' to build and launch.")
 
 log:
-	@cat $(LO_DEBUG_LOG) 2>/dev/null || echo "No writeragent_debug.log found (expected at $(LO_DEBUG_LOG))"
+	@cat "$(LO_DEBUG_LOG)" 2>/dev/null || echo "No writeragent_debug.log found (expected at $(LO_DEBUG_LOG))"
 
 log-tail:
-	@tail -f $(LO_DEBUG_LOG)
+	@tail -f "$(LO_DEBUG_LOG)"
 
 lo-log:
 	@cat $(HOME_DIR)/soffice-debug.log 2>/dev/null || echo "No soffice-debug.log found"
@@ -718,7 +723,7 @@ poc-log-tail:
 poc-deploy: poc-install
 	$(MAKE) lo-kill
 	@sleep 3
-	@rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
+	@rm -f "$(LO_CONF)/.lock" "$(LO_CONF)/user/.lock"
 	@rm -f $(HOME_DIR)/poc-ext.log
 	$(MAKE) lo-start
 	@echo "Waiting for LO..."

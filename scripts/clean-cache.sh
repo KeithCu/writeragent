@@ -12,6 +12,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# shellcheck source=lo_paths.sh
+source "$SCRIPT_DIR/lo_paths.sh"
 
 EXTENSION_ID="org.extension.writeragent"
 EXTENSION_OXT="WriterAgent.oxt"
@@ -36,41 +38,6 @@ for arg in "$@"; do
 done
 
 # ── Cache probing ────────────────────────────────────────────────────────────
-
-find_cache_dir() {
-    local candidates=(
-        "$HOME/.config/libreoffice/4/user/uno_packages"
-        "$HOME/Library/Application Support/LibreOffice/4/user/uno_packages"
-    )
-    for profile_dir in "$HOME/.config/libreoffice" "$HOME/Library/Application Support/LibreOffice"; do
-        if [ -d "$profile_dir" ]; then
-            while IFS= read -r -d '' d; do
-                candidates+=("$d")
-            done < <(find "$profile_dir" -type d -name "uno_packages" -print0 2>/dev/null)
-        fi
-    done
-    # Snap
-    local snap_data="$HOME/snap/libreoffice/current/.config/libreoffice"
-    if [ -d "$snap_data" ]; then
-        while IFS= read -r -d '' d; do
-            candidates+=("$d")
-        done < <(find "$snap_data" -type d -name "uno_packages" -print0 2>/dev/null)
-    fi
-    # Flatpak
-    local flatpak_data="$HOME/.var/app/org.libreoffice.LibreOffice/config/libreoffice"
-    if [ -d "$flatpak_data" ]; then
-        while IFS= read -r -d '' d; do
-            candidates+=("$d")
-        done < <(find "$flatpak_data" -type d -name "uno_packages" -print0 2>/dev/null)
-    fi
-
-    for c in "${candidates[@]}"; do
-        if [ -d "$c" ]; then
-            echo "$c"
-            return
-        fi
-    done
-}
 
 find_lo_ext_dir() {
     for p in \
@@ -112,7 +79,7 @@ fi
 
 # ── Find cache ───────────────────────────────────────────────────────────────
 
-CACHE_DIR=$(find_cache_dir)
+CACHE_DIR=$(find_unopkg_cache_dir)
 if [ -z "$CACHE_DIR" ]; then
     echo "[X] Could not find uno_packages cache directory"
     exit 1

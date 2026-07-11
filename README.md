@@ -399,7 +399,9 @@ A weekly chronicle of building a professional AI suite inside LibreOffice:
 
 **Update May 11, 2026:** Removed `dspy` from `pyproject.toml` to remove dependencies like `litellm`. Run `uv sync` to update your `.venv`. If you want to do prompt optimization, install manually.
 
-**Prerequisites:** Python 3.11–3.13 for dev (some native deps like spaCy do not ship 3.14 wheels yet), [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg` on your PATH. Dev Python is pinned to **3.13** in [`.python-version`](.python-version). Run `make check-setup` to verify.
+**Prerequisites:** Python 3.11–3.13 for dev (some native deps like spaCy do not ship 3.14 wheels yet), [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg` available. Dev Python is pinned to **3.13** in [`.python-version`](.python-version). Run `make check-setup` to verify.
+
+**macOS:** install `make` (Xcode CLT or `brew install make`), `gettext` for `msgfmt` (`brew install gettext`), and LibreOffice (`brew install --cask libreoffice` or the `.app` in `/Applications`). `make deploy` uses the same build + one-time register + cache rsync flow as Linux.
 
 ```bash
 # Clone the repository
@@ -410,13 +412,10 @@ cd writeragent
 uv python install 3.13
 uv sync
 
-# Build the extension package (.oxt)
-make build
-
-# Full dev cycle: build + reinstall + restart LibreOffice + show log
+# Build, register (first time only), and deploy — restart LibreOffice after
 make deploy
-or
-make deploy writer, calc, draw, or impress
+# or launch a specific app after deploy:
+make deploy writer   # calc, draw, or impress
 
 # Run typecheckers (ty, mypy, pyright) then tests
 make test
