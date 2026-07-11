@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 import threading
-from typing import Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 _this = os.path.abspath(__file__)
 for __ in range(2):
@@ -32,7 +32,9 @@ import unohelper
 from com.sun.star.frame import DispatchDescriptor, XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 from com.sun.star.task import XJob, XJobExecutor
-from com.sun.star.util import URL as UnoURL
+
+if TYPE_CHECKING:
+    from com.sun.star.util import URL as UnoURL
 
 from plugin.framework.logging import init_logging, log as wa_log, log_exception
 from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id

@@ -8,7 +8,8 @@
 
 from unittest.mock import MagicMock, patch
 
-from plugin.calc.python.venv import RunVenvPythonScript, _resolve_python_data
+from plugin.calc.calc_addin_data import _resolve_python_data
+from plugin.calc.python.venv import RunVenvPythonScript
 from plugin.framework.tool import ToolContext
 
 
@@ -70,7 +71,7 @@ def test_execute_writer_ignores_data(mock_run):
     mock_run.return_value = {"status": "ok", "result": 0}
     tool = RunVenvPythonScript()
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="writer", services=MagicMock())
-    with patch("plugin.calc.python.venv._resolve_python_data") as mock_resolve:
+    with patch("plugin.calc.python.venv.resolve_python_data_on_main_thread") as mock_resolve:
         out = tool.execute(ctx, code="result = 1", data=[[1, 2]], data_range="A1:A2")
     assert out["status"] == "ok"
     mock_resolve.assert_not_called()

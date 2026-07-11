@@ -15,8 +15,8 @@ pytest.importorskip("sklearn")
 pytest.importorskip("scipy")
 
 import plugin.scripting.analysis as analysis
-from plugin.scripting.analysis import MAX_TABLE_ROWS
 from plugin.scripting.analysis import coerce_to_dataframe
+from plugin.scripting.calc_functions_common import ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS
 
 
 SALES_GRID = [
