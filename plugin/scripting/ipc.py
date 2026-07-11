@@ -16,7 +16,7 @@ import select
 import struct
 import subprocess
 import sys
-import threading
+import time
 from typing import Any, Callable, IO
 
 PICKLE_PROTOCOL = 5
@@ -97,25 +97,50 @@ def write_json_line(stream: IO[str], payload: dict[str, Any]) -> None:
     stream.flush()
 
 
-def _readline_threaded(stream: IO[str], timeout_sec: float, *, cmd: str = "IPC JSON line") -> str:
-    """Windows path: blocking readline in a daemon thread with join-timeout."""
-    result: list[str] = [""]
-    error: list[BaseException | None] = [None]
+def _peek_pipe_bytes_available(fd: int) -> int | None:
+    """Return queued byte count for a Windows pipe fd, or None when the pipe is closed."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
 
-    def _reader() -> None:
-        try:
-            result[0] = stream.readline()
-        except BaseException as exc:
-            error[0] = exc
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    peek_named_pipe = kernel32.PeekNamedPipe
+    peek_named_pipe.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    peek_named_pipe.restype = wintypes.BOOL
 
-    thread = threading.Thread(target=_reader, daemon=True)
-    thread.start()
-    thread.join(timeout=timeout_sec)
-    if thread.is_alive():
-        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
-    if error[0] is not None:
-        raise error[0]
-    return result[0]
+    avail = wintypes.DWORD(0)
+    handle = msvcrt.get_osfhandle(fd)
+    if peek_named_pipe(handle, None, 0, None, ctypes.byref(avail), None):
+        return int(avail.value)
+    if ctypes.get_last_error() in (109, 233):  # BROKEN_PIPE / NO_DATA
+        return None
+    raise OSError(ctypes.get_last_error(), ctypes.FormatError(ctypes.get_last_error()))
+
+
+def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, *, cmd: str = "IPC JSON line") -> str:
+    """Windows path: poll pipe with PeekNamedPipe; readline only when bytes are queued."""
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return stream.readline()
+
+    deadline = time.monotonic() + max(0.0, timeout_sec)
+    while time.monotonic() < deadline:
+        avail = _peek_pipe_bytes_available(fd)
+        if avail is None:
+            return stream.readline()
+        if avail > 0:
+            return stream.readline()
+        time.sleep(min(0.001, deadline - time.monotonic()))
+
+    raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
 
 
 def _readline_with_timeout(stream: IO[str], timeout_sec: float | None) -> str:
@@ -124,7 +149,7 @@ def _readline_with_timeout(stream: IO[str], timeout_sec: float | None) -> str:
 
     # Windows select.select() only supports sockets, not pipes (WinError 10038).
     if sys.platform == "win32":
-        return _readline_threaded(stream, timeout_sec)
+        return _readline_with_timeout_win32(stream, timeout_sec)
 
     try:
         fd = stream.fileno()
