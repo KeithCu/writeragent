@@ -70,7 +70,7 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
     if domain == "quant":
         from plugin.scripting.venv.quant import run_quant
 
-        return run_quant(str(helper or ""), params, data_range, context)
+        return run_quant(spec, data_range, context)
     if domain == "text":
         from plugin.scripting.venv.text_analytics import run_text_analytics
 

@@ -147,6 +147,7 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "pypfopt.*",
     "plugin.scripting.quant",
     "plugin.scripting.optimize",
+    "plugin.scripting.forecast",
     "plugin.scripting.calc_functions",
     "plugin.scripting.calc_functions.*",
     "plugin.scripting.venv.languagetool",

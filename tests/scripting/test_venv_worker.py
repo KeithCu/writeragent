@@ -300,6 +300,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     mock_execute.assert_called_once_with(
         "result = 1",
         data=None,
+        bindings=None,
         timeout_sec=10,
         session_id=None,
         init_script=None,
@@ -318,6 +319,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     mock_execute.assert_called_once_with(
         "result = 1",
         data=None,
+        bindings=None,
         timeout_sec=100,
         session_id=None,
         init_script=None,
@@ -336,6 +338,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     mock_execute.assert_called_once_with(
         "result = 1",
         data=None,
+        bindings=None,
         timeout_sec=600,
         session_id=None,
         init_script=None,
@@ -354,6 +357,7 @@ def test_run_venv_code_timeout_capped(mock_execute, mock_lo_python, mock_cfg, mo
     mock_execute.assert_called_once_with(
         "result = 1",
         data=None,
+        bindings=None,
         timeout_sec=1,
         session_id=None,
         init_script=None,

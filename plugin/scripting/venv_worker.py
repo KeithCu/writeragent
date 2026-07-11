@@ -139,6 +139,7 @@ class PythonWorkerManager:
         code: str | None = None,
         *,
         data: Any = None,
+        bindings: dict[str, Any] | None = None,
         session_id: str | None = None,
         action: str | None = None,
         init_script: str | None = None,
@@ -164,6 +165,8 @@ class PythonWorkerManager:
             request["code"] = code if code is not None else ""
             if data is not None:
                 request["data"] = data
+            if bindings:
+                request["bindings"] = bindings
             if session_id:
                 request["session_id"] = session_id
             if init_script:
@@ -181,6 +184,7 @@ class PythonWorkerManager:
         code: str | None = None,
         *,
         data: Any = None,
+        bindings: dict[str, Any] | None = None,
         timeout_sec: int,
         session_id: str | None = None,
         action: str | None = None,
@@ -196,6 +200,7 @@ class PythonWorkerManager:
         request = self._build_request(
             code,
             data=data,
+            bindings=bindings,
             session_id=session_id,
             action=action,
             init_script=init_script,
@@ -257,6 +262,7 @@ class PythonWorkerManager:
         code: str | None = None,
         *,
         data: Any = None,
+        bindings: dict[str, Any] | None = None,
         timeout_sec: int | None = None,
         session_id: str | None = None,
         action: str | None = None,
@@ -285,6 +291,7 @@ class PythonWorkerManager:
             return self._execute_ipc_unlocked(
                 code,
                 data=data,
+                bindings=bindings,
                 timeout_sec=timeout_sec,
                 session_id=session_id,
                 action=action,
@@ -598,6 +605,7 @@ def run_code_in_user_venv(
     code: str | None = None,
     *,
     data: Any = None,
+    bindings: dict[str, Any] | None = None,
     timeout_sec: int | None = None,
     session_id: str | None = None,
     init_script: str | None = None,
@@ -635,6 +643,7 @@ def run_code_in_user_venv(
     return manager.execute(
         code,
         data=data,
+        bindings=bindings,
         timeout_sec=timeout_sec,
         session_id=session_id,
         init_script=init_script,

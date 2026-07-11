@@ -355,7 +355,7 @@ def execute_and_insert_result(
     from plugin.calc.analysis_runner import calc_selection_to_a1, calc_tool_context
     from plugin.calc.python.formula_edit import parse_data_binding_text
     from plugin.calc.calc_addin_data import _resolve_python_data
-    from plugin.scripting.domain_registry import get_post_venv_domains, get_rps_domains, try_rps_fast_path, try_rps_post_venv
+    from plugin.scripting.domain_registry import get_post_venv_domains, try_rps_post_venv
     from plugin.scripting.viz import try_insert_plot_result
 
     t0 = time.perf_counter()
@@ -369,19 +369,6 @@ def execute_and_insert_result(
             return binding
         return calc_selection_to_a1(doc)
 
-    # Trusted-helper header fast paths (ordered domain registry).
-    for spec in get_rps_domains():
-        outcome = try_rps_fast_path(
-            spec,
-            ctx=ctx,
-            doc=doc,
-            code=code,
-            t0=t0,
-            resolve_data_range=_resolve_data_range,
-        )
-        if outcome is not None:
-            return outcome
-
     py_data = None
     if is_calc(doc):
         dr = _resolve_data_range()
@@ -392,8 +379,11 @@ def execute_and_insert_result(
                 return {"ok": False, "message": err}
 
     exec_code = code
+    bindings: dict[str, Any] | None = None
+    from plugin.scripting.helper_domain import parse_run_import_call_spec, script_uses_run_import
+
     if is_writer(doc):
-        from plugin.scripting.helper_domain import parse_run_import_call_spec, prepend_run_import_document_bindings, script_uses_run_import
+        from plugin.scripting.helper_domain import prepend_run_import_document_bindings
         from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
 
         if script_uses_run_import(code, run_name="run_text_analytics"):
@@ -405,8 +395,24 @@ def execute_and_insert_result(
                 bindings={"text": text, "document_context": document_context},
             )
 
+    if script_uses_run_import(code, run_name="run_vision"):
+        from plugin.framework.errors import ToolExecutionError
+        from plugin.vision.vision_common import merge_vision_params
+        from plugin.vision.vision_runner import resolve_vision_image_bytes, supports_vision_manual
+
+        if not supports_vision_manual(doc):
+            return {"ok": False, "message": _("Vision helpers require a Writer or Calc document.")}
+        call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
+        raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
+        params = merge_vision_params(ctx, raw_params)
+        image_name = str(params.get("image_name") or "").strip() or None
+        try:
+            bindings = {"image": resolve_vision_image_bytes(ctx, doc, image_name=image_name)}
+        except ToolExecutionError as exc:
+            return rps_error_outcome(str(exc), t0=t0)
+
     try:
-        response = run_code_in_user_venv(ctx, exec_code, data=py_data)
+        response = run_code_in_user_venv(ctx, exec_code, data=py_data, bindings=bindings)
         elapsed = time.perf_counter() - t0
     except Exception as e:
         log.exception("execute_and_insert_result failed")

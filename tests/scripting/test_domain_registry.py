@@ -31,20 +31,11 @@ def test_rps_domain_order():
     ]
 
 
-def test_rps_domains_have_required_hooks():
+def test_rps_domains_have_post_venv_hooks():
     for spec in get_rps_domains():
-        assert callable(spec.parse_header)
-        assert callable(spec.run_trusted)
         assert callable(spec.insert)
         assert callable(spec.format_ok)
         assert callable(spec.is_result)
-
-
-def test_run_import_domains_disable_fast_path():
-    disabled = {s.id for s in get_rps_domains() if not s.fast_path_enabled}
-    assert disabled == {"viz", "math", "units", "text", "analysis"}
-    enabled = {s.id for s in get_rps_domains() if s.fast_path_enabled}
-    assert enabled >= {"vision", "quant", "optimize", "forecast"}
 
 
 def test_post_venv_order_matches_constant():
@@ -61,7 +52,10 @@ def test_script_header_needs_data_binding_on_calc_domains():
             "from writeragent.scripting.analysis import run_analysis\nresult = run_analysis(...)\n",
             doc=calc_doc,
         ) is True
-        assert script_header_needs_data_binding('# writeragent:forecast helper=forecast_time_series params={}\n', doc=calc_doc) is True
+        assert script_header_needs_data_binding(
+            'from writeragent.scripting.forecast import run_forecast\nresult = run_forecast({"helper": "forecast_time_series", "params": {}}, data, {})\n',
+            doc=calc_doc,
+        ) is True
         assert script_header_needs_data_binding("# writeragent:text helper=full params={}\n", doc=calc_doc) is False
 
 

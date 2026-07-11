@@ -70,14 +70,9 @@ _API = make_template_api(
         descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.quant",
         run_name="run_quant",
-        style="header_only",
-        compact_json=False,
-        require_prefix=False,
-        on_bad_json="none",
-        extra_comment_lines=(
-            "# This script delegates to the trusted quant venv module.",
-            "# Edit the JSON params above if needed. No other code runs.",
-        ),
+        style="run_import",
+        data_expr="data",
+        extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     )
 )
 

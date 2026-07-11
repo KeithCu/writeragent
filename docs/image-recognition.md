@@ -558,14 +558,19 @@ HELPER_NAMES = frozenset({
 | `recognize_pipeline` | YOLO → PaddleOCR | Phase 4 |
 | `perceptual_hash` | numpy | Phase 5 (optional) |
 
-Template header (user-visible script body — host injects image bytes; user does not type `image_bytes`):
+Template body (executable Python — host injects `image` from the selected graphic on Run):
 
 ```python
-# writeragent:vision helper=extract_text params={}
-# OCR selected image — click the graphic, place cursor for insert, then Run.
+from writeragent.vision.venv.vision import run_vision
+
+result = run_vision(
+    {"helper": "extract_text", "params": {"engine": "docling", "ocr_backend": "rapidocr", "image_name": ""}},
+    image,
+    {},
+)
 ```
 
-Fast path must **not** rely on the template calling `run_vision` with user-editable bytes; host calls `run_trusted_vision` directly (same as analysis fast path calling `run_trusted_analysis`).
+With an empty `image_name`, Run exports the currently selected Writer or Calc embedded graphic as PNG bytes into the sandbox variable `image` before execution. Set `image_name` in params to target a named graphic from `list_images` instead.
 
 ---
 

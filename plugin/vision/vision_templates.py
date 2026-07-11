@@ -6,10 +6,9 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, parse_helper_script_header
+from plugin.scripting.helper_domain import HelperScriptMeta, build_helper_script_template, header_prefix, parse_helper_script_header
 from plugin.vision.venv.vision import HELPER_NAMES
 
 VISION_HEADER_PREFIX = header_prefix("vision")
@@ -39,20 +38,22 @@ VisionScriptMeta = HelperScriptMeta
 
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
-    # Vision body is custom (image arg + multi-line comments); keep explicit template.
-    params_json = json.dumps(params, separators=(",", ":"))
     desc = _HELPER_DESCRIPTIONS.get(helper, helper)
-    return (
-        f"{VISION_HEADER_PREFIX} helper={helper} params={params_json}\n"  # nosec
-        f"# {desc}\n"
-        f"# Select an embedded graphic OR set image_name in params (from list_images).\n"
-        f"# Writer: select the embedded graphic (OCR inserts after it). Calc: select cell-anchored graphic.\n"
-        f"from writeragent.vision.venv.vision import run_vision\n\n"
-        f"result = run_vision(\n"
-        f'    {{"helper": "{helper}", "params": {params_json}}},\n'
-        f"    image,\n"
-        f"    {{}},\n"
-        f")\n"
+    return build_helper_script_template(
+        tag="vision",
+        helper=helper,
+        params=params,
+        description=desc,
+        style="run_import",
+        import_module="writeragent.vision.venv.vision",
+        run_name="run_vision",
+        data_expr="image",
+        context_expr="{}",
+        extra_comment_lines=(
+            "# Select an embedded graphic OR set image_name in params (from list_images).",
+            "# Writer: select the embedded graphic (OCR inserts after it). Calc: select cell-anchored graphic.",
+        ),
+        compact_json=True,
     )
 
 

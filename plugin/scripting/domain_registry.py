@@ -16,14 +16,11 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.doc.document_helpers import is_calc
-from plugin.framework.errors import ToolExecutionError
 from plugin.framework.i18n import _
-from plugin.scripting.editor_ipc import exception_traceback
 from plugin.scripting.helper_domain import (
     HelperScriptMeta,
     format_elapsed_time,
     plot_insert_ok_outcome,
-    rps_error_outcome,
     rps_insert_failed_outcome,
     rps_ok_outcome,
     symbolic_insert_ok_outcome,
@@ -71,125 +68,13 @@ class PickerDomainSpec:
 
 @dataclass
 class RpsDomainSpec:
-    """One trusted-helper fast path (header) + optional post-venv result routing."""
+    """Post-venv result routing for one trusted helper domain."""
 
     id: str
-    parse_header: Callable[[str], Any | None]
-    # Soft skip when not Calc (header ignored → fall through to generic venv).
-    require_calc: bool = False
-    # Hard fail when False (wrong app type for this header).
-    supports: Callable[[Any], bool] | None = None
-    unsupported_message: str = ""
-    # Optional prepare: (meta) -> (params, insert_kwargs). Error outcomes use a separate error dict path.
-    prepare: Callable[[Any], tuple[dict[str, Any], dict[str, Any]]] | None = None
-    # Data range: never | calc_optional | calc_required | quant (required except fetch_historical_data)
-    data_range_mode: str = "never"
-    data_range_required_message: str = ""
-    run_trusted: Callable[..., dict[str, Any]] | None = None
     insert: Callable[..., Any] | None = None
     format_ok: Callable[..., dict[str, Any]] | None = None
     is_result: Callable[[Any], bool] | None = None
-    # After generic venv: only attempt is_result/insert when Calc.
     post_venv_calc_only: bool = False
-    # log label when fast path raises
-    fail_log_label: str = ""
-    helper_failed_fallback: str = ""
-    # When False, header is ignored for execution (venv runs user Python); post-venv routing unchanged.
-    fast_path_enabled: bool = True
-
-
-def _meta_helper(meta: Any) -> str:
-    return str(getattr(meta, "helper", "") or "")
-
-
-def _meta_params(meta: Any) -> dict[str, Any]:
-    raw = getattr(meta, "params", None)
-    return dict(raw) if isinstance(raw, dict) else {}
-
-
-def try_rps_fast_path(
-    spec: RpsDomainSpec,
-    *,
-    ctx: Any,
-    doc: Any,
-    code: str,
-    t0: float,
-    resolve_data_range: Callable[[], str | None],
-) -> dict[str, Any] | None:
-    """Run one domain's header fast path, or return None if header does not match / soft-skip."""
-    if not spec.fast_path_enabled:
-        return None
-    meta = spec.parse_header(code)
-    if meta is None:
-        return None
-    if spec.require_calc and not is_calc(doc):
-        return None
-
-    if spec.supports is not None and not spec.supports(doc):
-        return {"ok": False, "message": spec.unsupported_message or _("Unsupported document type.")}
-
-    insert_kwargs: dict[str, Any] = {}
-    params = _meta_params(meta)
-    if spec.prepare is not None:
-        params, insert_kwargs = spec.prepare(meta)
-
-    data_range: str | None = None
-    mode = spec.data_range_mode
-    if mode == "calc_optional":
-        data_range = resolve_data_range() if is_calc(doc) else None
-    elif mode == "calc_required_when_calc":
-        # Viz: Writer needs no range; Calc requires selection / Data field.
-        if is_calc(doc):
-            data_range = resolve_data_range()
-            if not data_range:
-                return {
-                    "ok": False,
-                    "message": spec.data_range_required_message
-                    or _("Helper requires a data range. Select cells or enter a range in the Data field."),
-                }
-    elif mode == "calc_required":
-        data_range = resolve_data_range()
-        if not data_range:
-            return {
-                "ok": False,
-                "message": spec.data_range_required_message
-                or _("Helper requires a data range. Select cells or enter a range in the Data field."),
-            }
-    elif mode == "quant":
-        data_range = resolve_data_range()
-        if not data_range and _meta_helper(meta) != "fetch_historical_data":
-            return {
-                "ok": False,
-                "message": spec.data_range_required_message
-                or _("Quant helper requires a data range. Select cells or enter a range in the Data field."),
-            }
-
-    assert spec.run_trusted is not None and spec.insert is not None and spec.format_ok is not None
-    label = spec.fail_log_label or spec.id
-    try:
-        result = spec.run_trusted(
-            ctx,
-            doc,
-            helper=_meta_helper(meta),
-            params=params,
-            data_range=data_range,
-        )
-    except ToolExecutionError as exc:
-        return rps_error_outcome(str(exc), t0=t0)
-    except Exception as e:
-        log.exception("execute_and_insert_result %s fast path failed", label)
-        return rps_error_outcome(str(e), t0=t0, traceback=exception_traceback(e))
-
-    if result.get("status") == "error":
-        message = str(result.get("message") or spec.helper_failed_fallback or _("Helper failed."))
-        return rps_error_outcome(message, t0=t0)
-
-    try:
-        row_count = spec.insert(ctx, doc, result, **insert_kwargs)
-    except Exception as e:
-        return rps_insert_failed_outcome(e, t0=t0)
-
-    return spec.format_ok(meta=meta, result=result, t0=t0, row_count=row_count, stdout=None)
 
 
 def try_rps_post_venv(
@@ -219,6 +104,13 @@ def try_rps_post_venv(
             _, output_style = split_helper_params(body_params)
             if output_style is not None:
                 insert_kwargs["output_style"] = output_style
+    elif spec.id == "vision" and code:
+        from plugin.scripting.helper_domain import parse_run_import_call_spec
+        from plugin.vision.vision_common import merge_vision_params
+
+        call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
+        raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
+        insert_kwargs["params"] = merge_vision_params(ctx, raw_params)
     try:
         row_count = spec.insert(ctx, doc, result_data, **insert_kwargs)
     except Exception as e:
@@ -240,20 +132,10 @@ def try_rps_post_venv(
 @dataclass(frozen=True)
 class DomainWiring:
     id: str
-    parse_header: str
-    run_trusted: str
     insert: str
     is_result: str
-    supports: str | None = None
     format_ok_kind: str = "generic"  # generic | plot | symbolic | units | vision | rows
-    data_range_mode: str = "never"
-    require_calc: bool = False
     post_venv_calc_only: bool = False
-    unsupported_message: Callable[[], str] | None = None
-    data_range_required_message: Callable[[], str] | None = None
-    fail_log_label: str = ""
-    helper_failed_fallback: Callable[[], str] | None = None
-    fast_path_enabled: bool = True
 
 
 def _resolve_fn(path: str | None) -> Any:
@@ -266,22 +148,6 @@ def _resolve_fn(path: str | None) -> Any:
 
 
 def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
-    def parse(code: str) -> Any:
-        return _resolve_fn(w.parse_header)(code)
-
-    def supports(doc: Any) -> bool:
-        if w.supports:
-            return _resolve_fn(w.supports)(doc)
-        return True
-
-    def run(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any], data_range: str | None = None) -> dict[str, Any]:
-        fn = _resolve_fn(w.run_trusted)
-        import inspect
-        sig = inspect.signature(fn)
-        if "data_range" in sig.parameters:
-            return fn(ctx, doc, helper=helper, params=params, data_range=data_range)
-        return fn(ctx, doc, helper=helper, params=params)
-
     def insert(ctx: Any, doc: Any, result: dict[str, Any], **kwargs: Any) -> Any:
         fn = _resolve_fn(w.insert)
         if w.id == "units":
@@ -298,29 +164,20 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
             return int(ret)
         return None
 
-    def prepare(meta: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-        if w.id == "units":
-            from plugin.scripting.units import split_helper_params
-            clean, output_style = split_helper_params(_meta_params(meta))
-            return clean, {"output_style": output_style}
-        if w.id == "vision":
-            return _meta_params(meta), {"params": _meta_params(meta)}
-        return _meta_params(meta), {}
-
     def format_ok(*, meta: Any, result: dict[str, Any], t0: float, row_count: Any = None, stdout: str | None = None) -> dict[str, Any]:
-        helper = _meta_helper(meta) or str(result.get("helper") or w.id)
+        helper = str(getattr(meta, "helper", "") or "") or str(result.get("helper") or w.id)
         formatted_time = format_elapsed_time(time.perf_counter() - t0)
 
         if w.format_ok_kind == "plot":
             title = str(result.get("title") or helper or "Plot")
             return plot_insert_ok_outcome(helper=helper, title=title, t0=t0, stdout=stdout, result=result)
-        elif w.format_ok_kind == "symbolic":
+        if w.format_ok_kind == "symbolic":
             latex = str(result.get("latex") or result.get("text") or helper or "")
             return symbolic_insert_ok_outcome(helper=helper, latex=latex, t0=t0, stdout=stdout, result=result)
-        elif w.format_ok_kind == "units":
+        if w.format_ok_kind == "units":
             formatted = str(result.get("formatted") or result.get("text") or helper or "")
             return units_insert_ok_outcome(helper=helper, formatted=formatted, t0=t0, stdout=stdout, result=result)
-        elif w.format_ok_kind == "vision":
+        if w.format_ok_kind == "vision":
             metrics_raw = result.get("metrics")
             metrics: dict[str, Any] = metrics_raw if isinstance(metrics_raw, dict) else {}
             line_count = metrics.get("line_count")
@@ -339,7 +196,7 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
                     helper=helper, time=formatted_time
                 )
             return rps_ok_outcome(status_ok, result=result, stdout=stdout)
-        elif w.format_ok_kind == "rows":
+        if w.format_ok_kind == "rows":
             return rps_ok_outcome(
                 _("{domain} '{helper}' completed. Wrote {rows} rows. (took {time})").format(
                     domain=w.id.capitalize(), helper=helper, rows=row_count or 0, time=formatted_time
@@ -347,14 +204,13 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
                 result=result,
                 stdout=stdout,
             )
-        else:
-            return rps_ok_outcome(
-                _("{domain} '{helper}' completed. (took {time})").format(
-                    domain=w.id.capitalize() if w.id != "text" else "Text analytics", helper=helper, time=formatted_time
-                ),
-                result=result,
-                stdout=stdout,
-            )
+        return rps_ok_outcome(
+            _("{domain} '{helper}' completed. (took {time})").format(
+                domain=w.id.capitalize() if w.id != "text" else "Text analytics", helper=helper, time=formatted_time
+            ),
+            result=result,
+            stdout=stdout,
+        )
 
     def is_result(value: Any) -> bool:
         fn = _resolve_fn(w.is_result)
@@ -362,147 +218,71 @@ def build_rps_spec(w: DomainWiring) -> RpsDomainSpec:
 
     return RpsDomainSpec(
         id=w.id,
-        parse_header=parse,
-        require_calc=w.require_calc,
-        supports=supports if w.supports else None,
-        unsupported_message=w.unsupported_message() if w.unsupported_message else "",
-        prepare=prepare if (w.id in ("units", "vision")) else None,
-        data_range_mode=w.data_range_mode,
-        data_range_required_message=w.data_range_required_message() if w.data_range_required_message else "",
-        run_trusted=run,
         insert=insert,
         format_ok=format_ok,
         is_result=is_result,
         post_venv_calc_only=w.post_venv_calc_only,
-        fail_log_label=w.fail_log_label,
-        helper_failed_fallback=w.helper_failed_fallback() if w.helper_failed_fallback else "",
-        fast_path_enabled=w.fast_path_enabled,
     )
 
 
 WIRING_TABLE: tuple[DomainWiring, ...] = (
     DomainWiring(
         id="vision",
-        parse_header="plugin.vision.vision_templates.parse_vision_script_header",
-        run_trusted="plugin.vision.vision_runner.run_trusted_vision",
         insert="plugin.vision.vision_egress.insert_vision_result",
         is_result="plugin.vision.vision_egress.is_vision_result",
-        supports="plugin.vision.vision_runner.supports_vision_manual",
         format_ok_kind="vision",
-        unsupported_message=lambda: _("Vision helpers require a Writer or Calc document."),
-        fail_log_label="vision",
-        helper_failed_fallback=lambda: _("Vision helper failed."),
     ),
     DomainWiring(
         id="viz",
-        parse_header="plugin.scripting.viz.parse_viz_script_header",
-        run_trusted="plugin.scripting.viz.run_trusted_viz",
         insert="plugin.scripting.viz.insert_viz_result_into_doc",
         is_result="plugin.scripting.viz.is_viz_result",
-        supports="plugin.scripting.viz.supports_viz_manual",
         format_ok_kind="plot",
-        data_range_mode="calc_required_when_calc",
-        unsupported_message=lambda: _("Viz helpers require a Writer or Calc document."),
-        data_range_required_message=lambda: _("Viz helper requires a data range. Select cells or enter a range in the Data field."),
-        fail_log_label="viz",
-        helper_failed_fallback=lambda: _("Viz helper failed."),
-        fast_path_enabled=False,
     ),
     DomainWiring(
         id="math",
-        parse_header="plugin.scripting.symbolic.parse_math_script_header",
-        run_trusted="plugin.scripting.symbolic.run_trusted_symbolic",
         insert="plugin.scripting.symbolic.insert_symbolic_result_into_doc",
         is_result="plugin.scripting.symbolic.is_symbolic_result",
-        supports="plugin.scripting.symbolic.supports_symbolic_manual",
         format_ok_kind="symbolic",
-        unsupported_message=lambda: _("Math helpers require a Writer or Calc document."),
-        fail_log_label="math",
-        helper_failed_fallback=lambda: _("Math helper failed."),
-        fast_path_enabled=False,
     ),
     DomainWiring(
         id="units",
-        parse_header="plugin.scripting.units.parse_units_script_header",
-        run_trusted="plugin.scripting.units.run_trusted_units",
         insert="plugin.scripting.units.insert_units_result_into_doc",
         is_result="plugin.scripting.units.is_units_result",
-        supports="plugin.scripting.units.supports_units_manual",
         format_ok_kind="units",
-        unsupported_message=lambda: _("Units helpers require a Writer or Calc document."),
-        fail_log_label="units",
-        helper_failed_fallback=lambda: _("Units helper failed."),
-        fast_path_enabled=False,
     ),
     DomainWiring(
         id="text",
-        parse_header="plugin.scripting.text_analytics.parse_text_analytics_script_header",
-        run_trusted="plugin.scripting.text_analytics.run_trusted_text_analytics",
         insert="plugin.scripting.text_analytics.insert_text_analytics_result_into_doc",
         is_result="plugin.scripting.text_analytics.is_text_analytics_result",
-        supports="plugin.scripting.text_analytics.supports_text_analytics_manual",
         format_ok_kind="generic",
-        unsupported_message=lambda: _("Text analytics helpers require a Writer document."),
-        fail_log_label="text_analytics",
-        helper_failed_fallback=lambda: _("Text analytics helper failed."),
-        fast_path_enabled=False,
     ),
     DomainWiring(
         id="quant",
-        parse_header="plugin.scripting.quant.parse_quant_script_header",
-        run_trusted="plugin.scripting.quant.run_trusted_quant",
         insert="plugin.calc.quant_egress.insert_quant_result_into_calc",
         is_result="plugin.calc.quant_egress.is_quant_result",
         format_ok_kind="rows",
-        data_range_mode="quant",
-        require_calc=True,
         post_venv_calc_only=True,
-        data_range_required_message=lambda: _("Quant helper requires a data range. Select cells or enter a range in the Data field."),
-        fail_log_label="quant",
-        helper_failed_fallback=lambda: _("Quant failed."),
     ),
     DomainWiring(
         id="optimize",
-        parse_header="plugin.scripting.optimize.parse_optimize_script_header",
-        run_trusted="plugin.scripting.optimize.run_trusted_optimize",
         insert="plugin.scripting.optimize.insert_optimize_result_into_calc",
         is_result="plugin.scripting.optimize.is_optimize_result",
         format_ok_kind="rows",
-        data_range_mode="calc_required",
-        require_calc=True,
         post_venv_calc_only=True,
-        data_range_required_message=lambda: _("Optimization helper requires a data range. Select cells or enter a range in the Data field."),
-        fail_log_label="optimize",
-        helper_failed_fallback=lambda: _("Optimization failed."),
     ),
     DomainWiring(
         id="forecast",
-        parse_header="plugin.scripting.forecast.parse_forecast_script_header",
-        run_trusted="plugin.scripting.forecast.run_trusted_forecast",
         insert="plugin.scripting.forecast.insert_forecast_result_into_calc",
         is_result="plugin.scripting.forecast.is_forecast_result",
         format_ok_kind="rows",
-        data_range_mode="calc_required",
-        require_calc=True,
         post_venv_calc_only=True,
-        data_range_required_message=lambda: _("Forecast helper requires a data range. Select cells or enter a range in the Data field."),
-        fail_log_label="forecast",
-        helper_failed_fallback=lambda: _("Forecast failed."),
     ),
     DomainWiring(
         id="analysis",
-        parse_header="plugin.scripting.analysis.parse_analysis_script_header",
-        run_trusted="plugin.calc.analysis_runner.run_trusted_analysis",
         insert="plugin.calc.analysis_egress.insert_analysis_result_into_calc",
         is_result="plugin.calc.analysis_egress.is_analysis_result",
         format_ok_kind="rows",
-        data_range_mode="calc_required",
-        require_calc=True,
         post_venv_calc_only=True,
-        data_range_required_message=lambda: _("Analysis helper requires a data range. Select cells or enter a range in the Data field."),
-        fail_log_label="analysis",
-        helper_failed_fallback=lambda: _("Analysis failed."),
-        fast_path_enabled=False,
     ),
 )
 
@@ -558,30 +338,26 @@ def get_post_venv_domains() -> list[RpsDomainSpec]:
     return out
 
 
+_RUN_IMPORT_DATA_BINDING: dict[str, dict[str, bool]] = {
+    "run_analysis": {"calc_only": True},
+    "run_viz": {"calc_only": False},
+    "run_quant": {"calc_only": True},
+    "run_optimize": {"calc_only": True},
+    "run_forecast": {"calc_only": True},
+}
+
+
 def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
     """True when *code* uses a trusted helper that may bind Calc sheet data."""
     import re
 
-    _run_import_binding_calls = {"analysis": "run_analysis", "viz": "run_viz"}
-
-    for spec in get_rps_domains():
-        if spec.data_range_mode == "never":
+    if not code:
+        return False
+    for run_name, cfg in _RUN_IMPORT_DATA_BINDING.items():
+        if not re.search(rf"\b{re.escape(run_name)}\s*\(", code):
             continue
-        matched = spec.parse_header(code) is not None
-        if not matched and not spec.fast_path_enabled:
-            run_name = _run_import_binding_calls.get(spec.id)
-            if run_name and re.search(rf"\b{re.escape(run_name)}\s*\(", code):
-                matched = True
-        if not matched:
+        if cfg.get("calc_only") and not is_calc(doc):
             continue
-        if spec.require_calc and not is_calc(doc):
-            continue
-        if spec.supports is not None:
-            try:
-                if not spec.supports(doc):
-                    continue
-            except Exception:
-                continue
         return True
     return False
 

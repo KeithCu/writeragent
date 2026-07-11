@@ -510,6 +510,13 @@ def _inject_data(executor: LocalPythonExecutor, data: Any | None, locale: str | 
     executor.send_variables(variables)
 
 
+def _inject_bindings(executor: LocalPythonExecutor, bindings: dict[str, Any] | None) -> None:
+    """Inject host-provided named values (e.g. selected image bytes) into the sandbox namespace."""
+    if not bindings:
+        return
+    executor.send_variables(dict(bindings))
+
+
 _TRUSTED_VISION_STUB_MARKER = "from plugin.vision.venv.vision import run_vision"
 _TRUSTED_EMBEDDINGS_STUB_MARKER = "from plugin.embeddings.venv.embeddings_index import"
 _TRUSTED_FOLDER_FTS_STUB_MARKER = "from plugin.embeddings.venv.folder_fts import"
@@ -738,6 +745,7 @@ def run_sandboxed_code(
     code: str,
     data: Any | None = None,
     *,
+    bindings: dict[str, Any] | None = None,
     timeout_sec: int | None = None,
     session_id: str | None = None,
     init_script: str | None = None,
@@ -797,4 +805,5 @@ def run_sandboxed_code(
 
     inject_auto_imports(executor, code)
     _inject_data(executor, data, locale=locale, convert_datetime=convert_datetime)
+    _inject_bindings(executor, bindings)
     return _run_on_executor(executor, code)

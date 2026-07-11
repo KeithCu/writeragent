@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Tests for Run Python Script forecast fast path."""
+"""Tests for Run Python Script forecast venv path."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ setup_uno_mocks()
 
 
 @patch("plugin.scripting.forecast.insert_forecast_result_into_calc")
-@patch("plugin.scripting.forecast.run_trusted_forecast")
-def test_execute_and_insert_forecast_fast_path(mock_run, mock_insert):
+@patch("plugin.scripting.python_runner.run_code_in_user_venv")
+def test_execute_and_insert_forecast_venv_path(mock_venv, mock_insert):
     ctx = MagicMock()
     doc = MagicMock()
 
@@ -25,11 +25,14 @@ def test_execute_and_insert_forecast_fast_path(mock_run, mock_insert):
         patch("plugin.scripting.domain_registry.is_calc", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
     ):
-        mock_run.return_value = {
+        mock_venv.return_value = {
             "status": "ok",
-            "helper": "forecast_time_series",
-            "metrics": {"periods": 6},
-            "tables": [{"name": "forecast", "columns": ["date", "forecast"], "rows": [[1, 2]]}],
+            "result": {
+                "status": "ok",
+                "helper": "forecast_time_series",
+                "metrics": {"periods": 6},
+                "tables": [{"name": "forecast", "columns": ["date", "forecast"], "rows": [[1, 2]]}],
+            },
         }
         mock_insert.return_value = 5
         code = get_forecast_template("forecast_time_series")
@@ -38,7 +41,7 @@ def test_execute_and_insert_forecast_fast_path(mock_run, mock_insert):
 
     assert outcome["ok"] is True
     assert "forecast_time_series" in outcome["status_ok_text"]
-    mock_run.assert_called_once()
+    mock_venv.assert_called_once()
     mock_insert.assert_called_once()
 
 

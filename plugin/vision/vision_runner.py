@@ -47,7 +47,7 @@ def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = N
     if not name:
         return get_selected_image_bytes(ctx, doc)
 
-    graphic_obj = _get_graphic_object(ctx, doc, name)
+    graphic_obj = _get_graphic_object(doc, name)
     if graphic_obj is None:
         raise ToolExecutionError(
             _("Image '{name}' not found. Use list_images or leave image_name empty and select the graphic.").format(name=name),
@@ -119,7 +119,7 @@ def run_trusted_vision(
 
     graphic_obj = None
     if image_name:
-        graphic_obj = _get_graphic_object(ctx, doc, str(image_name))
+        graphic_obj = _get_graphic_object(doc, str(image_name))
     else:
         try:
             selection = doc.CurrentController.Selection

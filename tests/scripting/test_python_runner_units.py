@@ -93,7 +93,7 @@ def test_execute_and_insert_units_uses_body_params_not_header(mock_venv, mock_in
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is True
-    mock_venv.assert_called_once_with(ctx, code, data=None)
+    mock_venv.assert_called_once_with(ctx, code, data=None, bindings=None)
     assert "millimeter" in mock_insert.call_args.args[2].get("formatted", "")
 
 

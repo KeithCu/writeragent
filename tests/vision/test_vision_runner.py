@@ -102,7 +102,7 @@ def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
     mock_export.return_value = b"named"
 
     assert resolve_vision_image_bytes(ctx, doc, image_name="Photo1") == b"named"
-    mock_get_obj.assert_called_once_with(ctx, doc, "Photo1")
+    mock_get_obj.assert_called_once_with(doc, "Photo1")
     mock_export.assert_called_once_with(ctx, graphic)
 
 

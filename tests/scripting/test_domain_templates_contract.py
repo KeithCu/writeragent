@@ -56,17 +56,34 @@ def test_text_templates_cover_shipped_helpers():
 
 
 @pytest.mark.parametrize(
-    "template_fn,helper_names,parse_fn",
+    "template_fn,helper_names,run_name",
     [
-        (get_forecast_template, FORECAST_HELPERS, parse_forecast_script_header),
-        (get_optimize_template, OPTIMIZE_HELPERS, parse_optimize_script_header),
-        (get_quant_template, QUANT_HELPERS, parse_quant_script_header),
+        (get_forecast_template, FORECAST_HELPERS, "run_forecast"),
+        (get_optimize_template, OPTIMIZE_HELPERS, "run_optimize"),
+        (get_quant_template, QUANT_HELPERS, "run_quant"),
     ],
 )
-def test_per_helper_templates_cover_helpers(template_fn, helper_names, parse_fn):
+def test_per_helper_templates_are_executable(template_fn, helper_names, run_name):
     for helper in helper_names:
         code = template_fn(helper)
         assert code is not None
-        meta = parse_fn(code)
-        assert meta is not None
-        assert meta.helper == helper
+        assert run_name in code
+        assert f'"helper": "{helper}"' in code
+        assert f"# writeragent:" not in code.splitlines()[0]
+
+
+def test_legacy_header_parsers_still_work():
+    code = '# writeragent:quant helper=technical_analysis params={"indicators":["rsi"]}\n'
+    meta = parse_quant_script_header(code)
+    assert meta is not None
+    assert meta.helper == "technical_analysis"
+
+    code = '# writeragent:optimize helper=linear_programming params={"c_col":"c"}\n'
+    meta = parse_optimize_script_header(code)
+    assert meta is not None
+    assert meta.helper == "linear_programming"
+
+    code = '# writeragent:forecast helper=forecast_time_series params={"periods":6}\n'
+    meta = parse_forecast_script_header(code)
+    assert meta is not None
+    assert meta.helper == "forecast_time_series"

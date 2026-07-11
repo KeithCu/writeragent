@@ -34,6 +34,7 @@ def _execute_request(
     code: str,
     data: Any | None,
     *,
+    bindings: dict[str, Any] | None = None,
     session_id: str | None = None,
     init_script: str | None = None,
     init_session_id: str | None = None,
@@ -45,6 +46,7 @@ def _execute_request(
     return run_sandboxed_code(
         code,
         data=data,
+        bindings=bindings,
         session_id=session_id,
         init_script=init_script,
         init_session_id=init_session_id,
@@ -148,9 +150,12 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
     init_script = request.get("init_script")
     init_session_id = request.get("init_session_id")
     init_hash = request.get("init_script_hash")
+    bindings = request.get("bindings")
+    bindings_dict = bindings if isinstance(bindings, dict) else None
     return _execute_request(
         code,
         request.get("data"),
+        bindings=bindings_dict,
         session_id=sid,
         init_script=init_script if isinstance(init_script, str) else None,
         init_session_id=init_session_id if isinstance(init_session_id, str) else None,

@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
+from plugin.scripting.helper_domain import parse_run_import_call_spec
 from plugin.vision.venv.vision import HELPER_NAMES
 from plugin.vision.vision_templates import (
-    VISION_HEADER_PREFIX,
     get_vision_script_templates,
     parse_vision_script_header,
 )
@@ -21,18 +21,18 @@ def test_templates_cover_shipped_helpers():
     assert "extract_structure" in HELPER_NAMES
 
 
-def test_parse_header_round_trip():
+def test_templates_are_executable_run_import():
     templates = get_vision_script_templates()
     code = templates["extract_text"]
-    assert VISION_HEADER_PREFIX in code
-    meta = parse_vision_script_header(code)
-    assert meta is not None
-    assert meta.helper == "extract_text"
-    assert meta.params == {
-        "engine": "docling",
-        "ocr_backend": "rapidocr",
-        "image_name": "",
-    }
+    assert "run_vision" in code
+    assert "image" in code
+    assert "# writeragent:vision" not in code
+    call_spec = parse_run_import_call_spec(code, run_name="run_vision")
+    assert call_spec is not None
+    assert call_spec.get("helper") == "extract_text"
+    params = call_spec.get("params")
+    assert isinstance(params, dict)
+    assert params.get("image_name") == ""
 
 
 def test_parse_header_with_params():
@@ -62,10 +62,12 @@ def test_parse_header_with_image_name():
     assert meta.params == {"lang": "en", "image_name": "Photo1"}
 
 
-def test_extract_structure_template_round_trip():
+def test_extract_structure_template_is_executable():
     templates = get_vision_script_templates()
     code = templates["extract_structure"]
-    meta = parse_vision_script_header(code)
-    assert meta is not None
-    assert meta.helper == "extract_structure"
-    assert meta.params.get("image_name") == ""
+    call_spec = parse_run_import_call_spec(code, run_name="run_vision")
+    assert call_spec is not None
+    assert call_spec.get("helper") == "extract_structure"
+    params = call_spec.get("params")
+    assert isinstance(params, dict)
+    assert params.get("image_name") == ""

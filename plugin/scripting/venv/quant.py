@@ -196,23 +196,34 @@ def efficient_frontier(params: dict[str, Any], data: Any, context: dict[str, Any
 
 
 def run_quant(
-    helper: str,
-    params: dict[str, Any],
+    spec: dict[str, Any] | str,
     data: Any = None,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    context = context or {}
-    
+    """Spec-driven dispatcher — single trusted entry for host RPC and Run Python Script."""
+    if isinstance(spec, str):
+        spec_dict: dict[str, Any] = {"helper": spec}
+    elif isinstance(spec, dict):
+        spec_dict = spec
+    else:
+        return _error_result("INVALID_SPEC", "spec must be a dict or helper name string")
+
+    helper = str(spec_dict.get("helper") or "").strip()
+    if not helper:
+        return _error_result("MISSING_HELPER", "spec.helper is required")
     if helper not in HELPER_NAMES:
         return _error_result("UNKNOWN_HELPER", f"Unknown quant helper '{helper}'.", helper=helper)
-        
+
+    params: dict[str, Any] = spec_dict["params"] if isinstance(spec_dict.get("params"), dict) else {}
+    ctx = context if isinstance(context, dict) else {}
+
     if helper == "fetch_historical_data":
-        return fetch_historical_data(params, context)
-    elif helper == "technical_analysis":
-        return technical_analysis(params, data, context)
-    elif helper == "portfolio_tearsheet":
-        return portfolio_tearsheet(params, data, context)
-    elif helper == "efficient_frontier":
-        return efficient_frontier(params, data, context)
-        
+        return fetch_historical_data(params, ctx)
+    if helper == "technical_analysis":
+        return technical_analysis(params, data, ctx)
+    if helper == "portfolio_tearsheet":
+        return portfolio_tearsheet(params, data, ctx)
+    if helper == "efficient_frontier":
+        return efficient_frontier(params, data, ctx)
+
     return _error_result("UNIMPLEMENTED", f"Helper {helper} not fully implemented.", helper=helper)

@@ -264,7 +264,7 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 
 3. [`worker_harness.py`](../plugin/scripting/venv/worker_harness.py) looks up the domain in [`trusted_action_registry.py`](../plugin/scripting/trusted_action_registry.py) and calls the registered venv dispatcher **directly** — zero AST overhead, same trust model as reviewed modules.
 
-4. **Run Python Script templates** still use `writeragent:<tag>` headers and may import public facades in user-visible script text; that path is unchanged.
+4. **Run Python Script templates** execute visible `run_*()` Python in the user venv. The host injects document inputs (`data` on Calc, `text`/`document_context` on Writer text analytics, `image` for Vision OCR) before execution; results route through post-venv insert handlers in [`domain_registry.py`](../plugin/scripting/domain_registry.py).
 
 5. **IPC for bulk data** — pass paragraph lists, query text, and `k` via the action `data` dict (Pickle5 over the worker pipe); trusted code opens the per-folder **`corpus.db`** path by reference from the host.
 

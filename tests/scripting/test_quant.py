@@ -25,14 +25,12 @@ from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
 
-def test_quant_template_header_roundtrip():
+def test_quant_template_is_executable():
     code = get_quant_template("fetch_historical_data")
     assert code is not None
-    assert QUANT_HEADER_PREFIX in code
-    meta = parse_quant_script_header(code)
-    assert meta is not None
-    assert meta.helper == "fetch_historical_data"
-    assert "tickers" in meta.params
+    assert "run_quant" in code
+    assert "fetch_historical_data" in code
+    assert QUANT_HEADER_PREFIX not in code.splitlines()[0]
 
 
 def test_run_quant_missing_package(monkeypatch):
@@ -44,7 +42,7 @@ def test_run_quant_missing_package(monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
-    result = venv_run_quant("fetch_historical_data", {"tickers": ["AAPL"]}, None, {})
+    result = venv_run_quant({"helper": "fetch_historical_data", "params": {"tickers": ["AAPL"]}})
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"
 
@@ -53,7 +51,7 @@ def test_run_quant_invalid_params(monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "yfinance", object())
-    result = venv_run_quant("fetch_historical_data", {}, None, {})
+    result = venv_run_quant({"helper": "fetch_historical_data", "params": {}})
     assert result["status"] == "error"
     assert result["code"] == "INVALID_PARAMS"
 
