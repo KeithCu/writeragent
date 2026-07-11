@@ -13,7 +13,7 @@ A LibreOffice extension that adds agentic AI and NumPy features.
 
 ## ⚡ Quick Start
 
-1. **Install**: Download `.oxt` from [Release Assets](https://github.com/KeithCu/writeragent/releases), double-click to install
+1. **Install**: Download `.oxt` from [Release Assets](https://github.com/KeithCu/writeragent/releases/latest), double-click to install
 2. **Configure**: Open **WriterAgent > Settings** in LibreOffice
 3. **Set Backend**: Enter endpoint (e.g., `http://localhost:11434` for Ollama) and model
 4. **Chat**: Open sidebar with **View → Sidebar → WriterAgent** or use **Ctrl+Q** / **Ctrl+E** shortcuts
