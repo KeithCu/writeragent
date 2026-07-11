@@ -280,6 +280,24 @@ if __name__ == "__main__":
 # =============================================================================
 
 
+def test_web_research_module_imports_despite_threading_lock_annotation():
+    """Regression: ``threading.Lock | None`` must not raise at import time.
+
+    On Python before 3.13, ``threading.Lock`` is ``allocate_lock`` (a
+    builtin factory), so evaluating ``Lock | None`` without postponed
+    annotations aborts ``ChatbotModule.initialize`` and leaves
+    ``librarian_onboarding`` unregistered.
+    """
+    import importlib
+
+    import plugin.chatbot.web_research as wr
+
+    mod = importlib.reload(wr)
+    assert mod.WebAgentRunParams is not None
+    hints = getattr(mod.WebAgentRunParams, "__annotations__", {})
+    assert "visited_urls_lock" in hints
+
+
 def test_step_zero_matches_legacy_engine_block():
     q = "best pizza test"
     a = web_search_engine_step_chat_text(q, 0)

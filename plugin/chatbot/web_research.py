@@ -16,6 +16,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Web research tool using smolagents sub-agent."""
 
+# Postponed annotations: on Python before 3.13, threading.Lock is a factory
+# (builtin_function_or_method), so `Lock | None` raises at class-body time and
+# aborts ChatbotModule.initialize (missing librarian_onboarding / web_research).
+from __future__ import annotations
+
 import logging
 import os
 import threading

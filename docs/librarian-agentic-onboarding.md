@@ -439,6 +439,8 @@ def _init_chat_session(self):
     # else: let the agent introduce itself naturally
 ```
 
+`librarian_onboarding` registers when `ChatbotModule` imports `web_research` then auto-discovers librarian tools. That import must succeed on LibreOffice’s bundled Python (often older than the 3.13 dev `.venv`); see the `threading.Lock | None` note in [type-checking.md](type-checking.md#other-recurring-fixes-non-uno).
+
 ## Benefits of This Approach
 
 ### **More Natural Interaction**

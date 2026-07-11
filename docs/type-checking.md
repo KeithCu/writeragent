@@ -153,6 +153,7 @@ Prefer **specific** ignore codes (`attr-defined`, `override`, `unresolved-import
 - **`cast(Any, …)`** / **`cast(Iterable, …)`** where stubs are thin or generators are not inferred as iterable.
 - **UNO interface overrides:** match stub parameter names exactly (e.g. `actionPerformed(self, rEvent)`) or **`ty`/pyright** report `invalid-method-override`.
 - **Registry / service construction**: dynamic class registration may need small ignores where instantiation is reflection-like ([`plugin/framework/service_registry.py`](../plugin/framework/service_registry.py)).
+- **`threading.Lock | None` (and similar):** On Python before 3.13, `threading.Lock` is a factory (`builtin_function_or_method`), not a class — evaluating `Lock | None` at import time raises `TypeError` and can abort whole module loads (e.g. ChatbotModule → missing `librarian_onboarding`). Prefer **`from __future__ import annotations`** so PEP 604 unions are not evaluated at runtime (see [`plugin/chatbot/web_research.py`](../plugin/chatbot/web_research.py)). Dev `.venv` is 3.13+ where `Lock` is a real type, so this bug is easy to miss locally; LibreOffice’s bundled Python is often older.
 
 ---
 
