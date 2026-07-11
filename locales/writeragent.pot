@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 19:03-0400\n"
+"POT-Creation-Date: 2026-07-11 12:37-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -258,67 +258,16 @@ msgstr ""
 msgid "UNO Thread Violation"
 msgstr ""
 
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can edit or translate your document instantly with professional "
-"formatting and color. Try me!"
-msgstr ""
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr ""
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you create and edit polished, colorful shapes in Draw and "
-"Impress. Try me!"
-msgstr ""
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
-msgstr ""
-
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr ""
 
 #: plugin/framework/client/errors.py
+#, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to "
-"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0}"
+" (not the general /api/paas URL)."
 msgstr ""
 
 #: plugin/framework/client/errors.py
@@ -377,16 +326,20 @@ msgid ""
 "A1:B10) or =PYTHON(...)."
 msgstr ""
 
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Saved without =PY()."
+msgstr ""
+
 #: plugin/calc/python/editor.py
 msgid "Python cell editor"
 msgstr ""
 
-#: plugin/calc/python/editor.py
-msgid "Save as plain text"
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Save without =PY()"
 msgstr ""
 
-#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Save"
 msgstr ""
 
@@ -403,6 +356,13 @@ msgid ""
 "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
 "in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
 "(or =PYTHON(...)) with quoted code."
+msgstr ""
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Edit Python in Cell requires the Monaco editor, which is disabled by \"scripting.force_internal_script_editor\" in writeragent.json.\n"
+"\n"
+"Set it to false and restart LibreOffice to use this command, or edit PYTHON formulas in the Calc formula bar."
 msgstr ""
 
 #: plugin/calc/python/editor.py
@@ -452,6 +412,35 @@ msgstr ""
 msgid "No structured tables or text blocks to insert."
 msgstr ""
 
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr ""
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr ""
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+#: plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr ""
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Done"
+msgstr ""
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Failed"
+msgstr ""
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr ""
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr ""
+
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr ""
@@ -478,8 +467,9 @@ msgstr ""
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/main_core.py plugin/main.py
 msgid "Error"
 msgstr ""
 
@@ -491,7 +481,7 @@ msgstr ""
 msgid "Unknown conversion error"
 msgstr ""
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 msgid "Formula inserted."
 msgstr ""
 
@@ -499,16 +489,18 @@ msgstr ""
 msgid "LaTeX Math Editor"
 msgstr ""
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert as display block (centered paragraph)"
 msgstr ""
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert"
 msgstr ""
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Close"
 msgstr ""
 
@@ -788,7 +780,8 @@ msgstr ""
 msgid "you"
 msgstr ""
 
-#: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
+#: plugin/chatbot/panel_wiring.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Ready"
 msgstr ""
 
@@ -1138,26 +1131,6 @@ msgid "Failed to open Settings: {0}"
 msgstr ""
 
 #: plugin/chatbot/dialog_views.py
-msgid "Venv OK"
-msgstr ""
-
-#: plugin/chatbot/dialog_views.py
-msgid "Venv check failed"
-msgstr ""
-
-#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr ""
-
-#: plugin/chatbot/dialog_views.py
-msgid "Done"
-msgstr ""
-
-#: plugin/chatbot/dialog_views.py
-msgid "Failed"
-msgstr ""
-
-#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr ""
 
@@ -1183,6 +1156,175 @@ msgstr ""
 
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saving…"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data ranges apply only when saving as a =PYTHON() formula."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saved."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Sample"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Attach"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Loaded Sample scratchpad."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Cleared Sample scratchpad."
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr ""
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
@@ -1211,11 +1353,11 @@ msgid "A script named '{0}' already exists in this document."
 msgstr ""
 
 #: plugin/scripting/document_scripts.py
-msgid "My Scripts"
+msgid "This Document"
 msgstr ""
 
-#: plugin/scripting/document_scripts.py
-msgid "This Document"
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
 msgstr ""
 
 #: plugin/scripting/python_runner_ui.py
@@ -1233,23 +1375,6 @@ msgstr ""
 msgid "Script '%s' saved successfully."
 msgstr ""
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "No document is open to attach scripts."
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Enter script name:"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach to Document"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
 msgstr ""
@@ -1261,11 +1386,6 @@ msgstr ""
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Save Script"
-msgstr ""
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
 msgstr ""
 
 #: plugin/scripting/python_runner_ui.py
@@ -1309,6 +1429,20 @@ msgstr ""
 
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in WriterAgent Settings → Python (same venv where "
+"you ran 'uv pip install pywebview rocher'). LibreOffice's built-in Python "
+"cannot run the Monaco editor."
+msgstr ""
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"bin/python3, or bin/python3.x)."
 msgstr ""
 
 #: plugin/scripting/editor_host.py
@@ -1873,12 +2007,20 @@ msgstr ""
 msgid "Run Python Script"
 msgstr ""
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run"
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
 msgstr ""
 
 #: plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
+msgid "Could not open the built-in script dialog."
+msgstr ""
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr ""
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
 msgstr ""
 
 #: plugin/vision/vision_runner.py
@@ -2042,10 +2184,6 @@ msgstr ""
 msgid "Convert Sheet to Python..."
 msgstr ""
 
-#: plugin/main.py
-msgid "Dispatch Error"
-msgstr ""
-
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr ""
@@ -2079,10 +2217,6 @@ msgid "Aspect Ratio:"
 msgstr ""
 
 #: plugin/xdl_strings.py
-msgid "Attach"
-msgstr ""
-
-#: plugin/xdl_strings.py
 msgid "Audio Model:"
 msgstr ""
 
@@ -2107,10 +2241,6 @@ msgid "Calc"
 msgstr ""
 
 #: plugin/xdl_strings.py
-msgid "Cancel"
-msgstr ""
-
-#: plugin/xdl_strings.py
 msgid "Categories:"
 msgstr ""
 
@@ -2132,10 +2262,6 @@ msgstr ""
 
 #: plugin/xdl_strings.py
 msgid "Copy"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Delete"
 msgstr ""
 
 #: plugin/xdl_strings.py
@@ -2285,15 +2411,7 @@ msgid "Run Benchmark"
 msgstr ""
 
 #: plugin/xdl_strings.py
-msgid "Save As..."
-msgstr ""
-
-#: plugin/xdl_strings.py
 msgid "Scope"
-msgstr ""
-
-#: plugin/xdl_strings.py
-msgid "Script:"
 msgstr ""
 
 #: plugin/xdl_strings.py
@@ -2780,8 +2898,8 @@ msgstr ""
 
 msgid ""
 "Path to the ppt-master skill tree (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
+"scripts/svg_to_pptx/). Clone hugohe3/ppt-master on GitHub and point here at "
+"the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
 "master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
 "repo, then env)."
 msgstr ""

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 19:03-0400\n"
+"POT-Creation-Date: 2026-07-11 12:23-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Slovak <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Spúšťam lokálne OCR na vybranom obrázku..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
 msgstr ""
 "Čítanie výskumu dokumentov vyžaduje špecializovanú delegáciu úloh "
 "(USE_SUB_AGENT). Povoľte túto možnosť v konfigurácii."
@@ -40,13 +40,13 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Volanie nástroja prepnuté na '{0}'. Nachádzate sa v režime špecializovanej "
-"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished',"
-" aby sa obnovila úplná sada rozhraní API."
+"sady nástrojov. Po dokončení musíte zavolať 'specialized_workflow_finished', "
+"aby sa obnovila úplná sada rozhraní API."
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -58,16 +58,15 @@ msgstr "Spustenie poznámkového bloku je podporované iba v LibreOffice Writer.
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
-" first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
+"first."
 msgstr ""
-"Tento dokument neobsahuje žiadny importovaný poznámkový blok. Najprv použite"
-" Nástroje → Importovať Jupyter Notebook…"
+"Tento dokument neobsahuje žiadny importovaný poznámkový blok. Najprv použite "
+"Nástroje → Importovať Jupyter Notebook…"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Could not find notebook cell for this control."
-msgstr ""
-"Pre tento ovládací prvok sa nepodarilo nájsť bunku poznámkového bloku."
+msgstr "Pre tento ovládací prvok sa nepodarilo nájsť bunku poznámkového bloku."
 
 #: plugin/notebook/notebook_runner.py plugin/notebook/import_dialog.py
 msgid "Open a Writer document first."
@@ -191,8 +190,7 @@ msgstr "Chyba: "
 msgid ""
 "Folder index is building in the background. Please retry search shortly."
 msgstr ""
-"Index priečinka sa vytvára na pozadí. Skúste vyhľadávanie zopakovať o "
-"chvíľu."
+"Index priečinka sa vytvára na pozadí. Skúste vyhľadávanie zopakovať o chvíľu."
 
 #: plugin/embeddings/search_ui.py
 msgid "No matches found."
@@ -254,8 +252,7 @@ msgstr ""
 "Nastaveniach."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Pripojenie odmietnuté. Je váš lokálny AI server (Ollama/LM Studio) spustený?"
 
@@ -281,90 +278,19 @@ msgstr "{resource_type} sa nenašiel: {identifier}"
 msgid "UNO Thread Violation"
 msgstr "Porušenie vlákna UNO"
 
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can edit or translate your document instantly with professional "
-"formatting and color. Try me!"
-msgstr ""
-"AI: Dokážem okamžite upraviť alebo preložiť váš dokument s profesionálnym "
-"formátovaním a farbami. Vyskúšajte ma!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr ""
-"AI: Pomôžem vám so vzorcami, analýzou údajov a farebnými grafmi. Vyskúšajte "
-"ma!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you create and edit polished, colorful shapes in Draw and "
-"Impress. Try me!"
-msgstr ""
-"AI: Pomôžem vám vytvárať a upravovať vyleštené, farebné tvary v aplikáciách "
-"Draw a Impress. Vyskúšajte ma!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Môžem vyhľadávať na webe a odpovedať na akúkoľvek otázku alebo zhrnúť "
-"webovú stránku bez toho, aby som videl alebo menil váš dokument. Poďme "
-"chatovať."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Režim hĺbkového prieskumu spustí viacstupňové skúmanie na webe "
-"(plánovanie, niekoľko vyhľadávaní, syntéza) a do dokumentu vloží formátovanú"
-" správu. Trvá to dlhšie, ale prináša dôkladnejšie výsledky."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"AI: Poďme spoločne preskúmať a navrhnúť váš nápad. Budem klásť otázky, "
-"navrhovať prístupy a pomôžem vám vytvoriť schválenú špecifikáciu vo vašom "
-"dokumente, keď budete pripravení."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: Poďme vypracovať váš dokument po častiach. Pomôžem vám vytvoriť osnovu "
-"plánu písania a následne ju postupne realizovať s vaším schválením."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
-msgstr ""
-"AI: Režim PPT-Master — Spustím pracovný postup ppt-master vo vašom "
-"nakonfigurovanom Python venv (skripty + export do Impress). Opíšte svoju "
-"tému alebo ma nasmerujte na priečinok projektu."
-
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Chyba HTTP {0} od poskytovateľa AI: {1}"
 
 #: plugin/framework/client/errors.py
+#, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to "
-"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
+"(not the general /api/paas URL)."
 msgstr ""
 " Ak je váš kľúč API z predplatného GLM Coding Plan, nastavte koncový bod na "
-"https://api.z.ai/api/coding/paas/v4 (nie všeobecnú adresu URL /api/paas)."
+"{0} (nie všeobecnú adresu URL /api/paas)."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -386,8 +312,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite"
-" iný model."
+"Model opakuje rovnaký úsek (nekonečná slučka). Skúste to znova alebo použite "
+"iný model."
 
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
@@ -427,16 +353,20 @@ msgstr ""
 "údajov). Upravte vzorec v aplikácii Calc alebo použite reťazec kódu v "
 "úvodzovkách, napríklad =PY(\"kód\"; A1:B10) alebo =PYTHON(...)."
 
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Saved without =PY()."
+msgstr "Uložené bez =PY()."
+
 #: plugin/calc/python/editor.py
 msgid "Python cell editor"
 msgstr "Editor buniek Python"
 
-#: plugin/calc/python/editor.py
-msgid "Save as plain text"
-msgstr "Uložiť ako čistý text"
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Save without =PY()"
+msgstr "Uložiť bez =PY()"
 
-#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Save"
 msgstr "Uložiť"
 
@@ -459,22 +389,40 @@ msgstr ""
 "=PY(\"kód\"; rozsah) (alebo =PYTHON(...)) s kódom v úvodzovkách."
 
 #: plugin/calc/python/editor.py
+msgid ""
+"Edit Python in Cell requires the Monaco editor, which is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json.\n"
+"\n"
+"Set it to false and restart LibreOffice to use this command, or edit PYTHON "
+"formulas in the Calc formula bar."
+msgstr ""
+"Úprava Pythonu v bunke vyžaduje editor Monaco, ktorý je zakázaný nastavením "
+"„scripting.force_internal_script_editor“ v súbore writeragent.json.\n"
+"\n"
+"Ak chcete použiť tento príkaz, nastavte ho na false a reštartujte "
+"LibreOffice, alebo upravujte vzorce PYTHON vo vstupnom riadku vzorcov v "
+"aplikácii Calc."
+
+#: plugin/calc/python/editor.py
 msgid "No Python interpreter available for the editor."
 msgstr "Pre editor nie je k dispozícii žiadny interpret Pythonu."
 
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → "
+"Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nepodarilo sa importovať webview (pywebview) alebo rocher pomocou Pythonu z Nastavenia → Python:\n"
+"Nepodarilo sa importovať webview (pywebview) alebo rocher pomocou Pythonu z "
+"Nastavenia → Python:\n"
 "%(exe)s\n"
 "\n"
-"V tomto virtuálnom prostredí (venv) spustite: uv pip install pywebview rocher\n"
+"V tomto virtuálnom prostredí (venv) spustite: uv pip install pywebview "
+"rocher\n"
 "(názov pre import je webview, názov balíka je pywebview)."
 
 #: plugin/calc/python/editor.py
@@ -510,6 +458,35 @@ msgstr "Ukotvite obrázok do bunky, vyberte ho a potom znova spustite."
 msgid "No structured tables or text blocks to insert."
 msgstr "Žiadne štruktúrované tabuľky alebo textové bloky na vloženie."
 
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Kontrola virtuálneho prostredia zlyhala"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+#: plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "Testuje sa prostredie Python..."
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Done"
+msgstr "Hotovo"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Failed"
+msgstr "Zlyhalo"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Prevzatie akcelerátora Cython"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "Nastavenia Pythonu"
+
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Prijať celú zmenu (agent)"
@@ -536,8 +513,9 @@ msgstr "WriterAgent: Upraviť výber"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/main_core.py plugin/main.py
 msgid "Error"
 msgstr "Chyba"
 
@@ -549,7 +527,7 @@ msgstr "Tento príkaz je dostupný iba v dokumentoch Writer."
 msgid "Unknown conversion error"
 msgstr "Neznáma chyba konverzie"
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 msgid "Formula inserted."
 msgstr "Vzorec vložený."
 
@@ -557,16 +535,18 @@ msgstr "Vzorec vložený."
 msgid "LaTeX Math Editor"
 msgstr "Editor matematických vzorcov LaTeX"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert as display block (centered paragraph)"
 msgstr "Vložiť ako blok zobrazenia (centrovaný odsek)"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "Vložiť"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Close"
 msgstr "Zavrieť"
 
@@ -849,7 +829,8 @@ msgstr "prečo"
 msgid "you"
 msgstr "vy"
 
-#: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
+#: plugin/chatbot/panel_wiring.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Pripravený"
 
@@ -1052,7 +1033,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte premennú EDITOR). Cesta:\n"
+"Nenašiel sa žiadny editor (nainštalujte Kate alebo Gedit, prípadne nastavte "
+"premennú EDITOR). Cesta:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1089,8 +1071,7 @@ msgstr "[Backend agenta „{0}“ sa nenašiel.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agenta „{0}“ nie je k dispozícii. Skontrolujte nastavenia (cesta, "
 "inštalácia).]"
@@ -1217,26 +1198,6 @@ msgid "Failed to open Settings: {0}"
 msgstr "Nepodarilo sa otvoriť Nastavenia: {0}"
 
 #: plugin/chatbot/dialog_views.py
-msgid "Venv OK"
-msgstr "Venv OK"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Venv check failed"
-msgstr "Kontrola virtuálneho prostredia zlyhala"
-
-#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "Testuje sa prostredie Python..."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Done"
-msgstr "Hotovo"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Failed"
-msgstr "Zlyhalo"
-
-#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Stiahnutie zvukovej knižnice"
 
@@ -1264,6 +1225,179 @@ msgstr "Výška:"
 msgid "Width:"
 msgstr "Šírka:"
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "Stav:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saving…"
+msgstr "Ukladá sa…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Spúšťa sa…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "Chýba zavádzač Monaco."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "Spustiť"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Zrušiť"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data:"
+msgstr "Údaje:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1 alebo A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
+msgstr "Calc počas behu vloží `data` a `data_list` z týchto rozsahov."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data ranges apply only when saving as a =PYTHON() formula."
+msgstr "Rozsahy údajov sa uplatňujú len pri ukladaní ako vzorec =PYTHON()."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saved."
+msgstr "Uložené."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Skript:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Sample"
+msgstr "Ukážka"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Pripojiť"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Pripojiť k dokumentu"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Uložiť ako..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts"
+msgstr "Kopírovať do Mojich skriptov"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Odstrániť"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "Skripty"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Moje skripty"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+"Vstavaní pomocníci sú len na čítanie. Na prispôsobenie použite Kopírovať do "
+"Mojich skriptov."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr ""
+"Dokument sa zmenil — zatvorte a znova otvorte Spustiť skript Python, aby ste "
+"mohli upravovať skripty dokumentu."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "Načítaný skript „{0}“."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Loaded Sample scratchpad."
+msgstr "Načítaná ukážka poznámkového bloku."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Žiadny dokument nie je otvorený na pripojenie skriptov."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "Pripája sa skript „{0}“..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "Kopíruje sa skript „{0}“ do Mojich skriptov..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "Ukladá sa skript „{0}“..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "Odstraňujem skript „{0}“..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "Vstavané pomocné skripty nie je možné odstrániť."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Cleared Sample scratchpad."
+msgstr "Vzorkovník bol vymazaný."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Zadajte názov skriptu:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Skript s názvom „{0}“ už v tomto dokumente existuje. Prepísať?"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "Kopírovať do Moje skripty ako:"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr "Skript s názvom „{0}“ už v časti Moje skripty existuje. Prepísať?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Uložiť skript „{0}“ do tohto dokumentu?"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Naozaj chcete vymazať vzorkovník?"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "Naozaj chcete odstrániť skript „{0}“?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Vyberte rozsah údajov alebo zadajte adresu A1 (vloženú ako údaje)."
+
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
@@ -1280,8 +1414,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokument je len na čítanie alebo vlastnosti nie je možné zapísať. Skript bol"
-" namiesto toho uložený do vašej osobnej knižnice."
+"Dokument je len na čítanie alebo vlastnosti nie je možné zapísať. Skript bol "
+"namiesto toho uložený do vašej osobnej knižnice."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1293,12 +1427,12 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Skript s názvom „{0}“ už v tomto dokumente existuje."
 
 #: plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "Moje skripty"
-
-#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Tento dokument"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "PythonScriptDialog sa nepodarilo načítať z rozšírenia."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1315,23 +1449,6 @@ msgstr "Skript „%s“ bol uložený do tohto dokumentu."
 msgid "Script '%s' saved successfully."
 msgstr "Skript „%s“ bol úspešne uložený."
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "No document is open to attach scripts."
-msgstr "Žiadny dokument nie je otvorený na pripojenie skriptov."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Enter script name:"
-msgstr "Zadajte názov skriptu:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach to Document"
-msgstr "Pripojiť k dokumentu"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Skript s názvom „{0}“ už v tomto dokumente existuje. Prepísať?"
-
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
 msgstr "Pripojiť skript"
@@ -1344,11 +1461,6 @@ msgstr "Skript „%s“ bol pripojený k tomuto dokumentu."
 #: plugin/scripting/python_runner_ui.py
 msgid "Save Script"
 msgstr "Uložiť skript"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Uložiť skript „{0}“ do tohto dokumentu?"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1394,6 +1506,25 @@ msgstr "Úspech"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Výstup"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in WriterAgent Settings → Python (same venv where "
+"you ran 'uv pip install pywebview rocher'). LibreOffice's built-in Python "
+"cannot run the Monaco editor."
+msgstr ""
+"Nastavte cestu k Python venv v WriterAgent Nastavenia → Python (rovnaké "
+"venv, v ktorom ste spustili „uv pip install pywebview rocher“). Vstavaný "
+"Python v LibreOffice nedokáže spustiť editor Monaco."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"bin/python3, or bin/python3.x)."
+msgstr ""
+"V nakonfigurovanom venv sa nenašiel žiadny spustiteľný súbor Python: {0} "
+"(očakáva sa bin/python, bin/python3 alebo bin/python3.x)."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1454,8 +1585,7 @@ msgstr "Nepodarilo sa komunikovať s editorom Pythonu."
 #: plugin/scripting/venv_diagnostics.py
 msgid "On Linux also install system PortAudio: sudo pacman -S portaudio"
 msgstr ""
-"V systéme Linux nainštalujte aj systémové PortAudio: sudo pacman -S "
-"portaudio"
+"V systéme Linux nainštalujte aj systémové PortAudio: sudo pacman -S portaudio"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
@@ -1472,19 +1602,18 @@ msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
 msgstr ""
-"Časový limit sondy Text/NLP vypršal (studený import spaCy alebo transformers"
-" môže pri prvej kontrole trvať 10 – 30 s)."
+"Časový limit sondy Text/NLP vypršal (studený import spaCy alebo transformers "
+"môže pri prvej kontrole trvať 10 – 30 s)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Sonda Text/NLP zlyhala (pozri writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
-"Časový limit vizuálnej sondy vypršal (import Docling môže pri prvej kontrole"
-" trvať 10 – 30 s)."
+"Časový limit vizuálnej sondy vypršal (import Docling môže pri prvej kontrole "
+"trvať 10 – 30 s)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision probe failed (see writeragent_debug.log)."
@@ -1564,8 +1693,7 @@ msgstr "Nahrávanie zvuku: kontroluje sa sounddevice..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
-msgstr ""
-"Knižnice Text / NLP: načítava sa (prvé spustenie môže chvíľu trvať)..."
+msgstr "Knižnice Text / NLP: načítava sa (prvé spustenie môže chvíľu trvať)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
@@ -1607,7 +1735,8 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is using:\n"
+"The features in this dialog require these packages in the python it is "
+"using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1615,7 +1744,8 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed "
+"in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Chyba z procesu analýzy textu:\n"
 "{err}\n"
@@ -1623,12 +1753,15 @@ msgstr ""
 "Funkcie v tomto dialógovom okne vyžadujú tieto balíky v používanom Pythone:\n"
 "  • spacy + model          (entity, kľúčové frázy, základné štatistiky)\n"
 "  • textdescriptives         (skutočné skóre čitateľnosti)\n"
-"  • transformers + torch     (analýza sentimentu pomocou viacjazyčného modelu)\n"
+"  • transformers + torch     (analýza sentimentu pomocou viacjazyčného "
+"modelu)\n"
 "\n"
 "Nainštalujte ich pomocou:\n"
 "  {install}\n"
 "\n"
-"Proces nahlásil chýbajúci modul. Overte, či sú balíky nainštalované v presnom spustiteľnom súbore Pythonu, ktorý proces priradil k vášmu nakonfigurovanému venv."
+"Proces nahlásil chýbajúci modul. Overte, či sú balíky nainštalované v "
+"presnom spustiteľnom súbore Pythonu, ktorý proces priradil k vášmu "
+"nakonfigurovanému venv."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1647,11 +1780,16 @@ msgstr "Analyzuje sa..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → "
+"Python). Click Check Venv in this dialog or use the full Test in Settings → "
+"Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Chyba: %s\n"
 "\n"
-"Vo vašom nakonfigurovanom venv (Nastavenia → Python) môžu chýbať požadované balíky. Kliknite na Skontrolovať Venv v tomto dialógovom okne alebo použite úplný Test v Nastavenia → Python pre podrobnosti o spacy, textdescriptives, transformers, torch atď."
+"Vo vašom nakonfigurovanom venv (Nastavenia → Python) môžu chýbať požadované "
+"balíky. Kliknite na Skontrolovať Venv v tomto dialógovom okne alebo použite "
+"úplný Test v Nastavenia → Python pre podrobnosti o spacy, textdescriptives, "
+"transformers, torch atď."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1724,8 +1862,8 @@ msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
 msgstr ""
-"Pomocník Quant vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do"
-" poľa Údaje."
+"Pomocník Quant vyžaduje rozsah údajov. Vyberte bunky alebo zadajte rozsah do "
+"poľa Údaje."
 
 #: plugin/scripting/domain_registry.py
 msgid "Helper failed."
@@ -1743,8 +1881,7 @@ msgstr ""
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid "Vision '{helper}' completed. Inserted formatted HTML. (took {time})"
-msgstr ""
-"Vision '{helper}' dokončený. Vložené formátované HTML. (trvalo {time})"
+msgstr "Vision '{helper}' dokončený. Vložené formátované HTML. (trvalo {time})"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1911,8 +2048,8 @@ msgid ""
 "Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and "
 "try again."
 msgstr ""
-"Resetovanie relácie Python sa vzťahuje na tabuľky Calc. Otvorte zošit Calc a"
-" skúste to znova."
+"Resetovanie relácie Python sa vzťahuje na tabuľky Calc. Otvorte zošit Calc a "
+"skúste to znova."
 
 #: plugin/scripting/session_manager.py
 msgid "Python session reset for this workbook."
@@ -1942,8 +2079,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
-"Tento dokument Writer nemá importovaný register poznámkových blokov. Použite"
-" Nástroje → Importovať Jupyter Notebook…, aby ste povolili reset relácie "
+"Tento dokument Writer nemá importovaný register poznámkových blokov. Použite "
+"Nástroje → Importovať Jupyter Notebook…, aby ste povolili reset relácie "
 "Pythonu pre poznámkový blok."
 
 #: plugin/scripting/units.py
@@ -1996,8 +2133,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
 msgstr ""
 "Skript bol úspešne vykonaný, ale nevrátil žiadny výsledok a nevyprodukoval "
 "žiadny výstup. (trvalo {time})"
@@ -2020,13 +2157,21 @@ msgstr "Skript bol uložený."
 msgid "Run Python Script"
 msgstr "Spustiť skript Python"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run"
-msgstr "Spustiť"
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr "Spustenie skriptu Python zlyhalo pri otváraní editora Monaco."
 
 #: plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Vyberte rozsah údajov alebo zadajte adresu A1 (vloženú ako údaje)."
+msgid "Could not open the built-in script dialog."
+msgstr "Nepodarilo sa otvoriť vstavaný dialóg skriptov."
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr "Pri otváraní funkcie Spustiť skript Python došlo k neočakávanej chybe."
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "Chyba odoslania"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2193,10 +2338,6 @@ msgstr "Analýza textu..."
 msgid "Convert Sheet to Python..."
 msgstr "Konvertovať hárok na Python..."
 
-#: plugin/main.py
-msgid "Dispatch Error"
-msgstr "Chyba odoslania"
-
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
@@ -2230,10 +2371,6 @@ msgid "Aspect Ratio:"
 msgstr "Pomer strán:"
 
 #: plugin/xdl_strings.py
-msgid "Attach"
-msgstr "Pripojiť"
-
-#: plugin/xdl_strings.py
 msgid "Audio Model:"
 msgstr "Zvukový model:"
 
@@ -2258,10 +2395,6 @@ msgid "Calc"
 msgstr "Calc"
 
 #: plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "Zrušiť"
-
-#: plugin/xdl_strings.py
 msgid "Categories:"
 msgstr "Kategórie:"
 
@@ -2284,10 +2417,6 @@ msgstr "Konvertovať hárok na Python"
 #: plugin/xdl_strings.py
 msgid "Copy"
 msgstr "Kopírovať"
-
-#: plugin/xdl_strings.py
-msgid "Delete"
-msgstr "Odstrániť"
 
 #: plugin/xdl_strings.py
 msgid "Draw"
@@ -2322,7 +2451,8 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Zadajte kód v jazyku Python, ktorý sa má vykonať v používateľskom virtuálnom prostredí.\n"
+"Zadajte kód v jazyku Python, ktorý sa má vykonať v používateľskom virtuálnom "
+"prostredí.\n"
 "Výsledok priraďte k premennej 'result'."
 
 #: plugin/xdl_strings.py
@@ -2440,16 +2570,8 @@ msgid "Run Benchmark"
 msgstr "Spustiť benchmark"
 
 #: plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "Uložiť ako..."
-
-#: plugin/xdl_strings.py
 msgid "Scope"
 msgstr "Rozsah"
-
-#: plugin/xdl_strings.py
-msgid "Script:"
-msgstr "Skript:"
 
 #: plugin/xdl_strings.py
 msgid "Search Nearby Files"
@@ -2556,11 +2678,11 @@ msgid "Path / URL"
 msgstr "Cesta / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. "
-"http://localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
+"Cesta k backendovému CLI (napr. aider) alebo URL servera ACP (napr. http://"
+"localhost:8000 pre Hermes). Prázdne = skúsiť predvolené."
 
 msgid "Extra arguments"
 msgstr "Ďalšie argumenty"
@@ -2634,8 +2756,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Vyberte backend prehliadača, ktorý sa má použiť na návštevy webových stránok"
-" počas prieskumu (Vypnuté používa statické požiadavky HTTP)."
+"Vyberte backend prehliadača, ktorý sa má použiť na návštevy webových stránok "
+"počas prieskumu (Vypnuté používa statické požiadavky HTTP)."
 
 msgid "Off (Static HTTP)"
 msgstr "Vypnuté (statické HTTP)"
@@ -2662,8 +2784,8 @@ msgstr "Platnosť vyrovnávacej pamäte (dni)"
 
 msgid "How many days cache entries should be considered valid."
 msgstr ""
-"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za"
-" platné."
+"Počet dní, počas ktorých sa majú záznamy vo vyrovnávacej pamäti považovať za "
+"platné."
 
 msgid "Rich Text Control Sidebar"
 msgstr "Bočný panel ovládača formátovaného textu"
@@ -2677,9 +2799,9 @@ msgstr "Zručnosť humanizácie (prirodzený text)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
+"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
+"dedicated Skills tab can be added later."
 msgstr ""
 "Keď je povolené, vloží usmernenie do systémovej výzvy, aby generovaný alebo "
 "revidovaný text dokumentu znel prirodzenejšie a ľudskejšie (odstraňuje "
@@ -2740,8 +2862,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Keď je táto možnosť zapnutá, kontrola gramatiky AI preskočí žiadosti na "
-"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným"
-" volaniam API."
+"pozadí, kým beží chat na bočnom paneli alebo agent, aby sa predišlo súbežným "
+"volaniam API."
 
 msgid "Batch sentences"
 msgstr "Dávkové vety"
@@ -2804,9 +2926,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Vypnuté = priame úpravy. Záznam = sledované zmeny, ktoré sami "
-"prijmete/odmietnete. Čakať = apply_document_content blokuje (vo vlákne "
-"chatu/MCP), kým nevykonáte kontrolu."
+"Vypnuté = priame úpravy. Záznam = sledované zmeny, ktoré sami prijmete/"
+"odmietnete. Čakať = apply_document_content blokuje (vo vlákne chatu/MCP), "
+"kým nevykonáte kontrolu."
 
 msgid "Record (track changes)"
 msgstr "Záznam (sledovať zmeny)"
@@ -2847,8 +2969,8 @@ msgstr "Vkladací model"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"ID modelu HuggingFace pre lokálneho poskytovateľa alebo ID modelu špecifické"
-" pre koncový bod"
+"ID modelu HuggingFace pre lokálneho poskytovateľa alebo ID modelu špecifické "
+"pre koncový bod"
 
 msgid "Enable cross-file rerank"
 msgstr "Povoliť rerank naprieč súbormi"
@@ -2864,11 +2986,11 @@ msgid "Rerank model"
 msgstr "Model na rerank"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
-" is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
+"is multilingual and downloads ~2.3 GB."
 msgstr ""
-"Používa sa len vtedy, keď je povolený rerank. Anglický MiniLM je rýchly; "
-"bge-reranker-v2-m3 je viacjazyčný a sťahuje približne 2,3 GB."
+"Používa sa len vtedy, keď je povolený rerank. Anglický MiniLM je rýchly; bge-"
+"reranker-v2-m3 je viacjazyčný a sťahuje približne 2,3 GB."
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2886,11 +3008,11 @@ msgid "Enable MCP Server"
 msgstr "Povoliť server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Iba localhost, bez autentifikácie. Klienti používajú "
-"http://localhost:<port>/mcp (streamovateľné HTTP)."
+"Iba localhost, bez autentifikácie. Klienti používajú http://localhost:<port>/"
+"mcp (streamovateľné HTTP)."
 
 msgid "MCP Port"
 msgstr "Port MCP"
@@ -2934,10 +3056,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Ak je nastavené, spustí nástroje v danom venv (bin/python alebo "
-"Scripts/python.exe). Ak je prázdne, run_venv_python_script použije "
-"sys.executable tohto procesu (základná stdlib); pre numpy/pandas a "
-"pomocníkov vízie (paddleocr, paddlepaddle) použite venv."
+"Ak je nastavené, spustí nástroje v danom venv (bin/python alebo Scripts/"
+"python.exe). Ak je prázdne, run_venv_python_script použije sys.executable "
+"tohto procesu (základná stdlib); pre numpy/pandas a pomocníkov vízie "
+"(paddleocr, paddlepaddle) použite venv."
 
 msgid "Test"
 msgstr "Test"
@@ -2959,12 +3081,12 @@ msgid "Max Calc data cells"
 msgstr "Maximálny počet buniek údajov v Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "Maximálny počet buniek v údajoch =PYTHON() alebo v údajoch/oblasti údajov "
-"funkcie Spustiť skript Python. Vyššie hodnoty spotrebúvajú viac pamäte RAM a"
-" času; čítanie rozsahu UNO je stále dominantné."
+"funkcie Spustiť skript Python. Vyššie hodnoty spotrebúvajú viac pamäte RAM a "
+"času; čítanie rozsahu UNO je stále dominantné."
 
 msgid "Python session mode"
 msgstr "Režim relácie Pythonu"
@@ -2996,29 +3118,28 @@ msgid "Convert Date/Time and Timedelta Strings"
 msgstr "Konvertovať reťazce dátumu/času a časového rozdielu"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to "
-"datetime/timedelta objects when sending data to the Python worker. Requires "
-"the 'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to datetime/"
+"timedelta objects when sending data to the Python worker. Requires the "
+"'pandas' and 'dateparser' packages in your venv."
 msgstr ""
-"Automaticky detegovať a konvertovať reťazce dátumu/času a trvania na objekty"
-" datetime/timedelta pri odosielaní údajov do Python worker-a. Vyžaduje "
-"balíky 'pandas' a 'dateparser' vo vašom venv."
+"Automaticky detegovať a konvertovať reťazce dátumu/času a trvania na objekty "
+"datetime/timedelta pri odosielaní údajov do Python worker-a. Vyžaduje balíky "
+"'pandas' a 'dateparser' vo vašom venv."
 
 msgid "PPT-Master data path"
 msgstr "Cesta k údajom PPT-Master"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
-"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
-"repo, then env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
+"svg_to_pptx/). Clone hugohe3/ppt-master on GitHub and point here at the "
+"clone root (.../ppt-master) or the inner skill dir (.../ppt-master/skills/"
+"ppt-master). Leave empty to auto-detect (dev clone beside repo, then env)."
 msgstr ""
-"Cesta k stromu zručností ppt-master (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Klonujte https://github.com/hugohe3/ppt-master a "
-"nasmerujte sem na koreň klonu (.../ppt-master) alebo vnútorný adresár "
-"zručností (.../ppt-master/skills/ppt-master). Ponechajte prázdne pre "
-"automatickú detekciu (vývojový klon vedľa repozitára, potom env)."
+"Cesta k stromu zručností ppt-master (SKILL.md, templates/, scripts/"
+"svg_to_pptx/). Naklonujte hugohe3/ppt-master na GitHub a nasmerujte sem na "
+"koreň klonu (.../ppt-master) alebo vnútorný adresár zručností (.../ppt-"
+"master/skills/ppt-master). Ponechajte prázdne pre automatickú detekciu "
+"(vývojový klon vedľa repozitára, potom env)."
 
 msgid "Vision / OCR"
 msgstr "Vízia / OCR"
@@ -3041,8 +3162,7 @@ msgstr "Cesta k artefaktom Docling"
 
 msgid "Optional folder from docling-tools models download (offline use)."
 msgstr ""
-"Voliteľný priečinok na stiahnuté modely docling-tools (pre offline "
-"použitie)."
+"Voliteľný priečinok na stiahnuté modely docling-tools (pre offline použitie)."
 
 msgid "OCR confidence threshold"
 msgstr "Prahová hodnota spoľahlivosti OCR"
@@ -3086,8 +3206,8 @@ msgid ""
 "html = Docling HTML import (default). structured = bbox column layout in "
 "Writer; native Calc cells for extract_structure tables."
 msgstr ""
-"html = import HTML cez Docling (predvolené). structured = rozloženie stĺpcov"
-" s ohraničením (bbox) vo Writeri; natívne bunky Calc pre tabuľky "
+"html = import HTML cez Docling (predvolené). structured = rozloženie stĺpcov "
+"s ohraničením (bbox) vo Writeri; natívne bunky Calc pre tabuľky "
 "extract_structure."
 
 msgid "Standard HTML"

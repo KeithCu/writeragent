@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 19:03-0400\n"
+"POT-Creation-Date: 2026-07-11 12:23-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -22,7 +22,8 @@ msgid ""
 "Local OCR requires Settings → Python venv with Docling or PaddleOCR "
 "(Settings → Python → Test for install hints)."
 msgstr ""
-"本地 OCR 需要设置 → Python venv（包含 Docling 或 PaddleOCR）（设置 → Python → 测试以获取安装提示）。"
+"本地 OCR 需要设置 → Python venv（包含 Docling 或 PaddleOCR）（设置 → Python "
+"→ 测试以获取安装提示）。"
 
 #: plugin/doc/specialized_base.py
 msgid "Running local OCR on selected image..."
@@ -30,19 +31,19 @@ msgstr "正在对所选图像运行本地 OCR..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
 msgstr "文档研究读取需要专门的任务委派 (USE_SUB_AGENT)。请在配置中启用此项。"
 
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"工具调用已切换到 '{0}'。您现在处于专用工具集模式。完成时必须调用 'specialized_workflow_finished' 以恢复完整的 "
-"API 集。"
+"工具调用已切换到 '{0}'。您现在处于专用工具集模式。完成时必须调用 "
+"'specialized_workflow_finished' 以恢复完整的 API 集。"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -54,8 +55,8 @@ msgstr "仅 LibreOffice Writer 支持运行 Notebook。"
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
-" first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
+"first."
 msgstr "此文档未导入 Notebook。请先使用“工具”→“导入 Jupyter Notebook…”。"
 
 #: plugin/notebook/notebook_runner.py
@@ -239,8 +240,7 @@ msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr "请求超时。请尝试在设置中增加“请求超时”时间。"
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr "连接被拒绝。您的本地 AI 服务器 (Ollama/LM Studio) 是否正在运行？"
 
 #: plugin/framework/errors.py
@@ -265,72 +265,19 @@ msgstr "{resource_type} 未找到：{identifier}"
 msgid "UNO Thread Violation"
 msgstr "UNO 线程违规"
 
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can edit or translate your document instantly with professional "
-"formatting and color. Try me!"
-msgstr "AI：我可以立即以专业格式和颜色编辑或翻译您的文档。试试我！"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr "AI：我可以帮助您处理公式、数据分析和彩色图表。试试我！"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you create and edit polished, colorful shapes in Draw and "
-"Impress. Try me!"
-msgstr "AI：我可以帮助您在 Draw 和 Impress 中创建和编辑精美的彩色形状。试试我吧！"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr "AI：我可以进行网络研究来回答任何问题，或总结网页，而不会查看或更改您的文档。我们来聊聊吧。"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr "AI：深度研究模式会运行多步骤的网络调查（规划、多次搜索、综合），并将格式化的报告插入到您的文档中。此过程耗时较长，但能提供更详尽的结果。"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr "AI：让我们一起探索和设计您的想法。我会提出问题、建议方案，并在您准备好时帮助您在文档中构建已批准的规范。"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr "AI：让我们逐节起草您的文档。我将协助您创建写作计划大纲，并在获得您批准后逐步执行。"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
-msgstr ""
-"AI：PPT-Master 模式 — 我将在您配置的 Python 虚拟环境中运行 ppt-master 工作流（脚本 + 导出至 "
-"Impress）。请描述您的主题或指定一个项目文件夹。"
-
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "来自 AI 提供商的 HTTP 错误 {0}: {1}"
 
 #: plugin/framework/client/errors.py
+#, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to "
-"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
+"(not the general /api/paas URL)."
 msgstr ""
-" 如果您的 API 密钥来自 GLM 编码计划订阅，请将端点设置为 https://api.z.ai/api/coding/paas/v4（而非通用的 "
-"/api/paas URL）。"
+" 如果您的 API 密钥来自 GLM 编码计划订阅，请将端点设置为 {0}（而非通用的 /api/"
+"paas URL）。"
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -387,19 +334,23 @@ msgid ""
 "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
 "A1:B10) or =PYTHON(...)."
 msgstr ""
-"无法保留此单元格的 PYTHON 公式参数（例如数据区域）。请在 Calc 中编辑公式，或使用带引号的代码字符串，例如 =PY(\"code\"; "
-"A1:B10) 或 =PYTHON(...)。"
+"无法保留此单元格的 PYTHON 公式参数（例如数据区域）。请在 Calc 中编辑公式，或"
+"使用带引号的代码字符串，例如 =PY(\"code\"; A1:B10) 或 =PYTHON(...)。"
+
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Saved without =PY()."
+msgstr "已保存，不含 =PY()。"
 
 #: plugin/calc/python/editor.py
 msgid "Python cell editor"
 msgstr "Python 单元格编辑器"
 
-#: plugin/calc/python/editor.py
-msgid "Save as plain text"
-msgstr "另存为纯文本"
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Save without =PY()"
+msgstr "保存时不含 =PY()"
 
-#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Save"
 msgstr "保存"
 
@@ -417,8 +368,22 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
-"此 PYTHON 公式使用的格式编辑器无法安全重写（例如其他单元格中的代码）。请在公式栏中编辑它，或使用带引号代码的 =PY(\"code\"; "
-"range)（或 =PYTHON(...)）。"
+"此 PYTHON 公式使用的格式编辑器无法安全重写（例如其他单元格中的代码）。请在公"
+"式栏中编辑它，或使用带引号代码的 =PY(\"code\"; range)（或 =PYTHON(...)）。"
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Edit Python in Cell requires the Monaco editor, which is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json.\n"
+"\n"
+"Set it to false and restart LibreOffice to use this command, or edit PYTHON "
+"formulas in the Calc formula bar."
+msgstr ""
+"“在单元格中编辑 Python”功能需要 Monaco 编辑器，但该功能已被 writeragent.json "
+"中的 \"scripting.force_internal_script_editor\" 禁用。\n"
+"\n"
+"请将其设置为 false 并重启 LibreOffice 以使用此命令，或者在 Calc 公式栏中编辑 "
+"PYTHON 公式。"
 
 #: plugin/calc/python/editor.py
 msgid "No Python interpreter available for the editor."
@@ -427,7 +392,8 @@ msgstr "编辑器没有可用的 Python 解释器。"
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → "
+"Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
@@ -472,6 +438,35 @@ msgstr "请将图像锚定到单元格，选中它，然后再次运行。"
 msgid "No structured tables or text blocks to insert."
 msgstr "没有可插入的结构化表格或文本块。"
 
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "虚拟环境正常"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "虚拟环境检查失败"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+#: plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "正在测试 Python 环境..."
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Done"
+msgstr "完成"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Failed"
+msgstr "失败"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Cython 加速器下载"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "Python 设置"
+
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "接受全部更改 (Agent)"
@@ -498,8 +493,9 @@ msgstr "WriterAgent：编辑选区"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/main_core.py plugin/main.py
 msgid "Error"
 msgstr "错误"
 
@@ -511,7 +507,7 @@ msgstr "此命令仅在 Writer 文档中可用。"
 msgid "Unknown conversion error"
 msgstr "未知转换错误"
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 msgid "Formula inserted."
 msgstr "公式已插入。"
 
@@ -519,16 +515,18 @@ msgstr "公式已插入。"
 msgid "LaTeX Math Editor"
 msgstr "LaTeX 数学编辑器"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert as display block (centered paragraph)"
 msgstr "作为显示块插入（居中段落）"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "插入"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Close"
 msgstr "关闭"
 
@@ -811,7 +809,8 @@ msgstr "为何"
 msgid "you"
 msgstr "您"
 
-#: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
+#: plugin/chatbot/panel_wiring.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Ready"
 msgstr "就绪"
 
@@ -949,14 +948,17 @@ msgstr "此搜索查询 '%s' 将发送到搜索引擎。"
 msgid ""
 "Research cache hit (fuzzy, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
-msgstr "研究缓存命中（模糊匹配，%(pct)s%% 匹配度：%(lang_bit)s%(cache_key)s → %(matched)s）"
+msgstr ""
+"研究缓存命中（模糊匹配，%(pct)s%% 匹配度：%(lang_bit)s%(cache_key)s → "
+"%(matched)s）"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
 msgid ""
 "Research cache hit (embedding, %(pct)s%% match: %(lang_bit)s%(cache_key)s → "
 "%(matched)s)"
-msgstr "研究缓存命中 (嵌入, %(pct)s%% 匹配: %(lang_bit)s%(cache_key)s → %(matched)s)"
+msgstr ""
+"研究缓存命中 (嵌入, %(pct)s%% 匹配: %(lang_bit)s%(cache_key)s → %(matched)s)"
 
 #: plugin/chatbot/web_research_chat.py
 #, python-format
@@ -1037,8 +1039,7 @@ msgstr "[代理后端 '{0}' 未找到。]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr "[代理后端 '{0}' 不可用。请检查设置（路径、安装）。]"
 
 #: plugin/chatbot/send_handlers.py
@@ -1141,7 +1142,9 @@ msgstr "有可用更新"
 msgid ""
 "A newer WriterAgent (%s) is available. Use Tools → Extension Manager to "
 "check for updates and install the latest extension."
-msgstr "有更新的 WriterAgent (%s) 可用。请使用 工具 → 扩展管理器 检查更新并安装最新扩展。"
+msgstr ""
+"有更新的 WriterAgent (%s) 可用。请使用 工具 → 扩展管理器 检查更新并安装最新扩"
+"展。"
 
 #: plugin/chatbot/librarian.py
 msgid "Switching to document mode..."
@@ -1159,26 +1162,6 @@ msgstr "无效设置"
 #, python-brace-format
 msgid "Failed to open Settings: {0}"
 msgstr "打开设置失败：{0}"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Venv OK"
-msgstr "虚拟环境正常"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Venv check failed"
-msgstr "虚拟环境检查失败"
-
-#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "正在测试 Python 环境..."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Done"
-msgstr "完成"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Failed"
-msgstr "失败"
 
 #: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
@@ -1208,6 +1191,175 @@ msgstr "高度："
 msgid "Width:"
 msgstr "宽度："
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "状态："
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saving…"
+msgstr "正在保存…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "正在运行…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "缺少 Monaco 加载器。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "运行"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "取消"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data:"
+msgstr "数据："
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1 或 A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
+msgstr "Calc 在运行时会从这些范围注入 `data` 和 `data_list`。"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data ranges apply only when saving as a =PYTHON() formula."
+msgstr "数据范围仅在保存为 =PYTHON() 公式时生效。"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saved."
+msgstr "已保存。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "脚本："
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Sample"
+msgstr "示例"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Attach"
+msgstr "附加"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "附加到文档"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "另存为..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts"
+msgstr "复制到我的脚本"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "删除"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "脚本"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "我的脚本"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr "内置助手为只读。请使用“复制到我的脚本”进行自定义。"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr "文档已更改 — 请关闭并重新打开“运行 Python 脚本”以编辑文档脚本。"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "已加载脚本“{0}”。"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Loaded Sample scratchpad."
+msgstr "已加载示例草稿板。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "没有打开任何文档以附加脚本。"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "正在附加脚本“{0}”..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "正在将脚本“{0}”复制到“我的脚本”..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "正在保存脚本“{0}”..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "正在删除脚本“{0}”..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "无法删除内置助手。"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Cleared Sample scratchpad."
+msgstr "已清除示例草稿板。"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "输入脚本名称："
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "名为“{0}”的脚本已存在于此文档中。是否覆盖？"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "复制到“我的脚本”为："
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr "“我的脚本”中已存在名为“{0}”的脚本。是否覆盖？"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "将脚本“{0}”保存到此文档？"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "确定要清除示例草稿板吗？"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "确定要删除脚本“{0}”吗？"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "选择数据区域或输入 A1 地址（作为数据注入）。"
+
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
@@ -1234,12 +1386,12 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "名为“{0}”的脚本已存在于此文档中。"
 
 #: plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "我的脚本"
-
-#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "当前文档"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "无法从扩展中加载 PythonScriptDialog。"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1256,23 +1408,6 @@ msgstr "脚本“%s”已保存到此文档。"
 msgid "Script '%s' saved successfully."
 msgstr "脚本“%s”保存成功。"
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "No document is open to attach scripts."
-msgstr "没有打开任何文档以附加脚本。"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Enter script name:"
-msgstr "输入脚本名称："
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach to Document"
-msgstr "附加到文档"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "名为“{0}”的脚本已存在于此文档中。是否覆盖？"
-
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
 msgstr "附加脚本"
@@ -1285,11 +1420,6 @@ msgstr "脚本“%s”已附加到此文档。"
 #: plugin/scripting/python_runner_ui.py
 msgid "Save Script"
 msgstr "保存脚本"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "将脚本“{0}”保存到此文档？"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1333,6 +1463,25 @@ msgstr "成功"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "输出"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in WriterAgent Settings → Python (same venv where "
+"you ran 'uv pip install pywebview rocher'). LibreOffice's built-in Python "
+"cannot run the Monaco editor."
+msgstr ""
+"请在 WriterAgent 设置 → Python 中设置 Python 虚拟环境路径（即运行“uv pip "
+"install pywebview rocher”的同一虚拟环境）。LibreOffice 内置的 Python 无法运"
+"行 Monaco 编辑器。"
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"bin/python3, or bin/python3.x)."
+msgstr ""
+"在配置的虚拟环境中未找到 Python 可执行文件：{0}（预期为 bin/python、bin/"
+"python3 或 bin/python3.x）。"
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1406,15 +1555,15 @@ msgstr "音频探测失败（请参阅 writeragent_debug.log）。"
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
-msgstr "文本/NLP 探测超时（spaCy 或 transformers 的首次导入可能需要 10–30 秒）。"
+msgstr ""
+"文本/NLP 探测超时（spaCy 或 transformers 的首次导入可能需要 10–30 秒）。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "文本/NLP 探测失败（请参阅 writeragent_debug.log）。"
 
 #: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr "视觉探测超时（首次检查时 Docling 导入可能需要 10–30 秒）。"
 
 #: plugin/scripting/venv_diagnostics.py
@@ -1425,7 +1574,8 @@ msgstr "视觉探测失败（请参阅 writeragent_debug.log）。"
 msgid ""
 "Vector Search probe timed out (sentence-transformers import can take 10–30s "
 "on first check)."
-msgstr "向量搜索探测超时（首次检查时，sentence-transformers 导入可能需要 10–30 秒）。"
+msgstr ""
+"向量搜索探测超时（首次检查时，sentence-transformers 导入可能需要 10–30 秒）。"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
@@ -1533,7 +1683,8 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is using:\n"
+"The features in this dialog require these packages in the python it is "
+"using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1541,7 +1692,8 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed "
+"in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "来自文本分析工作进程的错误：\n"
 "{err}\n"
@@ -1554,7 +1706,8 @@ msgstr ""
 "请使用以下命令安装：\n"
 "  {install}\n"
 "\n"
-"工作进程报告缺少该模块。请验证这些包是否已安装在工作进程为您的配置虚拟环境所解析的特定 Python 可执行文件中。"
+"工作进程报告缺少该模块。请验证这些包是否已安装在工作进程为您的配置虚拟环境所"
+"解析的特定 Python 可执行文件中。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1573,11 +1726,15 @@ msgstr "正在分析..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → "
+"Python). Click Check Venv in this dialog or use the full Test in Settings → "
+"Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "错误：%s\n"
 "\n"
-"您配置的虚拟环境（设置 → Python）中可能缺少必需的软件包。请点击此对话框中的“检查虚拟环境”，或使用“设置 → Python”中的完整测试功能以获取有关 spacy、textdescriptives、transformers、torch 等的详细信息。"
+"您配置的虚拟环境（设置 → Python）中可能缺少必需的软件包。请点击此对话框中的"
+"“检查虚拟环境”，或使用“设置 → Python”中的完整测试功能以获取有关 spacy、"
+"textdescriptives、transformers、torch 等的详细信息。"
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1658,7 +1815,9 @@ msgstr "助手失败。"
 msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
-msgstr "Vision “{helper}” 已完成。已插入 HTML（{blocks} 个块，{tables} 个表格）。（耗时 {time}）"
+msgstr ""
+"Vision “{helper}” 已完成。已插入 HTML（{blocks} 个块，{tables} 个表格）。（耗"
+"时 {time}）"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1792,13 +1951,16 @@ msgid ""
 "Reset Python Session for notebooks applies to LibreOffice Writer. Open a "
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
-"重置笔记本的 Python 会话仅适用于 LibreOffice Writer。请打开一个已导入 Jupyter 笔记本的 Writer 文档并重试。"
+"重置笔记本的 Python 会话仅适用于 LibreOffice Writer。请打开一个已导入 "
+"Jupyter 笔记本的 Writer 文档并重试。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
-msgstr "此 Writer 文档没有已导入的笔记本注册表。请先使用“工具”→“导入 Jupyter 笔记本…”。"
+msgstr ""
+"此 Writer 文档没有已导入的笔记本注册表。请先使用“工具”→“导入 Jupyter 笔记"
+"本…”。"
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -1826,7 +1988,9 @@ msgstr "已重置此工作簿的 Python 会话。"
 msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
-msgstr "此工作簿的初始化脚本及任何内存中初始化状态均已重置。单元格变量已按单元格隔离。"
+msgstr ""
+"此工作簿的初始化脚本及任何内存中初始化状态均已重置。单元格变量已按单元格隔"
+"离。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1834,14 +1998,16 @@ msgid ""
 "variables). There is no shared cell session to reset. Add an initialization "
 "script if you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python 会话模式为“隔离”（每个 =PYTHON() "
-"单元格使用其各自的变量）。没有可重置的共享单元格会话。如果需要清除昂贵的一次性工作簿设置，请添加初始化脚本。"
+"Python 会话模式为“隔离”（每个 =PYTHON() 单元格使用其各自的变量）。没有可重置"
+"的共享单元格会话。如果需要清除昂贵的一次性工作簿设置，请添加初始化脚本。"
 
 #: plugin/scripting/session_manager.py
 msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… to enable notebook Python session reset."
-msgstr "此 Writer 文档没有导入的笔记本注册表。请使用“工具”→“导入 Jupyter 笔记本…”以启用笔记本 Python 会话重置。"
+msgstr ""
+"此 Writer 文档没有导入的笔记本注册表。请使用“工具”→“导入 Jupyter 笔记本…”以启"
+"用笔记本 Python 会话重置。"
 
 #: plugin/scripting/units.py
 msgid "Units helper returned no formatted text."
@@ -1892,8 +2058,8 @@ msgstr "暂不支持将结果插入到 Draw/Impress。欢迎提交 PR！"
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
 msgstr "脚本执行成功，但未返回结果且未产生输出。（耗时 {time}）"
 
 #: plugin/scripting/python_runner.py
@@ -1914,20 +2080,29 @@ msgstr "脚本已保存。"
 msgid "Run Python Script"
 msgstr "运行 Python 脚本"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run"
-msgstr "运行"
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr "“运行 Python 脚本”未能打开 Monaco 编辑器。"
 
 #: plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr "选择数据区域或输入 A1 地址（作为数据注入）。"
+msgid "Could not open the built-in script dialog."
+msgstr "无法打开内置脚本对话框。"
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr "打开“运行 Python 脚本”时发生意外错误。"
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "调度错误"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
 msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
-msgstr "未找到图像 '{name}'。请使用 list_images 或将 image_name 留空并选择该图形。"
+msgstr ""
+"未找到图像 '{name}'。请使用 list_images 或将 image_name 留空并选择该图形。"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2083,10 +2258,6 @@ msgstr "文本分析..."
 msgid "Convert Sheet to Python..."
 msgstr "将工作表转换为 Python..."
 
-#: plugin/main.py
-msgid "Dispatch Error"
-msgstr "调度错误"
-
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
@@ -2120,10 +2291,6 @@ msgid "Aspect Ratio:"
 msgstr "宽高比："
 
 #: plugin/xdl_strings.py
-msgid "Attach"
-msgstr "附加"
-
-#: plugin/xdl_strings.py
 msgid "Audio Model:"
 msgstr "音频模型："
 
@@ -2148,10 +2315,6 @@ msgid "Calc"
 msgstr "Calc"
 
 #: plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "取消"
-
-#: plugin/xdl_strings.py
 msgid "Categories:"
 msgstr "分类："
 
@@ -2174,10 +2337,6 @@ msgstr "将工作表转换为 Python"
 #: plugin/xdl_strings.py
 msgid "Copy"
 msgstr "复制"
-
-#: plugin/xdl_strings.py
-msgid "Delete"
-msgstr "删除"
 
 #: plugin/xdl_strings.py
 msgid "Draw"
@@ -2328,16 +2487,8 @@ msgid "Run Benchmark"
 msgstr "运行基准测试"
 
 #: plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "另存为..."
-
-#: plugin/xdl_strings.py
 msgid "Scope"
 msgstr "范围"
-
-#: plugin/xdl_strings.py
-msgid "Script:"
-msgstr "脚本："
 
 #: plugin/xdl_strings.py
 msgid "Search Nearby Files"
@@ -2444,11 +2595,11 @@ msgid "Path / URL"
 msgstr "路径 / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"后端 CLI 路径（例如 aider）或 ACP 服务器 URL（例如 Hermes 的 http://localhost:8000）。空 = "
-"尝试默认。"
+"后端 CLI 路径（例如 aider）或 ACP 服务器 URL（例如 Hermes 的 http://"
+"localhost:8000）。空 = 尝试默认。"
 
 msgid "Extra arguments"
 msgstr "额外参数"
@@ -2517,7 +2668,8 @@ msgstr "网页研究浏览器"
 msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
-msgstr "选择研究期间访问网页时使用的浏览器后端（“关闭”表示使用静态 HTTP 请求）。"
+msgstr ""
+"选择研究期间访问网页时使用的浏览器后端（“关闭”表示使用静态 HTTP 请求）。"
 
 msgid "Off (Static HTTP)"
 msgstr "关闭（静态 HTTP）"
@@ -2555,13 +2707,14 @@ msgstr "拟人化技能（自然散文）"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
+"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
+"dedicated Skills tab can be added later."
 msgstr ""
-"启用后，将向系统提示词注入引导信息，使模型生成或修订的文档文本听起来更自然、更像人类（消除 AI 废话模式）。您可以在 LibreOffice "
-"配置文件的 writeragent/skills/humanizer/SKILL.md "
-"下编辑规则（该文件在首次使用时自动创建）。后续可添加专门的“技能”选项卡。"
+"启用后，将向系统提示词注入引导信息，使模型生成或修订的文档文本听起来更自然、"
+"更像人类（消除 AI 废话模式）。您可以在 LibreOffice 配置文件的 writeragent/"
+"skills/humanizer/SKILL.md 下编辑规则（该文件在首次使用时自动创建）。后续可添"
+"加专门的“技能”选项卡。"
 
 msgid "Silence before send (ms)"
 msgstr "发送前静音 (毫秒)"
@@ -2569,7 +2722,8 @@ msgstr "发送前静音 (毫秒)"
 msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
-msgstr "停止说话后暂停，然后自动停止并发送 (录音)。0 = 等待直到您点击“停止录音”。"
+msgstr ""
+"停止说话后暂停，然后自动停止并发送 (录音)。0 = 等待直到您点击“停止录音”。"
 
 msgid "Doc"
 msgstr "文档"
@@ -2581,8 +2735,8 @@ msgid ""
 "Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool "
 "= use local LanguageTool server via venv pip package."
 msgstr ""
-"关闭 = 禁用。AI (LLM) = 使用您配置的文本模型/API。LanguageTool = 通过 venv pip 包使用本地 "
-"LanguageTool 服务器。"
+"关闭 = 禁用。AI (LLM) = 使用您配置的文本模型/API。LanguageTool = 通过 venv "
+"pip 包使用本地 LanguageTool 服务器。"
 
 msgid "Off"
 msgstr "关闭"
@@ -2611,7 +2765,9 @@ msgstr "聊天/代理运行时暂停语法检查"
 msgid ""
 "When on, AI grammar skips background requests while sidebar chat or agent "
 "runs, to avoid concurrent API calls."
-msgstr "开启时，AI 语法检查在侧边栏聊天或代理运行期间跳过后台请求，以避免并发 API 调用。"
+msgstr ""
+"开启时，AI 语法检查在侧边栏聊天或代理运行期间跳过后台请求，以避免并发 API 调"
+"用。"
 
 msgid "Batch sentences"
 msgstr "批量句子"
@@ -2620,7 +2776,9 @@ msgid ""
 "Number of sentences to send per LLM request (1-8). 1 (default) is most "
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
-msgstr "每次 LLM 请求发送的句子数量 (1-8)。1（默认）最稳定；数值越高速度越快且成本越低，但可能会达到令牌限制或导致模型错误。"
+msgstr ""
+"每次 LLM 请求发送的句子数量 (1-8)。1（默认）最稳定；数值越高速度越快且成本越"
+"低，但可能会达到令牌限制或导致模型错误。"
 
 msgid "Concurrent requests"
 msgstr "并发请求"
@@ -2630,8 +2788,8 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"最大同时后台语法 API 调用数 (1-8)。1 为默认行为。若使用 OpenRouter "
-"或其他允许并行请求的提供商，可调高此数值；与侧边栏聊天功能同时使用时请谨慎设置。"
+"最大同时后台语法 API 调用数 (1-8)。1 为默认行为。若使用 OpenRouter 或其他允许"
+"并行请求的提供商，可调高此数值；与侧边栏聊天功能同时使用时请谨慎设置。"
 
 msgid "Sentence language detection"
 msgstr "句子语言检测"
@@ -2642,8 +2800,9 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"根据文档区域设置验证每个完整句子的语言。AI 模式使用您的语法/聊天 API；本地模式使用 Python 虚拟环境中的 langdetect（设置 → "
-"Python；无 API 调用）。不匹配时将更新字符区域设置 (CharLocale) 并重新检查语法。"
+"根据文档区域设置验证每个完整句子的语言。AI 模式使用您的语法/聊天 API；本地模"
+"式使用 Python 虚拟环境中的 langdetect（设置 → Python；无 API 调用）。不匹配时"
+"将更新字符区域设置 (CharLocale) 并重新检查语法。"
 
 msgid "Local (langdetect)"
 msgstr "本地 (langdetect)"
@@ -2654,7 +2813,9 @@ msgstr "回车键发送侧边栏聊天消息"
 msgid ""
 "When on, Enter in the sidebar query runs the same action as Send; "
 "Shift+Enter inserts a newline. When off, Enter inserts a newline."
-msgstr "开启时，在侧边栏查询中按回车键执行与“发送”相同的操作；Shift+回车键插入换行符。关闭时，回车键插入换行符。"
+msgstr ""
+"开启时，在侧边栏查询中按回车键执行与“发送”相同的操作；Shift+回车键插入换行"
+"符。关闭时，回车键插入换行符。"
 
 msgid "Agent edit review"
 msgstr "智能体编辑审阅"
@@ -2664,8 +2825,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"关闭 = 直接编辑。记录 = 您自行接受/拒绝的修订记录。等待 = apply_document_content 将阻塞（在聊天/MCP "
-"工作线程上），直到您完成审阅。"
+"关闭 = 直接编辑。记录 = 您自行接受/拒绝的修订记录。等待 = "
+"apply_document_content 将阻塞（在聊天/MCP 工作线程上），直到您完成审阅。"
 
 msgid "Record (track changes)"
 msgstr "记录（修订追踪）"
@@ -2686,8 +2847,8 @@ msgid ""
 "Indexed semantic + keyword search for document_research (corpus.db). "
 "Requires embeddings venv — see Python Test."
 msgstr ""
-"用于 document_research (corpus.db) 的索引语义 + 关键词搜索。需要 embeddings 虚拟环境 — 参见 "
-"Python 测试。"
+"用于 document_research (corpus.db) 的索引语义 + 关键词搜索。需要 embeddings "
+"虚拟环境 — 参见 Python 测试。"
 
 msgid "Embeddings + FTS"
 msgstr "嵌入 + 全文搜索 (FTS)"
@@ -2713,15 +2874,18 @@ msgstr "启用跨文件重排序"
 msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
-msgstr "在混合检索（嵌入 + 全文检索和 LlamaIndex）后的第二阶段交叉编码器。默认关闭。"
+msgstr ""
+"在混合检索（嵌入 + 全文检索和 LlamaIndex）后的第二阶段交叉编码器。默认关闭。"
 
 msgid "Rerank model"
 msgstr "重排序模型"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
-" is multilingual and downloads ~2.3 GB."
-msgstr "仅在启用重排序时使用。English MiniLM 速度快；bge-reranker-v2-m3 支持多语言，下载量约为 2.3 GB。"
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
+"is multilingual and downloads ~2.3 GB."
+msgstr ""
+"仅在启用重排序时使用。English MiniLM 速度快；bge-reranker-v2-m3 支持多语言，"
+"下载量约为 2.3 GB。"
 
 msgid "cross-encoder/ms-marco-MiniLM-L-6-v2"
 msgstr "cross-encoder/ms-marco-MiniLM-L-6-v2"
@@ -2739,9 +2903,11 @@ msgid "Enable MCP Server"
 msgstr "启用 MCP 服务器"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
-msgstr "仅限本地主机，无需身份验证。客户端使用 http://localhost:<port>/mcp (可流式传输的 HTTP)。"
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
+msgstr ""
+"仅限本地主机，无需身份验证。客户端使用 http://localhost:<port>/mcp (可流式传"
+"输的 HTTP)。"
 
 msgid "MCP Port"
 msgstr "MCP 端口"
@@ -2757,9 +2923,10 @@ msgid ""
 "find_tools (domain catalog, then per-domain tool schemas; best for any "
 "client)."
 msgstr ""
-"MCP 客户端如何获取专用工具。delegate=通过代理网关访问（当前行为）；direct_flat=直接列出所有可由 MCP "
-"访问的专用工具，排除仅侧边栏流程（最适合自带工具搜索功能的客户端）；direct_discovery=小型核心列表加 "
-"find_tools（领域目录，然后是各领域的工具架构；最适合所有客户端）。"
+"MCP 客户端如何获取专用工具。delegate=通过代理网关访问（当前行为）；"
+"direct_flat=直接列出所有可由 MCP 访问的专用工具，排除仅侧边栏流程（最适合自带"
+"工具搜索功能的客户端）；direct_discovery=小型核心列表加 find_tools（领域目"
+"录，然后是各领域的工具架构；最适合所有客户端）。"
 
 msgid "Delegate (default)"
 msgstr "代理（默认）"
@@ -2782,9 +2949,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"如果设置，则在该虚拟环境 (venv) 中运行工具（bin/python 或 "
-"Scripts/python.exe）。如果为空，run_venv_python_script 将使用当前进程的 "
-"sys.executable（基础标准库）；请为 numpy/pandas 和视觉助手（paddleocr, paddlepaddle）使用虚拟环境。"
+"如果设置，则在该虚拟环境 (venv) 中运行工具（bin/python 或 Scripts/"
+"python.exe）。如果为空，run_venv_python_script 将使用当前进程的 "
+"sys.executable（基础标准库）；请为 numpy/pandas 和视觉助手（paddleocr, "
+"paddlepaddle）使用虚拟环境。"
 
 msgid "Test"
 msgstr "测试"
@@ -2804,10 +2972,11 @@ msgid "Max Calc data cells"
 msgstr "Calc 最大数据单元格数"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"=PYTHON() 数据或运行 Python 脚本数据/数据区域的最大单元格数。较大的值会占用更多内存和时间；UNO 区域读取仍然是主要耗时部分。"
+"=PYTHON() 数据或运行 Python 脚本数据/数据区域的最大单元格数。较大的值会占用更"
+"多内存和时间；UNO 区域读取仍然是主要耗时部分。"
 
 msgid "Python session mode"
 msgstr "Python 会话模式"
@@ -2815,7 +2984,9 @@ msgstr "Python 会话模式"
 msgid ""
 "Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace "
 "per workbook (variables carry between cells)."
-msgstr "隔离模式：每个 =PYTHON() 单元格拥有独立的命名空间。共享模式：每个工作簿共享一个命名空间（变量可在单元格间传递）。"
+msgstr ""
+"隔离模式：每个 =PYTHON() 单元格拥有独立的命名空间。共享模式：每个工作簿共享一"
+"个命名空间（变量可在单元格间传递）。"
 
 msgid "Isolated (default)"
 msgstr "隔离模式（默认）"
@@ -2835,26 +3006,27 @@ msgid "Convert Date/Time and Timedelta Strings"
 msgstr "转换日期/时间及时间差字符串"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to "
-"datetime/timedelta objects when sending data to the Python worker. Requires "
-"the 'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to datetime/"
+"timedelta objects when sending data to the Python worker. Requires the "
+"'pandas' and 'dateparser' packages in your venv."
 msgstr ""
-"向 Python 工作进程发送数据时，自动检测并将日期/时间及持续时间字符串转换为 datetime/timedelta 对象。需要在您的虚拟环境中安装"
-" 'pandas' 和 'dateparser' 软件包。"
+"向 Python 工作进程发送数据时，自动检测并将日期/时间及持续时间字符串转换为 "
+"datetime/timedelta 对象。需要在您的虚拟环境中安装 'pandas' 和 'dateparser' 软"
+"件包。"
 
 msgid "PPT-Master data path"
 msgstr "PPT-Master 数据路径"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
-"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
-"repo, then env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
+"svg_to_pptx/). Clone hugohe3/ppt-master on GitHub and point here at the "
+"clone root (.../ppt-master) or the inner skill dir (.../ppt-master/skills/"
+"ppt-master). Leave empty to auto-detect (dev clone beside repo, then env)."
 msgstr ""
-"指向 ppt-master 技能树的路径（SKILL.md, templates/, scripts/svg_to_pptx/）。克隆 "
-"https://github.com/hugohe3/ppt-master 并将其指向克隆根目录 (.../ppt-master) 或内部技能目录 "
-"(.../ppt-master/skills/ppt-master)。留空以自动检测（开发克隆位于仓库旁，然后是环境）。"
+"ppt-master 技能树路径（SKILL.md, templates/, scripts/svg_to_pptx/）。请在 "
+"GitHub 上克隆 hugohe3/ppt-master，并指向克隆根目录 (.../ppt-master) 或内部技"
+"能目录 (.../ppt-master/skills/ppt-master)。留空则自动检测（开发克隆位于仓库"
+"旁，或通过环境变量）。"
 
 msgid "Vision / OCR"
 msgstr "视觉 / OCR"

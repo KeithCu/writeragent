@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 19:03-0400\n"
+"POT-Creation-Date: 2026-07-11 12:23-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Vykdomas vietinis OCR pasirinktam paveikslėliui..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
 msgstr ""
 "Dokumentų tyrimo užklausoms reikalingas specializuotas užduočių delegavimas "
 "(USE_SUB_AGENT). Įgalinkite tai konfigūracijoje."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Įrankio iškvietimas perjungtas į „{0}“. Veikiate specializuoto įrankių "
@@ -58,8 +58,8 @@ msgstr "Užrašinės vykdymas palaikomas tik „LibreOffice Writer“ programoje
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
-" first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
+"first."
 msgstr ""
 "Šiame dokumente nėra importuotos užrašinės. Pirmiausia naudokite „Įrankiai“ "
 "→ „Importuoti „Jupyter“ užrašinę…“."
@@ -86,8 +86,7 @@ msgstr "Visi failai"
 
 #: plugin/notebook/import_dialog.py
 msgid "Import Notebook is only supported in LibreOffice Writer."
-msgstr ""
-"Užrašinės importavimas palaikomas tik „LibreOffice Writer“ programoje."
+msgstr "Užrašinės importavimas palaikomas tik „LibreOffice Writer“ programoje."
 
 #: plugin/notebook/import_dialog.py
 #, python-brace-format
@@ -251,11 +250,9 @@ msgstr ""
 "Timeout) nuostatose."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) "
-"veikia?"
+"Ryšys atmestas. Ar jūsų vietinis DI serveris („Ollama“ / „LM Studio“) veikia?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -279,92 +276,19 @@ msgstr "{resource_type} nerasta: {identifier}"
 msgid "UNO Thread Violation"
 msgstr "UNO gijos pažeidimas"
 
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can edit or translate your document instantly with professional "
-"formatting and color. Try me!"
-msgstr ""
-"AI: Galiu akimirksniu redaguoti ar išversti jūsų dokumentą, išlaikydamas "
-"profesionalų formatavimą ir spalvas. Išbandykite!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr ""
-"AI: Galiu padėti su formulėmis, duomenų analize ir spalvingomis diagramomis."
-" Išbandykite!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you create and edit polished, colorful shapes in Draw and "
-"Impress. Try me!"
-msgstr ""
-"AI: Galiu padėti kurti ir redaguoti dailias, spalvingas figūras programose "
-"„Draw“ ir „Impress“. Išbandykite!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Galiu atlikti paiešką internete, kad atsakyčiau į bet kokį klausimą, "
-"arba apibendrinti tinklalapį, nematydamas ir nekeisdamas jūsų dokumento. "
-"Pasikalbėkime."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: režimas „Deep Research“ atlieka daugiapakopį tyrimą internete "
-"(planavimą, kelias paieškas, sintezę) ir gali įterpti suformatuotą ataskaitą"
-" į jūsų dokumentą. Tai užtrunka ilgiau, tačiau pateikia išsamesnius "
-"rezultatus."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"DI: Išnagrinėkime ir sukurkime jūsų idėją kartu. Užduosiu klausimų, "
-"pasiūlysiu būdų ir padėsiu parengti patvirtintą specifikaciją jūsų "
-"dokumente, kai būsite pasiruošę."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"AI: Parengkime jūsų dokumentą dalimis. Padėsiu sudaryti rašymo plano "
-"metmenis, o tada juos įgyvendinsime palaipsniui, jums pritarus."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
-msgstr ""
-"AI: PPT-Master režimas — paleisiu ppt-master darbo eigą jūsų "
-"sukonfigūruotoje Python venv aplinkoje (skriptai + eksportavimas į Impress)."
-" Aprašykite temą arba nurodykite projekto aplanką."
-
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "HTTP klaida {0} iš DI teikėjo: {1}"
 
 #: plugin/framework/client/errors.py
+#, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to "
-"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
+"(not the general /api/paas URL)."
 msgstr ""
 " Jei jūsų API raktas yra iš „GLM Coding Plan“ prenumeratos, nustatykite "
-"galutinį tašką (endpoint) į https://api.z.ai/api/coding/paas/v4 (ne bendrąjį"
-" /api/paas URL)."
+"galinį punktą į {0} (ne bendrąjį /api/paas URL)."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -424,19 +348,23 @@ msgid ""
 "A1:B10) or =PYTHON(...)."
 msgstr ""
 "Nepavyko išsaugoti šio langelio PYTHON formulės argumentų (pvz., duomenų "
-"sričių). Redaguokite formulę „Calc“ programoje arba naudokite cituojamą kodo"
-" eilutę, pvz., =PY(\"code\"; A1:B10) arba =PYTHON(...)."
+"sričių). Redaguokite formulę „Calc“ programoje arba naudokite cituojamą kodo "
+"eilutę, pvz., =PY(\"code\"; A1:B10) arba =PYTHON(...)."
+
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Saved without =PY()."
+msgstr "Įrašyta be =PY()."
 
 #: plugin/calc/python/editor.py
 msgid "Python cell editor"
 msgstr "Python langelių redaktorius"
 
-#: plugin/calc/python/editor.py
-msgid "Save as plain text"
-msgstr "Įrašyti kaip paprastąjį tekstą"
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Save without =PY()"
+msgstr "Įrašyti be =PY()"
 
-#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Save"
 msgstr "Įrašyti"
 
@@ -455,9 +383,25 @@ msgid ""
 "in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
-"Ši PYTHON formulė naudoja formą, kurios redaktorius negali saugiai perrašyti"
-" (pvz., kodas kitame langelyje). Redaguokite ją formulės juostoje arba "
+"Ši PYTHON formulė naudoja formą, kurios redaktorius negali saugiai perrašyti "
+"(pvz., kodas kitame langelyje). Redaguokite ją formulės juostoje arba "
 "naudokite =PY(\"code\"; range) (arba =PYTHON(...)) su cituojamu kodu."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Edit Python in Cell requires the Monaco editor, which is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json.\n"
+"\n"
+"Set it to false and restart LibreOffice to use this command, or edit PYTHON "
+"formulas in the Calc formula bar."
+msgstr ""
+"Norint redaguoti „Python“ langelyje, reikalingas „Monaco“ redaktorius, kuris "
+"yra išjungtas naudojant „scripting.force_internal_script_editor“ faile "
+"writeragent.json.\n"
+"\n"
+"Nustatykite šią reikšmę į „false“ ir iš naujo paleiskite „LibreOffice“, kad "
+"galėtumėte naudoti šią komandą, arba redaguokite „PYTHON“ formules „Calc“ "
+"formulių juostoje."
 
 #: plugin/calc/python/editor.py
 msgid "No Python interpreter available for the editor."
@@ -466,16 +410,19 @@ msgstr "Redaktoriui nepasiekiamas Python interpretatorius."
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → "
+"Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Nepavyko importuoti „webview“ (pywebview) arba „rocher“ naudojant Python iš Nuostatos → Python:\n"
+"Nepavyko importuoti „webview“ (pywebview) arba „rocher“ naudojant Python iš "
+"Nuostatos → Python:\n"
 "%(exe)s\n"
 "\n"
-"Šioje virtualioje aplinkoje (venv) paleiskite: uv pip install pywebview rocher\n"
+"Šioje virtualioje aplinkoje (venv) paleiskite: uv pip install pywebview "
+"rocher\n"
 "(importavimo pavadinimas yra „webview“, paketo pavadinimas yra „pywebview“)."
 
 #: plugin/calc/python/editor.py
@@ -514,6 +461,35 @@ msgid "No structured tables or text blocks to insert."
 msgstr ""
 "Nėra struktūrizuotų lentelių ar teksto blokų, kuriuos būtų galima įterpti."
 
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv veikia"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Nepavyko patikrinti virtualiosios aplinkos (venv)"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+#: plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "Tikrinama „Python“ aplinka..."
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Done"
+msgstr "Atlikta"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Failed"
+msgstr "Nepavyko"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Cython Accelerator atsisiuntimas"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "„Python“ nustatymai"
+
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Priimti visą pakeitimą (agentas)"
@@ -540,8 +516,9 @@ msgstr "WriterAgent: redaguoti pažymėtą sritį"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/main_core.py plugin/main.py
 msgid "Error"
 msgstr "Klaida"
 
@@ -553,7 +530,7 @@ msgstr "Ši komanda pasiekiama tik „Writer“ dokumentuose."
 msgid "Unknown conversion error"
 msgstr "Nežinoma konvertavimo klaida"
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 msgid "Formula inserted."
 msgstr "Formulė įterpta."
 
@@ -561,16 +538,18 @@ msgstr "Formulė įterpta."
 msgid "LaTeX Math Editor"
 msgstr "LaTeX matematikos redaktorius"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert as display block (centered paragraph)"
 msgstr "Įterpti kaip bloką (centruota pastraipa)"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "Įterpti"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Close"
 msgstr "Užverti"
 
@@ -853,7 +832,8 @@ msgstr "kodėl"
 msgid "you"
 msgstr "jūs"
 
-#: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
+#: plugin/chatbot/panel_wiring.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Parengta"
 
@@ -1092,8 +1072,7 @@ msgstr "[Agento posistemė „{0}“ nerasta.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Agento posistemė „{0}“ nepasiekiama. Patikrinkite nuostatas (kelią, "
 "diegimą).]"
@@ -1220,26 +1199,6 @@ msgid "Failed to open Settings: {0}"
 msgstr "Nepavyko atverti nuostatų: {0}"
 
 #: plugin/chatbot/dialog_views.py
-msgid "Venv OK"
-msgstr "Venv veikia"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Venv check failed"
-msgstr "Nepavyko patikrinti virtualiosios aplinkos (venv)"
-
-#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "Tikrinama „Python“ aplinka..."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Done"
-msgstr "Atlikta"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Failed"
-msgstr "Nepavyko"
-
-#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Garso bibliotekos atsisiuntimas"
 
@@ -1267,6 +1226,181 @@ msgstr "Aukštis:"
 msgid "Width:"
 msgstr "Plotis:"
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "Būsena:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saving…"
+msgstr "Įrašoma…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Vykdoma…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "Trūksta „Monaco“ įkėliklio."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "Vykdyti"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Atsisakyti"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data:"
+msgstr "Duomenys:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1 arba A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
+msgstr "„Calc“ vykdymo metu įterpia „data“ ir „data_list“ iš šių diapazonų."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data ranges apply only when saving as a =PYTHON() formula."
+msgstr "Duomenų diapazonai taikomi tik įrašant kaip =PYTHON() formulę."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saved."
+msgstr "Įrašyta."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Scenarijus:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Sample"
+msgstr "Pavyzdys"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Pridėti"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Pridėti prie dokumento"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Įrašyti kaip..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts"
+msgstr "Kopijuoti į „Mano scenarijus“"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Ištrinti"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "Scenarijai"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Mano scenarijai"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+"Įtaisytieji pagalbiniai įrankiai yra tik skaitomi. Norėdami tinkinti, "
+"naudokite „Kopijuoti į „Mano scenarijus““."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr ""
+"Dokumentas pakeistas — uždarykite ir iš naujo atidarykite „Vykdyti Python "
+"scenarijų“, kad redaguotumėte dokumento scenarijus."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "Įkeltas scenarijus „{0}“."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Loaded Sample scratchpad."
+msgstr "Įkeltas pavyzdžių bloknotas."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Nėra atidaryto dokumento scenarijams pridėti."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "Prisegamas scenarijus „{0}“..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "Kopijuojamas scenarijus „{0}“ į „Mano scenarijus“..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "Įrašomas scenarijus „{0}“..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "Šalinamas scenarijus „{0}“..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "Integruotų pagalbinių priemonių pašalinti negalima."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Cleared Sample scratchpad."
+msgstr "Pavyzdžių bloknotas išvalytas."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Įveskite scenarijaus pavadinimą:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "Scenarijus pavadinimu „{0}“ šiame dokumente jau yra. Perrašyti?"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "Kopijuoti į „Mano scenarijai“ kaip:"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr ""
+"Scenarijus pavadinimu „{0}“ aplanke „Mano scenarijai“ jau yra. Perrašyti?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Įrašyti scenarijų „{0}“ į šį dokumentą?"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Ar tikrai norite išvalyti pavyzdžių bloknotą?"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "Ar tikrai norite pašalinti scenarijų „{0}“?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr ""
+"Pasirinkite duomenų sritį arba įveskite A1 adresą (įterpiama kaip duomenys)."
+
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
@@ -1282,8 +1416,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Dokumentas yra tik skaitymo režimu arba savybių įrašyti negalima. Scenarijus"
-" įrašytas į jūsų asmeninę biblioteką."
+"Dokumentas yra tik skaitymo režimu arba savybių įrašyti negalima. Scenarijus "
+"įrašytas į jūsų asmeninę biblioteką."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1295,12 +1429,12 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Scenarijus pavadinimu „{0}“ šiame dokumente jau yra."
 
 #: plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "Mano scenarijai"
-
-#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Šis dokumentas"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "Nepavyko įkelti „PythonScriptDialog“ iš plėtinio."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1317,23 +1451,6 @@ msgstr "Scenarijus „%s“ įrašytas į šį dokumentą."
 msgid "Script '%s' saved successfully."
 msgstr "Scenarijus „%s“ sėkmingai įrašytas."
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "No document is open to attach scripts."
-msgstr "Nėra atidaryto dokumento scenarijams pridėti."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Enter script name:"
-msgstr "Įveskite scenarijaus pavadinimą:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach to Document"
-msgstr "Pridėti prie dokumento"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "Scenarijus pavadinimu „{0}“ šiame dokumente jau yra. Perrašyti?"
-
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
 msgstr "Pridėti scenarijų"
@@ -1346,11 +1463,6 @@ msgstr "Scenarijus „%s“ pridėtas prie šio dokumento."
 #: plugin/scripting/python_runner_ui.py
 msgid "Save Script"
 msgstr "Įrašyti scenarijų"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Įrašyti scenarijų „{0}“ į šį dokumentą?"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1396,6 +1508,25 @@ msgstr "Sėkmė"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Išvestis"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in WriterAgent Settings → Python (same venv where "
+"you ran 'uv pip install pywebview rocher'). LibreOffice's built-in Python "
+"cannot run the Monaco editor."
+msgstr ""
+"Nustatykite Python venv kelią „WriterAgent“ nuostatose → Python (tame "
+"pačiame venv, kuriame vykdėte „uv pip install pywebview rocher“). "
+"Integruotas „LibreOffice“ Python negali paleisti „Monaco“ redaktoriaus."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"bin/python3, or bin/python3.x)."
+msgstr ""
+"Konfigūruotame venv nerasta Python vykdomojo failo: {0} (tikėtasi bin/"
+"python, bin/python3 arba bin/python3.x)."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1481,8 +1612,7 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Teksto / NLP patikra nepavyko (žr. writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Vizijos zondo skirtasis laikas (pirmą kartą importuojant „Docling“ gali "
 "užtrukti 10–30 s)."
@@ -1609,7 +1739,8 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is using:\n"
+"The features in this dialog require these packages in the python it is "
+"using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1617,20 +1748,25 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed "
+"in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Klaida iš teksto analizės darbinės srities:\n"
 "{err}\n"
 "\n"
 "Šio dialogo lango funkcijoms reikalingi šie paketai naudojamame „python“:\n"
-"  • spacy + modelis          (objektai, pagrindinės frazės, pagrindinė statistika)\n"
+"  • spacy + modelis          (objektai, pagrindinės frazės, pagrindinė "
+"statistika)\n"
 "  • textdescriptives         (tikslūs skaitomumo įverčiai)\n"
-"  • transformers + torch     (nuotaikų analizė naudojant daugiakalbį modelį)\n"
+"  • transformers + torch     (nuotaikų analizė naudojant daugiakalbį "
+"modelį)\n"
 "\n"
 "Įdiekite juos naudodami:\n"
 "  {install}\n"
 "\n"
-"Darbinė sritis pranešė, kad trūksta modulio. Patikrinkite, ar paketai įdiegti būtent tame „python“ vykdomajame faile, kurį darbinė sritis nustatė jūsų sukonfigūruotai virtualiai aplinkai (venv)."
+"Darbinė sritis pranešė, kad trūksta modulio. Patikrinkite, ar paketai "
+"įdiegti būtent tame „python“ vykdomajame faile, kurį darbinė sritis nustatė "
+"jūsų sukonfigūruotai virtualiai aplinkai (venv)."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1649,11 +1785,16 @@ msgstr "Analizuojama..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → "
+"Python). Click Check Venv in this dialog or use the full Test in Settings → "
+"Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Klaida: %s\n"
 "\n"
-"Konfigūruotoje virtualioje aplinkoje (venv) gali trūkti reikiamų paketų (Nustatymai → Python). Šiame dialogo lange spustelėkite „Check Venv“ arba naudokite išsamų testą skiltyje Nustatymai → Python, kad gautumėte informacijos apie spacy, textdescriptives, transformers, torch ir kt."
+"Konfigūruotoje virtualioje aplinkoje (venv) gali trūkti reikiamų paketų "
+"(Nustatymai → Python). Šiame dialogo lange spustelėkite „Check Venv“ arba "
+"naudokite išsamų testą skiltyje Nustatymai → Python, kad gautumėte "
+"informacijos apie spacy, textdescriptives, transformers, torch ir kt."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1726,8 +1867,8 @@ msgid ""
 "Quant helper requires a data range. Select cells or enter a range in the "
 "Data field."
 msgstr ""
-"Quant pagalbinei priemonei reikia duomenų srities. Pažymėkite langelius arba"
-" įveskite sritį duomenų lauke."
+"Quant pagalbinei priemonei reikia duomenų srities. Pažymėkite langelius arba "
+"įveskite sritį duomenų lauke."
 
 #: plugin/scripting/domain_registry.py
 msgid "Helper failed."
@@ -1739,8 +1880,8 @@ msgid ""
 "Vision '{helper}' completed. Inserted HTML ({blocks} blocks, {tables} "
 "tables). (took {time})"
 msgstr ""
-"Vision „{helper}“ baigta. Įterptas HTML ({blocks} blokų, {tables} lentelių)."
-" (truko {time})"
+"Vision „{helper}“ baigta. Įterptas HTML ({blocks} blokų, {tables} lentelių). "
+"(truko {time})"
 
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
@@ -1825,8 +1966,8 @@ msgid ""
 "Forecast helper requires a data range. Select cells or enter a range in the "
 "Data field."
 msgstr ""
-"Prognozavimo pagalbininkui reikia duomenų srities. Pažymėkite langelius arba"
-" įveskite sritį lauke „Duomenys“."
+"Prognozavimo pagalbininkui reikia duomenų srities. Pažymėkite langelius arba "
+"įveskite sritį lauke „Duomenys“."
 
 #: plugin/scripting/domain_registry.py
 msgid "Forecast failed."
@@ -1886,8 +2027,8 @@ msgid ""
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
 "Python seanso nustatymas iš naujo užrašų knygelėms taikomas „LibreOffice "
-"Writer“. Atverkite „Writer“ dokumentą su importuota „Jupyter“ užrašų knygele"
-" ir bandykite dar kartą."
+"Writer“. Atverkite „Writer“ dokumentą su importuota „Jupyter“ užrašų knygele "
+"ir bandykite dar kartą."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -1926,8 +2067,8 @@ msgid ""
 "Initialization script and any in-memory init state were reset for this "
 "workbook. Cell variables were already isolated per cell."
 msgstr ""
-"Inicijavimo scenarijus ir bet kokia atmintyje buvusi inicijavimo būsena šiai"
-" skaičiuoklės knygai buvo nustatyti iš naujo. Ląstelių kintamieji jau buvo "
+"Inicijavimo scenarijus ir bet kokia atmintyje buvusi inicijavimo būsena šiai "
+"skaičiuoklės knygai buvo nustatyti iš naujo. Ląstelių kintamieji jau buvo "
 "izoliuoti kiekvienai ląstelei."
 
 #: plugin/scripting/session_manager.py
@@ -2001,11 +2142,11 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
 msgstr ""
-"Scenarijus sėkmingai įvykdytas, tačiau negauta jokių rezultatų ar išvesties."
-" (truko {time})"
+"Scenarijus sėkmingai įvykdytas, tačiau negauta jokių rezultatų ar išvesties. "
+"(truko {time})"
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -2025,14 +2166,21 @@ msgstr "Scenarijus įrašytas."
 msgid "Run Python Script"
 msgstr "Vykdyti „Python“ scenarijų"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run"
-msgstr "Vykdyti"
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr "Vykdant „Python“ scenarijų nepavyko atidaryti „Monaco“ redaktoriaus."
 
 #: plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr ""
-"Pasirinkite duomenų sritį arba įveskite A1 adresą (įterpiama kaip duomenys)."
+msgid "Could not open the built-in script dialog."
+msgstr "Nepavyko atidaryti integruoto scenarijų dialogo lango."
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr "Atidarant „Python“ scenarijaus vykdymą įvyko netikėta klaida."
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "Siuntimo klaida"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2199,10 +2347,6 @@ msgstr "Teksto analizė..."
 msgid "Convert Sheet to Python..."
 msgstr "Konvertuoti lapą į Python..."
 
-#: plugin/main.py
-msgid "Dispatch Error"
-msgstr "Siuntimo klaida"
-
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
@@ -2236,10 +2380,6 @@ msgid "Aspect Ratio:"
 msgstr "Kraštinių santykis:"
 
 #: plugin/xdl_strings.py
-msgid "Attach"
-msgstr "Pridėti"
-
-#: plugin/xdl_strings.py
 msgid "Audio Model:"
 msgstr "Garso modelis:"
 
@@ -2264,10 +2404,6 @@ msgid "Calc"
 msgstr "Calc"
 
 #: plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "Atsisakyti"
-
-#: plugin/xdl_strings.py
 msgid "Categories:"
 msgstr "Kategorijos:"
 
@@ -2290,10 +2426,6 @@ msgstr "Konvertuoti skaičiuoklę į „Python“"
 #: plugin/xdl_strings.py
 msgid "Copy"
 msgstr "Kopijuoti"
-
-#: plugin/xdl_strings.py
-msgid "Delete"
-msgstr "Ištrinti"
 
 #: plugin/xdl_strings.py
 msgid "Draw"
@@ -2328,7 +2460,8 @@ msgid ""
 "Enter Python code to execute in the user virtual environment.\n"
 "Assign the result to the 'result' variable."
 msgstr ""
-"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje aplinkoje.\n"
+"Įveskite „Python“ kodą, kurį norite vykdyti naudotojo virtualiojoje "
+"aplinkoje.\n"
 "Rezultatą priskirkite kintamajam „result“."
 
 #: plugin/xdl_strings.py
@@ -2446,16 +2579,8 @@ msgid "Run Benchmark"
 msgstr "Vykdyti našumo testą"
 
 #: plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "Įrašyti kaip..."
-
-#: plugin/xdl_strings.py
 msgid "Scope"
 msgstr "Aprėptis"
-
-#: plugin/xdl_strings.py
-msgid "Script:"
-msgstr "Scenarijus:"
 
 #: plugin/xdl_strings.py
 msgid "Search Nearby Files"
@@ -2562,11 +2687,11 @@ msgid "Path / URL"
 msgstr "Kelias / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Kelias iki CLI posistemės (pvz., aider) arba ACP serverio URL (pvz., "
-"http://localhost:8000, jei naudojamas Hermes). Tuščia = bandyti numatytąjį."
+"Kelias iki CLI posistemės (pvz., aider) arba ACP serverio URL (pvz., http://"
+"localhost:8000, jei naudojamas Hermes). Tuščia = bandyti numatytąjį."
 
 msgid "Extra arguments"
 msgstr "Papildomi argumentai"
@@ -2672,8 +2797,7 @@ msgstr "Raiškiojo teksto valdiklio šoninė juosta"
 
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr ""
-"Suformatuotas pokalbis naudojant „RichTextControl“. Reikia iš naujo "
-"paleisti."
+"Suformatuotas pokalbis naudojant „RichTextControl“. Reikia iš naujo paleisti."
 
 msgid "Humanizer skill (natural prose)"
 msgstr "Humanizavimo įgūdis (natūralus tekstas)"
@@ -2681,17 +2805,16 @@ msgstr "Humanizavimo įgūdis (natūralus tekstas)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
+"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
+"dedicated Skills tab can be added later."
 msgstr ""
-"Kai įjungta, į sistemos užklausą įtraukiami nurodymai, kad modelis generuotų"
-" arba taisytų dokumento tekstą taip, kad jis skambėtų natūraliau ir "
+"Kai įjungta, į sistemos užklausą įtraukiami nurodymai, kad modelis generuotų "
+"arba taisytų dokumento tekstą taip, kad jis skambėtų natūraliau ir "
 "žmogiškiau (pašalinami dirbtinio intelekto būdingi stiliaus trūkumai). "
-"Taisykles galite redaguoti savo „LibreOffice“ profilyje, aplanke "
-"writeragent/skills/humanizer/SKILL.md (failas automatiškai sukuriamas "
-"pirmojo naudojimo metu). Specialus įgūdžių skirtukas gali būti pridėtas "
-"vėliau."
+"Taisykles galite redaguoti savo „LibreOffice“ profilyje, aplanke writeragent/"
+"skills/humanizer/SKILL.md (failas automatiškai sukuriamas pirmojo naudojimo "
+"metu). Specialus įgūdžių skirtukas gali būti pridėtas vėliau."
 
 msgid "Silence before send (ms)"
 msgstr "Tyla prieš siunčiant (ms)"
@@ -2700,8 +2823,8 @@ msgid ""
 "Pause after you stop talking, then auto-stop and send (Record). 0 = wait "
 "until you click Stop Rec."
 msgstr ""
-"Pauzė nustojus kalbėti, tada automatinis sustabdymas ir siuntimas (Įrašyti)."
-" 0 = laukti, kol paspausite „Stabdyti įrašymą“."
+"Pauzė nustojus kalbėti, tada automatinis sustabdymas ir siuntimas (Įrašyti). "
+"0 = laukti, kol paspausite „Stabdyti įrašymą“."
 
 msgid "Doc"
 msgstr "Dokumentas"
@@ -2760,8 +2883,8 @@ msgid ""
 "cause model errors."
 msgstr ""
 "Vienu LLM užklausa siunčiamų sakinių skaičius (1–8). 1 (numatytoji reikšmė) "
-"yra patikimiausia; didesnės reikšmės yra greitesnės ir pigesnės, tačiau gali"
-" viršyti žetonų limitus arba sukelti modelio klaidų."
+"yra patikimiausia; didesnės reikšmės yra greitesnės ir pigesnės, tačiau gali "
+"viršyti žetonų limitus arba sukelti modelio klaidų."
 
 msgid "Concurrent requests"
 msgstr "Lygiagrečios užklausos"
@@ -2771,10 +2894,10 @@ msgid ""
 "behavior. Raise for OpenRouter or other providers that allow parallel "
 "requests; use with care alongside sidebar chat."
 msgstr ""
-"Maksimalus vienu metu vykdomų gramatikos API užklausų skaičius fone (1–8). 1"
-" atitinka ankstesnę elgseną. Padidinkite, jei naudojate „OpenRouter“ ar "
-"kitus teikėjus, leidžiančius lygiagrečias užklausas; naudokite atsargiai "
-"kartu su šoninės juostos pokalbių funkcija."
+"Maksimalus vienu metu vykdomų gramatikos API užklausų skaičius fone (1–8). 1 "
+"atitinka ankstesnę elgseną. Padidinkite, jei naudojate „OpenRouter“ ar kitus "
+"teikėjus, leidžiančius lygiagrečias užklausas; naudokite atsargiai kartu su "
+"šoninės juostos pokalbių funkcija."
 
 msgid "Sentence language detection"
 msgstr "Sakinio kalbos aptikimas"
@@ -2785,8 +2908,8 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"Patikrinkite kiekvieno sakinio kalbą pagal dokumento lokalę. AI naudoja jūsų"
-" gramatikos / pokalbių API; „Local“ naudoja „langdetect“ jūsų „Python“ "
+"Patikrinkite kiekvieno sakinio kalbą pagal dokumento lokalę. AI naudoja jūsų "
+"gramatikos / pokalbių API; „Local“ naudoja „langdetect“ jūsų „Python“ "
 "virtualioje aplinkoje (Nustatymai → Python; API užklausos nenaudojamos). "
 "Neatitikimai atnaujina „CharLocale“ ir pakartotinai tikrina gramatiką."
 
@@ -2855,8 +2978,8 @@ msgstr "Įterpiamasis modelis"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"„HuggingFace“ modelio ID vietiniam teikėjui arba konkrečiam galiniam punktui"
-" skirtas modelio ID"
+"„HuggingFace“ modelio ID vietiniam teikėjui arba konkrečiam galiniam punktui "
+"skirtas modelio ID"
 
 msgid "Enable cross-file rerank"
 msgstr "Įgalinti kryžminį failų perrikiavimą"
@@ -2865,15 +2988,15 @@ msgid ""
 "Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and "
 "LlamaIndex). Off by default."
 msgstr ""
-"Antrojo etapo kryžminis kodavimo įrenginys po hibridinio paieškos (įdėtiniai"
-" + FTS ir LlamaIndex). Pagal numatytuosius nustatymus išjungta."
+"Antrojo etapo kryžminis kodavimo įrenginys po hibridinio paieškos (įdėtiniai "
+"+ FTS ir LlamaIndex). Pagal numatytuosius nustatymus išjungta."
 
 msgid "Rerank model"
 msgstr "Perrikiavimo modelis"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
-" is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
+"is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Naudojama tik tada, kai įgalintas perrikiavimas. Angliškas „MiniLM“ yra "
 "greitas; „bge-reranker-v2-m3“ yra daugiakalbis ir atsisiunčia ~2,3 GB."
@@ -2894,11 +3017,11 @@ msgid "Enable MCP Server"
 msgstr "Įgalinti MCP serverį"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Tik vietinis kompiuteris, be autentifikacijos. Klientai naudoja "
-"http://localhost:<port>/mcp (srautinis HTTP)."
+"Tik vietinis kompiuteris, be autentifikacijos. Klientai naudoja http://"
+"localhost:<port>/mcp (srautinis HTTP)."
 
 msgid "MCP Port"
 msgstr "MCP prievadas"
@@ -2942,8 +3065,8 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Jei nustatyta, įrankiai vykdomi nurodytame virtualiajame aplanke (bin/python"
-" arba Scripts/python.exe). Jei tuščia, run_venv_python_script naudoja šio "
+"Jei nustatyta, įrankiai vykdomi nurodytame virtualiajame aplanke (bin/python "
+"arba Scripts/python.exe). Jei tuščia, run_venv_python_script naudoja šio "
 "proceso sys.executable (pagrindinė stdlib); naudokite virtualųjį aplanką "
 "(venv) paketams numpy/pandas ir vizijos pagalbininkams (paddleocr, "
 "paddlepaddle)."
@@ -2969,12 +3092,12 @@ msgid "Max Calc data cells"
 msgstr "Didžiausias „Calc“ duomenų langelių skaičius"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Didžiausias langelių skaičius „=PYTHON()“ duomenyse arba „Run Python Script“"
-" duomenų srityje. Didesnės reikšmės naudoja daugiau operatyviosios atminties"
-" ir laiko; UNO srities skaitymas vis tiek išlieka pagrindiniu veiksniu."
+"Didžiausias langelių skaičius „=PYTHON()“ duomenyse arba „Run Python Script“ "
+"duomenų srityje. Didesnės reikšmės naudoja daugiau operatyviosios atminties "
+"ir laiko; UNO srities skaitymas vis tiek išlieka pagrindiniu veiksniu."
 
 msgid "Python session mode"
 msgstr "„Python“ seanso veiksena"
@@ -3000,16 +3123,16 @@ msgid ""
 "Automatically spill multi-cell array/DataFrame results from =PYTHON() into "
 "adjacent cells."
 msgstr ""
-"Automatiškai išskleisti =PYTHON() funkcijos grąžinamus kelių langelių masyvų"
-" / „DataFrame“ rezultatus į gretimus langelius."
+"Automatiškai išskleisti =PYTHON() funkcijos grąžinamus kelių langelių "
+"masyvų / „DataFrame“ rezultatus į gretimus langelius."
 
 msgid "Convert Date/Time and Timedelta Strings"
 msgstr "Konvertuoti datos/laiko ir trukmės eilutes"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to "
-"datetime/timedelta objects when sending data to the Python worker. Requires "
-"the 'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to datetime/"
+"timedelta objects when sending data to the Python worker. Requires the "
+"'pandas' and 'dateparser' packages in your venv."
 msgstr ""
 "Automatiškai aptikti ir konvertuoti datos/laiko bei trukmės eilutes į "
 "datetime/timedelta objektus siunčiant duomenis į Python darbinę programą. "
@@ -3019,17 +3142,16 @@ msgid "PPT-Master data path"
 msgstr "PPT-Master duomenų kelias"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
-"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
-"repo, then env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
+"svg_to_pptx/). Clone hugohe3/ppt-master on GitHub and point here at the "
+"clone root (.../ppt-master) or the inner skill dir (.../ppt-master/skills/"
+"ppt-master). Leave empty to auto-detect (dev clone beside repo, then env)."
 msgstr ""
-"Kelias iki „ppt-master“ įgūdžių medžio (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Klonuokite https://github.com/hugohe3/ppt-master ir "
-"nurodykite čia klono šakninį aplanką (.../ppt-master) arba vidinį įgūdžių "
-"aplanką (.../ppt-master/skills/ppt-master). Palikite tuščią, kad būtų "
-"aptikta automatiškai (kūrėjo klonas šalia saugyklos, tada aplinka)."
+"Kelias iki „ppt-master“ įgūdžių medžio (SKILL.md, templates/, scripts/"
+"svg_to_pptx/). Klonuokite „hugohe3/ppt-master“ „GitHub“ svetainėje ir "
+"nurodykite čia klono šaknį (.../ppt-master) arba vidinį įgūdžių aplanką (.../"
+"ppt-master/skills/ppt-master). Palikite tuščią, kad būtų aptikta "
+"automatiškai (kūrimo klonas šalia saugyklos, tada aplinka)."
 
 msgid "Vision / OCR"
 msgstr "Vizija / OCR"
@@ -3084,8 +3206,7 @@ msgid "Table cell matching"
 msgstr "Lentelės langelių atitikimas"
 
 msgid "Align detected table cells with content (extract_structure)."
-msgstr ""
-"Sulygiuoti aptiktus lentelės langelius su turiniu (extract_structure)."
+msgstr "Sulygiuoti aptiktus lentelės langelius su turiniu (extract_structure)."
 
 msgid "Keep orphan text clusters"
 msgstr "Palikti našlaičių teksto grupes"

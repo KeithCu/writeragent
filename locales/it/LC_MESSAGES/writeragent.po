@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 19:03-0400\n"
+"POT-Creation-Date: 2026-07-11 12:23-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Italian <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Esecuzione OCR locale sull'immagine selezionata..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
 msgstr ""
 "Le letture di ricerca documentale richiedono una delega specifica delle "
 "attività (USE_SUB_AGENT). Abilitarla nella configurazione."
@@ -40,8 +40,8 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
 "Chiamata allo strumento passata a '{0}'. Sei in una modalità set di "
@@ -58,8 +58,8 @@ msgstr "L'esecuzione del notebook è supportata solo in LibreOffice Writer."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
-" first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
+"first."
 msgstr ""
 "Questo documento non contiene alcun notebook importato. Utilizzare prima "
 "Strumenti → Importa notebook Jupyter…"
@@ -239,8 +239,7 @@ msgstr "Endpoint non trovato (404). Controllare l'URL e il nome del modello."
 #: plugin/framework/errors.py
 #, python-brace-format
 msgid "Server error ({0}). The AI provider is having issues."
-msgstr ""
-"Errore del server ({0}). Il provider AI sta riscontrando dei problemi."
+msgstr "Errore del server ({0}). Il provider AI sta riscontrando dei problemi."
 
 #: plugin/framework/errors.py
 #, python-brace-format
@@ -254,8 +253,7 @@ msgstr ""
 "Impostazioni."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
 "Connessione rifiutata. Il tuo server IA locale (Ollama/LM Studio) è in "
 "esecuzione?"
@@ -282,92 +280,19 @@ msgstr "{resource_type} non trovato: {identifier}"
 msgid "UNO Thread Violation"
 msgstr "Violazione thread UNO"
 
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can edit or translate your document instantly with professional "
-"formatting and color. Try me!"
-msgstr ""
-"AI: Posso modificare o tradurre il tuo documento istantaneamente con "
-"formattazione e colori professionali. Provami!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr ""
-"AI: Posso aiutarti con formule, analisi dati e grafici colorati. Provami!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you create and edit polished, colorful shapes in Draw and "
-"Impress. Try me!"
-msgstr ""
-"AI: Posso aiutarti a creare e modificare forme rifinite e colorate in Draw e"
-" Impress. Provami!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"AI: Posso effettuare ricerche web per rispondere a qualsiasi domanda, o "
-"riassumere una pagina web, senza vedere o modificare il tuo documento. "
-"Chiacchieriamo."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: La modalità Deep Research esegue un'indagine web in più passaggi "
-"(pianificazione, diverse ricerche, sintesi) e può inserire un rapporto "
-"formattato nel documento. Richiede più tempo ma produce risultati più "
-"approfonditi."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"IA: Esploriamo e progettiamo insieme la tua idea. Ti farò domande, suggerirò"
-" approcci e ti aiuterò a creare una specifica approvata nel tuo documento "
-"quando sarai pronto."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"IA: Elaboriamo il tuo documento sezione per sezione. Ti aiuterò a creare una"
-" scaletta del piano di scrittura e poi a implementarla in modo incrementale "
-"con la tua approvazione."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
-msgstr ""
-"AI: modalità PPT-Master — Eseguirò il flusso di lavoro ppt-master nel tuo "
-"venv Python configurato (script + esportazione in Impress). Descrivi "
-"l'argomento o indica una cartella di progetto."
-
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Errore HTTP {0} dal provider IA: {1}"
 
 #: plugin/framework/client/errors.py
+#, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to "
-"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
+"(not the general /api/paas URL)."
 msgstr ""
 " Se la tua chiave API proviene da un abbonamento GLM Coding Plan, imposta "
-"l'endpoint su https://api.z.ai/api/coding/paas/v4 (non l'URL generale "
-"/api/paas)."
+"l'endpoint su {0} (non l'URL generale /api/paas)."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -389,8 +314,8 @@ msgid ""
 "The model is repeating the same chunk (infinite loop). Try again or use a "
 "different model."
 msgstr ""
-"Il modello sta ripetendo lo stesso blocco (ciclo infinito). Riprova o usa un"
-" modello diverso."
+"Il modello sta ripetendo lo stesso blocco (ciclo infinito). Riprova o usa un "
+"modello diverso."
 
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
@@ -427,19 +352,23 @@ msgid ""
 "A1:B10) or =PYTHON(...)."
 msgstr ""
 "Impossibile preservare gli argomenti della formula PYTHON di questa cella "
-"(es. intervalli di dati). Modifica la formula in Calc o utilizza una stringa"
-" di codice tra virgolette come =PY(\"codice\"; A1:B10) o =PYTHON(...)."
+"(es. intervalli di dati). Modifica la formula in Calc o utilizza una stringa "
+"di codice tra virgolette come =PY(\"codice\"; A1:B10) o =PYTHON(...)."
+
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Saved without =PY()."
+msgstr "Salvato senza =PY()."
 
 #: plugin/calc/python/editor.py
 msgid "Python cell editor"
 msgstr "Editor di celle Python"
 
-#: plugin/calc/python/editor.py
-msgid "Save as plain text"
-msgstr "Salva come testo semplice"
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Save without =PY()"
+msgstr "Salva senza =PY()"
 
-#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Save"
 msgstr "Salva"
 
@@ -464,19 +393,36 @@ msgstr ""
 "tra virgolette."
 
 #: plugin/calc/python/editor.py
+msgid ""
+"Edit Python in Cell requires the Monaco editor, which is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json.\n"
+"\n"
+"Set it to false and restart LibreOffice to use this command, or edit PYTHON "
+"formulas in the Calc formula bar."
+msgstr ""
+"La modifica di Python nella cella richiede l'editor Monaco, che è "
+"disabilitato da \"scripting.force_internal_script_editor\" in "
+"writeragent.json.\n"
+"\n"
+"Impostalo su false e riavvia LibreOffice per utilizzare questo comando, "
+"oppure modifica le formule PYTHON nella barra della formula di Calc."
+
+#: plugin/calc/python/editor.py
 msgid "No Python interpreter available for the editor."
 msgstr "Nessun interprete Python disponibile per l'editor."
 
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → "
+"Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Impossibile importare webview (pywebview) o rocher con il Python da Impostazioni → Python:\n"
+"Impossibile importare webview (pywebview) o rocher con il Python da "
+"Impostazioni → Python:\n"
 "%(exe)s\n"
 "\n"
 "In quel venv eseguire: uv pip install pywebview rocher\n"
@@ -515,6 +461,35 @@ msgstr "Ancora l'immagine a una cella, selezionala, quindi esegui di nuovo."
 msgid "No structured tables or text blocks to insert."
 msgstr "Nessuna tabella strutturata o blocco di testo da inserire."
 
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv OK"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Controllo Venv non riuscito"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+#: plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "Test dell'ambiente Python in corso..."
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Done"
+msgstr "Completato"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Failed"
+msgstr "Non riuscito"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Download acceleratore Cython"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "Impostazioni Python"
+
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Accetta l'intera modifica (agente)"
@@ -541,8 +516,9 @@ msgstr "WriterAgent: Modifica selezione"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/main_core.py plugin/main.py
 msgid "Error"
 msgstr "Errore"
 
@@ -554,7 +530,7 @@ msgstr "Questo comando è disponibile solo nei documenti Writer."
 msgid "Unknown conversion error"
 msgstr "Errore di conversione sconosciuto"
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 msgid "Formula inserted."
 msgstr "Formula inserita."
 
@@ -562,16 +538,18 @@ msgstr "Formula inserita."
 msgid "LaTeX Math Editor"
 msgstr "Editor di formule LaTeX"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert as display block (centered paragraph)"
 msgstr "Inserisci come blocco (paragrafo centrato)"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "Inserisci"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Close"
 msgstr "Chiudi"
 
@@ -854,7 +832,8 @@ msgstr "perché"
 msgid "you"
 msgstr "tu"
 
-#: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
+#: plugin/chatbot/panel_wiring.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Pronto"
 
@@ -1057,7 +1036,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Nessun editor trovato (installare Kate o Gedit, oppure impostare EDITOR). Percorso:\n"
+"Nessun editor trovato (installare Kate o Gedit, oppure impostare EDITOR). "
+"Percorso:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1094,8 +1074,7 @@ msgstr "[Backend agente '{0}' non trovato.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "[Backend agente '{0}' non disponibile. Controllare le impostazioni "
 "(percorso, installazione).]"
@@ -1223,26 +1202,6 @@ msgid "Failed to open Settings: {0}"
 msgstr "Impossibile aprire le Impostazioni: {0}"
 
 #: plugin/chatbot/dialog_views.py
-msgid "Venv OK"
-msgstr "Venv OK"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Venv check failed"
-msgstr "Controllo Venv non riuscito"
-
-#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "Test dell'ambiente Python in corso..."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Done"
-msgstr "Completato"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Failed"
-msgstr "Non riuscito"
-
-#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Download libreria audio"
 
@@ -1270,12 +1229,192 @@ msgstr "Altezza:"
 msgid "Width:"
 msgstr "Larghezza:"
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "Stato:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saving…"
+msgstr "Salvataggio in corso…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Esecuzione in corso…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "Caricatore Monaco mancante."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "Esegui"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "Annulla"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data:"
+msgstr "Dati:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1  o  A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
+msgstr ""
+"Calc inietta `data` e `data_list` da questi intervalli durante l'esecuzione."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data ranges apply only when saving as a =PYTHON() formula."
+msgstr ""
+"Gli intervalli di dati si applicano solo quando si salva come formula "
+"=PYTHON()."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saved."
+msgstr "Salvato."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Script:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Sample"
+msgstr "Esempio"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Allega"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Allega al documento"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Salva con nome..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts"
+msgstr "Copia in I miei script"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Elimina"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "Script"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "I miei script"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+"Gli helper integrati sono in sola lettura. Usa Copia in I miei script per "
+"personalizzarli."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr ""
+"Documento modificato: chiudi e riapri Esegui script Python per modificare "
+"gli script del documento."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "Script '{0}' caricato."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Loaded Sample scratchpad."
+msgstr "Blocco appunti Esempio caricato."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Nessun documento è aperto a cui allegare script."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "Collegamento dello script '{0}' in corso..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "Copia dello script '{0}' in I miei script in corso..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "Salvataggio dello script '{0}' in corso..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "Eliminazione dello script '{0}' in corso..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "Gli helper integrati non possono essere eliminati."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Cleared Sample scratchpad."
+msgstr "Scratchpad di esempio svuotato."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Inserisci il nome dello script:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr ""
+"Uno script chiamato '{0}' esiste già in questo documento. Sovrascrivere?"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "Copia in I miei script come:"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr ""
+"Uno script denominato '{0}' esiste già in I miei script. Sovrascrivere?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "Salvare lo script '{0}' in questo documento?"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Sei sicuro di voler svuotare lo scratchpad di esempio?"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "Sei sicuro di voler eliminare lo script '{0}'?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr ""
+"Selezionare l'intervallo di dati o inserire un indirizzo A1 (iniettato come "
+"dati)."
+
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
-"Gli script del documento sono troppo grandi per essere salvati nel documento"
-" ({0} byte)."
+"Gli script del documento sono troppo grandi per essere salvati nel documento "
+"({0} byte)."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
 #: plugin/scripting/editor_host.py
@@ -1287,8 +1426,8 @@ msgid ""
 "Document is read-only or properties cannot be written. Script saved to your "
 "personal library instead."
 msgstr ""
-"Il documento è in sola lettura o le proprietà non possono essere scritte. Lo"
-" script è stato salvato nella tua libreria personale."
+"Il documento è in sola lettura o le proprietà non possono essere scritte. Lo "
+"script è stato salvato nella tua libreria personale."
 
 #: plugin/scripting/document_scripts.py plugin/scripting/editor_host.py
 msgid "Script name cannot be empty."
@@ -1300,12 +1439,12 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "Uno script denominato '{0}' esiste già in questo documento."
 
 #: plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "I miei script"
-
-#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Questo documento"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "PythonScriptDialog non può essere caricato dall'estensione."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1322,24 +1461,6 @@ msgstr "Script '%s' salvato in questo documento."
 msgid "Script '%s' saved successfully."
 msgstr "Script '%s' salvato correttamente."
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "No document is open to attach scripts."
-msgstr "Nessun documento è aperto a cui allegare script."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Enter script name:"
-msgstr "Inserisci il nome dello script:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach to Document"
-msgstr "Allega al documento"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr ""
-"Uno script chiamato '{0}' esiste già in questo documento. Sovrascrivere?"
-
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
 msgstr "Allega script"
@@ -1352,11 +1473,6 @@ msgstr "Script '%s' allegato a questo documento."
 #: plugin/scripting/python_runner_ui.py
 msgid "Save Script"
 msgstr "Salva script"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "Salvare lo script '{0}' in questo documento?"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1402,6 +1518,25 @@ msgstr "Operazione riuscita"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Output"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in WriterAgent Settings → Python (same venv where "
+"you ran 'uv pip install pywebview rocher'). LibreOffice's built-in Python "
+"cannot run the Monaco editor."
+msgstr ""
+"Imposta il percorso del venv Python in Impostazioni di WriterAgent → Python "
+"(lo stesso venv dove hai eseguito 'uv pip install pywebview rocher'). Il "
+"Python integrato di LibreOffice non può eseguire l'editor Monaco."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"bin/python3, or bin/python3.x)."
+msgstr ""
+"Nessun eseguibile Python trovato nel venv configurato: {0} (previsti bin/"
+"python, bin/python3 o bin/python3.x)."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1467,8 +1602,7 @@ msgstr ""
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe timed out (sounddevice import failed or hung)."
 msgstr ""
-"Timeout del sondaggio audio (importazione di sounddevice fallita o "
-"bloccata)."
+"Timeout del sondaggio audio (importazione di sounddevice fallita o bloccata)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio probe failed (see writeragent_debug.log)."
@@ -1487,8 +1621,7 @@ msgid "Text/NLP probe failed (see writeragent_debug.log)."
 msgstr "Probe Text/NLP non riuscito (vedere writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Timeout della sonda di visione (l'importazione di Docling può richiedere "
 "10-30 secondi al primo controllo)."
@@ -1620,7 +1753,8 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is using:\n"
+"The features in this dialog require these packages in the python it is "
+"using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1628,12 +1762,14 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed "
+"in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Errore dal worker di Analisi del testo:\n"
 "{err}\n"
 "\n"
-"Le funzionalità in questa finestra di dialogo richiedono questi pacchetti nel Python in uso:\n"
+"Le funzionalità in questa finestra di dialogo richiedono questi pacchetti "
+"nel Python in uso:\n"
 "  • spacy + un modello          (entità, frasi chiave, statistiche di base)\n"
 "  • textdescriptives         (punteggi di leggibilità reali)\n"
 "  • transformers + torch     (Sentiment utilizzando il modello multilingue)\n"
@@ -1641,7 +1777,9 @@ msgstr ""
 "Installali con:\n"
 "  {install}\n"
 "\n"
-"Il worker ha segnalato il modulo come mancante. Verifica che i pacchetti siano installati nell'eseguibile Python esatto che il worker ha risolto per il venv configurato."
+"Il worker ha segnalato il modulo come mancante. Verifica che i pacchetti "
+"siano installati nell'eseguibile Python esatto che il worker ha risolto per "
+"il venv configurato."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1660,11 +1798,16 @@ msgstr "Analisi in corso..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → "
+"Python). Click Check Venv in this dialog or use the full Test in Settings → "
+"Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Errore: %s\n"
 "\n"
-"Potrebbero mancare dei pacchetti necessari nel venv configurato (Impostazioni → Python). Fare clic su Verifica Venv in questa finestra di dialogo o utilizzare il Test completo in Impostazioni → Python per i dettagli su spacy, textdescriptives, transformers, torch ecc."
+"Potrebbero mancare dei pacchetti necessari nel venv configurato "
+"(Impostazioni → Python). Fare clic su Verifica Venv in questa finestra di "
+"dialogo o utilizzare il Test completo in Impostazioni → Python per i "
+"dettagli su spacy, textdescriptives, transformers, torch ecc."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1718,8 +1861,7 @@ msgstr "Assistente visualizzazione non riuscito."
 
 #: plugin/scripting/viz.py
 msgid "Viz helper returned no image payload."
-msgstr ""
-"L'assistente visualizzazione non ha restituito alcun payload immagine."
+msgstr "L'assistente visualizzazione non ha restituito alcun payload immagine."
 
 #: plugin/scripting/domain_registry.py
 msgid "Unsupported document type."
@@ -1730,8 +1872,8 @@ msgid ""
 "Helper requires a data range. Select cells or enter a range in the Data "
 "field."
 msgstr ""
-"L'assistente richiede un intervallo di dati. Selezionare le celle o inserire"
-" un intervallo nel campo Dati."
+"L'assistente richiede un intervallo di dati. Selezionare le celle o inserire "
+"un intervallo nel campo Dati."
 
 #: plugin/scripting/domain_registry.py
 msgid ""
@@ -1808,8 +1950,7 @@ msgstr "L'helper delle unità non è riuscito."
 
 #: plugin/scripting/domain_registry.py
 msgid "Text analytics helpers require a Writer document."
-msgstr ""
-"Gli assistenti per l'analisi del testo richiedono un documento Writer."
+msgstr "Gli assistenti per l'analisi del testo richiedono un documento Writer."
 
 #: plugin/scripting/domain_registry.py
 msgid "Text analytics helper failed."
@@ -1905,8 +2046,8 @@ msgid ""
 "This Writer document has no imported notebook registry. Use Tools → Import "
 "Jupyter Notebook… first."
 msgstr ""
-"Questo documento Writer non ha un registro di notebook importati. Utilizzare"
-" prima Strumenti → Importa notebook Jupyter…"
+"Questo documento Writer non ha un registro di notebook importati. Utilizzare "
+"prima Strumenti → Importa notebook Jupyter…"
 
 #: plugin/scripting/session_manager.py
 msgid "Could not resolve notebook Python session."
@@ -1949,8 +2090,8 @@ msgid ""
 msgstr ""
 "La modalità di sessione Python è Isolata (ogni cella =PYTHON() utilizza le "
 "proprie variabili). Non c'è alcuna sessione di cella condivisa da "
-"ripristinare. Aggiungi uno script di inizializzazione se devi cancellare una"
-" configurazione onerosa della cartella di lavoro eseguita una sola volta."
+"ripristinare. Aggiungi uno script di inizializzazione se devi cancellare una "
+"configurazione onerosa della cartella di lavoro eseguita una sola volta."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2013,8 +2154,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
 msgstr ""
 "Script eseguito correttamente, ma non ha restituito alcun risultato né "
 "prodotto alcun output. (durata: {time})"
@@ -2039,15 +2180,24 @@ msgstr "Script salvato."
 msgid "Run Python Script"
 msgstr "Esegui script Python"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run"
-msgstr "Esegui"
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr ""
+"L'esecuzione dello script Python non è riuscita ad aprire l'editor Monaco."
 
 #: plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
+msgid "Could not open the built-in script dialog."
+msgstr "Impossibile aprire la finestra di dialogo dello script integrato."
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
 msgstr ""
-"Selezionare l'intervallo di dati o inserire un indirizzo A1 (iniettato come "
-"dati)."
+"Si è verificato un errore imprevisto durante l'apertura di Esegui script "
+"Python."
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "Errore di invio"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2120,8 +2270,8 @@ msgstr "Avvio del server MCP non riuscito"
 #: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
-"Controllare writeragent_debug.log nella cartella di configurazione utente di"
-" LibreOffice"
+"Controllare writeragent_debug.log nella cartella di configurazione utente di "
+"LibreOffice"
 
 #: plugin/mcp/__init__.py
 msgid "MCP server is not running"
@@ -2215,10 +2365,6 @@ msgstr "Analisi del testo..."
 msgid "Convert Sheet to Python..."
 msgstr "Converti foglio in Python..."
 
-#: plugin/main.py
-msgid "Dispatch Error"
-msgstr "Errore di invio"
-
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
@@ -2252,10 +2398,6 @@ msgid "Aspect Ratio:"
 msgstr "Rapporto d'aspetto:"
 
 #: plugin/xdl_strings.py
-msgid "Attach"
-msgstr "Allega"
-
-#: plugin/xdl_strings.py
 msgid "Audio Model:"
 msgstr "Modello audio:"
 
@@ -2280,10 +2422,6 @@ msgid "Calc"
 msgstr "Calc"
 
 #: plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "Annulla"
-
-#: plugin/xdl_strings.py
 msgid "Categories:"
 msgstr "Categorie:"
 
@@ -2306,10 +2444,6 @@ msgstr "Converti foglio in Python"
 #: plugin/xdl_strings.py
 msgid "Copy"
 msgstr "Copia"
-
-#: plugin/xdl_strings.py
-msgid "Delete"
-msgstr "Elimina"
 
 #: plugin/xdl_strings.py
 msgid "Draw"
@@ -2462,16 +2596,8 @@ msgid "Run Benchmark"
 msgstr "Esegui benchmark"
 
 #: plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "Salva con nome..."
-
-#: plugin/xdl_strings.py
 msgid "Scope"
 msgstr "Ambito"
-
-#: plugin/xdl_strings.py
-msgid "Script:"
-msgstr "Script:"
 
 #: plugin/xdl_strings.py
 msgid "Search Nearby Files"
@@ -2578,8 +2704,8 @@ msgid "Path / URL"
 msgstr "Percorso / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
 "Percorso verso la CLI del backend (es. aider) o URL del server ACP (es. "
 "http://localhost:8000 per Hermes). Vuoto = prova il predefinito."
@@ -2597,8 +2723,8 @@ msgid ""
 "Agent name on the ACP server (e.g. hermes). Empty = auto-discover first "
 "agent."
 msgstr ""
-"Nome dell'agente sul server ACP (es. hermes). Vuoto = rileva automaticamente"
-" il primo agente."
+"Nome dell'agente sul server ACP (es. hermes). Vuoto = rileva automaticamente "
+"il primo agente."
 
 msgid "Calc spreadsheet tools"
 msgstr "Strumenti foglio di calcolo Calc"
@@ -2656,8 +2782,8 @@ msgid ""
 "Select the browser backend to use for webpage visits during research (Off "
 "uses static HTTP requests)."
 msgstr ""
-"Seleziona il backend del browser da utilizzare per le visite alle pagine web"
-" durante la ricerca (Disattivato utilizza richieste HTTP statiche)."
+"Seleziona il backend del browser da utilizzare per le visite alle pagine web "
+"durante la ricerca (Disattivato utilizza richieste HTTP statiche)."
 
 msgid "Off (Static HTTP)"
 msgstr "Disattivato (HTTP statico)"
@@ -2698,15 +2824,15 @@ msgstr "Abilità Humanizer (prosa naturale)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
+"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
+"dedicated Skills tab can be added later."
 msgstr ""
 "Quando abilitata, inserisce istruzioni nel prompt di sistema affinché il "
-"modello faccia suonare il testo del documento generato o revisionato in modo"
-" più naturale e umano (rimuove i pattern tipici dell'IA). Modifica le regole"
-" nel tuo profilo LibreOffice sotto writeragent/skills/humanizer/SKILL.md (il"
-" file viene creato automaticamente al primo utilizzo). Una scheda dedicata "
+"modello faccia suonare il testo del documento generato o revisionato in modo "
+"più naturale e umano (rimuove i pattern tipici dell'IA). Modifica le regole "
+"nel tuo profilo LibreOffice sotto writeragent/skills/humanizer/SKILL.md (il "
+"file viene creato automaticamente al primo utilizzo). Una scheda dedicata "
 "alle Abilità potrà essere aggiunta in seguito."
 
 msgid "Silence before send (ms)"
@@ -2761,8 +2887,8 @@ msgid ""
 "runs, to avoid concurrent API calls."
 msgstr ""
 "Se attivo, la grammatica AI salta le richieste in background mentre la chat "
-"nella barra laterale o l'agente sono in esecuzione, per evitare chiamate API"
-" simultanee."
+"nella barra laterale o l'agente sono in esecuzione, per evitare chiamate API "
+"simultanee."
 
 msgid "Batch sentences"
 msgstr "Elaborazione batch frasi"
@@ -2772,8 +2898,8 @@ msgid ""
 "reliable; higher values are faster and cheaper but may hit token limits or "
 "cause model errors."
 msgstr ""
-"Numero di frasi da inviare per richiesta LLM (1-8). 1 (predefinito) è il più"
-" affidabile; valori più alti sono più veloci ed economici ma potrebbero "
+"Numero di frasi da inviare per richiesta LLM (1-8). 1 (predefinito) è il più "
+"affidabile; valori più alti sono più veloci ed economici ma potrebbero "
 "raggiungere i limiti di token o causare errori del modello."
 
 msgid "Concurrent requests"
@@ -2785,8 +2911,8 @@ msgid ""
 "requests; use with care alongside sidebar chat."
 msgstr ""
 "Numero massimo di chiamate API simultanee in background per la grammatica "
-"(1-8). 1 corrisponde al comportamento precedente. Aumentare per OpenRouter o"
-" altri provider che consentono richieste parallele; utilizzare con cautela "
+"(1-8). 1 corrisponde al comportamento precedente. Aumentare per OpenRouter o "
+"altri provider che consentono richieste parallele; utilizzare con cautela "
 "insieme alla chat nella barra laterale."
 
 msgid "Sentence language detection"
@@ -2825,9 +2951,9 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Disattivato = modifiche dirette. Registra = modifiche tracciate che "
-"accetti/rifiuti tu stesso. Attendi = apply_document_content blocca (sul "
-"thread di chat/MCP worker) finché non revisioni."
+"Disattivato = modifiche dirette. Registra = modifiche tracciate che accetti/"
+"rifiuti tu stesso. Attendi = apply_document_content blocca (sul thread di "
+"chat/MCP worker) finché non revisioni."
 
 msgid "Record (track changes)"
 msgstr "Registra (traccia modifiche)"
@@ -2868,8 +2994,8 @@ msgstr "Modello di embedding"
 
 msgid "HuggingFace model ID for local provider, or endpoint-specific model ID"
 msgstr ""
-"ID del modello HuggingFace per il provider locale o ID del modello specifico"
-" per l'endpoint"
+"ID del modello HuggingFace per il provider locale o ID del modello specifico "
+"per l'endpoint"
 
 msgid "Enable cross-file rerank"
 msgstr "Abilita il rerank tra file"
@@ -2885,8 +3011,8 @@ msgid "Rerank model"
 msgstr "Modello di riordinamento"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
-" is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
+"is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Utilizzato solo quando il riordinamento è abilitato. English MiniLM è "
 "veloce; bge-reranker-v2-m3 è multilingue e scarica circa 2,3 GB."
@@ -2907,11 +3033,11 @@ msgid "Enable MCP Server"
 msgstr "Abilita server MCP"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Solo localhost, nessuna autenticazione. I client utilizzano "
-"http://localhost:<port>/mcp (HTTP trasmissibile)."
+"Solo localhost, nessuna autenticazione. I client utilizzano http://localhost:"
+"<port>/mcp (HTTP trasmissibile)."
 
 msgid "MCP Port"
 msgstr "Porta MCP"
@@ -2929,11 +3055,11 @@ msgid ""
 msgstr ""
 "Come gli strumenti specializzati vengono presentati ai client MCP. "
 "delegate=raggiunti tramite il gateway delegato (comportamento attuale); "
-"direct_flat=tutti gli strumenti specializzati raggiungibili via MCP elencati"
-" direttamente, escludendo i flussi solo barra laterale (ideale per client "
-"con ricerca strumenti propria); direct_discovery=piccolo elenco principale "
-"più find_tools (catalogo di dominio, poi schemi strumenti per dominio; "
-"ideale per qualsiasi client)."
+"direct_flat=tutti gli strumenti specializzati raggiungibili via MCP elencati "
+"direttamente, escludendo i flussi solo barra laterale (ideale per client con "
+"ricerca strumenti propria); direct_discovery=piccolo elenco principale più "
+"find_tools (catalogo di dominio, poi schemi strumenti per dominio; ideale "
+"per qualsiasi client)."
 
 msgid "Delegate (default)"
 msgstr "Delegato (predefinito)"
@@ -2956,10 +3082,10 @@ msgid ""
 "stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, "
 "paddlepaddle)."
 msgstr ""
-"Se impostato, esegue gli strumenti in quel venv (bin/python o "
-"Scripts/python.exe). Se vuoto, run_venv_python_script utilizza "
-"sys.executable di questo processo (stdlib di base); utilizzare un venv per "
-"numpy/pandas e gli helper di visione (paddleocr, paddlepaddle)."
+"Se impostato, esegue gli strumenti in quel venv (bin/python o Scripts/"
+"python.exe). Se vuoto, run_venv_python_script utilizza sys.executable di "
+"questo processo (stdlib di base); utilizzare un venv per numpy/pandas e gli "
+"helper di visione (paddleocr, paddlepaddle)."
 
 msgid "Test"
 msgstr "Test"
@@ -2983,11 +3109,11 @@ msgid "Max Calc data cells"
 msgstr "Numero massimo di celle dati Calc"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
-"Numero massimo di celle in =PYTHON() data o Run Python Script "
-"data/data_range. Valori più grandi utilizzano più RAM e tempo; la lettura "
+"Numero massimo di celle in =PYTHON() data o Run Python Script data/"
+"data_range. Valori più grandi utilizzano più RAM e tempo; la lettura "
 "dell'intervallo UNO rimane predominante."
 
 msgid "Python session mode"
@@ -3021,9 +3147,9 @@ msgid "Convert Date/Time and Timedelta Strings"
 msgstr "Converti stringhe Data/Ora e Timedelta"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to "
-"datetime/timedelta objects when sending data to the Python worker. Requires "
-"the 'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to datetime/"
+"timedelta objects when sending data to the Python worker. Requires the "
+"'pandas' and 'dateparser' packages in your venv."
 msgstr ""
 "Rileva e converti automaticamente le stringhe di data/ora e durata in "
 "oggetti datetime/timedelta durante l'invio di dati al worker Python. "
@@ -3033,17 +3159,16 @@ msgid "PPT-Master data path"
 msgstr "Percorso dati PPT-Master"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
-"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
-"repo, then env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
+"svg_to_pptx/). Clone hugohe3/ppt-master on GitHub and point here at the "
+"clone root (.../ppt-master) or the inner skill dir (.../ppt-master/skills/"
+"ppt-master). Leave empty to auto-detect (dev clone beside repo, then env)."
 msgstr ""
 "Percorso dell'albero delle competenze ppt-master (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Clona https://github.com/hugohe3/ppt-master e punta "
-"qui alla radice del clone (.../ppt-master) o alla directory interna delle "
-"competenze (.../ppt-master/skills/ppt-master). Lascia vuoto per il "
-"rilevamento automatico (clone di sviluppo accanto al repository, poi env)."
+"scripts/svg_to_pptx/). Clona hugohe3/ppt-master su GitHub e punta qui alla "
+"radice del clone (.../ppt-master) o alla directory delle competenze interna "
+"(.../ppt-master/skills/ppt-master). Lascia vuoto per il rilevamento "
+"automatico (clone di sviluppo accanto al repository, poi env)."
 
 msgid "Vision / OCR"
 msgstr "Visione / OCR"
@@ -3096,8 +3221,7 @@ msgstr "Corrispondenza celle tabella"
 
 msgid "Align detected table cells with content (extract_structure)."
 msgstr ""
-"Allinea le celle della tabella rilevate con il contenuto "
-"(extract_structure)."
+"Allinea le celle della tabella rilevate con il contenuto (extract_structure)."
 
 msgid "Keep orphan text clusters"
 msgstr "Mantieni cluster di testo orfani"

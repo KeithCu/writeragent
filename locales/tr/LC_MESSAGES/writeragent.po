@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-09 19:03-0400\n"
+"POT-Creation-Date: 2026-07-11 12:23-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Turkish <LL@li.org>\n"
@@ -31,8 +31,8 @@ msgstr "Seçili görüntü üzerinde yerel OCR çalıştırılıyor..."
 
 #: plugin/doc/specialized_base.py
 msgid ""
-"Document research reads require specialized task delegation (USE_SUB_AGENT)."
-" Enable this in configuration."
+"Document research reads require specialized task delegation (USE_SUB_AGENT). "
+"Enable this in configuration."
 msgstr ""
 "Belge araştırması okumaları özel görev delegasyonu (USE_SUB_AGENT) "
 "gerektirir. Bunu yapılandırmadan etkinleştirin."
@@ -40,12 +40,12 @@ msgstr ""
 #: plugin/doc/specialized_base.py
 #, python-brace-format
 msgid ""
-"Tool call switched to '{0}'. You are in a specialized toolset mode. You must"
-" call 'specialized_workflow_finished' when done to restore the full set of "
+"Tool call switched to '{0}'. You are in a specialized toolset mode. You must "
+"call 'specialized_workflow_finished' when done to restore the full set of "
 "APIs."
 msgstr ""
-"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam"
-" API setini geri yüklemek için işiniz bittiğinde "
+"Araç çağrısı '{0}' olarak değiştirildi. Özel bir araç seti modundasınız. Tam "
+"API setini geri yüklemek için işiniz bittiğinde "
 "'specialized_workflow_finished' komutunu çağırmalısınız."
 
 #: plugin/notebook/notebook_runner.py
@@ -58,8 +58,8 @@ msgstr "Not defteri çalıştırma yalnızca LibreOffice Writer'da desteklenir."
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
-" first."
+"This document has no imported notebook. Use Tools → Import Jupyter Notebook… "
+"first."
 msgstr ""
 "Bu belgede içe aktarılmış bir not defteri yok. Önce Araçlar → Jupyter Not "
 "Defterini İçe Aktar… seçeneğini kullanın."
@@ -254,11 +254,10 @@ msgstr ""
 "artırmayı deneyin."
 
 #: plugin/framework/errors.py
-msgid ""
-"Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
+msgid "Connection Refused. Is your local AI server (Ollama/LM Studio) running?"
 msgstr ""
-"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor"
-" mu?"
+"Bağlantı Reddedildi. Yerel yapay zeka sunucunuz (Ollama/LM Studio) çalışıyor "
+"mu?"
 
 #: plugin/framework/errors.py
 msgid "DNS Error. Could not resolve the endpoint URL."
@@ -282,92 +281,19 @@ msgstr "{resource_type} bulunamadı: {identifier}"
 msgid "UNO Thread Violation"
 msgstr "UNO İş Parçacığı İhlali"
 
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can edit or translate your document instantly with professional "
-"formatting and color. Try me!"
-msgstr ""
-"YZ: Belgenizi profesyonel biçimlendirme ve renklerle anında düzenleyebilir "
-"veya çevirebilirim. Beni deneyin!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you with formulas, data analysis, and colorful charts. Try "
-"me!"
-msgstr ""
-"YZ: Formüller, veri analizi ve renkli grafikler konusunda size yardımcı "
-"olabilirim. Beni deneyin!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can help you create and edit polished, colorful shapes in Draw and "
-"Impress. Try me!"
-msgstr ""
-"YZ: Draw ve Impress'te gösterişli, renkli şekiller oluşturmanıza ve "
-"düzenlemenize yardımcı olabilirim. Beni deneyin!"
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: I can do web research to answer any question, or summarize a web page, "
-"without seeing or changing your document. Let's chat."
-msgstr ""
-"YZ: Belgenizi görmeden veya değiştirmeden, herhangi bir soruyu yanıtlamak "
-"için web araştırması yapabilir veya bir web sayfasını özetleyebilirim. Hadi "
-"sohbet edelim."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Deep Research mode runs a multi-step web investigation (planning, "
-"several searches, synthesis) and can insert a formatted report into your "
-"document. It takes longer but produces more thorough results."
-msgstr ""
-"AI: Derin Araştırma modu, çok adımlı bir web incelemesi (planlama, birkaç "
-"arama, sentez) yürütür ve belgenize biçimlendirilmiş bir rapor ekleyebilir. "
-"Daha uzun sürer ancak daha kapsamlı sonuçlar üretir."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's explore and design your idea together. I'll ask questions, suggest"
-" approaches, and help you build an approved spec in your document when "
-"you're ready."
-msgstr ""
-"YZ: Fikrinizi birlikte keşfedelim ve tasarlayalım. Size sorular soracağım, "
-"yaklaşımlar önereceğim ve hazır olduğunuzda belgenizde onaylanmış bir "
-"şartname oluşturmanıza yardımcı olacağım."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: Let's draft your document section-by-section. I'll help you create a "
-"writing plan outline, and then implement it incrementally with your "
-"approval."
-msgstr ""
-"YZ: Belgenizi bölüm bölüm taslak haline getirelim. Bir yazma planı taslağı "
-"oluşturmanıza yardımcı olacağım ve ardından onayınızla bunu aşamalı olarak "
-"uygulayacağım."
-
-#: plugin/framework/constants.py
-msgid ""
-"AI: PPT-Master mode — I'll run the ppt-master workflow in your configured "
-"Python venv (scripts + export to Impress). Describe your topic or point me "
-"at a project folder."
-msgstr ""
-"AI: PPT-Master modu — Yapılandırılmış Python venv'nizde ppt-master iş "
-"akışını çalıştıracağım (betikler + Impress'e dışa aktarma). Konunuzu "
-"tanımlayın veya beni bir proje klasörüne yönlendirin."
-
 #: plugin/framework/client/errors.py
 #, python-brace-format
 msgid "HTTP Error {0} from AI Provider: {1}"
 msgstr "Yapay Zeka Sağlayıcısından HTTP Hatası {0}: {1}"
 
 #: plugin/framework/client/errors.py
+#, python-brace-format
 msgid ""
-" If your API key is from a GLM Coding Plan subscription, set endpoint to "
-"https://api.z.ai/api/coding/paas/v4 (not the general /api/paas URL)."
+" If your API key is from a GLM Coding Plan subscription, set endpoint to {0} "
+"(not the general /api/paas URL)."
 msgstr ""
-" API anahtarınız bir GLM Kodlama Planı aboneliğinden geliyorsa, uç noktayı "
-"(genel /api/paas URL'si yerine) https://api.z.ai/api/coding/paas/v4 olarak "
-"ayarlayın."
+" API anahtarınız bir GLM Coding Plan aboneliğinden geliyorsa, uç noktayı "
+"(genel /api/paas URL'si yerine) {0} olarak ayarlayın."
 
 #: plugin/framework/client/errors.py
 #, python-brace-format
@@ -430,16 +356,20 @@ msgstr ""
 "korunamadı. Formülü Calc içinde düzenleyin veya =PY(\"kod\"; A1:B10) ya da "
 "=PYTHON(...) gibi tırnak içinde bir kod dizisi kullanın."
 
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Saved without =PY()."
+msgstr "=PY() olmadan kaydedildi."
+
 #: plugin/calc/python/editor.py
 msgid "Python cell editor"
 msgstr "Python hücre düzenleyici"
 
-#: plugin/calc/python/editor.py
-msgid "Save as plain text"
-msgstr "Düz metin olarak kaydet"
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+msgid "Save without =PY()"
+msgstr "=PY() olmadan kaydet"
 
-#: plugin/calc/python/editor.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Save"
 msgstr "Kaydet"
 
@@ -458,9 +388,24 @@ msgid ""
 "(or =PYTHON(...)) with quoted code."
 msgstr ""
 "Bu PYTHON formülü, düzenleyicinin güvenli bir şekilde yeniden yazamayacağı "
-"bir biçim kullanıyor (ör. başka bir hücredeki kod). Formülü formül çubuğunda"
-" düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) (ya da "
+"bir biçim kullanıyor (ör. başka bir hücredeki kod). Formülü formül çubuğunda "
+"düzenleyin veya tırnak içinde kod ile =PY(\"kod\"; aralık) (ya da "
 "=PYTHON(...)) kullanın."
+
+#: plugin/calc/python/editor.py
+msgid ""
+"Edit Python in Cell requires the Monaco editor, which is disabled by "
+"\"scripting.force_internal_script_editor\" in writeragent.json.\n"
+"\n"
+"Set it to false and restart LibreOffice to use this command, or edit PYTHON "
+"formulas in the Calc formula bar."
+msgstr ""
+"Hücre İçinde Python Düzenleme, writeragent.json dosyasında "
+"\"scripting.force_internal_script_editor\" ile devre dışı bırakılmış olan "
+"Monaco düzenleyicisini gerektirir.\n"
+"\n"
+"Bu komutu kullanmak için değeri false olarak ayarlayın ve LibreOffice'i "
+"yeniden başlatın veya Calc formül çubuğunda PYTHON formüllerini düzenleyin."
 
 #: plugin/calc/python/editor.py
 msgid "No Python interpreter available for the editor."
@@ -469,16 +414,19 @@ msgstr "Düzenleyici için kullanılabilir Python yorumlayıcısı yok."
 #: plugin/calc/python/editor.py
 #, python-format
 msgid ""
-"Cannot import webview (pywebview) or rocher with the Python from Settings → Python:\n"
+"Cannot import webview (pywebview) or rocher with the Python from Settings → "
+"Python:\n"
 "%(exe)s\n"
 "\n"
 "In that venv run: uv pip install pywebview rocher\n"
 "(import name is webview, package name is pywebview)."
 msgstr ""
-"Webview (pywebview) veya rocher, Ayarlar → Python kısmındaki Python ile içe aktarılamıyor:\n"
+"Webview (pywebview) veya rocher, Ayarlar → Python kısmındaki Python ile içe "
+"aktarılamıyor:\n"
 "%(exe)s\n"
 "\n"
-"Bu sanal ortamda (venv) şu komutu çalıştırın: uv pip install pywebview rocher\n"
+"Bu sanal ortamda (venv) şu komutu çalıştırın: uv pip install pywebview "
+"rocher\n"
 "(içe aktarma adı webview, paket adı pywebview'dir)."
 
 #: plugin/calc/python/editor.py
@@ -514,6 +462,35 @@ msgstr "Resmi bir hücreye sabitleyin, seçin ve ardından tekrar Çalıştırı
 msgid "No structured tables or text blocks to insert."
 msgstr "Eklenecek yapılandırılmış tablo veya metin bloğu yok."
 
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv OK"
+msgstr "Venv Tamam"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Venv check failed"
+msgstr "Venv denetimi başarısız oldu"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+#: plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr "Python ortamı test ediliyor..."
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Done"
+msgstr "Tamamlandı"
+
+#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
+msgid "Failed"
+msgstr "Başarısız"
+
+#: plugin/librepy/settings.py
+msgid "Cython Accelerator Download"
+msgstr "Cython Hızlandırıcı İndir"
+
+#: plugin/librepy/settings.py
+msgid "Python Settings"
+msgstr "Python Ayarları"
+
 #: plugin/writer/change_context_menu.py
 msgid "Accept whole change (agent)"
 msgstr "Tüm değişikliği kabul et (aracı)"
@@ -540,8 +517,9 @@ msgstr "WriterAgent: Seçimi Düzenle"
 
 #: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
 #: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py plugin/main.py
+#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
+#: plugin/main_core.py plugin/main.py
 msgid "Error"
 msgstr "Hata"
 
@@ -553,7 +531,7 @@ msgstr "Bu komut yalnızca Writer belgelerinde kullanılabilir."
 msgid "Unknown conversion error"
 msgstr "Bilinmeyen dönüştürme hatası"
 
-#: plugin/writer/math/latex_dialog.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
 msgid "Formula inserted."
 msgstr "Formül eklendi."
 
@@ -561,16 +539,18 @@ msgstr "Formül eklendi."
 msgid "LaTeX Math Editor"
 msgstr "LaTeX Matematik Düzenleyici"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert as display block (centered paragraph)"
 msgstr "Görüntü bloğu olarak ekle (ortalanmış paragraf)"
 
-#: plugin/writer/math/latex_dialog.py plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "Ekle"
 
-#: plugin/writer/math/latex_dialog.py plugin/scripting/python_runner.py
-#: plugin/xdl_strings.py
+#: plugin/writer/math/latex_dialog.py plugin/scripting/editor_ui_strings.py
+#: plugin/scripting/python_runner.py plugin/xdl_strings.py
 msgid "Close"
 msgstr "Kapat"
 
@@ -853,7 +833,8 @@ msgstr "neden"
 msgid "you"
 msgstr "siz"
 
-#: plugin/chatbot/panel_wiring.py plugin/xdl_strings.py
+#: plugin/chatbot/panel_wiring.py plugin/scripting/editor_ui_strings.py
+#: plugin/xdl_strings.py
 msgid "Ready"
 msgstr "Hazır"
 
@@ -1055,7 +1036,8 @@ msgid ""
 "No editor found (install Kate or Gedit, or set EDITOR). Path:\n"
 "{0}"
 msgstr ""
-"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini ayarlayın). Yol:\n"
+"Düzenleyici bulunamadı (Kate veya Gedit kurun ya da EDITOR değişkenini "
+"ayarlayın). Yol:\n"
 "{0}"
 
 #: plugin/chatbot/external_editor.py
@@ -1092,8 +1074,7 @@ msgstr "['{0}' aracı arka ucu bulunamadı.]"
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
-msgid ""
-"[Agent backend '{0}' is not available. Check Settings (path, install).]"
+msgid "[Agent backend '{0}' is not available. Check Settings (path, install).]"
 msgstr ""
 "['{0}' aracı arka ucu kullanılamıyor. Ayarları kontrol edin (yol, kurulum).]"
 
@@ -1219,26 +1200,6 @@ msgid "Failed to open Settings: {0}"
 msgstr "Ayarlar açılamadı: {0}"
 
 #: plugin/chatbot/dialog_views.py
-msgid "Venv OK"
-msgstr "Venv Tamam"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Venv check failed"
-msgstr "Venv denetimi başarısız oldu"
-
-#: plugin/chatbot/dialog_views.py plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr "Python ortamı test ediliyor..."
-
-#: plugin/chatbot/dialog_views.py
-msgid "Done"
-msgstr "Tamamlandı"
-
-#: plugin/chatbot/dialog_views.py
-msgid "Failed"
-msgstr "Başarısız"
-
-#: plugin/chatbot/dialog_views.py
 msgid "Audio Library Download"
 msgstr "Ses Kütüphanesi İndir"
 
@@ -1265,6 +1226,180 @@ msgstr "Yükseklik:"
 #: plugin/chatbot/panel_factory.py
 msgid "Width:"
 msgstr "Genişlik:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "Durum:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saving…"
+msgstr "Kaydediliyor…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Running…"
+msgstr "Çalışıyor…"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Monaco loader missing."
+msgstr "Monaco yükleyicisi eksik."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+#: plugin/xdl_strings.py
+msgid "Run"
+msgstr "Çalıştır"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Cancel"
+msgstr "İptal"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data:"
+msgstr "Veri:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "A1:C1  or  A1:C1, C1:C5"
+msgstr "A1:C1 veya A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
+msgstr "Calc, çalışma zamanında bu aralık(lar)dan `data` ve `data_list` ekler."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Data ranges apply only when saving as a =PYTHON() formula."
+msgstr ""
+"Veri aralıkları yalnızca =PYTHON() formülü olarak kaydedilirken geçerlidir."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Saved."
+msgstr "Kaydedildi."
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Script:"
+msgstr "Betik:"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Sample"
+msgstr "Örnek"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Attach"
+msgstr "Ekle"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Attach to Document"
+msgstr "Belgeye Ekle"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Save As..."
+msgstr "Farklı Kaydet..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts"
+msgstr "Betiklerime Kopyala"
+
+#: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
+msgid "Delete"
+msgstr "Sil"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Scripts"
+msgstr "Betikler"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/document_scripts.py
+msgid "My Scripts"
+msgstr "Betiklerim"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+msgstr ""
+"Yerleşik yardımcılar salt okunurdur. Özelleştirmek için Betiklerime "
+"Kopyala'yı kullanın."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid ""
+"Document changed — close and reopen Run Python Script to edit document "
+"scripts."
+msgstr ""
+"Belge değişti — belge betiklerini düzenlemek için Python Betiğini Çalıştır'ı "
+"kapatıp yeniden açın."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Loaded script '{0}'."
+msgstr "'{0}' betiği yüklendi."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Loaded Sample scratchpad."
+msgstr "Örnek karalama defteri yüklendi."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/editor_host.py
+msgid "No document is open to attach scripts."
+msgstr "Betik eklemek için açık bir belge yok."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Attaching script '{0}'..."
+msgstr "'{0}' betiği ekleniyor..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Copying script '{0}' to My Scripts..."
+msgstr "'{0}' betiği Betiklerime kopyalanıyor..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Saving script '{0}'..."
+msgstr "'{0}' betiği kaydediliyor..."
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Deleting script '{0}'..."
+msgstr "'{0}' betiği siliniyor..."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Built-in helpers cannot be deleted."
+msgstr "Yerleşik yardımcılar silinemez."
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Cleared Sample scratchpad."
+msgstr "Örnek karalama defteri temizlendi."
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+msgid "Enter script name:"
+msgstr "Betik adını girin:"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in this document. Overwrite?"
+msgstr "'{0}' adlı bir betik bu belgede zaten var. Üzerine yazılsın mı?"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Copy to My Scripts as:"
+msgstr "Betiklerime kopyala:"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "A script named '{0}' already exists in My Scripts. Overwrite?"
+msgstr "Betiklerimde '{0}' adında bir betik zaten var. Üzerine yazılsın mı?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#, python-brace-format
+msgid "Save script '{0}' to this document?"
+msgstr "'{0}' betiği bu belgeye kaydedilsin mi?"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Are you sure you want to clear the Sample scratchpad?"
+msgstr "Örnek karalama defterini temizlemek istediğinizden emin misiniz?"
+
+#: plugin/scripting/editor_ui_strings.py
+#, python-brace-format
+msgid "Are you sure you want to delete script '{0}'?"
+msgstr "'{0}' betiğini silmek istediğinizden emin misiniz?"
+
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
+msgid "Select data range or enter A1 address (injected as data)."
+msgstr "Veri aralığını seçin veya A1 adresini girin (veri olarak eklenir)."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -1294,12 +1429,12 @@ msgid "A script named '{0}' already exists in this document."
 msgstr "'{0}' adlı bir betik bu belgede zaten var."
 
 #: plugin/scripting/document_scripts.py
-msgid "My Scripts"
-msgstr "Betiklerim"
-
-#: plugin/scripting/document_scripts.py
 msgid "This Document"
 msgstr "Bu Belge"
+
+#: plugin/scripting/python_runner_ui.py
+msgid "PythonScriptDialog could not be loaded from the extension."
+msgstr "PythonScriptDialog eklentiden yüklenemedi."
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1316,23 +1451,6 @@ msgstr "'%s' betiği bu belgeye kaydedildi."
 msgid "Script '%s' saved successfully."
 msgstr "'%s' betiği başarıyla kaydedildi."
 
-#: plugin/scripting/python_runner_ui.py plugin/scripting/editor_host.py
-msgid "No document is open to attach scripts."
-msgstr "Betik eklemek için açık bir belge yok."
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Enter script name:"
-msgstr "Betik adını girin:"
-
-#: plugin/scripting/python_runner_ui.py
-msgid "Attach to Document"
-msgstr "Belgeye Ekle"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "A script named '{0}' already exists in this document. Overwrite?"
-msgstr "'{0}' adlı bir betik bu belgede zaten var. Üzerine yazılsın mı?"
-
 #: plugin/scripting/python_runner_ui.py
 msgid "Attach Script"
 msgstr "Betik Ekle"
@@ -1345,11 +1463,6 @@ msgstr "'%s' betiği bu belgeye eklendi."
 #: plugin/scripting/python_runner_ui.py
 msgid "Save Script"
 msgstr "Betik Kaydet"
-
-#: plugin/scripting/python_runner_ui.py
-#, python-brace-format
-msgid "Save script '{0}' to this document?"
-msgstr "'{0}' betiği bu belgeye kaydedilsin mi?"
 
 #: plugin/scripting/python_runner_ui.py
 #, python-format
@@ -1394,6 +1507,26 @@ msgstr "Başarılı"
 #: plugin/scripting/python_runner_ui.py
 msgid "Output"
 msgstr "Çıktı"
+
+#: plugin/scripting/editor_host.py
+msgid ""
+"Set the Python venv path in WriterAgent Settings → Python (same venv where "
+"you ran 'uv pip install pywebview rocher'). LibreOffice's built-in Python "
+"cannot run the Monaco editor."
+msgstr ""
+"Python venv yolunu WriterAgent Ayarları → Python kısmından ayarlayın ('uv "
+"pip install pywebview rocher' komutunu çalıştırdığınız venv ile aynı "
+"olmalıdır). LibreOffice'in yerleşik Python'ı Monaco düzenleyicisini "
+"çalıştıramaz."
+
+#: plugin/scripting/editor_host.py
+#, python-brace-format
+msgid ""
+"No python executable found under configured venv: {0} (expected bin/python, "
+"bin/python3, or bin/python3.x)."
+msgstr ""
+"Yapılandırılmış venv altında python çalıştırılabilir dosyası bulunamadı: {0} "
+"(bin/python, bin/python3 veya bin/python3.x bekleniyordu)."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -1480,8 +1613,7 @@ msgstr ""
 "Metin/NLP denetimi başarısız oldu (writeragent_debug.log dosyasına bakın)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid ""
-"Vision probe timed out (Docling import can take 10–30s on first check)."
+msgid "Vision probe timed out (Docling import can take 10–30s on first check)."
 msgstr ""
 "Görüntüleme probu zaman aşımına uğradı (Docling içe aktarımı ilk kontrolde "
 "10–30 saniye sürebilir)."
@@ -1502,8 +1634,7 @@ msgstr ""
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr ""
-"Vektör Arama denemesi başarısız oldu (writeragent_debug.log dosyasına "
-"bakın)."
+"Vektör Arama denemesi başarısız oldu (writeragent_debug.log dosyasına bakın)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Audio Recording"
@@ -1568,8 +1699,7 @@ msgstr "Ses Kaydı: sounddevice kontrol ediliyor..."
 #: plugin/scripting/venv_diagnostics.py
 msgid "Text / NLP Libraries: loading (first run may take a while)..."
 msgstr ""
-"Metin / NLP Kitaplıkları: yükleniyor (ilk çalıştırma biraz zaman "
-"alabilir)..."
+"Metin / NLP Kitaplıkları: yükleniyor (ilk çalıştırma biraz zaman alabilir)..."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
@@ -1611,7 +1741,8 @@ msgid ""
 "Error from the Text Analytics worker:\n"
 "{err}\n"
 "\n"
-"The features in this dialog require these packages in the python it is using:\n"
+"The features in this dialog require these packages in the python it is "
+"using:\n"
 "  • spacy + a model          (entities, key phrases, basic stats)\n"
 "  • textdescriptives         (real Readability scores)\n"
 "  • transformers + torch     (Sentiment using the multilingual model)\n"
@@ -1619,20 +1750,25 @@ msgid ""
 "Install them with:\n"
 "  {install}\n"
 "\n"
-"The worker reported the module as missing. Verify the packages are installed in the exact python executable the worker resolved for your configured venv."
+"The worker reported the module as missing. Verify the packages are installed "
+"in the exact python executable the worker resolved for your configured venv."
 msgstr ""
 "Metin Analizi çalışanından hata:\n"
 "{err}\n"
 "\n"
-"Bu iletişim kutusundaki özellikler, kullanılan Python içinde şu paketleri gerektirir:\n"
-"  • spacy + bir model          (varlıklar, anahtar ifadeler, temel istatistikler)\n"
+"Bu iletişim kutusundaki özellikler, kullanılan Python içinde şu paketleri "
+"gerektirir:\n"
+"  • spacy + bir model          (varlıklar, anahtar ifadeler, temel "
+"istatistikler)\n"
 "  • textdescriptives         (gerçek Okunabilirlik puanları)\n"
 "  • transformers + torch     (çok dilli model kullanılarak Duygu Analizi)\n"
 "\n"
 "Bunları şu komutla yükleyin:\n"
 "  {install}\n"
 "\n"
-"Çalışan, modülün eksik olduğunu bildirdi. Paketlerin, yapılandırılmış sanal ortamınız (venv) için çözümlenen tam Python yürütülebilir dosyasında yüklü olduğunu doğrulayın."
+"Çalışan, modülün eksik olduğunu bildirdi. Paketlerin, yapılandırılmış sanal "
+"ortamınız (venv) için çözümlenen tam Python yürütülebilir dosyasında yüklü "
+"olduğunu doğrulayın."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
@@ -1651,11 +1787,16 @@ msgstr "Analiz ediliyor..."
 msgid ""
 "Error: %s\n"
 "\n"
-"Required packages may be missing in your configured venv (Settings → Python). Click Check Venv in this dialog or use the full Test in Settings → Python for details on spacy, textdescriptives, transformers, torch etc."
+"Required packages may be missing in your configured venv (Settings → "
+"Python). Click Check Venv in this dialog or use the full Test in Settings → "
+"Python for details on spacy, textdescriptives, transformers, torch etc."
 msgstr ""
 "Hata: %s\n"
 "\n"
-"Yapılandırılmış sanal ortamınızda (Ayarlar → Python) gerekli paketler eksik olabilir. Bu iletişim kutusundaki Sanal Ortamı Denetle düğmesine tıklayın veya spacy, textdescriptives, transformers, torch vb. hakkında ayrıntılar için Ayarlar → Python bölümündeki tam Test özelliğini kullanın."
+"Yapılandırılmış sanal ortamınızda (Ayarlar → Python) gerekli paketler eksik "
+"olabilir. Bu iletişim kutusundaki Sanal Ortamı Denetle düğmesine tıklayın "
+"veya spacy, textdescriptives, transformers, torch vb. hakkında ayrıntılar "
+"için Ayarlar → Python bölümündeki tam Test özelliğini kullanın."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "No Writer document to insert into."
@@ -1886,8 +2027,8 @@ msgid ""
 "Writer document with an imported Jupyter notebook and try again."
 msgstr ""
 "Not defterleri için Python Oturumunu Sıfırla işlemi LibreOffice Writer için "
-"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi"
-" açın ve tekrar deneyin."
+"geçerlidir. İçe aktarılmış bir Jupyter not defteri içeren bir Writer belgesi "
+"açın ve tekrar deneyin."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -2000,8 +2141,8 @@ msgstr ""
 #: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid ""
-"Script executed successfully, but returned no result and produced no output."
-" (took {time})"
+"Script executed successfully, but returned no result and produced no output. "
+"(took {time})"
 msgstr ""
 "Betik başarıyla çalıştırıldı, ancak sonuç döndürmedi ve çıktı üretmedi. "
 "({time} sürdü)"
@@ -2024,13 +2165,21 @@ msgstr "Betik kaydedildi."
 msgid "Run Python Script"
 msgstr "Python Betiğini Çalıştır"
 
-#: plugin/scripting/python_runner.py plugin/xdl_strings.py
-msgid "Run"
-msgstr "Çalıştır"
+#: plugin/scripting/python_runner.py
+msgid "Run Python Script failed to open the Monaco editor."
+msgstr "Python Betiğini Çalıştır, Monaco düzenleyicisini açamadı."
 
 #: plugin/scripting/python_runner.py
-msgid "Select data range or enter A1 address (injected as data)."
-msgstr "Veri aralığını seçin veya A1 adresini girin (veri olarak eklenir)."
+msgid "Could not open the built-in script dialog."
+msgstr "Yerleşik betik iletişim kutusu açılamadı."
+
+#: plugin/scripting/python_runner.py
+msgid "An unexpected error occurred while opening Run Python Script."
+msgstr "Python Betiğini Çalıştır açılırken beklenmeyen bir hata oluştu."
+
+#: plugin/main_core.py plugin/main.py
+msgid "Dispatch Error"
+msgstr "Gönderim Hatası"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2038,8 +2187,8 @@ msgid ""
 "Image '{name}' not found. Use list_images or leave image_name empty and "
 "select the graphic."
 msgstr ""
-"'{name}' görüntüsü bulunamadı. list_images komutunu kullanın veya image_name"
-" kısmını boş bırakıp grafiği seçin."
+"'{name}' görüntüsü bulunamadı. list_images komutunu kullanın veya image_name "
+"kısmını boş bırakıp grafiği seçin."
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -2197,10 +2346,6 @@ msgstr "Metin Analizi..."
 msgid "Convert Sheet to Python..."
 msgstr "Sayfayı Python'a Dönüştür..."
 
-#: plugin/main.py
-msgid "Dispatch Error"
-msgstr "Gönderim Hatası"
-
 #: plugin/xdl_strings.py
 msgid "-1"
 msgstr "-1"
@@ -2234,10 +2379,6 @@ msgid "Aspect Ratio:"
 msgstr "En-Boy Oranı:"
 
 #: plugin/xdl_strings.py
-msgid "Attach"
-msgstr "Ekle"
-
-#: plugin/xdl_strings.py
 msgid "Audio Model:"
 msgstr "Ses Modeli:"
 
@@ -2262,10 +2403,6 @@ msgid "Calc"
 msgstr "Calc"
 
 #: plugin/xdl_strings.py
-msgid "Cancel"
-msgstr "İptal"
-
-#: plugin/xdl_strings.py
 msgid "Categories:"
 msgstr "Kategoriler:"
 
@@ -2288,10 +2425,6 @@ msgstr "Sayfayı Python'a Dönüştür"
 #: plugin/xdl_strings.py
 msgid "Copy"
 msgstr "Kopyala"
-
-#: plugin/xdl_strings.py
-msgid "Delete"
-msgstr "Sil"
 
 #: plugin/xdl_strings.py
 msgid "Draw"
@@ -2445,16 +2578,8 @@ msgid "Run Benchmark"
 msgstr "Kıyaslamayı Çalıştır"
 
 #: plugin/xdl_strings.py
-msgid "Save As..."
-msgstr "Farklı Kaydet..."
-
-#: plugin/xdl_strings.py
 msgid "Scope"
 msgstr "Kapsam"
-
-#: plugin/xdl_strings.py
-msgid "Script:"
-msgstr "Betik:"
 
 #: plugin/xdl_strings.py
 msgid "Search Nearby Files"
@@ -2561,11 +2686,11 @@ msgid "Path / URL"
 msgstr "Yol / URL"
 
 msgid ""
-"Path to backend CLI (e.g. aider) or ACP server URL (e.g. "
-"http://localhost:8000 for Hermes). Empty = try default."
+"Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://"
+"localhost:8000 for Hermes). Empty = try default."
 msgstr ""
-"Arka uç CLI yolu (ör. aider) veya ACP sunucu URL'si (ör. Hermes için "
-"http://localhost:8000). Boş = varsayılanı dene."
+"Arka uç CLI yolu (ör. aider) veya ACP sunucu URL'si (ör. Hermes için http://"
+"localhost:8000). Boş = varsayılanı dene."
 
 msgid "Extra arguments"
 msgstr "Ek argümanlar"
@@ -2671,8 +2796,8 @@ msgstr "Zengin Metin Denetimi Kenar Çubuğu"
 
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr ""
-"Zengin metin denetimi (RichTextControl) ile biçimlendirilmiş sohbet. Yeniden"
-" başlatma gerektirir."
+"Zengin metin denetimi (RichTextControl) ile biçimlendirilmiş sohbet. Yeniden "
+"başlatma gerektirir."
 
 msgid "Humanizer skill (natural prose)"
 msgstr "İnsanileştirme yeteneği (doğal düzyazı)"
@@ -2680,9 +2805,9 @@ msgstr "İnsanileştirme yeteneği (doğal düzyazı)"
 msgid ""
 "When enabled, injects guidance into the system prompt so the model makes "
 "generated or revised document text sound more natural and human (removes AI "
-"slop patterns). Edit the rules in your LibreOffice profile under "
-"writeragent/skills/humanizer/SKILL.md (the file is auto-created on first "
-"use). A dedicated Skills tab can be added later."
+"slop patterns). Edit the rules in your LibreOffice profile under writeragent/"
+"skills/humanizer/SKILL.md (the file is auto-created on first use). A "
+"dedicated Skills tab can be added later."
 msgstr ""
 "Etkinleştirildiğinde, modelin oluşturulan veya gözden geçirilen belge "
 "metnini daha doğal ve insansı kılması için sistem istemine rehberlik ekler "
@@ -2781,11 +2906,10 @@ msgid ""
 "(Settings → Python; no API call). Mismatches update CharLocale and re-check "
 "grammar."
 msgstr ""
-"Her tam cümlenin dilini belge yerel ayarına göre doğrulayın. AI, "
-"dilbilgisi/sohbet API'nizi kullanır; Yerel (Local), Python sanal "
-"ortamınızdaki (venv) langdetect'i kullanır (Ayarlar → Python; API çağrısı "
-"yapılmaz). Uyumsuzluklar CharLocale'i günceller ve dilbilgisini yeniden "
-"kontrol eder."
+"Her tam cümlenin dilini belge yerel ayarına göre doğrulayın. AI, dilbilgisi/"
+"sohbet API'nizi kullanır; Yerel (Local), Python sanal ortamınızdaki (venv) "
+"langdetect'i kullanır (Ayarlar → Python; API çağrısı yapılmaz). "
+"Uyumsuzluklar CharLocale'i günceller ve dilbilgisini yeniden kontrol eder."
 
 msgid "Local (langdetect)"
 msgstr "Yerel (langdetect)"
@@ -2809,8 +2933,8 @@ msgid ""
 "Wait = apply_document_content blocks (on chat/MCP worker thread) until you "
 "review."
 msgstr ""
-"Kapalı = doğrudan düzenlemeler. Kayıt = kendinizin kabul edeceği/reddedeceği"
-" izlenen değişiklikler. Bekle = inceleyene kadar apply_document_content'i "
+"Kapalı = doğrudan düzenlemeler. Kayıt = kendinizin kabul edeceği/reddedeceği "
+"izlenen değişiklikler. Bekle = inceleyene kadar apply_document_content'i "
 "(sohbet/MCP işçi iş parçacığında) engeller."
 
 msgid "Record (track changes)"
@@ -2869,8 +2993,8 @@ msgid "Rerank model"
 msgstr "Yeniden sıralama modeli"
 
 msgid ""
-"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3"
-" is multilingual and downloads ~2.3 GB."
+"Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 "
+"is multilingual and downloads ~2.3 GB."
 msgstr ""
 "Yalnızca yeniden sıralama etkinleştirildiğinde kullanılır. İngilizce MiniLM "
 "hızlıdır; bge-reranker-v2-m3 çok dillidir ve yaklaşık 2,3 GB indirir."
@@ -2891,11 +3015,11 @@ msgid "Enable MCP Server"
 msgstr "MCP Sunucusunu Etkinleştir"
 
 msgid ""
-"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable"
-" HTTP)."
+"Localhost only, no auth. Clients use http://localhost:<port>/mcp (streamable "
+"HTTP)."
 msgstr ""
-"Yalnızca localhost, kimlik doğrulaması yok. İstemciler "
-"http://localhost:<port>/mcp (akış destekli HTTP) adresini kullanır."
+"Yalnızca localhost, kimlik doğrulaması yok. İstemciler http://localhost:"
+"<port>/mcp (akış destekli HTTP) adresini kullanır."
 
 msgid "MCP Port"
 msgstr "MCP Bağlantı Noktası"
@@ -2965,8 +3089,8 @@ msgid "Max Calc data cells"
 msgstr "Maksimum Calc veri hücresi"
 
 msgid ""
-"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger"
-" values use more RAM and time; UNO range read still dominates."
+"Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger "
+"values use more RAM and time; UNO range read still dominates."
 msgstr ""
 "=PYTHON() verisindeki veya Python Betiği Çalıştır verisi/veri_aralığındaki "
 "maksimum hücre sayısı. Daha büyük değerler daha fazla bellek ve zaman "
@@ -3002,9 +3126,9 @@ msgid "Convert Date/Time and Timedelta Strings"
 msgstr "Tarih/Saat ve Zaman Farkı Dizelerini Dönüştür"
 
 msgid ""
-"Automatically detect and convert date/time and duration strings to "
-"datetime/timedelta objects when sending data to the Python worker. Requires "
-"the 'pandas' and 'dateparser' packages in your venv."
+"Automatically detect and convert date/time and duration strings to datetime/"
+"timedelta objects when sending data to the Python worker. Requires the "
+"'pandas' and 'dateparser' packages in your venv."
 msgstr ""
 "Verileri Python çalışanına gönderirken tarih/saat ve süre dizelerini "
 "otomatik olarak algılayıp datetime/timedelta nesnelerine dönüştürün. "
@@ -3014,17 +3138,16 @@ msgid "PPT-Master data path"
 msgstr "PPT-Master veri yolu"
 
 msgid ""
-"Path to the ppt-master skill tree (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). Clone https://github.com/hugohe3/ppt-master and point"
-" here at the clone root (.../ppt-master) or the inner skill dir (.../ppt-"
-"master/skills/ppt-master). Leave empty to auto-detect (dev clone beside "
-"repo, then env)."
+"Path to the ppt-master skill tree (SKILL.md, templates/, scripts/"
+"svg_to_pptx/). Clone hugohe3/ppt-master on GitHub and point here at the "
+"clone root (.../ppt-master) or the inner skill dir (.../ppt-master/skills/"
+"ppt-master). Leave empty to auto-detect (dev clone beside repo, then env)."
 msgstr ""
-"ppt-master beceri ağacının yolu (SKILL.md, templates/, "
-"scripts/svg_to_pptx/). https://github.com/hugohe3/ppt-master adresini "
-"klonlayın ve burayı klon köküne (.../ppt-master) veya iç beceri dizinine "
-"(.../ppt-master/skills/ppt-master) yönlendirin. Otomatik algılama için boş "
-"bırakın (repo yanındaki geliştirici klonu, ardından env)."
+"ppt-master beceri ağacının yolu (SKILL.md, templates/, scripts/"
+"svg_to_pptx/). GitHub'da hugohe3/ppt-master'ı klonlayın ve burayı klon "
+"köküne (.../ppt-master) veya iç beceri dizinine (.../ppt-master/skills/ppt-"
+"master) yönlendirin. Otomatik algılama için boş bırakın (deponun yanındaki "
+"geliştirici klonu, ardından ortam)."
 
 msgid "Vision / OCR"
 msgstr "Vizyon / OCR"
