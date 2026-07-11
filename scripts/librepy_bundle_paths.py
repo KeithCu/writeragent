@@ -32,13 +32,11 @@ LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
         "venv/harper_binary.py",
         "venv/audio_recorder.py",
         "venv/audio_record_main.py",
-        "audio_recorder_service.py",
         "audio_silence_detector.py",
         "writeragent_api.py",
     ),
     "plugin/vision/": ("vision_tools.py",),
     "plugin/contrib/scripting/assets/editor/": (),
-    "plugin/contrib/vec_pack/": (),
 }
 
 # Explicit files outside the directory rules above.
@@ -112,6 +110,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/__init__.py",
     "plugin/framework/client/errors.py",
     "plugin/scripting/sandbox_cache.py",
+    "plugin/scripting/audio_recorder_service.py",
     "plugin/contrib/__init__.py",
     "plugin/contrib/smolagents/__init__.py",
     "plugin/contrib/smolagents/local_python_executor.py",

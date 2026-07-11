@@ -143,6 +143,12 @@ def bootstrap(ctx=None) -> None:
         from plugin.framework.config import init_config
 
         init_config(ctx)
+        try:
+            from plugin.scripting.audio_recorder_service import ensure_downloaded_audio_on_path
+
+            ensure_downloaded_audio_on_path()
+        except Exception:
+            pass
         from plugin.framework.i18n import init_i18n
 
         init_i18n(ctx)

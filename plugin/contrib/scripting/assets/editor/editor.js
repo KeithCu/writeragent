@@ -1,6 +1,6 @@
 /**
  * WriterAgent Monaco Editor Host Integration
- * 
+ *
  * LaTeX Language support for Monaco Editor, adapted from:
  * - Source: https://github.com/domatex/monaco-latex
  * - Path: https://unpkg.com/monaco-latex/dist/src/tokenizer.js
@@ -11,17 +11,34 @@
 
   var editor = null;
   var pendingCode = "";
+  var ui = {};
   var defaultStatusOkText = "Saved.";
   var pendingStatusText = "Saving…";
   var currentMode = "calc_cell";
   var dataBindingTitle = "Calc injects `data` and `data_list` from these range(s) at runtime.";
+  var dataBindingDisabledTitle = "Data ranges apply only when saving as a =PYTHON() formula.";
+
+  function t(key, fallback) {
+    var value = ui[key];
+    return value !== undefined && value !== null && value !== "" ? value : fallback;
+  }
+
+  function fmt(key) {
+    var template = t(key, "");
+    var args = arguments;
+    return template.replace(/\{(\d+)\}/g, function (_, index) {
+      var argIndex = parseInt(index, 10) + 1;
+      return args[argIndex] !== undefined ? args[argIndex] : "";
+    });
+  }
 
   function setStatus(text, kind) {
     var el = document.getElementById("status");
     if (el) {
-      var label = text || "Ready";
-      if (label.indexOf("Status: ") !== 0) {
-        label = "Status: " + label;
+      var prefix = t("status_prefix", "Status:");
+      var label = text || t("ready", "Ready");
+      if (prefix && label.indexOf(prefix) !== 0) {
+        label = prefix + " " + label;
       }
       el.value = label;
       el.classList.remove("status-ok", "status-error");
@@ -34,19 +51,14 @@
   }
 
   function applyTheme(tinfo) {
-    // Make the HTML chrome (toolbar, inputs, script picker) follow LO.
-    // Monaco itself is handled via monaco.editor.setTheme.
     if (!tinfo) return;
     var isDark = !!(tinfo.is_dark || (tinfo.monaco && tinfo.monaco.indexOf("dark") !== -1));
     document.body.classList.toggle("dark", isDark);
     document.body.classList.toggle("light", !isDark);
-
-    // If richer colors were provided in future, we could set CSS vars here, e.g.:
-    // if (tinfo.bg != null) { document.documentElement.style.setProperty('--wa-bg', '#' + tinfo.bg.toString(16).padStart(6,'0')); }
   }
 
   function formatErrorMessage(msg) {
-    var text = msg.message || "Error";
+    var text = msg.message || t("error", "Error");
     if (msg.traceback) {
       var lines = String(msg.traceback).split("\n");
       for (var i = 0; i < lines.length; i++) {
@@ -75,7 +87,52 @@
     }
   }
 
+  function applyUiChrome() {
+    var runBtn = document.getElementById("btn-run");
+    if (runBtn) {
+      runBtn.textContent = t("run_label", "Run");
+    }
+
+    var saveBtn = document.getElementById("btn-save");
+    if (saveBtn) {
+      saveBtn.textContent = t("save_label", "Save");
+    }
+
+    var closeBtn = document.getElementById("btn-cancel");
+    if (closeBtn) {
+      closeBtn.textContent = t("close_label", currentMode === "run_script" || currentMode === "latex" ? "Close" : "Cancel");
+    }
+
+    var plainTextEl = document.getElementById("plain-text-save-text");
+    if (plainTextEl) {
+      plainTextEl.textContent = t("plain_text_label", "Save without =PY()");
+    }
+
+    var dataLabel = document.getElementById("data-binding-label");
+    if (dataLabel) {
+      dataLabel.textContent = t("data_label", "Data:");
+    }
+
+    var dataInput = getDataBindingInput();
+    if (dataInput) {
+      dataInput.placeholder = t("data_placeholder", "A1:C1  or  A1:C1, C1:C5");
+    }
+
+    dataBindingTitle = t(
+      "data_binding_title",
+      "Calc injects `data` and `data_list` from these range(s) at runtime."
+    );
+    dataBindingDisabledTitle = t(
+      "data_binding_disabled_title",
+      "Data ranges apply only when saving as a =PYTHON() formula."
+    );
+    if (dataInput) {
+      dataInput.title = dataBindingTitle;
+    }
+  }
+
   function applyLoadMessage(msg) {
+    ui = msg.ui || {};
     if (msg.title) {
       document.title = msg.title;
     }
@@ -89,40 +146,22 @@
     setToolbarVisible("data-binding-label", showDataBinding);
     setToolbarVisible("data-binding-input", showDataBinding);
 
-    if (msg.plain_text_label) {
-      var labelEl = document.getElementById("plain-text-save-text");
-      if (labelEl) {
-        labelEl.textContent = msg.plain_text_label;
-      }
-    }
-
-    var runBtn = document.getElementById("btn-run");
-    if (runBtn && msg.run_label) {
-      runBtn.textContent = msg.run_label;
-    }
+    applyUiChrome();
 
     var plainEl = getPlainTextCheckbox();
     if (plainEl && typeof msg.save_as_plain === "boolean") {
       plainEl.checked = msg.save_as_plain;
     }
 
-    var saveBtn = document.getElementById("btn-save");
-    if (saveBtn && msg.save_label) {
-      saveBtn.textContent = msg.save_label;
-    }
-
-    var closeBtn = document.getElementById("btn-cancel");
-    if (closeBtn) {
-      closeBtn.textContent = msg.close_label || (isRunScript ? "Close" : "Cancel");
-    }
-
+    defaultStatusOkText = t("saved_default", t("status_ok_text", "Saved."));
     if (msg.saved_ok_text) {
       defaultStatusOkText = msg.saved_ok_text;
-    } else if (msg.status_ok_text && isRunScript || msg.status_ok_text) {
+    } else if (msg.status_ok_text) {
       defaultStatusOkText = msg.status_ok_text;
     }
 
-    pendingStatusText = isRunScript ? "Running…" : "Saving…";
+    pendingStatusText = isRunScript ? t("running", "Running…") : t("saving", "Saving…");
+
     var text = msg.data_binding || "";
     var input = getDataBindingInput();
     if (input) {
@@ -135,11 +174,9 @@
     if (editor) {
       editor.setValue(pendingCode);
       monaco.editor.setModelLanguage(editor.getModel(), msg.language || "python");
-      setStatus("Ready", "");
+      setStatus(t("ready", "Ready"), "");
     }
 
-    // Apply LO theme (Monaco + our toolbar chrome). Sent on every load so
-    // switching cells or re-opening sees the current LO appearance.
     if (msg.theme) {
       var monacoTheme = msg.theme.monaco || (msg.theme.is_dark ? "vs-dark" : "vs");
       try {
@@ -158,7 +195,7 @@
     var disabled = !!plainEl && plainEl.checked;
     if (input) {
       input.disabled = disabled;
-      input.title = disabled ? "Data ranges apply only when saving as a =PYTHON() formula." : dataBindingTitle;
+      input.title = disabled ? dataBindingDisabledTitle : dataBindingTitle;
     }
     if (label) {
       label.classList.toggle("disabled", disabled);
@@ -176,9 +213,6 @@
                 applyLoadMessage(msg);
               } else if (msg.type === "saved") {
                 var okText = msg.status_ok_text || defaultStatusOkText;
-                if (msg.save_as_plain && !msg.status_ok_text) {
-                  okText = "Saved without =PY().";
-                }
                 setStatus(okText, "ok");
               } else if (msg.type === "error") {
                 setStatus(formatErrorMessage(msg), "error");
@@ -196,11 +230,26 @@
     return editor ? editor.getValue() : pendingCode;
   }
 
+  window.waEditorUi = {
+    t: t,
+    fmt: fmt,
+    setStatus: setStatus,
+    getUi: function () {
+      return ui;
+    },
+    applyUiFromLoad: function (msg) {
+      if (msg && msg.ui) {
+        ui = msg.ui;
+        applyUiChrome();
+      }
+    }
+  };
+
   document.getElementById("btn-run").addEventListener("click", function () {
     var code = getEditorCode();
     if (window.pywebview && window.pywebview.api && window.pywebview.api.notify_run) {
       window.pywebview.api.notify_run(code);
-      setStatus("Running…", "");
+      setStatus(t("running", "Running…"), "");
     }
   });
 
@@ -209,7 +258,7 @@
     if (window.pywebview && window.pywebview.api) {
       if (currentMode === "run_script" && window.pywebview.api.notify_save_script) {
         window.pywebview.api.notify_save_script(code);
-        setStatus("Saving…", "");
+        setStatus(t("saving", "Saving…"), "");
         return;
       }
       var plainEl = getPlainTextCheckbox();
@@ -236,17 +285,11 @@
     plainCheckbox.addEventListener("change", updateDataBindingEnabled);
   }
 
-  var dataInput = getDataBindingInput();
-  if (dataInput) {
-    dataInput.title = dataBindingTitle;
-  }
-
   updateDataBindingEnabled();
 
   if (typeof require !== "undefined") {
     require.config({ paths: { vs: "vs" } });
     require(["vs/editor/editor.main"], function () {
-      // Register LaTeX language support
       monaco.languages.register({
         id: "latex",
         extensions: [".tex", ".sty", ".cls"],
@@ -411,6 +454,6 @@
       pollMessages();
     });
   } else {
-    setStatus("Monaco loader missing.", "error");
+    setStatus(t("monaco_loader_missing", "Monaco loader missing."), "error");
   }
 })();

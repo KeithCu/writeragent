@@ -271,6 +271,10 @@ def test_run_python_monaco_on_save_persists_and_executes():
                         assert load["close_label"] is not None
                         assert load["show_plain_text"] is False
                         assert load["show_data_binding"] is False
+                        from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
+
+                        enriched = enrich_monaco_load_message(load)
+                        assert enriched["ui"]["script_label"]
 
                         response = captured["on_save"]("result = 2", False, None, "run")
                         mock_set.assert_called_with("saved_python_scripts", {"Prime Numbers": "result = 2"})

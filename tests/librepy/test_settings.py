@@ -3,6 +3,8 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.librepy.settings import (
+    _DownloadVecPackListener,
+    _ScriptingVenvTestListener,
     _VenvProbeCloseListener,
     _VenvProbeProgressDialog,
     _populate_field,
@@ -93,3 +95,51 @@ def test_venv_probe_close_listener_ends_dialog():
     listener.on_action_performed(None)
 
     dlg.endDialog.assert_called_once_with(0)
+
+
+def test_download_vec_pack_listener_runs_vec_only_download() -> None:
+    fake_ctx = MagicMock()
+    fake_dlg = MagicMock()
+    probe_displays: list[str] = []
+
+    class _FakeProgress:
+        def __init__(self, ctx, parent_dlg=None):
+            self._dlg = MagicMock()
+
+        def run_modal_probe(self, probe_fn):
+            probe_fn(probe_displays.append, lambda _status: None)
+            return True
+
+    listener = _DownloadVecPackListener(fake_ctx, fake_dlg)
+    with (
+        patch("plugin.librepy.settings._VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.scripting.audio_recorder_service.run_vec_pack_download", return_value=True) as mock_download,
+    ):
+        listener.on_action_performed(None)
+
+    mock_download.assert_called_once()
+
+
+def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
+    fake_ctx = MagicMock()
+    fake_dlg = MagicMock()
+
+    class _FakeProgress:
+        def __init__(self, ctx, parent_dlg=None):
+            pass
+
+        def run_modal_probe(self, probe_fn):
+            probe_fn(lambda _text: None, lambda _status: None)
+            return True
+
+    listener = _ScriptingVenvTestListener(fake_ctx, fake_dlg)
+    with (
+        patch("plugin.librepy.settings.get_optional", return_value=None),
+        patch("plugin.librepy.settings._VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.scripting.audio_recorder_service.ensure_downloaded_audio_on_path") as mock_ensure,
+        patch("plugin.scripting.venv_worker.probe_venv_path_with_progress", return_value=(True, "ok")),
+        patch("plugin.scripting.payload_codec.host_cython_status_line", return_value="Cython Accelerator: Inactive (Pure Python)"),
+    ):
+        listener.on_action_performed(None)
+
+    mock_ensure.assert_called_once()

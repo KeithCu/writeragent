@@ -246,7 +246,7 @@ def make_temp_wav_path() -> str:
 
 
 def ensure_downloaded_audio_on_path() -> None:
-    """Ensure downloaded pure Python audio files and platform binaries are on sys.path."""
+    """Ensure downloaded host binaries (audio + writeragent_vec) are on sys.path."""
     from plugin.framework.config import user_config_dir
     try:
         ucd = user_config_dir()
@@ -276,13 +276,95 @@ def is_audio_recording_supported(ctx: Any) -> bool:
     return check_host_audio_supported()
 
 
+_CONTRIB_BASE_URL = "https://raw.githubusercontent.com/KeithCu/writeragent/master/contrib/"
+
+
+def _download_url_to_file(
+    url: str,
+    dest_path: str,
+    on_status: Callable[[str], None],
+) -> None:
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+    )
+    try:
+        with urllib.request.urlopen(req) as response:
+            total_size = int(response.headers.get("content-length", 0))
+            block_size = 8192
+            downloaded = 0
+            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+            with open(dest_path, "wb") as fh:
+                while True:
+                    buffer = response.read(block_size)
+                    if not buffer:
+                        break
+                    downloaded += len(buffer)
+                    fh.write(buffer)
+                    if total_size:
+                        percent = int(downloaded * 100 / total_size)
+                        on_status(f"Downloading {os.path.basename(dest_path)}: {percent}%")
+    except urllib.error.HTTPError as err:
+        raise RuntimeError(f"HTTP Error {err.code}: {err.reason} for URL: {url}") from err
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download {url}: {exc}") from exc
+
+
+def run_vec_pack_download(
+    on_display: Callable[[str], None],
+    on_status: Callable[[str], None],
+    *,
+    include_header: bool = True,
+) -> bool:
+    """Download the platform-specific Cython pack binary from contrib/vec_pack on GitHub."""
+    import platform
+    import sysconfig
+
+    from plugin.framework.config import user_config_dir
+
+    ucd = user_config_dir()
+    if not ucd:
+        raise RuntimeError("User config directory not resolved.")
+
+    ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
+    if not ext_suffix:
+        raise RuntimeError("Failed to determine Python EXT_SUFFIX.")
+
+    target_dir = os.path.join(ucd, "audio_binaries")
+    os.makedirs(target_dir, exist_ok=True)
+    base_url = _CONTRIB_BASE_URL
+
+    if include_header:
+        on_display(f"Target directory: {target_dir}\n")
+        on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
+        on_display(f"Python: {platform.python_version()}\n\n")
+
+    vec_init_url = f"{base_url}vec_pack/__init__.py"
+    vec_init_dest = os.path.join(target_dir, "writeragent_vec", "__init__.py")
+    on_display("Downloading writeragent_vec/__init__.py...\n")
+    _download_url_to_file(vec_init_url, vec_init_dest, on_status)
+
+    pack_name = f"pack{ext_suffix}"
+    vec_bin_url = f"{base_url}vec_pack/{pack_name}"
+    vec_bin_dest = os.path.join(target_dir, "writeragent_vec", pack_name)
+    on_display(f"Downloading binary {pack_name}...\n")
+    _download_url_to_file(vec_bin_url, vec_bin_dest, on_status)
+
+    ensure_downloaded_audio_on_path()
+    if include_header:
+        on_display("\nCython accelerator binary installed successfully.\n")
+    return True
+
+
 def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> bool:
     """Download the pure-Python audio source zip and the platform-specific compiled binaries from GitHub."""
-    import sysconfig
     import platform
-    import urllib.request
-    import urllib.error
+    import sysconfig
     import zipfile
+
     from plugin.framework.config import user_config_dir
 
     ucd = user_config_dir()
@@ -292,57 +374,31 @@ def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[s
     target_dir = os.path.join(ucd, "audio_binaries")
     os.makedirs(target_dir, exist_ok=True)
 
-    ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')
+    ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
     if not ext_suffix:
         raise RuntimeError("Failed to determine Python EXT_SUFFIX.")
 
     cffi_name = f"_cffi_backend{ext_suffix}"
 
     portaudio_name = None
-    if platform.system() == 'Darwin':
-        portaudio_name = 'libportaudio.dylib'
-    elif platform.system() == 'Windows':
-        is_arm = platform.machine().lower() in ('arm64', 'aarch64')
-        platform_suffix = 'arm64' if is_arm else '64bit'
-        portaudio_name = f'libportaudio{platform_suffix}.dll'
+    if platform.system() == "Darwin":
+        portaudio_name = "libportaudio.dylib"
+    elif platform.system() == "Windows":
+        is_arm = platform.machine().lower() in ("arm64", "aarch64")
+        platform_suffix = "arm64" if is_arm else "64bit"
+        portaudio_name = f"libportaudio{platform_suffix}.dll"
 
-    base_url = "https://raw.githubusercontent.com/KeithCu/writeragent/master/contrib/"
+    base_url = _CONTRIB_BASE_URL
 
     on_display(f"Target directory: {target_dir}\n")
     on_display(f"Platform: {platform.system()} ({platform.machine()})\n")
     on_display(f"Python: {platform.python_version()}\n\n")
 
-    def download_url_to_file(url: str, dest_path: str) -> None:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        )
-        try:
-            with urllib.request.urlopen(req) as response:
-                total_size = int(response.headers.get('content-length', 0))
-                block_size = 8192
-                downloaded = 0
-                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-                with open(dest_path, 'wb') as f:
-                    while True:
-                        buffer = response.read(block_size)
-                        if not buffer:
-                            break
-                        downloaded += len(buffer)
-                        f.write(buffer)
-                        if total_size:
-                            percent = int(downloaded * 100 / total_size)
-                            on_status(f"Downloading {os.path.basename(dest_path)}: {percent}%")
-        except urllib.error.HTTPError as err:
-            raise RuntimeError(f"HTTP Error {err.code}: {err.reason} for URL: {url}") from err
-        except Exception as exc:
-            raise RuntimeError(f"Failed to download {url}: {exc}") from exc
-
     # Download pure Python source zip
     zip_url = f"{base_url}audio_source.zip"
     zip_dest = os.path.join(target_dir, "audio_source.zip")
     on_display("Downloading pure Python audio libraries (audio_source.zip)...\n")
-    download_url_to_file(zip_url, zip_dest)
+    _download_url_to_file(zip_url, zip_dest, on_status)
 
     # Extract audio_source.zip
     on_status("Extracting audio_source.zip...")
@@ -363,14 +419,14 @@ def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[s
     cffi_url = f"{base_url}audio/{cffi_name}"
     cffi_dest = os.path.join(target_dir, cffi_name)
     on_display(f"Downloading binary {cffi_name}...\n")
-    download_url_to_file(cffi_url, cffi_dest)
+    _download_url_to_file(cffi_url, cffi_dest, on_status)
 
     # Download PortAudio binary if needed
     if portaudio_name:
         pa_url = f"{base_url}audio/_sounddevice_data/portaudio-binaries/{portaudio_name}"
         pa_dest = os.path.join(target_dir, "_sounddevice_data", "portaudio-binaries", portaudio_name)
         on_display(f"Downloading binary {portaudio_name}...\n")
-        download_url_to_file(pa_url, pa_dest)
+        _download_url_to_file(pa_url, pa_dest, on_status)
 
     # Create _sounddevice_data/__init__.py placeholder
     init_dest = os.path.join(target_dir, "_sounddevice_data", "__init__.py")
@@ -378,17 +434,6 @@ def run_audio_download(on_display: Callable[[str], None], on_status: Callable[[s
     with open(init_dest, "w") as f:
         f.write("# Placeholder\n")
 
-    # Download writeragent_vec serialization binaries
-    vec_init_url = f"{base_url}vec_pack/__init__.py"
-    vec_init_dest = os.path.join(target_dir, "writeragent_vec", "__init__.py")
-    on_display("Downloading writeragent_vec/__init__.py...\n")
-    download_url_to_file(vec_init_url, vec_init_dest)
-
-    pack_name = f"pack{ext_suffix}"
-    vec_bin_url = f"{base_url}vec_pack/{pack_name}"
-    vec_bin_dest = os.path.join(target_dir, "writeragent_vec", pack_name)
-    on_display(f"Downloading binary {pack_name}...\n")
-    download_url_to_file(vec_bin_url, vec_bin_dest)
-
+    run_vec_pack_download(on_display, on_status, include_header=False)
     on_display("\nAll downloaded files installed successfully!\n")
     return True

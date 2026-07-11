@@ -39,10 +39,12 @@ def test_launch_monaco_editor_reuses_running_process():
             )
 
     assert ok is True
-    # Theme is always injected by launch (automatic LO follow)
+    # Theme and localized UI strings are always injected by launch.
     assert sent_messages[0]["type"] == "load"
     assert sent_messages[0]["code"] == "print(1)"
     assert "theme" in sent_messages[0]
+    assert "ui" in sent_messages[0]
+    assert sent_messages[0]["ui"]["ready"]
     assert sent_messages[0]["theme"]["monaco"] in ("vs", "vs-dark")
     mock_session_cls.assert_called_once()
 
@@ -77,6 +79,8 @@ def test_launch_monaco_editor_spawns_when_not_running():
     assert sent["type"] == "load"
     assert sent["mode"] == "run_script"
     assert "theme" in sent
+    assert "ui" in sent
+    assert sent["ui"]["script_label"]
     assert load_message["run_script_doc"] is mock_doc
 
 

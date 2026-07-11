@@ -13,6 +13,75 @@
   var documentStale = false;
   var initialRequested = false;
 
+  function uiApi() {
+    return window.waEditorUi || null;
+  }
+
+  function t(key, fallback) {
+    var api = uiApi();
+    if (api && api.t) {
+      return api.t(key, fallback);
+    }
+    return fallback;
+  }
+
+  function fmt(key) {
+    var api = uiApi();
+    var args = arguments;
+    if (api && api.fmt) {
+      return api.fmt.apply(api, args);
+    }
+    var template = t(key, "");
+    return template.replace(/\{(\d+)\}/g, function (_, index) {
+      var argIndex = parseInt(index, 10) + 1;
+      return args[argIndex] !== undefined ? args[argIndex] : "";
+    });
+  }
+
+  function setStatus(text, kind) {
+    var api = uiApi();
+    if (api && api.setStatus) {
+      api.setStatus(text, kind);
+      return;
+    }
+    var el = document.getElementById("status");
+    if (el) {
+      el.value = text || t("ready", "Ready");
+      el.className = "";
+      if (kind === "ok") el.classList.add("status-ok");
+      if (kind === "error") el.classList.add("status-error");
+    }
+  }
+
+  function applyScriptManagerChrome() {
+    var scriptLabel = document.querySelector('label[for="script-select"]');
+    if (scriptLabel) {
+      scriptLabel.textContent = t("script_label", "Script:");
+    }
+
+    var attachBtn = getAttachBtn();
+    if (attachBtn) {
+      attachBtn.textContent = t("attach_label", "Attach");
+      attachBtn.title = t("attach_title", "Attach to Document");
+    }
+
+    var saveAsBtn = document.getElementById("btn-save-as");
+    if (saveAsBtn) {
+      saveAsBtn.textContent = t("save_as_label", "Save As...");
+    }
+
+    var copyBtn = getCopyBtn();
+    if (copyBtn) {
+      copyBtn.textContent = t("copy_to_user_label", "Copy to My Scripts");
+      copyBtn.title = t("copy_to_user_title", "Copy to My Scripts");
+    }
+
+    var deleteBtn = getDeleteBtn();
+    if (deleteBtn) {
+      deleteBtn.textContent = t("delete_label", "Delete");
+    }
+  }
+
   function getSelectEl() {
     return document.getElementById("script-select");
   }
@@ -33,20 +102,6 @@
     return document.getElementById("script-manager-container");
   }
 
-  function setStatus(text, kind) {
-    var el = document.getElementById("status");
-    if (el) {
-      var label = text || "Ready";
-      if (label.indexOf("Status: ") !== 0) {
-        label = "Status: " + label;
-      }
-      el.value = label;
-      el.className = "";
-      if (kind === "ok") el.classList.add("status-ok");
-      if (kind === "error") el.classList.add("status-error");
-    }
-  }
-
   function rebuildScriptIndex(sections) {
     scriptIndex = {};
     scriptSections = sections || [];
@@ -62,7 +117,7 @@
   }
 
   function legacyScriptsToSections(scripts) {
-    return [{ id: "user", title: "My Scripts", scripts: scripts || {} }];
+    return [{ id: "user", title: t("my_scripts_fallback", "My Scripts"), scripts: scripts || {} }];
   }
 
   function applyScriptsList(msg) {
@@ -107,7 +162,10 @@
   }
 
   function builtInHelperReadOnlyMessage() {
-    return "Built-in helpers are read-only. Use Copy to My Scripts to customize.";
+    return t(
+      "builtin_readonly",
+      "Built-in helpers are read-only. Use Copy to My Scripts to customize."
+    );
   }
 
   function updateToolbarState() {
@@ -124,7 +182,13 @@
       copyBtn.classList.toggle("toolbar-disabled", copyBtn.disabled);
     }
     if (documentStale) {
-      setStatus("Document changed — close and reopen Run Python Script to edit document scripts.", "error");
+      setStatus(
+        t(
+          "document_stale",
+          "Document changed — close and reopen Run Python Script to edit document scripts."
+        ),
+        "error"
+      );
     }
   }
 
@@ -132,6 +196,11 @@
     if (!msg) return;
 
     if (msg.type === "load") {
+      if (window.waEditorUi && window.waEditorUi.applyUiFromLoad) {
+        window.waEditorUi.applyUiFromLoad(msg);
+      }
+      applyScriptManagerChrome();
+
       var isRunScript = msg.mode === "run_script";
       var container = getManagerContainer();
       if (container) {
@@ -174,9 +243,13 @@
     if (!lastVal && selectedScriptName) {
       lastVal = selectedScriptName;
     }
-    var lastOrigin = currentOrigin;
 
     select.innerHTML = "";
+
+    var sampleOpt = document.createElement("option");
+    sampleOpt.value = "";
+    sampleOpt.textContent = t("sample_label", "Sample");
+    select.appendChild(sampleOpt);
 
     for (var s = 0; s < scriptSections.length; s++) {
       var section = scriptSections[s];
@@ -186,7 +259,7 @@
         continue;
       }
       var group = document.createElement("optgroup");
-      group.label = section.title || section.id || "Scripts";
+      group.label = section.title || section.id || t("scripts_fallback", "Scripts");
       for (var i = 0; i < names.length; i++) {
         var name = names[i];
         var opt = document.createElement("option");
@@ -205,13 +278,12 @@
       restored = true;
     }
     if (!restored) {
-      var firstOpt = select.querySelector("option");
-      if (firstOpt) {
-        select.value = firstOpt.value;
-        currentOrigin = firstOpt.dataset.origin || "user";
+      if (selectedScriptName && scriptIndex[selectedScriptName]) {
+        select.value = selectedScriptName;
+        currentOrigin = scriptIndex[selectedScriptName].origin;
       } else {
         select.value = "";
-        currentOrigin = "user";
+        currentOrigin = "sample";
       }
     }
     currentSelectedName = select.value;
@@ -250,13 +322,13 @@
     if (name && scriptIndex[name] !== undefined) {
       if (window.editor) {
         window.editor.setValue(scriptIndex[name].code);
-        setStatus("Loaded script '" + name + "'.", "ok");
+        setStatus(fmt("loaded_script", name), "ok");
       }
       setDataBindingVisible(currentOrigin === "analysis");
     } else if (!name) {
       if (window.editor) {
         window.editor.setValue(sampleCode || "");
-        setStatus("Loaded Sample scratchpad.", "ok");
+        setStatus(t("loaded_sample", "Loaded Sample scratchpad."), "ok");
       }
       setDataBindingVisible(false);
     } else {
@@ -279,16 +351,16 @@
 
   function onAttach() {
     if (!documentAvailable || documentReadonly || documentStale) {
-      setStatus("Cannot attach scripts to this document.", "error");
+      setStatus(t("cannot_attach", "No document is open to attach scripts."), "error");
       return;
     }
     var defaultName = currentSelectedName || "";
-    var name = prompt("Enter a name to attach this script to the document:\n(call it 'Init' to run it before any other Python code)", defaultName);
+    var name = prompt(t("attach_prompt", "Enter script name:"), defaultName);
     if (!name) return;
     name = name.trim();
     if (!name) return;
     var overwrite = scriptExistsInSection("document", name);
-    if (overwrite && !confirm("A script named '" + name + "' already exists in this document. Overwrite?")) {
+    if (overwrite && !confirm(fmt("attach_overwrite_confirm", name))) {
       return;
     }
     if (window.editor && window.pywebview && window.pywebview.api && window.pywebview.api.attach_script) {
@@ -296,7 +368,7 @@
       currentSelectedName = name;
       currentOrigin = "document";
       window.pywebview.api.attach_script(name, code, overwrite);
-      setStatus("Attaching script '" + name + "'...", "ok");
+      setStatus(fmt("attaching_script", name), "ok");
     }
   }
 
@@ -304,18 +376,18 @@
     if (!currentSelectedName || (currentOrigin !== "document" && !isBuiltInHelperOrigin(currentOrigin))) {
       return;
     }
-    var name = prompt("Copy to My Scripts as:", currentSelectedName);
+    var name = prompt(t("copy_prompt", "Copy to My Scripts as:"), currentSelectedName);
     if (!name) return;
     name = name.trim();
     if (!name) return;
     var overwrite = scriptExistsInSection("user", name);
-    if (overwrite && !confirm("A script named '" + name + "' already exists in My Scripts. Overwrite?")) {
+    if (overwrite && !confirm(fmt("copy_overwrite_confirm", name))) {
       return;
     }
     if (window.editor && window.pywebview && window.pywebview.api && window.pywebview.api.copy_script_to_user) {
       var code = window.editor.getValue();
       window.pywebview.api.copy_script_to_user(name, code, overwrite);
-      setStatus("Copying script '" + name + "' to My Scripts...", "ok");
+      setStatus(fmt("copying_script", name), "ok");
     }
   }
 
@@ -325,14 +397,14 @@
       return;
     }
     var defaultName = currentSelectedName || "";
-    var name = prompt("Enter a name for the script:", defaultName);
+    var name = prompt(t("save_as_prompt", "Enter script name:"), defaultName);
     if (!name) return;
     name = name.trim();
     if (!name) return;
 
     var origin = currentOrigin === "document" ? "document" : "user";
     if (documentAvailable && !documentReadonly && !documentStale && currentOrigin !== "document") {
-      if (confirm("Save script '" + name + "' to this document?")) {
+      if (confirm(fmt("save_to_document_confirm", name))) {
         origin = "document";
       }
     }
@@ -342,7 +414,7 @@
       currentSelectedName = name;
       currentOrigin = origin;
       window.pywebview.api.save_script(name, code, origin);
-      setStatus("Saving script '" + name + "'...", "ok");
+      setStatus(fmt("saving_script", name), "ok");
     }
   }
 
@@ -352,7 +424,7 @@
 
     var name = select.value;
     if (!name) {
-      if (confirm("Are you sure you want to clear the Sample scratchpad?")) {
+      if (confirm(t("clear_sample_confirm", "Are you sure you want to clear the Sample scratchpad?"))) {
         if (window.editor) {
           window.editor.setValue("");
         }
@@ -360,14 +432,14 @@
         if (window.pywebview && window.pywebview.api && window.pywebview.api.notify_save_script) {
           window.pywebview.api.notify_save_script("");
         }
-        setStatus("Cleared Sample scratchpad.", "ok");
+        setStatus(t("cleared_sample", "Cleared Sample scratchpad."), "ok");
       }
       return;
     }
 
-    if (confirm("Are you sure you want to delete '" + name + "'?")) {
+    if (confirm(fmt("delete_confirm", name))) {
       if (scriptIndex[name] && isBuiltInHelperOrigin(scriptIndex[name].origin)) {
-        setStatus("Built-in helpers cannot be deleted.", "error");
+        setStatus(t("builtin_cannot_delete", "Built-in helpers cannot be deleted."), "error");
         return;
       }
       if (window.pywebview && window.pywebview.api && window.pywebview.api.delete_script) {
@@ -375,7 +447,7 @@
         currentSelectedName = "";
         currentOrigin = "sample";
         window.pywebview.api.delete_script(name, origin);
-        setStatus("Deleting script '" + name + "'...", "ok");
+        setStatus(fmt("deleting_script", name), "ok");
       }
     }
   }
@@ -421,6 +493,8 @@
   }, 100);
 
   document.addEventListener("DOMContentLoaded", function() {
+    applyScriptManagerChrome();
+
     var select = getSelectEl();
     if (select) {
       select.addEventListener("change", onDropdownChange);
@@ -462,7 +536,7 @@
             var code = window.editor.getValue();
             var origin = scriptIndex[activeScript] ? scriptIndex[activeScript].origin : currentOrigin;
             window.pywebview.api.save_script(activeScript, code, origin);
-            setStatus("Saving script '" + activeScript + "'...", "ok");
+            setStatus(fmt("saving_script", activeScript), "ok");
           }
         }
       }, true);

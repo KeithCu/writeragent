@@ -10,7 +10,7 @@ Architectural design for the **LibrePythonista-style Monaco editor** in WriterAg
 
 **Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses a WSGI static server in [`editor_main.py`](../plugin/scripting/venv/editor_main.py) that serves **all** editor HTML/JS/CSS and Monaco `vs/` assets from packages installed in the configured venv (`rocher`); probe/save failures show child stderr + Python tracebacks via [`editor_ipc.py`](../plugin/scripting/editor_ipc.py).
 
-**Dual save modes:** Monaco always edits **stripped Python source** (inline `=PYTHON("…")` code is parsed on load; plain-text cells use `getString`). Toolbar checkbox **Save as plain text** writes `cell.setString(code)` only (for `=PYTHON($A$1; …)` workflows elsewhere). Default Save wraps `=PYTHON("…")` via `setFormula`, preserving existing data-range suffixes. Opening `=PYTHON($A$1; …)` on the formula cell remains blocked; edit the code storage cell instead.
+**Dual save modes:** Monaco always edits **stripped Python source** (inline `=PYTHON("…")` code is parsed on load; code-only cells use `getString`). Toolbar checkbox **Save without =PY()** (`save_as_plain`) writes `cell.setString(code)` only — for **code-in-a-cell** workflows where another cell runs `=PYTHON($A$1; …)`. Default **Save** wraps `=PY("…")` / `=PYTHON("…")` via `setFormula`, preserving existing data-range suffixes; the **Data:** textbox is disabled while **Save without =PY()** is checked. Plain save shows status **Saved without =PY().** Opening `=PYTHON($A$1; …)` on the formula cell remains blocked; edit the code storage cell instead.
 
 ---
 
@@ -42,9 +42,9 @@ Same framing as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`s
 | `type` | Direction | Purpose |
 |--------|-----------|---------|
 | `ready` | child → LO | GUI up (`window.events.loaded` or `shown`); safe to send `load` |
-| `load` | LO → child | Initial `code` (stripped Python only—never `=PYTHON()`), optional `title`, `data_binding`, `plain_text_label`, optional `save_as_plain` (checkbox: off for `=PYTHON()`, on for plain-string cells, off when empty) |
-| `save` | child → LO | User saved; includes `code`, optional `save_as_plain` (default false), optional `data_binding` (range text for formula suffix) |
-| `saved` / `error` | LO → child | Apply result in UI; `saved` may include `save_as_plain` |
+| `load` | LO → child | Initial `code` (stripped Python only—never `=PYTHON()`), optional `title`, `data_binding`, `plain_text_label` (checkbox label; Calc default **Save without =PY()**), optional `save_as_plain` (checkbox state: off for inline `=PYTHON()`, on for code-only cells, off when empty), **`ui`** (localized toolbar/status — see [Localization](#localization)) |
+| `save` | child → LO | User saved; includes `code`, optional `save_as_plain` (default false), optional `data_binding` (range text for formula suffix; ignored when `save_as_plain`) |
+| `saved` / `error` | LO → child | Apply result in UI; `saved` may include `save_as_plain` and `status_ok_text` (e.g. **Saved without =PY().**) |
 | `closed` / `cancel` | either | Tear down session |
 
 ---
@@ -78,6 +78,18 @@ Same framing as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`s
 - **`jedi`** (session 2+): optional, persistent `Environment` in child — see below.
 
 **Note:** **Run Python Script…** opens Monaco when the configured venv has pywebview (Python syntax highlighting, **Run** button, editor stays open after execution). If pywebview is unavailable, it falls back to the native multiline dialog in [`python_runner.py`](../plugin/scripting/python_runner.py). That legacy dialog is **modeless by default** (`scripting.native_run_script_modeless` in `writeragent.json`; set `false` for the classic modal dialog). To force the native LO dialog instead of Monaco, set `scripting.force_internal_script_editor` to `true` in `writeragent.json` (default `false`). Calc **Edit Python in Cell…** has no native fallback: when that flag is set it shows a msgbox explaining that Monaco is required; when pywebview is missing it explains how to fix the configured venv.
+
+### Localization
+
+The Monaco **shell** (toolbar, status line, script picker, `prompt()`/`confirm()` text) is localized via GNU gettext on the LibreOffice host — same domain as the rest of WriterAgent (`writeragent`).
+
+- **Catalog:** [`plugin/scripting/editor_ui_strings.py`](../plugin/scripting/editor_ui_strings.py) — all user-visible English `msgid`s wrapped in `_()`.
+- **Injection:** [`launch_monaco_editor()`](../plugin/scripting/editor_host.py) calls `enrich_monaco_load_message()` on every outbound `load` (including multi-cell reload), attaching a **`ui`** dict of pre-translated strings alongside `theme`.
+- **Frontend:** [`editor.js`](../plugin/contrib/scripting/assets/editor/editor.js) and [`scripts_manager.js`](../plugin/contrib/scripting/assets/editor/scripts_manager.js) read `load.ui` via `window.waEditorUi.t()` / `fmt()` — no gettext in JS.
+- **Parity:** Toolbar labels reuse the same msgids as [`PythonScriptDialog.xdl`](../extension/WriterAgentDialogs/PythonScriptDialog.xdl) and [`python_runner_ui.py`](../plugin/scripting/python_runner_ui.py) where wording matches.
+- **Calc cell save modes:** `plain_text_label` → **Save without =PY()**; plain-save status → `ui.saved_plain` / **Saved without =PY().** (LaTeX mode reuses the IPC key `plain_text_label` for a different checkbox — see [`editor_ui_strings.py`](../plugin/scripting/editor_ui_strings.py).)
+
+**Out of scope:** Monaco’s built-in editor UI (Find/Replace, internal context menus) — that would require `monaco-nls` locale bundles.
 
 ---
 
@@ -148,7 +160,7 @@ tests/
 8. Edit cell A, Save, select cell B, run **Edit Python in Cell…** again — editor reloads B’s code (no blocking dialog).
 9. Right-click a cell — **Edit Python in Cell…** should appear at the bottom of the cell context menu.
 10. On save error (if reproducible), toolbar shows red error text and the editor stays open.
-11. **Run Python Script…** (Writer/Calc/Draw): with venv + pywebview, opens Monaco with colored Python, **Run** / **Save** / **Close** buttons (no Data/plain-text controls). **Run** executes and inserts result; **Save** persists script to config only; **Close** hides the editor. Without pywebview, the plain multiline dialog appears (no error msgbox).
+11. **Run Python Script…** (Writer/Calc/Draw): with venv + pywebview, opens Monaco with colored Python, **Run** / **Save** / **Close** buttons (no **Data:** / **Save without =PY()** controls). **Run** executes and inserts result; **Save** persists script to config only; **Close** hides the editor. Without pywebview, the plain multiline dialog appears (no error msgbox).
 12. **Run Python Script… script picker:** save scratchpad content via **Save** while **Sample** is selected; switch to a **My Scripts** entry — editor changes; switch back to **Sample** — scratchpad content must reload (not a no-op). **Delete** on Sample clears the scratchpad.
 13. **Theme follows LO:** Change LibreOffice appearance (Tools ▸ Options ▸ LibreOffice ▸ Appearance or system dark mode with LO on "System"). Re-open editor (cell or Run Python Script). Toolbar must use matching dark/light colors; Monaco must use `vs-dark` vs `vs`; no white-on-white or black-on-black. Switching between cells re-applies current theme. Check both light and dark.
 14. **Status copyable:** After **Run** (Monaco) or **Run** in the native fallback dialog, the status line text must be selectable and copyable (drag-select or Ctrl+A, then Ctrl+C). Paste into another app to confirm.
@@ -171,7 +183,7 @@ Session 1 proves the **pipe + subprocess + Monaco** spine. The work below is ord
 | **Save feedback** | Green status on `saved`; red status on `error` with message; editor stays open. Status line is always visible (`Status: Ready` initially; last message persists). | **Done** |
 | **Context menu** | Calc cell right-click via [`python_editor_context_menu.py`](../plugin/calc/python/editor_context_menu.py) (`XContextMenuInterceptor`; same dispatch URL as menubar). | **Done** |
 | **stderr logging** | Continuous stderr drain thread in [`editor_bridge.py`](../plugin/scripting/editor_host.py) (`editor-stderr-drain`); lines logged at debug; tail kept for failure msgboxes. | **Done** |
-| **Multi-cell reload** | Editor open on cell A → Save → select B → menu again sends fresh `load` (callbacks retargeted; `save_as_plain` reflects B’s cell type). | **Done** |
+| **Multi-cell reload** | Editor open on cell A → Save → select B → menu again sends fresh `load` (callbacks retargeted; **Save without =PY()** / `save_as_plain` reflects whether B is inline `=PYTHON()` vs code-only). | **Done** |
 
 **Protocol:** no new message types required.
 
@@ -555,7 +567,7 @@ Phase 2B: + validate | validate_result
 Phase 2C: + pick_range | range_result
 Phase 2D: + completions (child-internal, optional calc_symbols from LO)
 Phase 2E: load.theme (and optional pushed "theme") field (no new required top-level type)
-Phase 3:  load.mode / save_label / show_plain_text / show_data_binding / status_ok_text (no new IPC types)
+Phase 3:  load.mode / save_label / show_plain_text / show_data_binding / status_ok_text / load.ui (no new IPC types)
          scripts_list.sample_code field (scratchpad text for Sample picker entry)
          load.selected_script_name + scripts_list.selected_script_name (picker sync)
          select_script (child → LO: persist last_python_script_name_* on dropdown change)
@@ -616,8 +628,9 @@ flowchart TD
 | Topic | Behavior |
 |-------|----------|
 | Cell selection | Uses sheet controller selection ([`python_editor.py`](../plugin/calc/python/editor.py)), same idea as Calc extend/edit |
-| Empty / non-PYTHON cells | Editor opens; Save (default) writes `=PYTHON("code")`; plain-text checkbox writes raw script via `setString` |
-| Load source | Inline PYTHON → stripped `code`; plain cell → `getString()`; Monaco never shows `=PYTHON()` |
+| Empty / non-PYTHON cells | Editor opens; Save (default) writes `=PY("code")` / `=PYTHON("code")`; with **Save without =PY()** checked, writes raw script via `setString` |
+| **Save without =PY()** | Checkbox (`save_as_plain`): checked → `setString` only, **Data:** disabled; unchecked → rebuild `=PY("…")` formula with optional data suffix. User strings in [`editor_ui_strings.py`](../plugin/scripting/editor_ui_strings.py). |
+| Load source | Inline PYTHON → stripped `code`; code-only cell → `getString()`; Monaco never shows `=PYTHON()` |
 | Data ranges | Editable toolbar textbox (`data_binding` on load/save); written into `=PYTHON("code"; …)` suffix via [`python_formula_edit.py`](../plugin/calc/python/formula_edit.py); single range → `data`, multiple comma/semicolon-separated → `data_list` |
 | Formula strings | Reads `getFormula()`, `FormulaLocal`, `Formula`; normalizes leading `=`, array braces, smart quotes |
 | Unparsed PYTHON (e.g. `=PYTHON(A1; B1)`) | Blocked with msgbox — cannot safely preserve data args |

@@ -82,15 +82,19 @@ def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
     if not venv_dir:
         return (
             None,
-            "Set the Python venv path in WriterAgent Settings → Python (same venv where you ran "
-            "'uv pip install pywebview rocher'). LibreOffice's built-in Python cannot run the Monaco editor.",
+            _(
+                "Set the Python venv path in WriterAgent Settings → Python (same venv where you ran "
+                "'uv pip install pywebview rocher'). LibreOffice's built-in Python cannot run the Monaco editor."
+            ),
         )
     exe = resolve_venv_python(venv_dir)
     if not exe:
         return (
             None,
-            f"No python executable found under configured venv: {venv_dir!r} "
-            "(expected bin/python, bin/python3, or bin/python3.x).",
+            _(
+                "No python executable found under configured venv: {0} "
+                "(expected bin/python, bin/python3, or bin/python3.x)."
+            ).format(venv_dir),
         )
     return exe, ""
 
@@ -774,9 +778,11 @@ def launch_monaco_editor(
     """Start or reuse the Monaco child process and send *load_message*. Return True on success."""
     from plugin.chatbot.dialogs import msgbox_with_report
 
+    from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
+
     _PERSISTENT_EDITOR.ctx = ctx
     # Host-only keys (e.g. pyuno document refs) must not cross the pickle IPC boundary.
-    ipc_message = dict(load_message)
+    ipc_message = enrich_monaco_load_message(dict(load_message))
     run_script_doc = None
     if ipc_message.get("mode") == "run_script":
         run_script_doc = ipc_message.pop("run_script_doc", None)

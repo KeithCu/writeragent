@@ -342,12 +342,12 @@ manifest-core:
 rdb-core:
 	$(RUN_SH) $(SCRIPTS)/rebuild_librepy_rdb$(EXT)
 
-build-core: vendor manifest-core rdb-core sync-vec compile-translations-core
+build-core: vendor manifest-core rdb-core compile-translations-core
 	@echo "Building LibrePy.oxt (prototype core extension)..."
 	$(PYTHON) $(SCRIPTS)/build_librepy_oxt.py --output $(LIBREPY_OXT)
 	@echo "Done: $(LIBREPY_OXT)  (bundle in build/bundle-librepy/)"
 
-build-core-native: sync-vec build-core
+build-core-native: native build-core
 
 register-librepy-oxt:
 	@echo "Registering $(LIBREPY_OXT)..."

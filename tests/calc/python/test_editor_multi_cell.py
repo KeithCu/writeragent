@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import plugin.calc.python.editor as pe
+from plugin.scripting.editor_ui_strings import enrich_monaco_load_message
 
 
 def test_open_second_cell_reuses_running_editor_and_sends_load():
@@ -44,4 +45,7 @@ def test_open_second_cell_reuses_running_editor_and_sends_load():
     assert load_msg.get("show_data_binding") is True
     assert load_msg.get("save_as_plain") is True
     assert load_msg.get("plain_text_label") == "Save without =PY()"
+    enriched = enrich_monaco_load_message(load_msg)
+    assert "ui" in enriched
+    assert enriched["ui"]["data_binding_title"]
     assert captured.get("on_save") is not None

@@ -1,15 +1,43 @@
 import json
+import sys
 from io import StringIO
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.scripting.audio_recorder_service import (
+    ensure_downloaded_audio_on_path,
     is_audio_recording_configured,
     resolve_recording_python,
     stop_recording_process,
     wait_for_recording_ready,
 )
+
+
+def test_ensure_downloaded_audio_on_path_adds_bin_dir(tmp_path):
+    bin_dir = tmp_path / "audio_binaries"
+    bin_dir.mkdir()
+    ucd = str(tmp_path)
+    original_path = list(sys.path)
+    try:
+        sys.path[:] = [p for p in original_path if p != str(bin_dir)]
+        with patch("plugin.framework.config.user_config_dir", return_value=ucd):
+            ensure_downloaded_audio_on_path()
+        assert str(bin_dir) in sys.path
+    finally:
+        sys.path[:] = original_path
+
+
+def test_ensure_downloaded_audio_on_path_idempotent(tmp_path):
+    bin_dir = tmp_path / "audio_binaries"
+    bin_dir.mkdir()
+    ucd = str(tmp_path)
+    with patch("plugin.framework.config.user_config_dir", return_value=ucd):
+        ensure_downloaded_audio_on_path()
+        first_index = sys.path.index(str(bin_dir))
+        ensure_downloaded_audio_on_path()
+        assert sys.path.index(str(bin_dir)) == first_index
+        assert sys.path.count(str(bin_dir)) == 1
 
 
 def test_is_audio_recording_configured_true():
