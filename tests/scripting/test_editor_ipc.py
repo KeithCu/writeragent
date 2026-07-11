@@ -89,3 +89,17 @@ def test_failure_message_combines_summary_detail_and_trace():
     assert msg.startswith("Summary\n\n")
     assert "stderr line" in msg
     assert "RuntimeError: boom" in msg
+
+
+def test_failure_message_accepts_none_detail():
+    msg = failure_message("Summary", detail=None)
+    assert msg == "Summary"
+
+
+def test_failure_message_none_detail_with_exc():
+    try:
+        raise ValueError("probe failure")
+    except ValueError as e:
+        msg = failure_message("Summary", detail=None, exc=e)
+    assert msg.startswith("Summary\n\n")
+    assert "ValueError: probe failure" in msg

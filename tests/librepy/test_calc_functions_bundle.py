@@ -25,3 +25,8 @@ def test_librepy_bundle_excludes_calc_functions():
 def test_librepy_bundle_includes_calc_functions_common():
     paths = collect_librepy_plugin_paths(_REPO_ROOT)
     assert "plugin/scripting/calc_functions_common.py" in paths
+
+
+def test_librepy_bundle_includes_bug_report():
+    paths = collect_librepy_plugin_paths(_REPO_ROOT)
+    assert "plugin/framework/bug_report.py" in paths

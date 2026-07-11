@@ -8,7 +8,7 @@
   <dlg:button dlg:id="BtnSave" dlg:left="62" dlg:top="8" dlg:width="50" dlg:height="14" dlg:value="Save" dlg:tabstop="true"/>
   <dlg:button dlg:id="BtnCancel" dlg:left="116" dlg:top="8" dlg:width="50" dlg:height="14" dlg:value="Close" dlg:tabstop="true"/>
   <dlg:text dlg:id="ScriptLbl" dlg:left="172" dlg:top="10" dlg:width="22" dlg:height="10" dlg:value="Script:" dlg:align="left" dlg:multiline="false"/>
-  <dlg:listbox dlg:id="ScriptSelect" dlg:left="196" dlg:top="8" dlg:width="60" dlg:height="14" dlg:dropdown="true" dlg:tabstop="true"/>
+  <dlg:combobox dlg:id="ScriptSelect" dlg:left="196" dlg:top="8" dlg:width="60" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="" dlg:border="1"/>
   <dlg:button dlg:id="BtnAttach" dlg:left="260" dlg:top="8" dlg:width="44" dlg:height="14" dlg:value="Attach" dlg:tabstop="true"/>
   <dlg:button dlg:id="BtnSaveAs" dlg:left="308" dlg:top="8" dlg:width="44" dlg:height="14" dlg:value="Save As..." dlg:tabstop="true"/>
   <dlg:button dlg:id="BtnDelete" dlg:left="356" dlg:top="8" dlg:width="34" dlg:height="14" dlg:value="Delete" dlg:tabstop="true"/>

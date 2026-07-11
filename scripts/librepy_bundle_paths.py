@@ -92,6 +92,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/config.py",
     "plugin/framework/constants.py",
     "plugin/framework/errors.py",
+    "plugin/framework/bug_report.py",
     "plugin/framework/json_utils.py",
     "plugin/framework/i18n.py",
     "plugin/framework/event_bus.py",

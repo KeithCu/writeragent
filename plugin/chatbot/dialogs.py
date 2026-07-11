@@ -49,6 +49,7 @@ XDL dialog loading (used by ModuleBase helpers)::
 """
 
 import logging
+import os
 from typing import Any, cast
 import unohelper
 from .listeners import BaseActionListener
@@ -758,25 +759,158 @@ def load_framework_dialog(dialog_name):
     return dlg
 
 
-def _create_xdl_dialog(smgr: Any, ctx: Any, dialog_url: str) -> Any | None:
-    """Load an XDL dialog URL; prefer DialogProvider (Linux), fall back to DialogProvider2."""
-    last_error: Exception | None = None
-    for service in ("com.sun.star.awt.DialogProvider", "com.sun.star.awt.DialogProvider2"):
+def format_exception_detail(exc: BaseException, *, _depth: int = 0) -> str:
+    """Best-effort printable detail for Python and UNO exceptions (incl. nested Target/Context)."""
+    if _depth > 4:
+        return f"{type(exc).__name__}: (nested detail truncated)"
+
+    name = getattr(exc, "uno_type_name", None) or type(exc).__name__
+    text = str(exc).strip()
+    head = f"{name}: {text}" if text else name
+    lines = [head]
+
+    for attr in ("Message", "Name", "ArgumentName", "ArgumentPosition", "SQLError"):
+        if not hasattr(exc, attr):
+            continue
         try:
-            dp = smgr.createInstanceWithContext(service, ctx)
-            dlg = dp.createDialog(dialog_url)
-            if dlg is not None:
-                return dlg
-        except Exception as exc:
-            last_error = exc
-            log.debug("createDialog via %s failed for %s: %s", service, dialog_url, exc)
-    if last_error is not None:
-        log.warning("Failed to load XDL dialog %s: %s", dialog_url, last_error)
+            val = getattr(exc, attr)
+        except Exception:
+            continue
+        if val is None or val == "":
+            continue
+        lines.append(f"  {attr}={val!r}")
+
+    nested_context = _nested_exception_object(getattr(exc, "Context", None))
+    nested_target = _nested_exception_object(getattr(exc, "Target", None))
+    if nested_target is nested_context:
+        nested_target = None
+
+    if nested_context is not None:
+        lines.append("  Context:")
+        for nested_line in format_exception_detail(nested_context, _depth=_depth + 1).splitlines():
+            lines.append(f"    {nested_line}")
+    if nested_target is not None:
+        lines.append("  Target:")
+        for nested_line in format_exception_detail(nested_target, _depth=_depth + 1).splitlines():
+            lines.append(f"    {nested_line}")
+
+    return "\n".join(lines)
+
+
+def _nested_exception_object(val: Any) -> BaseException | None:
+    """Return a value suitable for recursive format_exception_detail (Python or pyuno UNO exceptions)."""
+    if val is None:
+        return None
+    if isinstance(val, BaseException):
+        return val
+    if hasattr(val, "Message") or hasattr(val, "Target") or hasattr(val, "Context"):
+        return _UnoExceptionAdapter(val)
+    text = str(val).strip()
+    if text:
+        return RuntimeError(text)
     return None
 
 
-def load_writeragent_dialog(dialog_name, ctx=None):
-    """Load an XDL dialog from the WriterAgentDialogs/ directory."""
+class _UnoExceptionAdapter(BaseException):
+    """Minimal BaseException wrapper for pyuno UNO exception objects."""
+
+    def __init__(self, uno_exc: Any) -> None:
+        self._uno_exc = uno_exc
+        self.uno_type_name = type(uno_exc).__name__
+        message = ""
+        if hasattr(uno_exc, "Message"):
+            try:
+                message = str(uno_exc.Message or "").strip()
+            except Exception:
+                pass
+        if not message:
+            message = type(uno_exc).__name__
+        super().__init__(message)
+
+    @property
+    def Message(self) -> Any:
+        return getattr(self._uno_exc, "Message", None)
+
+    @property
+    def Target(self) -> Any:
+        return getattr(self._uno_exc, "Target", None)
+
+    @property
+    def Context(self) -> Any:
+        return getattr(self._uno_exc, "Context", None)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._uno_exc, name)
+
+
+def _collect_xdl_load_diagnostics(ctx: Any, dialog_url: str, dialog_name: str) -> str:
+    """Gather extension URL/path and on-disk XDL probes for failure reports."""
+    from plugin.framework.uno_context import get_extension_path, get_extension_url, resolve_package_extension_id
+
+    lines = [
+        f"dialog: {dialog_name}",
+        f"url: {dialog_url}",
+    ]
+    try:
+        ext_id = resolve_package_extension_id(ctx)
+        lines.append(f"extension_id: {ext_id}")
+        lines.append(f"extension_base_url: {get_extension_url(ctx, ext_id)}")
+        ext_path = get_extension_path(ctx, ext_id)
+        lines.append(f"extension_path: {ext_path or '(empty)'}")
+    except Exception as exc:
+        lines.append(f"extension_probe: {format_exception_detail(exc)}")
+
+    if dialog_url.startswith("file://"):
+        try:
+            import uno
+
+            sys_path = uno.fileUrlToSystemPath(dialog_url)
+            lines.append(f"xdl_system_path: {sys_path}")
+            if os.path.isfile(sys_path):
+                lines.append(f"xdl_file_exists: yes ({os.path.getsize(sys_path)} bytes)")
+            else:
+                lines.append("xdl_file_exists: no")
+                parent = os.path.dirname(sys_path)
+                if os.path.isdir(parent):
+                    try:
+                        siblings = sorted(os.listdir(parent))
+                        preview = ", ".join(siblings[:25])
+                        if len(siblings) > 25:
+                            preview += f", ... (+{len(siblings) - 25} more)"
+                        lines.append(f"xdl_dir_listing: {preview}")
+                    except OSError as list_exc:
+                        lines.append(f"xdl_dir_listing_error: {format_exception_detail(list_exc)}")
+        except Exception as exc:
+            lines.append(f"xdl_path_probe: {format_exception_detail(exc)}")
+
+    return "\n".join(lines)
+
+
+def _create_xdl_dialog(smgr: Any, ctx: Any, dialog_url: str) -> tuple[Any | None, str | None]:
+    """Load an XDL dialog URL; prefer DialogProvider (Linux), fall back to DialogProvider2."""
+    attempt_lines: list[str] = []
+    for service in ("com.sun.star.awt.DialogProvider", "com.sun.star.awt.DialogProvider2"):
+        try:
+            dp = smgr.createInstanceWithContext(service, ctx)
+            if dp is None:
+                attempt_lines.append(f"{service}: createInstanceWithContext returned None")
+                continue
+            dlg = dp.createDialog(dialog_url)
+            if dlg is not None:
+                return dlg, None
+            attempt_lines.append(f"{service}: createDialog returned None")
+        except Exception as exc:
+            detail = format_exception_detail(exc)
+            attempt_lines.append(f"{service}: {detail}")
+            log.warning("createDialog via %s failed for %s:\n%s", service, dialog_url, detail)
+
+    provider_failure = "\n".join(attempt_lines) if attempt_lines else "no DialogProvider attempt recorded"
+    log.warning("Failed to load XDL dialog %s:\n%s", dialog_url, provider_failure)
+    return None, provider_failure
+
+
+def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> tuple[Any | None, str | None]:
+    """Load an XDL dialog from WriterAgentDialogs/; return (dialog, failure_detail)."""
     if ctx is None:
         ctx = get_ctx()
     assert ctx is not None
@@ -789,13 +923,23 @@ def load_writeragent_dialog(dialog_name, ctx=None):
 
     # Fallback for unit testing when ServiceManager or context is mocked
     if "Mock" in type(smgr).__name__ or "Mock" in type(ctx).__name__:
-        return smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any)
+        return smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any), None
 
     base = get_extension_url(ctx)
     url = base + "/WriterAgentDialogs/" + dialog_name + ".xdl"
-    dlg = _create_xdl_dialog(smgr, ctx_any, url)
+    dlg, provider_failure = _create_xdl_dialog(smgr, ctx_any, url)
     if dlg:
         translate_dialog(dlg)
+        return dlg, None
+
+    diagnostics = _collect_xdl_load_diagnostics(ctx_any, url, dialog_name)
+    combined = f"{diagnostics}\n\n--- DialogProvider ---\n{provider_failure or '(no details)'}"
+    return None, combined
+
+
+def load_writeragent_dialog(dialog_name, ctx=None):
+    """Load an XDL dialog from the WriterAgentDialogs/ directory."""
+    dlg, _detail = load_writeragent_dialog_detail(dialog_name, ctx=ctx)
     return dlg
 
 
@@ -812,7 +956,8 @@ def _load_xdl(relative_path):
     assert smgr is not None
     base = get_extension_url(ctx)
     url = base + "/" + relative_path
-    return _create_xdl_dialog(smgr, ctx_any, url)
+    dlg, _detail = _create_xdl_dialog(smgr, ctx_any, url)
+    return dlg
 
 
 def get_optional(root_window, name):

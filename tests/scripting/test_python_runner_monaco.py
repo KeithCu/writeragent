@@ -100,7 +100,7 @@ def test_run_python_dialog_msgbox_when_monaco_and_native_fail():
             with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
                 with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
                     with patch.object(pr, "_run_python_monaco", return_value=False):
-                        with patch.object(pr, "show_python_input_dialog", return_value=False):
+                        with patch.object(pr, "show_python_input_dialog", return_value=(False, None)):
                             with patch.object(pr, "_report_run_python_open_failed") as mock_report:
                                 pr.run_python_dialog()
 
@@ -116,20 +116,42 @@ def test_run_python_dialog_msgbox_when_native_only_path_fails():
             mock_desktop.return_value.getCurrentComponent.return_value = doc
             with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
                 with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
-                    with patch.object(pr, "show_python_input_dialog", return_value=False):
+                    with patch.object(pr, "show_python_input_dialog", return_value=(False, "dialog load failed")):
                         with patch.object(pr, "_report_run_python_open_failed") as mock_report:
                             pr.run_python_dialog()
 
     mock_report.assert_called_once()
     assert "built-in script dialog" in mock_report.call_args.args[1]
+    assert mock_report.call_args.kwargs.get("detail") == "dialog load failed"
+
+
+def test_run_python_dialog_native_failure_detail_in_msgbox():
+    ctx = MagicMock()
+    doc = MagicMock()
+    native_detail = "Traceback (most recent call last):\n  XDL load failed"
+
+    with patch.object(pr, "get_ctx", return_value=ctx):
+        with patch.object(pr, "get_desktop") as mock_desktop:
+            mock_desktop.return_value.getCurrentComponent.return_value = doc
+            with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
+                with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
+                    with patch.object(pr, "show_python_input_dialog", return_value=(False, native_detail)):
+                        with patch.object(pr, "_report_run_python_open_failed") as mock_report:
+                            pr.run_python_dialog()
+
+    mock_report.assert_called_once()
+    assert mock_report.call_args.kwargs.get("detail") == native_detail
 
 
 def test_show_python_input_dialog_returns_false_when_xdl_missing():
     ctx = MagicMock()
 
     with patch.object(ui, "native_run_script_modeless_enabled", return_value=False):
-        with patch.object(ui, "load_writeragent_dialog", return_value=None):
-            assert ui.show_python_input_dialog(ctx, "x = 1", "last_python_script_writer") is False
+        with patch.object(ui, "load_writeragent_dialog_detail", return_value=(None, "PythonScriptDialog could not be loaded from the extension.")):
+            assert ui.show_python_input_dialog(ctx, "x = 1", "last_python_script_writer") == (
+                False,
+                "PythonScriptDialog could not be loaded from the extension.",
+            )
 
 
 def test_run_python_dialog_msgbox_includes_monaco_exception_when_native_fails():
@@ -143,7 +165,7 @@ def test_run_python_dialog_msgbox_includes_monaco_exception_when_native_fails():
             with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
                 with patch.object(pr, "monaco_open_expected", return_value=("/venv/bin/python", True)):
                     with patch.object(pr, "_run_python_monaco", side_effect=monaco_exc):
-                        with patch.object(pr, "show_python_input_dialog", return_value=False):
+                        with patch.object(pr, "show_python_input_dialog", return_value=(False, None)):
                             with patch.object(pr, "_report_run_python_open_failed") as mock_report:
                                 pr.run_python_dialog()
 
@@ -163,7 +185,7 @@ def test_run_python_dialog_immediate_msgbox_on_monaco_exception_then_native():
 
     def native(*args, **kwargs):
         call_order.append("native")
-        return True
+        return True, None
 
     with patch.object(pr, "get_ctx", return_value=ctx):
         with patch.object(pr, "get_desktop") as mock_desktop:
@@ -188,7 +210,7 @@ def test_run_python_dialog_no_msgbox_when_monaco_not_expected_and_native_opens()
             with patch("plugin.scripting.document_scripts.resolve_run_script_selection", return_value=("script", "x=1", {})):
                 with patch.object(pr, "monaco_open_expected", return_value=(None, False)):
                     with patch.object(pr, "_run_python_monaco") as mock_monaco:
-                        with patch.object(pr, "show_python_input_dialog", return_value=True):
+                        with patch.object(pr, "show_python_input_dialog", return_value=(True, None)):
                             with patch.object(pr, "_report_run_python_open_failed") as mock_report:
                                 pr.run_python_dialog()
 
@@ -552,6 +574,32 @@ def test_show_python_input_dialog_modeless_uses_set_visible():
     dlg.execute.assert_not_called()
     dlg.setVisible.assert_called_once_with(True)
     dlg.addTopWindowListener.assert_called_once()
+
+
+def test_picker_select_name_combobox_uses_set_text():
+    ctrl = MagicMock(spec=[])
+    ctrl.setText = MagicMock()
+    ui._picker_select_name(ctrl, "MyScript", ["Sample", "MyScript"])
+    ctrl.setText.assert_called_once_with("MyScript")
+
+
+def test_picker_selected_name_combobox_uses_get_text():
+    ctrl = MagicMock(spec=[])
+    ctrl.getText = MagicMock(return_value="  Prime Numbers  ")
+    assert ui._picker_selected_name(ctrl) == "Prime Numbers"
+
+
+def test_picker_select_name_listbox_uses_select_item_pos():
+    ctrl = MagicMock()
+    ui._picker_select_name(ctrl, "B", ["A", "B"])
+    ctrl.selectItemPos.assert_called_once_with(1, True)
+
+
+def test_picker_selected_name_listbox_uses_item_pos():
+    ctrl = MagicMock()
+    ctrl.getItems.return_value = ["A", "B"]
+    ctrl.getSelectedItemPos.return_value = 1
+    assert ui._picker_selected_name(ctrl) == "B"
 
 
 def test_monaco_editor_available_respects_force_internal():

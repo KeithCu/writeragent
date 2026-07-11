@@ -629,7 +629,8 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
                 # launch_monaco_editor already reported spawn/ready/IPC failures.
                 user_alerted = True
 
-        if show_python_input_dialog(uno_ctx, initial_text=initial_code, config_key=name_config_key, doc=doc):
+        opened, native_detail = show_python_input_dialog(uno_ctx, initial_text=initial_code, config_key=name_config_key, doc=doc)
+        if opened:
             return
 
         log.error("run_python_dialog: native script dialog failed to open")
@@ -637,6 +638,7 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
             _report_run_python_open_failed(
                 uno_ctx,
                 _("Could not open the built-in script dialog."),
+                detail=native_detail,
             )
     except Exception as exc:
         log.exception("run_python_dialog failed")

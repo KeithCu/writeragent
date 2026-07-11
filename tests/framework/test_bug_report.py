@@ -28,13 +28,25 @@ def test_build_github_issue_url_truncates_long_body():
 
 
 def test_collect_environment_block_includes_endpoint_and_model():
-    with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="test-model"):
-        with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.example.com"):
-            with patch("plugin.version.EXTENSION_VERSION", "0.8.33"):
-                block = br.collect_environment_block(ctx=None)
+    with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value="org.extension.writeragent"):
+        with patch("plugin.framework.client.model_fetcher.get_text_model", return_value="test-model"):
+            with patch("plugin.framework.config.get_current_endpoint", return_value="https://api.example.com"):
+                with patch("plugin.version.EXTENSION_VERSION", "0.8.33"):
+                    block = br.collect_environment_block(ctx=None)
     assert "Endpoint: https://api.example.com" in block
     assert "Chat model: test-model" in block
     assert "WriterAgent: 0.8.33" in block
+
+
+def test_collect_environment_block_librepy_uses_venv_path():
+    with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value="org.extension.librepy"):
+        with patch("plugin.framework.config.get_config_str", return_value="/home/user/venv"):
+            with patch("plugin.version.EXTENSION_VERSION", "0.8.33"):
+                block = br.collect_environment_block(ctx=MagicMock())
+    assert "LibrePy: 0.8.33" in block
+    assert "Python venv path: /home/user/venv" in block
+    assert "Endpoint:" not in block
+    assert "Chat model:" not in block
 
 
 def test_should_offer_bug_report_denies_config_errors():

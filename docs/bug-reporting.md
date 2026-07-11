@@ -6,6 +6,8 @@ WriterAgent can open a pre-filled [GitHub new issue](https://github.com/KeithCu/
 
 **WriterAgent → Report bug...** opens the issue form with environment metadata in the body.
 
+**LibrePy → Report bug...** (core OXT) uses the same GitHub issue URL builder; the pre-filled body labels the extension as LibrePy and includes the configured Python venv path instead of LLM endpoint/model fields.
+
 ## Error dialogs
 
 Some unexpected-failure message boxes include **Report bug...** and **Copy URL** (copies the same pre-filled GitHub URL). User-guidance errors (wrong document type, missing API key, etc.) keep a plain OK box.

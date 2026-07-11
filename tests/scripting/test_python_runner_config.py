@@ -20,7 +20,7 @@ class TestPythonRunnerConfig(unittest.TestCase):
     @patch('plugin.scripting.python_runner.resolve_run_script_name_config_key')
     @patch('plugin.scripting.python_runner.execute_and_insert_result')
     @patch('plugin.scripting.python_runner.set_config')
-    @patch('plugin.scripting.python_runner.show_python_input_dialog')
+    @patch('plugin.scripting.python_runner.show_python_input_dialog', return_value=(True, None))
     def test_run_python_dialog_keys(
         self,
         mock_show,

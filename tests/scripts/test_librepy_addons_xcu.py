@@ -71,6 +71,7 @@ def test_librepy_shared_items_have_explicit_full_context():
     items = _submenu_items(_find_menubar(root))
     shared_urls = (
         "org.extension.librepy:main.settings",
+        "org.extension.librepy:main.report_bug",
         "org.extension.librepy:scripting.run_python_dialog",
         "org.extension.librepy:vision.open_settings",
         "org.extension.librepy:scripting.reset_python_session",
@@ -127,6 +128,7 @@ def test_librepy_menu_order_matches_writeragent_python_cluster():
     urls = [u for u in urls if u]
     assert urls == [
         "org.extension.librepy:main.settings",
+        "org.extension.librepy:main.report_bug",
         "org.extension.librepy:scripting.run_python_dialog",
         "org.extension.librepy:vision.open_settings",
         "org.extension.librepy:textanalytics.open_dialog",

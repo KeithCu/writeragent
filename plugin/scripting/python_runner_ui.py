@@ -14,7 +14,7 @@ from com.sun.star.awt import XActionListener, XItemListener, XTopWindowListener
 
 from plugin.framework.config import get_config, get_config_str, set_config
 from plugin.framework.i18n import _
-from plugin.chatbot.dialogs import load_writeragent_dialog, msgbox, set_control_text, show_approval_dialog
+from plugin.chatbot.dialogs import load_writeragent_dialog_detail, msgbox, set_control_text, show_approval_dialog
 from plugin.chatbot.dialogs import show_text_input_dialog
 from plugin.framework.worker_pool import run_in_background
 from plugin.scripting.document_scripts import (
@@ -34,6 +34,31 @@ log = logging.getLogger("writeragent.scripting")
 def native_run_script_modeless_enabled(ctx: Any) -> bool:
     """When True, the plain-text Run Python Script dialog floats (document stays editable)."""
     return bool(get_config("scripting.native_run_script_modeless"))
+
+
+def _picker_selected_name(select_ctrl: Any) -> str:
+    """Return the selected script name from ScriptSelect (listbox or combobox)."""
+    if hasattr(select_ctrl, "getSelectedItemPos"):
+        pos = select_ctrl.getSelectedItemPos()
+        items = select_ctrl.getItems()
+        if pos >= 0 and pos < len(items):
+            return str(items[pos])
+    if hasattr(select_ctrl, "getText"):
+        return str(select_ctrl.getText() or "").strip()
+    return ""
+
+
+def _picker_select_name(select_ctrl: Any, name: str, names: list[str]) -> None:
+    """Select *name* in ScriptSelect (listbox or combobox)."""
+    if not name:
+        return
+    if hasattr(select_ctrl, "selectItemPos"):
+        for idx, nm in enumerate(names):
+            if nm == name:
+                select_ctrl.selectItemPos(idx, True)
+                return
+    if hasattr(select_ctrl, "setText"):
+        select_ctrl.setText(name)
 
 
 class NativePythonScriptDialog:
@@ -65,6 +90,7 @@ class NativePythonScriptDialog:
         self._script_origin_map: dict[str, str] = {}
         self._closed = False
         self._top_listener: Any | None = None
+        self._open_failure_detail: str | None = None
         self._opened = self._open(initial_text)
 
     @classmethod
@@ -76,14 +102,17 @@ class NativePythonScriptDialog:
         config_key: str,
         doc: Any | None,
         modeless: bool,
-    ) -> bool:
-        return cls(
+    ) -> tuple[bool, str | None]:
+        inst = cls(
             ctx,
             initial_text=initial_text,
             config_key=config_key,
             initial_doc=doc,
             modeless=modeless,
-        )._opened
+        )
+        if inst._opened:
+            return True, None
+        return False, inst._open_failure_detail
 
     def close(self) -> None:
         if self._closed:
@@ -128,28 +157,29 @@ class NativePythonScriptDialog:
             selected_name = names[0]
 
         if selected_name:
-            for idx, nm in enumerate(names):
-                if nm == selected_name:
-                    select_ctrl.selectItemPos(idx, True)
-                    from plugin.scripting.python_runner import resolve_run_script_name_config_key
-                    name_config_key = resolve_run_script_name_config_key(self._doc)
-                    set_config(name_config_key, selected_name)
-                    if self._dlg is not None:
-                        try:
-                            code_ctrl = self._dlg.getControl("CodeEdit")
-                            if code_ctrl is not None:
-                                code_ctrl.setText(merged.get(selected_name, ""))
-                        except Exception:
-                            pass
-                    break
+            _picker_select_name(select_ctrl, selected_name, names)
+            from plugin.scripting.python_runner import resolve_run_script_name_config_key
+            name_config_key = resolve_run_script_name_config_key(self._doc)
+            set_config(name_config_key, selected_name)
+            if self._dlg is not None:
+                try:
+                    code_ctrl = self._dlg.getControl("CodeEdit")
+                    if code_ctrl is not None:
+                        code_ctrl.setText(merged.get(selected_name, ""))
+                except Exception:
+                    pass
 
 
     def _open(self, initial_text: str) -> bool:
         ctx = self._ctx
         try:
-            dlg = load_writeragent_dialog("PythonScriptDialog", ctx)
+            dlg, load_detail = load_writeragent_dialog_detail("PythonScriptDialog", ctx)
             if dlg is None:
-                log.error("NativePythonScriptDialog: PythonScriptDialog XDL load returned None")
+                log.error(
+                    "NativePythonScriptDialog: PythonScriptDialog XDL load failed:\n%s",
+                    load_detail or "(no load detail captured)",
+                )
+                self._open_failure_detail = load_detail or _("PythonScriptDialog could not be loaded from the extension.")
                 self.close()
                 return False
             self._dlg = dlg
@@ -213,8 +243,11 @@ class NativePythonScriptDialog:
             dlg.dispose()
             self._dlg = None
             return True
-        except Exception:
+        except Exception as exc:
+            from plugin.scripting.editor_ipc import exception_traceback
+
             log.exception("NativePythonScriptDialog._open failed")
+            self._open_failure_detail = exception_traceback(exc)
             self.close()
             return False
 
@@ -222,10 +255,8 @@ class NativePythonScriptDialog:
         select_ctrl = self._select_ctrl
         if select_ctrl is None:
             return None
-        pos = select_ctrl.getSelectedItemPos()
-        items = select_ctrl.getItems()
-        if pos >= 0 and pos < len(items):
-            display_name = items[pos]
+        display_name = _picker_selected_name(select_ctrl)
+        if display_name:
             real_name, origin = resolve_script_picker_entry(display_name, self._script_origin_map)
             self._current_scripts[display_name] = t
             if origin == SCRIPT_ORIGIN_DOCUMENT:
@@ -257,10 +288,8 @@ class NativePythonScriptDialog:
         class _ScriptSelectListener(unohelper.Base, XItemListener):
             def itemStateChanged(self, rEvent):
                 try:
-                    pos = select_ctrl.getSelectedItemPos()
-                    items = select_ctrl.getItems()
-                    if pos >= 0 and pos < len(items):
-                        name = items[pos]
+                    name = _picker_selected_name(select_ctrl)
+                    if name:
                         code_ctrl = dlg.getControl("CodeEdit")
                         # Save the selected name to config
                         from plugin.scripting.python_runner import resolve_run_script_name_config_key
@@ -316,9 +345,8 @@ class NativePythonScriptDialog:
                         return
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
-                    pos = select_ctrl.getSelectedItemPos()
-                    items = select_ctrl.getItems()
-                    curr = items[pos] if (pos >= 0 and pos < len(items) and items[pos] != "Sample") else ""
+                    curr = _picker_selected_name(select_ctrl)
+                    curr = curr if curr != "Sample" else ""
                     real_curr, _curr_origin = resolve_script_picker_entry(curr, owner._script_origin_map) if curr else ("", SCRIPT_ORIGIN_USER)
                     name = show_text_input_dialog(ctx, _("Enter script name:"), _("Attach to Document"), real_curr)
                     if not name:
@@ -353,9 +381,8 @@ class NativePythonScriptDialog:
                     ec = dlg.getControl("CodeEdit")
                     t = (ec.getModel().Text or "").strip()
 
-                    pos = select_ctrl.getSelectedItemPos()
-                    items = select_ctrl.getItems()
-                    curr_display = items[pos] if (pos >= 0 and pos < len(items) and items[pos] != "Sample") else ""
+                    curr_display = _picker_selected_name(select_ctrl)
+                    curr_display = curr_display if curr_display != "Sample" else ""
                     real_curr, curr_origin = (
                         resolve_script_picker_entry(curr_display, owner._script_origin_map)
                         if curr_display
@@ -409,12 +436,10 @@ class NativePythonScriptDialog:
         class _DeleteListener(unohelper.Base, XActionListener):
             def actionPerformed(self, rEvent):
                 try:
-                    pos = select_ctrl.getSelectedItemPos()
-                    items = select_ctrl.getItems()
-                    if pos < 0 or pos >= len(items):
+                    display_name = _picker_selected_name(select_ctrl)
+                    if not display_name:
                         return
 
-                    display_name = items[pos]
                     lbl = dlg.getControl("InstructionLbl")
 
                     real_name, origin = resolve_script_picker_entry(display_name, owner._script_origin_map)
@@ -466,10 +491,10 @@ def show_python_input_dialog(
     initial_text: str = "",
     config_key: str = "last_python_script_writer",
     doc: Any | None = None,
-) -> bool:
+) -> tuple[bool, str | None]:
     """Show the plain-text Run Python Script dialog (modeless when configured).
 
-    Returns True when the dialog opened successfully.
+    Returns (opened, failure_detail). failure_detail is set when opened is False.
     """
     try:
         modeless = native_run_script_modeless_enabled(ctx)
@@ -480,9 +505,11 @@ def show_python_input_dialog(
             doc=doc,
             modeless=modeless,
         )
-    except Exception:
+    except Exception as exc:
+        from plugin.scripting.editor_ipc import exception_traceback
+
         log.exception("show_python_input_dialog failed")
-        return False
+        return False, exception_traceback(exc)
 
 
 def _report_run_outcome(ctx: Any, lbl: Any | None, outcome: dict[str, Any]) -> None:

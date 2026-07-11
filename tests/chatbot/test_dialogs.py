@@ -38,6 +38,9 @@ from plugin.chatbot.dialogs import (
     add_dialog_hyperlink,
     show_text_input_dialog,
     translate_dialog,
+    format_exception_detail,
+    _collect_xdl_load_diagnostics,
+    _UnoExceptionAdapter,
 )
 
 
@@ -380,3 +383,49 @@ def test_show_text_input_dialog_cancel_returns_none(mock_get_desktop):
 
     result = show_text_input_dialog(ctx, "Enter name:", "Title", "")
     assert result is None
+
+
+def test_format_exception_detail_includes_message_and_nested_context():
+    class InnerError(RuntimeError):
+        Message = "inner message"
+
+    inner = InnerError("inner text")
+    outer = RuntimeError("outer text")
+    outer.Context = inner  # type: ignore[attr-defined]
+
+    detail = format_exception_detail(outer)
+    assert "RuntimeError" in detail
+    assert "outer text" in detail
+    assert "inner message" in detail or "InnerError" in detail
+
+
+def test_format_exception_detail_unwraps_uno_target_object():
+    class UnoInner:
+        Message = "invalid attribute dropdown on listbox"
+
+    class UnoOuter:
+        Message = ""
+        Target = UnoInner()
+
+    detail = format_exception_detail(_UnoExceptionAdapter(UnoOuter()))
+    assert "UnoOuter" in detail
+    assert "invalid attribute dropdown on listbox" in detail
+
+
+def test_collect_xdl_load_diagnostics_reports_missing_file(tmp_path):
+    ctx = MagicMock()
+    missing = tmp_path / "WriterAgentDialogs" / "PythonScriptDialog.xdl"
+    parent = missing.parent
+    parent.mkdir()
+    (parent / "OtherDialog.xdl").write_text("<x/>", encoding="utf-8")
+    file_url = missing.as_uri()
+
+    with patch("plugin.framework.uno_context.resolve_package_extension_id", return_value="org.extension.librepy"):
+        with patch("plugin.framework.uno_context.get_extension_url", return_value="file:///tmp/LibrePy.oxt"):
+            with patch("plugin.framework.uno_context.get_extension_path", return_value="/tmp/LibrePy.oxt"):
+                with patch("uno.fileUrlToSystemPath", return_value=str(missing)):
+                    detail = _collect_xdl_load_diagnostics(ctx, file_url, "PythonScriptDialog")
+
+    assert "PythonScriptDialog" in detail
+    assert "xdl_file_exists: no" in detail
+    assert "OtherDialog.xdl" in detail

@@ -136,14 +136,17 @@ def _format_lo_version(product: dict[str, str]) -> str:
 
 def collect_environment_block(ctx: Any | None = None) -> str:
     """Plain-text environment block for a GitHub issue body."""
-    from plugin.framework.config import get_current_endpoint, user_config_dir
-    from plugin.framework.client.model_fetcher import get_text_model
+    from plugin.framework.config import get_config_str, get_current_endpoint, user_config_dir
     from plugin.framework.i18n import get_lo_locale
+    from plugin.framework.uno_context import resolve_package_extension_id
     from plugin.version import EXTENSION_VERSION
+
+    ext_id = resolve_package_extension_id(ctx)
+    product_label = "LibrePy" if ext_id == "org.extension.librepy" else "WriterAgent"
 
     lines = [
         "### Environment",
-        f"- WriterAgent: {EXTENSION_VERSION}",
+        f"- {product_label}: {EXTENSION_VERSION}",
     ]
 
     product = _get_lo_product_info(ctx)
@@ -158,10 +161,20 @@ def collect_environment_block(ctx: Any | None = None) -> str:
 
     lines.append(f"- Python: {sys.version.split()[0]} ({sys.platform})")
 
-    endpoint = get_current_endpoint() or "(not set)"
-    model = get_text_model() or "(not set)"
-    lines.append(f"- Endpoint: {endpoint}")
-    lines.append(f"- Chat model: {model}")
+    if ext_id == "org.extension.librepy":
+        venv_path = get_config_str("scripting.python_venv_path") or "(not set)"
+        lines.append(f"- Python venv path: {venv_path}")
+    else:
+        endpoint = get_current_endpoint() or "(not set)"
+        model = "(not set)"
+        try:
+            from plugin.framework.client.model_fetcher import get_text_model
+
+            model = get_text_model() or "(not set)"
+        except Exception:
+            log.debug("bug_report: get_text_model unavailable", exc_info=True)
+        lines.append(f"- Endpoint: {endpoint}")
+        lines.append(f"- Chat model: {model}")
 
     log_dir = None
     try:

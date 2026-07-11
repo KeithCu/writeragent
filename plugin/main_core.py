@@ -79,6 +79,13 @@ def _register_librepy_handlers() -> None:
 
     register_action_handler("main", "settings", lambda: _open_dialog_safely(open_librepy_settings, "Failed to open settings"))
 
+    def _report_bug() -> None:
+        from plugin.framework.bug_report import open_bug_report_in_browser
+
+        open_bug_report_in_browser(get_ctx(), title="Bug report")
+
+    register_action_handler("main", "report_bug", _report_bug)
+
     def _run_python() -> None:
         from plugin.scripting.python_runner import run_python_dialog
 

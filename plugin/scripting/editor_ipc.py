@@ -52,17 +52,18 @@ def exception_traceback(exc: BaseException) -> str:
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
-def failure_detail(*, detail: str = "", exc: BaseException | None = None) -> str:
+def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Combine subprocess stderr, probe output, and/or an exception traceback."""
     chunks: list[str] = []
-    if detail.strip():
-        chunks.append(detail.strip())
+    detail_text = (detail or "").strip()
+    if detail_text:
+        chunks.append(detail_text)
     if exc is not None:
         chunks.append(exception_traceback(exc).rstrip())
     return "\n\n".join(chunks)
 
 
-def failure_message(summary: str, *, detail: str = "", exc: BaseException | None = None) -> str:
+def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
     body = failure_detail(detail=detail, exc=exc)
     if body:
