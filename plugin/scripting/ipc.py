@@ -16,6 +16,7 @@ import select
 import struct
 import subprocess
 import sys
+import threading
 from typing import Any, Callable, IO
 
 PICKLE_PROTOCOL = 5
@@ -96,20 +97,44 @@ def write_json_line(stream: IO[str], payload: dict[str, Any]) -> None:
     stream.flush()
 
 
+def _readline_threaded(stream: IO[str], timeout_sec: float, *, cmd: str = "IPC JSON line") -> str:
+    """Windows path: blocking readline in a daemon thread with join-timeout."""
+    result: list[str] = [""]
+    error: list[BaseException | None] = [None]
+
+    def _reader() -> None:
+        try:
+            result[0] = stream.readline()
+        except BaseException as exc:
+            error[0] = exc
+
+    thread = threading.Thread(target=_reader, daemon=True)
+    thread.start()
+    thread.join(timeout=timeout_sec)
+    if thread.is_alive():
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
+    if error[0] is not None:
+        raise error[0]
+    return result[0]
+
+
 def _readline_with_timeout(stream: IO[str], timeout_sec: float | None) -> str:
     if timeout_sec is None:
         return stream.readline()
 
-    if sys.platform != "win32":
-        try:
-            fd = stream.fileno()
-        except (AttributeError, OSError, ValueError):
-            fd = None
-        if isinstance(fd, int):
-            ready, _, _ = select.select([stream], [], [], max(0.0, timeout_sec))
-            if not ready:
-                raise subprocess.TimeoutExpired(cmd="IPC JSON line", timeout=timeout_sec)
-            return stream.readline()
+    # Windows select.select() only supports sockets, not pipes (WinError 10038).
+    if sys.platform == "win32":
+        return _readline_threaded(stream, timeout_sec)
+
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        fd = None
+    if isinstance(fd, int):
+        ready, _, _ = select.select([stream], [], [], max(0.0, timeout_sec))
+        if not ready:
+            raise subprocess.TimeoutExpired(cmd="IPC JSON line", timeout=timeout_sec)
+        return stream.readline()
 
     return stream.readline()
 
