@@ -35,7 +35,23 @@ Aligned with [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md
 - DuckDB — `plugin/scripting/venv/duckdb_sql.py`, `SCRIPT_ORIGIN_SQL`, `domain=sql`
 - Jupyter — `plugin/notebook/`, `scripting.import_ipynb`
 - Spreadsheet import — `plugin/calc/spreadsheet_import/` (proposed), `calc.convert_spreadsheet_to_python`
-- Calc-parity `xl` helpers — `plugin/scripting/calc_functions.py`, `plugin/scripting/venv/calc_functions*.py` (spreadsheet-import parity; **WriterAgent only for now**; may return to LibrePy when spreadsheet conversion ships in core). LibrePy still ships [`calc_functions_common.py`](../plugin/scripting/calc_functions_common.py) for domain helper name frozensets.
+- Calc-parity `xl` helpers — **not in LibrePy today**; see [Calc-parity `xl` helpers (deferred)](#calc-parity-xl-helpers-deferred-from-librepy) below.
+
+#### Calc-parity `xl` helpers (deferred from LibrePy) {#calc-parity-xl-helpers-deferred-from-librepy}
+
+WriterAgent ships [`plugin/scripting/calc_functions.py`](../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../plugin/scripting/venv/) — **259** Calc/Excel formula parity helpers auto-imported as **`xl`** in the venv (e.g. `xl.sumif(...)`, `xl.xlookup(...)`). They exist so spreadsheet import can emit compact Python instead of pasting inline `def` blocks per workbook ([calc-spreadsheet-to-python-import.md](calc-spreadsheet-to-python-import.md)). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](calc-spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-xl-different-apis-same-name)).
+
+**LibrePy (core OXT) excludes them for now** (~134 KB source; filtered in [`scripts/librepy_bundle_paths.py`](../scripts/librepy_bundle_paths.py) via `LIBREPY_CALC_FUNCTIONS_EXCLUDES`). Rationale:
+
+- **Minimal core first** — Layers 0–6 should prove `=PY()`, Run Python Script, domain helpers, Monaco, Vision, and TeX before adding spreadsheet-conversion surface area.
+- **Spreadsheet import is WriterAgent-only** — menu, translator, and chat tool are not in the core bundle; nothing in LibrePy menus calls `xl.*` today.
+- **Coverage not fully exercised in core QA** — parity tests live in WriterAgent (`tests/scripting/test_calc_functions.py`); bundling without a core conversion workflow would ship dead weight for most installs.
+
+**What LibrePy still ships:** [`calc_functions_common.py`](../plugin/scripting/calc_functions_common.py) — host-side name frozensets for Analysis, Viz, Forecast, etc. (no NumPy on the LO host).
+
+**Runtime without the library:** `inject_auto_imports` skips `xl` when the module is absent; `=PY()` and Run Python Script work with `np`/`pd` and domain helpers. Only `xl.*` in user scripts or converted formulas would fail.
+
+**Likely re-include later** when spreadsheet conversion moves into core and parity is validated — remove `LIBREPY_CALC_FUNCTIONS_EXCLUDES` from the bundle filter; no refactor required. Power users may also want `xl.*` in `=PY()` cells even before the conversion menu ships; that is a reasonable follow-on once tests and docs catch up.
 
 ---
 
@@ -378,8 +394,19 @@ Manifest reference: [`scripts/manifest_registry.py`](../scripts/manifest_registr
 | Path | Layer | Notes |
 |------|-------|-------|
 | **`vendor/latex2mathml/`** | 6 | `make vendor` from [`requirements-vendor.txt`](../requirements-vendor.txt); on `sys.path` at bootstrap |
+| **`vendor/json_repair/`** | 0–2 | Config read + [`json_utils.py`](../plugin/framework/json_utils.py) robust JSON parse |
 | **User venv `rocher`** | 4 | Monaco UI assets — **not** in OXT |
 | **User venv scientific stack** | 0–5 | numpy, docling, pywebview, etc. — user-maintained |
+
+**LibrePy vendor subset:** [`build_librepy_oxt.py`](../scripts/build_librepy_oxt.py) copies only **`json_repair`** and **`latex2mathml`** from `vendor/` into `plugin/lib/` ([`LIBREPY_VENDOR_PACKAGES`](../scripts/librepy_bundle_paths.py)). WriterAgent-only vendored packages are omitted from the core OXT:
+
+| Package | WriterAgent use | LibrePy |
+|---------|-----------------|---------|
+| `snowballstemmer` | Grammar stemming, web-research fluff words | **Excluded** |
+| `websockets` | CDP browser tools (`plugin/contrib/cdp/`) | **Excluded** |
+| `defusedxml` | Embeddings locale XML (`plugin/embeddings/`) | **Excluded** |
+
+Full `make vendor` still installs all entries in [`requirements-vendor.txt`](../requirements-vendor.txt) for WriterAgent builds.
 
 ---
 
@@ -388,7 +415,7 @@ Manifest reference: [`scripts/manifest_registry.py`](../scripts/manifest_registr
 | Step | Detail |
 |------|--------|
 | Manifest | `make manifest` → [`plugin/_manifest.py`](../plugin/_manifest.py) from `module.yaml` files. Core: at least `scripting` + `vision`; **no** `embeddings` |
-| Bundle | Same OXT pipeline as WriterAgent, filtered to layer file lists |
+| Bundle | Same OXT pipeline as WriterAgent, filtered to layer file lists; vendor copy uses [`LIBREPY_VENDOR_PACKAGES`](../scripts/librepy_bundle_paths.py) (`json_repair`, `latex2mathml` only) |
 | Config path | Linux: `~/.config/libreoffice/{4,24}/user/writeragent.json` (see AGENTS.md Config) |
 
 ---
@@ -782,7 +809,7 @@ See [numpy-domains.md](numpy-domains.md) and [image-recognition.md](image-recogn
 
 ### Do not ship in core
 
-`prompt_addin.py`, `prompt_function.py`, `plugin/embeddings/**`, `plugin/notebook/**`, `plugin/scripting/venv/duckdb_sql.py`, `plugin/calc/spreadsheet_import/**`, `plugin/calc/python/venv.py`, `plugin/calc/analysis.py` (chat tool), `plugin/vision/vision_tools.py` (if menu-only), `plugin/framework/client/llm_client.py`, `plugin/chatbot/panel.py`, grammar venv modules, full chat stack.
+`prompt_addin.py`, `prompt_function.py`, `plugin/embeddings/**`, `plugin/notebook/**`, `plugin/scripting/venv/duckdb_sql.py`, `plugin/calc/spreadsheet_import/**`, `plugin/scripting/calc_functions.py`, `plugin/scripting/venv/calc_functions*.py` ([deferred — see § Scope](#calc-parity-xl-helpers-deferred-from-librepy)), `plugin/calc/python/venv.py`, `plugin/calc/analysis.py` (chat tool), `plugin/vision/vision_tools.py` (if menu-only), `plugin/framework/client/llm_client.py`, `plugin/chatbot/panel.py`, grammar venv modules, full chat stack.
 
 ---
 

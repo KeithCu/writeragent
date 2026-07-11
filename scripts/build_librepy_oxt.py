@@ -22,13 +22,16 @@ if PROJECT_ROOT not in sys.path:
 
 from scripts.build_oxt import (  # noqa: E402
     collect_files,
-    prune_vendored_websockets,
     remap_path,
     should_exclude,
     strip_production_code,
     _vendor_copy_ignore,
 )
-from scripts.librepy_bundle_paths import collect_librepy_plugin_paths, slim_librepy_smolagents_init  # noqa: E402
+from scripts.librepy_bundle_paths import (  # noqa: E402
+    collect_librepy_plugin_paths,
+    iter_librepy_vendor_packages,
+    slim_librepy_smolagents_init,
+)
 from scripts.manifest_registry import patch_description_xml  # noqa: E402
 
 LIBREPY_BUNDLE_DIR = "build/bundle-librepy"
@@ -148,27 +151,20 @@ def assemble_librepy_bundle(base_dir: str, *, with_tests: bool = False, strip: b
     count += 1
 
     vendor_dir = os.path.join(base_dir, "vendor")
-    if os.path.isdir(vendor_dir):
+    vendor_packages = iter_librepy_vendor_packages(vendor_dir)
+    if vendor_packages:
         vendor_count = 0
-        for entry in sorted(os.listdir(vendor_dir)):
-            if entry.endswith(".dist-info") or entry.startswith(("_", ".")):
-                continue
+        for entry in vendor_packages:
             src_path = os.path.join(vendor_dir, entry)
             dst_path = os.path.join(bundle_path, "plugin", "lib", entry)
-            if os.path.isdir(src_path):
-                if os.path.exists(dst_path):
-                    shutil.rmtree(dst_path)
-                shutil.copytree(src_path, dst_path, ignore=_vendor_copy_ignore)
-                if entry == "websockets":
-                    pruned = prune_vendored_websockets(dst_path)
-                    if pruned:
-                        print("  Pruned websockets for CDP client (%d paths)" % len(pruned))
-            elif os.path.isfile(src_path):
-                os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-                shutil.copy2(src_path, dst_path)
+            if os.path.exists(dst_path):
+                shutil.rmtree(dst_path)
+            shutil.copytree(src_path, dst_path, ignore=_vendor_copy_ignore)
             vendor_count += 1
-        if vendor_count:
-            print("Vendored %d packages into plugin/lib/" % vendor_count)
+        print(
+            "Vendored %d packages into plugin/lib/ (%s)"
+            % (vendor_count, ", ".join(vendor_packages))
+        )
 
     if strip and not with_tests:
         strip_production_code(bundle_path, dry_run=False)

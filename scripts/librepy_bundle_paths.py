@@ -16,6 +16,10 @@ LIBREPY_CALC_FUNCTIONS_EXCLUDES: tuple[str, ...] = (
     "venv/calc_functions_t_z.py",
 )
 
+# vendor/ package dirs copied into plugin/lib/ (WriterAgent ships full requirements-vendor.txt).
+# Excluded from LibrePy: snowballstemmer (grammar/embeddings), websockets (CDP), defusedxml (embeddings).
+LIBREPY_VENDOR_PACKAGES: frozenset[str] = frozenset({"json_repair", "latex2mathml"})
+
 # Whole subtrees under plugin/, minus relative paths in the exclude set.
 LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
     "plugin/scripting/": (
@@ -148,6 +152,28 @@ def slim_librepy_smolagents_init(bundle_plugin_dir: str) -> None:
         raise FileNotFoundError("LibrePy bundle missing smolagents __init__: %s" % init_path)
     with open(init_path, "w", encoding="utf-8") as fh:
         fh.write(LIBREPY_SMOLAGENTS_INIT)
+
+
+def iter_librepy_vendor_packages(vendor_dir: str) -> list[str]:
+    """Return vendor/ top-level package directory names to copy into LibrePy plugin/lib/."""
+    if not os.path.isdir(vendor_dir):
+        return []
+    found: list[str] = []
+    for entry in sorted(os.listdir(vendor_dir)):
+        if entry.endswith(".dist-info") or entry.startswith(("_", ".")):
+            continue
+        src_path = os.path.join(vendor_dir, entry)
+        if not os.path.isdir(src_path):
+            continue
+        if entry in LIBREPY_VENDOR_PACKAGES:
+            found.append(entry)
+    missing = sorted(LIBREPY_VENDOR_PACKAGES - set(found))
+    if missing:
+        raise FileNotFoundError(
+            "LibrePy vendor missing required packages under %s: %s (run: make vendor)"
+            % (vendor_dir, ", ".join(missing))
+        )
+    return found
 
 
 def _norm(path: str) -> str:
