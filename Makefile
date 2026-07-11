@@ -272,13 +272,13 @@ ifeq ($(USE_DOCKER),1)
 build: ty ruff-for-build preview-translations compile-translations
 	@$(MAKE) docker-build
 else
-build: ty ruff-for-build preview-translations vendor manifest sync-vec compile-translations
+build: ty ruff-for-build preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (with tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
 endif
 
-build-no-recording: ty ruff-for-build preview-translations vendor manifest sync-vec compile-translations
+build-no-recording: ty ruff-for-build preview-translations vendor manifest compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (no voice recording)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-recording --output build/$(EXTENSION_NAME).oxt
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
@@ -302,7 +302,7 @@ openrouter-catalog:
 	$(PYTHON) scripts/sync_orca_openrouter_catalog.py
 	$(PYTHON) -m ruff format plugin/framework/default_models.py
 
-release-build: auto-translate vendor manifest openrouter-catalog sync-vec compile-translations
+release-build: auto-translate vendor manifest openrouter-catalog compile-translations
 	@echo "Building $(EXTENSION_NAME).oxt (release, bundle without tests)..."
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --no-tests --output build/$(EXTENSION_NAME).oxt $(if $(filter 1,$(NO_RECORDING)),--no-recording)
 	@echo "Done: build/$(EXTENSION_NAME).oxt  (bundle in build/bundle/)"
