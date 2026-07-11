@@ -125,6 +125,32 @@ def test_insert_vision_result_into_writer_uses_prepare_and_insert(mock_prepare, 
     mock_insert.assert_called_once_with(doc, ctx, cursor, "<p>line</p>", apply_styles=False)
 
 
+@patch("plugin.writer.format.insert_html_at_cursor")
+@patch("plugin.vision.vision_egress.prepare_vision_writer_insert")
+def test_insert_vision_result_into_writer_without_edit_review(mock_prepare, mock_insert):
+    """LibrePy omits edit_review; OCR insert must still apply HTML directly."""
+    from plugin.vision.vision_egress import insert_vision_result_into_writer
+
+    cursor = MagicMock()
+    mock_prepare.return_value = cursor
+    ctx = MagicMock()
+    doc = MagicMock()
+    result = {"status": "ok", "helper": "extract_text", "html": "<p>line</p>"}
+
+    real_import = __import__
+
+    def import_without_edit_review(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "plugin.writer.edit_review":
+            raise ImportError("No module named 'plugin.writer.edit_review'")
+        return real_import(name, globals, locals, fromlist, level)
+
+    with patch("builtins.__import__", side_effect=import_without_edit_review):
+        insert_vision_result_into_writer(ctx, doc, result)
+
+    mock_prepare.assert_called_once_with(doc, ctx, image_name=None)
+    mock_insert.assert_called_once_with(doc, ctx, cursor, "<p>line</p>", apply_styles=False)
+
+
 def test_prepare_vision_writer_insert_inserts_paragraph_break_and_collapses_view_cursor():
     from plugin.vision.vision_egress import prepare_vision_writer_insert
 

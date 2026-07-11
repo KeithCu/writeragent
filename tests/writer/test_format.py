@@ -193,3 +193,22 @@ def test_replace_preserving_format_two_step_when_split_author_true_in_undo_conte
 
     assert text.cursor.getString() == ""   # the deletion emptied the range (step 1)
     assert text.inserts == ["NEW TEXT"]    # then the new text was inserted (step 2)
+
+
+def test_run_writer_mutation_with_optional_review_import_error():
+    """LibrePy omits edit_review; helper must apply the mutation directly."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.format import run_writer_mutation_with_optional_review
+
+    apply_fn = MagicMock()
+    real_import = __import__
+
+    def import_without_edit_review(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "plugin.writer.edit_review":
+            raise ImportError("No module named 'plugin.writer.edit_review'")
+        return real_import(name, globals, locals, fromlist, level)
+
+    with patch("builtins.__import__", side_effect=import_without_edit_review):
+        run_writer_mutation_with_optional_review(MagicMock(), MagicMock(), apply_fn)
+    apply_fn.assert_called_once()

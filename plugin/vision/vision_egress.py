@@ -208,15 +208,9 @@ def insert_vision_result_into_writer(
                 code="VISION_ERROR",
             )
 
-    # Review mode: record this agent-driven insertion as a reviewable tracked change.
-    from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
+    from plugin.writer.format import run_writer_mutation_with_optional_review
 
-    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled(ctx))
-    try:
-        with review:
-            review.record_mutation(_apply_insert)
-    finally:
-        review.cleanup()
+    run_writer_mutation_with_optional_review(doc, ctx, _apply_insert)
 
 
 def insert_vision_result(

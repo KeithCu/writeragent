@@ -457,15 +457,13 @@ def execute_and_insert_result(
             elif is_writer(doc):
                 formatted = format_result_for_writer(result_data)
                 if formatted:
-                    # Review mode: record this agent-driven insertion as a reviewable tracked change.
-                    from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
+                    from plugin.writer.format import run_writer_mutation_with_optional_review
 
-                    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled(ctx))
-                    try:
-                        with review:
-                            review.record_mutation(lambda: insert_content_at_position(doc, ctx, formatted, "selection"))
-                    finally:
-                        review.cleanup()
+                    run_writer_mutation_with_optional_review(
+                        doc,
+                        ctx,
+                        lambda: insert_content_at_position(doc, ctx, formatted, "selection"),
+                    )
             elif is_draw(doc):
                 insert_result_into_draw(doc, ctx, result_data)
             else:

@@ -1059,7 +1059,7 @@ Registered in [`trusted_action_registry.py`](../plugin/scripting/trusted_action_
 |------|------|
 | [`calc/vision_egress.py`](../plugin/calc/vision_egress.py) | Calc HTML / structured grid insert |
 | [`calc/rich_html.py`](../plugin/calc/rich_html.py) | `insert_cell_html_rich` |
-| [`writer/format.py`](../plugin/writer/format.py) | Writer HTML at cursor |
+| [`writer/format.py`](../plugin/writer/format.py) | Writer HTML at cursor; `run_writer_mutation_with_optional_review` wraps insert in `EditReviewSession` when WriterAgent’s `edit_review` module is co-installed (LibrePy alone applies directly) |
 | [`doc/visual_helpers.py`](../plugin/doc/visual_helpers.py) | Export graphic to bytes |
 
 ### Settings / UI
