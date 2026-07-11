@@ -1,8 +1,9 @@
 #!/bin/bash
-# Dev-mode deploy: regenerate manifests and hot-deploy to LO cache.
+# Dev-mode deploy: hot-sync project files into the unopkg cache.
 #
-# Requires a prior normal install (install-plugin.sh --force) so the cache
-# directory exists. After that, use this script for fast iteration.
+# ``make deploy`` runs ``make build`` first, then this script. Registration via
+# unopkg happens only when the extension is not yet registered (or cache is
+# missing); subsequent deploys sync source files into the cache only.
 #
 # Usage:
 #   ./scripts/dev-deploy.sh              # Regenerate + deploy to cache

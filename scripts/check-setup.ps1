@@ -223,10 +223,10 @@ if (Test-Path "$ProjectRoot\vendor") {
     Write-Warn "vendor/ missing - run: make vendor"
 }
 
-$oxtPath = Join-Path $ProjectRoot "build\writeragent.oxt"
+$oxtPath = Join-Path $ProjectRoot "build\WriterAgent.oxt"
 if (Test-Path $oxtPath) {
     $oxtSize = (Get-Item $oxtPath).Length
-    Write-Ok "build/writeragent.oxt exists ($oxtSize bytes)"
+    Write-Ok "build/WriterAgent.oxt exists ($oxtSize bytes)"
 } else {
     Write-Warn "No .oxt built yet - run: make build"
 }

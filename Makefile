@@ -12,12 +12,9 @@
 #   make clean                     Remove build artifacts
 #
 # Dev workflow:
-#   make deploy                    Build + reinstall + restart LO + show log
-#   make install                   Build + install via unopkg
-#   make install-force             Build + install (no prompts, kills LO)
-#   make cache                     Hot-deploy to LO cache (fast iteration)
-#   make dev-deploy                Symlink project into LO extensions
-#   make dev-deploy-remove         Remove the dev symlink
+#   make deploy                    Build + register once (if needed) + hot-sync to LO cache
+#   make cache                     Hot-sync to LO cache only (after a prior make deploy)
+#   make dev-deploy-remove         Remove legacy share\extensions symlink (Windows migration)
 #
 # LibreOffice:
 #   make lo-start                  Launch LO with debug logging
@@ -165,15 +162,16 @@ help:
 	@echo "  make clean                  Remove build artifacts"
 	@echo ""
 	@echo "Install:"
-	@echo "  make deploy                 Build + register extension (stop LO, unopkg remove/add); add writer/calc/draw/impress to also launch LO"
+	@echo "  make deploy                 Build + register (first time only) + hot-sync; add writer/calc/draw/impress to also launch LO"
+	@echo "  make register-built-oxt     Register build/WriterAgent.oxt via unopkg only (after make build)"
 	@echo "  make install                Build + install via unopkg"
 	@echo "  make install-force          Build + install (no prompts)"
 	@echo "  make uninstall              Remove extension via unopkg"
-	@echo "  make cache                  Hot-deploy to LO cache"
+	@echo "  make cache                  Hot-sync to LO cache only (skip build/register)"
 	@echo ""
 	@echo "Dev deploy:"
-	@echo "  make dev-deploy             Symlink project into LO extensions"
-	@echo "  make dev-deploy-remove      Remove the dev symlink"
+	@echo "  make dev-deploy             Hot-sync to LO cache (manifest regen; used internally by make deploy)"
+	@echo "  make dev-deploy-remove      Remove legacy share\\extensions symlink (Windows migration)"
 	@echo ""
 	@echo "LibreOffice:"
 	@echo "  make lo-start               Launch Writer (default) with debug logging"
@@ -552,7 +550,14 @@ lo-restart:
 	rm -f $(LO_CONF)/.lock $(LO_CONF)/user/.lock
 	$(MAKE) lo-start
 
-deploy: dev-deploy
+ifeq ($(OS),Windows_NT)
+DEPLOY_CACHE_FLAGS = -NoGen
+else
+DEPLOY_CACHE_FLAGS = --no-gen
+endif
+
+deploy: build
+	$(RUN_SH) $(SCRIPTS)/dev-deploy$(EXT) $(DEPLOY_CACHE_FLAGS)
 	@$(if $(SELECTED_COMPONENT),$(MAKE) lo-start-log COMPONENT=$(SELECTED_COMPONENT))
 
 writer calc draw impress:

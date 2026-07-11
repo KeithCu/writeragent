@@ -250,7 +250,7 @@ vendored third-party rules under [`tests/semgrep/third_party/`](../tests/semgrep
 `@background` in [`plugin/framework/thread_guard.py`](../plugin/framework/thread_guard.py);
 **`make opengrep-lint`** (alias **`make uno-thread-lint`**) runs as part of **`make test`** only
 (not `make check` / `make typecheck`). Install Opengrep: **`make opengrep-install`**. UNO taint scan
-uses **`--taint-intrafile`**. Fixtures:
+uses **`--taint-intrafile`**. On Windows, the installer uses upstream PowerShell support; Windows ARM64 currently installs the x64 Opengrep binary and runs it under emulation. Fixtures:
 [`tests/semgrep/uno_thread_safety.violations.py`](../tests/semgrep/uno_thread_safety.violations.py),
 [`tests/semgrep/uno_thread_safety.ok.py`](../tests/semgrep/uno_thread_safety.ok.py),
 [`tests/semgrep/security_rules.violations.py`](../tests/semgrep/security_rules.violations.py);

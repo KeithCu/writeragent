@@ -25,7 +25,7 @@ FORCE=false
 BUILD_ONLY=false
 UNINSTALL=false
 CACHE=false
-MODULES="core writer calc draw ai_openai ai_ollama chatbot mcp scripting"
+MODULES=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --force)      FORCE=true ;;
@@ -103,8 +103,12 @@ ensure_lo_stopped() {
 # ── Build .oxt ───────────────────────────────────────────────────────────────
 
 build_oxt() {
+    local module_label="auto-discover all"
+    if [ -n "$MODULES" ]; then
+        module_label="$MODULES"
+    fi
     echo ""
-    echo "=== Building WriterAgent.oxt (modules: $MODULES) ==="
+    echo "=== Building WriterAgent.oxt (modules: $module_label) ==="
     echo ""
 
     mkdir -p "$BUILD_DIR"
@@ -114,9 +118,14 @@ build_oxt() {
     python3 "$SCRIPT_DIR/generate_manifest.py"
 
     # Build the .oxt
-    python3 "$SCRIPT_DIR/build_oxt.py" \
-        --modules $MODULES \
-        --output "$OXT_FILE"
+    if [ -n "$MODULES" ]; then
+        python3 "$SCRIPT_DIR/build_oxt.py" \
+            --modules $MODULES \
+            --output "$OXT_FILE"
+    else
+        python3 "$SCRIPT_DIR/build_oxt.py" \
+            --output "$OXT_FILE"
+    fi
 
     if [ -f "$OXT_FILE" ]; then
         local size
@@ -138,6 +147,12 @@ install_extension() {
     echo ""
 
     ensure_lo_stopped || return 1
+
+    # Clear stale profile locks (same as make register-built-oxt)
+    local lo_conf="${XDG_CONFIG_HOME:-$HOME/.config}/libreoffice/4"
+    rm -f "$lo_conf/.lock" "$lo_conf/user/.lock"
+    rm -f "$lo_conf/user/extensions/tmp/extensions.pmap"
+    rm -rf "$lo_conf/user/extensions/tmp/"*.tmp_ 2>/dev/null || true
 
     # Remove previous version
     echo "[*] Removing previous version (if any)..."
@@ -204,24 +219,36 @@ find_unopkg_cache_dir() {
     done
 }
 
+extension_registered() {
+    local unopkg="$1"
+    $unopkg list 2>&1 | grep -q "$EXTENSION_ID"
+}
+
 install_to_cache() {
     echo ""
     echo "=== Cache Install (hot-deploy) ==="
     echo ""
 
+    UNOPKG=$(find_unopkg)
+    if [ -z "$UNOPKG" ]; then
+        echo "[X] unopkg not found. Install LibreOffice first."
+        exit 1
+    fi
+
     local cache_dir
     cache_dir=$(find_unopkg_cache_dir)
     local needs_full_install=false
+    local ext_dir=""
 
-    if [ -z "$cache_dir" ]; then
+    if ! extension_registered "$UNOPKG"; then
+        needs_full_install=true
+    elif [ -z "$cache_dir" ]; then
         needs_full_install=true
     else
         local packages_dir="$cache_dir/cache/uno_packages"
         if [ ! -d "$packages_dir" ]; then
             needs_full_install=true
         else
-            # Find the *.tmp_ directory containing our extension
-            local ext_dir=""
             for d in "$packages_dir"/*.tmp_; do
                 if [ -d "$d/WriterAgent.oxt" ]; then
                     ext_dir="$d/WriterAgent.oxt"
@@ -235,13 +262,17 @@ install_to_cache() {
     fi
 
     if $needs_full_install; then
-        echo "[!] Extension not found in cache. Performing full install first..."
-        UNOPKG=$(find_unopkg)
-        if [ -z "$UNOPKG" ]; then
-            echo "[X] unopkg not found. Install LibreOffice first."
-            exit 1
+        if ! extension_registered "$UNOPKG"; then
+            echo "[!] Extension not registered. Performing one-time unopkg install..."
+        else
+            echo "[!] Extension cache not found. Re-registering via unopkg..."
         fi
-        build_oxt || exit 1
+        FORCE=true
+        if [ -f "$OXT_FILE" ]; then
+            echo "[OK] Using existing $OXT_FILE (from make build)"
+        else
+            build_oxt || exit 1
+        fi
         install_extension "$UNOPKG" || exit 1
 
         # Re-resolve cache dir and ext_dir after full install

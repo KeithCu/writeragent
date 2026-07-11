@@ -8,14 +8,14 @@
 #   .\scripts\install-plugin.ps1 -BuildOnly               # Only create the .oxt
 #   .\scripts\install-plugin.ps1 -Uninstall               # Remove the extension
 #   .\scripts\install-plugin.ps1 -Cache                   # Hot-deploy to LO cache (dev iteration)
-#   .\scripts\install-plugin.ps1 -Modules "core mcp"      # Build specific modules
+#   .\scripts\install-plugin.ps1 -Modules "core mcp"      # Build specific modules (default: auto-discover all)
 
 param(
     [switch]$Force,
     [switch]$BuildOnly,
     [switch]$Uninstall,
     [switch]$Cache,
-    [string]$Modules = "core writer calc draw ai_openai ai_ollama chatbot mcp scripting",
+    [string]$Modules = "",
     [switch]$Help
 )
 
@@ -91,8 +91,9 @@ function Confirm-LOStopped {
 # ── Build .oxt ───────────────────────────────────────────────────────────────
 
 function Build-Oxt {
+    $moduleLabel = if ($Modules) { $Modules } else { "auto-discover all" }
     Write-Host ""
-    Write-Host "=== Building WriterAgent.oxt (modules: $Modules) ==="
+    Write-Host "=== Building WriterAgent.oxt (modules: $moduleLabel) ==="
     Write-Host ""
 
     if (-not (Test-Path $BuildDir)) {
@@ -108,8 +109,12 @@ function Build-Oxt {
 
     # Build the .oxt
     $buildScript = Join-Path $ScriptDir "build_oxt.py"
-    $moduleArgs = $Modules -split "\s+"
-    & python $buildScript --modules @moduleArgs --output $OxtFile
+    if ($Modules) {
+        $moduleArgs = $Modules -split "\s+"
+        & python $buildScript --modules @moduleArgs --output $OxtFile
+    } else {
+        & python $buildScript --output $OxtFile
+    }
 
     if (Test-Path $OxtFile) {
         $size = (Get-Item $OxtFile).Length
@@ -129,6 +134,20 @@ function Install-Extension {
     Write-Host ""
 
     Confirm-LOStopped
+
+    # Clear stale profile locks (same as make register-built-oxt)
+    $loConf = Join-Path $env:APPDATA "LibreOffice\4"
+    foreach ($lock in @(
+            (Join-Path $loConf ".lock"),
+            (Join-Path $loConf "user\.lock")
+        )) {
+        if (Test-Path $lock) { Remove-Item -Path $lock -Force -ErrorAction SilentlyContinue }
+    }
+    $extTmp = Join-Path $loConf "user\extensions\tmp"
+    $pmap = Join-Path $extTmp "extensions.pmap"
+    if (Test-Path $pmap) { Remove-Item -Path $pmap -Force -ErrorAction SilentlyContinue }
+    Get-ChildItem -Path $extTmp -Filter "*.tmp_" -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
     # Remove previous version (ignore error if not installed)
     Write-Host "[*] Removing previous version (if any)..."
@@ -191,39 +210,82 @@ function Find-UnopkgCacheDir {
     return $null
 }
 
+function Test-ExtensionRegistered {
+    param([string]$Unopkg)
+    $list = & $Unopkg list 2>&1 | Out-String
+    return ($list -match [regex]::Escape($ExtensionId))
+}
+
 function Install-ToCache {
     Write-Host ""
     Write-Host "=== Cache Install (hot-deploy) ==="
     Write-Host ""
 
+    $unopkg = Find-Unopkg
+    if (-not $unopkg) {
+        Write-Host "[X] unopkg not found. Install LibreOffice first."
+        exit 1
+    }
+
     $cacheDir = Find-UnopkgCacheDir
-    if (-not $cacheDir) {
-        Write-Host "[X] Could not find uno_packages cache directory"
-        Write-Host "    Run a normal install first: .\scripts\install-plugin.ps1 -Force"
-        exit 1
-    }
-
-    $packagesDir = Join-Path $cacheDir "cache\uno_packages"
-    if (-not (Test-Path $packagesDir)) {
-        Write-Host "[X] Cache packages dir not found: $packagesDir"
-        Write-Host "    Run a normal install first: .\scripts\install-plugin.ps1 -Force"
-        exit 1
-    }
-
-    # Find the *.tmp_ directory containing our extension
     $extDir = $null
-    $tmpDirs = Get-ChildItem -Path $packagesDir -Directory -Filter "*.tmp_" -ErrorAction SilentlyContinue
-    foreach ($d in $tmpDirs) {
-        $oxtDir = Join-Path $d.FullName "WriterAgent.oxt"
-        if (Test-Path $oxtDir) {
-            $extDir = $oxtDir
-            break
+    $needsFullInstall = -not (Test-ExtensionRegistered -Unopkg $unopkg)
+
+    if (-not $needsFullInstall) {
+        if (-not $cacheDir) {
+            $needsFullInstall = $true
+        } else {
+            $packagesDir = Join-Path $cacheDir "cache\uno_packages"
+            if (-not (Test-Path $packagesDir)) {
+                $needsFullInstall = $true
+            } else {
+                $tmpDirs = Get-ChildItem -Path $packagesDir -Directory -Filter "*.tmp_" -ErrorAction SilentlyContinue
+                foreach ($d in $tmpDirs) {
+                    $oxtDir = Join-Path $d.FullName "WriterAgent.oxt"
+                    if (Test-Path $oxtDir) {
+                        $extDir = $oxtDir
+                        break
+                    }
+                }
+                if (-not $extDir) {
+                    $needsFullInstall = $true
+                }
+            }
         }
     }
-    if (-not $extDir) {
-        Write-Host "[X] Extension not found in cache. Run a normal install first."
-        exit 1
+
+    if ($needsFullInstall) {
+        if (-not (Test-ExtensionRegistered -Unopkg $unopkg)) {
+            Write-Host "[!] Extension not registered. Performing one-time unopkg install..."
+        } else {
+            Write-Host "[!] Extension cache not found. Re-registering via unopkg..."
+        }
+        $script:Force = $true
+        if (Test-Path $OxtFile) {
+            Write-Host "[OK] Using existing $OxtFile (from make build)"
+        } else {
+            Build-Oxt
+        }
+        Install-Extension -Unopkg $unopkg
+
+        $cacheDir = Find-UnopkgCacheDir
+        if ($cacheDir) {
+            $packagesDir = Join-Path $cacheDir "cache\uno_packages"
+            $tmpDirs = Get-ChildItem -Path $packagesDir -Directory -Filter "*.tmp_" -ErrorAction SilentlyContinue
+            foreach ($d in $tmpDirs) {
+                $oxtDir = Join-Path $d.FullName "WriterAgent.oxt"
+                if (Test-Path $oxtDir) {
+                    $extDir = $oxtDir
+                    break
+                }
+            }
+        }
+        if (-not $extDir) {
+            Write-Host "[X] Extension still not found in cache after installation."
+            exit 1
+        }
     }
+
     Write-Host "[OK] Cache dir: $extDir"
 
     $deployed = 0
@@ -247,7 +309,7 @@ function Install-ToCache {
             $deployed++
         }
     }
-    foreach ($dir in @("META-INF", "assets", "registration", "registry", "WriterAgentDialogs")) {
+    foreach ($dir in @("META-INF", "assets", "registration", "registry")) {
         $src = Join-Path $ProjectRoot "extension\$dir"
         if (Test-Path $src) {
             $dst = Join-Path $extDir $dir
@@ -256,6 +318,35 @@ function Install-ToCache {
             Write-Host "    $dir/ synced"
             $deployed++
         }
+    }
+
+    # Sync dialogs (static + dynamically generated)
+    $staticDialogs = Join-Path $ProjectRoot "extension\WriterAgentDialogs"
+    $generatedDialogs = Join-Path $ProjectRoot "build\generated\WriterAgentDialogs"
+    if (Test-Path $staticDialogs) {
+        $dst = Join-Path $extDir "WriterAgentDialogs"
+        if (Test-Path $dst) { Remove-Item -Path $dst -Recurse -Force }
+        Copy-Item -Path $staticDialogs -Destination $dst -Recurse -Force
+        if (Test-Path $generatedDialogs) {
+            Copy-Item -Path (Join-Path $generatedDialogs "*") -Destination $dst -Recurse -Force
+        }
+        Write-Host "    WriterAgentDialogs/ synced"
+        $deployed++
+    } elseif (Test-Path $generatedDialogs) {
+        $dst = Join-Path $extDir "WriterAgentDialogs"
+        if (Test-Path $dst) { Remove-Item -Path $dst -Recurse -Force }
+        Copy-Item -Path $generatedDialogs -Destination $dst -Recurse -Force
+        Write-Host "    WriterAgentDialogs/ (generated) synced"
+        $deployed++
+    }
+
+    $generatedDialogPages = Join-Path $ProjectRoot "build\generated\dialogs"
+    if (Test-Path $generatedDialogPages) {
+        $dst = Join-Path $extDir "dialogs"
+        if (Test-Path $dst) { Remove-Item -Path $dst -Recurse -Force }
+        Copy-Item -Path $generatedDialogPages -Destination $dst -Recurse -Force
+        Write-Host "    dialogs/ synced"
+        $deployed++
     }
 
     # Clean __pycache__

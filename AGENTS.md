@@ -72,7 +72,8 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 |---------|------|
 | `make manifest` | Generates [`plugin/_manifest.py`](plugin/_manifest.py) (gitignored). Used by type-check and tests on clean checkouts. Missing manifest → [`load_manifest()`](plugin/framework/module_base.py) raises **`RuntimeError`**. |
 | `make check` | **`ty`** only |
-| `make build` | **`ty`** + **`ruff-fix`** then **`ruff`** + bundle |
+| `make build` | **`ty`** + **`ruff-fix`** then **`ruff`** + bundle (produces `build/WriterAgent.oxt` only) |
+| `make deploy` | **`make build`** + one-time **`unopkg`** register (if needed) + cache hot-sync (restart LO) |
 | `make typecheck` | **`ty`** + **mypy** + **pyright** |
 | `make test` | Full typecheck + **opengrep-lint** + pytest + LO tests + **bandit** (see `[tool.bandit]` in [`pyproject.toml`](pyproject.toml); skip if no `soffice`) |
 | `make opengrep-lint` | Opengrep UNO thread + vendored security rules (ERROR; part of `make test`) |
@@ -169,7 +170,9 @@ See [docs/type-checking.md](docs/type-checking.md) for checker scope, UNO patter
 
 ## Debugging
 
-- **`make deploy`** vs **`make repack`**: full rebuild/deploy vs re-zip only.
+- **`make deploy`** — build; register via unopkg only on first run (or if cache missing); then cache hot-sync.
+- **`make cache`** — cache hot-sync only (after a prior **`make deploy`**).
+- **`make deploy`** vs **`make repack`**: full deploy vs re-zip only.
 - New extension components: [`extension/META-INF/manifest.xml`](extension/META-INF/manifest.xml).
 - Buffered logs: `/tmp` scratch + `flush=True` when needed.
 
