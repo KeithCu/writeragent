@@ -104,14 +104,12 @@ import threading
 _services = None
 log = logging.getLogger(__name__)
 
-# Action handler registry
-_ACTION_HANDLERS: dict[str, Callable[..., Any]] = {}
-
-
-def register_action_handler(module_name, action_name, handler_func):
-    """Register an action handler function."""
-    key = f"{module_name}.{action_name}"
-    _ACTION_HANDLERS[key] = handler_func
+from plugin.framework.main_shared import (
+    register_action_handler,
+    get_action_handler,
+    register_common_handlers,
+    open_dialog_safely as _open_dialog_safely,
+)
 
 
 _tools: ToolRegistry | None = None
@@ -258,15 +256,6 @@ def _register_core_handlers():
         _open_dialog_safely(settings_box, "Failed to open settings")
 
     register_action_handler("main", "settings", _open_settings)
-
-    def _report_bug():
-        from plugin.framework.bug_report import open_bug_report_in_browser
-        from plugin.framework.uno_context import get_ctx
-
-        open_bug_report_in_browser(get_ctx(), title="Bug report")
-
-    register_action_handler("main", "report_bug", _report_bug)
-
     register_action_handler("main", "EvaluationDashboard", lambda: _open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
     register_action_handler("main", "RunFormatTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.writer.test_format_uno"), is_writer, "writer.format_tests") if _tests_bundled() else _show_tests_unavailable("writer.format_tests"))
@@ -275,32 +264,14 @@ def _register_core_handlers():
     register_action_handler("main", "RunDrawTests", lambda: _run_test_suite(importlib.import_module("plugin.tests.draw.test_draw_uno"), is_draw, "draw.tests") if _tests_bundled() else _show_tests_unavailable("draw.tests"))
     register_action_handler("main", "NoOp", lambda: None)
 
-    def _run_python():
-        from plugin.scripting.python_runner import run_python_dialog
-        run_python_dialog(get_ctx())
-
-    register_action_handler("scripting", "run_python_dialog", _run_python)
-
-    def _edit_python_cell():
-        from plugin.calc.python.editor import open_python_cell_editor
-        open_python_cell_editor(get_ctx())
-
-    register_action_handler("scripting", "edit_python_cell", _edit_python_cell)
-
-    def _reset_python_session():
-        from plugin.scripting.session_manager import reset_workbook_python_session
-
-        reset_workbook_python_session(get_ctx())
-
-    register_action_handler("scripting", "reset_python_session", _reset_python_session)
+    # Register shared handlers (report_bug, run_python, edit_python, reset_python, vision settings, latex, textanalytics)
+    register_common_handlers()
 
     def _convert_spreadsheet():
         from plugin.calc.spreadsheet_import.import_dialog import show_import_dialog
         _open_dialog_safely(show_import_dialog, "Failed to open Convert Sheet to Python dialog")
 
     register_action_handler("calc", "convert_spreadsheet_to_python", _convert_spreadsheet)
-
-
 
     try:
         from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
@@ -317,30 +288,11 @@ def _register_core_handlers():
 
     register_action_handler("scripting", "import_ipynb", _import_ipynb)
 
-    def _open_vision_settings():
-        from plugin.chatbot.module_config_dialog import show_vision_settings_dialog
-
-        _open_dialog_safely(show_vision_settings_dialog, "Failed to open Vision OCR settings")
-
-    register_action_handler("vision", "open_settings", _open_vision_settings)
-
-    def _insert_latex():
-        from plugin.writer.math.latex_dialog import insert_latex_math_dialog
-        insert_latex_math_dialog(get_ctx())
-
-    register_action_handler("writer", "insert_latex_dialog", _insert_latex)
-
     def _open_search_dialog():
         from plugin.embeddings.search_ui import show_search_dialog
         show_search_dialog(get_ctx())
 
     register_action_handler("embeddings", "search_dialog", _open_search_dialog)
-
-    def _open_text_analytics():
-        from plugin.scripting.text_analytics_ui import TextAnalyticsDialog
-        TextAnalyticsDialog.show(get_ctx())
-
-    register_action_handler("textanalytics", "open_dialog", _open_text_analytics)
 
     def _refresh_review_toolbar(model):
         """Re-evaluate the review toolbar's visibility (hide once nothing is left to review).
@@ -456,33 +408,7 @@ def _show_tests_unavailable(test_name: str) -> None:
         pass
 
 
-def _open_dialog_safely(dialog_func, error_msg, *args, **kwargs):
-    """Safely open a dialog with standardized error handling."""
-    from plugin.framework.errors import DocumentDisposedError, UnoObjectError
-    from plugin.framework.uno_context import get_ctx
 
-    ctx_getter = get_ctx
-    try:
-        dialog_func(ctx_getter(), *args, **kwargs)
-    except DocumentDisposedError:
-        log.debug("Dialog opening aborted: document disposed")
-    except UnoObjectError as e:
-        log.warning(f"UNO error opening dialog: {e.message}")
-    except Exception as e:
-        log.exception("%s", error_msg)
-        # Show user-friendly error message
-        from plugin.chatbot.dialogs import msgbox_with_report
-        from plugin.framework.i18n import _
-
-        msgbox_with_report(
-            ctx_getter(),
-            _("Error"),
-            _(f"{error_msg}: {str(e)}"),
-            box_type=3,
-            reportable=True,
-            report_title=error_msg,
-            report_extra=str(e),
-        )
 
 
 def _run_test_suite(test_func, doc_checker, test_name):
@@ -533,7 +459,7 @@ def _dispatch_command(command):
         run_cell_by_hex(get_ctx(), command[len(_NOTEBOOK_RUN_CELL_PREFIX) :])
         return
     # First try the action registry
-    handler = _ACTION_HANDLERS.get(command)
+    handler = get_action_handler(command)
     if handler:
         try:
             handler()
