@@ -1,0 +1,18 @@
+# LibreHarper slim config schema — keys use the ``doc.`` prefix for writeragent.json compatibility.
+name: doc
+title: LibreHarper
+requires: [config]
+
+config:
+  grammar_proofreader_enabled:
+    type: string
+    default: "harper"
+    widget: select
+    label: Enable grammar checker (Writer)
+    helper: "Off = disabled. Harper = offline Rust binary auto-downloaded to your profile."
+    options:
+      - value: "off"
+        label: "Off"
+      - value: "harper"
+        label: "Harper"
+    inline: true

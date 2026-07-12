@@ -231,7 +231,7 @@ class DocumentPersistence(GrammarPersistence):
         self._doc_listener = None
 
     def _load_from_udprops(self) -> None:
-        from plugin.doc.document_helpers import get_document_property
+        from plugin.doc.udprops import get_document_property
 
         if not self._model:
             return
@@ -273,7 +273,7 @@ class DocumentPersistence(GrammarPersistence):
             log.warning("[grammar] DocumentPersistence: load user property failed: %s", e)
 
     def _persist_to_udprops(self) -> None:
-        from plugin.doc.document_helpers import set_document_property
+        from plugin.doc.udprops import set_document_property
 
         if not self._model:
             return

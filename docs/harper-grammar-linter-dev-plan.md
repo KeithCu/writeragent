@@ -118,6 +118,8 @@ Primary implementation: [`plugin/scripting/venv/harper.py`](../plugin/scripting/
 
 Supporting vendored helpers live in [`plugin/contrib/lsp/`](../plugin/contrib/lsp/) (framing + UTF-16 position codec) and [`plugin/contrib/pooch/`](../plugin/contrib/pooch/) (secure hashed downloads + safe archive extraction). Both include provenance READMEs and dedicated tests.
 
+**Standalone OXT:** `make build-harper` / `make deploy-harper` produce `build/LibreHarper.oxt` — see [§9 LibreHarper standalone OXT](#9-libreharper-standalone-oxt-libreharperoxt).
+
 ---
 
 ## 7. Known Limitations
@@ -209,3 +211,181 @@ Additional items identified in a post-implementation review of `plugin/scripting
 ### 8.3 Not planned: general-purpose LSP port
 
 WriterAgent does **not** need Hermes's full multi-language LSP stack (`pyright`, `gopls`, workspace delta baselines, etc.) for Harper grammar. A future **separate** feature — semantic lint of user Python scripts or macros — would warrant porting selected pieces from [Hermes `agent/lsp`](file:///home/keithcu/.hermes/hermes-agent/agent/lsp/) under a new module, not extending `HarperLSClient`.
+
+---
+
+## 9. LibreHarper standalone OXT (`libreharper.oxt`)
+
+Ship a **small Linguistic2-only** extension for people who want offline Harper grammar and nothing else (no chat, no `=PY()`, no LLM / LanguageTool / Vale). Packaging follows the same filtered-bundle pattern as LibrePy ([libreoffice-core-python-extension-split.md](libreoffice-core-python-extension-split.md)).
+
+**Build:** `make build-harper` → `build/LibreHarper.oxt`; `make deploy-harper` registers `org.extension.libreharper` without removing WriterAgent.
+
+### 9.1 Why
+
+| Concern | LibreHarper | WriterAgent |
+|---------|-------------|-------------|
+| Audience | Harper-only installs | Full AI workspace |
+| Surface | One `XProofreader` | Chat, tools, MCP, multi-provider grammar, Calc, … |
+| Runtime deps | Profile `harper-ls` binary (auto-download) | Same Harper path *plus* LLM/venv stacks when those providers are selected |
+| Install size | ~45–55 Python paths after import-boundary fixes | Full OXT |
+
+### 9.2 Product identity
+
+| Item | Value |
+|------|--------|
+| Extension id | `org.extension.libreharper` |
+| Display name | LibreHarper |
+| Proofreader implementation | `org.extension.libreharper.comp.pyuno.HarperProofreader` |
+| WriterAgent impl (do not reuse) | `org.extension.writeragent.comp.pyuno.AiGrammarProofreader` |
+| Service | `com.sun.star.linguistic2.Proofreader` |
+| Writing aids label | `LibreHarper` |
+| Default config | `doc.grammar_proofreader_enabled` = **`harper`** (install → works) |
+| Config file (v1) | Reuse `writeragent.json` via existing [`config.py`](../plugin/framework/config.py); slim `_manifest` exposes only `off` / `harper` |
+| Settings UI (v1) | **None** — no Jobs.xcu, menus, or dialogs; LO Writing aids lists the GrammarChecker |
+| Locales in XCU | `en-US`, `en-GB`, `en-AU`, `en-CA` (Harper dialects) |
+| `harper-ls` | Still auto-downloaded into the user profile `harper/` directory — **not** bundled in the OXT |
+
+### 9.3 Architecture
+
+```mermaid
+flowchart TB
+  LO[LibreOffice Linguistic2] --> XCU[LinguisticLibreHarperGrammar.xcu]
+  XCU --> PR[HarperProofreader]
+  PR --> GQ[grammar_work_queue]
+  GQ -->|"provider harper"| Host[harper_host.run_harper_check]
+  Host --> LSP[venv/harper.py HarperLSClient]
+  LSP --> Bin[harper_binary.py + contrib/pooch]
+  Bin --> Profile["user profile harper/harper-ls"]
+  LSP -->|stdio LSP| Profile
+```
+
+Hot path matches WriterAgent today: `doProofreading` → sentence cache → drain thread → `run_harper_check` → persistent `harper-ls --stdio`. LibreHarper omits every other provider branch at the *bundle* level (no LLM / LT / Vale modules).
+
+### 9.4 Why today’s tree is not small yet
+
+Runtime Harper only needs proofreader → queue → Harper host → `harper-ls`, but **import edges** currently drag large stacks into any naïve copy:
+
+```mermaid
+flowchart TB
+  LO2[Linguistic2] --> PR2[ai_grammar_proofreader]
+  PR2 --> GQ2[grammar_work_queue]
+  GQ2 -->|"top-level import"| ClientPkg["framework.client.__init__"]
+  ClientPkg --> Heavy[llm_client embeddings scripting.client]
+  GQ2 -->|"lazy harper branch"| HarperClient["scripting.client.run_harper_check"]
+  HarperClient --> HarperMod[venv/harper.py]
+  Pers[grammar_persistence] -->|"lazy"| DocHelp[document_helpers]
+  DocHelp --> Calc[calc.bridge analyzer]
+```
+
+Critical edges:
+
+1. [`grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py) top-level `from plugin.framework.client import model_fetcher, llm_client` loads entire [`client/__init__.py`](../plugin/framework/client/__init__.py) (LLM + embeddings + `scripting.client`).
+2. Same file top-level import of [`grammar_worker_llm`](../plugin/writer/locale/grammar_worker_llm.py) — LLM-only.
+3. Harper branch imports [`run_harper_check`](../plugin/scripting/client.py) from `plugin.scripting.client`, whose module top pulls trusted RPC / vision.
+4. [`grammar_persistence.py`](../plugin/writer/locale/grammar_persistence.py) lazy-imports `get`/`set_document_property` from [`document_helpers.py`](../plugin/doc/document_helpers.py), which imports Calc at module load.
+5. Full [`plugin/writer/__init__.py`](../plugin/writer/__init__.py) must not ship as-is (Writer tools + linguistic index).
+
+Without the refactors below, a “Harper-only” OXT is not small.
+
+### 9.5 Import-boundary prerequisites (shared with WriterAgent)
+
+These landed in the main tree so the filtered bundle stays small:
+
+1. **Extracted** `run_harper_check` (+ UI pump) to [`plugin/scripting/harper_host.py`](../plugin/scripting/harper_host.py); thin re-export remains in `client.py`.
+2. **Lazy-import** LLM client / `grammar_worker_llm` only when `provider == "llm"`; local providers never construct `LlmClient`.
+3. **Extracted** udprop get/set to [`plugin/doc/udprops.py`](../plugin/doc/udprops.py); `grammar_persistence` uses it.
+4. **Bundle** ships empty/slim `plugin/writer/__init__.py` and `plugin/doc/__init__.py` (assemble-time rewrite).
+5. **LibreHarper proofreader** [`harper_proofreader.py`](../plugin/writer/locale/harper_proofreader.py) with impl name `…HarperProofreader` + English-only locales.
+
+### 9.6 Layered file inventory (after refactors)
+
+Whole-file rule (same as the LibrePy split doc): if a module is imported, the entire file ships. Target ~**45–55** paths.
+
+#### Extension packaging (`extension-harper/`)
+
+| Path | Role |
+|------|------|
+| `description.xml` | Id `org.extension.libreharper`, display name LibreHarper |
+| `META-INF/manifest.xml` | Proofreader Python component + Linguistic XCU only |
+| `registry/.../LinguisticLibreHarperGrammar.xcu` | GrammarCheckers node for `…HarperProofreader`; en-* locales |
+| Optional `extension/assets/` logo | Icon |
+
+**Do not ship:** CalcAddIns, Sidebar, ProtocolHandler, Addons, Jobs, RDBs, dialogs.
+
+#### Framework (~15)
+
+`plugin/framework/`: `uno_bootstrap`, `config`, `constants`, `errors`, `json_utils`, `i18n`, `event_bus`, `service`, `logging`, `worker_pool`, `thread_guard`, `uno_context`, `uno_listeners`, `queue_executor`, `url_utils`, plus package `__init__`s. Root: `plugin/__init__.py` (prefer `pkgutil.extend_path` if dual-install with WriterAgent), `plugin/version.py`.
+
+#### Grammar stack (~11)
+
+Empty `plugin/writer/__init__.py`. Under `plugin/writer/locale/`: proofreader entry (`ai_grammar_proofreader` rewritten or `harper_proofreader`), `grammar_work_queue`, `grammar_proofread_cache`, `grammar_proofread_locale`, `grammar_proofread_text`, `grammar_proofread_json`, `grammar_persistence`, `grammar_ignore_rules`, `grammar_obs`, `grammar_worker_phases`, package `__init__`.
+
+**Omit:** `grammar_worker_llm.py`, `linguistic_index.py`, `stop_words.py`.
+
+#### Harper (~5)
+
+`plugin/scripting/__init__.py`, [`sandbox.py`](../plugin/scripting/sandbox.py) (Flatpak command wrap), [`venv/harper.py`](../plugin/scripting/venv/harper.py), [`venv/harper_binary.py`](../plugin/scripting/venv/harper_binary.py), **new** `harper_host.py`.
+
+**Do not ship** whole [`client.py`](../plugin/scripting/client.py), LanguageTool/Vale modules, or the venv worker tree.
+
+#### Doc helpers (~2)
+
+`plugin/doc/__init__.py`, **new** `udprops.py` (udprop get/set only).
+
+#### Contrib
+
+Full [`plugin/contrib/lsp/`](../plugin/contrib/lsp/) (framing + UTF-16 position codec) and [`plugin/contrib/pooch/`](../plugin/contrib/pooch/) (download / safe extract), including provenance READMEs.
+
+#### Generated
+
+Slim `_manifest.py` from a Harper-only `module.yaml` (or filtered `doc` module: options `off` + `harper` only; default `harper`).
+
+#### Explicit exclusions
+
+Chat / MCP / sidebar / tools / smolagents; embeddings / folder FTS / langdetect; LanguageTool / Vale / LLM grammar path; vision / audio / PPT-Master; `=PY()` / `=PROMPT()` / Calc add-ins; full Writer tools (`tree`, `styles`, charts, …); full `plugin/scripting/client.py` + trusted RPC + venv worker.
+
+### 9.7 Build targets (mirror LibrePy)
+
+Inverse of LibrePy’s filter: LibrePy **excludes** `venv/harper.py` / `harper_binary.py` ([`librepy_bundle_paths.py`](../scripts/librepy_bundle_paths.py)); LibreHarper **ships only** those among scripting modules.
+
+| Artifact | LibreHarper |
+|----------|-------------|
+| Path list | `scripts/libreharper_bundle_paths.py` |
+| Builder | `scripts/build_libreharper_oxt.py` → `build/bundle-libreharper/` → `build/LibreHarper.oxt` |
+| Skeleton | `extension-harper/` |
+| Makefile | `manifest-harper`, `build-harper`, `deploy-harper` |
+| Deploy | `unopkg` for `org.extension.libreharper` only — **do not** remove WriterAgent (unlike LibrePy’s register path) |
+
+Template: [`scripts/build_librepy_oxt.py`](../scripts/build_librepy_oxt.py) + `make build-core`.
+
+### 9.8 Config and Writing aids
+
+- Slim manifest defaults `doc.grammar_proofreader_enabled` to **`harper`**.
+- v1 reuses `writeragent.json`. If WriterAgent and LibreHarper are both installed, both read the same key — enabling LLM in WriterAgent vs Harper in LibreHarper can fight; document that for dual installs the user should leave only one GrammarChecker active in Writing aids, or (later) split to `libreharper.json`.
+- LibreOffice may still require the user to enable the GrammarChecker under Tools → Options → Language Settings → Writing Aids (same as other Linguistic2 providers). Soft bootstrap like WriterAgent’s `ensure_writeragent_proofreader_configured` is optional and **must not** call `setConfiguredServices` (that path crashed Writing aids historically).
+
+### 9.9 Coexistence with WriterAgent
+
+| Concern | Assessment |
+|---------|------------|
+| Extension id | Distinct `org.extension.libreharper` — both OXTs can be installed |
+| GrammarCheckers | Distinct implementation names → two entries in Writing aids; user picks one |
+| Shared `harper/` profile cache | Fine / beneficial |
+| `plugin` package | Both ship `plugin.*`. Without `pkgutil.extend_path` in both OXTs’ `plugin/__init__.py`, one extension’s modules can shadow the other. Prefer `extend_path` if dual-install is supported; otherwise treat dual-install as unsupported |
+| Config key | Shared `doc.grammar_proofreader_enabled` in v1 — see §9.8 |
+| Grammar cache udprop | Can keep `WriterAgentGrammarCache` for compatibility or rename to `LibreHarperGrammarCache` in a later pass |
+
+### 9.10 Implementation order
+
+1. ~~Import-boundary refactors in the main tree (§9.5)~~ — done.
+2. ~~`extension-harper/` skeleton + `libreharper_bundle_paths.py` + `build_libreharper_oxt.py`~~ — done.
+3. ~~Makefile `build-harper` / `deploy-harper`~~ — done.
+4. Optional later: Settings toggle, separate `libreharper.json`, chat-sidebar status (LibreHarper has no sidebar — host progress can log only).
+
+### 9.11 Out of scope for v1
+
+- LLM, LanguageTool, Vale, language detection
+- Chat sidebar grammar status line
+- Bundling `harper-ls` inside the OXT
+- Jobs / menus / settings dialogs
+- Stripping WriterAgent to depend on LibreHarper (WriterAgent continues to ship its own Harper path)

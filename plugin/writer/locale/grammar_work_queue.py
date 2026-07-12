@@ -97,15 +97,26 @@ from . import (
 )
 from .grammar_obs import emit_grammar_status, grammar_obs
 from .grammar_proofread_text import slice_preview_debug
-from .grammar_worker_llm import call_grammar_llm, detect_languages_for_chunk
 
 from plugin.framework import queue_executor, config
-from plugin.framework.client import model_fetcher, llm_client
-from plugin.framework.client.request_controls import LLM_MIN_REQUEST_INTERVAL_SEC
 
 import uno
 
 log = logging.getLogger("writeragent.grammar")
+
+
+def call_grammar_llm(*args: Any, **kwargs: Any) -> Any:
+    """Lazy wrapper so importing this module does not load the LLM client stack."""
+    from .grammar_worker_llm import call_grammar_llm as _impl
+
+    return _impl(*args, **kwargs)
+
+
+def detect_languages_for_chunk(*args: Any, **kwargs: Any) -> Any:
+    """Lazy wrapper so importing this module does not load the LLM client stack."""
+    from .grammar_worker_llm import detect_languages_for_chunk as _impl
+
+    return _impl(*args, **kwargs)
 
 # Super simple locale detection: 1k chars around cursor should be "good enough" for most cases.
 # Historical overkill (styles, first 50 paragraphs, LinguProperties) was removed to prioritize
@@ -576,7 +587,7 @@ def _run_grammar_check(
                     emit_grammar_status("failed", "Vale style linter", result=str(ex))
             return
         if provider == "harper":
-            from plugin.scripting.client import run_harper_check
+            from plugin.scripting.harper_host import run_harper_check
             from plugin.framework.config import user_config_dir
 
             cfg_dir = user_config_dir() or ""
@@ -769,18 +780,31 @@ def run_llm_and_cache_batch(
         gq_to_use.begin_status_cycle()
         status_cycle_started = True
 
+        from plugin.framework.config import get_grammar_provider
+
+        provider = get_grammar_provider()
+        # Local engines never need LlmClient / model_fetcher (and must not import framework.client package).
+        local_provider = provider in ("harper", "languagetool", "vale")
+
         max_tok = grammar_proofread_locale.GRAMMAR_PROOFREAD_MAX_RESPONSE_TOKENS
         max_chars = grammar_proofread_locale.GRAMMAR_PROOFREAD_SAFETY_MAX_CHARS
-        try:
-            model = model_fetcher.get_grammar_model()
-        except Exception as e:
-            log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
-            model = ""
+        model = ""
+        client: Any = None
+        if not local_provider:
+            import importlib
 
-        client = llm_client.LlmClient(config.get_api_config(), ctx)
-        batch_size = config.get_config_int_safe("doc.grammar_proofreader_batch_sentences")
+            model_fetcher = importlib.import_module("plugin.framework.client.model_fetcher")
+            llm_client = importlib.import_module("plugin.framework.client.llm_client")
+            try:
+                model = model_fetcher.get_grammar_model()
+            except Exception as e:
+                log.warning("[grammar] worker: model resolution: %s", e, exc_info=True)
+                model = ""
+            client = llm_client.LlmClient(config.get_api_config(), ctx)
+
+        batch_size = 1 if local_provider else config.get_config_int_safe("doc.grammar_proofreader_batch_sentences")
         batch_size = max(1, min(grammar_proofread_locale.GRAMMAR_BATCH_MAX_SENTENCES, batch_size))
-        detect_lang_mode = grammar_proofread_locale.get_grammar_detect_language_mode(ctx)
+        detect_lang_mode = "off" if local_provider else grammar_proofread_locale.get_grammar_detect_language_mode(ctx)
         detect_lang_enabled = detect_lang_mode != "off"
 
         chunks, detect_lang_instruction = _worker_build_chunks(valid_items, ctx, batch_size, max_chars, detect_lang_enabled)
@@ -932,6 +956,8 @@ class GrammarWorkQueue:
                 i = self._worker_count
                 if i > 0:
                     # Stagger extra drain threads (same 50 ms pacing as LlmClient HTTP sends).
+                    from plugin.framework.client.request_controls import LLM_MIN_REQUEST_INTERVAL_SEC
+
                     time.sleep(LLM_MIN_REQUEST_INTERVAL_SEC)
                 self._worker_count += 1
                 t = threading.Thread(target=self._drain_loop, name=f"writeragent-grammar-queue-{i}", daemon=True)

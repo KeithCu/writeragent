@@ -14,3 +14,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""WriterAgent / LibrePy / LibreHarper top-level package.
+
+``extend_path`` lets multiple OXTs contribute ``plugin.*`` subpackages when
+installed side by side (e.g. WriterAgent + LibreHarper).
+"""
+
+from pkgutil import extend_path
+
+__path__ = extend_path(__path__, __name__)

@@ -951,7 +951,7 @@ def test_grammar_check_routes_to_harper() -> None:
     chunk = [(a, a.text)]
 
     with patch("plugin.framework.config.get_grammar_provider", return_value="harper"), \
-         patch("plugin.scripting.client.run_harper_check") as mock_harper_check, \
+         patch("plugin.scripting.harper_host.run_harper_check") as mock_harper_check, \
          patch("plugin.framework.config.user_config_dir", return_value="/tmp"), \
          patch("plugin.writer.locale.grammar_work_queue._process_grammar_results") as mock_process:
         mock_harper_check.return_value = {

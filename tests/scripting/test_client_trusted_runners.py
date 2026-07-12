@@ -78,7 +78,7 @@ def test_run_harper_check_pumps_ui_after_start_and_heartbeat(ctx) -> None:
 
     with (
         patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status") as mock_emit,
-        patch("plugin.scripting.client._pump_grammar_status_ui", side_effect=_record_pump),
+        patch("plugin.scripting.harper_host._pump_grammar_status_ui", side_effect=_record_pump),
         patch("plugin.scripting.venv.harper.run_harper_check", side_effect=_fake_in_process) as mock_run,
         patch("plugin.scripting.client.run_trusted_worker_action") as mock_trusted,
     ):
@@ -100,7 +100,7 @@ def test_run_harper_check_heartbeat_skips_empty_message(ctx) -> None:
 
     with (
         patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status") as mock_emit,
-        patch("plugin.scripting.client._pump_grammar_status_ui") as mock_pump,
+        patch("plugin.scripting.harper_host._pump_grammar_status_ui") as mock_pump,
         patch("plugin.scripting.venv.harper.run_harper_check", side_effect=_fake_in_process),
         patch("plugin.scripting.client.run_trusted_worker_action") as mock_trusted,
     ):
@@ -115,7 +115,7 @@ def test_run_harper_check_heartbeat_skips_empty_message(ctx) -> None:
 def test_run_harper_check_does_not_use_trusted_worker(ctx) -> None:
     with (
         patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status"),
-        patch("plugin.scripting.client._pump_grammar_status_ui"),
+        patch("plugin.scripting.harper_host._pump_grammar_status_ui"),
         patch("plugin.scripting.venv.harper.run_harper_check", return_value={"errors": []}) as mock_in_process,
         patch("plugin.scripting.client.run_trusted_worker_action") as mock_trusted,
     ):
