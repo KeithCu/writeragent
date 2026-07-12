@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.scripting.config_limits import (
     configured_python_exec_timeout,
@@ -29,6 +32,9 @@ def _run_trusted_action(
     error_code: str,
     error_label: str,
     additional_data: dict[str, Any] | None = None,
+    *,
+    allow_heartbeat: bool = False,
+    heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action packet in the user venv worker."""
     return run_trusted_worker_action(
@@ -43,6 +49,8 @@ def _run_trusted_action(
         additional_data=additional_data,
         error_code=error_code,
         error_label=error_label,
+        allow_heartbeat=allow_heartbeat,
+        heartbeat_fn=heartbeat_fn,
     )
 
 
@@ -389,6 +397,15 @@ _HARPER_SESSION_PREFIX = "writeragent:harper"
 
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
     """Execute a trusted Harper linter helper inside the user venv worker."""
+    from plugin.writer.locale.grammar_obs import emit_harper_worker_status
+
+    emit_harper_worker_status(text, "Starting Python worker…")
+
+    def _on_harper_heartbeat(payload: dict[str, Any]) -> None:
+        message = str(payload.get("message") or "").strip()
+        if message:
+            emit_harper_worker_status(text, message)
+
     return _run_trusted_action(
         ctx,
         session_id=_HARPER_SESSION_PREFIX,
@@ -401,6 +418,8 @@ def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-U
         error_code="HARPER_ERROR",
         error_label="Harper Linter",
         additional_data={"text": text, "config_dir": config_dir, "bcp47": bcp47},
+        allow_heartbeat=True,
+        heartbeat_fn=_on_harper_heartbeat,
     )
 
 

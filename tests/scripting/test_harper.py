@@ -419,7 +419,7 @@ def test_harper_run_harper_check_retries_after_failure(mock_get_bin: MagicMock) 
     assert res == {"errors": []}
     broken_client.close.assert_called_once()
     mock_ctor.assert_called_once()
-    fresh_client.lint.assert_called_once_with("retry me.", bcp47="en-US")
+    fresh_client.lint.assert_called_once_with("retry me.", bcp47="en-US", heartbeat_fn=None)
 
 
 def test_read_exactly_handles_partial_reads() -> None:
@@ -473,7 +473,7 @@ def test_get_harper_binary_redownloads_when_latest_changes(
     with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
         path = harper_binary_module._get_harper_binary(str(tmp_path))
 
-    mock_download.assert_called_once_with(binary_path, mock_fetch.return_value)
+    mock_download.assert_called_once_with(binary_path, mock_fetch.return_value, heartbeat_fn=None)
     assert path == str(binary_path)
 
 
@@ -634,3 +634,64 @@ def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
     assert release.version == "2.7.0"
     assert release.sha256 == "abc123"
 
+
+@patch("plugin.scripting.venv.harper_binary._download_harper_binary")
+@patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
+def test_get_harper_binary_emits_heartbeat_progress(
+    mock_fetch: MagicMock,
+    mock_download: MagicMock,
+    tmp_path: Path,
+) -> None:
+    mock_fetch.return_value = _sample_release("2.6.0")
+    harper_dir = tmp_path / "harper"
+    harper_dir.mkdir()
+    binary_path = harper_dir / _harper_binary_name()
+    binary_path.write_bytes(b"current")
+    (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
+    messages: list[str] = []
+
+    def heartbeat_fn(payload: dict[str, str]) -> None:
+        messages.append(str(payload.get("message") or ""))
+
+    with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
+        harper_binary_module._get_harper_binary(str(tmp_path), heartbeat_fn=heartbeat_fn)
+
+    assert "Resolving harper-ls binary…" in messages
+    assert "Using installed harper-ls v2.6.0" in messages
+    mock_download.assert_not_called()
+
+
+@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("subprocess.Popen")
+def test_run_harper_check_emits_heartbeat_progress(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
+    mock_get_bin.return_value = "/bin/harper-ls"
+    messages: list[str] = []
+
+    def heartbeat_fn(payload: dict[str, str]) -> None:
+        messages.append(str(payload.get("message") or ""))
+
+    mock_popen.return_value = _mock_harper_lsp_stream(
+        [
+            _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")),
+            _make_lsp_chunk(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "textDocument/publishDiagnostics",
+                        "params": {
+                            "uri": "file:///tmp/writeragent_harper_lint_123.txt",
+                            "version": 1,
+                            "diagnostics": [],
+                        },
+                    }
+                ).encode("utf-8")
+            ),
+        ]
+    )
+
+    with patch("time.time_ns", return_value=123):
+        run_harper_check("clean sentence.", "/tmp", heartbeat_fn=heartbeat_fn)
+
+    assert "Linting…" in messages
+    mock_get_bin.assert_called_once()
+    assert mock_get_bin.call_args.kwargs.get("heartbeat_fn") is heartbeat_fn

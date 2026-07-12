@@ -94,7 +94,10 @@ def format_grammar_status(data: dict[str, Any]) -> str:
         return f"{prefix} waiting '{preview}' len {length}"
     if phase == "request":
         verb = "detecting" if area == "language" else "checking"
-        return f"{prefix} {verb} '{preview}' len {length}"
+        base = f"{prefix} {verb} '{preview}' len {length}"
+        if result and result not in ("LLM request", "LLM batch request", "Detecting language"):
+            return f"{base}: {result}"
+        return base
     if phase == "complete":
         suffix = result or "done"
         if elapsed is not None:

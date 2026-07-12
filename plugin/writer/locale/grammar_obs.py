@@ -45,3 +45,8 @@ def emit_grammar_status(
         event_bus.global_event_bus.emit("grammar:status", phase=phase, preview=preview, length=length, result=result, elapsed_ms=elapsed_ms)
     except Exception as e:
         log.debug("[grammar] status emit failed: %s", e, exc_info=True)
+
+
+def emit_harper_worker_status(sentence_text: str, message: str) -> None:
+    """Relay Harper venv-worker progress to the sidebar grammar status field."""
+    emit_grammar_status("request", sentence_text, result=message, preview_source=sentence_text)

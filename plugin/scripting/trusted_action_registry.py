@@ -43,7 +43,7 @@ _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
     TrustedActionWiring("sql", "plugin.scripting.venv.trusted_dispatch:dispatch_trusted"),
     TrustedActionWiring("languagetool", "plugin.scripting.venv.trusted_dispatch:dispatch_trusted"),
     TrustedActionWiring("vale", "plugin.scripting.venv.trusted_dispatch:dispatch_trusted"),
-    TrustedActionWiring("harper", "plugin.scripting.venv.trusted_dispatch:dispatch_trusted"),
+    TrustedActionWiring("harper", "plugin.scripting.venv.trusted_dispatch:dispatch_trusted", supports_heartbeat=True),
     TrustedActionWiring("embedding", "plugin.scripting.venv.trusted_dispatch:dispatch_trusted"),
     TrustedActionWiring("langdetect", "plugin.scripting.venv.trusted_dispatch:dispatch_trusted"),
     TrustedActionWiring(

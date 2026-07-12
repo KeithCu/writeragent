@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO, cast
 
@@ -68,11 +69,17 @@ def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict:
 _HARPER_CLIENT_CACHE: dict[str, HarperLSClient] = {}
 
 
+def _emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, message: str) -> None:
+    if heartbeat_fn is not None:
+        heartbeat_fn({"message": message})
+
+
 class HarperLSClient:
-    def __init__(self, binary_path: str, user_config_dir: str = "", bcp47: str = "en-US"):
+    def __init__(self, binary_path: str, user_config_dir: str = "", bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None):
         self.binary_path = binary_path
         self.user_config_dir = user_config_dir
         self._bcp47 = bcp47
+        self._heartbeat_fn = heartbeat_fn
         self._lsp_settings = _harper_lsp_settings(bcp47, user_config_dir)
         self.proc: subprocess.Popen[bytes] | None = None
         self.request_id = 0
@@ -90,6 +97,7 @@ class HarperLSClient:
             self._doc_version = 0
             self._doc_opened = False
             self.stdout_queue = queue.Queue()
+            _emit_progress(self._heartbeat_fn, "Starting harper-ls…")
             self.proc = cast(
                 "subprocess.Popen[bytes]",
                 subprocess.Popen(
@@ -107,6 +115,7 @@ class HarperLSClient:
             init_params = dict(_INIT_PARAMS)
             init_params["processId"] = os.getpid()
             deadline = time.monotonic() + _INIT_BUDGET_SEC
+            _emit_progress(self._heartbeat_fn, "Initializing Harper LSP…")
             self._send_request("initialize", init_params, deadline=deadline)
             self._write(_lsp_notification("initialized", {}))
         except Exception as e:
@@ -222,10 +231,14 @@ class HarperLSClient:
             log.error("[harper] Failed to fetch codeActions: %s", e)
         return suggestions
 
-    def lint(self, text: str, bcp47: str = "en-US") -> list:
+    def lint(self, text: str, bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> list:
         # One lint at a time: venv worker IPC is serialized; grammar uses a single drain thread for Harper.
+        if heartbeat_fn is not None:
+            self._heartbeat_fn = heartbeat_fn
         if not self.is_alive():
             self._initialize()
+
+        _emit_progress(self._heartbeat_fn, "Linting…")
 
         self._apply_bcp47(bcp47)
         self._doc_version += 1
@@ -275,29 +288,31 @@ def lsp_range_to_offset(text: str, line: int, character: int) -> int:
     return min(offset + pos.character, len(text))
 
 
-def _get_or_create_client(harper_bin: str, user_config_dir: str, bcp47: str) -> HarperLSClient:
+def _get_or_create_client(harper_bin: str, user_config_dir: str, bcp47: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> HarperLSClient:
     client = _HARPER_CLIENT_CACHE.get(harper_bin)
     if client is None:
-        client = HarperLSClient(harper_bin, user_config_dir=user_config_dir, bcp47=bcp47)
+        client = HarperLSClient(harper_bin, user_config_dir=user_config_dir, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
         _HARPER_CLIENT_CACHE[harper_bin] = client
+    elif heartbeat_fn is not None:
+        client._heartbeat_fn = heartbeat_fn
     return client
 
 
-def run_harper_check(text: str, user_config_dir: str, bcp47: str = "en-US") -> dict:
+def run_harper_check(text: str, user_config_dir: str, bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> dict:
     """Run harper-ls on text segment and return parsed errors."""
     try:
-        harper_bin = _get_harper_binary(user_config_dir)
+        harper_bin = _get_harper_binary(user_config_dir, heartbeat_fn=heartbeat_fn)
     except Exception as e:
         raise RuntimeError(str(e))
 
-    client = _get_or_create_client(harper_bin, user_config_dir, bcp47)
+    client = _get_or_create_client(harper_bin, user_config_dir, bcp47, heartbeat_fn=heartbeat_fn)
     try:
-        results = client.lint(text, bcp47=bcp47)
+        results = client.lint(text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
     except Exception as e:
         log.error("[harper] Linting error or connection lost, restarting client: %s", e)
         client.close()
-        _HARPER_CLIENT_CACHE[harper_bin] = HarperLSClient(harper_bin, user_config_dir=user_config_dir, bcp47=bcp47)
-        results = _HARPER_CLIENT_CACHE[harper_bin].lint(text, bcp47=bcp47)
+        _HARPER_CLIENT_CACHE[harper_bin] = HarperLSClient(harper_bin, user_config_dir=user_config_dir, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+        results = _HARPER_CLIENT_CACHE[harper_bin].lint(text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
 
     errors = []
     for item in results:

@@ -93,3 +93,16 @@ def test_emit_grammar_status_swallows_event_bus_failure() -> None:
         go.emit_grammar_status("failed", "Hi.")
     mock_debug.assert_called_once()
     assert "status emit failed" in mock_debug.call_args[0][0]
+
+
+def test_emit_harper_worker_status_emits_request_payload() -> None:
+    with patch("plugin.writer.locale.grammar_obs.event_bus.global_event_bus") as mock_bus:
+        go.emit_harper_worker_status("They is here.", "Downloading harper-ls v2.7.0…")
+    mock_bus.emit.assert_called_once_with(
+        "grammar:status",
+        phase="request",
+        preview="They is he\u2026",
+        length=13,
+        result="Downloading harper-ls v2.7.0…",
+        elapsed_ms=None,
+    )

@@ -112,6 +112,7 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             _require_str(data.get("text"), "text"),
             _require_str(data.get("config_dir"), "config_dir"),
             bcp47=str(data.get("bcp47") or "en-US"),
+            heartbeat_fn=heartbeat_fn,
         )
     if domain == "embedding":
         from plugin.embeddings.venv.embeddings_index import embed_texts

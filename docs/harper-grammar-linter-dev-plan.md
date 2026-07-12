@@ -165,6 +165,10 @@ Harper is **sentence-scoped end to end**:
 2. **Worker** — The Harper branch loops `for item, text in chunk` and calls `run_harper_check` once per sentence. It does not use LLM-style multi-sentence batching (`doc.grammar_proofreader_batch_sentences` applies only to the AI provider).
 3. **Observability** — `worker_harper_done` logs `chunk_len=1` because each Harper invocation handles a single queue item (one sentence string).
 
+### Sidebar observability
+
+Harper worker phases (Python venv startup, binary resolve/download, LSP init, lint) stream to the **chat sidebar grammar status field** via venv-worker heartbeats relayed through [`emit_harper_worker_status`](../plugin/writer/locale/grammar_obs.py). Enable the WriterAgent sidebar and watch the status line while typing uncached text with Harper selected as the grammar provider.
+
 This matches LanguageTool and Vale and keeps memory bounded. LSP overhead scales with the number of **sentences** checked (e.g. a long paragraph yields several Harper calls, one per sentence), not with paragraph count alone.
 
 ### Ignore All (rule-based)

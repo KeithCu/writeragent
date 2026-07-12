@@ -18,6 +18,10 @@ def test_get_trusted_action_wiring_known_domains() -> None:
     assert embeddings is not None
     assert embeddings.supports_heartbeat is True
 
+    harper = get_trusted_action_wiring("harper")
+    assert harper is not None
+    assert harper.supports_heartbeat is True
+
 
 def test_get_trusted_action_wiring_unknown_domain() -> None:
     assert get_trusted_action_wiring("not_a_domain") is None

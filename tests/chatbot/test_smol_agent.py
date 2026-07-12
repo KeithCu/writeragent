@@ -756,6 +756,18 @@ def test_format_grammar_status_request_grammar_checking() -> None:
     assert text == "Grammar: checking 'Hello worl…' len 11"
 
 
+def test_format_grammar_status_request_harper_detail() -> None:
+    text = format_grammar_status(
+        {
+            "phase": "request",
+            "preview": "They is here.",
+            "length": 13,
+            "result": "Downloading harper-ls v2.7.0…",
+        }
+    )
+    assert text == "Grammar: checking 'They is he…' len 13: Downloading harper-ls v2.7.0…"
+
+
 def test_format_grammar_status_failed_language_vs_grammar() -> None:
     lang = format_grammar_status(
         {

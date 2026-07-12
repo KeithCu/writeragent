@@ -14,6 +14,7 @@ import shutil
 import tempfile
 import time
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,6 +29,11 @@ _DOWNLOAD_TIMEOUT_SEC = 120
 _RELEASE_CHECK_INTERVAL_SEC = 7 * 24 * 3600
 _RELEASE_CACHE_FILENAME = "harper-ls.release.json"
 _release_cache: dict[str, tuple[float, HarperReleaseAsset]] = {}
+
+
+def _emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, message: str) -> None:
+    if heartbeat_fn is not None:
+        heartbeat_fn({"message": message})
 
 
 @dataclass(frozen=True)
@@ -107,7 +113,7 @@ def _write_persisted_release(harper_dir: Path, release: HarperReleaseAsset) -> N
     _release_cache_path(harper_dir).write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path) -> HarperReleaseAsset:
+def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> HarperReleaseAsset:
     """Resolve the latest harper-ls asset for this platform (checked at most once per week)."""
     asset_name = _resolve_harper_asset(system, machine)
 
@@ -119,6 +125,7 @@ def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path) -> 
     if cached is not None and (time.time() - cached[0]) < _RELEASE_CHECK_INTERVAL_SEC:
         return cached[1]
 
+    _emit_progress(heartbeat_fn, "Checking Harper release…")
     release = _github_api_request(_HARPER_RELEASES_API)
     tag_name = str(release.get("tag_name") or "").strip()
     if not tag_name:
@@ -154,9 +161,10 @@ def _read_installed_version(harper_dir: Path) -> str | None:
         return None
 
 
-def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset) -> None:
+def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> None:
     """Download harper-ls via vendored Pooch retrieve (hash verify, retry, archive extract)."""
     log.info("[harper] Downloading v%s binary (%s) from %s", release.version, release.asset_name, release.download_url)
+    _emit_progress(heartbeat_fn, f"Downloading harper-ls v{release.version}…")
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     extract_suffix = ".untar" if release.asset_name.endswith((".tar.gz", ".tgz")) else ".unzip"
@@ -177,6 +185,7 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset) -> Non
                 downloader=downloader,
                 retry_if_failed=2,
             )
+            _emit_progress(heartbeat_fn, "Extracting harper-ls…")
             extracted = processor(str(archive_path), "download", None)
             if not isinstance(extracted, list):
                 raise RuntimeError("Harper archive extraction did not return file paths")
@@ -239,10 +248,12 @@ def _migrate_legacy_bin_install(user_config_dir: str, harper_dir: Path) -> None:
         log.warning("[harper] Legacy bin/ cleanup incomplete: %s", cleanup_err)
 
 
-def _get_harper_binary(user_config_dir: str) -> str:
+def _get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> str:
     """Resolve path to harper-ls binary, auto-downloading if missing or outdated."""
+    _emit_progress(heartbeat_fn, "Resolving harper-ls binary…")
     sys_path = shutil.which("harper-ls")
     if sys_path:
+        _emit_progress(heartbeat_fn, "Using system harper-ls")
         return sys_path
 
     harper_dir = _harper_install_dir(user_config_dir)
@@ -253,16 +264,18 @@ def _get_harper_binary(user_config_dir: str) -> str:
 
     system = platform.system().lower()
     machine = platform.machine().lower()
-    release = _fetch_latest_release_asset(system, machine, harper_dir)
+    release = _fetch_latest_release_asset(system, machine, harper_dir, heartbeat_fn=heartbeat_fn)
     installed = _read_installed_version(harper_dir)
 
     if not binary_path.exists() or installed != release.version:
         try:
-            _download_harper_binary(binary_path, release)
+            _download_harper_binary(binary_path, release, heartbeat_fn=heartbeat_fn)
         except Exception as e:
             if binary_path.exists() and installed:
                 log.warning("[harper] Update to v%s failed; continuing with installed v%s: %s", release.version, installed, e)
             else:
                 raise
+    elif installed:
+        _emit_progress(heartbeat_fn, f"Using installed harper-ls v{installed}")
 
     return str(binary_path)
