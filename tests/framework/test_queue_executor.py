@@ -71,21 +71,22 @@ def test_grammar_llm_request_gate_limit_2_allows_parallel() -> None:
     lock = threading.Lock()
 
     def worker() -> None:
-        with patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_in_flight", return_value=2):
-            with lc.grammar_llm_request_gate(ctx):
-                entered.wait(timeout=2.0)
-                with lock:
-                    inside.append(lc._GRAMMAR_INFLIGHT_COUNT)
-                time.sleep(0.05)
+        with lc.grammar_llm_request_gate(ctx):
+            entered.wait(timeout=2.0)
+            with lock:
+                inside.append(lc._GRAMMAR_INFLIGHT_COUNT)
+            time.sleep(0.05)
 
-    t1 = threading.Thread(target=worker)
-    t2 = threading.Thread(target=worker)
-    t1.start()
-    t2.start()
-    t1.join(timeout=3.0)
-    t2.join(timeout=3.0)
+    with patch("plugin.writer.locale.grammar_proofread_locale.grammar_max_in_flight", return_value=2):
+        t1 = threading.Thread(target=worker)
+        t2 = threading.Thread(target=worker)
+        t1.start()
+        t2.start()
+        t1.join(timeout=3.0)
+        t2.join(timeout=3.0)
     assert t1.is_alive() is False and t2.is_alive() is False
     assert max(inside) == 2
+
 
 
 setup_uno_mocks()

@@ -132,7 +132,7 @@ endif
 
 # ── Phony targets ────────────────────────────────────────────────────────────
 
-.PHONY: help build build-no-recording release release-build repack repack-deploy register-built-oxt manifest manifest-core rdb-core build-core build-core-native deploy-core register-librepy-oxt xcu clean \
+.PHONY: help build build-no-recording release release-no-test release-build repack repack-deploy register-built-oxt manifest manifest-core rdb-core build-core build-core-native deploy-core register-librepy-oxt xcu clean \
         native build-native clean-native update-vec sync-vec \
         proxy-stubs \
         openrouter-catalog \
@@ -160,6 +160,7 @@ help:
 	@echo "  make openrouter-catalog     Fetch Orca slim OpenRouter catalog + refresh default_models.py (network)"
 	@echo "  make release                Regular build with full verification: test source, build stripped bundle,"
 	@echo "                              test bundle, build final .oxt. (Includes Cython if pre-built via 'make native')"
+	@echo "  make release-no-test        Build release OXT and register it without running tests/verification"
 	@echo "  make build-no-recording     Build .oxt without voice recording (no Record button)"
 	@echo "  make build-core             Build standalone LibrePy.oxt (scientific Python prototype)"
 	@echo "  make deploy-core            Build + install LibrePy (removes WriterAgent if present)"
@@ -299,6 +300,10 @@ release: clean
 	@echo "  (grammar_obs call-site tests self-skip via _grammar_obs_call_sites_present; whole modules ignored below)"
 	cd build/bundle && PYTHONPATH=. $(abspath $(PYTHON)) -m pytest --ignore=tests/scripts --ignore=tests/test_fix_uno_import.py --ignore=tests/test_merge_module_yaml_into_pot.py --ignore=tests/framework/test_logging.py --ignore=tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=tests/scripting/test_generate_tool_proxies.py --ignore=tests/framework/test_thread_guard.py --ignore=tests/framework/test_thread_affinity.py --ignore=tests/doc/test_specialized_delegation_threading.py --ignore=tests/writer/locale/test_grammar_obs.py -k "not test_sync_tool_marshaled_from_background and not test_execute_on_main_thread_timeout" tests
 	cd build/bundle && PYTHONPATH=. $(LO_PYTHON) -m plugin.testing_runner; EXIT_CODE=$$?; $(MAKE) lo-kill; exit $$EXIT_CODE
+	@$(MAKE) release-build
+	@$(MAKE) register-built-oxt
+
+release-no-test:
 	@$(MAKE) release-build
 	@$(MAKE) register-built-oxt
 
