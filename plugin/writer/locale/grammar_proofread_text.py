@@ -105,11 +105,12 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
                         k += 1
                     # Use BreakIterator from there to find the real sentence end
                     new_end = bi.endOfSentence(text, k, locale)
+                    log.debug("[grammar] split_abbrev_skip word=%r abbrev_len=%d new_end=%d", word, abbrev_len, new_end)
                     grammar_obs("split_abbrev_skip", word=word, abbrev_len=abbrev_len, i=i, k=k, new_end_pos=new_end)
                     # Forward-progress guard: BreakIterator has been observed to return
                     # a position <= the abbreviation period itself (e.g. UNO. followed
-                    # by text it cannot bound), which spun this inner loop forever and
-                    # bloated the debug log to hundreds of MB. Bail out when that happens.
+                     # by text it cannot bound), which spun this inner loop forever and
+                     # bloated the debug log to hundreds of MB. Bail out when that happens.
                     if new_end <= end_pos:
                         end_pos = len(text)
                         break
@@ -122,6 +123,7 @@ def split_into_sentences(ctx: Any, locale_key: str, text: str) -> list[tuple[int
         sentences.append((pos, text[pos:ws_end]))
         pos = ws_end
 
+    log.debug("[grammar] split_into_sentences result count=%d: %r", len(sentences), [s for _, s in sentences])
     return sentences or [(0, text)]
 
 

@@ -87,15 +87,13 @@ def test_normalize_errors_duplicate_wrong_two_occurrences_ordered() -> None:
 
 def test_split_includes_inter_sentence_whitespace() -> None:
     sents = gt.split_into_sentences(None, "en-US", "Hello.  There.")
-    # With 1-6 threshold, "Hello" (5 chars) is treated as abbrev, resulting in 1 sentence
-    # This is acceptable - the priority is handling real abbreviations like Dr., Mr., approx
-    assert len(sents) == 1
-    assert sents[0][1].startswith("Hello.")
-    assert "  " in sents[0][1]
+    assert len(sents) == 2
+    assert sents[0][1] == "Hello.  "
+    assert sents[1][1] == "There."
 
 
 def test_split_abbreviation_not_sentence_boundary() -> None:
-    # With 1-6 letter threshold, abbreviations and short words are not sentence boundaries
+    # Whitelisted abbreviations and initials are not sentence boundaries
     sents = gt.split_into_sentences(None, "en-US", "Dr. Johnson asked how I am.")
     assert len(sents) == 1, f"Expected 1 sentence, got {len(sents)}: {sents}"
     assert sents[0][1] == "Dr. Johnson asked how I am."
@@ -103,9 +101,22 @@ def test_split_abbreviation_not_sentence_boundary() -> None:
     sents = gt.split_into_sentences(None, "en-US", "Mr. Smith went to the U.S.A. last year.")
     assert len(sents) == 1, f"Expected 1 sentence, got {len(sents)}: {sents}"
 
-    # Also test that 6-letter words like "approx" are handled
     sents = gt.split_into_sentences(None, "en-US", "This is approx. the value.")
     assert len(sents) == 1, f"Expected 1 sentence for approx, got {len(sents)}: {sents}"
+
+    # Multilingual tests:
+    # German z.B.
+    sents = gt.split_into_sentences(None, "de-DE", "Das ist z.B. ein Test.")
+    assert len(sents) == 1, f"Expected 1 sentence for German z.B., got {len(sents)}: {sents}"
+
+    # Russian ул.
+    sents = gt.split_into_sentences(None, "ru-RU", "Мы живем на ул. Ленина.")
+    assert len(sents) == 1, f"Expected 1 sentence for Russian ул., got {len(sents)}: {sents}"
+
+    # Verify normal sentence splits don't get merged
+    sents = gt.split_into_sentences(None, "en-US", "This is a error. How long does it take?")
+    assert len(sents) == 2, f"Expected 2 sentences, got {len(sents)}: {sents}"
+
 
 def test_split_into_sentences_terminates_when_bi_stuck_on_abbrev() -> None:
     # Regression: text like "...UNO. <content>" was observed in production to make

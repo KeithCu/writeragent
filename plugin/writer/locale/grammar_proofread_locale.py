@@ -482,29 +482,63 @@ def looks_complete_sentence(text: str) -> bool:
 # Abbreviations before "." (BreakIterator sentence extension)
 # ---------------------------------------------------------------------------
 
+_COMMON_ABBREVIATIONS: frozenset[str] = frozenset({
+    # English
+    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "co", "corp", "inc", "ltd", "etc", "eg", "ie", "vs", "ca", "al", "st", "ave", "rd", "vol", "ed", "pp", "ch", "fig", "no", "approx", "misc", "temp", "am", "pm",
+    # German
+    "geb", "vorm", "hr", "beisp", "bzw", "usw", "evtl", "kath", "u.a", "v.a", "z.b", "d.h", "s.o", "s.u",
+    # French
+    "mme", "mlle", "mlles", "pr", "c-à-d", "c.-à-d", "ex", "sup", "inf", "p",
+    # Spanish
+    "sra", "srta", "dra", "dña", "s.a", "s.l", "cent", "cént", "ej", "pág", "págs", "cía", "vdo", "vda", "ud", "uds",
+    # Italian
+    "sig", "dott", "ecc", "pag", "pagg", "cap", "succ", "s.r.l",
+    # Portuguese
+    "profa", "pag", "pags",
+    # Dutch
+    "dhr", "mw", "enz",
+    # Russian
+    "ул", "ст", "им", "т.е", "т.к", "и.о", "и.д", "и.т.д", "и.т.п", "кв", "корп", "д", "г", "руб", "коп", "тыс", "млн", "млрд", "доп", "см", "табл", "рис", "стр", "вып", "сер", "изд"
+})
+
+
 def word_before_period_is_abbrev(word: str) -> int:
     """Returns >0 if word is an abbreviation or number (not a sentence terminator), else 0.
     
-    For abbreviations, returns the alpha character count (1-6 alphabetic characters, 
-    Unicode-aware via `isalpha()`; internal punctuation like dots in `U.S.A.` does 
-    NOT count toward the limit). For pure numbers, returns 1 (non-zero to indicate 
-    "treat as abbreviation" even though there are no alpha chars).
-    
-    Works for abbreviations worldwide: U.S.A., Ph.D., e.g., i.e., USA, etc, Mr, Dr, No., a.m., РФ, etc.
-    Also handles numbers: 123, 123.45, 1,234, etc.
+    Checks pure numbers, single-letter initials, internal periods, a multilingual whitelist,
+    and consonant-only words across Latin, Cyrillic, and Greek alphabets.
     """
     if not word:
         return 0
-    # Count alphabetic characters
-    alpha_count = sum(1 for ch in word if ch.isalpha())
-    # Check if it's a pure number (no alpha chars, but has digits)
-    if alpha_count == 0:
-        if any(ch.isdigit() for ch in word):
-            return 1  # Pure number - return 1 to indicate "treat as abbrev"
-    # Text abbreviations: 1-6 alphabetic characters
-    if 1 <= alpha_count <= 6:
-        return alpha_count
-    _log.debug("[grammar] obs word_before_period_is_abbrev REJECT word=%r alpha_count=%d", word, alpha_count)
+
+    # 1. Pure numbers (e.g. "123", "1.23")
+    if all(ch.isdigit() or ch in ".,-" for ch in word) and any(ch.isdigit() for ch in word):
+        return 1
+
+    # Normalize: strip trailing periods and lowercase
+    w_norm = word.lower().rstrip(".")
+
+    # 2. Single-letter initials (e.g. "A.", "B.", "г.")
+    if len(w_norm) == 1 and w_norm.isalpha():
+        return len(word)
+
+    # 3. Multilingual whitelist check
+    if w_norm in _COMMON_ABBREVIATIONS:
+        return len(word)
+
+    # 4. Words with internal periods (e.g. "U.S.A.", "d.h.", "т.е.")
+    if "." in w_norm:
+        alpha_count = sum(1 for ch in w_norm if ch.isalpha())
+        if alpha_count >= 2:
+            return len(word)
+
+    # 5. Consonant-only check (no vowels in Latin, Cyrillic, or Greek)
+    vowels = set("aeiouyаеёиоуыэюяαεηιουω")
+    alpha_chars = [ch for ch in w_norm if ch.isalpha()]
+    if alpha_chars and not any(ch in vowels for ch in alpha_chars):
+        return len(word)
+
+    _log.debug("[grammar] obs word_before_period_is_abbrev REJECT word=%r", word)
     return 0
 
 

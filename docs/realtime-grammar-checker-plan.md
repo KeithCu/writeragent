@@ -86,10 +86,10 @@ For each `SingleProofreadingError`, WriterAgent fills:
 
 `doProofreading` is synchronous from LibreOffice's point of view: Writer calls it and expects a `ProofreadingResult` back now. LLM calls are too slow for that foreground path, so WriterAgent uses a cache-first strategy:
 
-1. Normalize the locale and choose the text span to check.
-2. Split that span into sentence candidates.
-3. Return cached sentence errors immediately when available.
-4. For uncached sentences, enqueue background work and return an empty or partial result.
+1. Normalize the locale and choose the active text span to check.
+2. Split the entire paragraph into sentence candidates.
+3. Check and return cached sentence errors for **all** sentences in the paragraph immediately. This ensures that as soon as any background check completes and writes to the cache, its errors are returned to LibreOffice on the very next keystroke/call (even if the user has moved on to typing a subsequent sentence).
+4. For uncached sentences, only enqueue background work for the **active** sentence currently being edited (overlapping the cursor), avoiding redundant checking of other sentences.
 5. On a later LibreOffice proofreading pass, the sentence cache is warm and `doProofreading` returns real errors synchronously.
 
 This is why the API result boundaries matter so much. They tell Writer what span was handled now, while the queue decides what LLM work will become available for a future pass.
@@ -227,9 +227,14 @@ Shared behavior for **LLM** and **langdetect** modes: in-memory language LRU (`g
 #### Sentence splitting and abbreviation handling
 
 - **Sentence splitting**: Uses LibreOffice's UNO `com.sun.star.i18n.BreakIterator` as the primary sentence boundary detector. This provides locale-aware sentence splitting for all supported scripts (Latin, Cyrillic, CJK, Arabic, etc.).
-- **Abbreviation detection**: Dynamic rule-based approach in [`word_before_period_is_abbrev()`](../plugin/writer/locale/grammar_proofread_locale.py) — **no hard-coded lists**. Returns the **alpha character count** (1-6) for text abbreviations (Unicode-aware via `isalpha()`; internal punctuation like dots in `U.S.A.` does **not** count toward the limit), returns **1** for pure numbers (any length, with separators), or **0** for non-abbreviations.
-- **Abbreviation extension logic**: When BreakIterator identifies a period as a potential sentence boundary, the code checks if the preceding word is an abbreviation (alpha count > 0). If so, it skips past the period to `i + 1`, advances past any whitespace, then calls `BreakIterator.endOfSentence()` from that clean position to find the true sentence end. This avoids infinite loops while correctly handling cases like `Dr. Johnson asked...` as a single sentence.
-- **Why not spaCy**: Evaluated spaCy for abbreviation detection but rejected it because its tokenization data and models contained email addresses, personal data, and other extraneous content. The dynamic character-counting approach is simpler, more maintainable, privacy-preserving, and works universally across all scripts without large static tables or external dependencies.
+- **Abbreviation detection**: Hybrid rule-based and whitelisted approach in [`word_before_period_is_abbrev()`](../plugin/writer/locale/grammar_proofread_locale.py):
+  1. **Pure numbers**: Decides numbers like `123` or `1.23` are abbreviations to avoid splitting after them.
+  2. **Single-letter initials**: Single letters (e.g. `A.`, `г.`) are treated as initials.
+  3. **Internal periods**: Words with internal dots (e.g. `U.S.A.`, `т.е.`, `d.h.`) are matched.
+  4. **Multilingual Whitelist**: A consolidated, case-insensitive list covering common abbreviations in English, German, French, Spanish, Italian, Portuguese, Dutch, and Russian (e.g. `mr`, `bzw`, `mme`, `etc`).
+  5. **Consonant-only check**: To support all other locales without large tables, words with no vowels across Latin, Cyrillic, and Greek alphabets are classified as abbreviations (e.g., `vs`, `ltd`, `ст`).
+- **Abbreviation extension logic**: When BreakIterator identifies a period as a potential sentence boundary, the code checks if the preceding word is an abbreviation. If so, it skips past the period to `i + 1`, advances past any whitespace, then calls `BreakIterator.endOfSentence()` from that clean position to find the true sentence end. This avoids infinite loops while correctly handling cases like `Dr. Johnson asked...` as a single sentence.
+- **Why not spaCy**: Evaluated spaCy for abbreviation detection but rejected it because its tokenization data and models contained email addresses, personal data, and other extraneous content. The hybrid whitelist + consonant-only approach is fast, maintainable, privacy-preserving, and works universally across all scripts without external dependencies.
 
 <a id="dialogue-breakiterator-limitation"></a>
 

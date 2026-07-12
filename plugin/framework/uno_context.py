@@ -41,7 +41,24 @@ _package_extension_id: str | None = None
 _KNOWN_EXTENSION_IDS = (
     "org.extension.librepy",
     "org.extension.writeragent",
+    "org.extension.libreharper",
 )
+
+_is_libreharper_cache: bool | None = None
+
+
+def is_libreharper() -> bool:
+    """Return True if running under the LibreHarper extension."""
+    global _is_libreharper_cache
+    if _is_libreharper_cache is not None:
+        return _is_libreharper_cache
+    try:
+        from plugin import _manifest
+        _is_libreharper_cache = any(m.get("title") == "LibreHarper" for m in getattr(_manifest, "MODULES", []))
+    except ImportError:
+        _is_libreharper_cache = False
+    return _is_libreharper_cache
+
 
 
 def set_fallback_ctx(ctx):

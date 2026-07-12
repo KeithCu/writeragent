@@ -490,11 +490,17 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             if not loc_key:
                 return a_res
 
-            work_spans = self._resolve_work_spans(aDocumentIdentifier, loc_key, aText, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
-            if not work_spans:
+            # 1. Resolve all sentences in the paragraph to check the cache for any existing errors
+            paragraph_spans = candidate_sentence_spans_for_proofreading(self.ctx, loc_key, aText, 0, len(aText))
+            paragraph_spans = filter_sentence_spans_for_thresholds(paragraph_spans)
+
+            # 2. Resolve the active spans that LibreOffice is currently requesting/editing
+            active_spans = self._resolve_work_spans(aDocumentIdentifier, loc_key, aText, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition)
+            if not active_spans:
                 return a_res
 
-            covered_end = max(end for _s, end, _t in work_spans)
+            # We set the covered end to the end of the active spans we are checking
+            covered_end = max(end for _s, end, _t in active_spans)
             _apply_proofreading_end_positions(a_res, aText, covered_end)
 
             grammar_obs(
@@ -502,27 +508,40 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 doc_id=aDocumentIdentifier,
                 grammar_bcp47=loc_key,
                 covered_end=covered_end,
-                sentence_count=len(work_spans),
+                sentence_count=len(active_spans),
                 n_start_lo=nStartOfSentencePosition,
                 n_suggested_behind_end=nSuggestedBehindEndOfSentencePosition,
                 n_next=getattr(a_res, "nStartOfNextSentencePosition", None),
             )
 
-            combined_errors, uncached_spans = self._process_cache_hits(aDocumentIdentifier, loc_key, work_spans)
+            # 3. Check the cache for ALL sentences in the paragraph
+            combined_errors, uncached_paragraph_spans = self._process_cache_hits(aDocumentIdentifier, loc_key, paragraph_spans)
 
             if combined_errors:
                 a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
+                # try:
+                #     from plugin.writer.locale.grammar_obs import play_diagnostic_beep
+                #     play_diagnostic_beep()
+                # except Exception:
+                #     pass
 
-            if not uncached_spans:
-                grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(work_spans), error_count=len(combined_errors))
+            # 4. For enqueuing background checks, we only care about the active spans that are uncached
+            uncached_active_spans = []
+            for s_start, s_end, s_text in active_spans:
+                # If this active span is in the uncached paragraph spans, we need to enqueue it
+                if any(s_start == us_start for us_start, _, _ in uncached_paragraph_spans):
+                    uncached_active_spans.append((s_start, s_end, s_text))
+
+            if not uncached_active_spans:
+                grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(active_spans), error_count=len(combined_errors))
                 return a_res
 
-            cached_ct = len(work_spans) - len(uncached_spans)
+            cached_ct = len(active_spans) - len(uncached_active_spans)
             miss_reason = "partial_miss" if cached_ct > 0 else "all_uncached"
 
-            grammar_obs("do_proofreading_cache_partial_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, cached_count=cached_ct, uncached_count=len(uncached_spans), errors_returned=len(combined_errors), miss_reason=miss_reason)
+            grammar_obs("do_proofreading_cache_partial_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, cached_count=cached_ct, uncached_count=len(uncached_active_spans), errors_returned=len(combined_errors), miss_reason=miss_reason)
 
-            self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_spans)
+            self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans)
             log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
             return a_res
 

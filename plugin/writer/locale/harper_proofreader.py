@@ -29,8 +29,6 @@ ensure_plugin_on_path(__file__, levels_up=4, also_add_lib=True)
 
 import unohelper
 
-from com.sun.star.lang import XServiceDisplayName, XServiceInfo, XServiceName
-from com.sun.star.linguistic2 import XProofreader, XSupportedLocales
 
 from plugin.writer.locale.ai_grammar_proofreader import (
     SERVICE_NAME,
