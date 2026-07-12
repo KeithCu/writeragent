@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Norwegian Nynorsk <LL@li.org>\n"
@@ -316,6 +316,14 @@ msgstr ""
 "Modellen gjentar den same biten (uendeleg løkke). Prøv på nytt eller bruk "
 "ein annan modell."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Feil"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Maksimalt tal på chat-teikn må vera >= 0"
@@ -346,13 +354,13 @@ msgstr "Rediger Python i celle..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Kunne ikkje ta vare på PYTHON-formelargumenta i denne cella (t.d. "
-"dataområde). Rediger formelen i Calc, eller bruk ein sitert kodestreng som "
-"=PY(\"kode\"; A1:B10) eller =PYTHON(...)."
+"Kunne ikkje ta vare på PY-formelargumenta til denne cella (t.d. dataområde)."
+" Rediger formelen i Calc, eller bruk ein sitert kodestreng som =PY(\"kode\";"
+" A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -381,13 +389,13 @@ msgstr "Vel ei celle i eit Calc-rekneark for å redigera Python."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Denne PYTHON-formelen brukar ei form som redigeringsprogrammet ikkje trygt "
-"kan skrive om (t.d. kode i ei anna celle). Rediger han i formellinja, eller "
-"bruk =PY(\"kode\"; område) (eller =PYTHON(...)) med sitert kode."
+"Denne PY-formelen brukar ei form som redigeringsprogrammet ikkje trygt kan "
+"skriva om (t.d. kode i ei anna celle). Rediger ho i formellinja, eller bruk "
+"=PY(\"kode\"; område) med sitert kode."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -503,14 +511,6 @@ msgstr "WriterAgent: Utvid utval"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Rediger utval"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Feil"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1257,8 +1257,8 @@ msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
 msgstr "Calc injiserer `data` og `data_list` frå desse områda ved køyretid."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "Dataområde gjeld berre ved lagring som ei =PYTHON()-formel."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Dataområde gjeld berre ved lagring som ein =PY()-formel."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1943,14 +1943,14 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python-øktmodus er isolert (kvar =PYTHON()-celle brukar sine eigne "
-"variablar). Det finst inga delt celleøkt å nullstille. Legg til eit "
-"initialiseringsskript viss du treng å tømme ressurskrevjande eingongsoppsett"
-" for arbeidsboka."
+"Python-øktmodus er isolert (kvar =PY()-celle brukar sine eigne variablar). "
+"Det finst inga delt celleøkt å nullstilla. Legg til eit "
+"initialiseringsskript viss du treng å tømma kostbar eingongs-oppsetjing av "
+"arbeidsboka."
 
 #: plugin/scripting/session_manager.py
 msgid ""

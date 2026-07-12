@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -318,6 +318,14 @@ msgstr ""
 "Model opakuje stejný úsek (nekonečná smyčka). Zkuste to znovu nebo použijte "
 "jiný model."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Chyba"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Maximální počet tokenů chatu musí být >= 0"
@@ -348,13 +356,13 @@ msgstr "Upravit Python v buňce..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Nepodařilo se zachovat argumenty vzorce PYTHON této buňky (např. rozsahy "
-"dat). Upravte vzorec v aplikaci Calc nebo použijte citovaný řetězec kódu, "
-"jako je =PY(\"kód\"; A1:B10) nebo =PYTHON(...)."
+"Nepodařilo se zachovat argumenty vzorce PY této buňky (např. datové "
+"oblasti). Upravte vzorec v aplikaci Calc nebo použijte řetězec s kódem v "
+"uvozovkách, např. =PY(\"kód\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -383,13 +391,13 @@ msgstr "Pro úpravu Pythonu vyberte buňku v tabulkovém dokumentu Calc."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Tento vzorec PYTHON používá formu, kterou editor nemůže bezpečně přepsat "
-"(např. kód v jiné buňce). Upravte jej v řádku vzorců nebo použijte "
-"=PY(\"kód\"; rozsah) (nebo =PYTHON(...)) s citovaným kódem."
+"Tento vzorec PY používá formu, kterou editor nemůže bezpečně přepsat (např. "
+"kód v jiné buňce). Upravte jej na řádku vzorců nebo použijte =PY(\"kód\"; "
+"oblast) s kódem v uvozovkách."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -506,14 +514,6 @@ msgstr "WriterAgent: Rozšířit výběr"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Upravit výběr"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Chyba"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1258,8 +1258,8 @@ msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
 msgstr "Calc za běhu vloží `data` a `data_list` z těchto oblastí."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "Datové oblasti se použijí pouze při uložení jako vzorec =PYTHON()."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Datové oblasti se uplatní pouze při ukládání jako vzorec =PY()."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1944,12 +1944,12 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Režim relace Pythonu je Izolovaný (každá buňka =PYTHON() používá své vlastní"
-" proměnné). Neexistuje žádná sdílená relace buněk, kterou by bylo možné "
+"Režim relace Pythonu je izolovaný (každá buňka =PY() používá vlastní "
+"proměnné). Neexistuje žádná sdílená relace buněk, kterou by bylo možné "
 "resetovat. Pokud potřebujete vymazat náročné jednorázové nastavení sešitu, "
 "přidejte inicializační skript."
 

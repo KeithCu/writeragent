@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Latvian <LL@li.org>\n"
@@ -317,6 +317,14 @@ msgstr ""
 "Modelis atkārto vienu un to pašu fragmentu (bezgalīga cilpa). Mēģiniet "
 "vēlreiz vai izmantojiet citu modeli."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Kļūda"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Tērzēšanas maksimālajam marķieru skaitam jābūt >= 0"
@@ -347,13 +355,13 @@ msgstr "Rediģēt Python šūnā..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Neizdevās saglabāt šīs šūnas PYTHON formulas argumentus (piem., datu "
-"apgabalus). Rediģējiet formulu programmā Calc vai izmantojiet citētu koda "
-"virkni, piemēram, =PY(\"code\"; A1:B10) vai =PYTHON(...)."
+"Neizdevās saglabāt šīs šūnas PY formulas argumentus (piem., datu apgabalus)."
+" Rediģējiet formulu programmā Calc vai izmantojiet citētu koda virkni, "
+"piemēram, =PY(\"kods\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -382,13 +390,13 @@ msgstr "Atlasiet šūnu Calc izklājlapā, lai rediģētu Python."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Šī PYTHON formula izmanto formu, kuru redaktors nevar droši pārrakstīt "
-"(piem., kods citā šūnā). Rediģējiet to formulas joslā vai izmantojiet "
-"=PY(\"code\"; range) (vai =PYTHON(...)) ar citētu kodu."
+"Šī PY formula izmanto formu, kuru redaktors nevar droši pārrakstīt (piem., "
+"kodu citā šūnā). Rediģējiet to formulas joslā vai izmantojiet =PY(\"kods\"; "
+"apgabals) ar citētu kodu."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -504,14 +512,6 @@ msgstr "WriterAgent: Paplašināt atlasi"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Rediģēt atlasi"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Kļūda"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1259,8 +1259,9 @@ msgstr ""
 "Calc izpildlaikā ievada `data` un `data_list` no šī(em) apgabala(-iem)."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "Datu apgabali attiecas tikai uz saglabāšanu kā =PYTHON() formula."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr ""
+"Datu apgabali tiek piemēroti tikai tad, ja saglabājat kā =PY() formulu."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1947,14 +1948,13 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python sesijas režīms ir izolēts (katra =PYTHON() šūna izmanto savus "
-"mainīgos). Nav kopīgas šūnu sesijas, ko atiestatīt. Pievienojiet "
-"inicializācijas skriptu, ja nepieciešams notīrīt dārgu vienreizēju "
-"darbgrāmatas iestatīšanu."
+"Python sesijas režīms ir izolēts (katra =PY() šūna izmanto savus mainīgos). "
+"Nav kopīgas šūnu sesijas, ko atiestatīt. Pievienojiet inicializācijas "
+"skriptu, ja nepieciešams notīrīt dārgu vienreizēju darbgrāmatas iestatīšanu."
 
 #: plugin/scripting/session_manager.py
 msgid ""

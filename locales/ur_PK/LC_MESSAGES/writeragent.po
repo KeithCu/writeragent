@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Urdu <LL@li.org>\n"
@@ -317,6 +317,14 @@ msgstr ""
 "ماڈل ایک ہی حصہ دہرا رہا ہے (لامحدود لوپ)۔ دوبارہ کوشش کریں یا کوئی دوسرا "
 "ماڈل استعمال کریں۔"
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "غلطی"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "چیٹ کے زیادہ سے زیادہ ٹوکنز >= 0 ہونے چاہئیں"
@@ -347,13 +355,13 @@ msgstr "سیل میں پائتھون (Python) کی تدوین کریں..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"اس سیل کے PYTHON فارمولا دلائل (مثلاً ڈیٹا رینجز) کو محفوظ نہیں کیا جا سکا۔ "
-"Calc میں فارمولا میں ترمیم کریں، یا =PY(\"code\"; A1:B10) یا =PYTHON(...) "
-"جیسی کوٹڈ کوڈ سٹرنگ استعمال کریں۔"
+"اس سیل کے PY فارمولا دلائل (مثلاً ڈیٹا رینجز) کو محفوظ نہیں کیا جا سکا۔ "
+"فارمولا کو Calc میں ترمیم کریں، یا =PY(\"code\"; A1:B10) جیسی کوٹڈ کوڈ سٹرنگ"
+" استعمال کریں۔"
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -382,13 +390,13 @@ msgstr "پائتھون کی تدوین کے لیے Calc سپریڈ شیٹ میں
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"یہ PYTHON فارمولا ایسی شکل استعمال کرتا ہے جسے ایڈیٹر محفوظ طریقے سے دوبارہ "
-"نہیں لکھ سکتا (مثلاً کسی دوسرے سیل میں کوڈ)۔ اسے فارمولا بار میں ترمیم کریں،"
-" یا کوٹڈ کوڈ کے ساتھ =PY(\"code\"; range) (یا =PYTHON(...)) استعمال کریں۔"
+"یہ PY فارمولا ایسی شکل استعمال کرتا ہے جسے ایڈیٹر محفوظ طریقے سے دوبارہ نہیں"
+" لکھ سکتا (مثلاً کسی دوسرے سیل میں کوڈ)۔ اسے فارمولا بار میں ترمیم کریں، یا "
+"کوٹڈ کوڈ کے ساتھ =PY(\"code\"; range) استعمال کریں۔"
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -504,14 +512,6 @@ msgstr "WriterAgent: انتخاب کو بڑھائیں"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: انتخاب میں ترمیم کریں"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "غلطی"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1256,10 +1256,9 @@ msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
 msgstr "Calc رن ٹائم پر ان رینجز سے `data` اور `data_list` داخل کرتا ہے۔"
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
+msgid "Data ranges apply only when saving as a =PY() formula."
 msgstr ""
-"ڈیٹا رینجز صرف تب لاگو ہوتی ہیں جب =PYTHON() فارمولا کے طور پر محفوظ کیا "
-"جائے۔"
+"ڈیٹا رینجز صرف تب لاگو ہوتے ہیں جب =PY() فارمولا کے طور پر محفوظ کیا جائے۔"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1945,14 +1944,14 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"پائتھون سیشن موڈ الگ تھلگ ہے (ہر =PYTHON() سیل اپنے متغیرات استعمال کرتا "
-"ہے)۔ ری سیٹ کرنے کے لیے کوئی مشترکہ سیل سیشن موجود نہیں ہے۔ اگر آپ کو مہنگے "
-"ون ٹائم ورک بک سیٹ اپ کو صاف کرنے کی ضرورت ہو تو ایک ابتدائی اسکرپٹ شامل "
-"کریں۔"
+"Python سیشن موڈ الگ تھلگ (Isolated) ہے (ہر =PY() سیل اپنے متغیرات استعمال "
+"کرتا ہے)۔ ری سیٹ کرنے کے لیے کوئی مشترکہ سیل سیشن موجود نہیں ہے۔ اگر آپ کو "
+"مہنگے ون ٹائم ورک بک سیٹ اپ کو صاف کرنے کی ضرورت ہو تو ایک انیشلائزیشن "
+"اسکرپٹ شامل کریں۔"
 
 #: plugin/scripting/session_manager.py
 msgid ""

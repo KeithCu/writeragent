@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Greek <LL@li.org>\n"
@@ -323,6 +323,14 @@ msgstr ""
 "Το μοντέλο επαναλαμβάνει το ίδιο τμήμα (άπειρος βρόχος). Προσπαθήστε ξανά ή "
 "χρησιμοποιήστε ένα διαφορετικό μοντέλο."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Σφάλμα"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Τα μέγιστα tokens συνομιλίας πρέπει να είναι >= 0"
@@ -355,14 +363,13 @@ msgstr "Επεξεργασία Python στο κελί..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Δεν ήταν δυνατή η διατήρηση των ορισμάτων της συνάρτησης PYTHON αυτού του "
-"κελιού (π.χ. περιοχές δεδομένων). Επεξεργαστείτε τον τύπο στο Calc ή "
-"χρησιμοποιήστε μια συμβολοσειρά κώδικα σε εισαγωγικά, όπως =PY(\"code\"; "
-"A1:B10) ή =PYTHON(...)."
+"Δεν ήταν δυνατή η διατήρηση των ορισμάτων τύπου PY αυτού του κελιού (π.χ. "
+"περιοχές δεδομένων). Επεξεργαστείτε τον τύπο στο Calc ή χρησιμοποιήστε μια "
+"συμβολοσειρά κώδικα σε εισαγωγικά, όπως =PY(\"code\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -393,14 +400,13 @@ msgstr ""
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Αυτός ο τύπος PYTHON χρησιμοποιεί μια μορφή που ο επεξεργαστής δεν μπορεί να"
-" ξαναγράψει με ασφάλεια (π.χ. κώδικας σε άλλο κελί). Επεξεργαστείτε τον στη "
-"γραμμή τύπων ή χρησιμοποιήστε =PY(\"code\"; range) (ή =PYTHON(...)) με "
-"κώδικα σε εισαγωγικά."
+"Αυτός ο τύπος PY χρησιμοποιεί μια μορφή που ο επεξεργαστής δεν μπορεί να "
+"ξαναγράψει με ασφάλεια (π.χ. κώδικα σε άλλο κελί). Επεξεργαστείτε τον στη "
+"γραμμή τύπων ή χρησιμοποιήστε =PY(\"code\"; range) με κώδικα σε εισαγωγικά."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -518,14 +524,6 @@ msgstr "WriterAgent: Επέκταση επιλογής"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Επεξεργασία επιλογής"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Σφάλμα"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1274,10 +1272,9 @@ msgstr ""
 "χρόνο εκτέλεσης."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
+msgid "Data ranges apply only when saving as a =PY() formula."
 msgstr ""
-"Οι περιοχές δεδομένων εφαρμόζονται μόνο κατά την αποθήκευση ως τύπος "
-"=PYTHON()."
+"Οι περιοχές δεδομένων εφαρμόζονται μόνο κατά την αποθήκευση ως τύπος =PY()."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1980,11 +1977,11 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Η λειτουργία συνεδρίας Python είναι Απομονωμένη (κάθε κελί =PYTHON() "
+"Η λειτουργία συνεδρίας Python είναι Απομονωμένη (κάθε κελί =PY() "
 "χρησιμοποιεί τις δικές του μεταβλητές). Δεν υπάρχει κοινόχρηστη συνεδρία "
 "κελιών για επαναφορά. Προσθέστε ένα σενάριο αρχικοποίησης εάν χρειάζεται να "
 "εκκαθαρίσετε δαπανηρές ρυθμίσεις βιβλίου εργασίας που γίνονται μία φορά."

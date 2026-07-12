@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Indonesian <LL@li.org>\n"
@@ -317,6 +317,14 @@ msgstr ""
 "Model mengulang potongan yang sama (perulangan tak terbatas). Coba lagi atau"
 " gunakan model yang berbeda."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Galat"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Token maksimal chat harus >= 0"
@@ -347,13 +355,13 @@ msgstr "Edit Python di Sel..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Tidak dapat mempertahankan argumen rumus PYTHON sel ini (misalnya rentang "
-"data). Edit rumus di Calc, atau gunakan string kode dalam tanda kutip "
-"seperti =PY(\"kode\"; A1:B10) atau =PYTHON(...)."
+"Tidak dapat mempertahankan argumen rumus PY sel ini (misalnya rentang data)."
+" Edit rumus di Calc, atau gunakan string kode dalam tanda kutip seperti "
+"=PY(\"kode\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -382,14 +390,13 @@ msgstr "Pilih sel di lembar kerja Calc untuk mengedit Python."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Rumus PYTHON ini menggunakan bentuk yang tidak dapat ditulis ulang dengan "
-"aman oleh editor (misalnya kode di sel lain). Edit di bilah rumus, atau "
-"gunakan =PY(\"kode\"; rentang) (atau =PYTHON(...)) dengan kode dalam tanda "
-"kutip."
+"Rumus PY ini menggunakan bentuk yang tidak dapat ditulis ulang dengan aman "
+"oleh editor (misalnya kode di sel lain). Edit di bilah rumus, atau gunakan "
+"=PY(\"kode\"; rentang) dengan kode dalam tanda kutip."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -505,14 +512,6 @@ msgstr "WriterAgent: Perluas Pilihan"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Sunting Pilihan"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Galat"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1257,8 +1256,8 @@ msgstr ""
 "Calc menyuntikkan `data` dan `data_list` dari rentang ini saat runtime."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "Rentang data hanya berlaku saat menyimpan sebagai rumus =PYTHON()."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Rentang data hanya berlaku saat menyimpan sebagai rumus =PY()."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1939,14 +1938,14 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Mode sesi Python adalah Terisolasi (setiap sel =PYTHON() menggunakan "
-"variabelnya sendiri). Tidak ada sesi sel bersama untuk diatur ulang. "
-"Tambahkan skrip inisialisasi jika Anda perlu menghapus pengaturan buku kerja"
-" satu kali yang memakan sumber daya."
+"Mode sesi Python adalah Terisolasi (setiap sel =PY() menggunakan variabelnya"
+" sendiri). Tidak ada sesi sel bersama untuk diatur ulang. Tambahkan skrip "
+"inisialisasi jika Anda perlu menghapus pengaturan buku kerja satu kali yang "
+"memakan sumber daya."
 
 #: plugin/scripting/session_manager.py
 msgid ""

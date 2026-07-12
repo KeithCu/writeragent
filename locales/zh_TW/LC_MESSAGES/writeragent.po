@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Traditional) <LL@li.org>\n"
@@ -299,6 +299,14 @@ msgid ""
 "different model."
 msgstr "模型正在重複相同的區塊（無限迴圈）。請重試或使用不同的模型。"
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "錯誤"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "聊天最大權杖數必須 >= 0"
@@ -329,12 +337,12 @@ msgstr "編輯儲存格中的 Python..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"無法保留此儲存格的 PYTHON 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或使用引號括住的程式碼字串，例如 =PY(\"code\"; "
-"A1:B10) 或 =PYTHON(...)。"
+"無法保留此儲存格的 PY 公式引數（例如資料範圍）。請在 Calc 中編輯公式，或使用引號括住的程式碼字串，例如 =PY(\"code\"; "
+"A1:B10)。"
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -363,12 +371,12 @@ msgstr "請選取 Calc 試算表中的儲存格以編輯 Python。"
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"此 PYTHON 公式使用的格式編輯器無法安全地重寫（例如位於其他儲存格中的程式碼）。請在公式列中編輯它，或使用 =PY(\"code\"; "
-"range)（或 =PYTHON(...)）並搭配引號括住的程式碼。"
+"此 PY 公式使用的格式無法由編輯器安全地重寫（例如位於其他儲存格中的程式碼）。請在公式列中編輯它，或使用 =PY(\"code\"; range) "
+"並搭配引號括住的程式碼。"
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -484,14 +492,6 @@ msgstr "WriterAgent：擴展選取"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent：編輯選取"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "錯誤"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1219,8 +1219,8 @@ msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
 msgstr "Calc 會在執行階段從這些範圍注入 `data` 和 `data_list`。"
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "資料範圍僅適用於儲存為 =PYTHON() 公式時。"
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "資料範圍僅在儲存為 =PY() 公式時適用。"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1872,11 +1872,11 @@ msgstr "此活頁簿的初始化指令碼與任何記憶體中的初始化狀態
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python 工作階段模式為「隔離」（每個 =PYTHON() "
+"Python 工作階段模式為「隔離」（每個 =PY() "
 "儲存格使用各自的變數）。沒有可重設的共用儲存格工作階段。若需要清除昂貴的一次性活頁簿設定，請新增初始化指令碼。"
 
 #: plugin/scripting/session_manager.py

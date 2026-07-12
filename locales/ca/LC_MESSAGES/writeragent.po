@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Catalan <LL@li.org>\n"
@@ -319,6 +319,14 @@ msgstr ""
 "El model repeteix el mateix fragment (bucle infinit). Torneu-ho a provar o "
 "utilitzeu un model diferent."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Error"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "El màxim de testimonis del xat ha de ser >= 0"
@@ -351,13 +359,13 @@ msgstr "Edita el Python a la cel·la..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"No s'han pogut preservar els arguments de la fórmula PYTHON d'aquesta cel·la"
-" (p. ex., intervals de dades). Editeu la fórmula al Calc o utilitzeu una "
-"cadena de codi entre cometes com ara =PY(\"codi\"; A1:B10) o =PYTHON(...)."
+"No s'han pogut preservar els arguments de la fórmula PY d'aquesta cel·la (p."
+" ex., intervals de dades). Editeu la fórmula al Calc, o utilitzeu una cadena"
+" de codi entre cometes com ara =PY(\"codi\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -387,14 +395,13 @@ msgstr ""
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Aquesta fórmula PYTHON utilitza un format que l'editor no pot reescriure amb"
-" seguretat (p. ex., codi en una altra cel·la). Editeu-la a la barra de "
-"fórmules o utilitzeu =PY(\"codi\"; interval) (o =PYTHON(...)) amb el codi "
-"entre cometes."
+"Aquesta fórmula PY utilitza una forma que l'editor no pot reescriure amb "
+"seguretat (p. ex., codi en una altra cel·la). Editeu-la a la barra de "
+"fórmules, o utilitzeu =PY(\"codi\"; interval) amb codi entre cometes."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -510,14 +517,6 @@ msgstr "WriterAgent: Amplia la selecció"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Edita la selecció"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Error"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1266,9 +1265,8 @@ msgstr ""
 "d'execució."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr ""
-"Els intervals de dades només s'apliquen en desar com a fórmula =PYTHON()."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Els intervals de dades només s'apliquen en desar com a fórmula =PY()."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1970,14 +1968,14 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"El mode de sessió de Python és aïllat (cada cel·la =PYTHON() utilitza les "
-"seves pròpies variables). No hi ha cap sessió de cel·la compartida per "
-"restablir. Afegiu un script d'inicialització si necessiteu esborrar una "
-"configuració costosa del llibre de treball d'una sola vegada."
+"El mode de sessió de Python és aïllat (cada cel·la =PY() utilitza les seves "
+"pròpies variables). No hi ha cap sessió de cel·la compartida per restablir. "
+"Afegiu un script d'inicialització si necessiteu netejar una configuració "
+"costosa del llibre de treball d'un sol ús."
 
 #: plugin/scripting/session_manager.py
 msgid ""

@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Croatian <LL@li.org>\n"
@@ -316,6 +316,14 @@ msgstr ""
 "Model ponavlja isti isječak (beskonačna petlja). Pokušajte ponovno ili "
 "koristite drugi model."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Pogreška"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Maksimalni broj tokena za chat mora biti >= 0"
@@ -346,13 +354,13 @@ msgstr "Uredi Python u ćeliji..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Nije bilo moguće sačuvati argumente PYTHON formule ove ćelije (npr. rasponi "
+"Nije bilo moguće sačuvati argumente PY formule ove ćelije (npr. rasponi "
 "podataka). Uredite formulu u Calc-u ili koristite citirani niz koda kao što "
-"je =PY(\"code\"; A1:B10) ili =PYTHON(...)."
+"je =PY(\"kod\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -381,13 +389,13 @@ msgstr "Odaberite ćeliju u Calc proračunskoj tablici za uređivanje Pythona."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Ova PYTHON formula koristi oblik koji uređivač ne može sigurno prepisati "
-"(npr. kod u drugoj ćeliji). Uredite je u traci formule ili koristite "
-"=PY(\"code\"; range) (ili =PYTHON(...)) s citiranim kodom."
+"Ova PY formula koristi oblik koji uređivač ne može sigurno prepisati (npr. "
+"kod u drugoj ćeliji). Uredite je u traci formule ili koristite =PY(\"kod\"; "
+"raspon) s citiranim kodom."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -503,14 +511,6 @@ msgstr "WriterAgent: Proširi odabir"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Uredi odabir"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Pogreška"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1256,9 +1256,8 @@ msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
 msgstr "Calc ubacuje `data` i `data_list` iz ovih raspona tijekom izvođenja."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr ""
-"Rasponi podataka primjenjuju se samo pri spremanju kao =PYTHON() formula."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Rasponi podataka primjenjuju se samo pri spremanju kao =PY() formula."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1950,13 +1949,13 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Način rada Python sesije je Izoliran (svaka =PYTHON() ćelija koristi "
-"vlastite varijable). Ne postoji zajednička sesija ćelija za resetiranje. "
-"Dodajte inicijalizacijsku skriptu ako trebate očistiti skupo jednokratno "
+"Način rada Python sesije je izoliran (svaka =PY() ćelija koristi vlastite "
+"varijable). Ne postoji zajednička sesija ćelija za poništavanje. Dodajte "
+"skriptu za inicijalizaciju ako trebate očistiti zahtjevno jednokratno "
 "postavljanje radne knjige."
 
 #: plugin/scripting/session_manager.py

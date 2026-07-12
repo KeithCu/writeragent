@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Hungarian <LL@li.org>\n"
@@ -319,6 +319,14 @@ msgstr ""
 "A modell ugyanazt a darabot ismétli (végtelen ciklus). Próbálja újra, vagy "
 "használjon másik modellt."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Hiba"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "A csevegés maximális tokenjeinek száma >= 0 kell legyen"
@@ -350,13 +358,13 @@ msgstr "Python szerkesztése cellában..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Nem sikerült megőrizni a cella PYTHON-képletargumentumait (pl. "
-"adattartományok). Szerkessze a képletet a Calcban, vagy használjon "
-"idézőjeles kódsztringet, például =PY(\"kód\"; A1:B10) vagy =PYTHON(...)."
+"Nem sikerült megőrizni a cella PY-képletargumentumait (pl. "
+"adattartományokat). Szerkessze a képletet a Calcban, vagy használjon "
+"idézőjeles kódsztringet, például =PY(\"kód\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -386,14 +394,14 @@ msgstr ""
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Ez a PYTHON-képlet olyan formát használ, amelyet a szerkesztő nem tud "
-"biztonságosan átírni (pl. más cellában lévő kód). Szerkessze a képletsávban,"
-" vagy használjon =PY(\"kód\"; tartomány) (vagy =PYTHON(...)) formátumot "
-"idézőjeles kóddal."
+"Ez a PY-képlet olyan formát használ, amelyet a szerkesztő nem tud "
+"biztonságosan átírni (pl. egy másik cellában lévő kód). Szerkessze a "
+"képletsávban, vagy használjon =PY(\"kód\"; tartomány) formátumot idézőjeles "
+"kóddal."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -509,14 +517,6 @@ msgstr "WriterAgent: Kijelölés kiterjesztése"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Kijelölés szerkesztése"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Hiba"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1265,9 +1265,8 @@ msgstr ""
 "`data_list` változókat."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr ""
-"Az adattartományok csak =PYTHON() képletként való mentéskor érvényesek."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Az adattartományok csak =PY() képletként való mentéskor érvényesek."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1965,14 +1964,14 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"A Python munkamenet módja izolált (minden =PYTHON() cella saját változókat "
-"használ). Nincs megosztott cellamunkamenet, amit alaphelyzetbe lehetne "
-"állítani. Adjon meg egy inicializációs parancsfájlt, ha törölni szeretné a "
-"költséges, egyszeri munkafüzet-beállításokat."
+"A Python munkamenet módja elkülönített (minden =PY() cella a saját változóit"
+" használja). Nincs alaphelyzetbe állítható megosztott cellamunkamenet. Adjon"
+" hozzá egy inicializáló parancsfájlt, ha törölni szeretné a költséges, "
+"egyszeri munkafüzet-beállításokat."
 
 #: plugin/scripting/session_manager.py
 msgid ""

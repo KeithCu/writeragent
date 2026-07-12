@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Lithuanian <LL@li.org>\n"
@@ -316,6 +316,14 @@ msgstr ""
 "Modelis kartoja tą patį fragmentą (begalinis ciklas). Bandykite dar kartą "
 "arba naudokite kitą modelį."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Klaida"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Maksimalus pokalbio žetonų skaičius turi būti >= 0"
@@ -346,13 +354,13 @@ msgstr "Redaguoti Python langelyje..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Nepavyko išsaugoti šio langelio PYTHON formulės argumentų (pvz., duomenų "
-"sričių). Redaguokite formulę „Calc“ programoje arba naudokite cituojamą kodo"
-" eilutę, pvz., =PY(\"code\"; A1:B10) arba =PYTHON(...)."
+"Nepavyko išsaugoti šio langelio PY formulės argumentų (pvz., duomenų "
+"sričių). Redaguokite formulę programoje „Calc“ arba naudokite cituojamą kodo"
+" eilutę, pvz., =PY(\"kodas\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -382,13 +390,13 @@ msgstr ""
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Ši PYTHON formulė naudoja formą, kurios redaktorius negali saugiai perrašyti"
-" (pvz., kodas kitame langelyje). Redaguokite ją formulės juostoje arba "
-"naudokite =PY(\"code\"; range) (arba =PYTHON(...)) su cituojamu kodu."
+"Ši PY formulė naudoja formą, kurios redaktorius negali saugiai perrašyti "
+"(pvz., kodas kitame langelyje). Redaguokite ją formulės juostoje arba "
+"naudokite =PY(\"kodas\"; sritis) su cituojamu kodu."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -507,14 +515,6 @@ msgstr "WriterAgent: išplėsti pažymėtą sritį"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: redaguoti pažymėtą sritį"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Klaida"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1259,8 +1259,8 @@ msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
 msgstr "„Calc“ vykdymo metu įterpia „data“ ir „data_list“ iš šių diapazonų."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "Duomenų diapazonai taikomi tik įrašant kaip =PYTHON() formulę."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Duomenų sritys taikomos tik įrašant kaip =PY() formulę."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1948,14 +1948,14 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python seanso veiksena yra izoliuota (kiekviena =PYTHON() ląstelė naudoja "
-"savo kintamuosius). Nėra bendro ląstelės seanso, kurį reikėtų nustatyti iš "
-"naujo. Pridėkite inicijavimo scenarijų, jei reikia išvalyti brangiai "
-"kainuojančią vienkartinę skaičiuoklės knygos sąranką."
+"Python seanso režimas yra izoliuotas (kiekvienas =PY() langelis naudoja savo"
+" kintamuosius). Nėra bendro langelių seanso, kurį būtų galima nustatyti iš "
+"naujo. Pridėkite inicijavimo scenarijų, jei reikia išvalyti daug išteklių "
+"reikalaujančią vienkartinę darbaknygės sąranką."
 
 #: plugin/scripting/session_manager.py
 msgid ""

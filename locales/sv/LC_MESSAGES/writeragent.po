@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: WriterAgent 1.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: \n"
 "Language-Team: Swedish\n"
@@ -309,6 +309,14 @@ msgstr ""
 "Modellen upprepar samma segment (oändlig loop). Försök igen eller använd en "
 "annan modell."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Fel"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Chat max tokens måste vara >= 0"
@@ -340,13 +348,13 @@ msgstr "Redigera Python i cell..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Kunde inte bevara cellens PYTHON-formelargument (t.ex. dataområden). "
-"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"code\";"
-" A1:B10) eller =PYTHON(...)."
+"Det gick inte att bevara cellens PY-formelargument (t.ex. dataområden). "
+"Redigera formeln i Calc, eller använd en citerad kodsträng som =PY(\"kod\"; "
+"A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -375,13 +383,13 @@ msgstr "Markera en cell i ett Calc-kalkylblad för att redigera Python."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"Denna PYTHON-formel använder en form som redigeraren inte säkert kan skriva "
-"om (t.ex. kod i en annan cell). Redigera den i formelfältet, eller använd "
-"=PY(\"code\"; range) (eller =PYTHON(...)) med citerad kod."
+"Denna PY-formel använder en form som redigeraren inte säkert kan skriva om "
+"(t.ex. kod i en annan cell). Redigera den i formelfältet, eller använd "
+"=PY(\"kod\"; område) med citerad kod."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -497,14 +505,6 @@ msgstr "WriterAgent: Utöka markering"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Redigera urval"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Fel"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1251,8 +1251,8 @@ msgstr ""
 "Calc injicerar `data` och `data_list` från dessa intervall vid körning."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "Dataintervall gäller endast vid sparande som en =PYTHON()-formel."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Dataområden gäller endast vid sparande som en =PY()-formel."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1934,13 +1934,13 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python-sessionsläge är Isolerat (varje =PYTHON()-cell använder sina egna "
-"variabler). Det finns ingen delad cellsession att återställa. Lägg till ett "
-"initieringsskript om du behöver rensa resurskrävande engångsinställningar "
+"Pythons sessionsläge är Isolerat (varje =PY()-cell använder sina egna "
+"variabler). Det finns ingen delad cell-session att återställa. Lägg till ett"
+" initieringsskript om du behöver rensa resurskrävande engångsinställningar "
 "för arbetsboken."
 
 #: plugin/scripting/session_manager.py

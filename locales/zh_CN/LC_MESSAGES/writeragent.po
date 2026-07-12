@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Chinese (Simplified) <LL@li.org>\n"
@@ -298,6 +298,14 @@ msgid ""
 "different model."
 msgstr "模型正在重复相同的块（无限循环）。请重试或使用其他模型。"
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "错误"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "聊天最大令牌数必须 >= 0"
@@ -328,12 +336,12 @@ msgstr "在单元格中编辑 Python..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"无法保留此单元格的 PYTHON 公式参数（例如数据区域）。请在 Calc 中编辑公式，或使用带引号的代码字符串，例如 =PY(\"code\"; "
-"A1:B10) 或 =PYTHON(...)。"
+"无法保留此单元格的 PY 公式参数（例如数据区域）。请在 Calc 中编辑公式，或使用带引号的代码字符串，例如 =PY(\"code\"; "
+"A1:B10)。"
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -362,12 +370,12 @@ msgstr "请选择 Calc 电子表格中的一个单元格以编辑 Python。"
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"此 PYTHON 公式使用的格式编辑器无法安全重写（例如其他单元格中的代码）。请在公式栏中编辑它，或使用带引号代码的 =PY(\"code\"; "
-"range)（或 =PYTHON(...)）。"
+"此 PY 公式使用的格式无法被编辑器安全重写（例如引用了其他单元格中的代码）。请在公式栏中编辑，或使用 =PY(\"code\"; range) "
+"并配合带引号的代码。"
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -483,14 +491,6 @@ msgstr "WriterAgent: 扩展选区"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent：编辑选区"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "错误"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1218,8 +1218,8 @@ msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
 msgstr "Calc 在运行时会从这些范围注入 `data` 和 `data_list`。"
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "数据范围仅在保存为 =PYTHON() 公式时生效。"
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "数据区域仅在保存为 =PY() 公式时适用。"
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1870,11 +1870,11 @@ msgstr "此工作簿的初始化脚本及任何内存中初始化状态均已重
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python 会话模式为“隔离”（每个 =PYTHON() "
+"Python 会话模式为“隔离”（每个 =PY() "
 "单元格使用其各自的变量）。没有可重置的共享单元格会话。如果需要清除昂贵的一次性工作簿设置，请添加初始化脚本。"
 
 #: plugin/scripting/session_manager.py

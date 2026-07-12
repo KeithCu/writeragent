@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Estonian <LL@li.org>\n"
@@ -314,6 +314,14 @@ msgstr ""
 "Mudel kordab sama osa (lõputu tsükkel). Proovige uuesti või kasutage teist "
 "mudelit."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Viga"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "Vestluse maksimaalne märkide arv peab olema >= 0"
@@ -344,13 +352,13 @@ msgstr "Redigeeri Pythonit lahtris..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"Selle lahtri PYTHON-valemi argumente (nt andmevahemikke) ei saanud "
-"säilitada. Muutke valemit Calcis või kasutage jutumärkides koodistringi, "
-"näiteks =PY(\"kood\"; A1:B10) või =PYTHON(...)."
+"Selle lahtri PY-valemi argumente (nt andmevahemikke) ei saanud säilitada. "
+"Redigeerige valemit Calcis või kasutage jutumärkides koodistringi, näiteks "
+"=PY(\"kood\"; A1:B10)."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -379,13 +387,13 @@ msgstr "Pythoni redigeerimiseks vali Calci arvutustabelist lahter."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"See PYTHON-valem kasutab vormi, mida redaktor ei saa ohutult ümber kirjutada"
-" (nt kood teises lahtris). Muutke seda valemiribal või kasutage jutumärkides"
-" koodiga =PY(\"kood\"; vahemik) (või =PYTHON(...))."
+"See PY-valem kasutab vormi, mida redaktor ei saa turvaliselt ümber kirjutada"
+" (nt kood teises lahtris). Redigeerige seda valemiribal või kasutage "
+"=PY(\"kood\"; vahemik) koos jutumärkides koodiga."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -501,14 +509,6 @@ msgstr "WriterAgent: valiku laiendamine"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: valiku redigeerimine"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "Viga"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1253,8 +1253,8 @@ msgstr ""
 "Calc lisab käitusajal nendest vahemikest andmed `data` ja `data_list`."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "Andmevahemikud kehtivad ainult =PYTHON() valemina salvestamisel."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "Andmevahemikud kehtivad ainult =PY()-valemina salvestamisel."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1937,13 +1937,13 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Pythoni seansirežiim on eraldatud (iga =PYTHON() lahter kasutab oma "
+"Pythoni seansirežiim on isoleeritud (iga =PY()-lahter kasutab oma "
 "muutujaid). Lähtestatavat jagatud lahtriseanssi pole. Kui peate kuluka "
-"ühekordse töövihiku seadistuse tühjendama, lisage lähtestusskript."
+"ühekordse töövihiku seadistuse tühjendama, lisage lähtestamisskript."
 
 #: plugin/scripting/session_manager.py
 msgid ""

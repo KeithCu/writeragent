@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 14:23-0400\n"
+"POT-Creation-Date: 2026-07-12 15:42-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Korean <LL@li.org>\n"
@@ -300,6 +300,14 @@ msgid ""
 "different model."
 msgstr "모델이 동일한 청크를 반복하고 있습니다(무한 루프). 다시 시도하거나 다른 모델을 사용하세요."
 
+#: plugin/framework/main_shared.py plugin/writer/math/latex_dialog.py
+#: plugin/chatbot/panel.py plugin/chatbot/external_editor.py
+#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "오류"
+
 #: plugin/framework/config.py
 msgid "Chat max tokens must be >= 0"
 msgstr "채팅 최대 토큰은 0 이상이어야 합니다"
@@ -330,12 +338,12 @@ msgstr "셀에서 Python 편집..."
 
 #: plugin/calc/python/editor.py
 msgid ""
-"Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-"Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10) or =PYTHON(...)."
+"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
+" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
+"A1:B10)."
 msgstr ""
-"이 셀의 PYTHON 수식 인수(예: 데이터 범위)를 유지할 수 없습니다. Calc에서 수식을 편집하거나 =PY(\"code\"; "
-"A1:B10) 또는 =PYTHON(...)과 같은 따옴표로 묶인 코드 문자열을 사용하십시오."
+"이 셀의 PY 수식 인수(예: 데이터 범위)를 유지할 수 없습니다. Calc에서 수식을 편집하거나 =PY(\"code\"; "
+"A1:B10)과 같이 따옴표로 묶인 코드 문자열을 사용하십시오."
 
 #: plugin/calc/python/editor.py plugin/scripting/editor_ui_strings.py
 msgid "Saved without =PY()."
@@ -364,12 +372,12 @@ msgstr "Python을 편집하려면 Calc 스프레드시트에서 셀을 선택하
 
 #: plugin/calc/python/editor.py
 msgid ""
-"This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code "
-"in another cell). Edit it in the formula bar, or use =PY(\"code\"; range) "
-"(or =PYTHON(...)) with quoted code."
+"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
+"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
+"quoted code."
 msgstr ""
-"이 PYTHON 수식은 편집기가 안전하게 다시 작성할 수 없는 형식(예: 다른 셀의 코드)을 사용합니다. 수식 입력줄에서 편집하거나 "
-"따옴표로 묶인 코드가 포함된 =PY(\"code\"; range) 또는 =PYTHON(...)을 사용하십시오."
+"이 PY 수식은 편집기가 안전하게 다시 작성할 수 없는 형식(예: 다른 셀의 코드)을 사용합니다. 수식 입력줄에서 편집하거나 따옴표로 "
+"묶인 코드가 포함된 =PY(\"code\"; range)를 사용하십시오."
 
 #: plugin/calc/python/editor.py
 msgid ""
@@ -485,14 +493,6 @@ msgstr "WriterAgent: 선택 영역 확장"
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: 선택 영역 편집"
-
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
-#: plugin/chatbot/external_editor.py plugin/chatbot/send_handlers.py
-#: plugin/chatbot/dialog_views.py plugin/scripting/editor_ui_strings.py
-#: plugin/scripting/python_runner_ui.py plugin/scripting/python_runner.py
-#: plugin/main_core.py plugin/main.py
-msgid "Error"
-msgstr "오류"
 
 #: plugin/writer/math/latex_dialog.py
 msgid "This command is only available in Writer documents."
@@ -1227,8 +1227,8 @@ msgid "Calc injects `data` and `data_list` from these range(s) at runtime."
 msgstr "Calc는 런타임에 이 범위에서 `data` 및 `data_list`를 삽입합니다."
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Data ranges apply only when saving as a =PYTHON() formula."
-msgstr "데이터 범위는 =PYTHON() 수식으로 저장할 때만 적용됩니다."
+msgid "Data ranges apply only when saving as a =PY() formula."
+msgstr "데이터 범위는 =PY() 수식으로 저장할 때만 적용됩니다."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -1886,12 +1886,12 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"Python session mode is Isolated (each =PYTHON() cell uses its own "
-"variables). There is no shared cell session to reset. Add an initialization "
-"script if you need to clear expensive one-time workbook setup."
+"Python session mode is Isolated (each =PY() cell uses its own variables). "
+"There is no shared cell session to reset. Add an initialization script if "
+"you need to clear expensive one-time workbook setup."
 msgstr ""
-"Python 세션 모드가 격리됨(각 =PYTHON() 셀이 자체 변수를 사용)으로 설정되어 있습니다. 재설정할 공유 셀 세션이 없습니다."
-" 비용이 많이 드는 일회성 통합 문서 설정이 필요한 경우 초기화 스크립트를 추가하십시오."
+"Python 세션 모드가 격리됨(각 =PY() 셀이 자체 변수를 사용)으로 설정되어 있습니다. 재설정할 공유 셀 세션이 없습니다. 비용이"
+" 많이 드는 일회성 통합 문서 설정이 필요한 경우 초기화 스크립트를 추가하십시오."
 
 #: plugin/scripting/session_manager.py
 msgid ""
