@@ -395,16 +395,32 @@ def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[st
 _HARPER_SESSION_PREFIX = "writeragent:harper"
 
 
+def _pump_grammar_status_ui(ctx: Any) -> None:
+    """Drain posted grammar status updates on the LO main thread during Harper IPC."""
+    from plugin.framework.queue_executor import execute_on_main_thread, pump_main_thread_work_queue
+    from plugin.framework.uno_context import get_toolkit
+
+    def _pump() -> None:
+        pump_main_thread_work_queue(max_items=8)
+        toolkit = get_toolkit(ctx)
+        if toolkit is not None and hasattr(toolkit, "processEventsToIdle"):
+            toolkit.processEventsToIdle()
+
+    execute_on_main_thread(_pump, timeout=2.0)
+
+
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
     """Execute a trusted Harper linter helper inside the user venv worker."""
     from plugin.writer.locale.grammar_obs import emit_harper_worker_status
 
     emit_harper_worker_status(text, "Starting Python worker…")
+    _pump_grammar_status_ui(ctx)
 
     def _on_harper_heartbeat(payload: dict[str, Any]) -> None:
         message = str(payload.get("message") or "").strip()
         if message:
             emit_harper_worker_status(text, message)
+            _pump_grammar_status_ui(ctx)
 
     return _run_trusted_action(
         ctx,

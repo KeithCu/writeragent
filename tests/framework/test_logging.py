@@ -1,4 +1,5 @@
 
+import io
 import unittest
 import json
 import logging
@@ -35,11 +36,25 @@ class TestInitLogging(unittest.TestCase):
         self._saved_config_path = config_mod._resolved_config_path
         self._saved_debug_path = logging_mod._debug_log_path
         self._saved_hooks = logging_mod._exception_hooks_installed
+        self._saved_root_handlers = list(logging.getLogger().handlers)
+        self._saved_last_resort = logging.lastResort
         config_mod._resolved_config_path = None
         logging_mod._debug_log_path = None
         logging_mod._exception_hooks_installed = False
         for h in list(log.handlers):
             log.removeHandler(h)
+
+    def _release_debug_handlers(self) -> None:
+        import plugin.framework.logging as logging_mod
+
+        for logger in (log, logging.getLogger()):
+            for handler in list(logger.handlers):
+                try:
+                    logger.removeHandler(handler)
+                    handler.close()
+                except Exception:
+                    pass
+        logging_mod._debug_log_path = None
 
     def tearDown(self):
         import plugin.framework.config as config_mod
@@ -48,8 +63,22 @@ class TestInitLogging(unittest.TestCase):
         config_mod._resolved_config_path = self._saved_config_path
         logging_mod._debug_log_path = self._saved_debug_path
         logging_mod._exception_hooks_installed = self._saved_hooks
+        logging.lastResort = self._saved_last_resort
         for h in list(log.handlers):
             log.removeHandler(h)
+            try:
+                h.close()
+            except Exception:
+                pass
+        root = logging.getLogger()
+        for h in list(root.handlers):
+            root.removeHandler(h)
+            try:
+                h.close()
+            except Exception:
+                pass
+        for h in self._saved_root_handlers:
+            root.addHandler(h)
 
     def test_init_logging_uses_ctx_config_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -71,6 +100,63 @@ class TestInitLogging(unittest.TestCase):
                 contents = fh.read()
             self.assertIn("Debug log active", contents)
             self.assertIn(expected_log, contents)
+            self.assertNotIn("DIAG |", contents)
+            self._release_debug_handlers()
+
+    def test_init_logging_strips_stray_console_handlers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "writeragent.json")
+            with open(config_path, "w", encoding="utf-8") as fh:
+                fh.write("{}")
+
+            root = logging.getLogger()
+            root_buf = io.StringIO()
+            root.addHandler(logging.StreamHandler(root_buf))
+            wa_buf = io.StringIO()
+            log.addHandler(logging.StreamHandler(wa_buf))
+            module_logger = logging.getLogger("plugin.chatbot.send_handlers")
+            module_stderr_buf = io.StringIO()
+            module_logger.addHandler(logging.StreamHandler(module_stderr_buf))
+
+            mock_ctx = MagicMock()
+            with (
+                patch("plugin.framework.config._resolve_config_path_from_ctx", return_value=config_path),
+                patch("plugin.framework.config.user_config_dir", return_value=tmp),
+            ):
+                init_logging(mock_ctx)
+
+            log.warning("writeragent-console-probe")
+            module_logger.warning("module-console-probe")
+            for handler in list(log.handlers) + list(root.handlers):
+                if isinstance(handler, logging.FileHandler):
+                    logging.FileHandler.flush(handler)
+
+            expected_log = os.path.join(tmp, "writeragent_debug.log")
+            with open(expected_log, encoding="utf-8") as fh:
+                contents = fh.read()
+            self.assertIn("writeragent-console-probe", contents)
+            self.assertIn("module-console-probe", contents)
+            self.assertEqual(wa_buf.getvalue(), "")
+            self.assertEqual(root_buf.getvalue(), "")
+            # Root-only sweep: module logger may keep its StreamHandler; file still receives via root.
+            self.assertIn("module-console-probe", module_stderr_buf.getvalue())
+            self._release_debug_handlers()
+
+    def test_init_logging_disables_last_resort(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = os.path.join(tmp, "writeragent.json")
+            with open(config_path, "w", encoding="utf-8") as fh:
+                fh.write("{}")
+
+            mock_ctx = MagicMock()
+            with (
+                patch("plugin.framework.config._resolve_config_path_from_ctx", return_value=config_path),
+                patch("plugin.framework.config.user_config_dir", return_value=tmp),
+            ):
+                init_logging(mock_ctx)
+
+            self.assertIsNone(logging.lastResort)
+            self._release_debug_handlers()
 
 
 class TestLogRedaction(unittest.TestCase):

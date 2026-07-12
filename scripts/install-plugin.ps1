@@ -229,29 +229,24 @@ function Install-ToCache {
 
     $cacheDir = Find-UnopkgCacheDir
     $extDir = $null
-    $needsFullInstall = -not (Test-ExtensionRegistered -Unopkg $unopkg)
+    $needsFullInstall = $false
 
-    if (-not $needsFullInstall) {
-        if (-not $cacheDir) {
-            $needsFullInstall = $true
-        } else {
-            $packagesDir = Join-Path $cacheDir "cache\uno_packages"
-            if (-not (Test-Path $packagesDir)) {
-                $needsFullInstall = $true
-            } else {
-                $tmpDirs = Get-ChildItem -Path $packagesDir -Directory -Filter "*.tmp_" -ErrorAction SilentlyContinue
-                foreach ($d in $tmpDirs) {
-                    $oxtDir = Join-Path $d.FullName "WriterAgent.oxt"
-                    if (Test-Path $oxtDir) {
-                        $extDir = $oxtDir
-                        break
-                    }
-                }
-                if (-not $extDir) {
-                    $needsFullInstall = $true
+    if ($cacheDir) {
+        $packagesDir = Join-Path $cacheDir "cache\uno_packages"
+        if (Test-Path $packagesDir) {
+            $tmpDirs = Get-ChildItem -Path $packagesDir -Directory -Filter "*.tmp_" -ErrorAction SilentlyContinue
+            foreach ($d in $tmpDirs) {
+                $oxtDir = Join-Path $d.FullName "WriterAgent.oxt"
+                if (Test-Path $oxtDir) {
+                    $extDir = $oxtDir
+                    break
                 }
             }
         }
+    }
+
+    if (-not $extDir) {
+        $needsFullInstall = $true
     }
 
     if ($needsFullInstall) {

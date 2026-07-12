@@ -181,6 +181,7 @@ help:
 	@echo "LibreOffice:"
 	@echo "  make lo-start               Launch Writer (default) with debug logging"
 	@echo "  make lo-start-full          Launch with verbose logging"
+	@echo "  make log / make log-tail    Show or follow writeragent_debug.log (opt-in)"
 	@echo "  make lo-kill                Kill all LO processes"
 	@echo ""
 	@echo "Cache:"
@@ -464,7 +465,9 @@ lo-start-log:
 	$(MAKE) lo-start COMPONENT=$(COMPONENT)
 	@echo "Waiting for LO to load..."
 	@sleep 12
-	@$(MAKE) log
+	@echo "Plugin log: $(LO_DEBUG_LOG)"
+	@echo "LO stderr:  $(HOME_DIR)/soffice-debug.log"
+	@echo "Follow plugin log: make log-tail"
 
 lo-start-full:
 ifeq ($(OS),Windows_NT)

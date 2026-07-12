@@ -765,7 +765,7 @@ def test_format_grammar_status_request_harper_detail() -> None:
             "result": "Downloading harper-ls v2.7.0…",
         }
     )
-    assert text == "Grammar: checking 'They is he…' len 13: Downloading harper-ls v2.7.0…"
+    assert text == "Grammar: Downloading harper-ls v2.7.0…"
 
 
 def test_format_grammar_status_failed_language_vs_grammar() -> None:

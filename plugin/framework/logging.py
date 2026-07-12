@@ -124,6 +124,38 @@ def get_debug_log_path() -> str | None:
     return _debug_log_path
 
 
+def _is_matching_debug_handler(handler: logging.Handler) -> bool:
+    return (
+        isinstance(handler, logging.FileHandler)
+        and getattr(handler, "baseFilename", "") == _debug_log_path
+    )
+
+
+def _strip_stray_handlers(logger: logging.Logger) -> bool:
+    """Remove handlers that are not our debug log FileHandler. Return True if one remains."""
+    has_matching = False
+    for handler in list(logger.handlers):
+        if _is_matching_debug_handler(handler):
+            has_matching = True
+            continue
+        try:
+            logger.removeHandler(handler)
+            handler.close()
+        except Exception:
+            pass
+    return has_matching
+
+
+def _ensure_debug_file_handler(logger: logging.Logger) -> None:
+    if not _debug_log_path:
+        return
+    if _strip_stray_handlers(logger):
+        return
+    handler = OptionalFlushFileHandler(_debug_log_path, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
+    logger.addHandler(handler)
+
+
 def init_logging(ctx=None):
     """Set global debug log path (LO user config dir) and enable_agent_log from ctx. Idempotent."""
     global _debug_log_path, _enable_agent_log
@@ -150,52 +182,17 @@ def init_logging(ctx=None):
             _log_level_numeric = numeric_level
 
             logger = log
+            root_logger = logging.getLogger()
             logger.setLevel(numeric_level)
 
             if _debug_log_path:
-                # Ensure unrelated loggers (e.g. logging.getLogger(__name__) inside
-                # UNO panel/tool modules) still reach the same debug log.
-                #
-                # We attach the handler to the root logger as well and then disable
-                # propagation from the "writeragent" logger to avoid duplicates.
-
-                has_matching_handler = False
-                for handler in list(logger.handlers):
-                    if not isinstance(handler, logging.FileHandler):
-                        continue
-                    if getattr(handler, "baseFilename", "") == _debug_log_path:
-                        has_matching_handler = True
-                        continue
-                    try:
-                        logger.removeHandler(handler)
-                        handler.close()
-                    except Exception:
-                        pass
-
-                if not has_matching_handler:
-                    handler = OptionalFlushFileHandler(_debug_log_path, encoding="utf-8")
-                    formatter = logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s")
-                    handler.setFormatter(formatter)
-                    logger.addHandler(handler)
-
-                # Attach the same debug file handler to root if needed.
-                root_logger = logging.getLogger()
+                # plugin.* modules use logging.getLogger(__name__); root receives those records.
+                # writeragent.* uses the named logger below with propagate=False to avoid duplicates.
                 root_logger.setLevel(numeric_level)
-                root_has_matching_handler = False
-                for rh in list(root_logger.handlers):
-                    if not isinstance(rh, logging.FileHandler):
-                        continue
-                    if getattr(rh, "baseFilename", "") == _debug_log_path:
-                        root_has_matching_handler = True
-                        continue
-                if not root_has_matching_handler:
-                    root_handler = OptionalFlushFileHandler(_debug_log_path, encoding="utf-8")
-                    root_handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
-                    root_logger.addHandler(root_handler)
-
-                # Prevent double-logging for loggers under "writeragent.*" since
-                # they are handled by `logger` above.
+                _ensure_debug_file_handler(logger)
+                _ensure_debug_file_handler(root_logger)
                 logger.propagate = False
+                logging.lastResort = None
 
                 if first_init:
                     logger.warning(

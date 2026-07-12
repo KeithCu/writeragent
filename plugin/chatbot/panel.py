@@ -96,7 +96,7 @@ def format_grammar_status(data: dict[str, Any]) -> str:
         verb = "detecting" if area == "language" else "checking"
         base = f"{prefix} {verb} '{preview}' len {length}"
         if result and result not in ("LLM request", "LLM batch request", "Detecting language"):
-            return f"{base}: {result}"
+            return f"{prefix} {result}"
         return base
     if phase == "complete":
         suffix = result or "done"

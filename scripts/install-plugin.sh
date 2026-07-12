@@ -202,25 +202,20 @@ install_to_cache() {
     local needs_full_install=false
     local ext_dir=""
 
-    if ! extension_registered "$UNOPKG"; then
-        needs_full_install=true
-    elif [ -z "$cache_dir" ]; then
-        needs_full_install=true
-    else
+    if [ -n "$cache_dir" ]; then
         local packages_dir="$cache_dir/cache/uno_packages"
-        if [ ! -d "$packages_dir" ]; then
-            needs_full_install=true
-        else
+        if [ -d "$packages_dir" ]; then
             for d in "$packages_dir"/*.tmp_; do
                 if [ -d "$d/WriterAgent.oxt" ]; then
                     ext_dir="$d/WriterAgent.oxt"
                     break
                 fi
             done
-            if [ -z "$ext_dir" ]; then
-                needs_full_install=true
-            fi
         fi
+    fi
+
+    if [ -z "$ext_dir" ]; then
+        needs_full_install=true
     fi
 
     if $needs_full_install; then
