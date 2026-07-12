@@ -1,12 +1,18 @@
 # Enabling NumPy & Python in LibreOffice
 
-WriterAgent runs user Python (including **NumPy**, **pandas**, **scipy**, and similar C-extension stacks) **outside** LibreOffice’s embedded interpreter. The extension shells out to a **user-provided virtual environment**, evaluates code with a vendored **AST sandbox** in that child process, and returns JSON-serializable results to the chat agent or Calc formulas.
+WriterAgent lets you run scientific Python — **NumPy**, **pandas**, **scipy**, and similar C-extension stacks — **inside LibreOffice** without loading those packages into LibreOffice’s embedded interpreter. Point **Settings → Python** at a **user-provided virtual environment**, then use **Run Python Script…**, Calc **`=PY()`** / **Edit Python in Cell…**, or (optionally) the chat assistant. Code runs in a sandboxed child process and returns serializable results to your sheet, script UI, or document tools.
 
 ## Table of contents
 
 1. [The problem: ABI and embedded Python](#1-the-problem-abi-and-embedded-python)
 2. [Strategy decision](#2-strategy-decision)
 3. [User guide](#3-user-guide)
+   - [Settings → Python](#settings--python)
+   - [Ways to run Python](#ways-to-run-python)
+   - [Run Python Script & Monaco](#run-python-script--monaco)
+   - [Calc `=PY()` (quick start)](#calc-py-quick-start)
+   - [Assign `result`](#assign-result)
+   - [Using the chat assistant (optional)](#using-the-chat-assistant-optional)
 4. [Architecture](#4-architecture)
 5. [Developer reference](#5-developer-reference)
    - [Trusted extension code in the venv](#trusted-extension-code-in-the-venv)
@@ -23,7 +29,7 @@ WriterAgent runs user Python (including **NumPy**, **pandas**, **scipy**, and si
    - [Calc backlog from landscape survey](#calc-backlog-from-landscape-survey)
 8. [Implementation status](#8-implementation-status)
 
-**Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [NumPy domain helpers](numpy-domains.md) (Analysis, Viz, Symbolic, Units, Text, Forecasting roadmaps) · [Monaco editor dev plan](python-monaco-editor-dev-plan.md) (IPC, phases 2B–2F, manual tests) · [Python-in-Calc future work](python-in-excel-dev-plan.md) (Phases 3–7 + backlog) · [DuckDB Calc integration (Phases A–C landed)](duckdb-calc-dev-plan.md) · [Jupyter notebook import](jupyter-notebook-import.md) · [Calc spreadsheet → Python import](calc-spreadsheet-to-python-import.md) (convert formulas to `=PY()` while preserving data — proposed) · [Analysis Sub-Agent](analysis-sub-agent.md) (data discovery + trusted numpy/pandas execution) · [Image Recognition](image-recognition.md) · [Embeddings](embeddings.md) · [SageMath integration (deferred)](sagemath-integration-dev-plan.md)
+**Related:** [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [NumPy domain helpers](numpy-domains.md) (Analysis, Viz, Symbolic, Units, Text, Forecasting roadmaps) · [Monaco editor dev plan](python-monaco-editor-dev-plan.md) (IPC, phases 2B–2F, manual tests) · [Python-in-Calc future work](python-in-excel-dev-plan.md) (Phases 3–7 + backlog) · [DuckDB Calc integration (Phases A–C landed)](duckdb-calc-dev-plan.md) · [Jupyter notebook import](jupyter-notebook-import.md) · [Calc spreadsheet → Python import](calc-spreadsheet-to-python-import.md) (convert formulas to `=PY()` while preserving data — proposed) · [Image Recognition](image-recognition.md) · [Embeddings](embeddings.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (chat path) · [SageMath integration (deferred)](sagemath-integration-dev-plan.md)
 
 ---
 
@@ -49,7 +55,7 @@ All design choices below follow from that constraint.
 ### Chosen: warm worker + session-aware sandbox
 
 1. **Persistent worker:** [`PythonWorkerManager`](plugin/scripting/venv_worker.py) spawns the venv’s `python` once per executable path and keeps it alive.
-2. **Namespace per request (configurable):** [`worker_harness.py`](plugin/scripting/venv/worker_harness.py) → [`venv_sandbox.py`](plugin/scripting/venv/venv_sandbox.py) uses a [`LocalPythonExecutor`](plugin/contrib/smolagents/local_python_executor.py). Default **Isolated** mode gives each `=PY()` cell a fresh namespace (init script still seeds once). **Shared kernel** mode ([`session_manager.py`](plugin/scripting/session_manager.py)) keeps one workbook namespace across cells — see [§6 Session modes](#session-modes-and-recalc-semantics). Chat `run_venv_python_script` always uses isolated execution.
+2. **Namespace per request (configurable):** [`worker_harness.py`](plugin/scripting/venv/worker_harness.py) → [`venv_sandbox.py`](plugin/scripting/venv/venv_sandbox.py) uses a [`LocalPythonExecutor`](plugin/contrib/smolagents/local_python_executor.py). Default **Isolated** mode gives each `=PY()` cell a fresh namespace (init script still seeds once). **Shared kernel** mode ([`session_manager.py`](plugin/scripting/session_manager.py)) keeps one workbook namespace across cells — see [§6 Session modes](#session-modes-and-recalc-semantics).
 3. **Length-prefixed Pickle5 IPC:** [`PythonWorkerManager`](plugin/scripting/venv_worker.py) ↔ [`worker_harness.py`](plugin/scripting/venv/worker_harness.py) exchange framed request/response dicts; `data` / `result` use [`split_grid`](numpy-serialization.md#strategy-3-split-grid-serialization-detail) when dense. Protocol detail: [Venv subprocess IPC](numpy-serialization.md#worker-protocol). Bidirectional **tool RPC** is **not** wired yet ([§7](#7-deferred-roadmap)).
 
 **Pros:** Sidesteps ABI issues; any Python version in the venv; avoids spawn overhead on every call; optional shared-kernel mode for multi-cell pipelines.  
@@ -61,7 +67,13 @@ All design choices below follow from that constraint.
 
 ### Vision
 
-Users can ask the AI to run Monte Carlo simulations, statistics, or other library-heavy work. The agent writes Python, executes it in the user’s venv, and uses existing Calc/Writer tools (`write_formula_range`, `create_chart`, etc.) to place results. The user stays in LibreOffice; no terminal required.
+You can run Monte Carlo simulations, statistics, plots, and other library-heavy work **without leaving LibreOffice**. Configure a dedicated Python venv once, then:
+
+- **Run Python Script…** in Writer, Calc, or Draw (Monaco editor or a simple dialog)
+- **`=PY()`** formulas and **Edit Python in Cell…** in Calc
+- **Edit Initialization Script…** for workbook-wide helpers (Calc)
+
+No terminal is required after the venv is set up. An optional [chat assistant](#using-the-chat-assistant-optional) path can generate and run the same kind of code for you.
 
 ### Settings → Python
 
@@ -69,14 +81,12 @@ Users can ask the AI to run Monte Carlo simulations, statistics, or other librar
 |---------|-------------|---------|
 | `scripting.python_venv_path` | Absolute path to an existing venv directory | `~/.writeragent_venv` |
 | `scripting.python_session_mode` | **`isolated`** (default) or **`shared`** (Shared kernel for `=PY()` cells) | `isolated` |
-| `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script, `=PY()`, and `run_venv_python_script`. Trusted long-running helpers (OCR, spaCy, SymPy, embeddings...) use a single internal long budget instead (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` + list in client.py). | `10` (default; range 1–600) |
-| `scripting.python_auto_spill` | **On by default.** Single-cell `=PY()` returning a list, 2D array, or DataFrame **auto-spills** into adjacent cells (0.1s deferred write). Blocked cells → `#SPILL!` in the formula cell. Spill coordinates persist in the document. Disable for matrix-only workflows. | `true` |
+| `scripting.python_exec_timeout` | Wall-clock limit (seconds) for Run Python Script and `=PY()` (default **10**, max **600**). Trusted long-running helpers (OCR, spaCy, SymPy, embeddings, …) use a longer internal budget. | `10` |
+| `scripting.python_auto_spill` | **On by default.** Single-cell `=PY()` returning a list, 2D array, or DataFrame **auto-spills** into adjacent cells. Blocked cells → `#SPILL!`. Disable for matrix-only workflows. | `true` |
 
-Module implementation: `plugin/scripting/` (no top-level `python/` package — avoids clashing with the stdlib name).
-
-- **Empty path:** `run_venv_python_script` and `=PY()` fall back to **`sys.executable`** (LibreOffice’s embedded Python) — stdlib-only unless that interpreter happens to have extra packages; **use a dedicated venv for NumPy**.
-- **No automatic venv creation** — the user brings their own environment.
-- **Test button:** Validates the path is a directory, resolves `bin/python` or `Scripts\python.exe`, and runs a warm-worker diagnostic via [`run_venv_self_check`](../plugin/scripting/venv_worker.py). Reports **Scientific**, **Data Analysis / EDA**, **UI / Monaco**, **Vision Libraries**, **Embeddings Libraries**, and **Audio Recording** groups (Present/Missing). Vision and Embeddings imports use dedicated ~30s host subprocess probes (`EMBEDDINGS_PROBE_TIMEOUT_SEC`, `VISION_PROBE_TIMEOUT_SEC` in [`config_limits.py`](../plugin/scripting/config_limits.py)) because cold `sentence-transformers` / Docling imports can exceed 5s on modest hardware. Sidebar microphone capture uses the same venv (`uv pip install sounddevice`) — see [audio-architecture.md](audio-architecture.md). Domain package lists: [numpy-domains.md](numpy-domains.md), [Image Recognition](image-recognition.md), [Embeddings](embeddings.md#embeddings-venv-packages).
+- **Empty path:** Run Python Script and `=PY()` fall back to LibreOffice’s embedded Python — usually **stdlib-only**. **Use a dedicated venv for NumPy.**
+- **No automatic venv creation** — you bring your own environment.
+- **Test button:** Checks that the path resolves to a `python` executable and reports which package groups are Present/Missing (**Scientific**, **Data Analysis / EDA**, **UI / Monaco**, **Vision**, **Embeddings**, **Audio Recording**). Cold Vision/Embeddings imports can take ~30s on first Test. Domain package lists: [numpy-domains.md](numpy-domains.md), [Image Recognition](image-recognition.md), [Embeddings](embeddings.md#embeddings-venv-packages). Microphone capture uses the same venv (`uv pip install sounddevice`) — see [audio-architecture.md](audio-architecture.md).
 
 **Creating the venv (uv recommended in 2026):**
 
@@ -92,73 +102,74 @@ python -m spacy download xx_sent_ud_sm
 # Point Settings → Python at the venv root (~/.writeragent_venv) or the bin/ dir.
 ```
 
+For Monaco (recommended editor UI), also install `pywebview` (on Linux: `PyQt6 PyQt6-WebEngine qtpy`).
 
-### Execution paths (shipped)
+### Ways to run Python
 
-| Entry | Module | Notes |
-|-------|--------|-------|
-| Chat tool **`run_venv_python_script`** | [`plugin/calc/python/venv.py`](plugin/calc/python/venv.py) | Specialized domain `python`; Writer/Calc/Draw when delegated |
-| Calc **`=PY(code, data?)`** | [`plugin/calc/python/addin.py`](plugin/calc/python/addin.py) / [`plugin/calc/python/function.py`](plugin/calc/python/function.py) | Same runner as the chat tool |
-| Shared runner | [`plugin/scripting/venv_worker.py`](plugin/scripting/venv_worker.py) | Only entry for venv subprocess execution |
-| In-process **`execute_python_script`** | [`plugin/calc/python/executor.py`](plugin/calc/python/executor.py) | LO embedded Python, stdlib sandbox, `lp()` / `set_range` helpers; **not** used by `=PY()` |
+| What you use | Where | Notes |
+|--------------|-------|-------|
+| **Run Python Script…** | Writer / Calc / Draw menu | Monaco editor (**Run** / **Save** / script picker), or a plain multiline dialog if pywebview is missing |
+| **Edit Python in Cell…** / **`=PY(code, data?)`** | Calc | Same warm venv runner; dual save as `=PY("…")` or plain text for `=PY($A$1; …)` |
+| **Edit Initialization Script…** | Calc | Workbook startup script; seeds helpers for every `=PY()` cell |
+| Shared warm worker | All of the above | One subprocess per venv path ([`venv_worker.py`](plugin/scripting/venv_worker.py)) |
 
-Both venv paths assign JSON-serializable output to **`result`**. NumPy arrays and pandas objects are serialized in the worker. There is **no UNO API inside the child process** today.
+There is **no UNO API inside the child process** today — scripts compute and return values; document updates happen via the UI, formula spill, or (on the chat path) normal document tools.
 
-### `run_venv_python_script` — Calc vs Writer/Draw
+*(Developer note: an older in-process `execute_python_script` path uses LibreOffice’s embedded Python and is **not** used by `=PY()`.)*
 
-| Context | `data` / `data_range` in schema? | Injected in subprocess? |
-|---------|----------------------------------|-------------------------|
+### Run Python Script & Monaco {#run-python-script--monaco}
+
+WriterAgent ships a **Monaco-based code editor** (pywebview child in the configured venv) for Calc formulas and ad-hoc scripts. Theme sync with LibreOffice light/dark is shipped. IPC and remaining editor backlog: [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md).
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **Edit Python in Cell…** (Calc menubar + cell context menu) | **Shipped** | Dual save (`=PY("…")` or plain text for `=PY($A$1; …)`); editable **Data:** range |
+| **Run Python Script…** (Writer/Calc/Draw) | **Shipped** | **Run** / **Save** / script picker |
+| **Document-attached scripts** | **Shipped** | **This Document** vs **My Scripts** in the picker — scripts can travel with `.odt`/`.ods`/`.odg` |
+| **Edit Initialization Script…** (Calc) | **Shipped** | Workbook startup script in document properties |
+| Syntax squiggles, range picker, full Jedi, sheet cell list | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed) |
+
+**Requirements:** Settings → Python → venv path with `pywebview` installed (Linux also needs `PyQt6 PyQt6-WebEngine qtpy`). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
+
+**Document-attached scripts:** Named scripts live in document properties so they travel with the file. Monaco supports **Attach** / **Copy to My Scripts**; read-only documents fall back to the personal library (**My Scripts** in `writeragent.json`) with a clear message.
+
+### Calc `=PY()` (quick start) {#calc-py-quick-start}
+
+In Calc, put Python in a formula (or in a cell and reference it):
+
+```text
+=PY("result = 3 ** 8")
+=PY("result = np.mean(data)"; A1:A10)
+=PY($A$1; B1:B10)   # code text lives in A1 — avoids quote escaping
+```
+
+Use **Edit Python in Cell…** for multi-line editing. Assign **`result`** for the cell value. Session modes (Isolated vs Shared kernel), auto-spill, matrix formulas, empty cells vs NaN, and Calc lexer quirks are in [§6](#6-the-py-calc-function).
+
+### Assign `result` {#assign-result}
+
+Both **Run Python Script** and **`=PY()`** expect JSON-serializable output assigned to **`result`**. NumPy arrays and pandas objects are serialized in the worker. Prefer `result = …` over relying on `print()` for values that should appear in the sheet or script result.
+
+### Using the chat assistant (optional) {#using-the-chat-assistant-optional}
+
+You can also ask the sidebar chat to run the same venv Python. The model uses the specialized tool **`run_venv_python_script`** (domain `python`) — same warm worker as the menus and `=PY()`. Chat runs are always **isolated** (they do not share the Calc workbook kernel).
+
+The assistant does **not** write into the document from inside the venv subprocess:
+
+1. **Compute:** Call `run_venv_python_script` with numpy/pandas code; read serialized `result`.
+2. **Insert:** Call existing Calc/Writer tools (`write_formula_range`, `set_style`, `create_chart`, etc.).
+
+| Context | `data` / `data_range`? | Injected in subprocess? |
+|---------|------------------------|-------------------------|
 | Calc chat, `domain=python` | Yes | Yes, when provided |
 | Writer / Draw chat, `domain=python` | No | Never — use document tools for content |
 | `=PY(code, range)` | 2nd arg is the range | Yes |
 
-Wall-clock limit comes from **Settings → Python** (`scripting.python_exec_timeout`, default **10s**, max **600s**). It is not exposed on the LLM tool schema. That limit applies to **user code execution** only: the first request after worker spawn (or after a crash) runs an internal warm step (spawn + auto-imports) under a separate ~30s host budget (`WARM_WORKER_TIMEOUT_SEC` in [`config_limits.py`](plugin/scripting/config_limits.py)), not charged against your configured value.
+**What you see:** ask for analysis → the model may show generated Python in Thinking → status *Running Python script…* → results return and the model updates the document via normal tools (or retries on error).
 
-Trusted helpers that involve model loading or known long work (Vision/OCR, text analytics with spaCy, symbolic math with SymPy, embeddings, etc.) use a single internal long budget (`LONG_TRUSTED_WORKER_TIMEOUT_SEC`) instead of the user script timeout. See the list in [`client.py`](../plugin/scripting/client.py) and [Image Recognition](image-recognition.md).
-
-### Two-phase LLM workflow
-
-The LLM does **not** write into the document from inside the venv subprocess:
-
-1. **Compute:** Call `run_venv_python_script` with numpy/pandas code; read serialized `result`.
-2. **Insert:** Call existing Calc tools (`write_formula_range`, `set_style`, `create_chart`, etc.).
-
-This keeps user scripts free of UNO and matches today’s shipped behavior. Prompt guidance for the model lives with other tool instructions in the chat/specialized toolset flow (domain `python`).
-
-**Example flow**
-
-```text
-1. run_venv_python_script(code="import numpy as np\nresult = np.random.normal(0, 1, 100).tolist()")
-2. write_formula_range(...) using the returned list
-3. create_chart(...)
-```
-
-### What the user experiences
-
-1. Ask for analysis or computation requiring third-party libraries.
-2. The model generates Python (visible in Thinking when enabled).
-3. Status: *Running Python script…*
-4. Results return as JSON; the model updates the document via normal tools.
-5. On error, the model sees the message and can retry.
-
-### Monaco editor & Run Python Script
-
-WriterAgent ships a **Monaco-based code editor** (pywebview child in the configured venv) for Calc formulas and ad-hoc scripts. IPC, threading, and remaining phase 2B–2F backlog: [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md). (Theme sync 2E is shipped.)
-
-| Feature | Status | Entry |
-|---------|--------|-------|
-| **Edit Python in Cell…** (Calc menubar + cell context menu) | **Shipped** | [`python_editor.py`](plugin/calc/python/editor.py) — dual save (`=PY("…")` or plain text for `=PY($A$1; …)`), editable **Data:** range textbox |
-| **Run Python Script…** (Writer/Calc/Draw) | **Shipped** | [`python_runner.py`](plugin/scripting/python_runner.py) + [`editor_host.py`](plugin/scripting/editor_host.py) — **Run** / **Save** / script picker |
-| **Document-attached scripts** (`WriterAgentDocumentPythonScripts`) | **Shipped** | [`document_scripts.py`](plugin/scripting/document_scripts.py) — **This Document** vs **My Scripts** in picker |
-| **Edit Initialization Script…** (Calc) | **Shipped** | [`init_script_editor.py`](plugin/calc/init_script_editor.py) — workbook startup script in document properties |
-| **Theme sync (2E)** — Monaco + toolbar chrome automatically follow LO light/dark | **Shipped** | [`appearance.py`](plugin/framework/appearance.py), editor host + JS/CSS |
-| Syntax squiggles (2B), range picker (2C), full Jedi (2D), sheet cell list | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed) |
-
-**Requirements:** Settings → Python → `scripting.python_venv_path` with `uv pip install pywebview` (on Linux, also `PyQt6 PyQt6-WebEngine qtpy` for a self-contained WebEngine backend). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
-
-**Document-Attached Scripts:** Named scripts can be stored in document `UserDefinedProperties` (`WriterAgentDocumentPythonScripts`) so they travel with `.odt`/`.ods`/`.odg`. The Monaco script picker shows **My Scripts** (personal library in `writeragent.json`) and **This Document** separately. Implementation: [`document_scripts.py`](plugin/scripting/document_scripts.py). Monaco supports **Attach** / **Copy to My Scripts**; read-only documents fall back to the personal library with a clear message.
+Wall-clock limit is still **Settings → Python** (`scripting.python_exec_timeout`); it is not a tool-schema parameter. Tool schema detail: [§5](#tool-schema-reference) / [`venv.py`](plugin/calc/python/venv.py).
 
 ---
+
 
 ## 4. Architecture
 
@@ -166,11 +177,14 @@ WriterAgent ships a **Monaco-based code editor** (pywebview child in the configu
 ┌──────────────────────────────────────────────────────────┐
 │                    LibreOffice Process                    │
 │                                                          │
-│  ┌─────────────┐    ┌──────────────────────────────────┐ │
-│  │  LLM / Chat │───▶│  run_venv_python_script / =PYTHON │ │
-│  │  (tool loop) │    │  → run_code_in_user_venv          │ │
-│  └─────────────┘    └──────────┬───────────────────────┘ │
-│                                │                         │
+│  ┌──────────────────┐   ┌─────────────────────────────┐  │
+│  │ Run Python Script │──▶│ run_code_in_user_venv       │  │
+│  │ =PY() / Edit Cell │  │ (shared entry)              │  │
+│  └──────────────────┘   └──────────┬──────────────────┘  │
+│  ┌──────────────────┐              │                     │
+│  │ Chat (optional)   │──────────────┘                     │
+│  │ run_venv_python…  │                                   │
+│  └──────────────────┘                                    │
 │                     ┌──────────▼───────────────────────┐ │
 │                     │  PythonWorkerManager             │ │
 │                     │  warm venv process               │ │
@@ -183,7 +197,7 @@ WriterAgent ships a **Monaco-based code editor** (pywebview child in the configu
 │                     └──────────┬───────────────────────┘ │
 │                                │ result / stdout         │
 │                     ┌──────────▼───────────────────────┐ │
-│                     │  LLM → Calc/Writer tools         │ │
+│                     │  Sheet / script UI / (chat tools)│ │
 │                     └──────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -211,9 +225,9 @@ Host↔venv plumbing (module map, worker protocol, `python_max_data_cells`, benc
 
 WriterAgent removed upstream’s `find_spec` import pre-check at executor init (see comment in vendored `local_python_executor.py`); missing packages fail when code imports them.
 
-> The AST sandbox is not a perfect security boundary; **subprocess isolation** is the real guarantee. LLM-generated code is the threat model, not arbitrary hostile users.
+> The AST sandbox is not a perfect security boundary; **subprocess isolation** is the real guarantee. Untrusted script strings (including LLM-generated code) are the threat model, not arbitrary hostile users with shell access.
 
-#### Import policy for LLM agents
+#### Import policy (sandboxed scripts) {#import-policy-sandboxed-scripts}
 
 Prompt text is generated from [`plugin/scripting/import_policy.py`](../plugin/scripting/import_policy.py) (whitelist in [`sandbox.py`](../plugin/scripting/sandbox.py)). It always leads with a **sandbox context prefix** before module lists so models know they are in a powerful **Python sandbox** (many scientific packages assumed in the user venv) with **no networking** and **no host escape**.
 
@@ -229,14 +243,14 @@ Prompt text is generated from [`plugin/scripting/import_policy.py`](../plugin/sc
 
 ### Trusted extension code in the venv {#trusted-extension-code-in-the-venv}
 
-The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies only to **user-submitted Python source** — LLM [`run_venv_python_script`](../plugin/calc/python/venv.py), Calc **`=PY()`**, Monaco “Run script”, and similar. It is **not** a blanket restriction on everything that runs inside the warm venv child process.
+The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies only to **user-submitted Python source** — Run Python Script, Calc **`=PY()`**, optional chat [`run_venv_python_script`](../plugin/calc/python/venv.py), and similar. It is **not** a blanket restriction on everything that runs inside the warm venv child process.
 
-**WriterAgent extension code** can use the full venv interpreter (including `open()`, `sqlite3`, `sqlite_vec.load()`, and other modules blocked for LLM scripts) when implemented as **shipped, reviewed modules** under `plugin/scripting/`, invoked from the **LibreOffice host** — not from LLM-generated strings.
+**WriterAgent extension code** can use the full venv interpreter (including `open()`, `sqlite3`, `sqlite_vec.load()`, and other modules blocked for sandboxed scripts) when implemented as **shipped, reviewed modules** under `plugin/scripting/`, invoked from the **LibreOffice host** — not from untrusted script strings.
 
 | Layer | Interpreter | Sandbox? | Typical use |
 |-------|-------------|----------|-------------|
 | **LibreOffice host** | Embedded Python in-process | No NumPy; stdlib + UNO | UNO, config, resolve folder path, enqueue **maintain** RPC + heartbeat timeout |
-| **User venv worker** | User’s venv subprocess | **Yes** for user `code` strings | `=PY()`, `run_venv_python_script` |
+| **User venv worker** | User’s venv subprocess | **Yes** for user `code` strings | `=PY()`, Run Python Script, chat tool |
 | **Trusted venv modules** | Same subprocess | **No** (normal CPython inside the module) | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py), [`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py), [`embeddings_hybrid_search.py`](../plugin/embeddings/venv/embeddings_hybrid_search.py), [`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py), [`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py), [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py), [`payload_codec.py`](../plugin/scripting/payload_codec.py), [`calc_functions.py`](../plugin/scripting/calc_functions.py) |
 
 #### How trusted venv code runs
@@ -266,8 +280,8 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 
 #### What not to do
 
-- **Do not** tell the LLM to `open()` index paths or import `sqlite3` — blocked by design ([import policy](#import-policy-for-llm-agents)).
-- **Do not** widen the LLM whitelist to “fix” embeddings; add a trusted module instead.
+- **Do not** tell sandboxed scripts (or the chat model) to `open()` index paths or import `sqlite3` — blocked by design ([import policy](#import-policy-sandboxed-scripts)).
+- **Do not** widen the script whitelist to “fix” embeddings; add a trusted module instead.
 - **Do not** run sqlite-vec or NumPy encode in LibreOffice’s embedded interpreter — stay on the venv side ([embeddings](embeddings.md#why-numpy-stays-in-the-venv)).
 
 #### Harness `action` dispatch
@@ -278,7 +292,7 @@ The **AST sandbox** (`LocalPythonExecutor` + `VENV_AUTHORIZED_IMPORTS`) applies 
 
 Tool: `run_venv_python_script` with `specialized_domain = "python"`. Registered for Calc; exposed in Writer/Draw via cross-cutting delegation when the LLM activates the python toolset (`delegate_to_specialized_*_toolset(domain="python")`), same pattern as other specialized domains.
 
-### Tool schema (reference)
+### Tool schema (reference) {#tool-schema-reference}
 
 See [`plugin/calc/python/venv.py`](plugin/calc/python/venv.py) — parameters `code`, optional `data` / `data_range` (Calc); `long_running` / async execution.
 
@@ -286,7 +300,7 @@ See [`plugin/calc/python/venv.py`](plugin/calc/python/venv.py) — parameters `c
 
 ## 6. The `=PY()` Calc function
 
-Users and the LLM run Python from Calc via **`=PY()`**. Same runner as **`run_venv_python_script`** ([`venv_worker.py`](plugin/scripting/venv_worker.py)). Configure **Settings → Python** → `scripting.python_venv_path` ([§3](#3-user-guide)).
+You can run Python from Calc via **`=PY()`**. Same warm worker as **Run Python Script…** ([`venv_worker.py`](plugin/scripting/venv_worker.py)). Configure **Settings → Python** → `scripting.python_venv_path` ([§3](#3-user-guide)).
 
 ### Formula parameters
 
@@ -306,7 +320,7 @@ Settings → Python → **`scripting.python_session_mode`**:
 | **Isolated** (default) | Each `=PY()` evaluation gets a **fresh** namespace. The **initialization script** still runs once per workbook and its imports/helpers are **seeded** into every cell — but variables assigned in one cell do **not** leak to the next. |
 | **Shared kernel** | One **persistent global namespace** per workbook (`calc:…` session). Any cell can read or overwrite any name set by any other cell. **WriterAgent → Reset Python Session** clears it. |
 
-Chat **`run_venv_python_script`** always uses isolated execution (not workbook session mode).
+Optional chat runs always use isolated execution (not workbook session mode) — see [Using the chat assistant](#using-the-chat-assistant-optional).
 
 > [!IMPORTANT]
 > **Mental model (Shared kernel):** Calc may recalculate cells in **any order** — not row-major. The only ordering guarantee you get for free is **init script before any cell**. Assume each cell **can run zero, one, or many times** per workbook session. Write **idempotent** code (safe to re-run).
@@ -590,7 +604,7 @@ The real problem is **Calc’s formula lexer**, not type coercion:
 
 Nested parentheses inside the quoted string (`float(…(…)…)`) can make pairing worse on some import paths. The identifier **`float`** is the usual trigger for **#NAME?**.
 
-**Guidance for authors and LLMs:** prefer `np.sum(data)`, `np.max(data)`, `np.nansum(data)` in inline formulas; do not emit `float(...)` unless code lives **outside** the formula string (see below).
+**Guidance:** prefer `np.sum(data)`, `np.max(data)`, `np.nansum(data)` in inline formulas; do not emit `float(...)` unless code lives **outside** the formula string (see below).
 
 #### Recommended patterns (today)
 
@@ -617,7 +631,7 @@ These are **not** implemented; kept here so design discussions do not rediscover
 
 ### How it runs
 
-Uses the same warm worker as the chat tool ([§2](#2-strategy-decision)). **`execute_python_script`** is separate and not used for formulas. **Isolated** mode (default): variables do **not** persist across cells. **Shared kernel**: one workbook namespace until reset — [§6 Session modes](#session-modes-and-recalc-semantics).
+Uses the same warm worker as Run Python Script ([§2](#2-strategy-decision)). **`execute_python_script`** is separate and not used for formulas. **Isolated** mode (default): variables do **not** persist across cells. **Shared kernel**: one workbook namespace until reset — [§6 Session modes](#session-modes-and-recalc-semantics).
 
 ### Code Oracle (`=PROMPT()` + `=PY()`)
 
@@ -793,7 +807,7 @@ Microsoft **Python in Excel** runs user code in **cloud containers** with `=PY(c
 | **Multi-range** | Unlimited `xl()` calls in script | Varargs: `data[0]`, `data[1]`, … ([Multi-range support (varargs)](#multi-range-support-varargs)) |
 | **Shared state** | Global namespace + row-major **co-volatility** | Opt-in **Shared kernel** + **`data` refs** for ordering ([§6](#session-modes-and-recalc-semantics)) |
 | **Runtime** | Cloud sandbox (offline requires connectivity) | User venv subprocess (offline, any pip packages) |
-| **Editor** | Monaco task pane in Excel | Monaco via pywebview ([§3 Monaco](#monaco-editor--run-python-script)) |
+| **Editor** | Monaco task pane in Excel | Monaco via pywebview ([§3 Monaco](#run-python-script--monaco)) |
 
 **Design stance — keep explicit `data` + `result`:** Calc's formula engine tracks range dependencies without fragile string/AST pre-parsing. The `result` convention is deterministic for sandboxed execution. For long scripts, use **code in a cell**: `A1` holds Python; `=PY($A$1; B1:B10)` — supported today and editable in Monaco with **Save as plain text**.
 
@@ -842,7 +856,7 @@ WriterAgent Calc **does** run Python in cells (`=PY()` / `=PY()` in a local venv
 **Design stance (vs cloud spreadsheet AI):**
 
 - **Local-first** — compute in the user's venv subprocess, not a managed cloud container ([§2](#2-strategy-decision)).
-- **Auditable code over black-box cell AI** — prefer generated Python plus existing tools over LLM text written directly into cells ([§3 two-phase workflow](#two-phase-llm-workflow)).
+- **Auditable code over black-box cell AI** — prefer generated Python plus existing tools over LLM text written directly into cells ([§3 chat assistant](#using-the-chat-assistant-optional)).
 - **Explicit `data` wiring for recalc order** — shared kernel does not give Excel co-volatility; pass upstream cells as `data` args and write idempotent side effects ([§6 Session modes](#session-modes-and-recalc-semantics)).
 
 #### Apps Script as API design reference (not as runtime)
@@ -864,7 +878,7 @@ The Apps Script **spreadsheet object model** is a reasonable **reference for a P
 
 ### Venv ↔ LibreOffice tool RPC
 
-> **Status: Not implemented.** [`writeragent_api.py`](plugin/scripting/writeragent_api.py) is generated from tool metadata ([`scripts/generate_tool_proxies.py`](scripts/generate_tool_proxies.py)), but the warm worker does **not** handle `tool_call` lines yet. Scripts must assign **`result`**; the LLM calls Calc/Writer tools in phase two ([§3](#3-user-guide)).
+> **Status: Not implemented.** [`writeragent_api.py`](plugin/scripting/writeragent_api.py) is generated from tool metadata ([`scripts/generate_tool_proxies.py`](scripts/generate_tool_proxies.py)), but the warm worker does **not** handle `tool_call` lines yet. Scripts must assign **`result`**; on the optional chat path the model calls Calc/Writer tools after compute ([§3 chat assistant](#using-the-chat-assistant-optional)).
 
 **Intended behavior (when built):**
 
@@ -914,8 +928,7 @@ Backlog items inspired by Microsoft Python in Excel ([parity summary above](#mic
 | Enhancement | Design note |
 |-------------|-------------|
 | **DataFrame → rich table** | On DataFrame egress, optional host path: create or update a Calc table with header row, column formats, and filters — not only raw cell values. Distinct from [Phase 5 object cards](python-in-excel-dev-plan.md) (in-memory reference + preview dialog). |
-| **JSON-structured `result` envelope** | Extend the `__wa_payload__` pattern (already used for images) for agent-friendly dicts (e.g. `{ "cells": …, "formats": … }`) so `=PY()` and `run_venv_python_script` can drive multi-cell updates in one evaluation. Complements the two-phase LLM workflow ([§3](#3-user-guide)). |
-| **Named range resolution** | When the `data` argument is a defined name (sheet- or workbook-scoped), resolve it to coordinates before [`calc_addin_data_to_python`](../plugin/calc/calc_addin_data.py). Parity with LibrePythonista `lp("MyRange")`; chat named-range tools exist separately ([calc-specialized-toolsets.md](calc-specialized-toolsets.md)). |
+| **JSON-structured `result` envelope** | Extend the `__wa_payload__` pattern (already used for images) for structured dicts (e.g. `{ "cells": …, "formats": … }`) so `=PY()` and chat scripts can drive multi-cell updates in one evaluation. Complements the optional [chat compute-then-insert flow](#using-the-chat-assistant-optional). || **Named range resolution** | When the `data` argument is a defined name (sheet- or workbook-scoped), resolve it to coordinates before [`calc_addin_data_to_python`](../plugin/calc/calc_addin_data.py). Parity with LibrePythonista `lp("MyRange")`; chat named-range tools exist separately ([calc-specialized-toolsets.md](calc-specialized-toolsets.md)). |
 | **Structured tables** | Ingest Calc database ranges / table objects with column keys and bounds (Excel ListObject equivalent); optional `headers=True` on range conversion. |
 | **Label preservation** | Treat the first row and/or column as pandas `Index` when requested; round-trip labels on egress where Calc supports named columns. |
 | **Inline result preview** | Lightweight preview beside or below the formula cell (stdout snippet, shape summary, image thumbnail) without opening Monaco or the full diagnostics pane. |
