@@ -138,12 +138,15 @@ def _strip_stray_handlers(logger: logging.Logger) -> bool:
         if _is_matching_debug_handler(handler):
             has_matching = True
             continue
+        if handler.__class__.__name__ == "LogCaptureHandler":
+            continue
         try:
             logger.removeHandler(handler)
             handler.close()
         except Exception:
             pass
     return has_matching
+
 
 
 def _ensure_debug_file_handler(logger: logging.Logger) -> None:

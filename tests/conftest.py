@@ -184,13 +184,26 @@ def _setup_grammar_persistence_test_env():
     """Isolate grammar persistence AND the config path for every test, so no test can leak
     files into mock-derived paths."""
     from plugin.framework import config as config_mod
+    from plugin.framework import logging as logging_mod
     from plugin.writer.locale import grammar_persistence
+    import logging
     import shutil
     import tempfile
 
     # Reset doc instances to ensure fresh initialization per test
     old_doc_instances = dict(grammar_persistence._doc_persistence_instances)
     grammar_persistence._doc_persistence_instances.clear()
+
+    # Save logging state
+    old_debug_log_path = logging_mod._debug_log_path
+    old_enable_agent_log = logging_mod._enable_agent_log
+    old_log_level_numeric = logging_mod._log_level_numeric
+
+    # Save log handlers
+    wa_logger = logging.getLogger("writeragent")
+    root_logger = logging.getLogger()
+    old_wa_handlers = list(wa_logger.handlers)
+    old_root_handlers = list(root_logger.handlers)
 
     tmp_dir = tempfile.mkdtemp()
     # Seed the resolved-config-path cache too. Patching the user_config_dir attribute below does
@@ -207,10 +220,32 @@ def _setup_grammar_persistence_test_env():
     finally:
         config_mod._resolved_config_path = old_resolved
 
-    # Clean up
-    grammar_persistence._doc_persistence_instances.clear()
-    shutil.rmtree(tmp_dir, ignore_errors=True)
-    grammar_persistence._doc_persistence_instances.update(old_doc_instances)
+        # Restore logging state
+        logging_mod._debug_log_path = old_debug_log_path
+        logging_mod._enable_agent_log = old_enable_agent_log
+        logging_mod._log_level_numeric = old_log_level_numeric
+
+        # Close and remove any handlers added during the test
+        for h in list(wa_logger.handlers):
+            if h not in old_wa_handlers:
+                wa_logger.removeHandler(h)
+                try:
+                    h.close()
+                except Exception:
+                    pass
+        for h in list(root_logger.handlers):
+            if h not in old_root_handlers:
+                root_logger.removeHandler(h)
+                try:
+                    h.close()
+                except Exception:
+                    pass
+
+        # Clean up
+        grammar_persistence._doc_persistence_instances.clear()
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        grammar_persistence._doc_persistence_instances.update(old_doc_instances)
+
 
 
 def pytest_sessionstart(session):
