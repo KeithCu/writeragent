@@ -3,361 +3,232 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Generate locale_abbrev.py with abbreviation lists for all supported grammar locales.
+"""Generate plugin/writer/locale/locale_abbrev.py from Unicode CLDR SentenceBreak suppressions.
 
-Pulls data from EXTERNAL SOURCES ONLY:
-1. Unicode CLDR (month/day/territory abbreviations) - COMMENTED OUT
-2. NLP libraries (spaCy, NLTK) if installed
+CLDR ``common/segments/*.xml`` lists abbreviations that should not end a sentence
+(ULI / UTS #35 segmentation suppressions). Only a handful of languages ship this
+data; the grammar checker keeps heuristics for the rest.
 
-Dynamic: reads locale list from hardcoded list.
-No hardcoded lists. If import fails, it crashes - fix it, don't generate junk.
+Future work (keep improving without a second hand table):
+  - Bump ``CLDR_TAG`` when Unicode releases new segment suppressions; regenerate.
+  - Retune ``_AMBIGUOUS_DENYLIST`` / ``keep_suppression`` if over- or under-merge
+    shows up in grammar splitting (raw English ULI includes To./By./On.).
+  - If a real bug needs one extra token, add a tiny vetted exception in the
+    generator output path — never spaCy/NLTK/LLM per-locale dumps.
+  See also ``grammar_proofread_locale.py`` (abbrev Future work) and
+  ``docs/realtime-grammar-checker-plan.md``.
 
 Usage:
     python scripts/generate_locale_abbreviations.py
+    python scripts/generate_locale_abbreviations.py --from-dir /path/to/cldr/common/segments
 """
 
 from __future__ import annotations
 
+import argparse
 import os
-import sys
-from typing import FrozenSet, Dict
-from dataclasses import dataclass
+import urllib.error
+import urllib.request
+import xml.etree.ElementTree as ET
+from collections import defaultdict
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, REPO_ROOT)
 
-SHARED_THRESHOLD = 2  # Tunable: abbreviations appearing in >= this many LANGUAGES go to shared list
+# Pin a released CLDR tag so regenerations are reproducible.
+CLDR_TAG = "release-48-2"
+CLDR_VERSION_LABEL = "48.2"
+CLDR_SEGMENTS_BASE = f"https://raw.githubusercontent.com/unicode-org/cldr/{CLDR_TAG}/common/segments"
 
+# Locales that actually ship SentenceBreak <suppression> lists in CLDR
+# (el/ja/zh segment files exist but only tailor break rules, not abbrevs).
+CLDR_SEGMENT_FILES: tuple[str, ...] = (
+    "en.xml",
+    "de.xml",
+    "es.xml",
+    "fr.xml",
+    "it.xml",
+    "pt.xml",
+    "ru.xml",
+)
 
-@dataclass
-class LocaleData:
-    """Holds abbreviation data for a locale."""
-    month_abbrevs: FrozenSet[str]
-    day_abbrevs: FrozenSet[str]
-    territory_abbrevs: FrozenSet[str]
-    nlp_abbrevs: FrozenSet[str]
-    
-    def all_abbrevs(self) -> FrozenSet[str]:
-        return self.month_abbrevs | self.day_abbrevs | self.territory_abbrevs | self.nlp_abbrevs
+# Raw CLDR English suppressions include ordinary sentence-final words (To., By., …).
+# Matching those as abbreviations over-merges real sentence ends.
+_AMBIGUOUS_DENYLIST: frozenset[str] = frozenset({
+    # Function / pronoun / light verbs that can end a sentence
+    "to", "by", "on", "go", "is", "do", "as", "or", "in", "at", "up", "all", "for",
+    "so", "an", "be", "if", "it", "me", "my", "we", "he", "she", "of", "ok",
+    # Truncated English words that appear in ULI data but are not safe as global abbrevs
+    "job", "long", "link", "hat", "act", "var", "jam", "card", "joe", "lev", "mart",
+})
 
-
-def get_supported_locales() -> tuple[str, ...]:
-    """Get the list of supported grammar locales."""
-    return (
-        "en-US", "en-GB", "bg-BG", "bn-IN", "ca-ES", "cs-CZ", "da-DK", "de-DE",
-        "el-GR", "es-ES", "et-EE", "fi-FI", "fr-FR", "hi-IN", "hr-HR", "hu-HU",
-        "id-ID", "it-IT", "ja-JP", "ko-KR", "lt-LT", "lv-LV", "nb-NO", "nl-NL",
-        "nn-NO", "pl-PL", "pt-BR", "ro-RO", "ru-RU", "sk-SK", "sv-SE", "tr-TR",
-        "uk-UA", "ur-PK", "zh-CN", "zh-TW",
-    )
-
-
-# =============================================================================
-# CLDR Data Fetcher - COMMENTED OUT
-# Using only spacy and nltk for now
-# =============================================================================
-
-# CLDR_URL = "https://unicode.org/Public/cldr/latest/json-full/main/"
-# _cldr_cache: Dict[str, dict] = {}
-# _cldr_failures: set[str] = set()
+_VOWELS = set("aeiouyаеёиоуыэюяαεηιουωàáâãäåèéêëìíîïòóôõöùúûüýÿæøœ")
 
 
-def cldr_language_code(locale_tag: str) -> str:
-    return locale_tag.split("-")[0]
+def normalize_abbrev(raw: str) -> str | None:
+    """Lowercase, strip trailing dots; keep internal dots. Skip multi-word / empty."""
+    text = (raw or "").strip()
+    if not text or any(ch.isspace() for ch in text):
+        return None
+    norm = text.lower().rstrip(".")
+    if not norm or not any(ch.isalpha() for ch in norm):
+        return None
+    return norm
 
 
-def extract_cldr_abbreviations(lang: str) -> tuple[FrozenSet[str], FrozenSet[str], FrozenSet[str]]:
-    """Extract month, day, and territory abbreviations from CLDR - disabled, returning empty sets."""
-    return frozenset(), frozenset(), frozenset()
+def is_ambiguous(norm: str) -> bool:
+    if norm in _AMBIGUOUS_DENYLIST:
+        return True
+    # Single letters are covered by the initials heuristic; skip to shrink the table.
+    if len(norm) == 1 and norm.isalpha():
+        return True
+    # Bare 2-letter Latin words with a vowel are usually real words (to/by/on already listed).
+    alpha = [ch for ch in norm if ch.isalpha()]
+    if len(norm) == 2 and len(alpha) == 2 and "." not in norm:
+        if any(ch in _VOWELS for ch in alpha) and all(ord(ch) < 128 for ch in alpha):
+            return True
+    return False
 
 
-# =============================================================================
-# NLP Libraries (optional)
-# =============================================================================
-
-def get_nlp_abbreviations(lang: str) -> FrozenSet[str]:
-    """Try to get abbreviations from installed NLP libraries."""
-    abbrevs: set[str] = set()
-    
-    # spaCy - extract tokens that look like sentence-ending abbreviations
-    try:
-        import spacy
-        try:
-            nlp = spacy.load(
-                f"{lang}_core_news_sm" if lang != "en" else "en_core_web_sm",
-                disable=["parser", "ner"]
-            )
-        except (OSError, ValueError):
-            nlp = None
-        if nlp is not None:
-            try:
-                # Known common abbreviations that end sentences
-                known_abbrevs = {
-                    "dr", "mr", "mrs", "ms", "prof", "rev", "gen", "gov", "rep", "sen",
-                    "jr", "sr", "st", "ave", "blvd", "rd", "ln", "mt", "pkwy",
-                    "u.s", "u.k", "u.n", "e.u", "i.e", "e.g", "etc", "vs", "viz",
-                    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
-                    "mon", "tue", "wed", "thu", "fri", "sat", "sun",
-                    "am", "pm", "no", "jan", "feb", "mar", "apr", "may", "jun",
-                    "jul", "aug", "sep", "oct", "nov", "dec", "al", "ar", "az", "ca",
-                    "co", "ct", "de", "fl", "ga", "hi", "ia", "id", "il", "in",
-                    "ks", "ky", "la", "ma", "md", "me", "mi", "mn", "mo", "ms",
-                    "mt", "nc", "nd", "ne", "nh", "nj", "nm", "nv", "ny", "oh",
-                    "ok", "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "va",
-                    "vt", "wa", "wi", "wv", "wy", "dc", "pr", "vi", "as", "gu",
-                }
-                for text in nlp.vocab.strings:
-                    if isinstance(text, str):
-                        text_stripped = text.strip().lower()
-                        if not text_stripped:
-                            continue
-                        # Skip if contains digits or special chars
-                        if any(c.isdigit() or c in '$&+=%#@!*?<>{}|\\^~[]/' for c in text_stripped):
-                            continue
-                        # Skip if has multiple dots
-                        if text_stripped.count(".") > 1:
-                            continue
-                        # Keep if it's a known abbreviation
-                        if text_stripped in known_abbrevs or text_stripped.rstrip(".") in known_abbrevs:
-                            abbrevs.add(text_stripped if text_stripped.endswith(".") else text_stripped + ".")
-                        # Or if it ends with dot and base is 2-4 letters
-                        elif text_stripped.endswith(".") and 2 <= len(text_stripped) - 1 <= 4:
-                            abbrevs.add(text_stripped)
-            except Exception:
-                pass
-    except ImportError:
-        pass
-    
-    # NLTK - extract abbreviations from stopwords that look like sentence terminators
-    try:
-        from nltk.corpus import stopwords
-        if lang in stopwords.fileids():
-            for word in stopwords.words(lang):
-                w = word.lower().strip()
-                if not w:
-                    continue
-                # Only keep entries that are 2-4 letters and end with dot, or are known abbrevs
-                if len(w) >= 2 and len(w) <= 4 and w.endswith("."):
-                    abbrevs.add(w)
-    except ImportError:
-        pass
-    
-    return frozenset(abbrevs)
+def keep_suppression(norm: str) -> bool:
+    """Accept high-value CLDR tokens; reject ambiguous sentence-enders."""
+    if is_ambiguous(norm):
+        return False
+    # Internal periods (U.S.A., Ph.D., т.е.) are strong abbrev signals.
+    if "." in norm:
+        return True
+    # Consonant-only (vs, ltd, ст) — same idea as the runtime heuristic.
+    alpha = [ch for ch in norm if ch.isalpha()]
+    if alpha and not any(ch in _VOWELS for ch in alpha):
+        return True
+    # Titles / months / orgs: short alpha tokens (2–6 letters) without looking like English stopwords.
+    if 2 <= len(alpha) <= 6 and all(ch.isalpha() or ch in ".-'" for ch in norm):
+        return True
+    # Longer tokens with at least one non-Latin letter (Cyrillic/Greek months, etc.).
+    if any(ord(ch) > 127 for ch in norm) and 2 <= len(alpha) <= 12:
+        return True
+    return False
 
 
-def collect_abbreviations_for_locale(locale_tag: str, use_nlp: bool = True) -> LocaleData:
-    """Collect abbreviations from external sources."""
-    lang = cldr_language_code(locale_tag)
-    month_abbrevs, day_abbrevs, territory_abbrevs = extract_cldr_abbreviations(lang)
-    nlp_abbrevs: FrozenSet[str] = frozenset()
-    if use_nlp:
-        nlp_abbrevs = get_nlp_abbreviations(lang)
-    return LocaleData(
-        month_abbrevs=month_abbrevs,
-        day_abbrevs=day_abbrevs,
-        territory_abbrevs=territory_abbrevs,
-        nlp_abbrevs=nlp_abbrevs,
-    )
+def parse_suppressions_xml(xml_text: str) -> set[str]:
+    """Extract SentenceBreak <suppression> strings from a CLDR segments file.
 
-
-# =============================================================================
-# Module Generator
-# =============================================================================
-
-def escape_abbr(abbr: str) -> str:
-    """Escape special characters for Python string literal."""
-    return abbr.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-
-
-def generate_module_content() -> str:
-    """Generate the locale_abbrev.py module content."""
-    locales = get_supported_locales()
-    
-    # Collect all abbreviations per locale
-    locale_abbrevs: dict[str, FrozenSet[str]] = {}
-    for locale in locales:
-        data = collect_abbreviations_for_locale(locale, use_nlp=True)
-        locale_abbrevs[locale] = data.all_abbrevs()
-    
-    # Group by language
-    lang_abbrevs_all: dict[str, set[str]] = {}
-    for locale in locales:
-        base_lang = cldr_language_code(locale)
-        if base_lang not in lang_abbrevs_all:
-            lang_abbrevs_all[base_lang] = set()
-        lang_abbrevs_all[base_lang].update(locale_abbrevs[locale])
-    
-    # Count frequency of each abbreviation across LANGUAGES
-    abbr_lang_count: dict[str, int] = {}
-    for lang, abbrevs in lang_abbrevs_all.items():
-        for abbr in abbrevs:
-            abbr_lang_count[abbr] = abbr_lang_count.get(abbr, 0) + 1
-    
-    # Separate shared (appearing in >= SHARED_THRESHOLD languages) vs language-specific
-    shared_abbrevs: set[str] = set()
-    for abbr, count in abbr_lang_count.items():
-        if count >= SHARED_THRESHOLD:
-            shared_abbrevs.add(abbr)
-    
-    # Per-language lists (abbreviations specific to each language, not in shared)
-    lang_abbrevs: dict[str, set[str]] = {}
-    for lang, abbrevs in lang_abbrevs_all.items():
-        lang_abbrevs[lang] = set()
-        for abbr in abbrevs:
-            if abbr not in shared_abbrevs:
-                lang_abbrevs[lang].add(abbr)
-    
-    lines = [
-        '# WriterAgent - AI Writing Assistant for LibreOffice',
-        '# Copyright (c) 2026 KeithCu',
-        '#',
-        '# SPDX-License-Identifier: GPL-3.0-or-later',
-        '"""Locale-specific abbreviation lists for grammar checking.',
-        '',
-        'Generated by scripts/generate_locale_abbreviations.py from external sources.',
-        f'Sources: NLP libraries (spaCy, NLTK). Shared threshold: {SHARED_THRESHOLD}',
-        '"""',
-        '',
-        'from __future__ import annotations',
-        '',
-        'from typing import FrozenSet',
-        '',
-        '',
-        f'# Shared abbreviations (appear in >= {SHARED_THRESHOLD} languages)',
-        'SHARED_ABBREVS: FrozenSet[str] = frozenset({',
-    ]
-    
-    for abbr in sorted(shared_abbrevs):
-        lines.append(f'    "{escape_abbr(abbr)}",')
-    
-    lines.append('})')
-    lines.append('')
-    lines.append('')
-    lines.append('# Per-language abbreviations (not in shared)')
-    lines.append('LANG_ABBREVS: dict[str, FrozenSet[str]] = {')
-    
-    for lang in sorted(lang_abbrevs.keys()):
-        abbrevs = lang_abbrevs[lang]
-        if not abbrevs:
+    These files only contain SentenceBreak suppressions today, so every
+    ``<suppression>`` element is relevant. Multi-word entries are skipped in
+    ``normalize_abbrev`` (the runtime checker sees only the token before ``.``).
+    """
+    root = ET.fromstring(xml_text)
+    found: set[str] = set()
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag != "suppression":
             continue
-        lines.append(f'    "{lang}": frozenset({{')
-        for abbr in sorted(abbrevs):
-            lines.append(f'        "{escape_abbr(abbr)}",')
-        lines.append('    }),')
-    
-    lines.extend([
-        '}',
-        '',
-        '',
-        'def word_before_period_is_abbrev(word: str, locale_key: str = "") -> bool:',
-        '    """Check if word before a period is an abbreviation (not a sentence end).',
-        '',
-        '    Checks shared list and per-language lists from NLP data.',
-        '    Falls back to heuristics:',
-        '    - All-caps word, 2-4 chars (NASA, UN, USA)',
-        '    - Single capital letter (A, I, Q)',
-        '    - Word containing periods (U.S., Ph.D.)',
-        '    """',
-        '    if not word:',
-        '        return False',
-        '',
-        '    word_lower = word.lower()',
-        '',
-        '    if word_lower in SHARED_ABBREVS:',
-        '        return True',
-        '',
-        '    # Check per-language list based on locale key',
-        '    if locale_key:',
-        '        base_lang = locale_key.split("-")[0] if "-" in locale_key else locale_key',
-        '        if base_lang in LANG_ABBREVS:',
-        '            if word_lower in LANG_ABBREVS[base_lang]:',
-        '                return True',
-        '',
-        '    # Heuristics',
-        '    if len(word) == 1 and word.isupper():',
-        '        return True',
-        '',
-        '    if word.isupper() and 2 <= len(word) <= 4:',
-        '        return True',
-        '',
-        '    if "." in word:',
-        '        return True',
-        '',
-        '    return False',
-        '',
-    ])
-    
+        norm = normalize_abbrev(elem.text or "")
+        if norm and keep_suppression(norm):
+            found.add(norm)
+    return found
+
+
+def language_key_from_filename(name: str) -> str:
+    base = name.removesuffix(".xml")
+    if base.startswith("zh_Hant"):
+        return "zh"
+    if "_" in base:
+        return base.split("_", 1)[0]
+    return base
+
+
+def fetch_segment_file(filename: str, from_dir: str | None) -> str:
+    if from_dir:
+        path = os.path.join(from_dir, filename)
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    url = f"{CLDR_SEGMENTS_BASE}/{filename}"
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310 — fixed HTTPS Unicode CDN
+            return resp.read().decode("utf-8")
+    except urllib.error.URLError as exc:
+        raise SystemExit(f"Failed to fetch {url}: {exc}") from exc
+
+
+def collect_abbrevs(from_dir: str | None) -> dict[str, set[str]]:
+    by_lang: dict[str, set[str]] = defaultdict(set)
+    for filename in CLDR_SEGMENT_FILES:
+        print(f"  {filename} …", end=" ", flush=True)
+        xml_text = fetch_segment_file(filename, from_dir)
+        abbrevs = parse_suppressions_xml(xml_text)
+        lang = language_key_from_filename(filename)
+        by_lang[lang].update(abbrevs)
+        print(f"{len(abbrevs)} kept")
+    return dict(by_lang)
+
+
+def escape_py(s: str) -> str:
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def generate_module(by_lang: dict[str, set[str]]) -> str:
+    merged: set[str] = set()
+    for abbrevs in by_lang.values():
+        merged.update(abbrevs)
+
+    lines: list[str] = [
+        "# WriterAgent - AI Writing Assistant for LibreOffice",
+        "# Copyright (c) 2026 KeithCu",
+        "#",
+        "# SPDX-License-Identifier: GPL-3.0-or-later",
+        '"""CLDR SentenceBreak suppression abbreviations for grammar sentence splitting.',
+        "",
+        f"Generated by scripts/generate_locale_abbreviations.py from Unicode CLDR {CLDR_VERSION_LABEL}",
+        f"(git tag {CLDR_TAG}). Data © Unicode, Inc. — Unicode License.",
+        "Do not edit by hand; re-run the generator after bumping CLDR_TAG.",
+        "",
+        "Merged only — per-language subsets are not emitted (unused at runtime).",
+        "",
+        "Future work: when CLDR adds suppressions for more languages, bump CLDR_TAG and",
+        "regenerate. Do not append LLM-invented locale dumps here; see the Future work",
+        "block above ``_COMMON_ABBREVIATIONS`` in grammar_proofread_locale.py and",
+        "docs/realtime-grammar-checker-plan.md (Abbreviation detection / Future work).",
+        '"""',
+        "",
+        "from __future__ import annotations",
+        "",
+        "",
+        f"# Merged filtered suppressions from CLDR {CLDR_VERSION_LABEL} ({len(merged)} tokens)",
+        "CLDR_ABBREVS: frozenset[str] = frozenset({",
+    ]
+    for abbr in sorted(merged, key=lambda s: (s.encode("utf-8"), s)):
+        lines.append(f'    "{escape_py(abbr)}",')
+    lines.append("})")
+    lines.append("")
     return "\n".join(lines)
 
 
-# =============================================================================
-# Main
-# =============================================================================
-
 def main() -> None:
-    print("=" * 70)
-    print("Generating locale abbreviation data from NLP SOURCES")
-    print("=" * 70)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--from-dir",
+        help="Read CLDR segment XML files from a local common/segments directory instead of GitHub",
+    )
+    parser.add_argument(
+        "--output",
+        default=os.path.join(REPO_ROOT, "plugin", "writer", "locale", "locale_abbrev.py"),
+        help="Output path for locale_abbrev.py",
+    )
+    args = parser.parse_args()
+
+    print(f"CLDR SentenceBreak suppressions → locale_abbrev.py (tag {CLDR_TAG})")
     print()
-    
-    locales = get_supported_locales()
-    print(f"Supported locales: {len(locales)}")
-    print(f"  {', '.join(sorted(locales)[:10])}...")
-    print()
-    
-    print()
-    print("Checking for NLP libraries...")
-    nlp_libs = []
-    try:
-        import spacy
-        nlp_libs.append("spaCy")
-    except ImportError:
-        pass
-    try:
-        import nltk
-        nlp_libs.append("NLTK")
-    except ImportError:
-        pass
-    print(f"  Available: {', '.join(nlp_libs) or 'None'}")
-    print(f"  Shared threshold: {SHARED_THRESHOLD}")
-    print()
-    
-    output_dir = os.path.join(REPO_ROOT, "plugin", "writer", "locale")
-    output_path = os.path.join(output_dir, "locale_abbrev.py")
-    os.makedirs(output_dir, exist_ok=True)
-    
-    content = generate_module_content()
-    with open(output_path, "w", encoding="utf-8") as f:
+    by_lang = collect_abbrevs(args.from_dir)
+    content = generate_module(by_lang)
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    with open(args.output, "w", encoding="utf-8") as f:
         f.write(content)
-    
-    print(f"Generated: {output_path}")
+
+    total = len(set().union(*by_lang.values())) if by_lang else 0
     print()
-    
-    # Summary - per-language counting
-    lang_abbrevs_all: dict[str, set[str]] = {}
-    for locale in locales:
-        data = collect_abbreviations_for_locale(locale, use_nlp=True)
-        base_lang = cldr_language_code(locale)
-        if base_lang not in lang_abbrevs_all:
-            lang_abbrevs_all[base_lang] = set()
-        lang_abbrevs_all[base_lang].update(data.all_abbrevs())
-    
-    abbr_lang_count: dict[str, int] = {}
-    for abbrevs in lang_abbrevs_all.values():
-        for abbr in abbrevs:
-            abbr_lang_count[abbr] = abbr_lang_count.get(abbr, 0) + 1
-    
-    shared_count = sum(1 for c in abbr_lang_count.values() if c >= SHARED_THRESHOLD)
-    total_unique = len(abbr_lang_count)
-    langs_with_abbrevs = sum(1 for abbrevs in lang_abbrevs_all.values() if abbrevs)
-    
-    print(f"Statistics:")
-    print(f"  {len(locales)} locales, {langs_with_abbrevs} languages with abbrevs")
-    print(f"  {total_unique} unique abbreviations total")
-    print(f"  {shared_count} shared (in >= {SHARED_THRESHOLD} languages)")
-    print(f"  ~{total_unique // max(1, langs_with_abbrevs)} per language (avg)")
-    print()
-    print("Done!")
+    print(f"Wrote {args.output}")
+    print(f"  languages: {', '.join(sorted(by_lang))}")
+    print(f"  unique abbreviations: {total}")
 
 
 if __name__ == "__main__":

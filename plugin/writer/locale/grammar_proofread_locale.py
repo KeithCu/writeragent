@@ -9,7 +9,8 @@ Includes **shipped BCP-47 tags** (aligned with gettext ``locales/`` and ``Lingui
 tables, scheduling thresholds, abbreviations, Thai/Lao/Khmer whitespace chunking, hashing/fingerprinting,
 LLM worker caps/prompt, and JSON wire parsing — plus pure helpers for those tables.
 
-Must not import sibling modules under ``plugin.writer.locale``.
+Must not import sibling grammar-processing modules under ``plugin.writer.locale``
+(leaf data modules such as ``locale_abbrev`` are fine).
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Literal
+
+from plugin.writer.locale.locale_abbrev import CLDR_ABBREVS
 
 _log = logging.getLogger("writeragent.grammar")
 
@@ -481,31 +484,36 @@ def looks_complete_sentence(text: str) -> bool:
 # ---------------------------------------------------------------------------
 # Abbreviations before "." (BreakIterator sentence extension)
 # ---------------------------------------------------------------------------
-
-_COMMON_ABBREVIATIONS: frozenset[str] = frozenset({
-    # English
-    "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "co", "corp", "inc", "ltd", "etc", "eg", "ie", "vs", "ca", "al", "st", "ave", "rd", "vol", "ed", "pp", "ch", "fig", "no", "approx", "misc", "temp", "am", "pm",
-    # German
-    "geb", "vorm", "hr", "beisp", "bzw", "usw", "evtl", "kath", "u.a", "v.a", "z.b", "d.h", "s.o", "s.u",
-    # French
-    "mme", "mlle", "mlles", "pr", "c-à-d", "c.-à-d", "ex", "sup", "inf", "p",
-    # Spanish
-    "sra", "srta", "dra", "dña", "s.a", "s.l", "cent", "cént", "ej", "pág", "págs", "cía", "vdo", "vda", "ud", "uds",
-    # Italian
-    "sig", "dott", "ecc", "pag", "pagg", "cap", "succ", "s.r.l",
-    # Portuguese
-    "profa", "pag", "pags",
-    # Dutch
-    "dhr", "mw", "enz",
-    # Russian
-    "ул", "ст", "им", "т.е", "т.к", "и.о", "и.д", "и.т.д", "и.т.п", "кв", "корп", "д", "г", "руб", "коп", "тыс", "млн", "млрд", "доп", "см", "табл", "рис", "стр", "вып", "сер", "изд"
-})
+#
+# Current design (enough for shipped grammar locales — do not invent parallel tables):
+#   • One static whitelist = filtered Unicode CLDR SentenceBreak suppressions
+#     (en/de/es/fr/it/pt/ru only; generated into locale_abbrev.CLDR_ABBREVS).
+#   • Heuristics for everything else: pure numbers, single-letter initials,
+#     internal dots, consonant-only (Latin/Cyrillic/Greek vowels).
+# LO UNO BreakIterator does not apply ICU @ss=standard; embeddings already do.
+#
+# Future work — improve only when a real over-split/under-split shows up:
+#   1. Bump CLDR_TAG in scripts/generate_locale_abbreviations.py and regenerate
+#      when Unicode adds suppressions for more languages (today el/ja/zh segment
+#      files have no <suppression> lists; pl/nl/sv/uk/etc. have none at all).
+#   2. Tighten the generator denylist/keep rules if CLDR English still over-merges
+#      (raw ULI data includes To./By./On. — we strip those) or drops useful titles.
+#   3. Add a *tiny* vetted exception only after a reproducible user bug (cite the
+#      string + locale in the commit). Prefer one shared frozenset append in
+#      locale_abbrev generation or a short EXTRA_ABBREVS next to CLDR_ABBREVS —
+#      never revive spaCy/NLTK dumps or LLM-invented per-locale tables.
+#   4. Optional later: pass locale_key into word_before_period_is_abbrev and use
+#      language-specific CLDR subsets if cross-language false positives appear
+#      (merged list is fine until then).
+#   5. Out of scope here: dialogue !/? quote merging; wiring LO BI to @ss=standard.
+#
+_COMMON_ABBREVIATIONS: frozenset[str] = CLDR_ABBREVS
 
 
 def word_before_period_is_abbrev(word: str) -> int:
     """Returns >0 if word is an abbreviation or number (not a sentence terminator), else 0.
-    
-    Checks pure numbers, single-letter initials, internal periods, a multilingual whitelist,
+
+    Checks pure numbers, single-letter initials, internal periods, the CLDR whitelist,
     and consonant-only words across Latin, Cyrillic, and Greek alphabets.
     """
     if not word:
@@ -522,7 +530,7 @@ def word_before_period_is_abbrev(word: str) -> int:
     if len(w_norm) == 1 and w_norm.isalpha():
         return len(word)
 
-    # 3. Multilingual whitelist check
+    # 3. CLDR SentenceBreak suppressions whitelist
     if w_norm in _COMMON_ABBREVIATIONS:
         return len(word)
 

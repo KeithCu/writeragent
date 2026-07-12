@@ -129,11 +129,11 @@ def test_partial_threshold_counts_nonspace_chars() -> None:
     assert gl.count_nonspace_chars("this is long enough") >= gl.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
 
 def test_word_before_period_is_abbrev() -> None:
-    # Basic whitelisted text abbreviations
+    # Basic CLDR-whitelisted abbreviations
     assert gl.word_before_period_is_abbrev("Mr") == 2
     assert gl.word_before_period_is_abbrev("Dr") == 2
     assert gl.word_before_period_is_abbrev("approx") == 6
-    assert gl.word_before_period_is_abbrev("No.") == 3
+    assert gl.word_before_period_is_abbrev("Inc.") > 0
 
     # Normal words are NOT abbreviations (should return 0)
     assert gl.word_before_period_is_abbrev("abc") == 0
@@ -170,6 +170,35 @@ def test_word_before_period_is_abbrev() -> None:
     assert gl.word_before_period_is_abbrev("") == 0
     assert gl.word_before_period_is_abbrev(".") == 0
     assert gl.word_before_period_is_abbrev("...") == 0
+
+
+def test_word_before_period_is_abbrev_cldr_whitelist() -> None:
+    """Single whitelist is filtered CLDR; heuristics cover gaps (not LLM hand lists)."""
+    # CLDR-derived (must survive denylist filtering)
+    assert gl.word_before_period_is_abbrev("Prof.") > 0
+    assert gl.word_before_period_is_abbrev("Jan") > 0
+    assert gl.word_before_period_is_abbrev("ул") > 0
+    assert gl.word_before_period_is_abbrev("руб") > 0
+    # Consonant-only heuristic (not in CLDR whitelist)
+    assert gl.word_before_period_is_abbrev("bzw") > 0
+
+    # Ambiguous English sentence-enders from raw CLDR must NOT match
+    assert gl.word_before_period_is_abbrev("To") == 0
+    assert gl.word_before_period_is_abbrev("By") == 0
+    assert gl.word_before_period_is_abbrev("On") == 0
+    assert gl.word_before_period_is_abbrev("Go") == 0
+    assert gl.word_before_period_is_abbrev("All") == 0
+
+
+def test_common_abbreviations_are_cldr_only() -> None:
+    from pathlib import Path
+
+    from plugin.writer.locale import locale_abbrev
+    from plugin.writer.locale.locale_abbrev import CLDR_ABBREVS
+
+    assert gl._COMMON_ABBREVIATIONS is CLDR_ABBREVS or gl._COMMON_ABBREVIATIONS == CLDR_ABBREVS
+    assert not hasattr(gl, "_HAND_ABBREVIATIONS")
+    assert "LANG_ABBREVS" not in Path(locale_abbrev.__file__).read_text(encoding="utf-8")
 
 def test_tricky_terminator_regex_escaping() -> None:
     """Test that _sterm_class handles tricky chars like ] - \\ ^."""
