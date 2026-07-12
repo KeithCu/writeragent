@@ -44,9 +44,9 @@ Binary resolution, download, and install live in [`plugin/scripting/venv/harper_
 
 ---
 
-## 4. Worker-Side Harper Helper (`plugin/scripting/venv/harper.py`)
+## 4. Host-Side Harper Helper (`plugin/scripting/venv/harper.py`)
 
-Rather than spawning a new process and writing temporary files on every grammar check, WriterAgent runs `harper-ls --stdio` as a persistent background process inside the venv worker. Communication occurs over standard input/output streams using the JSON-RPC Language Server Protocol (LSP). The LSP client and `run_harper_check` live in [`harper.py`](../plugin/scripting/venv/harper.py); binary fetch/install is in [`harper_binary.py`](../plugin/scripting/venv/harper_binary.py).
+Rather than spawning a new process and writing temporary files on every grammar check, WriterAgent runs `harper-ls --stdio` as a persistent background process **on the host** (LibreOffice’s Python grammar drain thread). No Settings → Python venv is required: the native binary is downloaded into the user profile, and the LSP client talks to it over stdin/stdout. Communication uses the JSON-RPC Language Server Protocol (LSP). The LSP client and `run_harper_check` live in [`harper.py`](../plugin/scripting/venv/harper.py); binary fetch/install is in [`harper_binary.py`](../plugin/scripting/venv/harper_binary.py); the host entry point is [`plugin/scripting/client.py`](../plugin/scripting/client.py) (in-process call — not the warm venv worker IPC used by LanguageTool/Vale).
 
 ### Persistent LSP Client implementation (`HarperLSClient`)
 The class `HarperLSClient` manages:
@@ -110,11 +110,11 @@ Integrate Harper directly into the linter work queue:
 ## 6. Implementation Status (Completed)
 
 The Harper Rust linter integration is fully implemented and optimized:
-1. **Persistent Daemon Pattern:** Upgraded from one-shot `harper-cli` process spawning to a persistent `harper-ls` background daemon running inside the virtual environment worker process. This eliminates process startup and disk I/O overhead.
+1. **Persistent Daemon Pattern:** Upgraded from one-shot `harper-cli` process spawning to a persistent `harper-ls` background daemon on the host grammar drain thread (no Python venv required). This eliminates process startup and disk I/O overhead for each sentence.
 2. **Standard LSP Protocol:** Implemented handshake, configuration negotiation, diagnostics handling, and code actions queries natively over stdin/stdout streams.
 3. **Integration Testing:** Verified via [`scripts/test_harper.py`](../scripts/test_harper.py). Unit tests cover offset mapping (including UTF-16 surrogate pairs), mocked LSP flows (stale versions, didChange, soft breaks, code actions), timeout behavior, download/upgrade logic, and the vendored framing + pooch helpers (in `tests/contrib/`). See the Test coverage subsection under Known Limitations for details.
 
-Primary implementation: [`plugin/scripting/venv/harper.py`](../plugin/scripting/venv/harper.py) (`HarperLSClient`, `run_harper_check`); binary fetch/install: [`plugin/scripting/venv/harper_binary.py`](../plugin/scripting/venv/harper_binary.py). Host RPC: [`plugin/scripting/client.py`](../plugin/scripting/client.py) (`run_harper_check`). Queue wiring: [`plugin/writer/locale/grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py).
+Primary implementation: [`plugin/scripting/venv/harper.py`](../plugin/scripting/venv/harper.py) (`HarperLSClient`, `run_harper_check`); binary fetch/install: [`plugin/scripting/venv/harper_binary.py`](../plugin/scripting/venv/harper_binary.py). Host entry: [`plugin/scripting/client.py`](../plugin/scripting/client.py) (`run_harper_check`, in-process). Queue wiring: [`plugin/writer/locale/grammar_work_queue.py`](../plugin/writer/locale/grammar_work_queue.py).
 
 Supporting vendored helpers live in [`plugin/contrib/lsp/`](../plugin/contrib/lsp/) (framing + UTF-16 position codec) and [`plugin/contrib/pooch/`](../plugin/contrib/pooch/) (secure hashed downloads + safe archive extraction). Both include provenance READMEs and dedicated tests.
 
@@ -167,7 +167,7 @@ Harper is **sentence-scoped end to end**:
 
 ### Sidebar observability
 
-Harper worker phases (Python venv startup, binary resolve/download, LSP init, lint) stream to the **chat sidebar grammar status field** via venv-worker heartbeats relayed through [`emit_harper_worker_status`](../plugin/writer/locale/grammar_obs.py). Enable the WriterAgent sidebar and watch the status line while typing uncached text with Harper selected as the grammar provider.
+Harper phases (binary resolve/download, LSP init, lint) stream to the **chat sidebar grammar status field** via progress callbacks on the host grammar drain thread, relayed through [`emit_harper_worker_status`](../plugin/writer/locale/grammar_obs.py). Enable the WriterAgent sidebar and watch the status line while typing uncached text with Harper selected as the grammar provider. Install/download failures are logged at ERROR/WARNING to `writeragent_debug.log` (host Harper modules + grammar catch), so they appear under default WARN release builds. No Python venv is required.
 
 This matches LanguageTool and Vale and keeps memory bounded. LSP overhead scales with the number of **sentences** checked (e.g. a long paragraph yields several Harper calls, one per sentence), not with paragraph count alone.
 
@@ -199,7 +199,7 @@ Additional items identified in a post-implementation review of `plugin/scripting
 | **Edge-case tests** | Process death + restart, interleaved `workspace/configuration` during `codeAction`, empty diagnostic list. | Partial (core recovery paths present and indirectly tested; dedicated "kill + reinit" and complex interleaving tests are limited) |
 | **Batch code actions** | Investigate whether `harper-ls` supports range-wide or document-wide code actions to cut round trips when one sentence has many diagnostics. | Deferred |
 | **Python < 3.10 annotation compatibility** | Add `from __future__ import annotations` (top of `harper.py`). Current use of `dict \| None` (and bare `list` annotations) will raise `SyntaxError` on import under older Python interpreters commonly bundled with LibreOffice. | Completed |
-| **Thread safety for shared LSP client** | `_HARPER_CLIENT_CACHE` + `HarperLSClient` share one LSP subprocess per binary path. Parallel `lint()` calls would interleave stdin/stdout framing. | Not needed in production: venv worker IPC serializes stub execution; grammar caps Harper to one drain thread (`grammar_max_in_flight` is LLM-only). Do not call `lint()` concurrently from multiple threads in the same process. |
+| **Thread safety for shared LSP client** | `_HARPER_CLIENT_CACHE` + `HarperLSClient` share one LSP subprocess per binary path. Parallel `lint()` calls would interleave stdin/stdout framing. | Not needed in production: grammar caps Harper to one drain thread (`grammar_max_in_flight` is LLM-only). Do not call `lint()` concurrently from multiple threads in the same process. |
 | **LSP framing / reader robustness** | `_read_loop` does bare `except: pass`, performs no validation that `len(body) == Content-Length`, uses simplistic `split(":", 1)` header parsing, and can fail on partial reads or malformed frames. Add length checks, defensive parsing, and `log.exception(...)` for unexpected failures. | Completed |
 | **Secure + reliable binary download** | `urllib.request.urlretrieve` on the GitHub `/latest/download/` asset has no timeout, User-Agent, size limit, or integrity check (SHA256 / signature). A tampered release would be extracted + executed. Add timeouts, limits, User-Agent, and consider pinning a release + verifying a hash before `chmod +x`. Improve temp-file handling. | Completed (GitHub releases API + asset `digest` SHA256) |
 | **Worker shutdown / client lifecycle cleanup** | Cached `HarperLSClient` instances are never explicitly closed when the venv worker is terminated (`PythonWorkerManager._terminate_worker` does hard killpg). Add best-effort cleanup (didClose + graceful shutdown) via atexit, harness hook, or explicit close in the client cache. | Deferred |

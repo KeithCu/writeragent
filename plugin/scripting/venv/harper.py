@@ -120,7 +120,8 @@ class HarperLSClient:
             self._write(_lsp_notification("initialized", {}))
         except Exception as e:
             self.close()
-            raise RuntimeError(f"Failed to start/initialize harper-ls: {e}")
+            log.exception("[harper] Failed to start/initialize harper-ls")
+            raise RuntimeError(f"Failed to start/initialize harper-ls: {e}") from e
 
     def _read_loop(self) -> None:
         try:
@@ -303,7 +304,8 @@ def run_harper_check(text: str, user_config_dir: str, bcp47: str = "en-US", *, h
     try:
         harper_bin = _get_harper_binary(user_config_dir, heartbeat_fn=heartbeat_fn)
     except Exception as e:
-        raise RuntimeError(str(e))
+        log.error("[harper] Failed to resolve harper-ls binary: %s", e, exc_info=True)
+        raise RuntimeError(str(e)) from e
 
     client = _get_or_create_client(harper_bin, user_config_dir, bcp47, heartbeat_fn=heartbeat_fn)
     try:

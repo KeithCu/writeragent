@@ -52,7 +52,9 @@ def _resolve_harper_asset(system: str, machine: str) -> str:
         return "harper-ls-aarch64-apple-darwin.tar.gz" if is_arm else "harper-ls-x86_64-apple-darwin.tar.gz"
     if system == "windows":
         return "harper-ls-x86_64-pc-windows-msvc.zip"
-    raise RuntimeError(f"Unsupported OS: {system}")
+    msg = f"Unsupported OS: {system}"
+    log.error("[harper] %s", msg)
+    raise RuntimeError(msg)
 
 
 def _is_harper_member(name: str) -> bool:
@@ -64,12 +66,16 @@ def _pick_harper_member(paths: list[str]) -> str:
     for path in paths:
         if _is_harper_member(path):
             return path
-    raise RuntimeError("harper-ls file not found inside archive")
+    msg = "harper-ls file not found inside archive"
+    log.error("[harper] %s", msg)
+    raise RuntimeError(msg)
 
 
 def _parse_github_digest(digest: str | None) -> str:
     if not digest or not digest.startswith("sha256:"):
-        raise RuntimeError("Harper release asset is missing a sha256 digest")
+        msg = "Harper release asset is missing a sha256 digest"
+        log.error("[harper] %s", msg)
+        raise RuntimeError(msg)
     return digest.removeprefix("sha256:")
 
 
@@ -79,7 +85,9 @@ def _github_api_request(url: str) -> dict:
         body = response.read(1024 * 1024)
     payload = json.loads(body.decode("utf-8"))
     if not isinstance(payload, dict):
-        raise RuntimeError("Unexpected Harper releases API response")
+        msg = "Unexpected Harper releases API response"
+        log.error("[harper] %s", msg)
+        raise RuntimeError(msg)
     return payload
 
 
@@ -126,28 +134,40 @@ def _fetch_latest_release_asset(system: str, machine: str, harper_dir: Path, *, 
         return cached[1]
 
     _emit_progress(heartbeat_fn, "Checking Harper release…")
-    release = _github_api_request(_HARPER_RELEASES_API)
+    try:
+        release = _github_api_request(_HARPER_RELEASES_API)
+    except Exception as e:
+        log.error("[harper] GitHub releases API request failed: %s", e, exc_info=True)
+        raise RuntimeError(f"Harper releases API request failed: {e}") from e
     tag_name = str(release.get("tag_name") or "").strip()
     if not tag_name:
-        raise RuntimeError("Harper releases API returned no tag_name")
+        msg = "Harper releases API returned no tag_name"
+        log.error("[harper] %s", msg)
+        raise RuntimeError(msg)
     version = tag_name.lstrip("vV")
 
     assets = release.get("assets")
     if not isinstance(assets, list):
-        raise RuntimeError("Harper releases API returned no assets")
+        msg = "Harper releases API returned no assets"
+        log.error("[harper] %s", msg)
+        raise RuntimeError(msg)
 
     for asset in assets:
         if not isinstance(asset, dict) or asset.get("name") != asset_name:
             continue
         download_url = str(asset.get("browser_download_url") or "").strip()
         if not download_url:
-            raise RuntimeError(f"Harper asset {asset_name} has no download URL")
+            msg = f"Harper asset {asset_name} has no download URL"
+            log.error("[harper] %s", msg)
+            raise RuntimeError(msg)
         info = HarperReleaseAsset(version=version, asset_name=asset_name, download_url=download_url, sha256=_parse_github_digest(asset.get("digest")))
         _write_persisted_release(harper_dir, info)
         _release_cache[asset_name] = (time.time(), info)
         return info
 
-    raise RuntimeError(f"Harper asset {asset_name} not found in latest release {tag_name}")
+    msg = f"Harper asset {asset_name} not found in latest release {tag_name}"
+    log.error("[harper] %s", msg)
+    raise RuntimeError(msg)
 
 
 def _read_installed_version(harper_dir: Path) -> str | None:
@@ -202,8 +222,8 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
             except Exception as cleanup_err:
                 log.warning("[harper] Could not remove downloaded archive %s: %s", archive_path, cleanup_err)
     except Exception as e:
-        log.error("[harper] Failed to download and extract binary: %s", e)
-        raise RuntimeError(f"Failed to auto-download Harper binary: {e}")
+        log.error("[harper] Failed to download and extract binary: %s", e, exc_info=True)
+        raise RuntimeError(f"Failed to auto-download Harper binary: {e}") from e
     finally:
         try:
             if tmp_binary.exists():

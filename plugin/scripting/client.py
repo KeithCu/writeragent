@@ -392,11 +392,9 @@ def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[st
 
 # --- Harper Rust Linter ---
 
-_HARPER_SESSION_PREFIX = "writeragent:harper"
-
 
 def _pump_grammar_status_ui(ctx: Any) -> None:
-    """Drain posted grammar status updates on the LO main thread during Harper IPC."""
+    """Drain posted grammar status updates on the LO main thread during Harper progress."""
     from plugin.framework.queue_executor import execute_on_main_thread, pump_main_thread_work_queue
     from plugin.framework.uno_context import get_toolkit
 
@@ -410,33 +408,17 @@ def _pump_grammar_status_ui(ctx: Any) -> None:
 
 
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
-    """Execute a trusted Harper linter helper inside the user venv worker."""
+    """Run Harper on the host (no venv worker). Downloads harper-ls into the user profile if needed."""
+    from plugin.scripting.venv.harper import run_harper_check as _run_harper_in_process
     from plugin.writer.locale.grammar_obs import emit_harper_worker_status
 
-    emit_harper_worker_status(text, "Starting Python worker…")
+    emit_harper_worker_status(text, "Starting Harper…")
     _pump_grammar_status_ui(ctx)
 
-    def _on_harper_heartbeat(payload: dict[str, Any]) -> None:
+    def _on_progress(payload: dict[str, Any]) -> None:
         message = str(payload.get("message") or "").strip()
         if message:
             emit_harper_worker_status(text, message)
             _pump_grammar_status_ui(ctx)
 
-    return _run_trusted_action(
-        ctx,
-        session_id=_HARPER_SESSION_PREFIX,
-        domain="harper",
-        helper="check",
-        params={},
-        data_range=None,
-        context=None,
-        timeout_sec=30,
-        error_code="HARPER_ERROR",
-        error_label="Harper Linter",
-        additional_data={"text": text, "config_dir": config_dir, "bcp47": bcp47},
-        allow_heartbeat=True,
-        heartbeat_fn=_on_harper_heartbeat,
-    )
-
-
-
+    return _run_harper_in_process(text, config_dir, bcp47=bcp47, heartbeat_fn=_on_progress)

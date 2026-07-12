@@ -8,7 +8,7 @@ config:
     default: "off"
     widget: select
     label: Enable grammar checker (Writer)
-    helper: "Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool = use local LanguageTool server via venv pip package."
+    helper: "Off = disabled. AI (LLM) = use your configured text model/API. LanguageTool / Vale = local engines via Settings → Python venv. Harper = offline Rust binary auto-downloaded to your profile (no venv required)."
     options:
       - value: "off"
         label: "Off"

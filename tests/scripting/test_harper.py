@@ -695,3 +695,71 @@ def test_run_harper_check_emits_heartbeat_progress(mock_popen: MagicMock, mock_g
     assert "Linting…" in messages
     mock_get_bin.assert_called_once()
     assert mock_get_bin.call_args.kwargs.get("heartbeat_fn") is heartbeat_fn
+
+
+@patch("plugin.scripting.venv.harper_binary.log")
+def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: MagicMock, tmp_path: Path) -> None:
+    harper_binary_module._release_cache.clear()
+    api_payload = {"tag_name": "v2.7.0", "assets": []}
+
+    with patch("plugin.scripting.venv.harper_binary._github_api_request", return_value=api_payload):
+        with pytest.raises(RuntimeError, match="not found in latest release"):
+            _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
+
+    mock_log.error.assert_called()
+    assert "not found" in mock_log.error.call_args[0][1]
+
+
+@patch("plugin.scripting.venv.harper_binary.log")
+def test_fetch_latest_release_asset_logs_github_api_failure(mock_log: MagicMock, tmp_path: Path) -> None:
+    harper_binary_module._release_cache.clear()
+
+    with patch("plugin.scripting.venv.harper_binary._github_api_request", side_effect=OSError("network down")):
+        with pytest.raises(RuntimeError, match="Harper releases API request failed"):
+            _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
+
+    mock_log.error.assert_called()
+    assert mock_log.error.call_args.kwargs.get("exc_info") is True
+
+
+@patch("plugin.scripting.venv.harper_binary.retrieve")
+@patch("plugin.scripting.venv.harper_binary.log")
+def test_download_harper_binary_logs_error_with_exc_info(mock_log: MagicMock, mock_retrieve: MagicMock, tmp_path: Path) -> None:
+    release = HarperReleaseAsset(
+        version="2.6.0",
+        asset_name="harper-ls-x86_64-unknown-linux-gnu.tar.gz",
+        download_url="https://example.com/harper.tar.gz",
+        sha256="deadbeef",
+    )
+    mock_retrieve.side_effect = ValueError("hash mismatch")
+    dest = tmp_path / "harper" / "harper-ls"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(RuntimeError, match="Failed to auto-download Harper binary"):
+        harper_binary_module._download_harper_binary(dest, release)
+
+    mock_log.error.assert_called()
+    assert mock_log.error.call_args.kwargs.get("exc_info") is True
+
+
+@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.scripting.venv.harper.log")
+def test_run_harper_check_logs_binary_resolve_failure(mock_log: MagicMock, mock_get_bin: MagicMock) -> None:
+    mock_get_bin.side_effect = RuntimeError("Failed to auto-download Harper binary: boom")
+
+    with pytest.raises(RuntimeError, match="Failed to auto-download"):
+        run_harper_check("They is here.", "/tmp")
+
+    mock_log.error.assert_called()
+    assert "Failed to resolve harper-ls binary" in mock_log.error.call_args[0][0]
+    assert mock_log.error.call_args.kwargs.get("exc_info") is True
+
+
+@patch("plugin.scripting.venv.harper.log")
+def test_harper_lsp_initialize_logs_exception_on_failure(mock_log: MagicMock) -> None:
+    with patch("subprocess.Popen", side_effect=OSError("exec failed")):
+        with pytest.raises(RuntimeError, match="Failed to start/initialize harper-ls"):
+            HarperLSClient("/bin/harper-ls")
+
+    mock_log.exception.assert_called()
+    assert "Failed to start/initialize harper-ls" in mock_log.exception.call_args[0][0]

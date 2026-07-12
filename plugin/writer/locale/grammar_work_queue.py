@@ -594,7 +594,7 @@ def _run_grammar_check(
                     _process_grammar_results([(item, text)], results, bcp47, original_bcp47, elapsed_ms, ec)
                     grammar_obs("worker_harper_done", chunk_len=1, results_len=len(errors), elapsed_ms=elapsed_ms, bcp47=bcp47)
                 except Exception as ex:
-                    log.error("[grammar] Harper check failed: %s", ex)
+                    log.error("[grammar] Harper check failed: %s", ex, exc_info=True)
                     emit_grammar_status("failed", "Harper linter", result=str(ex))
             return
 
