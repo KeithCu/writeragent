@@ -234,7 +234,7 @@ def escape_code_for_formula(code: str) -> str:
 def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
     """Rebuild a formula from parsed parts and new inline code (preserves ``data_suffix``)."""
     escaped = escape_code_for_formula(new_code)
-    return f'{parts.prefix}"{escaped}"{parts.data_suffix}'
+    return f'={CALC_PYTHON_FN}("{escaped}"{parts.data_suffix}'
 
 
 def format_data_binding_display(data_suffix: str) -> str:
@@ -305,7 +305,7 @@ def rebuild_python_formula_with_data(
 ) -> str:
     """Build ``=PY("…"; ranges…)`` from code and data arguments."""
     escaped = escape_code_for_formula(code)
-    prefix = parts.prefix if parts is not None else f"={CALC_PYTHON_FN}("
+    prefix = f"={CALC_PYTHON_FN}("
     return f'{prefix}"{escaped}"{build_data_suffix(data_args)}'
 
 

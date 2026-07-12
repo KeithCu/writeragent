@@ -5,7 +5,7 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Shared-kernel session ids for Calc =PYTHON(), Writer notebooks, and menubar reset."""
+"""Shared-kernel session ids for Calc =PY(), Writer notebooks, and menubar reset."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def _workbook_session_key(doc: Any) -> str:
 
 
 def calc_workbook_base_session_id(doc: Any) -> str:
-    """Worker session id for shared-kernel ``=PYTHON()`` (not the ``:init`` session)."""
+    """Worker session id for shared-kernel ``=PY()`` (not the ``:init`` session)."""
     return f"calc:{_workbook_session_key(doc)}"
 
 
@@ -196,7 +196,7 @@ def _reset_calc_python_sessions(ctx: Any) -> None:
             ctx,
             "WriterAgent",
             _(
-                "Python session mode is Isolated (each =PYTHON() cell uses its own variables). "
+                "Python session mode is Isolated (each =PY() cell uses its own variables). "
                 "There is no shared cell session to reset. Add an initialization script if you "
                 "need to clear expensive one-time workbook setup."
             ),

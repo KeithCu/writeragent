@@ -924,7 +924,7 @@ def host_pack_multi_data(
 def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = True) -> list[Any] | list[list[Any]]:
     """Decode split_grid envelope on host (stdlib only). Reconstructs list or list of lists.
 
-    NaN values in the buffer are preserved as float('nan') (they become Calc errors on =PYTHON() egress).
+    NaN values in the buffer are preserved as float('nan') (they become Calc errors on =PY() egress).
     Python None is only introduced for string cells (from the strings map) or for genuine None in mixed results.
     """
     buf = array.array("d")

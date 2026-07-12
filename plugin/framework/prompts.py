@@ -504,7 +504,7 @@ CALC_WORKFLOW = """WORKFLOW:
 3. Use the tools to perform the operation. Always use ranges for multiple cells to reduce calls and improve efficiency.
 4. Give a short confirmation; when you changed cells, mention the range or addresses (e.g. "Wrote totals in B5:B8")."""
 
-# Shared venv Python prompt text (run_venv_python_script, =PYTHON(), delegate domain=python).
+# Shared venv Python prompt text (run_venv_python_script, =PY(), delegate domain=python).
 PYTHON_VENV_AUTO_IMPORTS_ALIASES = "`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `plugin.scripting.calc_functions` (as `xl`), standard library `math`, `datetime`, `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`"
 
 # Populated at module end (after full constants init) to avoid import cycles via smolagents.
@@ -515,7 +515,7 @@ PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
 
 PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = ""
 
-# Default for =PROMPT() when extend_selection_system_prompt is empty (LLM may emit =PYTHON formulas).
+# Default for =PROMPT() when extend_selection_system_prompt is empty (LLM may emit =PY formulas).
 CALC_PYTHON_FORMULA_LLM_HINT = ""
 
 
@@ -547,7 +547,7 @@ def _load_venv_import_policy_full() -> str:
 CALC_FORMULA_SYNTAX = """FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
-- Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (=PYTHON is the same; omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
+- Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
 - Example: `=PY("result = np.sum(data)"; A1:A10)`."""
 
 # DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE is built in _init_venv_import_policy_strings() (needs import policy).
@@ -873,15 +873,14 @@ def _init_venv_import_policy_strings() -> None:
     calc_plot_hint = format_matplotlib_plot_hint(doc_type="calc")
     CALC_PYTHON_FORMULA_LLM_HINT = (
         compact
-        + " When outputting Calc Python formulas: prefer =PY(...); =PYTHON(...) is equivalent. "
-        "Use semicolon (;) argument separators; "
-        'format =PY("result = …"; A1:A10); code runs in the venv sandbox above.'
+        + " When outputting Calc Python formulas: write `=PY(\"result = …\"; A1:A10)`. "
+        "Use semicolon (;) argument separators; code runs in the venv sandbox above."
         + (f" {calc_plot_hint}" if calc_plot_hint else "")
     )
     CALC_FORMULA_SYNTAX = f"""FORMULA SYNTAX: LibreOffice uses semicolon (;) as the formula argument separator in formulas.
 - Correct: =SUM(A1:A10), =IF(A1>0;B1;C1)
 - Wrong: =SUM(A1,A10), =IF(A1>0,"Yes","No") (no commas in formulas)
-- Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (=PYTHON is the same; omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
+- Write `=PY("result = ..."; A1:A10)` in cells to calculate/run Python (omit the second argument if no data is needed, e.g. `=PY("result = 2**10")`).
 {compact}
 - Example: `=PY("result = np.sum(data)"; A1:A10)`."""
     DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = f"""You are a LibreOffice Calc spreadsheet assistant who creates polished, professional, and colorful spreadsheets.

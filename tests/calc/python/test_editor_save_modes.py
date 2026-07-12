@@ -62,7 +62,7 @@ def test_build_editor_formula_save_clear_data_binding():
         cell_has_unparsed_python=False,
         data_binding_text="",
     )
-    assert result == '=PYTHON("x = 1")'
+    assert result == '=PY("x = 1")'
 
 
 def test_apply_cell_save_with_data_binding():

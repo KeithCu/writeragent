@@ -3,7 +3,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""=PYTHON() execution and return helpers (venv worker); no LLM imports."""
+"""=PY() execution and return helpers (venv worker); no LLM imports."""
 
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ _is_scalar_index_arg = is_scalar_index_arg
 
 def _strip_dataframe_envelope(result: Any) -> Any:
     """If *result* is a dataframe payload envelope, return its inner 'data' grid for Calc consumers.
-    This lets =PYTHON() matrix/session/index paths treat DF results like ordinary rectangular lists
+    This lets =PY() matrix/session/index paths treat DF results like ordinary rectangular lists
     (the columns are available for Writer/chat paths via the envelope)."""
     if is_dataframe_payload(result):
         return result.get("data")
@@ -173,7 +173,7 @@ def session_key(ctx: Any, code: str) -> tuple:
 
 
 class WorkerResultSession:
-    """Caches one worker list result across multiple =PYTHON() calls in a recalc pass."""
+    """Caches one worker list result across multiple =PY() calls in a recalc pass."""
 
     __slots__ = ("raw", "flat", "next_index")
 
@@ -586,7 +586,7 @@ def execute_python_addin(
             worker_data = pack_calc_multi_data_for_wire(py_data) if is_multi else pack_calc_data_for_wire(py_data)
         else:
             worker_data = None
-        # Synchronous: =PYTHON() runs during Calc recalc; UI event pumping from
+        # Synchronous: =PY() runs during Calc recalc; UI event pumping from
         # run_blocking_in_thread can re-enter the formula engine and yield #VALUE!.
         sessions = getattr(MATRIX_SCALAR_SESSIONS, "sessions", None)
         if sessions is None:

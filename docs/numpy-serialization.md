@@ -4,7 +4,7 @@ Back to the [core NumPy and Python guide](enabling_numpy_in_libreoffice.md).
 
 **Production wire format:** length-prefixed **Pickle5** frames carrying `split_grid` envelopes (for qualifying 2D grids) or plain nested Python lists (small grids). There is no JSON on the runtime host↔venv path for data/results. JSON and Base64 variants exist only in the benchmark suite and a few legacy test helpers.
 
-This page is the technical reference for WriterAgent's **host↔venv compute bridge**: warm worker lifecycle, length-prefixed Pickle5 IPC, Linux pipe performance, wire formats (`split_grid`, `multi_data`), benchmarks, pipeline costs, and future optimization work. The [core guide](enabling_numpy_in_libreoffice.md) covers ABI strategy, Settings, sandbox safety, trusted extension code, and `=PYTHON()` author UX.
+This page is the technical reference for WriterAgent's **host↔venv compute bridge**: warm worker lifecycle, length-prefixed Pickle5 IPC, Linux pipe performance, wire formats (`split_grid`, `multi_data`), benchmarks, pipeline costs, and future optimization work. The [core guide](enabling_numpy_in_libreoffice.md) covers ABI strategy, Settings, sandbox safety, trusted extension code, and `=PY()` author UX.
 
 ## Table of contents
 
@@ -148,7 +148,7 @@ Calc ingress/egress entry points: [`calc_addin_data.py`](../plugin/calc/calc_add
 
 | Key | Shipped | Role |
 |-----|---------|------|
-| `scripting.python_max_data_cells` | Yes | Max cells in `=PYTHON()` / Run Python Script `data` / `data_range` (default **250 000**, clamp **1 000–2 000 000**); see [`config_limits.py`](../plugin/scripting/config_limits.py) |
+| `scripting.python_max_data_cells` | Yes | Max cells in `=PY()` / Run Python Script `data` / `data_range` (default **250 000**, clamp **1 000–2 000 000**); see [`config_limits.py`](../plugin/scripting/config_limits.py) |
 
 Defined in [`plugin/scripting/module.yaml`](../plugin/scripting/module.yaml) / Settings → Python (`scripting__python_max_data_cells`).
 
@@ -241,7 +241,7 @@ This section documents **behavior** for real inputs (rectangular Calc ranges and
 
 #### Supported input shape
 
-- **2D data must be rectangular:** every row has the same length (`len(row) == ncols`). Calc `=PYTHON(code; range)` passes UNO range blocks this way; empty cells are `None` in a full-width row, not “missing” list elements.
+- **2D data must be rectangular:** every row has the same length (`len(row) == ncols`). Calc `=PY(code; range)` passes UNO range blocks this way; empty cells are `None` in a full-width row, not “missing” list elements.
 - **Uneven row lengths** (jagged nested lists) are **unsupported**. [`_flatten_grid_to_components`](../plugin/scripting/payload_codec.py) logs an error and raises `ValueError` if row lengths differ. We do not pad short rows.
 
 #### Formal verification
@@ -286,7 +286,7 @@ This prevents `np.sum(data)` from failing when ranges contain text-based logical
 
 **Related fixes already shipped:** nested generator expressions in [`local_python_executor.evaluate_generatorexp`](../plugin/contrib/smolagents/local_python_executor.py) (mixed-grid `sum(v for row in data …)`); fixed 2×5 input groups in [`scripts/generate_serialization_spreadsheet.py`](../scripts/generate_serialization_spreadsheet.py).
 
-#### Calc logical display vs `=PYTHON()` — manual experiments
+#### Calc logical display vs `=PY()` — manual experiments
 
 Use this when designing new serialization or bool tests ([`tests/calc/serialization_cases.py`](../tests/calc/serialization_cases.py): `bool_true`, `bool_false`, `bool_col_11_sum`; manual sheet uses numeric **1/0** in input grids because XLSX import does not evaluate `=TRUE()`).
 
@@ -298,9 +298,9 @@ Use this when designing new serialization or bool tests ([`tests/calc/serializat
 | Number 1 / 0 | `1` / `0` | 1 / 0 |
 | Text `"TRUE"` / `"1"` | looks like true / one | text is **not** a number; `SUM` skips or NumPy sums strings fail |
 
-**`=PYTHON()` egress:** Python `True` / `False` from the worker are mapped to UNO booleans in [`to_calc_compatible`](../plugin/calc/python/function.py). A one-cell formula `=PYTHON("True")` should display a **logical** TRUE, not the text `"True"`.
+**`=PY()` egress:** Python `True` / `False` from the worker are mapped to UNO booleans in [`to_calc_compatible`](../plugin/calc/python/function.py). A one-cell formula `=PY("True")` should display a **logical** TRUE, not the text `"True"`.
 
-**`=PYTHON()` ingress (second argument = range):** What Python sees as `data` depends on how the cell is stored:
+**`=PY()` ingress (second argument = range):** What Python sees as `data` depends on how the cell is stored:
 
 | Cell contents | Typical `data` in Python | `np.sum(data)` on a 1-cell range |
 |---------------|--------------------------|----------------------------------|
@@ -314,9 +314,9 @@ Use this when designing new serialization or bool tests ([`tests/calc/serializat
 1. **Return type from PYTHON**
 
    ```text
-   =PYTHON("True")
-   =PYTHON("False")
-   =PYTHON("type(True).__name__")
+   =PY("True")
+   =PY("False")
+   =PY("type(True).__name__")
    ```
 
    Expect: logical TRUE/FALSE; third cell shows `bool` as text.
@@ -326,15 +326,15 @@ Use this when designing new serialization or bool tests ([`tests/calc/serializat
    ```text
    =TRUE()
    =FALSE()
-   =PYTHON("True")
-   =PYTHON("1 == 1")
+   =PY("True")
+   =PY("1 == 1")
    ```
 
 3. **Numeric use**
 
    ```text
    =SUM(TRUE();FALSE();TRUE())
-   =PYTHON("True") + PYTHON("False") + PYTHON("True")
+   =PY("True") + PYTHON("False") + PYTHON("True")
    ```
 
    Both should evaluate to **2**.
@@ -342,7 +342,7 @@ Use this when designing new serialization or bool tests ([`tests/calc/serializat
 4. **What Python receives from one cell** — put value in **D1**, then in **E1**:
 
    ```text
-   =PYTHON("repr(data)", D1)
+   =PY("repr(data)", D1)
    ```
 
    Try D1 = `=TRUE()`, `1`, and text `1` (format as text). Compare `repr` output.
@@ -350,7 +350,7 @@ Use this when designing new serialization or bool tests ([`tests/calc/serializat
 5. **One-line probe over a small range** — **A1:C1** = `TRUE`, `FALSE`, `1`:
 
    ```text
-   =PYTHON("f'{data=} {type(data).__name__}'", A1:C1)
+   =PY("f'{data=} {type(data).__name__}'", A1:C1)
    ```
 
    For flat ranges, `data` is a list; inspect element types before adding `np.sum` cases to the manual suite.
@@ -382,7 +382,7 @@ Use `np.nansum(data)` (or mask with `np.isnan`) on numeric-only ingress when you
 
 | Child `result` | Host / UI after unpack |
 |----------------|------------------------|
-| `np.ndarray` with `np.nan` | `float('nan')` preserved in nested lists (becomes Calc error on =PYTHON() egress) |
+| `np.ndarray` with `np.nan` | `float('nan')` preserved in nested lists (becomes Calc error on =PY() egress) |
 | `np.inf` / `-np.inf` | Still **inf** (not treated as missing) |
 | Large numeric array (≥ 100 cells) | `split_grid` on wire (Pickle5); host unpack → nested lists (NaN preserved) for Calc / LLM |
 
@@ -514,7 +514,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) | Single source: unified pack/unpack, threshold, `describe_wire_value` for logs |
 | [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `count_cells()` understands split_grid envelopes |
 | [`plugin/scripting/venv_worker.py`](../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
-| [`plugin/calc/python/function.py`](../plugin/calc/python/function.py) | `=PYTHON()` ingress pack + matrix/session flattening (result already unpacked) |
+| [`plugin/calc/python/function.py`](../plugin/calc/python/function.py) | `=PY()` ingress pack + matrix/session flattening (result already unpacked) |
 | [`plugin/calc/python/venv.py`](../plugin/calc/python/venv.py) | Chat tool ingress pack |
 | [`plugin/scripting/venv/venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
@@ -554,7 +554,7 @@ Calc UNO range
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../plugin/scripting/payload_codec.py).
 
-**Fresh namespace every call** ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PYTHON()` or `run_venv_python_script` invocation unless the product adds an explicit cache ([Priority 6 — worker payload cache](#priority-6--worker-payload-cache-same-range-many-recalcs)).
+**Fresh namespace every call** ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)): there is no worker-side variable cache; the same `A1:Z1000` range is re-serialized on every `=PY()` or `run_venv_python_script` invocation unless the product adds an explicit cache ([Priority 6 — worker payload cache](#priority-6--worker-payload-cache-same-range-many-recalcs)).
 
 ### Matrix formula result session (IPC reduction) {#matrix-formula-result-session-ipc-reduction}
 
@@ -648,7 +648,7 @@ The standardized Split-Grid format fixed the **child** hot path (`frombuffer` vs
 
 #### Documented challenge: datetime / temporal values (high-speed handling not implemented)
 
-Calc represents dates/times as serial number floats (days since 1899-12-30, with optional time fraction). On ingress they arrive as plain floats (see `_unwrap_cell` in `calc_addin_data.py` and the import doc). On egress, Python `datetime`/`date` objects are stringified (`to_calc_compatible` in `python_function.py`) because the wire and Calc cell model do not carry first-class temporal objects for the main `=PYTHON()` / scripting paths.
+Calc represents dates/times as serial number floats (days since 1899-12-30, with optional time fraction). On ingress they arrive as plain floats (see `_unwrap_cell` in `calc_addin_data.py` and the import doc). On egress, Python `datetime`/`date` objects are stringified (`to_calc_compatible` in `python_function.py`) because the wire and Calc cell model do not carry first-class temporal objects for the main `=PY()` / scripting paths.
 
 The split-grid fast path (float64 buffer + frombuffer) is extremely fast precisely because it stays in a uniform numeric dtype. Any first-class datetime representation would either:
 
@@ -683,13 +683,13 @@ Add timing (debug menu, `testing_runner`, or temporary logs) on realistic sheets
 | A | `calc_addin_data_to_python` only |
 | B | A + `pack_calc_data_for_wire` |
 | C | B + `json.dumps` + worker round-trip |
-| D | Response + `host_unpack_data` (matrix `=PYTHON()` is often hot here) |
+| D | Response + `host_unpack_data` (matrix `=PY()` is often hot here) |
 
 **Stop rule:** If NumPy compute dominates, serialization work has low ROI. If **read + host pack + JSON line** dominates, pursue host optimizations below. If **host_unpack → nested lists** dominates on matrix formulas, fix egress pass-through before msgpack/mmap.
 
-Possible deliverable: minimal LO harness (debug menu or UNO test) that prints legs A–D for one `=PYTHON()` call on a large numeric range.
+Possible deliverable: minimal LO harness (debug menu or UNO test) that prints legs A–D for one `=PY()` call on a large numeric range.
 
-**Manual spreadsheet suite:** [`tests/fixtures/serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) — one Calc sheet (import from XLSX) with Calc oracle vs `=PYTHON(...)` and PASS/FAIL compare formulas (`python_formula` is the last column). Regenerate with `python scripts/generate_serialization_spreadsheet.py`. Cases defined in [`tests/calc/serialization_cases.py`](../tests/calc/serialization_cases.py).
+**Manual spreadsheet suite:** [`tests/fixtures/serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) — one Calc sheet (import from XLSX) with Calc oracle vs `=PY(...)` and PASS/FAIL compare formulas (`python_formula` is the last column). Regenerate with `python scripts/generate_serialization_spreadsheet.py`. Cases defined in [`tests/calc/serialization_cases.py`](../tests/calc/serialization_cases.py).
 
 #### Priority 2 — Less data on the wire (best ROI, no protocol change)
 
@@ -698,7 +698,7 @@ Often beats another codec — product, prompts, and formula patterns:
 | Area | Action |
 |------|--------|
 | **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_formula_range`”, not 10⁵-element lists in `result`. |
-| **`=PYTHON()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`_WorkerResultSession`](../plugin/calc/python/function.py); avoid N recalcs each resending the same `data`. |
+| **`=PY()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`_WorkerResultSession`](../plugin/calc/python/function.py); avoid N recalcs each resending the same `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
 See [core two-phase workflow](enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).
@@ -741,7 +741,7 @@ Larger architectural slice than “faster JSON.”
 
 #### Priority 6 — Worker payload cache (same range, many recalcs)
 
-Fresh namespace per call stays ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)); the **warm worker** can still hold a bounded LRU of decoded arrays keyed by `data_id` + range content hash — host sends id instead of 250 k cells when unchanged since last execute. High impact for repeated `=PYTHON(code; B1:Z1000)` on recalc; needs invalidation on sheet edit/recalc. See session/payload cache design details.
+Fresh namespace per call stays ([core strategy](enabling_numpy_in_libreoffice.md#2-strategy-decision)); the **warm worker** can still hold a bounded LRU of decoded arrays keyed by `data_id` + range content hash — host sends id instead of 250 k cells when unchanged since last execute. High impact for repeated `=PY(code; B1:Z1000)` on recalc; needs invalidation on sheet edit/recalc. See session/payload cache design details.
 
 #### Priority 7 — Defer unless LO profiles disagree with bench
 
@@ -910,7 +910,7 @@ All of these optimizations are **pure Python stdlib / NumPy enhancements**, mean
 
 ##### Automatic Unpacking and Coercion for Single Entries (May 2026)
 
-To make writing `=PYTHON()` formulas extremely intuitive when a user passes a single cell or a constant (like `=PYTHON("sp.prime(data)", 100000)`), the compute bridge automatically unpacks single-entry inputs into their scalar representations.
+To make writing `=PY()` formulas extremely intuitive when a user passes a single cell or a constant (like `=PY("sp.prime(data)", 100000)`), the compute bridge automatically unpacks single-entry inputs into their scalar representations.
 
 * **Standard Lists & Split-Grid**: If the unpacked input is a 1D sequence or array with exactly one element (length 1), the child worker extracts its scalar value.
 * **Integer Coercion**: Because Calc represents all numbers as double-precision floats (`100000.0`), the worker checks if the float value is mathematically an integer (using `.is_integer()`) and automatically coerces it to a standard Python `int`.

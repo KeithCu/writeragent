@@ -55,7 +55,7 @@ def _calc_cell_ui_strings() -> dict[str, str]:
                 "Calc injects `data` and `data_list` from these range(s) at runtime."
             ),
             "data_binding_disabled_title": _(
-                "Data ranges apply only when saving as a =PYTHON() formula."
+                "Data ranges apply only when saving as a =PY() formula."
             ),
             "saved_default": _("Saved."),
             "saved_plain": _("Saved without =PY()."),

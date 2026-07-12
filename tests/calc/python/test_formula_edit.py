@@ -158,11 +158,11 @@ def test_parse_py_alias():
     assert "A1:B10" in parts.data_suffix
 
 
-def test_rebuild_preserves_python_prefix():
+def test_rebuild_migrates_python_prefix():
     parts = parse_python_formula('=PYTHON("x"; A1:B2)')
     assert parts is not None
     rebuilt = rebuild_python_formula(parts, "y = 1")
-    assert rebuilt.startswith('=PYTHON("y = 1"')
+    assert rebuilt.startswith('=PY("y = 1"')
     assert "A1:B2" in rebuilt
 
 

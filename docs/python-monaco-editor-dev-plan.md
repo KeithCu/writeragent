@@ -1,16 +1,16 @@
 # Technical Dev Plan: WebView Monaco Code Editor
 
-**Parent topic doc:** [Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.md) — venv bridge, `=PYTHON()`, shared kernel, competitive context, and user-facing Monaco summary ([§3 Monaco](enabling_numpy_in_libreoffice.md#monaco-editor--run-python-script)).
+**Parent topic doc:** [Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.md) — venv bridge, `=PY()`, shared kernel, competitive context, and user-facing Monaco summary ([§3 Monaco](enabling_numpy_in_libreoffice.md#monaco-editor--run-python-script)).
 
 Architectural design for the **LibrePythonista-style Monaco editor** in WriterAgent.
 
 **Status (2026-06):** **Phase 2A + Phase 3 + 2E shipped.** Calc **Edit Python in Cell…** (menubar + cell right-click) and **Run Python Script…** Monaco both use a persistent pywebview child in the user venv. Dual save modes, editable **Data:** range textbox, document-attached scripts, init script editor, save feedback, WM-close lifecycle, stderr drain, full-traceback failure dialogs, and **automatic LibreOffice theme sync** (Monaco + toolbar chrome) are implemented. **Open:** Phase 2B syntax validate, 2C range picker, 2D Jedi (stub only today), 2F Flatpak spawn, sheet-level Python cell list. See `plugin/scripting/`, `plugin/calc/python/editor.py`, and `plugin/framework/appearance.py`.
 
-**`=PYTHON()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
+**`=PY()` is not localized:** The Calc add-in always registers the English function name `PYTHON` (programmatic `python`). Formulas stored by Calc must use that token in `getFormula()` / `FormulaLocal`. A localized alias (e.g. a translated function name) is a **bug** in add-in registration — do **not** add `FormulaOpCodeMapper` workarounds in the editor or formula parser.
 
 **Session 1 fixes (post-MVP):** venv path required (no LibreOffice embedded Python for the editor); `resolve_venv_python` tries `bin/python`, `bin/python3`, and `bin/python3.*`; `ready` is sent only after `window.events.loaded` / `shown` (not before `webview.start()`); child uses a WSGI static server in [`editor_main.py`](../plugin/scripting/venv/editor_main.py) that serves **all** editor HTML/JS/CSS and Monaco `vs/` assets from packages installed in the configured venv (`rocher`); probe/save failures show child stderr + Python tracebacks via [`editor_ipc.py`](../plugin/scripting/editor_ipc.py).
 
-**Dual save modes:** Monaco always edits **stripped Python source** (inline `=PYTHON("…")` code is parsed on load; code-only cells use `getString`). Toolbar checkbox **Save without =PY()** (`save_as_plain`) writes `cell.setString(code)` only — for **code-in-a-cell** workflows where another cell runs `=PYTHON($A$1; …)`. Default **Save** wraps `=PY("…")` / `=PYTHON("…")` via `setFormula`, preserving existing data-range suffixes; the **Data:** textbox is disabled while **Save without =PY()** is checked. Plain save shows status **Saved without =PY().** Opening `=PYTHON($A$1; …)` on the formula cell remains blocked; edit the code storage cell instead.
+**Dual save modes:** Monaco always edits **stripped Python source** (inline `=PY("…")` code is parsed on load; code-only cells use `getString`). Toolbar checkbox **Save without =PY()** (`save_as_plain`) writes `cell.setString(code)` only — for **code-in-a-cell** workflows where another cell runs `=PY($A$1; …)`. Default **Save** wraps `=PY("…")` / `=PY("…")` via `setFormula`, preserving existing data-range suffixes; the **Data:** textbox is disabled while **Save without =PY()** is checked. Plain save shows status **Saved without =PY().** Opening `=PY($A$1; …)` on the formula cell remains blocked; edit the code storage cell instead.
 
 ---
 
@@ -26,7 +26,7 @@ The editor is a **separate native window** in the user's configured Python venv.
 | Editor diagnostics | [`plugin/scripting/editor_ipc.py`](../plugin/scripting/editor_ipc.py) | Msgbox text: stderr + `traceback.format_exception` |
 | Editor bridge | [`plugin/scripting/editor_host.py`](../plugin/scripting/editor_host.py) | Pipe reader thread; UNO on main thread via [`QueueExecutor`](../plugin/framework/queue_executor.py) |
 | Editor process | [`plugin/scripting/editor_main.py`](../plugin/scripting/editor_main.py) | `pywebview` + Monaco (venv only) |
-| Calc integration | [`plugin/calc/python/editor.py`](../plugin/calc/python/editor.py), [`python_formula_edit.py`](../plugin/calc/python/formula_edit.py), [`python_editor_context_menu.py`](../plugin/calc/python/editor_context_menu.py) | Active cell `=PYTHON()` load/save; cell context menu |
+| Calc integration | [`plugin/calc/python/editor.py`](../plugin/calc/python/editor.py), [`python_formula_edit.py`](../plugin/calc/python/formula_edit.py), [`python_editor_context_menu.py`](../plugin/calc/python/editor_context_menu.py) | Active cell `=PY()` load/save; cell context menu |
 | Protocol | [`plugin/scripting/editor_ipc.py`](../plugin/scripting/editor_ipc.py) | `!I` length + pickle protocol 5 |
 | Frontend (runtime) | `rocher` in configured venv | `index.html`, `editor.js`, `scripts_manager.js`, `style.css`, Monaco `vs/` — served by child WSGI ([`editor_main.py`](../plugin/scripting/venv/editor_main.py)); **not bundled in the OXT** |
 | Frontend (dev source) | [`plugin/contrib/scripting/assets/editor/`](../plugin/contrib/scripting/assets/editor/) | In-repo copies of WriterAgent shell files (edit here; installed/served via venv `rocher`) |
@@ -42,7 +42,7 @@ Same framing as [`worker_harness.py`](../plugin/scripting/worker_harness.py) (`s
 | `type` | Direction | Purpose |
 |--------|-----------|---------|
 | `ready` | child → LO | GUI up (`window.events.loaded` or `shown`); safe to send `load` |
-| `load` | LO → child | Initial `code` (stripped Python only—never `=PYTHON()`), optional `title`, `data_binding`, `plain_text_label` (checkbox label; Calc default **Save without =PY()**), optional `save_as_plain` (checkbox state: off for inline `=PYTHON()`, on for code-only cells, off when empty), **`ui`** (localized toolbar/status — see [Localization](#localization)) |
+| `load` | LO → child | Initial `code` (stripped Python only—never `=PY()`), optional `title`, `data_binding`, `plain_text_label` (checkbox label; Calc default **Save without =PY()**), optional `save_as_plain` (checkbox state: off for inline `=PY()`, on for code-only cells, off when empty), **`ui`** (localized toolbar/status — see [Localization](#localization)) |
 | `save` | child → LO | User saved; includes `code`, optional `save_as_plain` (default false), optional `data_binding` (range text for formula suffix; ignored when `save_as_plain`) |
 | `saved` / `error` | LO → child | Apply result in UI; `saved` may include `save_as_plain` and `status_ok_text` (e.g. **Saved without =PY().**) |
 | `closed` / `cancel` | either | Tear down session |
@@ -119,7 +119,7 @@ plugin/
 ├── calc/
 │   ├── python_editor.py              # Menu entry, launch bridge
 │   ├── python_editor_context_menu.py # Calc cell right-click entry
-│   └── python_formula_edit.py        # Parse/rebuild =PYTHON() formulas
+│   └── python_formula_edit.py        # Parse/rebuild =PY() formulas
 ├── contrib/
 │   └── scripting/
 │       └── assets/editor/          # Dev source only (runtime: venv rocher)
@@ -150,12 +150,12 @@ tests/
 
 ## 7. Manual test
 
-1. Create or pick a venv; `uv pip install pywebview` (and any packages your `=PYTHON()` code needs).
+1. Create or pick a venv; `uv pip install pywebview` (and any packages your `=PY()` code needs).
 2. **WriterAgent Settings → Python:** set **Python venv path** to that directory (not merely “venv active” in a terminal).
 3. `make deploy`, restart LibreOffice, open Calc.
-4. Select any cell (empty or `=PYTHON("result = 1")`).
+4. Select any cell (empty or `=PY("result = 1")`).
 5. **WriterAgent → Edit Python in Cell…** — Monaco window should open.
-6. Edit, **Save** — cell should become/update `=PYTHON("…")` and recalc; toolbar status line shows green **Status: Saved.** and stays until the next action.
+6. Edit, **Save** — cell should become/update `=PY("…")` and recalc; toolbar status line shows green **Status: Saved.** and stays until the next action.
 7. Close the editor with the window **X** (not Cancel), reopen immediately — should **not** show “already open.”
 8. Edit cell A, Save, select cell B, run **Edit Python in Cell…** again — editor reloads B’s code (no blocking dialog).
 9. Right-click a cell — **Edit Python in Cell…** should appear at the bottom of the cell context menu.
@@ -183,7 +183,7 @@ Session 1 proves the **pipe + subprocess + Monaco** spine. The work below is ord
 | **Save feedback** | Green status on `saved`; red status on `error` with message; editor stays open. Status line is always visible (`Status: Ready` initially; last message persists). | **Done** |
 | **Context menu** | Calc cell right-click via [`python_editor_context_menu.py`](../plugin/calc/python/editor_context_menu.py) (`XContextMenuInterceptor`; same dispatch URL as menubar). | **Done** |
 | **stderr logging** | Continuous stderr drain thread in [`editor_bridge.py`](../plugin/scripting/editor_host.py) (`editor-stderr-drain`); lines logged at debug; tail kept for failure msgboxes. | **Done** |
-| **Multi-cell reload** | Editor open on cell A → Save → select B → menu again sends fresh `load` (callbacks retargeted; **Save without =PY()** / `save_as_plain` reflects whether B is inline `=PYTHON()` vs code-only). | **Done** |
+| **Multi-cell reload** | Editor open on cell A → Save → select B → menu again sends fresh `load` (callbacks retargeted; **Save without =PY()** / `save_as_plain` reflects whether B is inline `=PY()` vs code-only). | **Done** |
 
 **Protocol:** no new message types required.
 
@@ -539,7 +539,7 @@ Port spawn helpers from LibrePythonista (see analysis doc): detect sandbox, wrap
 | **Formula bar button** | Needs LO UI extension research (Calc input line customization). High effort; do after context menu. | |
 | **Excel-style accelerators** | Wire **Ctrl+Alt+Shift+F9** → **Reset Python Session**; optional **Ctrl+Alt+Shift+P** → **Edit Python in Cell…** per [enabling_numpy §6 shortcuts](enabling_numpy_in_libreoffice.md#keyboard-shortcuts-and-recalc). Touch [`Accelerators.xcu`](../extension/Accelerators.xcu). | |
 | **Tier-2 document store** | [`enabling_numpy_in_libreoffice.md`](enabling_numpy_in_libreoffice.md) Tier 2 (formula key + side store) is a **separate** product decision — do not mix with Monaco until formula-in-cell workflow is stable. | |
-| **Core extension split** | Keep all editor code in `plugin/scripting/` + thin `plugin/calc/python/editor.py` per [`ROADMAP.md`](../docs/ROADMAP.md) Phase 3–4 so a future core OXT can ship `=PYTHON()` + editor without the LLM stack. | |
+| **Core extension split** | Keep all editor code in `plugin/scripting/` + thin `plugin/calc/python/editor.py` per [`ROADMAP.md`](../docs/ROADMAP.md) Phase 3–4 so a future core OXT can ship `=PY()` + editor without the LLM stack. | |
 
 #### Phase 3 fix: Sample scratchpad in script picker (2026-06)
 
@@ -617,7 +617,7 @@ flowchart TD
 
 ### Success criteria for “editor feature complete”
 
-- **Session 1 (done):** native LO + configured venv with pywebview: menubar **Edit Python in Cell…**, edit any selected Calc cell, Save updates `=PYTHON()` and recalc; failures show full tracebacks.
+- **Session 1 (done):** native LO + configured venv with pywebview: menubar **Edit Python in Cell…**, edit any selected Calc cell, Save updates `=PY()` and recalc; failures show full tracebacks.
 - **Phase 2A (done):** context menu, stderr drain, multi-cell reload, persistent child reuse.
 - **Phase 2E (done):** automatic theme (LO light/dark drives Monaco `vs`/`vs-dark` + full toolbar chrome via shared appearance detector).
 - **Later:** syntax squiggles (2B), range picker button (2C), Jedi finish (2D), Flatpak spawn (2F).
@@ -628,12 +628,12 @@ flowchart TD
 | Topic | Behavior |
 |-------|----------|
 | Cell selection | Uses sheet controller selection ([`python_editor.py`](../plugin/calc/python/editor.py)), same idea as Calc extend/edit |
-| Empty / non-PYTHON cells | Editor opens; Save (default) writes `=PY("code")` / `=PYTHON("code")`; with **Save without =PY()** checked, writes raw script via `setString` |
+| Empty / non-PYTHON cells | Editor opens; Save (default) writes `=PY("code")` / `=PY("code")`; with **Save without =PY()** checked, writes raw script via `setString` |
 | **Save without =PY()** | Checkbox (`save_as_plain`): checked → `setString` only, **Data:** disabled; unchecked → rebuild `=PY("…")` formula with optional data suffix. User strings in [`editor_ui_strings.py`](../plugin/scripting/editor_ui_strings.py). |
-| Load source | Inline PYTHON → stripped `code`; code-only cell → `getString()`; Monaco never shows `=PYTHON()` |
-| Data ranges | Editable toolbar textbox (`data_binding` on load/save); written into `=PYTHON("code"; …)` suffix via [`python_formula_edit.py`](../plugin/calc/python/formula_edit.py); single range → `data`, multiple comma/semicolon-separated → `data_list` |
+| Load source | Inline PYTHON → stripped `code`; code-only cell → `getString()`; Monaco never shows `=PY()` |
+| Data ranges | Editable toolbar textbox (`data_binding` on load/save); written into `=PY("code"; …)` suffix via [`python_formula_edit.py`](../plugin/calc/python/formula_edit.py); single range → `data`, multiple comma/semicolon-separated → `data_list` |
 | Formula strings | Reads `getFormula()`, `FormulaLocal`, `Formula`; normalizes leading `=`, array braces, smart quotes |
-| Unparsed PYTHON (e.g. `=PYTHON(A1; B1)`) | Blocked with msgbox — cannot safely preserve data args |
+| Unparsed PYTHON (e.g. `=PY(A1; B1)`) | Blocked with msgbox — cannot safely preserve data args |
 | Single session | One **persistent child** process; **multi-cell reload** retargets save callbacks and sends `load` (assumes user saved before switching). WM close hides window and clears session; process stays warm. |
 | Child stderr | `editor-stderr-drain` thread logs lines at debug; `read_stderr_tail()` uses ring buffer for failure dialogs. |
 | Child `sys.path` | [`editor_main.py`](../plugin/scripting/editor_main.py) bootstraps repo root so `plugin.scripting.editor_protocol` imports |
@@ -663,7 +663,7 @@ Feasibility analysis for replacing Monaco/pywebview with an embedded Writer docu
 
 ### What stays unchanged (editor-agnostic)
 
-- **Formula parser** ([`python_formula_edit.py`](../plugin/calc/python/formula_edit.py)) — purely string-level `=PYTHON()` decomposition/reconstruction. No changes needed.
+- **Formula parser** ([`python_formula_edit.py`](../plugin/calc/python/formula_edit.py)) — purely string-level `=PY()` decomposition/reconstruction. No changes needed.
 - **Cell resolution** (`python_editor.py`: `_get_active_calc_cell`, `_load_cell_editor_code`) — finding the active cell and extracting initial code.
 - **Save logic** (`python_editor.py`: `_apply_cell_save`, `_apply_formula_save`, `build_editor_formula_save`) — writing code back to the cell.
 - **Auto-imports** (`venv_sandbox.py`: `apply_auto_imports`) — reusable with any completion backend.

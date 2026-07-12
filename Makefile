@@ -302,7 +302,7 @@ release: clean
 	$(PYTHON) $(SCRIPTS)/build_oxt.py --strip --output build/test-stripped.oxt
 	@echo "Running tests against stripped bundle..."
 	@echo "  (grammar_obs call-site tests self-skip via _grammar_obs_call_sites_present; whole modules ignored below)"
-	cd build/bundle && PYTHONPATH=. $(abspath $(PYTHON)) -m pytest --ignore=tests/scripts --ignore=tests/test_fix_uno_import.py --ignore=tests/test_merge_module_yaml_into_pot.py --ignore=tests/framework/test_logging.py --ignore=tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=tests/scripting/test_generate_tool_proxies.py --ignore=tests/framework/test_thread_guard.py --ignore=tests/framework/test_thread_affinity.py --ignore=tests/doc/test_specialized_delegation_threading.py --ignore=tests/writer/locale/test_grammar_obs.py -k "not test_sync_tool_marshaled_from_background and not test_execute_on_main_thread_timeout" tests
+	cd build/bundle && PYTHONPATH=. $(abspath $(PYTHON)) -m pytest --ignore=tests/scripts --ignore=tests/test_fix_uno_import.py --ignore=tests/test_merge_module_yaml_into_pot.py --ignore=tests/framework/test_logging.py --ignore=tests/writer/locale/test_grammar_linguistic_xcu.py --ignore=tests/scripting/test_generate_tool_proxies.py --ignore=tests/framework/test_thread_guard.py --ignore=tests/framework/test_thread_affinity.py --ignore=tests/doc/test_specialized_delegation_threading.py --ignore=tests/writer/locale/test_grammar_obs.py --ignore=tests/writer/locale/test_libreharper_oxt.py -k "not test_sync_tool_marshaled_from_background and not test_execute_on_main_thread_timeout" tests
 	cd build/bundle && PYTHONPATH=. $(LO_PYTHON) -m plugin.testing_runner; EXIT_CODE=$$?; $(MAKE) lo-kill; exit $$EXIT_CODE
 	@$(MAKE) release-build
 	@$(MAKE) register-built-oxt

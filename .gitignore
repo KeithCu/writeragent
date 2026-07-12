@@ -9,7 +9,7 @@ vendor/
 *.pyc
 __pycache__/
 onlyofficeai*/
-plugin/lib*/
+plugin/lib/
 # System files
 .DS_Store
 *.swp
@@ -56,3 +56,4 @@ cursor-libreoffice/
 libreoffice-skill-repo/
 lightproof/
 python_libre_pythonista_ext/
+gpt-researcher/

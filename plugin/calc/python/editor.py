@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Open the Monaco editor for the active Calc cell's ``=PYTHON()`` formula."""
+"""Open the Monaco editor for the active Calc cell's ``=PY()`` formula."""
 
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ def build_editor_formula_save(
     cell_has_unparsed_python: bool,
     data_binding_text: str | None = None,
 ) -> str | dict[str, Any]:
-    """Build ``=PYTHON("…")`` for formula-mode save, or an error dict when args cannot be preserved."""
+    """Build ``=PY("…")`` for formula-mode save, or an error dict when args cannot be preserved."""
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
         return rebuild_python_formula_with_data(new_code, data_args, parts=parsed_parts)
@@ -98,8 +98,8 @@ def build_editor_formula_save(
         return {
             "type": "error",
             "message": _(
-                "Could not preserve this cell's PYTHON formula arguments (e.g. data ranges). "
-                "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10) or =PYTHON(...)."
+                "Could not preserve this cell's PY formula arguments (e.g. data ranges). "
+                "Edit the formula in Calc, or use a quoted code string like =PY(\"code\"; A1:B10)."
             ),
         }
     return build_new_python_formula(new_code)
@@ -193,7 +193,7 @@ def _apply_plain_text_save(doc: Any, cell: Any, *, new_code: str) -> dict[str, A
 
 
 def editor_load_save_as_plain(*, parsed_parts: PythonFormulaParts | None, initial_code: str) -> bool:
-    """Default plain-text checkbox on editor load: on for plain cells, off for ``=PYTHON()`` or empty."""
+    """Default plain-text checkbox on editor load: on for plain cells, off for ``=PY()`` or empty."""
     return parsed_parts is None and bool(initial_code.strip())
 
 
@@ -265,7 +265,7 @@ def _launch_editor_with_code(
 
 
 def open_python_cell_editor(ctx: Any) -> None:
-    """Launch Monaco editor for the active Calc cell (creates or edits ``=PYTHON()``)."""
+    """Launch Monaco editor for the active Calc cell (creates or edits ``=PY()``)."""
     log.info("python_editor: open_python_cell_editor")
     try:
         from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
@@ -302,8 +302,8 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
             ctx,
             "WriterAgent",
             _(
-                "This PYTHON formula uses a form the editor cannot safely rewrite (e.g. code in another cell). "
-                "Edit it in the formula bar, or use =PY(\"code\"; range) (or =PYTHON(...)) with quoted code."
+                "This PY formula uses a form the editor cannot safely rewrite (e.g. code in another cell). "
+                "Edit it in the formula bar, or use =PY(\"code\"; range) with quoted code."
             ),
         )
         return
