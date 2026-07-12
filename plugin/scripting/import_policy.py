@@ -106,14 +106,17 @@ def inprocess_authorized_modules() -> tuple[str, ...]:
 def _join_modules(modules: tuple[str, ...]) -> str:
     return ", ".join(modules)
 
+# LLMs aren't told about the many xl. helpers yet. 
+#         "Use xl.* for Calc-parity helpers (SUMIF, XLOOKUP, FILTER, etc.). "
 
 def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     """Sandbox context prefix first, then import rules for LLM prompts."""
     auto_imports = (
-        "Pre-imported (do not write import lines): np, pd, sp, math, xl. "
-        "DO NOT import numpy, pandas, sympy, math, or plugin.scripting.calc_functions. "
-        "Use xl.* for Calc-parity helpers (SUMIF, XLOOKUP, FILTER, etc.). "
-        "Prefer np/sp/pd and scipy over hand-rolled Python. "
+        "Pre-imported (do not write import lines): np, pd, sp, st, plt, math, dt, re, random, "
+        "statistics, collections, itertools, json, csv, xl. "
+        "DO NOT import numpy, pandas, sympy, scipy.stats, matplotlib.pyplot, math, datetime, "
+        "or plugin.scripting.calc_functions. "
+        "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts. "
         "For folder SQL analytics over CSV/Parquet use the trusted query_folder_sql (or run_sql) helper when available."
     )
     blocked_security = _join_modules(tuple(sorted(DANGEROUS_MODULES)))

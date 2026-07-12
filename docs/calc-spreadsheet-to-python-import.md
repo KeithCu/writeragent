@@ -552,8 +552,8 @@ Convention: `data` is the primary injected range; `data[n]` is multi-range varar
 
 | Calc function | Python | Tier |
 |---------------|--------|------|
-| `TODAY`, `NOW` | `datetime.date.today()`, `datetime.datetime.now()` | P2 |
-| `DATE` | `datetime.date(y,m,d).toordinal()` adjust | P2 |
+| `TODAY`, `NOW` | `dt.date.today()`, `dt.datetime.now()` | P2 |
+| `DATE` | `dt.date(y,m,d).toordinal()` adjust | P2 |
 | `YEAR`, `MONTH`, `DAY` | `.year`, `.month`, `.day` | P2 |
 | `HOUR`, `MINUTE`, `SECOND` | time parts | P2 |
 | `DATEDIF` | `relativedelta` or day delta | P2 |

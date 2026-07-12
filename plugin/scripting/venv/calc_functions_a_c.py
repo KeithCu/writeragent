@@ -9,7 +9,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import builtins
 import math
 import re
@@ -106,8 +106,8 @@ def _days_between(d1: float, d2: float, basis: int) -> float:
         return d2 - d1
     # 30/360 approx
     try:
-        dt1 = datetime.date.fromordinal(int(d1) + 693594)
-        dt2 = datetime.date.fromordinal(int(d2) + 693594)
+        dt1 = dt.date.fromordinal(int(d1) + 693594)
+        dt2 = dt.date.fromordinal(int(d2) + 693594)
     except (ValueError, TypeError):
         return float("nan")
     return (dt2.year - dt1.year) * 360 + (dt2.month - dt1.month) * 30 + (dt2.day - dt1.day)
@@ -198,10 +198,9 @@ def _from_complex(c: builtins.complex, suffix: str = "i") -> str:
 
 def _get_coupon_dates(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -> tuple[float, float, float]:
     from plugin.scripting.venv.calc_functions_a_c import _coup_days_in_period
-    from datetime import datetime
 
     def _to_ordinal(val: Any) -> int:
-        if isinstance(val, datetime):
+        if isinstance(val, dt.datetime):
             return val.toordinal()
         return int(float(val)) + 693594
 
@@ -864,10 +863,9 @@ def coupdaybs(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) ->
 
     try:
         prev_ord, curr_ord, days_in_period = _get_coupon_dates(settlement, maturity, frequency, basis)
-        from datetime import datetime
 
         def _to_ordinal(val: Any) -> int:
-            if isinstance(val, datetime):
+            if isinstance(val, dt.datetime):
                 return val.toordinal()
             return int(float(val)) + 693594
 
@@ -892,10 +890,9 @@ def coupdaysnc(settlement: Any, maturity: Any, frequency: Any, basis: Any = 0) -
 
     try:
         prev_ord, curr_ord, days_in_period = _get_coupon_dates(settlement, maturity, frequency, basis)
-        from datetime import datetime
 
         def _to_ordinal(val: Any) -> int:
-            if isinstance(val, datetime):
+            if isinstance(val, dt.datetime):
                 return val.toordinal()
             return int(float(val)) + 693594
 

@@ -233,7 +233,7 @@ Prompt text is generated from [`plugin/scripting/import_policy.py`](../plugin/sc
 
 | Category | Modules |
 |----------|---------|
-| **Pre-imported** (do not `import` in script) | `np`, `pd`, `sp`, `math`, `xl` |
+| **Pre-imported** (do not `import` in script) | `np`, `pd`, `sp`, `st` (`scipy.stats`), `plt` (`matplotlib.pyplot`), `math`, `dt` (`datetime`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, `csv`, `xl` |
 | **Allowed stdlib** | `collections`, `copy`, `csv`, `dataclasses`, `datetime`, `decimal`, `enum`, `fractions`, `functools`, `itertools`, `json`, `math`, `operator`, `platform`, `pprint`, `queue`, `random`, `re`, `stat`, `statistics`, `string`, `textwrap`, `time`, `typing`, `unicodedata` |
 | **Allowed packages** (+ submodules where whitelisted) | See authoritative list in [`sandbox.py`](../plugin/scripting/sandbox.py) `VENV_AUTHORIZED_IMPORTS` (categories include numpy/pandas/scipy stack, domain helpers, embeddings, vision, …) |
 | **Always blocked** | `os`, `sys`, `subprocess`, `socket`, `pathlib`, `shutil`, `io`, `multiprocessing`, `pty`, `builtins` |
@@ -376,11 +376,9 @@ This is a main reason to keep **`=PY(code, data)`** instead of Excel's `xl()`-in
 
 Workbook initialization scripts can be defined via **WriterAgent → Edit Initialization Script…** (Calc only). This stores a workbook startup script in document properties (`calc:…:init`). It runs once per workbook session even when the session mode is **Isolated**, making its imports and helper functions available to all `=PY()` cells.
 
-Example helpers (no special `excel` module needed; use auto-imported `np`/`pd` or explicit imports):
+Example helpers (no special `excel` module needed; use auto-imported `np`/`pd`/`st`/`plt`/`dt`/`xl` or explicit imports):
 
 ```python
-import pandas as pd
-
 def format_currency(series):
     return series.apply(lambda x: f"${x:,.2f}")
 

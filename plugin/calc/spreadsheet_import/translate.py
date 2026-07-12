@@ -520,12 +520,12 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "FIND": lambda a: f'float(str({a[1]}).find(str({a[0]})) + 1)',
     "SEARCH": lambda a: f'float(str({a[1]}).lower().find(str({a[0]}).lower()) + 1)',
     "VALUE": lambda a: f'float({a[0]})',
-    # Date & Time (P2)
-    "TODAY": lambda _a: 'float(datetime.date.today().toordinal() - 693594)',
-    "NOW": lambda _a: 'float(datetime.datetime.now().toordinal() - 693594)',
-    "YEAR": lambda a: f'float(datetime.date.fromordinal(int({a[0]}) + 693594).year)',
-    "MONTH": lambda a: f'float(datetime.date.fromordinal(int({a[0]}) + 693594).month)',
-    "DAY": lambda a: f'float(datetime.date.fromordinal(int({a[0]}) + 693594).day)',
+    # Date & Time (P2) — use auto-imported ``dt`` (datetime as dt)
+    "TODAY": lambda _a: 'float(dt.date.today().toordinal() - 693594)',
+    "NOW": lambda _a: 'float(dt.datetime.now().toordinal() - 693594)',
+    "YEAR": lambda a: f'float(dt.date.fromordinal(int({a[0]}) + 693594).year)',
+    "MONTH": lambda a: f'float(dt.date.fromordinal(int({a[0]}) + 693594).month)',
+    "DAY": lambda a: f'float(dt.date.fromordinal(int({a[0]}) + 693594).day)',
     # Statistical (P2)
     "STDEV": lambda a: f"np.std({a[0]}, ddof=1)",
     "STDEVP": lambda a: f"np.std({a[0]}, ddof=0)",
@@ -577,10 +577,10 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "BESSELI": lambda a: f"xl.besseli({', '.join(a)})",
     "BESSELJ": lambda a: f"xl.besselj({', '.join(a)})",
     # Date & Time (P2)
-    "DATE": lambda a: f"float(datetime.date(int({a[0]}), int({a[1]}), int({a[2]})).toordinal() - 693594)",
-    "HOUR": lambda a: f"float((datetime.datetime.fromordinal(693594) + datetime.timedelta(days=float({a[0]}))).hour)",
-    "MINUTE": lambda a: f"float((datetime.datetime.fromordinal(693594) + datetime.timedelta(days=float({a[0]}))).minute)",
-    "SECOND": lambda a: f"float((datetime.datetime.fromordinal(693594) + datetime.timedelta(days=float({a[0]}))).second)",
+    "DATE": lambda a: f"float(dt.date(int({a[0]}), int({a[1]}), int({a[2]})).toordinal() - 693594)",
+    "HOUR": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).hour)",
+    "MINUTE": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).minute)",
+    "SECOND": lambda a: f"float((dt.datetime.fromordinal(693594) + dt.timedelta(days=float({a[0]}))).second)",
     "DATEVALUE": lambda a: f"xl.datevalue({a[0]})",
     "TIMEVALUE": lambda a: f"xl.timevalue({a[0]})",
     # Conditional Aggregates

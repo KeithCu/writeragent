@@ -505,7 +505,7 @@ CALC_WORKFLOW = """WORKFLOW:
 4. Give a short confirmation; when you changed cells, mention the range or addresses (e.g. "Wrote totals in B5:B8")."""
 
 # Shared venv Python prompt text (run_venv_python_script, =PY(), delegate domain=python).
-PYTHON_VENV_AUTO_IMPORTS_ALIASES = "`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `plugin.scripting.calc_functions` (as `xl`), standard library `math`, `datetime`, `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`"
+PYTHON_VENV_AUTO_IMPORTS_ALIASES = "`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `scipy.stats` (as `st`), `matplotlib.pyplot` (as `plt`), `plugin.scripting.calc_functions` (as `xl`), standard library `math`, `datetime` (as `dt`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`"
 
 # Populated at module end (after full constants init) to avoid import cycles via smolagents.
 _VENV_IMPORT_POLICY_COMPACT = ""

@@ -9,7 +9,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import builtins
 import math
 import re
@@ -564,7 +564,7 @@ def isodd(val: Any) -> bool:
 
 def isoweeknum(serial: Any) -> float:
     try:
-        d = datetime.date.fromordinal(int(float(serial)) + 693594)
+        d = dt.date.fromordinal(int(float(serial)) + 693594)
         return float(d.isocalendar()[1])
     except Exception:
         return float("nan")

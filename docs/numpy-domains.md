@@ -172,8 +172,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 **Works today:**
 
 ```python
-# =PYTHON() — implicit plt.show() or explicit Figure return
-import matplotlib.pyplot as plt
+# =PYTHON() — plt is auto-imported; explicit import still fine
 plt.plot([1, 2, 3])
 ```
 

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import math
 import numpy as np
 
@@ -82,7 +82,7 @@ def test_translate_p2_functions():
     # Date
     res = translate_formula("=TODAY()")
     assert res.ok
-    assert "datetime.date.today().toordinal() - 693594" in res.code
+    assert "dt.date.today().toordinal() - 693594" in res.code
     assert "float(" not in res.code
 
     # Statistical
@@ -130,13 +130,13 @@ def test_translate_p2_logical_trig_date_functions():
     # Date
     res = translate_formula("=DATE(2023; 10; 5)")
     assert res.ok
-    assert "datetime.date" in res.code and "toordinal() - 693594" in res.code
+    assert "dt.date" in res.code and "toordinal() - 693594" in res.code
     assert "int(" not in res.code
 
     # Time
     res = translate_formula("=HOUR(A1)")
     assert res.ok
-    assert "datetime.datetime.fromordinal(693594)" in res.code
+    assert "dt.datetime.fromordinal(693594)" in res.code
 
     # Row/Col/Rows/Cols
     res = translate_formula("=ROW()", "B5")
@@ -171,12 +171,11 @@ def test_translate_cross_sheet_references():
 
 
 def test_translate_and_exec_new_functions():
-    import datetime
     import math
 
     import numpy as np
 
-    base_locs = {"np": np, "xl": xl, "math": math, "datetime": datetime}
+    base_locs = {"np": np, "xl": xl, "math": math, "dt": dt}
 
     # 1. SUMIF
     res = translate_formula("=SUMIF(A1:A5; \">10\"; B1:B5)")
@@ -378,12 +377,11 @@ def test_translate_tier_abc_functions():
 
 
 def exec_result(res, data):
-    import datetime
     import math
 
     import numpy as np
 
-    locs = {"data": data, "np": np, "xl": xl, "math": math, "datetime": datetime}
+    locs = {"data": data, "np": np, "xl": xl, "math": math, "dt": dt}
     code = f"result = {res.code}"
     exec(code, locs)
     return locs["result"]
@@ -501,7 +499,7 @@ def test_translate_new_15_functions():
     # 12. DATEVALUE
     res = translate_formula("=DATEVALUE(\"2023-10-05\")")
     assert res.ok
-    assert exec_result(res, []) == float(datetime.date(2023, 10, 5).toordinal() - 693594)
+    assert exec_result(res, []) == float(dt.date(2023, 10, 5).toordinal() - 693594)
 
     # 13. TIMEVALUE
     res = translate_formula("=TIMEVALUE(\"12:00:00\")")
@@ -865,7 +863,7 @@ def test_translate_yet_more_functions():
 
 def test_translate_group_d_functions():
     def exec_result(res, *data_args):
-        ns: dict = {"np": np, "math": math, "datetime": datetime, "xl": xl}
+        ns: dict = {"np": np, "math": math, "dt": dt, "xl": xl}
         code = str(res.code)
         # replace data[i] with data_args[i]
         for i in range(len(data_args)):

@@ -9,7 +9,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import builtins
 import math
 import re
@@ -94,8 +94,8 @@ def negbinomdist(x: Any, r: Any, p: Any) -> float:
 
 def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> float:
     try:
-        sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
-        ed = datetime.date.fromordinal(int(float(end_date)) + 693594)
+        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
+        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
     except Exception:
         return float("nan")
     if sd > ed:
@@ -103,12 +103,12 @@ def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> 
         sd, ed = ed, sd
     else:
         sign = 1
-    h_dates: set[datetime.date] = set()
+    h_dates: set[dt.date] = set()
     if holidays is not None:
         for h in np.asarray(holidays).ravel():
             if h is not None and h != "":
                 try:
-                    h_dates.add(datetime.date.fromordinal(int(float(h)) + 693594))
+                    h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
                 except Exception:
                     pass
     curr = sd
@@ -116,14 +116,14 @@ def networkdays(start_date: Any, end_date: Any, holidays: Any | None = None) -> 
     while curr <= ed:
         if curr.weekday() < 5 and curr not in h_dates:
             days += 1
-        curr += datetime.timedelta(days=1)
+        curr += dt.timedelta(days=1)
     return float(sign * days)
 
 
 def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays: Any | None = None) -> float:
     try:
-        sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
-        ed = datetime.date.fromordinal(int(float(end_date)) + 693594)
+        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
+        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
     except Exception:
         return float("nan")
 
@@ -143,12 +143,12 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
         mapping = {1: (5, 6), 2: (6, 0), 3: (0, 1), 4: (1, 2), 5: (2, 3), 6: (3, 4), 7: (4, 5), 11: (6,), 12: (0,), 13: (1,), 14: (2,), 15: (3,), 16: (4,), 17: (5,)}
         wk_days.update(mapping.get(w_idx, (5, 6)))
 
-    h_dates: set[datetime.date] = set()
+    h_dates: set[dt.date] = set()
     if holidays is not None:
         for h in np.asarray(holidays).ravel():
             if h is not None and h != "":
                 try:
-                    h_dates.add(datetime.date.fromordinal(int(float(h)) + 693594))
+                    h_dates.add(dt.date.fromordinal(int(float(h)) + 693594))
                 except Exception:
                     pass
     curr = sd
@@ -156,7 +156,7 @@ def networkdays_intl(start_date: Any, end_date: Any, weekend: Any = 1, holidays:
     while curr <= ed:
         if curr.weekday() not in wk_days and curr not in h_dates:
             days += 1
-        curr += datetime.timedelta(days=1)
+        curr += dt.timedelta(days=1)
     return float(sign * days)
 
 

@@ -9,7 +9,7 @@ Semantics mirror the inline helpers formerly pasted by spreadsheet import transl
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import builtins
 import math
 import re
@@ -84,8 +84,8 @@ __all__ = [
 
 def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     try:
-        sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
-        ed = datetime.date.fromordinal(int(float(end_date)) + 693594)
+        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
+        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
     except Exception:
         return float("nan")
     if sd > ed:
@@ -102,7 +102,7 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
     if u == "YM":
         return float(ed.month - sd.month - (ed.day < sd.day))
     if u == "YD":
-        return float((ed - datetime.date(ed.year, sd.month, sd.day)).days)
+        return float((ed - dt.date(ed.year, sd.month, sd.day)).days)
     return float((ed - sd).days)
 
 
@@ -110,8 +110,8 @@ def datevalue(text: Any) -> float:
     s = str(text).strip().strip('"')
     for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y/%m/%d", "%d-%b-%Y"):
         try:
-            dt = datetime.datetime.strptime(s, fmt)
-            return float(dt.toordinal() - 693594)
+            parsed = dt.datetime.strptime(s, fmt)
+            return float(parsed.toordinal() - 693594)
         except ValueError:
             continue
     return float("nan")
@@ -135,8 +135,8 @@ def days(end_date: Any, start_date: Any) -> float:
 
 def days360(start_date: Any, end_date: Any, method: Any = False) -> float:
     try:
-        sd = datetime.date.fromordinal(int(float(start_date)) + 693594)
-        ed = datetime.date.fromordinal(int(float(end_date)) + 693594)
+        sd = dt.date.fromordinal(int(float(start_date)) + 693594)
+        ed = dt.date.fromordinal(int(float(end_date)) + 693594)
     except Exception:
         return float("nan")
 
@@ -430,7 +430,7 @@ def dvarp(db: Any, field: Any, criteria: Any) -> float:
 
 def edate(start_date: Any, months: Any) -> float:
     try:
-        date_val = datetime.date.fromordinal(int(float(start_date)) + 693594)
+        date_val = dt.date.fromordinal(int(float(start_date)) + 693594)
     except Exception:
         return float("nan")
     y, m = date_val.year, date_val.month
@@ -438,7 +438,7 @@ def edate(start_date: Any, months: Any) -> float:
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
     d = min(date_val.day, [31, 29 if y % 4 == 0 and (y % 100 != 0 or y % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1])
-    return float(datetime.date(y, m, d).toordinal() - 693594)
+    return float(dt.date(y, m, d).toordinal() - 693594)
 
 
 def effect(nominal_rate: Any, npery: Any) -> float:
@@ -463,7 +463,7 @@ def encodeurl(text: Any) -> str | float:
 
 def eomonth(start_date: Any, months: Any) -> float:
     try:
-        date_val = datetime.date.fromordinal(int(float(start_date)) + 693594)
+        date_val = dt.date.fromordinal(int(float(start_date)) + 693594)
     except Exception:
         return float("nan")
     y, m = date_val.year, date_val.month
@@ -471,10 +471,10 @@ def eomonth(start_date: Any, months: Any) -> float:
     y += (m - 1) // 12
     m = (m - 1) % 12 + 1
     if m == 12:
-        next_month = datetime.date(y + 1, 1, 1)
+        next_month = dt.date(y + 1, 1, 1)
     else:
-        next_month = datetime.date(y, m + 1, 1)
-    last_day = next_month - datetime.timedelta(days=1)
+        next_month = dt.date(y, m + 1, 1)
+    last_day = next_month - dt.timedelta(days=1)
     return float(last_day.toordinal() - 693594)
 
 

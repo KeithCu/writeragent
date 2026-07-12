@@ -102,6 +102,37 @@ def test_always_injected_xl_does_not_resolve_bare_x():
         raise AssertionError("bare x must raise InterpreterError when undefined")
 
 
+def test_auto_imports_inject_st_dt_plt_aliases():
+    """Sandbox gets st/dt/plt aliases without explicit imports when packages exist."""
+    from plugin.framework.constants import AUTO_IMPORTS
+    from plugin.scripting.config_limits import python_exec_timeout_default
+    from plugin.scripting.venv.venv_sandbox import _new_executor, apply_auto_imports, inject_auto_imports, optional_module
+
+    assert AUTO_IMPORTS["scipy.stats"] == "import scipy.stats as st"
+    assert AUTO_IMPORTS["datetime"] == "import datetime as dt"
+    assert AUTO_IMPORTS["matplotlib.pyplot"] == "import matplotlib.pyplot as plt"
+    assert "seaborn" not in AUTO_IMPORTS
+
+    code, _lines = apply_auto_imports("result = 1")
+    assert "import datetime as dt" in code
+    if optional_module("scipy.stats") is not None:
+        assert "import scipy.stats as st" in code
+    if optional_module("matplotlib.pyplot") is not None:
+        assert "import matplotlib.pyplot as plt" in code
+
+    executor = _new_executor(python_exec_timeout_default())
+    inject_auto_imports(executor, "result = 1")
+    assert "dt" in executor.state
+    assert "datetime" not in executor.state
+    assert executor("result = dt.date(2020, 1, 1).isoformat()").output == "2020-01-01"
+    if optional_module("scipy.stats") is not None:
+        assert "st" in executor.state
+        assert executor("result = float(st.norm.cdf(0))").output == 0.5
+    if optional_module("matplotlib.pyplot") is not None:
+        assert "plt" in executor.state
+        assert callable(executor.state["plt"].plot)
+
+
 def test_helper_names_complete():
     from plugin.scripting.calc_functions_common import HELPER_NAMES
 

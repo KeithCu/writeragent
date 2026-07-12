@@ -60,6 +60,18 @@ def test_venv_policy_compact_mentions_blocked_categories():
     assert "host escape" in policy
     assert "DO NOT import numpy" in policy
     assert "xl" in policy
+    assert "st" in policy
+    assert "plt" in policy
+    assert "dt" in policy
+
+
+def test_venv_policy_preimported_lists_aliases():
+    policy = format_venv_import_policy_for_prompt(compact=False)
+    assert "Pre-imported" in policy
+    for name in ("np", "pd", "sp", "st", "plt", "dt", "xl"):
+        assert name in policy
+    assert "scipy.stats" in policy
+    assert "matplotlib.pyplot" in policy
 
 
 def test_inprocess_policy_is_stdlib_focused():
