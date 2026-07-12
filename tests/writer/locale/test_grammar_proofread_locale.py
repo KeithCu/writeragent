@@ -129,45 +129,47 @@ def test_partial_threshold_counts_nonspace_chars() -> None:
     assert gl.count_nonspace_chars("this is long enough") >= gl.GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS
 
 def test_word_before_period_is_abbrev() -> None:
-    # Rule: Pure numbers (any length) OR text with 1-6 alphabetic chars = abbreviation
-    # Returns alpha character count if abbrev, 0 otherwise (punctuation does NOT count)
-    # Basic text abbreviations
+    # Basic whitelisted text abbreviations
     assert gl.word_before_period_is_abbrev("Mr") == 2
     assert gl.word_before_period_is_abbrev("Dr") == 2
-    assert gl.word_before_period_is_abbrev("abc") == 3  # 3 alpha chars
-    assert gl.word_before_period_is_abbrev("A") == 1  # Single alpha char
-    # 5-6 letter abbreviations
-    assert gl.word_before_period_is_abbrev("hello") == 5  # 5 alpha chars
-    assert gl.word_before_period_is_abbrev("abcde") == 5  # 5 alpha chars
-    assert gl.word_before_period_is_abbrev("approx") == 6  # 6 alpha chars
-    # Dots (internal punctuation does NOT count toward limit)
-    assert gl.word_before_period_is_abbrev("USA") == 3  # 3 alpha chars
-    assert gl.word_before_period_is_abbrev("U.S.A.") == 3  # 3 alpha chars (U,S,A)
-    assert gl.word_before_period_is_abbrev("Ph.D.") == 3  # 3 alpha chars (P,h,D)
-    assert gl.word_before_period_is_abbrev("e.g.") == 2  # 2 alpha chars (e,g)
-    assert gl.word_before_period_is_abbrev("i.e.") == 2  # 2 alpha chars (i,e)
-    assert gl.word_before_period_is_abbrev("a.m.") == 2  # 2 alpha chars (a,m)
-    assert gl.word_before_period_is_abbrev("No.") == 2  # 2 alpha chars (N,o)
-    # Hyphens (internal punctuation does NOT count toward limit)
-    assert gl.word_before_period_is_abbrev("U-N") == 2  # 2 alpha chars (U,N)
-    # Apostrophes (internal punctuation does NOT count toward limit)
-    assert gl.word_before_period_is_abbrev("O'B") == 2  # 2 alpha chars (O,B)
-    # Mixed alphanumeric (only alpha chars count toward limit)
-    assert gl.word_before_period_is_abbrev("R2D2") == 2  # 2 alpha chars (R,D)
-    assert gl.word_before_period_is_abbrev("i18n") == 2  # 2 alpha chars (i,n)
+    assert gl.word_before_period_is_abbrev("approx") == 6
+    assert gl.word_before_period_is_abbrev("No.") == 3
+
+    # Normal words are NOT abbreviations (should return 0)
+    assert gl.word_before_period_is_abbrev("abc") == 0
+    assert gl.word_before_period_is_abbrev("hello") == 0
+    assert gl.word_before_period_is_abbrev("abcde") == 0
+    assert gl.word_before_period_is_abbrev("USA") == 0  # No dots, has vowel A
+
+    # Single-letter initials (return non-zero)
+    assert gl.word_before_period_is_abbrev("A") == 1
+    assert gl.word_before_period_is_abbrev("г") == 1
+
+    # Dots (internal punctuation/dots return non-zero)
+    assert gl.word_before_period_is_abbrev("U.S.A.") == 6
+    assert gl.word_before_period_is_abbrev("Ph.D.") == 5
+    assert gl.word_before_period_is_abbrev("e.g.") == 4
+    assert gl.word_before_period_is_abbrev("i.e.") == 4
+    assert gl.word_before_period_is_abbrev("a.m.") == 4
+
+    # Consonant-only checks (return non-zero)
+    assert gl.word_before_period_is_abbrev("ltd") == 3
+    assert gl.word_before_period_is_abbrev("vs") == 2
+    assert gl.word_before_period_is_abbrev("ст") == 2
+
     # Numbers (pure digits with separators - 0 alpha chars, but returns 1 to indicate "treat as abbrev")
-    assert gl.word_before_period_is_abbrev("123") == 1  # Pure number (returns 1)
-    assert gl.word_before_period_is_abbrev("12345") == 1  # Pure number (returns 1)
-    assert gl.word_before_period_is_abbrev("1234567890") == 1  # Pure number (returns 1)
-    assert gl.word_before_period_is_abbrev("1,234") == 1  # Pure number with comma (returns 1)
-    assert gl.word_before_period_is_abbrev("3.14") == 1  # Pure number with decimal (returns 1)
-    # Not abbreviations (too many alpha chars)
-    assert gl.word_before_period_is_abbrev("department") == 0  # 9 alpha chars
-    assert gl.word_before_period_is_abbrev("O'Reilly") == 0  # 7 alpha chars
-    # Edge cases
-    assert gl.word_before_period_is_abbrev("") == 0  # Empty
-    assert gl.word_before_period_is_abbrev(".") == 0  # Only dots
-    assert gl.word_before_period_is_abbrev("...") == 0  # Only dots
+    assert gl.word_before_period_is_abbrev("123") == 1
+    assert gl.word_before_period_is_abbrev("12345") == 1
+    assert gl.word_before_period_is_abbrev("1234567890") == 1
+    assert gl.word_before_period_is_abbrev("1,234") == 1
+    assert gl.word_before_period_is_abbrev("3.14") == 1
+
+    # Not abbreviations
+    assert gl.word_before_period_is_abbrev("department") == 0
+    assert gl.word_before_period_is_abbrev("O'Reilly") == 0
+    assert gl.word_before_period_is_abbrev("") == 0
+    assert gl.word_before_period_is_abbrev(".") == 0
+    assert gl.word_before_period_is_abbrev("...") == 0
 
 def test_tricky_terminator_regex_escaping() -> None:
     """Test that _sterm_class handles tricky chars like ] - \\ ^."""

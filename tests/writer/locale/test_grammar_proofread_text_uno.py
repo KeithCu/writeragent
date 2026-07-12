@@ -26,12 +26,9 @@ def teardown_text_tests(ctx: Any) -> None:
 def test_split_basic_two_sentences_native() -> None:
     assert _test_ctx is not None
     result = gt.split_into_sentences(_test_ctx, "en-US", "Hello world. This is fine.")
-    # With 1-6 alpha char threshold, "world" (5 chars) is treated as abbreviation,
-    # resulting in 1 sentence. Use different text that doesn't have short words before periods.
-    # This test now expects 1 sentence due to the abbreviation threshold.
-    assert len(result) == 1
-    assert result[0][0] == 0
-    assert result[0][1] == "Hello world. This is fine."
+    assert len(result) == 2
+    assert result[0][1].strip() == "Hello world."
+    assert result[1][1].strip() == "This is fine."
 
 @native_test
 def test_split_multilingual_terminators_native() -> None:

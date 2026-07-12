@@ -50,10 +50,6 @@ All design choices below follow from that constraint.
 | **2 — Managed venv created by the extension** | **Deferred** | Extension creates and owns a venv (matching LO Python version, installs numpy/pandas). Conflicts with users who want MKL/OpenBLAS or existing data-science stacks. |
 | **3 — User-provided venv + subprocess** | **Chosen** | User points `scripting.python_venv_path` at an existing `.venv`. WriterAgent never imports NumPy in-process. |
 
-### Rejected: in-process `sys.path` injection
-
-Appending the user’s `site-packages` to LibreOffice’s `sys.path` and `import numpy` there only works if the venv was built with the **same** minor Python version and architecture as LibreOffice’s embedded interpreter. In practice users create venvs with system Python 3.12+; LO embeds an older runtime — **immediate ABI crash**. Do not use this pattern.
-
 ### Chosen: warm worker + session-aware sandbox
 
 1. **Persistent worker:** [`PythonWorkerManager`](plugin/scripting/venv_worker.py) spawns the venv’s `python` once per executable path and keeps it alive.
@@ -163,6 +159,8 @@ WriterAgent ships a **Monaco-based code editor** (pywebview child in the configu
 | Syntax squiggles (2B), range picker (2C), full Jedi (2D), sheet cell list | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed) |
 
 **Requirements:** Settings → Python → `scripting.python_venv_path` with `uv pip install pywebview` (on Linux, also `PyQt6 PyQt6-WebEngine qtpy` for a self-contained WebEngine backend). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
+
+**Document-Attached Scripts:** Named scripts can be stored in document `UserDefinedProperties` (`WriterAgentDocumentPythonScripts`) so they travel with `.odt`/`.ods`/`.odg`. The Monaco script picker shows **My Scripts** (personal library in `writeragent.json`) and **This Document** separately. Implementation: [`document_scripts.py`](plugin/scripting/document_scripts.py). Monaco supports **Attach** / **Copy to My Scripts**; read-only documents fall back to the personal library with a clear message.
 
 ---
 
@@ -359,10 +357,26 @@ This is a main reason to keep **`=PYTHON(code, data)`** instead of Excel's `xl()
 
 #### Authoring guidelines
 
-1. **Wire dependencies with `data`** — pass upstream cells/ranges as the second arg so Calc's DAG runs precedents first; keep one-off setup in the **initialization script** (runs once per workbook — see [§7 Calc UX](#calc-ux-and-output-enhancements)).
+1. **Wire dependencies with `data`** — pass upstream cells/ranges as the second arg so Calc's DAG runs precedents first; keep one-off setup in the **initialization script** (runs once per workbook — see [Initialization scripts](#initialization-scripts)).
 2. **Avoid unbounded accumulation** — `mylist.append(x)` every recalc grows forever unless intentional.
 3. **One-time expensive work** belongs in the init script, not repeated in every cell.
 4. **Side effects** (sheet writes, files, shapes) should be idempotent or clearly intentional on re-run.
+
+#### Initialization scripts {#initialization-scripts}
+
+Workbook initialization scripts can be defined via **WriterAgent → Edit Initialization Script…** (Calc only). This stores a workbook startup script in document properties (`calc:…:init`). It runs once per workbook session even when the session mode is **Isolated**, making its imports and helper functions available to all `=PYTHON()` cells.
+
+Example helpers (no special `excel` module needed; use auto-imported `np`/`pd` or explicit imports):
+
+```python
+import pandas as pd
+
+def format_currency(series):
+    return series.apply(lambda x: f"${x:,.2f}")
+
+def kpi_summary(df, metrics):
+    return df[metrics].agg(["mean", "min", "max"]).round(2)
+```
 
 #### What “idempotent” means
 
@@ -462,14 +476,7 @@ Calc **empty cells** and Python/NumPy **NaN** are intentionally **not distinguis
 
 **Ingress (Calc → Python):**
 - Empty cell → `None` (mixed or small grids) or `np.nan` (pure numeric split_grid ndarray).
-- Use `np.nansum` / `np.nanmean` / masks when blanks should be ignored rather than poison.
-
-**Egress (Python → Calc):**
-- Python `None` → `""` (empty cell).
-- `float('nan')` / `np.nan` → raw NaN; Calc renders this as a **cascading error** (`#NUM!` or `#VALUE!`).
-- `±inf` passes through (may also error in formulas).
-
-**What you see in scripts**
+- Ingress blanks can poison naive functions like `np.sum` or `np.mean` — use `np.nansum`, `np.nanmean`, or boolean masks when blanks should be ignored.
 
 | Grid type in the venv | Empty Calc cell becomes | Notes |
 |-----------------------|-------------------------|-------|
@@ -477,16 +484,22 @@ Calc **empty cells** and Python/NumPy **NaN** are intentionally **not distinguis
 | **Pure numeric** (≥100 cells, split_grid) | `np.nan` in `data` | Fast path; use **`np.nansum`**, **`np.nanmean`**, or **`np.isnan`** when holes must be ignored. |
 | **Small range** (&lt;10 cells, nested list) | `None` in lists | Same as mixed; may be promoted to `ndarray` only if the child reloads a clean numeric grid. |
 
-**Return path:** `host_unpack_data` / `host_unpack_split_grid` preserve `float('nan')` (they no longer coerce NaN → `None`). `to_calc_compatible` then maps `None → ""` and leaves `nan` as a raw double (Calc error).
+**Egress (Python → Calc):**
+- Python `None` → `""` (empty cell).
+- `float('nan')` / `np.nan` → raw NaN; Calc renders this as a **cascading error cell** (typically `#NUM!` or `#VALUE!`) that propagates to dependent formulas. There is no longer a silent-blank surprise for computed undefined values.
+- `±inf` passes through (may also error in formulas).
+- If you prefer a visible non-error text marker in the sheet (e.g. `"NaN"`), explicitly return a string instead of a float NaN:
+  ```python
+  val = np.mean(data)
+  result = "NaN" if (isinstance(val, float) and math.isnan(val)) else val
+  ```
 
-A scalar `result = float('nan')` or a matrix NaN slot now shows as an **error**, not a silent blank.
-
-**Examples**
+**Examples:**
 
 ```python
 # Ingress
-result = np.nansum(data)          # ignores blanks
-result = np.sum(data)             # poisons on blanks/NaN
+result = np.nansum(data)          # ignores blanks/NaNs
+result = np.sum(data)             # poisons on blanks/NaN (returns NaN)
 
 # Egress
 result = None                     # empty cell
@@ -494,27 +507,7 @@ result = float("nan")             # #NUM! / #VALUE! (cascades)
 result = [[1.0, np.nan, 3.0]]     # 1, error, 3
 ```
 
-**We do not round-trip "real NaN" as a special visible sentinel.** Return a string (e.g. `"NaN"`) if you want a non-error marker. `±inf` is never coerced to empty.
-
-### Computed NaN surfaces as a visible, cascading error
-
-A scalar `result = np.mean(data)` (or any `nan` result) now becomes a **Calc error cell** that propagates to dependent formulas. There is no longer a silent-blank surprise for computed undefined values.
-
-If you want blanks on ingress to be ignored (like Excel AVERAGE), use the `nan*` helpers or explicit masking on the Python side:
-
-```python
-np.nanmean(data)                     # for ndarray from split_grid
-np.nanmean(np.array(data, dtype=float))
-```
-
-If you prefer a visible non-error marker in the sheet, return a string:
-
-```python
-val = np.mean(...)
-result = "NaN" if (isinstance(val, float) and math.isnan(val)) else val
-```
-
-Ingress blanks can still poison naive `np.sum`/`np.mean` — use `nan*` or a mask. The old silent-blank coercion for computed NaN is gone.
+**We do not round-trip "real NaN" as a special visible sentinel.** `±inf` is never coerced to empty.
 
 #### 2. Normal (Single-Cell) Formulas vs. Matrix (Array) Formulas
 Calc's legacy add-in bridge only accepts **one scalar** (number, text, or boolean) per `=PYTHON()` evaluation. It cannot receive a Python list/tuple as a native array return (that yields `#VALUE!` even with **Ctrl+Shift+Enter**).
@@ -906,12 +899,6 @@ WriterAgent can import Jupyter notebooks into **Writer** via **Tools → Import 
 
 Full usage, document layout, debugging, and notebook-specific roadmap: **[Jupyter notebook import](jupyter-notebook-import.md)**.
 
-### Run Python Script – document-attached scripts {#run-python-script--document-attached-scripts}
-
-**Status:** Shipped (2026-05). Named scripts can be stored in document `UserDefinedProperties` (`WriterAgentDocumentPythonScripts`) so they travel with `.odt`/`.ods`/`.odg`. The Monaco script picker shows **My Scripts** (personal library in `writeragent.json`) and **This Document** separately. Implementation: [`document_scripts.py`](plugin/scripting/document_scripts.py). **Attach** / **Copy to My Scripts** in Monaco; read-only documents fall back to the personal library with a clear message.
-
----
-
 ### Other enhancements {#other-enhancements}
 
 - **OooDev / ScriptForge:** optional venv install for UNO-from-Python; or keep compute-in-venv + document-via-tools (recommended).
@@ -924,23 +911,7 @@ Full usage, document layout, debugging, and notebook-specific roadmap: **[Jupyte
 
 Phased future work: [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md). Monaco IPC and phase detail: [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md).
 
-### Calc UX and output enhancements
-
-**Shared kernel (shipped):** Settings → Python → **Python session mode** → **Shared kernel**. Full mental model, ordering via `data`, idempotent authoring: [§6 Session modes and recalc semantics](#session-modes-and-recalc-semantics).
-
-**Initialization scripts (shipped):** **WriterAgent → Edit Initialization Script…** (Calc only) — workbook startup script in document properties; runs once in `calc:…:init` even when session mode is Isolated. [`document_scripts.py`](../plugin/scripting/document_scripts.py).
-
-Example helpers (Excel init-script pattern — no `excel` module; use auto-imported `np`/`pd` or explicit imports):
-
-```python
-import pandas as pd
-
-def format_currency(series):
-    return series.apply(lambda x: f"${x:,.2f}")
-
-def kpi_summary(df, metrics):
-    return df[metrics].agg(["mean", "min", "max"]).round(2)
-```
+### Calc UX and output enhancements (Backlog)
 
 Backlog items inspired by Microsoft Python in Excel ([parity summary above](#microsoft-python-in-excel-vs-writeragent)). **Status: not implemented** unless noted otherwise.
 
@@ -1002,28 +973,6 @@ LRU eviction of large inactive DataFrames in long-lived workbook sessions — di
 ---
 
 ## 8. Implementation status
-
-### Shipped (venv bridge, 2026-05)
-
-| Component | Status |
-|-----------|--------|
-| Warm worker + Pickle5 IPC | [`venv_worker.py`](../plugin/scripting/venv_worker.py), [`worker_harness.py`](../plugin/scripting/venv/worker_harness.py) — detail in [numpy-serialization.md](numpy-serialization.md) |
-| Pickle5 + Split-Grid serialization | [numpy-serialization.md](numpy-serialization.md) |
-| AST sandbox per request | [`venv/venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py) + vendored [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) |
-| Parse + static validation hot cache | [`sandbox_cache.py`](../plugin/scripting/sandbox_cache.py) — [`tests/scripting/test_sandbox_cache.py`](../tests/scripting/test_sandbox_cache.py) |
-| `run_venv_python_script` / `=PYTHON()` | [`venv_python.py`](../plugin/calc/python/venv.py), [`python_function.py`](../plugin/calc/python/function.py) |
-| Shared kernel (`python_session_mode`) | [`session_manager.py`](../plugin/scripting/session_manager.py), [`venv/venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py) — [`tests/scripting/test_session_persistence.py`](../tests/scripting/test_session_persistence.py) |
-| Calc init scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py), [`init_script_editor.py`](../plugin/calc/init_script_editor.py) — [`tests/scripting/test_init_scripts.py`](../tests/scripting/test_init_scripts.py) |
-| Embeddings encode (Phase A) | [`embedding_client.py`](../plugin/framework/client/embedding_client.py), [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) — see [embeddings.md § Phase B](embeddings.md#phase-b) |
-| Matplotlib + Viz helpers (Phase A–C) | [`venv/venv_sandbox.py`](../plugin/scripting/venv/venv_sandbox.py), [`viz.py`](../plugin/scripting/viz.py), [`python_runner.py`](../plugin/scripting/python_runner.py) — [Visualization](numpy-domains.md#visualization) |
-| Symbolic Math (SymPy) | [`symbolic.py`](../plugin/scripting/symbolic.py), [`symbolic_egress.py`](../plugin/scripting/symbolic_egress.py), [`symbolic_math`](../plugin/calc/symbolic_math.py) — [Symbolic Math](numpy-domains.md#symbolic-math) |
-| Run Python Script UI split | [`python_runner_ui.py`](../plugin/scripting/python_runner_ui.py) (native dialog); execution in [`python_runner.py`](../plugin/scripting/python_runner.py) |
-| Monaco editor (Calc cell + Run Python Script) | [`python_editor.py`](../plugin/calc/python/editor.py), [`editor_host.py`](../plugin/scripting/editor_host.py) — [§3 Monaco](#monaco-editor--run-python-script) |
-| Document-attached scripts | [`document_scripts.py`](../plugin/scripting/document_scripts.py) — [`tests/scripting/test_document_scripts.py`](../tests/scripting/test_document_scripts.py) |
-| Multi-range varargs (`=PYTHON(code; A1; B1)`) | [Multi-range support (varargs)](#multi-range-support-varargs) |
-| Dynamic auto-spill (`#SPILL!`, spill registry) | [`python_function.py`](../plugin/calc/python/function.py) — [§6](#dynamic-auto-spill); [`tests/calc/python/test_function.py`](../tests/calc/python/test_function.py) |
-
-Jupyter `.ipynb` import (separate feature): [jupyter-notebook-import.md](jupyter-notebook-import.md).
 
 ### Not shipped / deferred
 
