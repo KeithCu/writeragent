@@ -51,7 +51,7 @@ except Exception:
     pass
 
 import unohelper
-from typing import TYPE_CHECKING, Any, Callable, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 if TYPE_CHECKING:
     from types import ModuleType

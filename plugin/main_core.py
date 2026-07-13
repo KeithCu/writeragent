@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 import threading
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, cast
 
 _this = os.path.abspath(__file__)
 for __ in range(2):
