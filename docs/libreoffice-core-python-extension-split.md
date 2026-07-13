@@ -1,6 +1,6 @@
 # Python compute & scientific helpers — LibreOffice core extension split
 
-This document describes what WriterAgent would need to ship if LibreOffice pulled the **Python venv compute bridge** and its **scientific productivity surfaces** out of the main WriterAgent extension into a **stable core extension**, while WriterAgent keeps the fast-moving AI features (chat, tools, MCP, grammar, embeddings, and so on).
+This document describes packaging the **Python venv compute bridge** and its **scientific productivity surfaces** as a **stable core extension** (**LibrePy**), while WriterAgent keeps the fast-moving AI features (chat, tools, MCP, grammar, embeddings, and so on).
 
 It answers two questions:
 
@@ -9,7 +9,27 @@ It answers two questions:
 
 For user-facing behavior (`=PYTHON()` / `=PY()`, Run Python Script, domain helpers, Monaco, OCR, TeX), see [Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.md). This doc is about **packaging and dependencies**, not tutorials.
 
-For a **prototype OXT** that works standalone and coexists with WriterAgent, see [Prototype extension](#prototype-extension-standalone-core--writeragent-overlay).
+Build / install targets and the prototype tree live under [Prototype extension](#prototype-extension-standalone-core--writeragent-overlay).
+
+---
+
+## Shipped so far
+
+**LibrePy.oxt is a working standalone extension** in this repo — not just a paper design.
+
+| Item | Status |
+|------|--------|
+| **`make build-core`** → [`build/LibrePy.oxt`](../build/LibrePy.oxt) | **Shipped** — [`scripts/build_librepy_oxt.py`](../scripts/build_librepy_oxt.py) + [`scripts/librepy_bundle_paths.py`](../scripts/librepy_bundle_paths.py) |
+| **`make deploy-core` / `register-librepy-oxt`** | **Shipped** — installs `org.extension.librepy`; **removes** WriterAgent (`org.extension.writeragent`) so only one OXT is active |
+| **Extension identity** | **Shipped** — [`extension-core/`](../extension-core/) (`description.xml`, `Addons.xcu`, `Jobs.xcu`, `ProtocolHandler.xcu`, CalcAddIns, `XPythonFunction.rdb`) |
+| **Bootstrap** | **Shipped** — [`plugin/main_core.py`](../plugin/main_core.py), Python-only Settings ([`plugin/librepy/settings.py`](../plugin/librepy/settings.py)) |
+| **Layers 0–6 feature set** | **Shipped in LibrePy.oxt** — `=PY()` / `=PYTHON()`, warm venv, Run Python Script, Reset Session, Monaco, domain helpers, Vision/OCR, TeX/Math (see [Feature bundles](#feature-bundles-layers)); user guide: [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md) |
+| **Filtered locales / slim vendor** | **Shipped** — `make compile-translations-core`; vendor limited to `json_repair` + `latex2mathml` |
+| **`xl` Calc-parity helpers** | **Deferred** — excluded from LibrePy ([§ below](#calc-parity-xl-helpers-deferred-from-librepy)) |
+| **WriterAgent AI overlay on top of LibrePy** (both OXTs installed, shared `plugin/` via `extend_path`) | **Not shipped** — goal in [Coexistence](#coexistence-options) / prototype §7; **today install only one OXT at a time** |
+| **WriterAgent stripped of duplicate `=PY()` / menus** | **Not shipped** — full WriterAgent OXT still bundles its own Python stack |
+
+`plugin/__init__.py` already uses `pkgutil.extend_path` (useful for other dual-OXT pairs such as WriterAgent + LibreHarper). LibrePy × WriterAgent side-by-side ownership of `=PY()` is still future work.
 
 ---
 
@@ -504,19 +524,25 @@ flowchart TB
 
 ## Coexistence options
 
-| Option | Summary |
-|--------|---------|
-| **A — Core only** | Core OXT alone: `=PY()`, scientific menus, no chat. Valid install; WriterAgent not required. |
-| **B — Core + WriterAgent (recommended)** | Core owns `=PY()` and the scripting stack; WriterAgent is AI-only overlay (`=PROMPT()`, chat, MCP). See [Prototype extension](#prototype-extension-standalone-core--writeragent-overlay). |
-| **C — Duplicate (avoid)** | Both extensions register `=PY()` / `PYTHON` or both ship full `plugin/scripting/` → add-in conflict and/or import shadowing |
+| Option | Summary | Status |
+|--------|---------|--------|
+| **A — Core only (LibrePy.oxt)** | Core OXT alone: `=PY()`, scientific menus, no chat. | **Supported today** — `make deploy-core` |
+| **B — Core + WriterAgent** | Core owns `=PY()` and the scripting stack; WriterAgent is AI-only overlay (`=PROMPT()`, chat, MCP). | **Not shipped** — target architecture below |
+| **C — Duplicate (avoid)** | Both extensions register `=PY()` / `PYTHON` or both ship full `plugin/scripting/` → add-in conflict and/or import shadowing | Avoid |
+| **D — WriterAgent only** | Full WriterAgent OXT with its own Python stack (no LibrePy). | **Supported today** — `make deploy`; do **not** leave LibrePy installed at the same time |
 
-**Chosen model:** **B** — core is **standalone** (must work with only the core OXT installed). WriterAgent **assumes core is installed** and does **not** register `=PY()` or duplicate scientific menus.
+**Today:** install **LibrePy xor WriterAgent**, not both. `register-librepy-oxt` removes WriterAgent first. WriterAgent’s `register-built-oxt` currently only removes its own id — uninstall LibrePy manually before switching back until deploy symmetry is finished.
+
+**Target (not yet):** **B** — core is **standalone**; WriterAgent **assumes LibrePy is installed** and does **not** register `=PY()` or duplicate scientific menus.
 
 ---
 
-## Prototype extension (standalone core + WriterAgent overlay)
+## Prototype extension (standalone core; WriterAgent overlay later) {#prototype-extension-standalone-core--writeragent-overlay}
 
-How to ship a **prototype core OXT** in this repo that works **by itself** (including `=PY()` / `=PYTHON()`), while WriterAgent becomes an optional AI layer that imports the core Python stack instead of duplicating it.
+How this repo ships **LibrePy.oxt** so it works **by itself** (including `=PY()` / `=PYTHON()`), and the remaining steps for WriterAgent to become an optional AI layer that imports the core Python stack instead of duplicating it.
+
+> **Shipped:** standalone LibrePy (option A).  
+> **Not shipped:** dual-install overlay (option B) — see [Shipped so far](#shipped-so-far).
 
 ### Target architecture
 
@@ -538,11 +564,12 @@ flowchart TB
   waOXT -->|no python add-in| coreOXT
 ```
 
-| Install set | Expected |
-|-------------|----------|
-| **Core only** | `=PY()` works; Run Python Script, Monaco, domains, Vision, LaTeX; Settings → Python; **no** chat sidebar |
-| **Core + WriterAgent** | Same single `=PY()` add-in; chat tools call `plugin.scripting.venv_worker` from core; `=PROMPT()` from WriterAgent only |
-| **WriterAgent only** (after strip) | **Unsupported** — no `=PY()`, `import plugin.scripting` fails without core |
+| Install set | Expected | Status |
+|-------------|----------|--------|
+| **Core only (LibrePy)** | `=PY()` works; Run Python Script, Monaco, domains, Vision, LaTeX; Settings → Python; **no** chat sidebar | **Shipped** |
+| **Core + WriterAgent** | Same single `=PY()` add-in; chat tools call `plugin.scripting.venv_worker` from core; `=PROMPT()` from WriterAgent only | **Not shipped** |
+| **WriterAgent only** | Full WriterAgent Python stack + AI | **Shipped** (exclusive of LibrePy) |
+| **WriterAgent only after strip** (no LibrePy, no bundled scripting) | Unsupported — needs LibrePy for `=PY()` | Future under option B |
 
 ### 1. New extension identity (core owns `=PY()`)
 
@@ -662,8 +689,8 @@ plugin/
   __init__.py                        # pkgutil.extend_path (both OXTs)
 
 Makefile (suggested targets)
-  bundle-core / deploy-core            # unopkg org.extension.librepy
-  bundle / deploy                      # WriterAgent slim OXT (no PYTHON overlap)
+  make build-core / deploy-core      # LibrePy.oxt — **shipped** (removes WriterAgent on register)
+  make build / deploy                # WriterAgent OXT (keep exclusive of LibrePy until overlay lands)
 ```
 
 **LibrePy menu Context:** In [`extension-core/Addons.xcu`](../extension-core/Addons.xcu), every submenu item must set an explicit `Context` property. Do not rely on “empty Context = all applications” when the same submenu mixes Writer-only and Calc-only entries — LibreOffice may hide shared items (Settings, Run Python Script, Reset Python Session) in Calc. Shared items use the full menubar context string (Writer, Calc, Draw, Impress, Web, Global); doc-specific items set `TextDocument` or `SpreadsheetDocument` only. Regression test: [`tests/scripts/test_librepy_addons_xcu.py`](../tests/scripts/test_librepy_addons_xcu.py).
@@ -674,12 +701,12 @@ Makefile (suggested targets)
 
 ### 7. Implementation order (lowest risk)
 
-1. Add `pkgutil.extend_path` to `plugin/__init__.py`.
-2. Add `extension-core/` skeleton + `org.extension.librepy` identifiers + `main_core.py`.
-3. `bundle-core` / `deploy-core`; verify **core alone** (`=PY()`, menus, Settings → Python Test).
-4. Slim WriterAgent manifest (no `python_addin`, no python menus, no duplicate `scripting/` in OXT).
-5. Add extension dependency in WriterAgent `description.xml`.
-6. Verify **core + WriterAgent**: one `=PY()` add-in, chat Python tools work via core worker.
+1. ~~Add `pkgutil.extend_path` to `plugin/__init__.py`.~~ **Done**
+2. ~~Add `extension-core/` skeleton + `org.extension.librepy` identifiers + `main_core.py`.~~ **Done**
+3. ~~`build-core` / `deploy-core`; verify **core alone** (`=PY()`, menus, Settings → Python Test).~~ **Done** (LibrePy.oxt)
+4. Slim WriterAgent manifest (no `python_addin`, no python menus, no duplicate `scripting/` in OXT). **Not done**
+5. Add extension dependency in WriterAgent `description.xml`. **Not done**
+6. Verify **core + WriterAgent**: one `=PY()` add-in, chat Python tools work via core worker. **Not done** — deploy still mutually excludes the other OXT
 
 ### 8. What not to do
 
