@@ -10,12 +10,20 @@ call Harper without importing vision / trusted_rpc.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+log = logging.getLogger("writeragent.grammar")
 
 
 def _pump_grammar_status_ui(ctx: Any) -> None:
-    """Drain posted grammar status updates on the LO main thread during Harper progress."""
-    from plugin.framework.queue_executor import execute_on_main_thread, pump_main_thread_work_queue
+    """Best-effort drain of grammar status UI on the LO main thread.
+
+    Must never block or fail the Harper check: a busy VCL / delayed AsyncCallback
+    used to raise TimeoutError from execute_on_main_thread(timeout=2.0) and abort
+    linting even though status painting is optional.
+    """
+    from plugin.framework.queue_executor import post_to_main_thread, pump_main_thread_work_queue
     from plugin.framework.uno_context import get_toolkit
 
     def _pump() -> None:
@@ -24,7 +32,10 @@ def _pump_grammar_status_ui(ctx: Any) -> None:
         if toolkit is not None and hasattr(toolkit, "processEventsToIdle"):
             toolkit.processEventsToIdle()
 
-    execute_on_main_thread(_pump, timeout=2.0)
+    try:
+        post_to_main_thread(_pump)
+    except Exception as e:
+        log.warning("[grammar] Harper status UI pump skipped: %s", e)
 
 
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
