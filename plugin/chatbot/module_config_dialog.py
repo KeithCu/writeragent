@@ -22,8 +22,7 @@ from plugin.chatbot.dialogs import (
     set_control_text,
     translate_dialog,
 )
-from plugin.framework.config import as_bool, get_config, set_config
-from plugin.framework.event_bus import global_event_bus
+from plugin.framework.config import as_bool
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_extension_url
 
@@ -39,21 +38,10 @@ _TAB_PAGE_MAP = {
 }
 
 
-def _find_module_manifest(module_name: str) -> dict[str, Any] | None:
-    try:
-        from plugin._manifest import MODULES
-    except ImportError:
-        return None
-    for m in MODULES:
-        if not isinstance(m, dict):
-            continue
-        if str(m.get("name", "")) == module_name:
-            return m
-    return None
-
-
 def get_module_config_dialog_id(module_name: str) -> str | None:
-    manifest = _find_module_manifest(module_name)
+    from plugin.chatbot.settings_fields import find_module_manifest
+
+    manifest = find_module_manifest(module_name)
     if not manifest:
         return None
     cfg_dialog = manifest.get("config_dialog") or {}
@@ -63,71 +51,17 @@ def get_module_config_dialog_id(module_name: str) -> str | None:
 
 def get_module_config_field_specs(ctx: Any, module_name: str) -> list[dict[str, Any]]:
     """Field specs for a standalone module config dialog (flat control ids)."""
-    manifest = _find_module_manifest(module_name)
-    if not manifest:
-        return []
+    from plugin.chatbot.settings_fields import build_module_field_specs
 
-    field_specs: list[dict[str, Any]] = []
-    m_config = manifest.get("config") or {}
-    if not isinstance(m_config, dict):
-        return field_specs
-
-    for field_name, schema in m_config.items():
-        if not isinstance(schema, dict):
-            continue
-        if schema.get("internal") or schema.get("widget") == "list_detail":
-            continue
-        if schema.get("settings_persist") is False:
-            continue
-
-        config_key = f"{module_name}.{field_name}"
-        val = get_config(config_key)
-        opts = schema.get("options", [])
-
-        if isinstance(opts, list) and opts and isinstance(opts[0], dict):
-            for o in opts:
-                if isinstance(o, dict) and str(o.get("value", "")) == str(val).strip().lower():
-                    val = _(str(o.get("label", val)))
-                    break
-
-        field: dict[str, Any] = {"name": field_name, "config_key": config_key, "value": str(val)}
-
-        provider_path = schema.get("options_provider")
-        if provider_path and isinstance(provider_path, str):
-            from plugin.chatbot.settings_dialog import _call_options_provider
-
-            try:
-                field["options"] = _call_options_provider(ctx, provider_path)
-            except Exception:
-                log.exception("options_provider failed for %s", config_key)
-        elif schema.get("options"):
-            field["options"] = schema["options"]
-
-        schema_type = schema.get("type", "string")
-        if schema_type == "boolean":
-            schema_type = "bool"
-        if schema_type in ("bool", "int", "float"):
-            field["type"] = str(schema_type)
-            if schema_type == "bool":
-                field["value"] = "true" if as_bool(val) else "false"
-
-        field_specs.append(field)
-    return field_specs
+    return build_module_field_specs(module_name, ctx=ctx, control_ids="flat")
 
 
 def apply_module_config_result(ctx: Any, module_name: str, result: dict[str, Any]) -> None:
     """Persist standalone module dialog values to writeragent.json."""
+    from plugin.chatbot.settings_fields import apply_field_specs_result
+
     field_specs = get_module_config_field_specs(ctx, module_name)
-    by_name = {f["name"]: f for f in field_specs}
-
-    for key, val in result.items():
-        if key not in by_name:
-            continue
-        spec = by_name[key]
-        save_key = str(spec.get("config_key") or f"{module_name}.{key}")
-        set_config(save_key, val)
-
-    global_event_bus.emit("config:changed", ctx=ctx)
+    apply_field_specs_result(ctx, result, field_specs)
 
 
 def _option_labels(field: dict[str, Any]) -> tuple[str, ...]:

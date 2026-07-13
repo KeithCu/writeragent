@@ -4,11 +4,13 @@ from unittest.mock import MagicMock, patch
 
 from plugin.librepy.settings import (
     _DownloadVecPackListener,
-    _ScriptingVenvTestListener,
-    _VenvProbeCloseListener,
-    _VenvProbeProgressDialog,
     _populate_field,
     _scripting_field_specs,
+)
+from plugin.scripting.venv_probe_ui import (
+    ScriptingVenvTestListener,
+    VenvProbeProgressDialog,
+    _VenvProbeCloseListener,
 )
 
 
@@ -61,11 +63,11 @@ def test_venv_probe_progress_uses_xdl_control_ids():
         "StatusLbl": status_lbl,
     }[name]
 
-    progress = _VenvProbeProgressDialog(MagicMock())
+    progress = VenvProbeProgressDialog(MagicMock())
     progress._dlg = dlg
 
-    with patch("plugin.librepy.settings.set_control_text") as mock_set_text:
-        with patch.object(progress, "_pump_events"):
+    with patch("plugin.scripting.venv_probe_ui.set_control_text") as mock_set_text:
+        with patch("plugin.scripting.venv_probe_ui.process_events_to_idle"):
             progress.set_display("probe output")
             progress.set_status("checking numpy")
 
@@ -74,21 +76,23 @@ def test_venv_probe_progress_uses_xdl_control_ids():
 
 
 def test_venv_probe_progress_pumps_events():
-    progress = _VenvProbeProgressDialog(MagicMock())
+    ctx = MagicMock()
+    progress = VenvProbeProgressDialog(ctx)
     progress._dlg = MagicMock()
     progress._dlg.getControl.return_value = MagicMock()
-    toolkit = MagicMock()
 
-    with patch("plugin.librepy.settings.get_toolkit", return_value=toolkit):
-        with patch("plugin.librepy.settings.set_control_text"):
-            progress.set_status("warming worker")
+    with (
+        patch("plugin.scripting.venv_probe_ui.process_events_to_idle") as mock_pump,
+        patch("plugin.scripting.venv_probe_ui.set_control_text"),
+    ):
+        progress.set_status("warming worker")
 
-    toolkit.processEventsToIdle.assert_called_once()
+    mock_pump.assert_called_once_with(ctx)
 
 
 def test_venv_probe_close_listener_ends_dialog():
     dlg = MagicMock()
-    progress = _VenvProbeProgressDialog(MagicMock())
+    progress = VenvProbeProgressDialog(MagicMock())
     progress._dlg = dlg
     listener = _VenvProbeCloseListener(progress)
 
@@ -101,23 +105,27 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
     fake_ctx = MagicMock()
     fake_dlg = MagicMock()
     probe_displays: list[str] = []
+    titles: list[str] = []
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
             self._dlg = MagicMock()
 
-        def run_modal_probe(self, probe_fn):
+        def run_modal_probe(self, probe_fn, *, title=None):
+            if title is not None:
+                titles.append(title)
             probe_fn(probe_displays.append, lambda _status: None)
             return True
 
     listener = _DownloadVecPackListener(fake_ctx, fake_dlg)
     with (
-        patch("plugin.librepy.settings._VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.librepy.settings.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.audio_recorder_service.run_vec_pack_download", return_value=True) as mock_download,
     ):
         listener.on_action_performed(None)
 
     mock_download.assert_called_once()
+    assert titles and "Cython" in titles[0]
 
 
 def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
@@ -128,14 +136,14 @@ def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
         def __init__(self, ctx, parent_dlg=None):
             pass
 
-        def run_modal_probe(self, probe_fn):
+        def run_modal_probe(self, probe_fn, *, title=None):
             probe_fn(lambda _text: None, lambda _status: None)
             return True
 
-    listener = _ScriptingVenvTestListener(fake_ctx, fake_dlg)
+    listener = ScriptingVenvTestListener(fake_ctx, fake_dlg)
     with (
-        patch("plugin.librepy.settings.get_optional", return_value=None),
-        patch("plugin.librepy.settings._VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.scripting.venv_probe_ui.get_optional", return_value=None),
+        patch("plugin.scripting.venv_probe_ui.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.audio_recorder_service.ensure_downloaded_audio_on_path") as mock_ensure,
         patch("plugin.scripting.venv_worker.probe_venv_path_with_progress", return_value=(True, "ok")),
         patch("plugin.scripting.payload_codec.host_cython_status_line", return_value="Cython Accelerator: Inactive (Pure Python)"),

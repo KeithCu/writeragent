@@ -19,7 +19,7 @@ from plugin.chatbot.module_config_dialog import (
 
 def test_get_module_config_dialog_id_for_vision():
     with patch(
-        "plugin.chatbot.module_config_dialog._find_module_manifest",
+        "plugin.chatbot.settings_fields.find_module_manifest",
         return_value={
             "name": "vision",
             "config_dialog": {"id": "VisionSettingsDialog", "library": "WriterAgentDialogs"},
@@ -46,8 +46,8 @@ def test_get_module_config_field_specs_skips_internal_and_non_persisted():
             "_internal": {"type": "string", "internal": True},
         },
     }
-    with patch("plugin.chatbot.module_config_dialog._find_module_manifest", return_value=manifest), \
-         patch("plugin.chatbot.module_config_dialog.get_config", return_value="auto"):
+    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
+         patch("plugin.chatbot.settings_fields.get_config", return_value="auto"):
         specs = get_module_config_field_specs(ctx, "vision")
 
     assert len(specs) == 1
@@ -104,9 +104,9 @@ def test_apply_module_config_result_delegates_raw_values_to_config():
             },
         },
     }
-    with patch("plugin.chatbot.module_config_dialog._find_module_manifest", return_value=manifest), \
-         patch("plugin.chatbot.module_config_dialog.get_config", side_effect=lambda key: {"demo.count": 1, "demo.mode": "fast"}[key]), \
-         patch("plugin.chatbot.module_config_dialog.set_config") as mock_set_config:
+    with patch("plugin.chatbot.settings_fields.find_module_manifest", return_value=manifest), \
+         patch("plugin.chatbot.settings_fields.get_config", side_effect=lambda key: {"demo.count": 1, "demo.mode": "fast"}[key]), \
+         patch("plugin.chatbot.settings_fields.set_config") as mock_set_config:
         apply_module_config_result(ctx, "demo", {"count": "42", "mode": "Fast Mode"})
 
     mock_set_config.assert_any_call("demo.count", "42")

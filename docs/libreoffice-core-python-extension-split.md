@@ -635,6 +635,8 @@ Register as `org.extension.librepy.Main` in a core-only [`Jobs.xcu`](../extensio
 
 **Recommended:** keep **`writeragent.json`** for both extensions ([`CONFIG_FILENAME`](../plugin/framework/config.py)) so venv path, session mode, and timeouts are shared. Core owns **Python Settings** ([`plugin/librepy/settings.py`](../plugin/librepy/settings.py): Python tab only; General/Image tabs hidden); WriterAgent Settings focus on LLM / AI keys.
 
+Shared Settings helpers (both OXTs): [`plugin/scripting/venv_probe_ui.py`](../plugin/scripting/venv_probe_ui.py) (venv Test / download progress modal) and [`plugin/chatbot/settings_fields.py`](../plugin/chatbot/settings_fields.py) (module.yaml field-spec build/apply). LibrePy keeps Python-only chrome and Cython-only download local; list new shared files in [`scripts/librepy_bundle_paths.py`](../scripts/librepy_bundle_paths.py).
+
 WriterAgent-only `module.yaml` settings keys can carry **`librepy_exclude: true`** (e.g. `scripting.ppt_master_data_path`). LibrePy manifest generation (`make manifest-core` / `generate_manifest.py --skip-writeragent-extension`) omits those keys from `_manifest_librepy.py` and from generated `SettingsDialog.xdl` page 3 controls.
 
 One venv + one shared-kernel session for `=PY()` and chat `run_venv_python_script` — desirable when both are installed.

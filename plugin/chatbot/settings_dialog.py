@@ -18,7 +18,6 @@ from plugin.framework.config import (
     get_config,
     set_config,
     get_current_endpoint,
-    as_bool,
     get_api_key_for_endpoint,
     set_api_key_for_endpoint,
     get_config_bool,
@@ -30,7 +29,6 @@ from plugin.framework.client.model_fetcher import get_image_model, get_text_mode
 from plugin.framework.event_bus import global_event_bus
 
 import logging
-from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +78,7 @@ def _get_module_field_specs(ctx):
     field_specs = []
     try:
         from plugin._manifest import MODULES
+        from plugin.chatbot.settings_fields import build_module_field_specs
 
         for m in MODULES:
             m_name = str(m.get("name", ""))
@@ -88,56 +87,9 @@ def _get_module_field_specs(ctx):
             if m.get("settings_tab") is False or m.get("config_dialog"):
                 continue
 
-            m_config = m.get("config", {})
-            if not isinstance(m_config, dict):
-                m_config = {}
-
-            for field_name, schema in m_config.items():
-                if not isinstance(schema, dict):
-                    continue
-
-                if schema.get("internal") or schema.get("widget") == "list_detail":
-                    continue
-                # Action-only controls (e.g. Test) exist in XDL but are not load/save fields.
-                if schema.get("settings_persist") is False:
-                    continue
-
-                prefix = m_name.replace(".", "_")
-                ctrl_id = f"{prefix}__{field_name}"
-                config_key = f"{m_name}.{field_name}"
-
-                val = get_config(config_key)
-                opts = schema.get("options", [])
-
-                # For select/combo with value/label options, use label for display so dropdown shows correctly
-                if isinstance(opts, list) and opts and isinstance(opts[0], dict):
-                    v_str = str(val).strip().lower()
-                    for o in opts:
-                        if isinstance(o, dict) and str(o.get("value", "")) == v_str:
-                            val = _(str(o.get("label", val)))
-                            break
-
-                field: dict = {"name": ctrl_id, "value": str(val)}
-
-                # Resolve dynamic options if options_provider is present; else use schema options
-                provider_path = schema.get("options_provider")
-                if provider_path and isinstance(provider_path, str):
-                    try:
-                        field["options"] = _call_options_provider(ctx, provider_path)
-                    except Exception as e:
-                        log.error(f"Failed to resolve options_provider {provider_path}: {e}")
-                elif schema.get("options"):
-                    field["options"] = schema["options"]
-
-                schema_type = schema.get("type", "string")
-                if schema_type == "boolean":
-                    schema_type = "bool"
-                if schema_type in ("bool", "int", "float"):
-                    field["type"] = str(schema_type)
-                    if schema_type == "bool":
-                        field["value"] = "true" if as_bool(val) else "false"
-
-                field_specs.append(field)
+            field_specs.extend(
+                build_module_field_specs(m_name, ctx=ctx, control_ids="prefixed")
+            )
     except ImportError:
         pass
     return field_specs
@@ -199,21 +151,6 @@ def _update_lru_for_key(ctx, key, val, current_endpoint):
 
 def _call_options_provider(ctx, provider_path):
     """Import a module and call a function to get options."""
-    log.debug(f"_call_options_provider: {provider_path}")
-    try:
-        module_path, func_name = provider_path.rsplit(":", 1)
-        import importlib
-        mod = importlib.import_module(module_path)
-        func = getattr(mod, func_name)
+    from plugin.chatbot.settings_fields import call_options_provider
 
-        from plugin.main import get_services
-        services = get_services()
-        options = func(services)
-        log.debug(f"_call_options_provider success: {len(options)} options returned")
-        return options
-    except Exception as e:
-        log.error(f"_call_options_provider FAILED for {provider_path}: {e}")
-        import traceback
-        log.error(traceback.format_exc())
-        from plugin.framework.errors import ConfigError
-        raise ConfigError(f"Options provider {provider_path} failed: {e}") from e
+    return call_options_provider(ctx, provider_path)

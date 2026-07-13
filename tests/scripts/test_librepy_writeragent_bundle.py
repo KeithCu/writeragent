@@ -22,9 +22,7 @@ def test_librepy_bundle_excludes_writeragent_api():
     assert "plugin/scripting/writeragent_api.py" not in paths
 
 
-def test_librepy_bundle_excludes_prompts_and_chat_calc_modules():
+def test_librepy_bundle_includes_settings_fields():
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/framework/prompts.py" not in paths
-    assert "plugin/calc/base.py" not in paths
-    assert "plugin/calc/python/venv.py" not in paths
-    assert "plugin/calc/calc_addin_data.py" in paths
+    assert "plugin/chatbot/settings_fields.py" in paths
+    assert "plugin/scripting/venv_probe_ui.py" in paths

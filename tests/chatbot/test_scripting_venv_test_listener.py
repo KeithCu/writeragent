@@ -2,7 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.dialog_views import ScriptingVenvTestListener, _dialog_parent_for_child
+from plugin.chatbot.dialog_views import _dialog_parent_for_child
+from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener
 
 
 def test_python_test_uses_modal_incremental_probe() -> None:
@@ -17,7 +18,7 @@ def test_python_test_uses_modal_incremental_probe() -> None:
             order.append("progress_ctor")
             assert parent_dlg is fake_dlg
 
-        def run_modal_probe(self, probe_fn):
+        def run_modal_probe(self, probe_fn, *, title=None):
             order.append("progress_run_modal")
             probe_fn(probe_displays.append, probe_statuses.append)
             return True
@@ -30,8 +31,8 @@ def test_python_test_uses_modal_incremental_probe() -> None:
 
     listener = ScriptingVenvTestListener(fake_ctx, fake_dlg)
     with (
-        patch("plugin.chatbot.dialog_views.get_optional", return_value=None),
-        patch("plugin.chatbot.dialog_views._VenvProbeProgressDialog", _FakeProgress),
+        patch("plugin.scripting.venv_probe_ui.get_optional", return_value=None),
+        patch("plugin.scripting.venv_probe_ui.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.venv_worker.probe_venv_path_with_progress", side_effect=fake_probe),
         patch("plugin.scripting.payload_codec.fast_flatten_grid_2d", None),
     ):

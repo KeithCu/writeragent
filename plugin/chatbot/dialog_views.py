@@ -27,12 +27,13 @@ from plugin.framework.client.model_fetcher import get_text_model, get_stt_model,
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru
 from plugin.chatbot.history_db import HAS_SQLITE
+from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeProgressDialog
 
 from .listeners import BaseActionListener, BaseListener
 from .dialogs import (
     TabListener, is_checkbox_control, get_checkbox_state, set_checkbox_state,
     get_optional, set_control_enabled, set_control_text, get_control_text, translate_dialog,
-    msgbox, load_writeragent_dialog,
+    msgbox,
 )
 
 log = logging.getLogger(__name__)
@@ -403,150 +404,6 @@ def _dialog_parent_for_child(ctx, parent_dlg):
     return None
 
 
-class _VenvProbeProgressDialog:
-    """Modal progress window for Settings → Python Test (probe runs in a worker thread)."""
-
-    def __init__(self, ctx, parent_dlg=None):
-        self._ctx = ctx
-        self._parent_dlg = parent_dlg
-        self._dlg = None
-
-    def run_modal_probe(self, probe_fn) -> None:
-        """Show a modal dialog immediately and run *probe_fn(on_display, on_status)* in a worker."""
-        from plugin.framework.queue_executor import post_to_main_thread
-        from plugin.framework.worker_pool import run_in_background
-
-        self._create_dialog()
-
-        def on_display(text: str) -> None:
-            post_to_main_thread(lambda body=text: self.set_display(body))
-
-        def on_status(text: str) -> None:
-            post_to_main_thread(lambda status=text: self.set_status(status))
-
-        def work() -> None:
-            try:
-                ok, _msg = probe_fn(on_display, on_status)
-
-                def finish_ui() -> None:
-                    self.finish(_("Venv OK") if ok else _("Venv check failed"), ok)
-
-                post_to_main_thread(finish_ui)
-            except Exception as exc:
-                log.exception("Scripting venv probe failed")
-
-                def error_ui(exc=exc) -> None:
-                    self.set_display(str(exc))
-                    self.finish(_("Venv check failed"), False)
-
-                post_to_main_thread(error_ui)
-
-        run_in_background(work, name="settings-venv-test")
-        dlg = self._dlg
-        assert dlg is not None
-        try:
-            dlg.execute()
-        finally:
-            self._dispose()
-
-    def _create_dialog(self) -> None:
-        dlg = load_writeragent_dialog("PythonTestProgressDialog", self._ctx)
-        if dlg is None:
-            raise RuntimeError("Failed to load PythonTestProgressDialog")
-        self._dlg = dlg
-        
-        # When peer parent is needed for a child modal (aboveSettingsDialog),
-        # DialogProvider2 dialogs can be re-parented or we can just use the peer created automatically.
-        # Let's add the action listener to BtnClose
-        btn_close = dlg.getControl("BtnClose")
-        if btn_close is not None:
-            btn_close.addActionListener(_VenvProbeCloseListener(self))
-
-    def set_display(self, text: str) -> None:
-        if self._dlg is None:
-            return
-        set_control_text(self._dlg.getControl("LogArea"), text)
-        self._pump_events()
-
-    def set_status(self, text: str) -> None:
-        if self._dlg is None:
-            return
-        status = text.strip() or _("Testing Python environment...")
-        if len(status) > 80:
-            status = status[:77] + "..."
-        set_control_text(self._dlg.getControl("StatusLbl"), status)
-        self._pump_events()
-
-    def finish(self, title: str, ok: bool) -> None:
-        if self._dlg is None:
-            return
-        try:
-            self._dlg.getModel().Title = _(title)
-        except Exception:
-            pass
-        set_control_text(self._dlg.getControl("StatusLbl"), _("Done") if ok else _("Failed"))
-        set_control_enabled(self._dlg.getControl("BtnClose"), True)
-        self._pump_events()
-
-    def _dispose(self) -> None:
-        dlg = self._dlg
-        self._dlg = None
-        if dlg is None:
-            return
-        try:
-            dlg.dispose()
-        except Exception:
-            log.debug("Failed to dispose venv probe progress dialog", exc_info=True)
-
-    def _pump_events(self) -> None:
-        toolkit = get_toolkit(self._ctx)
-        if toolkit and hasattr(toolkit, "processEventsToIdle"):
-            toolkit.processEventsToIdle()
-
-
-class _VenvProbeCloseListener(BaseActionListener):
-    def __init__(self, progress: _VenvProbeProgressDialog):
-        self._progress = progress
-
-    def on_action_performed(self, rEvent):
-        dlg = self._progress._dlg
-        if dlg is not None:
-            try:
-                dlg.endDialog(0)
-            except Exception:
-                log.debug("Failed to close venv probe progress dialog", exc_info=True)
-
-
-class ScriptingVenvTestListener(BaseActionListener):
-    """Settings → Python: run a quick subprocess check using the path in the text field (saved or not)."""
-
-    def __init__(self, ctx, dlg):
-        self._ctx = ctx
-        self._dlg = dlg
-
-    def on_action_performed(self, rEvent):
-        from plugin.scripting.audio_recorder_service import ensure_downloaded_audio_on_path
-        from plugin.scripting.payload_codec import host_cython_status_line
-        from plugin.scripting.venv_worker import probe_venv_path_with_progress
-
-        # WriterAgent-only: user-downloaded writeragent_vec may be on sys.path via audio_binaries.
-        ensure_downloaded_audio_on_path()
-
-        path_ctrl = get_optional(self._dlg, "scripting__python_venv_path")
-        raw = get_control_text(path_ctrl) if path_ctrl else ""
-
-        def probe(on_display, on_status):
-            return probe_venv_path_with_progress(
-                raw,
-                on_display,
-                on_status=on_status,
-                extra_lines_after_header=(host_cython_status_line(),),
-            )
-
-        progress = _VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg)
-        progress.run_modal_probe(probe)
-
-
 class PptMasterDataTestListener(BaseActionListener):
     """Settings → Python: verify ppt-master skill tree at the path in the text field (saved or not)."""
 
@@ -563,8 +420,7 @@ class PptMasterDataTestListener(BaseActionListener):
         def probe(on_display, on_status):
             return probe_data_path_with_progress(raw, on_display, on_status=on_status)
 
-        progress = _VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg)
-        progress.run_modal_probe(probe)
+        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe)
 
 
 class ApiKeyTextListener(BaseListener, XTextListener):
@@ -862,15 +718,10 @@ class DownloadAudioListener(BaseActionListener):
     def on_action_performed(self, rEvent):
         from plugin.scripting.audio_recorder_service import run_audio_download
 
-        progress = _VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg)
-        if progress._dlg is not None:
-            try:
-                progress._dlg.getModel().Title = _("Audio Library Download")
-            except Exception:
-                pass
-
         def probe(on_display, on_status):
             ok = run_audio_download(on_display, on_status)
             return ok, ""
 
-        progress.run_modal_probe(probe)
+        VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(
+            probe, title=_("Audio Library Download")
+        )
