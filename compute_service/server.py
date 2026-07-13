@@ -2,115 +2,117 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Lightweight HTTP server for sandboxed Python execution."""
+"""Lightweight stdlib HTTP server for sandboxed Python execution (no FastAPI)."""
 
-import base64
+from __future__ import annotations
+
 import json
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-# Ensure repo root is on sys.path to resolve plugin.* imports
+# Ensure repo root is on sys.path to resolve plugin.* / compute_service imports
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from compute_service.executor import execute_code
+from compute_service.executor import execute_code, timeout_ms_to_sec
 
-def _encode_bytes_to_base64(obj: Any) -> Any:
-    """Recursively encode all bytes instances in the object to base64 strings."""
-    if isinstance(obj, bytes):
-        return base64.b64encode(obj).decode("utf-8")
-    elif isinstance(obj, dict):
-        return {k: _encode_bytes_to_base64(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_encode_bytes_to_base64(x) for x in obj]
-    elif isinstance(obj, tuple):
-        return tuple(_encode_bytes_to_base64(x) for x in obj)
-    return obj
+# Reject absurd bodies early (bytes). Kit should not send multi-GB grids.
+_MAX_BODY_BYTES = 32 * 1024 * 1024
+
 
 class ComputeHandler(BaseHTTPRequestHandler):
+    def log_message(self, format: str, *args: Any) -> None:
+        # Quieter default for ThreadingHTTPServer under tests; still prints.
+        sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), format % args))
+
     def do_GET(self) -> None:
-        if self.path == "/health":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "healthy"}).encode("utf-8"))
+        path = self.path.split("?", 1)[0]
+        if path == "/health":
+            self._send_json(200, {"status": "healthy"})
             return
-        
         self.send_error(404, "Not Found")
 
     def do_POST(self) -> None:
-        if self.path != "/v1/execute":
+        path = self.path.split("?", 1)[0]
+        if path != "/v1/execute":
             self.send_error(404, "Not Found")
             return
 
         content_length = int(self.headers.get("Content-Length", 0))
-        if not content_length:
-            self.send_error(400, "Bad Request: Missing Content-Length")
+        if content_length <= 0:
+            self._send_json(400, {"status": "error", "error": "Missing Content-Length"})
+            return
+        if content_length > _MAX_BODY_BYTES:
+            self._send_json(413, {"status": "error", "error": "Request body too large"})
             return
 
         body = self.rfile.read(content_length)
         try:
             req_data = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError:
-            self.send_error(400, "Bad Request: Invalid JSON")
+            self._send_json(400, {"status": "error", "error": "Invalid JSON"})
+            return
+
+        if not isinstance(req_data, dict):
+            self._send_json(400, {"status": "error", "error": "JSON body must be an object"})
             return
 
         code = req_data.get("code")
         if not code or not isinstance(code, str):
-            self.send_response(400)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "error", "message": "Missing 'code' string parameter."}).encode("utf-8"))
+            self._send_json(400, {"status": "error", "error": "Missing 'code' string parameter."})
             return
 
         data = req_data.get("data")
         session_id = req_data.get("session_id")
-        timeout_ms = req_data.get("timeout_ms")
-        
-        # Default to 30 seconds
-        timeout_sec = 30
-        if isinstance(timeout_ms, int) and timeout_ms > 0:
-            timeout_sec = max(1, timeout_ms // 1000)
+        mode = req_data.get("mode") or "isolated"
+        if mode not in ("isolated", "shared"):
+            mode = "isolated"
+        init_script = req_data.get("init_script")
+        if init_script is not None and not isinstance(init_script, str):
+            init_script = None
+
+        timeout_sec = timeout_ms_to_sec(req_data.get("timeout_ms"))
 
         try:
             result_payload = execute_code(
                 code=code,
                 data=data,
-                session_id=session_id,
+                session_id=session_id if isinstance(session_id, str) else None,
                 timeout_sec=timeout_sec,
+                mode=mode,
+                init_script=init_script,
             )
-            
-            # Base64-encode any binary bytes (e.g. image payloads) so it's JSON-safe
-            safe_payload = _encode_bytes_to_base64(result_payload)
-            
-            response_body = json.dumps(safe_payload).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(response_body)))
-            self.end_headers()
-            self.wfile.write(response_body)
+            self._send_json(200, result_payload)
         except Exception as e:
-            self.send_response(500)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({
-                "status": "error",
-                "message": f"Server execution failure: {str(e)}"
-            }).encode("utf-8"))
+            self._send_json(500, {"status": "error", "error": f"Server execution failure: {e}"})
+
+    def _send_json(self, code: int, payload: dict[str, Any]) -> None:
+        try:
+            response_body = json.dumps(payload, allow_nan=False).encode("utf-8")
+        except (TypeError, ValueError) as e:
+            # Last-resort: should not happen after normalize_execute_response
+            response_body = json.dumps({"status": "error", "error": f"JSON encode failed: {e}"}, allow_nan=False).encode("utf-8")
+            code = 500
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response_body)))
+        self.end_headers()
+        self.wfile.write(response_body)
+
 
 def run_server(port: int = 8000) -> None:
-    server_address = ("", port)
-    httpd = ThreadingHTTPServer(server_address, ComputeHandler)
+    httpd = ThreadingHTTPServer(("", port), ComputeHandler)
     print(f"Starting Python Compute Service on port {port}...")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping Python Compute Service...")
         httpd.server_close()
+
 
 if __name__ == "__main__":
     port_env = os.environ.get("PORT", "8000")
