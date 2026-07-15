@@ -65,7 +65,7 @@ class TestGrammarPersistence(unittest.TestCase):
         }
         gp._doc_persistence_instances.clear()
         try:
-            with patch("plugin.doc.document_helpers.get_document_property", return_value=json.dumps(cached)):
+            with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = DocumentPersistence(ctx, "2", model=model)
                 hit = dp.get("fp_cached")
             self.assertIsNotNone(hit)
@@ -89,7 +89,7 @@ class TestGrammarPersistence(unittest.TestCase):
         }
         gp._doc_persistence_instances.clear()
         try:
-            with patch("plugin.doc.document_helpers.get_document_property", return_value=json.dumps(cached)):
+            with patch("plugin.doc.udprops.get_document_property", return_value=json.dumps(cached)):
                 dp = gp.DocumentPersistence(ctx, "2")
                 gp.grammar_registry.doc_persistence_instances["2"] = dp
                 self.assertIsNone(dp._model)
@@ -108,13 +108,13 @@ class TestGrammarPersistence(unittest.TestCase):
 
         ctx = MagicMock()
         model = MagicMock()
-        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = DocumentPersistence(ctx, "doc-x", model=model)
         self.assertIsNone(dp.get("fp_missing"))
         dp.put("fp1", "en-US", [{"n_error_start": 0, "n_error_length": 1}])
         dp.put("fp2", "en-US", [])
         dp.get("fp1")
-        with patch("plugin.doc.document_helpers.set_document_property") as mock_set:
+        with patch("plugin.doc.udprops.set_document_property") as mock_set:
             dp._persist_to_udprops()
         self.assertTrue(mock_set.called)
         args = mock_set.call_args[0]
@@ -131,7 +131,7 @@ class TestGrammarPersistence(unittest.TestCase):
 
         ctx = MagicMock()
         model = MagicMock()
-        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = gp.DocumentPersistence(ctx, "doc-save", model=model)
 
         dp.put("fp_save", "en-US", [])
@@ -139,7 +139,7 @@ class TestGrammarPersistence(unittest.TestCase):
         save_event = MagicMock()
         save_event.EventName = "OnSave"
 
-        with patch("plugin.doc.document_helpers.set_document_property") as mock_set:
+        with patch("plugin.doc.udprops.set_document_property") as mock_set:
             listener.documentEventOccured(save_event)
 
         self.assertTrue(mock_set.called, "OnSave must call set_document_property")
@@ -154,7 +154,7 @@ class TestGrammarPersistence(unittest.TestCase):
 
         ctx = MagicMock()
         model = MagicMock()
-        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = gp.DocumentPersistence(ctx, "doc-unload", model=model)
 
         dp.put("fp_x", "en-US", [])
@@ -174,7 +174,7 @@ class TestGrammarPersistence(unittest.TestCase):
 
         ctx = MagicMock()
         model = MagicMock()
-        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = gp.DocumentPersistence(ctx, "doc-disp", model=model)
 
         listener = gp._GrammarDocumentEventListener(dp)

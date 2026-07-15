@@ -95,12 +95,12 @@ class TestGrammarIgnoreRules(unittest.TestCase):
     def test_document_persistence_stores_and_saves_ignored_rules(self) -> None:
         ctx = MagicMock()
         model = MagicMock()
-        with patch("plugin.doc.document_helpers.get_document_property", return_value=None):
+        with patch("plugin.doc.udprops.get_document_property", return_value=None):
             dp = DocumentPersistence(ctx, "doc-x", model=model)
 
         dp._ignored_rules.add("avoid passive voice")
 
-        with patch("plugin.doc.document_helpers.set_document_property") as mock_set:
+        with patch("plugin.doc.udprops.set_document_property") as mock_set:
             dp._persist_to_udprops()
 
         self.assertTrue(mock_set.called)
