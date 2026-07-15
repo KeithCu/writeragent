@@ -148,7 +148,7 @@ class AudioRecorder:
         import wave
 
         if isinstance(effect, InitializeDeviceEffect):
-            silence_config = load_silence_detector_config(self.ctx)
+            silence_config = load_silence_detector_config()
             self._auto_stopped_path = None
             exe, err = resolve_recording_python(self.ctx)
             if exe:

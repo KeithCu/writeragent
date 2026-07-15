@@ -12,8 +12,7 @@ from plugin.scripting.audio_silence_detector import (
     SilenceDetectorConfig,
     _resolve_silence_stop_ms,
     load_silence_detector_config,
-    peak_normalized_int16,
-    rms_normalized_int16,
+    pcm_energy_int16,
 )
 
 
@@ -26,16 +25,16 @@ def _pcm_tone(sample_count: int, *, amplitude: int = 8000) -> bytes:
     return struct.pack(f"<{sample_count}h", *samples)
 
 
-def test_rms_silence_is_near_zero():
-    assert rms_normalized_int16(_pcm_silence(320)) < 0.001
+def test_pcm_energy_silence_is_near_zero():
+    rms, peak = pcm_energy_int16(_pcm_silence(320))
+    assert rms < 0.001
+    assert peak < 0.001
 
 
-def test_rms_tone_is_above_threshold():
-    assert rms_normalized_int16(_pcm_tone(320)) > 0.1
-
-
-def test_peak_tone_is_detectable():
-    assert peak_normalized_int16(_pcm_tone(320)) > 0.2
+def test_pcm_energy_tone_is_above_threshold():
+    rms, peak = pcm_energy_int16(_pcm_tone(320))
+    assert rms > 0.1
+    assert peak > 0.2
 
 
 def test_silence_detector_requires_min_speech_before_auto_stop():
@@ -58,15 +57,16 @@ def test_silence_detector_requires_min_speech_before_auto_stop():
     assert result.should_stop
 
 
-def test_heard_speech_fallback_uses_session_peak_when_classifier_misses():
+def test_brief_loud_blip_does_not_count_as_heard_speech():
     config = SilenceDetectorConfig(silence_stop_ms=100)
     detector = SilenceDetector(config, sample_rate=16000)
-    frame_count = 160
+    frame_count = 160  # 10 ms — well under MIN_SPEECH_MS
     detector.process_chunk(_pcm_tone(frame_count, amplitude=12000), frame_count=frame_count)
     for _ in range(12):
         result = detector.process_chunk(_pcm_silence(frame_count), frame_count=frame_count)
-    assert result.heard_speech
-    assert result.should_stop
+    assert result.speech_ms < MIN_SPEECH_MS
+    assert not result.heard_speech
+    assert not result.should_stop
 
 
 def test_silence_stop_ms_zero_disables_auto_stop():
@@ -103,15 +103,15 @@ def test_should_emit_silence_progress_throttles_updates():
 
 def test_resolve_silence_stop_ms_prefers_chatbot_key():
     with patch("plugin.framework.config.get_config_dict", return_value={"chatbot.audio_silence_stop_ms": 2500}):
-        assert _resolve_silence_stop_ms(None) == 2500
+        assert _resolve_silence_stop_ms() == 2500
 
 
-def test_resolve_silence_stop_ms_legacy_flat_key():
+def test_resolve_silence_stop_ms_ignores_legacy_flat_key():
     with patch(
         "plugin.framework.config.get_config_dict",
         return_value={"audio_silence_stop_ms": 1500},
     ):
-        assert _resolve_silence_stop_ms(None) == 1500
+        assert _resolve_silence_stop_ms() == DEFAULT_SILENCE_STOP_MS
 
 
 def test_resolve_silence_stop_ms_zero_disables():
@@ -119,17 +119,17 @@ def test_resolve_silence_stop_ms_zero_disables():
         "plugin.framework.config.get_config_dict",
         return_value={"chatbot.audio_silence_stop_ms": 0},
     ):
-        assert _resolve_silence_stop_ms(None) == 0
+        assert _resolve_silence_stop_ms() == 0
 
 
 def test_resolve_silence_stop_ms_default_when_unset():
     with patch("plugin.framework.config.get_config_dict", return_value={}):
-        assert _resolve_silence_stop_ms(None) == DEFAULT_SILENCE_STOP_MS
+        assert _resolve_silence_stop_ms() == DEFAULT_SILENCE_STOP_MS
 
 
 def test_load_silence_detector_config_wraps_resolve():
     with patch("plugin.scripting.audio_silence_detector._resolve_silence_stop_ms", return_value=3000):
-        cfg = load_silence_detector_config(None)
+        cfg = load_silence_detector_config()
     assert cfg.silence_stop_ms == 3000
     assert cfg.enabled is True
 

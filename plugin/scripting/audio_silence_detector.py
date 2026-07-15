@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import struct
 from dataclasses import dataclass
-from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -19,8 +18,6 @@ MIN_SILENCE_FLOOR = 0.003
 SPEECH_HYSTERESIS_FACTOR = 1.8
 PEAK_SPEECH_MULTIPLIER = 2.5
 NOISE_FLOOR_MULTIPLIER = 1.5
-HEARD_SPEECH_MIN_PEAK = 0.04
-HEARD_SPEECH_MIN_RMS = 0.012
 SILENCE_EMA_ALPHA = 0.1
 BOOTSTRAP_SPEECH_RMS = 0.008
 BOOTSTRAP_SPEECH_PEAK = 0.03
@@ -49,57 +46,39 @@ class SilenceDetectorResult:
     heard_speech: bool
 
 
-def rms_normalized_int16(pcm: bytes) -> float:
-    """Return RMS of 16-bit little-endian PCM, normalized to 0.0–1.0."""
+def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
+    """Return (RMS, peak) of 16-bit little-endian PCM, each normalized to 0.0–1.0."""
     sample_count = len(pcm) // 2
     if sample_count == 0:
-        return 0.0
+        return 0.0, 0.0
     samples = struct.unpack(f"<{sample_count}h", pcm)
     sum_sq = 0
-    for sample in samples:
-        sum_sq += sample * sample
-    rms = (sum_sq / sample_count) ** 0.5
-    return min(1.0, rms / 32768.0)
-
-
-def peak_normalized_int16(pcm: bytes) -> float:
-    """Return peak absolute sample, normalized to 0.0–1.0."""
-    sample_count = len(pcm) // 2
-    if sample_count == 0:
-        return 0.0
-    samples = struct.unpack(f"<{sample_count}h", pcm)
     peak = 0
     for sample in samples:
+        sum_sq += sample * sample
         abs_sample = sample if sample >= 0 else -sample
         if abs_sample > peak:
             peak = abs_sample
-    return min(1.0, peak / 32768.0)
+    rms = (sum_sq / sample_count) ** 0.5
+    return min(1.0, rms / 32768.0), min(1.0, peak / 32768.0)
 
 
-def _resolve_silence_stop_ms(ctx: Any) -> int:
-    """Read chatbot.audio_silence_stop_ms (0 = manual Stop Rec only); legacy flat keys once."""
-    from plugin.framework.config import as_bool, get_config_dict
+def _resolve_silence_stop_ms() -> int:
+    """Read chatbot.audio_silence_stop_ms (0 = manual Stop Rec only)."""
+    from plugin.framework.config import get_config_dict
 
-    del ctx
     raw = get_config_dict()
-    if "chatbot.audio_silence_stop_ms" in raw:
-        try:
-            return max(0, int(raw["chatbot.audio_silence_stop_ms"]))
-        except (TypeError, ValueError):
-            pass
-    if "audio_auto_stop_enabled" in raw and not as_bool(raw.get("audio_auto_stop_enabled")):
-        return 0
-    if "audio_silence_stop_ms" in raw:
-        try:
-            return max(0, int(raw["audio_silence_stop_ms"]))
-        except (TypeError, ValueError):
-            pass
-    return DEFAULT_SILENCE_STOP_MS
+    if "chatbot.audio_silence_stop_ms" not in raw:
+        return DEFAULT_SILENCE_STOP_MS
+    try:
+        return max(0, int(raw["chatbot.audio_silence_stop_ms"]))
+    except (TypeError, ValueError):
+        return DEFAULT_SILENCE_STOP_MS
 
 
-def load_silence_detector_config(ctx: Any) -> SilenceDetectorConfig:
+def load_silence_detector_config() -> SilenceDetectorConfig:
     """Build detector settings from writeragent.json."""
-    stop_ms = _resolve_silence_stop_ms(ctx)
+    stop_ms = _resolve_silence_stop_ms()
     if stop_ms == 0:
         log.info("audio VAD: auto-stop disabled (silence_stop_ms=0)")
     return SilenceDetectorConfig(silence_stop_ms=stop_ms)
@@ -133,8 +112,7 @@ class SilenceDetector:
             )
 
         duration_ms = int(frame_count * 1000 / self._sample_rate) if frame_count > 0 else 0
-        rms = rms_normalized_int16(pcm)
-        peak = peak_normalized_int16(pcm)
+        rms, peak = pcm_energy_int16(pcm)
         self._session_max_rms = max(self._session_max_rms, rms)
         self._session_max_peak = max(self._session_max_peak, peak)
 
@@ -166,7 +144,7 @@ class SilenceDetector:
                 )
             self._silence_ms += duration_ms
 
-        heard_speech = self._heard_speech()
+        heard_speech = self._speech_ms >= MIN_SPEECH_MS
         should_stop = heard_speech and self._silence_ms >= self._config.silence_stop_ms
         if should_stop:
             log.info(
@@ -196,7 +174,7 @@ class SilenceDetector:
         step = max(100, self._config.silence_stop_ms // 4)
         if result.silence_ms - self._last_reported_silence_ms >= step:
             self._last_reported_silence_ms = result.silence_ms
-            log.info(
+            log.debug(
                 "audio VAD: silence progress (silence_ms=%d speech_ms=%d heard_speech=%s "
                 "rms=%.4f peak=%.4f max_rms=%.4f max_peak=%.4f silence_thr=%.4f speech_thr=%.4f)",
                 result.silence_ms,
@@ -211,11 +189,6 @@ class SilenceDetector:
             )
             return True
         return False
-
-    def _heard_speech(self) -> bool:
-        if self._speech_ms >= MIN_SPEECH_MS:
-            return True
-        return self._session_max_peak >= HEARD_SPEECH_MIN_PEAK or self._session_max_rms >= HEARD_SPEECH_MIN_RMS
 
     def _adapt_pre_speech_floor(self, rms: float) -> None:
         if self._silence_ema is None:
@@ -237,4 +210,5 @@ class SilenceDetector:
             return False
         if self._speech_ms == 0 and self._silence_ms == 0:
             return rms >= BOOTSTRAP_SPEECH_RMS or peak >= BOOTSTRAP_SPEECH_PEAK
+        # Ambiguous band: stay in speech only while this segment has not yet counted silence.
         return self._speech_ms > 0 and self._silence_ms == 0

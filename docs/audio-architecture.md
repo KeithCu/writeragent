@@ -66,7 +66,7 @@ Recording can end automatically after the user stops talking, without waiting fo
 | **3000** (default) | Auto-stop and send after 3s of silence following speech |
 | **0** | Wait until you click **Stop Rec** (auto-stop off) |
 
-Algorithm constants (`MIN_SPEECH_MS` = 500, noise-floor EMA, peak fallbacks) live in [`audio_silence_detector.py`](../plugin/scripting/audio_silence_detector.py) — not user config. No upfront calibration window (users often speak immediately after **Record**); a running noise-floor EMA applies only during pre-speech silence.
+Algorithm constants (`MIN_SPEECH_MS` = 500, noise-floor EMA, peak thresholds) live in [`audio_silence_detector.py`](../plugin/scripting/audio_silence_detector.py) — not user config. Auto-stop requires ≥500 ms of classified speech before silence can trigger send. No upfront calibration window (users often speak immediately after **Record**); a running noise-floor EMA applies only during pre-speech silence.
 
 Implementation:
 
