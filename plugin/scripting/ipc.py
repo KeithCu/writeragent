@@ -132,6 +132,10 @@ def _readline_with_timeout_win32(stream: IO[str], timeout_sec: float, *, cmd: st
         fd = stream.fileno()
     except (AttributeError, OSError, ValueError):
         return stream.readline()
+    # MagicMock.fileno() returns another mock that coerces to int; PeekNamedPipe then
+    # hits the console FD and raises errno 1. Match the POSIX isinstance(fd, int) gate.
+    if not isinstance(fd, int):
+        return stream.readline()
 
     deadline = time.monotonic() + max(0.0, timeout_sec)
     while time.monotonic() < deadline:

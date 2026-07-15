@@ -81,7 +81,8 @@ class TestInitLogging(unittest.TestCase):
             root.addHandler(h)
 
     def test_init_logging_uses_ctx_config_dir(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        # Windows can keep the FileHandler lock briefly after close(); ignore cleanup then.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             config_path = os.path.join(tmp, "writeragent.json")
             with open(config_path, "w", encoding="utf-8") as fh:
                 fh.write("{}")
@@ -104,7 +105,7 @@ class TestInitLogging(unittest.TestCase):
             self._release_debug_handlers()
 
     def test_init_logging_strips_stray_console_handlers(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             config_path = os.path.join(tmp, "writeragent.json")
             with open(config_path, "w", encoding="utf-8") as fh:
                 fh.write("{}")
@@ -143,7 +144,7 @@ class TestInitLogging(unittest.TestCase):
             self._release_debug_handlers()
 
     def test_init_logging_disables_last_resort(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             config_path = os.path.join(tmp, "writeragent.json")
             with open(config_path, "w", encoding="utf-8") as fh:
                 fh.write("{}")

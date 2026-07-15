@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import os
 import subprocess
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -80,3 +81,12 @@ def test_json_line_timeout_on_pipe():
                 read_json_line(reader, timeout_sec=0.01)
     finally:
         os.close(write_fd)
+
+
+def test_json_line_timeout_falls_back_when_fileno_not_int():
+    """Non-int fileno() (e.g. MagicMock) must use readline, not PeekNamedPipe/select."""
+    stream = MagicMock()
+    stream.fileno.return_value = MagicMock()  # not an int
+    stream.readline.return_value = '{"status": "ready"}\n'
+    assert read_json_line(stream, timeout_sec=0.01) == {"status": "ready"}
+    stream.readline.assert_called_once()

@@ -6,12 +6,18 @@
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
 from plugin.scripting.forecast import anomaly_detection_time_series, decompose_time_series, forecast_time_series, run_forecast
+
+
+def _require_statsmodels_installed() -> None:
+    if find_spec("statsmodels") is None:
+        pytest.skip("statsmodels not installed")
 
 
 def _seasonal_series(n: int = 36) -> pd.DataFrame:
@@ -36,6 +42,7 @@ def test_forecast_time_series_ok():
 
 
 def test_decompose_time_series_ok():
+    _require_statsmodels_installed()
     data = _seasonal_series()
     result = decompose_time_series(data, period=12)
     assert result["status"] == "ok"
@@ -94,6 +101,7 @@ def _seasonal_series_with_spike(n: int = 36, spike_idx: int = 18, spike_amount: 
 
 
 def test_anomaly_detection_time_series_flags_spike():
+    _require_statsmodels_installed()
     data = _seasonal_series_with_spike()
     result = anomaly_detection_time_series(data, period=12, threshold=3.0)
     assert result["status"] == "ok"
@@ -114,6 +122,7 @@ def test_anomaly_detection_missing_statsmodels():
 
 
 def test_anomaly_detection_insufficient_data():
+    _require_statsmodels_installed()
     data = _seasonal_series(n=12)
     result = anomaly_detection_time_series(data, period=12)
     assert result["status"] == "error"
@@ -121,6 +130,7 @@ def test_anomaly_detection_insufficient_data():
 
 
 def test_run_forecast_anomaly_dispatch():
+    _require_statsmodels_installed()
     data = _seasonal_series_with_spike()
     result = run_forecast({"helper": "anomaly_detection_time_series", "params": {"period": 12}}, data)
     assert result["status"] == "ok"
