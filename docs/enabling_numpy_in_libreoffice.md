@@ -12,7 +12,6 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
   - [Settings → Python](#settings--python)
   - [Ways to run Python](#ways-to-run-python)
   - [Run Python Script & Monaco](#run-python-script--monaco)
-  - [Calc](#calc-py-quick-start) `=PY()` [(quick start)](#calc-py-quick-start)
   - [Assign](#assign-result) `result`
   - [Using the chat assistant (optional)](#using-the-chat-assistant-optional)
 4. [Architecture](#4-architecture)
@@ -29,7 +28,7 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
   - [Microsoft Python in Excel vs Calc](#microsoft-python-in-excel-vs-writeragent) `=PY()`
   - [Competitive landscape (Google Sheets vs Calc)](#competitive-landscape-google-sheets-vs-calc)
   - [Calc backlog from landscape survey](#calc-backlog-from-landscape-survey)
-8. [Collabora Online and jail-safe execution](#8-collabora-online-and-jail-safe-execution)
+8. [Collabora Online and jail-safe execution](numpy-jailsafe.md)
 9. [Implementation status](#9-implementation-status)
 
 **Related:** [Extension packaging](libreoffice-core-python-extension-split.md) · [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [NumPy domain helpers](numpy-domains.md) (Analysis, Viz, Symbolic, Units, Text, Forecasting roadmaps) · [Monaco editor dev plan](python-monaco-editor-dev-plan.md) (IPC, phases 2B–2F, manual tests) · [Python-in-Calc future work](python-in-excel-dev-plan.md) (Phases 3–7 + backlog) · [DuckDB Calc integration (Phases A–C landed)](duckdb-calc-dev-plan.md) · [Jupyter notebook import](jupyter-notebook-import.md) · [Calc spreadsheet → Python import](calc-spreadsheet-to-python-import.md) (convert formulas to `=PY()` while preserving data — proposed) · [Image Recognition](image-recognition.md) · [Embeddings](embeddings.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (chat path) · [SageMath integration (deferred)](sagemath-integration-dev-plan.md)
@@ -57,8 +56,7 @@ All design choices below follow from that constraint.
 | Approach                                      | Status       | Summary                                                                                                                                                                                                     |
 | --------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **1 — Pip bootstrap inside LibreOffice**      | **Rejected** | Ship `pip` and install packages into LO’s runtime at startup (LibrePythonista-style). Requires heavy path/sandbox handling (Flatpak, macOS, Windows) and couples the extension to the embedded interpreter. |
-| **2 — Managed venv created by the extension** | **Deferred** | Extension creates and owns a venv (matching LO Python version, installs numpy/pandas). Conflicts with users who want MKL/OpenBLAS or existing data-science stacks.                                          |
-| **3 — User-provided venv + subprocess**       | **Chosen**   | User points `scripting.python_venv_path` at an existing `.venv`. The extension never imports NumPy in-process.                                                                                              |
+| **2 — User-provided venv + subprocess**       | **Chosen**   | User points `scripting.python_venv_path` at an existing `.venv`. The extension never imports NumPy in-process.                                                                                              |
 
 
 
@@ -154,17 +152,6 @@ The extension ships a **Monaco-based code editor** (pywebview child in the confi
 
 **Document-attached scripts:** Named scripts live in document properties so they travel with the file. Monaco supports **Attach** / **Copy to My Scripts**; read-only documents fall back to the personal library (**My Scripts** in `writeragent.json`) with a clear message.
 
-### Calc `=PY()` (quick start) {#calc-py-quick-start}
-
-In Calc, put Python in a formula (or in a cell and reference it):
-
-```text
-=PY("result = 3 ** 8")
-=PY("result = np.mean(data)"; A1:A10)
-=PY($A$1; B1:B10)   # code text lives in A1 — avoids quote escaping
-```
-
-Use **Edit Python in Cell…** for multi-line editing. Assign `result` for the cell value. Session modes (Isolated vs Shared kernel), auto-spill, matrix formulas, empty cells vs NaN, and Calc lexer quirks are in [§6](#6-the-py-calc-function).
 
 ### Assign `result` {#assign-result}
 
@@ -1003,9 +990,6 @@ The Apps Script **spreadsheet object model** is a reasonable **reference for a P
 
 **External inspiration:** [Apps Script — Extend Sheets](https://developers.google.com/apps-script/guides/sheets) · [Quadratic](https://www.quadratichq.com/python) · [Mito](https://www.trymito.io/) · [Neptyne](https://www.ycombinator.com/companies/neptyne)
 
-### Managed venv (Strategy 2)
-
-“Setup Python Environment” in Settings: detect LO Python version, create venv, install numpy/pandas/matplotlib, set `scripting.python_venv_path`. Deferred to respect custom stacks and reduce scope.
 
 ### Venv ↔ LibreOffice tool RPC
 
@@ -1123,156 +1107,7 @@ LRU eviction of large inactive DataFrames in long-lived workbook sessions — di
 
 ## 8. Collabora Online and jail-safe execution
 
-> **Status: Python Compute Service (Step A) implemented; C++ coolwsd/coolkit integration hooks pending.** The shipped `=PY()` path targets desktop LibreOffice and **Collabora Office Classic** (VCL). Collabora Online and the new web-technology desktop app share a kit/jail model that forbids the warm venv worker. Enhancement request: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
-
-Related architecture comparison (AI chat / kit protocol, not Python compute): [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md).
-
-### Product picture
-
-
-| Product                                       | UI toolkit                                                 | Python / UNO                                                                                                                                   | Desktop `=PY()` today                                   |
-| --------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Collabora Office Classic**                  | VCL (LibreOffice-based)                                    | Full PyUNO, extensions, macros — essentially desktop LibreOffice                                                                               | **Feasible as-is** (local warm venv)                    |
-| **Collabora Online** (server)                 | Browser canvas                                             | Macros (incl. Python) off by default; admin must set `enable_macros_execution` in `coolwsd.xml`; scripts typically baked into the server image | **Blocked** — kit jail forbids spawn/shell/wide FS      |
-| **Collabora Office (new desktop, Nov 2025+)** | Web UI (JS / Canvas / WebGL); same Online codebase lineage | Limited to running existing scripts; no full macro IDE or desktop extension UI                                                                 | **Same blocker as Online** — rewrite would benefit both |
-
-
-Macros online were further constrained after [CVE-2025-24796](https://www.cve.org/CVERecord?id=CVE-2025-24796) (remote malicious macro execution); defaults keep execution disabled.
-
-### Why the desktop design cannot enter the kit jail
-
-The NumPy strategy ([§1](#1-the-problem-abi-and-embedded-python), [§2](#2-strategy-decision)) is deliberately a **separate interpreter**:
-
-1. `subprocess.Popen` **of a user venv** — `[PythonWorkerManager](../plugin/scripting/venv_worker.py)` keeps a warm child talking Pickle5 over pipes ([IPC](numpy-serialization.md#worker-protocol)).
-2. **Host filesystem** — resolve `scripting.python_venv_path`, put the extension tree on the child’s `sys.path`, and let trusted helpers open DBs/models.
-3. **Flatpak escape** — `[wrap_command_for_sandbox](../plugin/scripting/sandbox.py)` can use `flatpak-spawn --host` so the venv runs on the real host. That is the opposite of kit isolation.
-4. **Desktop editor** — Monaco via **pywebview/Qt** needs a display and a child window; Online renders in a browser canvas.
-5. **Long-lived shared kernel** — optional workbook namespace inside the warm process assumes a desktop process lifecycle, not an ephemeral per-document kit.
-
-Collabora Online’s document work runs in a **jailed** `coolkit` **/ LOKit** child. That jail is not allowed to call arbitrary external programs, use the shell, or reach the wider filesystem. The warm-venv path depends on exactly those privileges.
-
-**Hardening the AST sandbox inside the jail does not fix this.** The sandbox in `[venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` is defense-in-depth for untrusted script *strings*; Online needs **OS-level isolation**, and the kit already provides it by *denying* the operations the desktop design needs for NumPy.
-
-### Approaches that fail or are insufficient
-
-
-| Approach                                         | Why it fails for Online / new desktop                                                                                                                                                |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Run the warm user-venv worker inside the kit** | Jail forbids fork/exec of arbitrary host Pythons and host venv paths; no `~/.writeragent_venv` story for multi-tenant cells.                                                         |
-| `import numpy` **in LOKit’s embedded Python**    | Same [ABI crash risk](#1-the-problem-abi-and-embedded-python) as desktop in-process; one bad wheel can take the document kit with it; still no admin-curated scientific stack story. |
-| **Only enable** `enable_macros_execution`        | Unlocks Basic/Python *playback* of image-baked scripts — not spawn of a user data-science stack or desktop extension UI.                                                             |
-| **Pure-Python / Wasm-only cell runtime**         | Useful for light scripting; not a substitute for NumPy/pandas/scipy C-extension stacks.                                                                                              |
-| **Ship pywebview Monaco into Online**            | Desktop windowing does not map onto browser canvas; Online already has a web UI surface for an editor.                                                                               |
-
-
-**Jail-safe NumPy is not “put the current worker in a smaller box.” It is: do not run the scientific interpreter in the kit at all.**
-
-### Proposed solution: native `=PY()` via thin C++ hooks → Python compute service
-
-Track with Collabora: [online#16010](https://github.com/CollaboraOnline/online/issues/16010). Related AI/kit split (orchestration vs document mutation): [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md).
-
-**Goal:** real Calc **`=PY()`** on Online / new desktop (same formula surface as Classic — [§6](#6-the-py-calc-function)):
-
-- **Small C++ hooks** in coolkit + coolwsd that call out to a Python compute service (same outbound-HTTP *shape* as AI chat’s `http::Session`).
-- **All NumPy / packing / sandbox** stay in **Python** — C++ never implements [`split_grid`](numpy-serialization.md#strategy-3-split-grid-serialization-detail) or Pickle5.
-- **Lightweight service** — **stdlib `http.server`** (or equivalent minimal HTTP) so coolwsd can POST JSON.
-
-```mermaid
-flowchart LR
-  subgraph classic [Classic / LO desktop]
-    Calc1["=PY()"] --> LocalVenv["Warm user venv"]
-  end
-  subgraph cpp [Thin C++ - Online]
-    PY["=PY() stub"]
-    Kit[coolkit extract cells]
-    Wsd[coolwsd broker]
-  end
-  subgraph py [Python compute service]
-    Http[stdlib HTTP]
-    Pack[lists to numpy / optional split_grid to workers]
-    Run[venv_sandbox curated worker]
-  end
-  Calc1 -.->|optional remote test| Http
-  PY --> Kit
-  Kit -->|"dumb JSON numbers strings null"| Wsd
-  Wsd -->|"http::Session POST"| Http
-  Http --> Pack --> Run
-  Run -->|JSON result grid| Wsd --> Kit
-```
-
-#### Split of responsibility
-
-| Layer | Language | Does | Does not |
-|-------|----------|------|----------|
-| Kit `=PY()` stub | C++ (small) | Register formula; on recalc read ranges via existing LOKit/cell APIs into **plain nested values**; send request up; apply returned scalar/matrix to cells | `split_grid`, Pickle, NumPy, AST sandbox |
-| coolwsd | C++ (small) | Feature flag + URL config; `http::Session` POST/response routing (copy Online `AIChatSession` outbound HTTP) | Compute or dense packing logic |
-| Compute service | **Python** | Parse dumb JSON → numpy/lists; optional internal [`payload_codec`](../plugin/scripting/payload_codec.py) if talking to a warm worker; run sandboxed code; return JSON result | Live inside kit jail |
-
-**Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. Dense optimization happens **inside** the Python service when bridging to workers, if at all. The kit never loads NumPy.
-
-#### Python compute service
-
-- Live tree: [`compute_service/`](../compute_service/) (`server.py`, `executor.py`, [`json_egress.py`](../compute_service/json_egress.py)); tests under `tests/compute_service/`.
-- Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
-- `POST /v1/execute` body: `{ "code", "data", "session_id?", "timeout_ms?", "mode?" }` → `{ "status", "result"|"error", "stdout?", "images?" }`.
-- **Dumb JSON egress only** toward kit/coolwsd: ndarrays and `split_grid` become nested lists; NaN/Inf → `null`; `json.dumps(..., allow_nan=False)`. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
-- `mode`: `isolated` (default) ignores `session_id`; `shared` needs a session id and serializes executes per session with a lock.
-- Reuse desktop sandbox: [`venv_sandbox`](../plugin/scripting/venv/venv_sandbox.py), import whitelist, curated Docker image (pinned numpy/pandas/**Pillow**/…).
-- Prefer an **in-process executor in the service** first (fewer hops). Add Pickle5 warm workers later only if the service host needs ABI isolation.
-
-#### C++ hooks (deliberately dumb)
-
-1. Calc add-in / formula in the Online image named `PY` / `PYTHON` (same user surface as Classic).
-2. On evaluate: referenced args → JSON arrays via existing cell get-value patterns (not a new binary codec).
-3. coolwsd: `enable_python_compute` + `python_compute_url` in `coolwsd.xml`; async completion so kit is not blocked forever (`#BUSY!` / pending UX TBD).
-4. On response: write scalar or spilled matrix with existing cell write paths.
-
-#### Security invariants
-
-1. **Compute is out-of-kit** — kit compromise ≠ host Python; Python compromise ≠ kit filesystem/network (seccomp, no capabilities, no docker.sock).
-2. **Admin-baked image** — packages like Online macros today; **not** arbitrary tenant `pip` in multi-tenant Online.
-3. **Per-document / per-session isolation** — no shared kernel across tenants; shared kernel only within one document session if enabled.
-4. **Default deny** — no outbound network, no host mounts, scratch-only FS, hard CPU/RAM/wall-clock quotas.
-5. **Separate feature flag** from `enable_macros_execution`.
-6. **Import whitelist** inside the container ([`VENV_AUTHORIZED_IMPORTS`](../plugin/scripting/venv/venv_sandbox.py)) as defense-in-depth; OS isolation is the real boundary.
-
-#### Product matrix
-
-| Product | Execution backend | Editor |
-|---------|-------------------|--------|
-| **Collabora Office Classic** + stock LibreOffice | **Local warm venv** (shipped) | Monaco via pywebview, or native dialog fallback |
-| **Collabora Online** + **new web desktop** | **Python Compute Service** via thin coolwsd hooks | Browser Monaco / Online UI (no pywebview) |
-
-Same `=PY(code, data…)` / `result =` semantics; different backends.
-
-#### Classic remote testing (optional)
-
-Same HTTP API: a `RemoteComputeBackend` behind [`run_code_in_user_venv`](../plugin/scripting/venv_worker.py) can POST dumb lists (or run local pack and use the service only for execute) so the **service** can be debugged without an Online rebuild.
-
-#### Explicit non-goals for the C++ tip
-
-- No C++ port of [`payload_codec.py`](../plugin/scripting/payload_codec.py) / `split_grid`
-- No embedding user venvs or NumPy inside the kit jail
-- No heavy Python web frameworks for the compute service
-
-#### Layout / build order
-
-```
-writeragent/
-  compute_service/     # NEW — stdlib HTTP + sandbox + Dockerfile
-  plugin/scripting/    # optional RemoteComputeBackend for Classic
-
-collabora-online (kit/wsd)/
-  kit/                 # =PY stub + dumb JSON extract/apply
-  wsd/                 # feature flag + http::Session to python_compute_url
-  coolwsd.xml.in       # enable_python_compute, python_compute_url
-```
-
-1. Python compute service + Dockerfile + tests against JSON grids.
-2. Classic `RemoteComputeBackend` against the service (fast Python-only iteration).
-3. C++ hooks: kit stub + coolwsd broker → native Online `=PY()`.
-
-Until that lands, **Classic** remains the Collabora product where full desktop NumPy `=PY()` works.
+See [numpy-jailsafe.md](numpy-jailsafe.md) for details on Collabora Online and jail-safe execution of NumPy.
 
 ---
 
@@ -1288,10 +1123,10 @@ Until that lands, **Classic** remains the Collabora product where full desktop N
 - **SageMath integration** — optional future CAS backend; SymPy ships today — [sagemath-integration-dev-plan.md](sagemath-integration-dev-plan.md).
 - **Serialization next steps** — [Future work](numpy-serialization.md#future-work--serialization-performance): LO profile first, Tier 0, opaque blob, float32 (pandas rectangular+columns egress shipped), worker cache; Tier 2b codecs; optional [Cython](numpy-serialization.md#building-host-native-extensions-cython) `vec_pack` (not started).
 - Venv ↔ LO **tool RPC** ([§7](#venv--libreoffice-tool-rpc)) — `[writeragent_api.py](../plugin/scripting/writeragent_api.py)` stubs only.
-- **Collabora Online / jail-safe Python compute** — **Step A (Python Compute Service) implemented** under [compute_service/](file:///home/keithcu/Desktop/Python/writeragent/compute_service/) (Docker + stdlib `ThreadingHTTPServer`). Integration hooks in coolkit/coolwsd C++ remain ([§8](#8-collabora-online-and-jail-safe-execution); [online#16010](https://github.com/CollaboraOnline/online/issues/16010)).
+- **Collabora Online / jail-safe Python compute** — **Steps A–C** landed: `compute_service/`, kit/wsd wire, Core Calc AddIn (`scaddins/pythoncompute`, volatile `#BUSY!`, ScMatrix spill). Rebuild LO+Online to exercise `=PY()` Online; plot insert / Monaco remain ([Collabora Online and jail-safe execution](numpy-jailsafe.md); [online#16010](https://github.com/CollaboraOnline/online/issues/16010)).
 - **Calc landscape backlog** — range alignment, shared-kernel invalidation, Mito recorder, dynamic sidebar UI, shared-kernel memory bounds ([§7 Calc backlog](#calc-backlog-from-landscape-survey)).
 - **Blank vs NaN wire semantics** — [calc-blanks-vs-nans.md](calc-blanks-vs-nans.md).
-- Managed venv (Strategy 2), worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
+- Worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
 - **Monaco backlog** — syntax validate (2B), range picker (2C), full Jedi (2D), sheet-level Python cell list — [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md). Theme sync (2E) is shipped.
 - **Jupyter notebook import** — see [jupyter-notebook-import.md](jupyter-notebook-import.md) (Writer import shipped; execution loop deferred).
 - **Calc UX backlog** — object cards, diagnostics pane, named ranges/tables — [§7 Calc UX](#calc-ux-and-output-enhancements).
