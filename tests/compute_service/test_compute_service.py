@@ -16,26 +16,38 @@ import pytest
 
 from compute_service.executor import clamp_timeout_sec, execute_code, timeout_ms_to_sec
 from compute_service.json_egress import sanitize_for_strict_json, to_dumb_json_value
-from compute_service.server import ComputeHandler, ThreadingHTTPServer
+from compute_service.server import ComputeHandler, DualStackThreadingHTTPServer
 
 
 def get_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
+    # Use AF_INET6 to bind if possible, fallback to AF_INET
+    try:
+        with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            return s.getsockname()[1]
+    except OSError:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            return s.getsockname()[1]
 
 
 @pytest.fixture(scope="module")
-def compute_url():
+def compute_server_info():
     port = get_free_port()
-    server = ThreadingHTTPServer(("", port), ComputeHandler)
+    server = DualStackThreadingHTTPServer(("", port), ComputeHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.2)
-    yield f"http://127.0.0.1:{port}"
+    yield port, server
     server.shutdown()
     server.server_close()
     thread.join(timeout=5)
+
+
+@pytest.fixture(scope="module")
+def compute_url(compute_server_info):
+    port, _ = compute_server_info
+    return f"http://127.0.0.1:{port}"
 
 
 def _post_execute(url: str, payload: dict) -> dict:
@@ -171,3 +183,18 @@ class TestComputeHttp:
         # Server uses allow_nan=False; body was already loaded by json.loads in _post_execute
         body = _post_execute(compute_url, {"code": "result = [float('nan'), float('inf')]"})
         assert body["result"] == [None, None]
+
+    def test_dual_stack_connectivity(self, compute_server_info) -> None:
+        port, server = compute_server_info
+        if server.address_family != socket.AF_INET6:
+            pytest.skip("IPv6 dual-stack not supported or fallback occurred")
+
+        # Test IPv4 localhost
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/health") as resp:
+            assert resp.status == 200
+            assert json.loads(resp.read().decode())["status"] == "healthy"
+
+        # Test IPv6 localhost
+        with urllib.request.urlopen(f"http://[::1]:{port}/health") as resp:
+            assert resp.status == 200
+            assert json.loads(resp.read().decode())["status"] == "healthy"

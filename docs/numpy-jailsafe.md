@@ -1,6 +1,6 @@
 # Collabora Online and jail-safe execution
 
-> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Step C: C++ `scaddins` **pythoncompute** AddIn (`=PY()` / `=PYTHON()`) returns `XVolatileResult` with interim **`"#BUSY!"`** (not `FormulaError::Busy`), posts dumb JSON via coolkit → coolwsd → compute service, then applies scalar / `ScMatrix` spill on `pythoncomputeresult:`. Engine CppUnit (`CppunitTest_scaddins_pythoncompute`, **12** cases) covers AddIn + JSON + emitter round-trip + unique request ids + volatile identity. **Any↔JSON now uses** [`tools::JsonWriter`](file:///home/keithcu/Desktop/collabofficefull/engine/include/tools/json_writer.hxx) + `boost::property_tree::read_json` ([details](#json-codec-lo-helpers-done)). Pre-submit ROI + **correctness** landed: atomic request ids, `pythonexecute` gate, emitter multi-view + `dlsym` retry, sibling license headers / product-neutral Core copy, [`XVolatileResult` identity](#correctness-plan-xvolatileresult-identity), [SolarMutex / UserEvent on finish](#correctness-plan-solarmutex--userevent-on-finish) — see [Pre-submit checklist](#pre-submit-checklist-core--online). Still open separately: shipped XML `enable=true`, `PY` naming, F1. Next product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
+> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Step C: C++ `scaddins` **pythoncompute** AddIn (`=PY()` / `=PYTHON()`) returns `XVolatileResult` with interim **`"#BUSY!"`**, posts dumb JSON via coolkit → coolwsd → compute service, then applies scalar / `ScMatrix` spill on `pythoncomputeresult:`. Any↔JSON: [`tools::JsonWriter`](file:///home/keithcu/Desktop/collabofficefull/engine/include/tools/json_writer.hxx) + `boost::property_tree::read_json`. Identity cache, Solar-safe `finish`, 2D/column grids, shipped `enable=false`, emitter multi-view + `dlsym` retry. Open before PR: [open items](#open-before-pr). Product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
 
 Related architecture comparison (AI chat / kit protocol, not Python compute): [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md).
 
@@ -104,7 +104,7 @@ Live in the Collabora Online / LibreOffice trees (`collabofficefull`), not write
 1. **Config:** `security.python_compute.enable` (default `false`) + `security.python_compute.url` in `coolwsd.xml.in` / `ConfigUtil.cpp`.
 2. **coolwsd:** `ClientSession::handlePythonComputeFromKit` — kit `pythoncompute:` → `http::Session` POST → `pythoncomputeresult:`.
 3. **kit:** `PythonComputeEmitter` installs `pythoncompute_set_emitter` after load; `handlePythonComputeResult` calls `pythoncompute_complete_json`. Tracks live `ChildSession`s and reinstalls on another view when the owner clears; retries `dlsym` until both AddIn symbols resolve. Test kick: `pythonexecute <json>` (wsd-gated: writable + `security.python_compute.enable`).
-4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile identity cache, Solar/UserEvent-safe `finish`, Any↔dumb JSON, pending map, matrix via `sequence<sequence<…>>` → `ScUnoAddInCall::SetResult` / `#SPILL!`. No `FormulaError::Busy`.
+4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile LRU identity cache (cap 256), `finish` under `SolarMutexGuard`, Any↔dumb JSON (`JsonWriter` + ptree), pending map, matrix spill via `sequence<sequence<…>>`. No `FormulaError::Busy`.
 5. **Future work:** see [below](#future-work-prototype--hardened-online). Monaco / browser cell editor remains a separate Online UI track (LibrePy uses pywebview; do not port that into the kit).
 
 ### Security invariants
@@ -160,9 +160,7 @@ Until Collabora ships images with Step C linked, **Classic** remains the product
 
 ## Future work (prototype → hardened Online)
 
-Spill-shape polish and AddIn `timeout_ms` emission are **deferred**: both are fiddly Calc/`ScMatrix`/`http::Session` edge work and are not required to prove the jail model. Decimal matrix spill already "works enough" for scalar demos; nested-list quirks can land later when Online auto-spill parity with LibrePy actually matters.
-
-Browser Monaco / Edit-Python-in-cell for Online is also **out of this list** for now (LibrePy's pywebview Monaco does not map; Online needs a canvas/JSDialog surface of its own).
+AddIn `timeout_ms` emission is **deferred** (wsd defaults 60s; service clamps; pending map 90s). Browser Monaco / Edit-Python-in-cell for Online is **out of this list** (LibrePy pywebview is Classic-only).
 
 ### Ordered slices
 
@@ -358,156 +356,31 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 
 | Item | Why deferred |
 |------|----------------|
-| Nested-list → true 2D `sequence<sequence<double>>` spill parity | Calc matrix coercion edge cases; scalars suffice for demos |
-| AddIn-emitted `timeout_ms` | WSD already defaults 60s; service clamps; pending map 90s — good enough |
+| AddIn-emitted `timeout_ms` | WSD defaults 60s; service clamps; pending map 90s |
 | Browser Monaco / cell editor | Separate Online UI project; LibrePy pywebview is Classic-only |
 | C++ `split_grid` / Pickle5 | Violates the dumb-JSON tip on purpose |
 | Kit-side NumPy / warm venv | Jail-incompatible by design |
+| Formula errors vs string cells | Timeouts / service failures finish as readable strings in v1 |
+| Per-document cache eviction | Process-wide LRU (cap 256); identity best-effort past the cap — see `kParamCacheCapacity` |
 
 ---
 
-## Pre-submit checklist (Core + Online)
+## Open before PR
 
-Prototype is fine for demos. Treat the items below as **must-fix / must-document before opening a LibreOffice Core or Collabora Online PR**. They come from a Senior-style review of `collabofficefull` (`scaddins/source/pythoncompute`, kit emitter, coolwsd broker) vs sibling addins and AI-chat HTTP patterns.
+Remaining code / product gaps for a Collabora-facing PR (v0.1 experimental is otherwise in place).
 
-### Verdict
+| Item | Where | Notes |
+|------|--------|--------|
+| **Request size / in-flight caps** | `wsd/ClientSession.cpp` `handlePythonComputeFromKit` | No max JSON body, code length, or concurrent POSTs per session/doc. Hard reject + log. |
+| **Pending timeout is passive** | `pythoncompute_bridge.cxx` `expireStale_NoLock` | 90s only runs on next start/complete; HTTP default 60s usually finishes cells. Align bridge/wsd/`timeout_ms` policy or document. |
+| **Display name `PY`** | IDL / release notes | Excel Python name collision — conscious choice; note in PR/IDL. |
+| **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
+| **Service auth header** | coolwsd ↔ compute | Optional; AI chat has Bearer — useful multi-tenant. |
+| **en-US help only** | AddIn display strings | No `.hrc` / `Translate::` like date/analysis. |
+| **IDL vs runtime** | `XPythonComputeFunctions.idl` | Comment may say error string; runtime always returns volatile `Any`. |
+| **`SAL_DLLPUBLIC_EXPORT` on anyjson** | `pythoncompute_anyjson.*` | Unusual (CppUnit linkage); C ABI-only export is cleaner long-term. |
+| **Kit `EmitFn` `int` vs `sal_Int32`** | emitter vs Core C API | Align types if reviewers care. |
+| **anyjson structure** | `pythoncompute_anyjson.cxx` | Large duplicated element/property writers — maintainability nit. |
 
-- **Ready to demo / iterate.** Wire + AddIn + CppUnit exist (**12** cases: emit/complete, unique ids, volatile identity).
-- **Correctness gates for identity + Solar finish: done.** Still later / separate before a Collabora-facing PR: shipped `coolwsd.xml.in` enable mismatch, `PY` naming politics, UnitWSD (F1), remaining Core nits below.
-
-### Core / scaddins — blocking
-
-| Issue | Where | Status |
-|-------|--------|--------|
-| **Request id collisions** | [`pythoncompute_bridge.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_bridge.cxx) | **Done** — atomic `py-<n>` counter; displaced pending gets `finish("…superseded")`; CppUnit `test_requestIdsUnique` (distinct codes for new emits; same args share one volatile via identity cache) |
-| **`XVolatileResult` identity** | `offapi` AddIn.idl: same args → same volatile object | **Done** — see [plan / landing notes](#correctness-plan-xvolatileresult-identity) |
-| **Kit C ABI in Core AddIn** | [`pythoncompute_bridge.h`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_bridge.h) `pythoncompute_set_emitter` / `complete_json` | **Partly done** — kit retries `dlsym` + multi-view emitter ownership (see Online rows). Still open: document stability for reviewers; consider LOK injection vs `RTLD_DEFAULT`; Calc error vs string when emitter missing on desktop |
-| **License headers** | scaddins `pythoncompute` sources | **Done** — sibling-style Collabora Office + full MPL + ASF notice |
-| **Async → SolarMutex** | `finish` → listeners → `ScAddInListener::modified` takes SolarMutex | **Done** — see [plan / landing notes](#correctness-plan-solarmutex--userevent-on-finish) |
-| **Display name `PY`** | Excel Python `PY` collision politics | **Open** — release-note / IDL comment; conscious compatibility choice |
-
-#### Correctness plan: `XVolatileResult` identity
-
-**Status: Done** (v1 with documented limitations). CppUnit `test_volatileIdentitySameArgs`; `pythoncompute_reset_for_tests` for test isolation.
-
-**Contract:** [`AddIn.idl`](file:///home/keithcu/Desktop/collabofficefull/engine/offapi/com/sun/star/sheet/AddIn.idl) — an `XVolatileResult` return must implement VolatileResult; **subsequent calls with the same parameters must return the same object**.
-
-**How Calc uses identity:** Calc does **not** key by parameters. [`ScAddInListener::Get`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addinlis.cxx) compares UNO pointers (`xVR.get() == listener->xVolRes.get()`). On AddIn eval ([`interpr4.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/interpr4.cxx)), volatile cells get `ScRecalcMode::ONLOAD_LENIENT` — load/recalc calls `getPy` again. Hit → reuse listener + cached `aResult`. Miss → `CreateListener`, `addResultListener`, immediate interim paint.
-
-**Was wrong:** [`startCompute`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_bridge.cxx) always `new`’d a volatile → new listeners, re-emit storms, leaks.
-
-**Landed:**
-
-1. Param→volatile cache in `startCompute` under `g_aMutex`: `paramKey → rtl::Reference<PythonComputeVolatileResult>`.
-2. Cache key = `buildExecuteRequestJson("_", code, data)` (stable any→JSON; excludes real request id).
-3. Hit → same ref; no allocate / id / pending / emit.
-4. Miss → allocate `#BUSY!`, insert cache, then pending-by-request-id + emit.
-5. `g_aPending` still keyed by request id for `pythoncompute_complete_json`.
-6. Tests: same args → same pointer + no second emit; different data → different object; `test_requestIdsUnique` uses distinct codes.
-7. README documents “reuse last result,” not “re-run Python every recalc.”
-
-**Documented limitations (accepted for v1):**
-
-| Limitation | Note |
-|------------|------|
-| No formula-delete eviction | Calc does not notify AddIn when a formula cell dies; finished cache entries can linger until process teardown |
-| Sticky finished values | Success, error, and timeout stay until parameters change (no silent refresh) |
-| Key fidelity | Float / empty / nested `Any` must match JSON codec stability or equal sheets may miss/hit wrongly |
-| Arg change | Old keyed object may keep an `ScAddInListener` until doc cleanup; do **not** dual-update old keys |
-| Intentional recompute | Same params never re-emit unless a later API (version bump / clear key) is added — out of v1 |
-
-#### Correctness plan: SolarMutex / UserEvent on finish
-
-**Status: Done** (ownership gate + `PostUserEvent`). Library links `vcl` + `comphelper`.
-
-**Why:** [`ScAddInListener::modified`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addinlis.cxx) takes `SolarMutexGuard` and broadcasts / `TrackFormulas`. TODO: *“or generate a UserEvent”*.
-
-**Online thread reality:** `pythoncomputeresult:` arrives on kit Unipoll with Solar often **released** ([`SolarMutexReleaser` in `svpinst.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/vcl/headless/svpinst.cxx)).
-
-**Was fragile:** [`finish`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_volatile.cxx) notified listeners inline with no Solar/UserEvent story.
-
-**Landed:**
-
-1. `finish` sets `m_bFinished` + stashes value under mutex.
-2. If `Application::GetSolarMutex().IsCurrentThread()` → `notifyListeners` sync (formula-eval / CppUnit).
-3. Else → `acquire` + `Application::PostUserEvent(LINK(…, DoNotifyListeners))`; handler takes `SolarMutexGuard`, notifies, `release`. Fallback if post fails: notify under `SolarMutexGuard`.
-4. No global `ScAddInListener` change.
-5. README documents why UserEvent exists.
-
-**Documented limitations (accepted for v1):**
-
-| Limitation | Note |
-|------------|------|
-| Online may have “worked” before | `modified`’s own guard often saved demos; posting is for reentrancy / off-thread completeness |
-| Ownership gate | Always-posting would defer `#BUSY!` during formula eval — gate avoids that |
-| Wakeup | Relies on Unipoll already woken by `pythoncomputeresult:` |
-| No change to Calc TODO | AddIn-local post matches TODO intent without Core listener rewrite |
-
-**Done (no longer blocking):** hand-rolled JSON and locale-`strtod` — replaced; see [JSON codec](#json-codec-lo-helpers-done). Request ids, license headers, softened Core copy, volatile identity, and Solar/UserEvent finish also landed.
-
-**Also fix before claiming Core-ready (strong nits):**
-
-- Pending **90s timeout** only runs when another start/complete happens — idle docs never expire (`expireStale_NoLock`).
-- ~~Online-only strings / Online-centric README~~ — **done** (product-neutral plot placeholder + [`README.md`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/README.md)); still open: hard-coded en-US help (no `.hrc` / `Translate::` like date/analysis).
-- IDL comment vs runtime (always returns volatile Any, not error string).
-- `SAL_DLLPUBLIC_EXPORT` on C++ anyjson helpers was for CppUnit linkage — unusual; prefer test link of objects or keep C ABI only exported.
-- ~~`utl` / `i18nlangtag` unused~~ — **done** (dropped); library now links `tl` + `vcl` + `comphelper` + `boost_headers`.
-
-### Collabora Online — blocking
-
-| Issue | Where | Status |
-|-------|--------|--------|
-| **Shipped config enables feature** | [`coolwsd.xml.in`](file:///home/keithcu/Desktop/collabofficefull/coolwsd.xml.in) `<enable>true</enable>` while `default="false"` and [`ConfigUtil.cpp`](file:///home/keithcu/Desktop/collabofficefull/common/ConfigUtil.cpp) deny | **Open** — set element value to `false` (DefAppConfig / XML attr / element must agree) |
-| **Process-wide emitter** | [`PythonComputeEmitter.cpp`](file:///home/keithcu/Desktop/collabofficefull/kit/PythonComputeEmitter.cpp) | **Done** — tracks live `ChildSession`s; on owner clear, reinstalls thunk on another remaining view; clears AddIn emitter only when none remain |
-| **Ungated `pythonexecute`** | [`ClientSession.cpp`](file:///home/keithcu/Desktop/collabofficefull/wsd/ClientSession.cpp) | **Done** — requires `isWritable()` + `security.python_compute.enable`; else `kind=readonly` / `kind=disabled` (AddIn-driven `pythoncompute:` path unchanged) |
-| **One-shot `dlsym`** | same emitter | **Done** — retries until both `pythoncompute_set_emitter` and `pythoncompute_complete_json` resolve (late `libpythoncomputelo.so` load OK) |
-
-**Online nits / follow-ups:** unbounded JSON body size; no service auth header (AI chat has Bearer); MOBILEAPP/qt/wasm may forward `pythoncompute:` to browser; align kit `EmitFn` `int` vs Core `sal_Int32`; no `UnitPythonCompute` yet (F1).
-
-### What already looks good
-
-- Gbuild/InternalUnoApi/Repository/`ucalc_setup` wiring; `Sca*` naming; `WeakImplHelper` + component registration.
-- Empty code → `IllegalArgumentException`; VARARGS `data`; emitter-missing finish message.
-- Coolwsd HTTP broker shape (admin URL, host allowlist when configured, no NumPy in C++) mirrors AI chat.
-- `CppunitTest_scaddins_pythoncompute` covers AddIn + emit/complete + unique request ids + volatile identity (**12** cases).
-- Any↔JSON via Core `tools::JsonWriter` + `boost::property_tree::read_json` (not a private mini-parser).
-- Kit emitter lifecycle + `dlsym` retry; wsd gates browser `pythonexecute`; atomic request ids; sibling MPL/ASF headers.
-- Param→volatile AddIn.idl identity; Solar-owned sync finish / `PostUserEvent` otherwise.
-
-### Remaining highest-ROI before any PR
-
-**Correctness / ROI already landed:**
-
-1. ~~Unique request ids + don’t orphan pending volatiles.~~ **Done.**
-2. ~~Gate `pythonexecute`.~~ **Done.**
-3. ~~Emitter ownership + retry `dlsym`.~~ **Done.**
-4. ~~License headers + soften Online-only Core copy.~~ **Done.**
-5. ~~`XVolatileResult` identity.~~ **Done.**
-6. ~~SolarMutex / UserEvent on finish.~~ **Done.**
-
-**Still open / can wait:**
-
-7. `coolwsd.xml.in` enable → `false` (still recommended for shipped defaults; skipped in recent pass).
-8. `PY` naming note / release-note.
-9. UnitWSD wire test (F1) and other [Future work](#future-work-prototype--hardened-online).
-
----
-
-## JSON codec (LO helpers) — done
-
-Hand-rolled escapes / `strtod` / substring `"id"` extracts in [`pythoncompute_anyjson.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx) are **gone**. The AddIn now follows the usual Core split:
-
-| Direction | API | Role |
-|-----------|-----|------|
-| **Emit** | [`tools::JsonWriter`](file:///home/keithcu/Desktop/collabofficefull/engine/include/tools/json_writer.hxx) | `buildExecuteRequestJson`, nested `data`, `anyToJsonFragment` (wraps as `{"_": VALUE}` then strips). NaN/`Inf` → `null`. Link **`tl`**. |
-| **Parse** | `boost::property_tree::read_json` → `ptree` | `jsonResultToAny`, `extractRequestIdFromJson` (used by `pythoncompute_complete_json`). Numbers via `rtl::math::stringToDouble` (locale-safe `.`). External **`boost_headers`**. |
-| **Online only** | `Poco::JSON` / [`JsonUtil`](file:///home/keithcu/Desktop/collabofficefull/common/JsonUtil.hpp) | Still coolwsd’s job in `handlePythonComputeFromKit` — not pulled into scaddins. |
-
-**Build:** [`Library_pythoncompute.mk`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/Library_pythoncompute.mk) uses `tl` + `vcl` + `comphelper` + external `boost_headers`.
-
-**Tests:** [`CppunitTest_scaddins_pythoncompute`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/qa/pythoncompute.cxx) updated for JsonWriter spacing (`[ 1, 2]`, `"mode": "isolated"`).
-
-**Still not using (correctly):** `comphelper::JsonToPropertyValues` — that maps JSON → UNO `PropertyValue[]`, not Calc cell `Any` trees.
-
-**Follow-ups when spill work resumes:** nested-list → true 2D `sequence<sequence<double>>` promotion order; optional drop of the `{"_":…}` fragment wrap if a bare-value JsonWriter path appears.
+**Any↔JSON (current):** emit via `tools::JsonWriter` (`tl`); parse via `boost::property_tree::read_json` + `rtl::math::stringToDouble`; Online keeps Poco/`JsonUtil` in coolwsd only. Rectangular numeric grids (incl. N×1) → `sequence<sequence<double>>`.
 

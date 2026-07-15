@@ -24,6 +24,20 @@ from compute_service.executor import execute_code, timeout_ms_to_sec
 _MAX_BODY_BYTES = 32 * 1024 * 1024
 
 
+def check_dependencies() -> None:
+    """Verify required dependencies are importable; exit if missing."""
+    try:
+        import sympy  # noqa: F401
+    except ImportError:
+        print(
+            "Error: sympy is not installed in the current Python environment.\n"
+            "Please start the server using './compute_service/start.sh' or activate the correct virtual environment.",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+
+
 class ComputeHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         # Quieter default for ThreadingHTTPServer under tests; still prints.
@@ -114,8 +128,32 @@ class ComputeHandler(BaseHTTPRequestHandler):
         self.wfile.write(response_body)
 
 
+import socket
+
+class DualStackThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that attempts IPv6 dual-stack bind, falling back to IPv4-only."""
+    def __init__(self, server_address: tuple[str, int], RequestHandlerClass: type[BaseHTTPRequestHandler], bind_and_activate: bool = True) -> None:
+        self.address_family = socket.AF_INET6
+        try:
+            super().__init__(server_address, RequestHandlerClass, bind_and_activate)
+        except OSError:
+            # Fall back to IPv4 if IPv6 socket creation or binding is unsupported/fails
+            self.address_family = socket.AF_INET
+            super().__init__(server_address, RequestHandlerClass, bind_and_activate)
+
+    def server_bind(self) -> None:
+        if self.address_family == socket.AF_INET6:
+            try:
+                # Set IPV6_V6ONLY to 0 to enable dual-stack (both IPv4 and IPv6)
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            except OSError:
+                pass
+        super().server_bind()
+
+
 def run_server(port: int = 8000) -> None:
-    httpd = ThreadingHTTPServer(("", port), ComputeHandler)
+    check_dependencies()
+    httpd = DualStackThreadingHTTPServer(("", port), ComputeHandler)
     print(f"Starting Python Compute Service on port {port}...")
     try:
         httpd.serve_forever()
