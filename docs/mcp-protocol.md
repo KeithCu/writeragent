@@ -89,7 +89,7 @@ Browser MCP clients send an `Origin` header (e.g. `https://localai.local`). The 
 "mcp.cors_allowed_origins": ["https://tools.mycompany.com"]
 ```
 
-Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_origins`. Implementation: [`plugin/mcp/cors.py`](../plugin/mcp/cors.py), [`plugin/mcp/cors_origins.py`](../plugin/mcp/cors_origins.py).
+Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_origins`. Implementation: [`plugin/mcp/cors.py`](../plugin/mcp/cors.py).
 
 **Troubleshooting — OPTIONS succeeds but MCP never connects**
 

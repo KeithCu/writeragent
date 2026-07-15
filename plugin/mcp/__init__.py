@@ -21,7 +21,7 @@ import threading
 from typing import Any
 
 from plugin.framework.module_base import ModuleBase
-from plugin.mcp.cors_origins import reload_cors_policy_from_config
+from plugin.mcp.cors import reload_cors_policy_from_config
 from plugin.mcp.server import mcp_endpoint_url
 
 log = logging.getLogger("writeragent.http")

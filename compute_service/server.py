@@ -31,6 +31,7 @@ class ComputeHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
+        print(f"recv GET {path} from {self.address_string()}")
         if path == "/health":
             self._send_json(200, {"status": "healthy"})
             return
@@ -38,6 +39,7 @@ class ComputeHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
+        print(f"recv POST {path} from {self.address_string()}")
         if path != "/v1/execute":
             self.send_error(404, "Not Found")
             return
@@ -54,15 +56,18 @@ class ComputeHandler(BaseHTTPRequestHandler):
         try:
             req_data = json.loads(body.decode("utf-8"))
         except json.JSONDecodeError:
+            print("POST /v1/execute rejected: invalid JSON")
             self._send_json(400, {"status": "error", "error": "Invalid JSON"})
             return
 
         if not isinstance(req_data, dict):
+            print("POST /v1/execute rejected: body not an object")
             self._send_json(400, {"status": "error", "error": "JSON body must be an object"})
             return
 
         code = req_data.get("code")
         if not code or not isinstance(code, str):
+            print("POST /v1/execute rejected: missing code")
             self._send_json(400, {"status": "error", "error": "Missing 'code' string parameter."})
             return
 
@@ -76,18 +81,23 @@ class ComputeHandler(BaseHTTPRequestHandler):
             init_script = None
 
         timeout_sec = timeout_ms_to_sec(req_data.get("timeout_ms"))
+        sid = session_id if isinstance(session_id, str) else None
+        print(f"exec /v1/execute mode={mode} session={sid!r} code_len={len(code)} timeout={timeout_sec}s")
 
         try:
             result_payload = execute_code(
                 code=code,
                 data=data,
-                session_id=session_id if isinstance(session_id, str) else None,
+                session_id=sid,
                 timeout_sec=timeout_sec,
                 mode=mode,
                 init_script=init_script,
             )
+            status = result_payload.get("status") if isinstance(result_payload, dict) else None
+            print(f"done /v1/execute status={status!r}")
             self._send_json(200, result_payload)
         except Exception as e:
+            print(f"fail /v1/execute: {e}")
             self._send_json(500, {"status": "error", "error": f"Server execution failure: {e}"})
 
     def _send_json(self, code: int, payload: dict[str, Any]) -> None:

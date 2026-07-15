@@ -9,8 +9,13 @@
 
 import logging
 
-from plugin.mcp.cors import is_safe_origin, merge_allow_headers
-from plugin.mcp.cors_origins import get_allow_private_origins, is_extra_allowed_origin, is_private_browser_origin
+from plugin.mcp.cors import (
+    get_allow_private_origins,
+    is_extra_allowed_origin,
+    is_private_browser_origin,
+    is_safe_origin,
+    merge_allow_headers,
+)
 
 log = logging.getLogger("writeragent.mcp.http")
 
