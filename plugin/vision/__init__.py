@@ -1,6 +1,9 @@
 # WriterAgent vision / OCR module (manifest-driven settings; helpers under plugin.vision).
 
 from plugin.framework.module_base import ModuleBase
+from .venv.vision import run_vision
+
+__all__ = ["VisionModule", "run_vision"]
 
 
 class VisionModule(ModuleBase):
@@ -10,3 +13,4 @@ class VisionModule(ModuleBase):
         from . import vision_tools
 
         services.tools.auto_discover(vision_tools)
+

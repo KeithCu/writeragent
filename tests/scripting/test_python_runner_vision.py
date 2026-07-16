@@ -165,7 +165,7 @@ def test_execute_and_insert_vision_forwards_image_name(mock_resolve):
     ):
         mock_resolve.return_value = b"png-bytes"
         code = (
-            'from writeragent.vision.venv.vision import run_vision\n'
+            'from writeragent.vision import run_vision\n'
             'result = run_vision({"helper": "extract_text", "params": {"image_name": "Photo1"}}, image, {})\n'
         )
         outcome = execute_and_insert_result(ctx, doc, code)

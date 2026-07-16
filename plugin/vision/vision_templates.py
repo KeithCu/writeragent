@@ -39,22 +39,14 @@ VisionScriptMeta = HelperScriptMeta
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
     desc = _HELPER_DESCRIPTIONS.get(helper, helper)
-    return build_helper_script_template(
-        tag="vision",
-        helper=helper,
-        params=params,
-        description=desc,
-        style="run_import",
-        import_module="writeragent.vision.venv.vision",
-        run_name="run_vision",
-        data_expr="image",
-        context_expr="{}",
-        extra_comment_lines=(
-            "# Select an embedded graphic OR set image_name in params (from list_images).",
-            "# Writer: select the embedded graphic (OCR inserts after it). Calc: select cell-anchored graphic.",
-        ),
-        compact_json=True,
-    )
+    lines = [
+        f"# {desc}",
+        "# Select an image in the document, then Run.",
+        "from writeragent.vision import run_vision\n",
+        f"result = run_vision({helper!r}, image)",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def get_vision_script_templates() -> dict[str, str]:

@@ -139,6 +139,8 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
         spec = _literal_value(node.args[0])
         if isinstance(spec, dict):
             return spec
+        if isinstance(spec, str):
+            return {"helper": spec, "params": {}}
     return None
 
 

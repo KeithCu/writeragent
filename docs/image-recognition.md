@@ -561,16 +561,12 @@ HELPER_NAMES = frozenset({
 Template body (executable Python — host injects `image` from the selected graphic on Run):
 
 ```python
-from writeragent.vision.venv.vision import run_vision
+from writeragent.vision import run_vision
 
-result = run_vision(
-    {"helper": "extract_text", "params": {"engine": "docling", "ocr_backend": "rapidocr", "image_name": ""}},
-    image,
-    {},
-)
+result = run_vision("extract_text", image)
 ```
 
-With an empty `image_name`, Run exports the currently selected Writer or Calc embedded graphic as PNG bytes into the sandbox variable `image` before execution. Set `image_name` in params to target a named graphic from `list_images` instead.
+With an empty `image_name` (default when calling with a string helper), Run exports the currently selected Writer or Calc embedded graphic as PNG bytes into the sandbox variable `image` before execution. To override params or target a specific named graphic, pass a dictionary spec: `run_vision({"helper": "extract_text", "params": {"image_name": "Photo1"}}, image)`.
 
 ---
 
