@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import uno
 
-from plugin.doc.document_helpers import DocumentType, get_document_path, get_document_type, resolve_document_by_url
+from plugin.doc.document_helpers import DocumentType, doc_type_label_for_enum, get_document_path, get_document_type, resolve_document_by_url
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 
 if TYPE_CHECKING:
@@ -516,16 +516,6 @@ def resolve_path_or_name(
     return None, f"No file matching {raw!r}"
 
 
-def _document_type_to_string(doc_type: DocumentType) -> str:
-    if doc_type == DocumentType.CALC:
-        return "calc"
-    if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
-        return "draw"
-    if doc_type == DocumentType.WRITER:
-        return "writer"
-    return "unknown"
-
-
 def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str | None, str | None, bool]:
     """Open or reuse a document hidden+read-only.
 
@@ -552,7 +542,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
 
     existing, existing_type = resolve_document_by_url(ctx, url)
     if existing is not None:
-        return existing, existing_type or _document_type_to_string(get_document_type(existing)), None, False
+        return existing, existing_type or doc_type_label_for_enum(get_document_type(existing), impress_as_draw=True), None, False
 
     try:
         from plugin.writer.format import create_property_value
@@ -564,7 +554,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         model = desktop.loadComponentFromURL(url, "_default", 0, load_props)
         if model is None:
             return None, None, f"Failed to open {path}", False
-        doc_type = _document_type_to_string(get_document_type(model))
+        doc_type = doc_type_label_for_enum(get_document_type(model), impress_as_draw=True)
         if doc_type == "unknown":
             return None, None, f"Unsupported document type for {path}", False
         from plugin.framework.thread_guard import guard_uno

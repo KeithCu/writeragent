@@ -15,6 +15,18 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""Shared UNO document helpers used across Writer, Calc, and Draw/Impress.
+
+Sub-areas in this module (top to bottom):
+- Document type detection and sidebar/tool label maps
+- Writer text / tracked changes (redlines) and linebreak normalization
+- Streamed edit sessions (compound undo, rewrite/append)
+- Document resolution (URL/path, frame, active doc)
+- Selection and cursor helpers
+- Chat document context builders (Writer / Calc / Draw)
+- Navigation (paragraphs, heading tree, bookmarks, locators)
+- DocumentService (paragraph ranges, yield hooks, etc.)
+"""
 import logging
 import uno
 from typing import TypedDict, Any, cast
@@ -116,14 +128,20 @@ def get_document_uno_services(model) -> frozenset[str]:
     return frozenset(found)
 
 
-def doc_type_label_for_enum(doc_type: DocumentType) -> str:
-    """Lowercase ToolContext doc_type label for a DocumentType enum value."""
+def doc_type_label_for_enum(doc_type: DocumentType, *, impress_as_draw: bool = False) -> str:
+    """Lowercase ToolContext / research doc_type label for a DocumentType enum value.
+
+    Sidebar and tool filtering keep Impress distinct (``\"impress\"``) so
+    ``uno_services`` can list PresentationDocument alone. Document research and
+    some visual paths treat Draw+Impress as one family — pass
+    ``impress_as_draw=True`` for that contract (label ``\"draw\"``).
+    """
     if doc_type == DocumentType.CALC:
         return "calc"
     if doc_type == DocumentType.WRITER:
         return "writer"
     if doc_type == DocumentType.IMPRESS:
-        return "impress"
+        return "draw" if impress_as_draw else "impress"
     if doc_type == DocumentType.DRAW:
         return "draw"
     return "unknown"

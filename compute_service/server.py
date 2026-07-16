@@ -153,6 +153,8 @@ class DualStackThreadingHTTPServer(ThreadingHTTPServer):
 
 def run_server(port: int = 8000) -> None:
     check_dependencies()
+    # Prototype binds all interfaces. Production should bind loopback/private
+    # only and require auth from coolwsd (see docs/numpy-jailsafe.md).
     httpd = DualStackThreadingHTTPServer(("", port), ComputeHandler)
     print(f"Starting Python Compute Service on port {port}...")
     try:

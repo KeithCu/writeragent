@@ -133,6 +133,18 @@ class FakeDrawDoc:
         return service == visual_helpers.DRAW_DOCUMENT_SERVICE
 
 
+class FakeImpressDoc:
+    """PresentationDocument only — not DrawingDocument (isolates impress label)."""
+
+    def supportsService(self, service: str) -> bool:
+        return service == visual_helpers.IMPRESS_DOCUMENT_SERVICE
+
+
+class FakeWebDoc:
+    def supportsService(self, service: str) -> bool:
+        return service in (visual_helpers.WEB_DOCUMENT_SERVICE, visual_helpers.WRITER_DOCUMENT_SERVICE)
+
+
 def test_safe_uno_property_helpers_use_property_set_info():
     obj = FakePropertyObject({"GraphicURL": "file:///tmp/a.png"})
 
@@ -184,6 +196,15 @@ def test_list_graphic_objects_reads_calc_draw_page_graphic_shapes():
     assert visual_helpers.get_visual_doc_type(doc) == "calc"
     assert visual_helpers.list_graphic_objects(doc) == [("Calc Image", graphic)]
     assert visual_helpers.get_graphic_object_by_name(doc, "Calc Image") is graphic
+
+
+def test_get_visual_doc_type_web_before_writer():
+    assert visual_helpers.get_visual_doc_type(FakeWebDoc()) == "web"
+
+
+def test_get_visual_doc_type_draw_and_impress():
+    assert visual_helpers.get_visual_doc_type(FakeDrawDoc(FakeDrawPage([]))) == "draw"
+    assert visual_helpers.get_visual_doc_type(FakeImpressDoc()) == "impress"
 
 
 def test_unit_conversions_match_existing_image_tool_assumptions():

@@ -9,7 +9,7 @@ import logging
 
 from plugin.framework.tool import ToolBaseDummy
 
-log = logging.getLogger("nelson.common")
+log = logging.getLogger(__name__)
 
 
 class DocumentHealthCheck(ToolBaseDummy):

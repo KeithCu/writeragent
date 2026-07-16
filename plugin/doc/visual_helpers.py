@@ -30,21 +30,24 @@ SHAPE_TOOL_UNO_SERVICES = [
 
 
 def get_visual_doc_type(doc: Any) -> str:
-    """Return the visual-tool document label used by image and shape helpers."""
-    type_services = (
-        ("calc", CALC_DOCUMENT_SERVICE),
-        ("draw", DRAW_DOCUMENT_SERVICE),
-        ("impress", IMPRESS_DOCUMENT_SERVICE),
-        ("web", WEB_DOCUMENT_SERVICE),
-        ("writer", WRITER_DOCUMENT_SERVICE),
-    )
-    for label, service in type_services:
-        try:
-            if doc.supportsService(service):
-                return label
-        except Exception:
-            continue
-    return "writer"
+    """Return the visual-tool document label used by image and shape helpers.
+
+    Delegates to :func:`plugin.doc.document_helpers.get_document_type` for the
+    shared Writer/Calc/Draw/Impress map. Web documents are checked first because
+    they also support TextDocument and would otherwise look like Writer.
+    Unknown models keep the legacy ``\"writer\"`` default (not ``\"unknown\"``).
+    """
+    try:
+        if doc.supportsService(WEB_DOCUMENT_SERVICE):
+            return "web"
+    except Exception:
+        pass
+    from plugin.doc.document_helpers import DocumentType, doc_type_label_for_enum, get_document_type
+
+    doc_type = get_document_type(doc)
+    if doc_type == DocumentType.UNKNOWN:
+        return "writer"
+    return doc_type_label_for_enum(doc_type)
 
 
 def mm_to_units(width_mm: int | float, height_mm: int | float) -> tuple[int, int]:
