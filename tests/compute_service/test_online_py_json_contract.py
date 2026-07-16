@@ -42,6 +42,36 @@ class TestOnlinePyJsonContract:
         assert out["status"] == "ok"
         assert out["result"] == [[1, 2], [3, 4]]
 
+    def test_column_vector_stays_nested(self) -> None:
+        # C++ parse keeps [[1],[2],[3]] as 3×1 (emit may flatten ranges the other way).
+        out = execute_code("result = [[1], [2], [3]]")
+        assert out["status"] == "ok"
+        assert out["result"] == [[1], [2], [3]]
+
+    def test_numpy_column_vector_egress(self) -> None:
+        out = execute_code("import numpy as np\nresult = np.array([[1], [2], [3]])")
+        assert out["status"] == "ok"
+        assert out["result"] == [[1], [2], [3]]
+
+    def test_mixed_type_grid(self) -> None:
+        out = execute_code('result = [[1, "a"], [2, "b"]]')
+        assert out["status"] == "ok"
+        assert out["result"] == [[1, "a"], [2, "b"]]
+
+    def test_images_top_level_on_plot(self) -> None:
+        out = execute_code(
+            "import matplotlib.pyplot as plt\n"
+            "fig, ax = plt.subplots()\n"
+            "ax.plot([0, 1], [0, 1])\n"
+            "result = fig"
+        )
+        assert out["status"] == "ok"
+        images = out.get("images") or []
+        assert len(images) == 1
+        assert images[0].get("format") in ("svg", "png")
+        assert images[0].get("data_b64")
+        assert out.get("result") is None
+
     def test_request_body_shape(self) -> None:
         # Document the AddIn request (id + code + optional data + mode).
         body = {

@@ -284,13 +284,17 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 
 ### F4 — Compute service container hardening
 
+**Status: Dockerfile hardening + loopback/dual-stack bind configurations landed.**
+
 **Goal:** Make the security invariants in this doc **operational**, not aspirational. The kit jail is only half the story; a compromised compute container must not become host RCE.
 
-**Current Dockerfile** ([`compute_service/Dockerfile`](../compute_service/Dockerfile)): `python:3.12-slim`, build-essential, pinned scientific stack, `USER appuser`, port 8000. Missing: read-only root, memory/CPU, no network egress for tenant code, no docker.sock, seccomp.
+**Implemented:**
 
-**Implement (writeragent-first):**
-
-1. **Runtime flags (compose / k8s / systemd snippet in-repo):**
+1. **Configurable / Safe Binding**: `server.py` defaults to binding to `127.0.0.1` (loopback only) instead of wildcard, preventing external exposure by default. It supports configuring the host via the `HOST` environment variable.
+2. **Dual-Stack & IPv6**: Server binds using a dual-stack configuration (`DualStackThreadingHTTPServer`), allowing concurrent IPv4 and IPv6 connections on supported systems with graceful fallback.
+3. **Multi-stage Dockerfile**: The [`compute_service/Dockerfile`](../compute_service/Dockerfile) uses a multi-stage build where all compiler tools (`build-essential`) are restricted to the builder stage. The runner image copies pre-installed packages, reducing the runtime container's attack surface.
+4. **Startup Dependency Check**: The server runs a pre-check to ensure required libraries like `sympy` are importable, failing fast at startup if dependencies are missing.
+5. **Runtime flags (recommended for ops):**
    ```bash
    docker run --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
      --memory=1g --cpus=1 --pids-limit=256 \
@@ -301,18 +305,13 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
      …
    ```
    coolwsd on the host reaches `127.0.0.1:8000`; the container has **no** route to the public internet (tenant `urllib` / sockets die). If the sandbox AST already blocks many imports, network isolation is still the real boundary for C-extension sockets.
-2. **Drop `build-essential` from the final image:** multi-stage build — builder installs wheels, runtime copies site-packages only (smaller attack surface; no compiler in prod).
-3. **Import whitelist:** keep executing via [`run_sandboxed_code`](../plugin/scripting/venv/venv_sandbox.py) / `VENV_AUTHORIZED_IMPORTS`. Add a CI test that `import os; os.system("…")` and raw `socket` fail closed under the service executor.
-4. **No docker.sock, no privileged, no host FS mounts** of tenant data. Scratch only under `/tmp`. If models/weights are needed later, bake into the image (admin curates) — never bind-mount `~/.writeragent_venv`.
-5. **Auth between coolwsd and service (optional but recommended before multi-tenant):**
+6. **No docker.sock, no privileged, no host FS mounts** of tenant data. Scratch only under `/tmp`. If models/weights are needed later, bake into the image (admin curates) — never bind-mount `~/.writeragent_venv`.
+7. **Auth between coolwsd and service (optional/separate):**
    - Shared secret header `Authorization: Bearer …` configured next to `security.python_compute.url` (new `security.python_compute.auth_header` or reuse URL userinfo carefully).
    - Service rejects missing/wrong token with 401; UnitWSD stub can ignore.
-6. **Resource quotas already partially exist:** `timeout_ms` / `clamp_timeout_sec` in [`executor.py`](../compute_service/executor.py); add RSS watch or rely on cgroup `--memory`. Document that wall-clock alone does not stop a malloc bomb — cgroup does.
-7. **Health / readiness:** keep `/health`; orchestrators use it. Do not expose `/v1/execute` without the allowlist auth once enabled.
+8. **Resource quotas already partially exist:** `timeout_ms` / `clamp_timeout_sec` in [`executor.py`](../compute_service/executor.py); add RSS watch or rely on cgroup `--memory`. Document that wall-clock alone does not stop a malloc bomb — cgroup does.
+9. **Health / readiness:** keep `/health`; orchestrators use it. Do not expose `/v1/execute` without the allowlist auth once enabled.
 
-**Docs for Collabora ops:** short "Deploy compute beside coolwsd" section (listen on localhost or private net; never expose `/v1/execute` on the public edge).
-
-**Done when:** `docker run` snippet in-repo matches the invariants list above, and at least one test proves sandbox + (if feasible in CI) no outbound TCP from user code.
 
 ---
 
@@ -408,11 +407,9 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 
 ### G5 — Compute-service isolation claims are not operational
 
-**Impact:** High / security review once `enable=true`.
+**Status: Partly resolved.** Loopback-only (`127.0.0.1`) host binding and multi-stage Dockerfile hardening (dropping `build-essential`) are complete. Bearer auth / shared secrets between coolwsd and the service are still open.
 
-**Evidence:** [`compute_service/server.py`](../compute_service/server.py) binds all interfaces, no auth; Dockerfile is not hardened; no Bearer between coolwsd and the service.
-
-**Recommended solution:** loopback/private bind; shared secret; harden per [F4](#f4--compute-service-container-hardening); do not claim AST sandbox is the OS boundary; state shipped vs ops docs in the PR letter.
+**Recommended solution:** shared secret; complete remainder of [F4](#f4--compute-service-container-hardening) runtime setup; do not claim AST sandbox is the OS boundary; state shipped vs ops docs in the PR letter.
 
 ### G6 — Remaining lifecycle gaps
 

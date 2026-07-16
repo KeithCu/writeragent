@@ -151,12 +151,10 @@ class DualStackThreadingHTTPServer(ThreadingHTTPServer):
         super().server_bind()
 
 
-def run_server(port: int = 8000) -> None:
+def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     check_dependencies()
-    # Prototype binds all interfaces. Production should bind loopback/private
-    # only and require auth from coolwsd (see docs/numpy-jailsafe.md).
-    httpd = DualStackThreadingHTTPServer(("", port), ComputeHandler)
-    print(f"Starting Python Compute Service on port {port}...")
+    httpd = DualStackThreadingHTTPServer((host, port), ComputeHandler)
+    print(f"Starting Python Compute Service on {host}:{port}...")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -165,9 +163,10 @@ def run_server(port: int = 8000) -> None:
 
 
 if __name__ == "__main__":
+    host_env = os.environ.get("HOST", "127.0.0.1")
     port_env = os.environ.get("PORT", "8000")
     try:
         port_num = int(port_env)
     except ValueError:
         port_num = 8000
-    run_server(port_num)
+    run_server(host_env, port_num)
