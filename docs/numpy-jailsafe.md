@@ -1,6 +1,6 @@
 # Collabora Online and jail-safe execution
 
-> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Step C: C++ `scaddins` **pythoncompute** AddIn (`=PY()` / `=PYTHON()`) returns `XVolatileResult` with interim **`"#BUSY!"`**, posts dumb JSON via coolkit → coolwsd → compute service, then applies scalar / `ScMatrix` spill on `pythoncomputeresult:`. Any↔JSON: [`tools::JsonWriter`](file:///home/keithcu/Desktop/collabofficefull/engine/include/tools/json_writer.hxx) + `boost::property_tree::read_json`. Identity cache, Solar-safe `finish`, 2D/column grids, shipped `enable=false`, emitter multi-view + `dlsym` retry. Open before PR: [open items](#open-before-pr). Product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
+> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Correctness/lifecycle/platform blockers from the 2026-07 review (ranges, typed JSON parse, `pythonexecute` ids, unlock-before-finish, early emitter, Solar/weak lifetimes, kit emit marshal, multi-view/MOBILEAPP) are addressed in tree. Still open before Gerrit: request caps, service isolation, passive timeout / LRU identity, UnitWSD CI, commit series — see [Still open before Gerrit](#still-open-before-gerrit). Product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
 
 Related architecture comparison (AI chat / kit protocol, not Python compute): [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md).
 
@@ -103,8 +103,8 @@ Live in the Collabora Online / LibreOffice trees (`collabofficefull`), not write
 
 1. **Config:** `security.python_compute.enable` (default `false`) + `security.python_compute.url` in `coolwsd.xml.in` / `ConfigUtil.cpp`.
 2. **coolwsd:** `ClientSession::handlePythonComputeFromKit` — kit `pythoncompute:` → `http::Session` POST → `pythoncomputeresult:`.
-3. **kit:** `PythonComputeEmitter` installs `pythoncompute_set_emitter` after load; `handlePythonComputeResult` calls `pythoncompute_complete_json`. Tracks live `ChildSession`s and reinstalls on another view when the owner clears; retries `dlsym` until both AddIn symbols resolve. Test kick: `pythonexecute <json>` (wsd-gated: writable + `security.python_compute.enable`).
-4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile LRU identity cache (cap 256), `finish` under `SolarMutexGuard`, Any↔dumb JSON (`JsonWriter` + ptree), pending map, matrix spill via `sequence<sequence<…>>`. No `FormulaError::Busy`.
+3. **kit:** `PythonComputeEmitter` — spreadsheet-only install; one stable egress owner among live views (no last-wins steal); MOBILEAPP no-op; `handlePythonComputeResult` → `pythoncompute_complete_json` (no product browser echo). Retries `dlsym` until AddIn symbols resolve. Debug kick: `pythonexecute` (`ENABLE_DEBUG` only; rejects `py-*` ids).
+4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile LRU (cap 256), `finish` / listener push under `SolarMutexGuard`, Any↔dumb JSON (`JsonWriter` + local hand parser — see [JSON note](#anyjson-dumb-json-note)), pending map (finish outside bridge mutex), matrix spill via `sequence<sequence<…>>`. No `FormulaError::Busy`.
 5. **Future work:** see [below](#future-work-prototype--hardened-online). Monaco / browser cell editor remains a separate Online UI track (LibrePy uses pywebview; do not port that into the kit).
 
 ### Security invariants
@@ -150,11 +150,11 @@ collabora-online (kit/wsd)/
 
 1. Python compute service + Dockerfile + tests against JSON grids.
 2. Classic `RemoteComputeBackend` against the service (fast Python-only iteration).
-3. C++ hooks: kit stub + coolwsd broker → wire works (`pythonexecute` / `pythoncompute:` / `pythoncomputeresult:`). **Done.**
-4. Core `=PY()` AddIn + `#BUSY!` volatile + matrix spill. **Done** (scaddins `pythoncompute` + kit emitter). Rebuild LibreOffice (`libpythoncomputelo.so`) + Online coolkit to pick up.
-5. Future work below — prove the jail wire in CI, smoke NumPy out-of-kit, then plots / container hardening / shared kernel.
+3. C++ hooks: kit stub + coolwsd broker → wire works (`pythoncompute:` / `pythoncomputeresult:`; debug `pythonexecute`). **Landed in tree** — remaining submit gaps in [Still open before Gerrit](#still-open-before-gerrit).
+4. Core `=PY()` AddIn + `#BUSY!` volatile + matrix spill. **Landed in tree** (scaddins `pythoncompute` + kit emitter). Rebuild LibreOffice (`libpythoncomputelo.so`) + Online coolkit to pick up.
+5. Future work below — UnitWSD CI, NumPy smoke, plots / container hardening / shared kernel. Caps / isolation / timeout / series still outrank F3–F5 for Collabora review.
 
-Until Collabora ships images with Step C linked, **Classic** remains the product where full desktop NumPy `=PY()` works end-to-end without a Core rebuild.
+Until Collabora ships images with Step C linked **and** the remaining open items below are acceptable for an experimental merge, **Classic** remains the product where full desktop NumPy `=PY()` works end-to-end without a Core rebuild.
 
 ---
 
@@ -365,22 +365,124 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 
 ---
 
+## Still open before Gerrit
+
+Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (out-of-kit compute, thin C++ tip, default-off flag, host allowlist) is the right shape. Correctness / multi-view / MOBILEAPP / typed JSON / `pythonexecute` issues from that review are **done in tree** and no longer expanded here.
+
+**Still expect review friction** until the items below are addressed or explicitly scoped as experimental follow-ups in the PR cover letter.
+
+### Open checklist
+
+| # | Topic | Status |
+|---|--------|--------|
+| G4 | No size / in-flight caps | Deferred for prototype — comments near WSD POST; implement before multi-tenant |
+| G5 | Service isolation aspirational | Deferred — bind/auth comments only; see [F4](#f4--compute-service-container-hardening) |
+| G6a | Pending timeout is passive | Open — `#BUSY!` can stick if idle and service silent |
+| G6c | LRU breaks AddIn.idl identity; sticky errors | Open — process LRU can evict / stick `#N/A` |
+| G8 | Missing UnitWSD / formula-level CI | Open — see [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
+| G9 | Series / hygiene | Open — split Core vs Online; squash tiny follow-ups; PY naming note |
+
+### Any↔JSON (dumb JSON note)
+
+**Landed in tree** as the Core ↔ service dialect (keep for contracts / F3 plots / shared kernel).
+
+- **Emit:** `tools::JsonWriter` in `pythoncompute_anyjson.cxx` — Calc ranges as `Sequence<Sequence<…>>` first, then flatten 1×N / N×1 when useful (Any **and** typed double grids).
+- **Parse:** local hand parser in the same file (not `boost::property_tree`, not Boost.JSON, not Poco in Core). Online coolwsd stays on Poco/`JsonUtil`.
+- **Scalars:** JSON `"42"` / `"true"` / `"null"` stay strings; bare `42` / `true` / `null` → double / bool / empty string (Classic `None` parity).
+- **Grids:** nested lists; rectangular numerics → `sequence<sequence<double>>`; mixed → `sequence<sequence<Any>>`.
+- **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today).
+- **Tests:** `engine/scaddins/qa/pythoncompute.cxx` + writeragent `tests/compute_service/test_online_py_json_contract.py`.
+
+### G4 — No request / response / in-flight resource caps
+
+**Impact:** High / DoS once the feature is on. Prototype leaves this open on purpose.
+
+**Evidence:** `handlePythonComputeFromKit` posts the full kit JSON body with no max size, no max `code` length, no per-session/doc concurrent POST counter. HTTP responses use `response->getBody()` with only the generic http max (~2 GB). Client JSON may carry `timeout_ms` up to ~620 s wall clock. AI chat already enforces payload caps.
+
+**Recommended solution:**
+
+1. Config knobs: `max_request_bytes`, `max_response_bytes`, `max_inflight_per_doc`, admin-owned `timeout_secs`.
+2. Hard-reject oversized bodies with `status=error` JSON back to kit.
+3. Fail-visible handling for corrupt `pythoncompute:` frames (`replyError`).
+4. Cancel in-flight HTTP on disconnect; optionally cap AddIn `g_aPending`.
+
+### G5 — Compute-service isolation claims are not operational
+
+**Impact:** High / security review once `enable=true`.
+
+**Evidence:** [`compute_service/server.py`](../compute_service/server.py) binds all interfaces, no auth; Dockerfile is not hardened; no Bearer between coolwsd and the service.
+
+**Recommended solution:** loopback/private bind; shared secret; harden per [F4](#f4--compute-service-container-hardening); do not claim AST sandbox is the OS boundary; state shipped vs ops docs in the PR letter.
+
+### G6 — Remaining lifecycle gaps
+
+#### G6a — Pending timeout is passive
+
+`expireStale_NoLock` (90 s) only runs from `startCompute` / `complete_json`. Idle sheet + silent service → `#BUSY!` forever. Align with WSD timeout and/or add an active timer / always-reply-from-WSD.
+
+#### G6c — LRU breaks AddIn.idl identity; sticky errors
+
+Process-wide LRU (cap 256) can evict keys while cells still hold the volatile; finished errors can stick until params change. Prefer per-document maps or never-evict mid-flight / still-referenced entries; document retry semantics.
+
+### G8 — Test coverage gaps
+
+Core CppUnit covers scalars, typed strings, mixed/numeric grids, emitter round-trip, identity cache happy path. Still missing for Gerrit CI:
+
+| Area | Missing today |
+|------|----------------|
+| UnitWSD | enable/disable, POST happened, `pythoncomputeresult:`, allowlist reject, corrupt frame → error reply |
+| Lifecycle | timeout expiry without recalc; disconnect mid-flight |
+| Limits | oversize body rejected; inflight cap (when G4 lands) |
+
+Land [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) with or before the Online change (stub HTTP in-unit).
+
+### G9 — Commit series, naming, and hygiene
+
+- Split **Core AddIn** vs **Online kit/wsd** (squash tiny id follow-ups into Online).
+- Explicit PR/IDL note on display name `PY` vs Excel semantics.
+- en-US-only strings / `SAL_DLLPUBLIC_EXPORT` test helpers / IDL comment vs volatile runtime — nits.
+- Cover letter: #16010, experimental + default off, non-goals (plots, shared kernel, Monaco), residual risk = G4/G5/G6a/c/G8.
+
+Suggested series:
+
+```text
+1) Core: Calc =PY() scaddins pythoncompute AddIn + CppunitTest
+2) Online: kit emitter + coolwsd broker + config (+ UnitWSD when ready)
+```
+
+### Reviewer-facing cleanup (not blockers alone)
+
+| Item | Recommendation |
+|------|----------------|
+| `EmitFn` `int` vs `sal_Int32` | Align kit typedef with Core C API |
+| Duplicated anyjson writers | Factor when touching that file again |
+| IWYU filter | Update `IwyuFilter_scaddins.yaml` if CI enables it |
+| en-US-only help | Accept for v0.1 with PR note; follow with `.hrc` |
+| Engine subtree README | Keep short; ops detail lives here / issue |
+
+### What already looks good (keep)
+
+- Out-of-kit compute; C++ tip free of NumPy / `split_grid` / Pickle5.
+- `security.python_compute.enable` default `false`; `HostUtil::isForbiddenKitHost` when allowlist set.
+- Typed dumb-JSON round-trip; Calc range grids emit; Solar on finish/listener; unlock-before-finish; early spreadsheet emitter; stable multi-view owner; MOBILEAPP compile-out.
+- gbuild / `.component` / IDL mirrors sibling AddIns.
+
+---
+
 ## Open before PR
 
-Remaining code / product gaps for a Collabora-facing PR (v0.1 experimental is otherwise in place).
+Code / product gaps still relevant for a Collabora-facing PR (overlaps the open checklist above).
 
 | Item | Where | Notes |
 |------|--------|--------|
-| **Request size / in-flight caps** | `wsd/ClientSession.cpp` `handlePythonComputeFromKit` | No max JSON body, code length, or concurrent POSTs per session/doc. Hard reject + log. |
-| **Pending timeout is passive** | `pythoncompute_bridge.cxx` `expireStale_NoLock` | 90s only runs on next start/complete; HTTP default 60s usually finishes cells. Align bridge/wsd/`timeout_ms` policy or document. |
-| **Display name `PY`** | IDL / release notes | Excel Python name collision — conscious choice; note in PR/IDL. |
-| **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
-| **Service auth header** | coolwsd ↔ compute | Optional; AI chat has Bearer — useful multi-tenant. |
-| **en-US help only** | AddIn display strings | No `.hrc` / `Translate::` like date/analysis. |
-| **IDL vs runtime** | `XPythonComputeFunctions.idl` | Comment may say error string; runtime always returns volatile `Any`. |
-| **`SAL_DLLPUBLIC_EXPORT` on anyjson** | `pythoncompute_anyjson.*` | Unusual (CppUnit linkage); C ABI-only export is cleaner long-term. |
-| **Kit `EmitFn` `int` vs `sal_Int32`** | emitter vs Core C API | Align types if reviewers care. |
-| **anyjson structure** | `pythoncompute_anyjson.cxx` | Large duplicated element/property writers — maintainability nit. |
-
-**Any↔JSON (current):** emit via `tools::JsonWriter` (`tl`); parse via `boost::property_tree::read_json` + `rtl::math::stringToDouble`; Online keeps Poco/`JsonUtil` in coolwsd only. Rectangular numeric grids (incl. N×1) → `sequence<sequence<double>>`.
-
+| **Request size / in-flight caps** | `wsd/ClientSession.cpp` | G4 |
+| **Pending timeout is passive** | `pythoncompute_bridge.cxx` | G6a |
+| **LRU / sticky errors** | param cache in bridge | G6c |
+| **Display name `PY`** | IDL / release notes | G9 |
+| **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | G8 / [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
+| **Service auth + private bind** | coolwsd ↔ compute | G5 / [F4](#f4--compute-service-container-hardening) |
+| **en-US help only** | AddIn display strings | No `.hrc` yet |
+| **IDL vs runtime** | `XPythonComputeFunctions.idl` | Comment may say error string; runtime always returns volatile |
+| **`SAL_DLLPUBLIC_EXPORT` on anyjson** | helpers | Prefer C ABI-only exports long-term |
+| **Kit `EmitFn` `int` vs `sal_Int32`** | emitter vs Core | Align if reviewers care |
+| **anyjson structure** | duplicated writers | Maintainability nit |
