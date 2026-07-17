@@ -186,7 +186,8 @@ class TestComputeHttp:
 
     def test_dual_stack_connectivity(self, compute_server_info) -> None:
         port, server = compute_server_info
-        if server.address_family != socket.AF_INET6:
+        has_ipv6 = hasattr(server, "sockets") and any(s.family == socket.AF_INET6 for s in server.sockets)
+        if not has_ipv6 and server.address_family != socket.AF_INET6:
             pytest.skip("IPv6 dual-stack not supported or fallback occurred")
 
         # Test IPv4 localhost

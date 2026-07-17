@@ -107,6 +107,22 @@ Live in the Collabora Online / LibreOffice trees (`collabofficefull`), not write
 4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile LRU (cap 256), `finish` / listener push under `SolarMutexGuard`, Any↔dumb JSON (`JsonWriter` + local hand parser — see [JSON note](#anyjson-dumb-json-note)), pending map (finish outside bridge mutex), matrix spill via `sequence<sequence<…>>`. No `FormulaError::Busy`.
 5. **Future work:** see [below](#future-work-prototype--hardened-online). Monaco / browser cell editor remains a separate Online UI track (LibrePy uses pywebview; do not port that into the kit).
 
+#### Cell markers / diagnosis (`#BUSY!`, `#DISABLED`, `#VALUE!`)
+
+Volatile / finish values are **not** new Core `FormulaError` enum entries (Excel/Calc’s set stays fixed). The AddIn uses the same string-marker pattern as interim busy:
+
+| Cell shows | Meaning | Where |
+|------------|---------|--------|
+| `#BUSY!` | Request in flight (interim volatile text) | AddIn before `complete_json` |
+| `#DISABLED` | coolwsd rejected because `security.python_compute.enable` is false | wsd `replyError(..., "Python compute is disabled")` → AddIn maps that exact error string to literal `"#DISABLED"` in `jsonResultToAny` (not `#VALUE!`) |
+| `#VALUE!` | Other `status=error` / bad JSON / missing `result` (`FormulaError::NoValue`) | Service or network failures, parse failures |
+| `#N/A` | No emitter, timeout, superseded pending (`FormulaError::NotAvailable`) | Bridge lifecycle |
+
+**If `=PY()` shows `#DISABLED`:** turn on the flag in the **running** `coolwsd.xml` (or `--o:security.python_compute.enable=true`), restart coolwsd, and **reload the document** — the param→volatile LRU can stick the finished disabled result until params change or the kit is fresh. Keep `coolwsd.xml.in` / ConfigUtil defaults **`false`** for git/upstream; local `coolwsd.xml` is the demo override.
+
+
+Logs: coolwsd → `/tmp/coolwsd.log` (`Python compute: disabled; rejecting…` / `POST …`); Core AddIn → `export SAL_LOG=+INFO.scaddins.pythoncompute` before starting coolwsd (`complete_json: detail=[…]`).
+
 ### Security invariants
 
 1. **Compute is out-of-kit** — kit compromise ≠ host Python; Python compromise ≠ kit filesystem/network (seccomp, no capabilities, no docker.sock).
@@ -203,7 +219,7 @@ Online units already spin `SocketPoll` and outbound `http::Session`. Mirror how 
    - `LOK_ASSERT` body JSON `result == 42` (or status/`id` match)
    - `LOK_ASSERT_EQUAL(1, postCount)`
 
-**Negative case:** same unit (or second method) with `enable=false` — expect `pythoncomputeresult:` with `status=error` / `"Python compute is disabled"` and **zero** POSTs to the stub.
+**Negative case:** same unit (or second method) with `enable=false` — expect `pythoncomputeresult:` with `status=error` / `"Python compute is disabled"` and **zero** POSTs to the stub. (AddIn maps that error string to cell `#DISABLED`; UnitWSD can assert the JSON error text without needing the AddIn.)
 
 **Fallback path note:** `ChildSession::handlePythonComputeResult` echoes to the browser when `pythoncompute_complete_json` is not mapped (`dlsym` miss). That is **desirable** for F1: the unit proves broker HTTP without requiring `libpythoncomputelo.so` in the unit harness. Add a follow-up assert later once the test kit image links the AddIn (then `completeFromJson` returns 1 and the echo may stop).
 
@@ -359,7 +375,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 | Browser Monaco / cell editor | Separate Online UI project; LibrePy pywebview is Classic-only |
 | C++ `split_grid` / Pickle5 | Violates the dumb-JSON tip on purpose |
 | Kit-side NumPy / warm venv | Jail-incompatible by design |
-| Formula errors vs string cells | Timeouts / service failures finish as readable strings in v1 |
+| Formula errors vs string cells | Admin-off → cell `#DISABLED` string (landed); other timeouts / service failures still `#VALUE!` / `#N/A` for now |
 | Per-document cache eviction | Process-wide LRU (cap 256); identity best-effort past the cap — see `kParamCacheCapacity` |
 
 ---

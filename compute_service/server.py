@@ -128,27 +128,123 @@ class ComputeHandler(BaseHTTPRequestHandler):
         self.wfile.write(response_body)
 
 
+import selectors
 import socket
 
 class DualStackThreadingHTTPServer(ThreadingHTTPServer):
-    """ThreadingHTTPServer that attempts IPv6 dual-stack bind, falling back to IPv4-only."""
+    """ThreadingHTTPServer that listens on both IPv4 and IPv6 loopback (or a single requested host/IP)."""
     def __init__(self, server_address: tuple[str, int], RequestHandlerClass: type[BaseHTTPRequestHandler], bind_and_activate: bool = True) -> None:
-        self.address_family = socket.AF_INET6
-        try:
-            super().__init__(server_address, RequestHandlerClass, bind_and_activate)
-        except OSError:
-            # Fall back to IPv4 if IPv6 socket creation or binding is unsupported/fails
-            self.address_family = socket.AF_INET
-            super().__init__(server_address, RequestHandlerClass, bind_and_activate)
+        self.sockets: list[socket.socket] = []
+        # Call the super constructor with bind_and_activate=False, so we can set up our sockets ourselves.
+        super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
 
-    def server_bind(self) -> None:
-        if self.address_family == socket.AF_INET6:
+        host, port = server_address
+
+        bind_addresses = []
+        if host in ("", "127.0.0.1", "::1", "localhost"):
+            # Secure default: bind only to local loopback interface.
+            bind_addresses = [
+                (socket.AF_INET, "127.0.0.1"),
+                (socket.AF_INET6, "::1")
+            ]
+        elif host in ("0.0.0.0", "::"):
+            # Wildcard binds (e.g. for Docker/container networking) allowed only when explicitly requested via HOST env.
+            bind_addresses = [
+                (socket.AF_INET, "0.0.0.0"),
+                (socket.AF_INET6, "::")
+            ]
+        else:
             try:
-                # Set IPV6_V6ONLY to 0 to enable dual-stack (both IPv4 and IPv6)
-                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-            except OSError:
+                infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
+                seen_families = set()
+                for family, _, _, _, sockaddr in infos:
+                    if family not in seen_families:
+                        seen_families.add(family)
+                        bind_addresses.append((family, sockaddr[0]))
+            except Exception:
+                bind_addresses = [(socket.AF_INET, host)]
+
+        for family, ip in bind_addresses:
+            try:
+                sock = socket.socket(family, socket.SOCK_STREAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if family == socket.AF_INET6:
+                    try:
+                        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                    except OSError:
+                        pass
+                sock.bind((ip, port))
+                self.sockets.append(sock)
+            except OSError as e:
+                # Log warning to stderr, but continue if other binds succeed
+                print(f"Warning: Failed to bind to {ip}:{port} ({family}): {e}", file=sys.stderr)
+
+        if not self.sockets:
+            raise OSError(f"Could not bind to any address for {host}:{port}")
+
+        # For compatibility with any code checking self.socket or self.address_family
+        self.socket = self.sockets[0]
+        self.address_family = self.socket.family
+        # Retrieve actual bound port from first successful socket (especially if port was 0)
+        actual_port = self.socket.getsockname()[1]
+        self.server_address = (host, actual_port)
+
+        if bind_and_activate:
+            try:
+                self.server_activate()
+            except Exception:
+                self.server_close()
+                raise
+
+    def server_activate(self) -> None:
+        for sock in self.sockets:
+            sock.listen(self.request_queue_size)
+
+    def server_close(self) -> None:
+        for sock in self.sockets:
+            try:
+                sock.close()
+            except Exception:
                 pass
-        super().server_bind()
+
+    def fileno(self) -> int:
+        return self.socket.fileno()
+
+    def serve_forever(self, poll_interval: float = 0.5) -> None:
+        self._BaseServer__is_shut_down.clear()
+        try:
+            with selectors.DefaultSelector() as selector:
+                for sock in self.sockets:
+                    selector.register(sock, selectors.EVENT_READ)
+
+                while not self._BaseServer__shutdown_request:
+                    ready = selector.select(poll_interval)
+                    if self._BaseServer__shutdown_request:
+                        break
+                    if ready:
+                        for key, _ in ready:
+                            self._handle_request_noblock_for_socket(key.fileobj)
+                    self.service_actions()
+        finally:
+            self._BaseServer__shutdown_request = False
+            self._BaseServer__is_shut_down.set()
+
+    def _handle_request_noblock_for_socket(self, sock: socket.socket) -> None:
+        try:
+            request, client_address = sock.accept()
+        except OSError:
+            return
+        if self.verify_request(request, client_address):
+            try:
+                self.process_request(request, client_address)
+            except Exception:
+                self.handle_error(request, client_address)
+                self.shutdown_request(request)
+            except:
+                self.shutdown_request(request)
+                raise
+        else:
+            self.shutdown_request(request)
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
