@@ -150,7 +150,7 @@ def test_execute_and_insert_vision_structure_calc(mock_resolve, mock_venv, mock_
     mock_resolve.assert_called_once()
     mock_venv.assert_called_once()
     params = mock_insert.call_args.kwargs["params"]
-    assert params.get("image_name") == ""
+    assert params.get("image_name") is None
 
 
 @patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
