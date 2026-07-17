@@ -53,7 +53,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Real-time Grammar & Style Checker**: An asynchronous proofreader with a **sentence cache** and **Unicode-aware splitting**. Includes **Token-aware Overlap Repair** to fix "LLM slop" and ensure surgical replacements. Persistent storage of good/bad sentences with document. Supports multiple backends configurable in **Settings → Doc → Enable grammar checker (Writer)**:
   - **AI (LLM):** Cloud or local AI models/API.
   - **[LanguageTool](https://languagetool.org) (Local):** Offline grammar server running locally.
-  - **[Harper](https://github.com/Automattic/harper) (Local Rust):** Lightning-fast local private Rust-backed grammar checker. Auto-installs in the LibreOffice user config directory if not installed.
+  - **[Harper](https://github.com/Automattic/harper) (Local):** Lightning-fast local private Rust-backed grammar checker. Auto-installs in the LibreOffice user config directory if not installed.
 - Optional **sentence language detection**: **Local (langdetect)** uses `langdetect` in your configured Python venv (embeddings worker) to auto-fix wrong `CharLocale` and then grammar-check in the right language; **AI (LLM)** uses the chat API for the same step. Set **Settings → Doc → Sentence language detection**. [Read the Plan](docs/realtime-grammar-checker-plan.md).
 - **Rich-text sidebar**: Hosts a rich text control in the sidebar. Off by default.
 - **Math & LaTeX**: **MathML** and **TeX** delimiters are automatically turned into **editable LibreOffice Math formulas** (OLE objects). Use `\(...\)` / `$...$` for inline and `$$...$$` / `\[...\]` for display in chat or HTML content; prefer `\(...\)` over bare `$` near numbers. See [docs/math-tex.md](docs/math-tex.md).
