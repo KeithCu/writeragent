@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.scripting.audio_recorder_service import (
+    _atomic_replace_native,
+    _cleanup_stale_native_backups,
     _download_url_to_file,
     ensure_downloaded_audio_on_path,
     is_audio_recording_configured,
@@ -115,6 +117,114 @@ def test_run_vec_pack_download_invalidates_accelerator(tmp_path):
         ok = run_vec_pack_download(lambda _t: None, lambda _s: None)
     assert ok is True
     mock_inv.assert_called_once()
+
+
+def test_atomic_replace_native_posix_uses_os_replace(tmp_path):
+    partial = tmp_path / "pack.so.partial"
+    dest = tmp_path / "pack.so"
+    partial.write_bytes(b"NEW")
+    dest.write_bytes(b"OLD")
+
+    with patch("os.name", "posix"):
+        _atomic_replace_native(str(partial), str(dest))
+
+    assert dest.read_bytes() == b"NEW"
+    assert not partial.exists()
+
+
+def test_atomic_replace_native_windows_renames_loaded_dll_aside(tmp_path):
+    """On Windows a loaded .pyd can't be replaced; rename it aside then drop the new file."""
+    import os as _os
+
+    partial = tmp_path / "pack.pyd.partial"
+    dest = tmp_path / "pack.pyd"
+    partial.write_bytes(b"NEW")
+    dest.write_bytes(b"LOADED_OLD")
+
+    real_replace = _os.replace
+    calls = {"n": 0}
+
+    def flaky_replace(src, dst):
+        # Simulate MoveFileEx REPLACE_EXISTING failing to delete a loaded target
+        # only for the first (partial -> dest) attempt.
+        if calls["n"] == 0 and src == str(partial) and dst == str(dest):
+            calls["n"] += 1
+            raise PermissionError("WinError 5: access denied (loaded DLL)")
+        return real_replace(src, dst)
+
+    with patch("os.name", "nt"), patch("os.replace", side_effect=flaky_replace):
+        _atomic_replace_native(str(partial), str(dest))
+
+    assert dest.read_bytes() == b"NEW"
+    assert not partial.exists()
+    aside = tmp_path / "pack.pyd.old"
+    assert aside.read_bytes() == b"LOADED_OLD"
+
+
+def test_atomic_replace_native_windows_picks_unique_aside(tmp_path):
+    import os as _os
+
+    partial = tmp_path / "pack.pyd.partial"
+    dest = tmp_path / "pack.pyd"
+    partial.write_bytes(b"NEW")
+    dest.write_bytes(b"LOADED_OLD")
+    (tmp_path / "pack.pyd.old").write_bytes(b"PRIOR_STILL_LOADED")
+
+    real_replace = _os.replace
+    calls = {"n": 0}
+
+    def flaky_replace(src, dst):
+        if calls["n"] == 0 and src == str(partial) and dst == str(dest):
+            calls["n"] += 1
+            raise PermissionError("WinError 5")
+        return real_replace(src, dst)
+
+    with patch("os.name", "nt"), patch("os.replace", side_effect=flaky_replace):
+        _atomic_replace_native(str(partial), str(dest))
+
+    assert dest.read_bytes() == b"NEW"
+    assert (tmp_path / "pack.pyd.old").read_bytes() == b"PRIOR_STILL_LOADED"
+    assert (tmp_path / "pack.pyd.old.1").read_bytes() == b"LOADED_OLD"
+
+
+def test_cleanup_stale_native_backups_removes_old_files(tmp_path):
+    vec_dir = tmp_path / "writeragent_vec"
+    vec_dir.mkdir()
+    (vec_dir / "pack.cp314-win_amd64.pyd").write_bytes(b"live")
+    (vec_dir / "pack.cp314-win_amd64.pyd.old").write_bytes(b"stale")
+    (vec_dir / "pack.cp314-win_amd64.pyd.old.1").write_bytes(b"stale1")
+    (tmp_path / "_cffi_backend.pyd.old").write_bytes(b"stale2")
+
+    with patch("os.name", "nt"):
+        _cleanup_stale_native_backups(str(tmp_path))
+
+    assert (vec_dir / "pack.cp314-win_amd64.pyd").exists()
+    assert not (vec_dir / "pack.cp314-win_amd64.pyd.old").exists()
+    assert not (vec_dir / "pack.cp314-win_amd64.pyd.old.1").exists()
+    assert not (tmp_path / "_cffi_backend.pyd.old").exists()
+
+
+def test_cleanup_stale_native_backups_tolerates_locked_file(tmp_path):
+    (tmp_path / "pack.pyd.old").write_bytes(b"stale")
+
+    def boom(_path):
+        raise PermissionError("still mapped")
+
+    with patch("os.name", "nt"), patch("os.remove", side_effect=boom):
+        _cleanup_stale_native_backups(str(tmp_path))
+
+    # No exception; file left for a later sweep.
+    assert (tmp_path / "pack.pyd.old").exists()
+
+
+def test_cleanup_stale_native_backups_noop_on_posix(tmp_path):
+    (tmp_path / "pack.so.old").write_bytes(b"stale")
+
+    with patch("os.name", "posix"):
+        _cleanup_stale_native_backups(str(tmp_path))
+
+    # POSIX never creates .old backups, so cleanup leaves the tree untouched.
+    assert (tmp_path / "pack.so.old").exists()
 
 
 def test_is_audio_recording_configured_true():

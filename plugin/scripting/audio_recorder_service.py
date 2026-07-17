@@ -245,6 +245,32 @@ def make_temp_wav_path() -> str:
     return path
 
 
+def _cleanup_stale_native_backups(bin_dir: str) -> None:
+    """Delete leftover ``*.old`` native backups from Windows rename-aside redownloads.
+
+    On Windows a loaded ``.pyd`` cannot be replaced in place, so redownload renames
+    the loaded image aside (``pack….pyd.old``) and drops the new file in place. Those
+    aside files are only unlocked after the owning process exits, so we sweep them on
+    the next startup once nothing maps them. POSIX never creates ``*.old`` backups
+    (``os.replace`` keeps the old inode alive), so this is a no-op there.
+    """
+    if os.name != "nt":
+        return
+    try:
+        for root, _dirs, files in os.walk(bin_dir):
+            for name in files:
+                if ".old" not in name:
+                    continue
+                stale = os.path.join(root, name)
+                try:
+                    os.remove(stale)
+                except OSError:
+                    # Still mapped by another live process; try again next startup.
+                    pass
+    except OSError as exc:
+        log.debug("Failed to sweep stale native backups in %s: %s", bin_dir, exc)
+
+
 def ensure_downloaded_audio_on_path() -> None:
     """Ensure downloaded host binaries (audio + writeragent_vec) are on sys.path."""
     from plugin.framework.config import user_config_dir
@@ -252,8 +278,10 @@ def ensure_downloaded_audio_on_path() -> None:
         ucd = user_config_dir()
         if ucd:
             bin_dir = os.path.join(ucd, "audio_binaries")
-            if os.path.isdir(bin_dir) and bin_dir not in sys.path:
-                sys.path.insert(0, bin_dir)
+            if os.path.isdir(bin_dir):
+                _cleanup_stale_native_backups(bin_dir)
+                if bin_dir not in sys.path:
+                    sys.path.insert(0, bin_dir)
     except Exception as exc:
         log.debug("Failed to add user config audio path to sys.path: %s", exc)
 
@@ -277,6 +305,36 @@ def is_audio_recording_supported(ctx: Any) -> bool:
 
 
 _CONTRIB_BASE_URL = "https://raw.githubusercontent.com/KeithCu/writeragent/master/contrib/"
+
+
+def _atomic_replace_native(partial_path: str, dest_path: str) -> None:
+    """Move *partial_path* onto *dest_path* without ever overwriting a live mapping.
+
+    POSIX: a plain ``os.replace`` is atomic and keeps any existing ``mmap`` valid on
+    its old inode. Windows: a currently-loaded ``.pyd``/DLL cannot be deleted or
+    replaced (sharing violation), but it *can* be renamed. So on failure, rename the
+    loaded target aside (unique ``*.old`` name) and drop the new file in place; the
+    running process keeps its old in-memory copy and the fresh binary is used on the
+    next launch. ``_cleanup_stale_native_backups`` sweeps the aside files at startup.
+    """
+    try:
+        os.replace(partial_path, dest_path)
+        return
+    except OSError:
+        if os.name != "nt" or not os.path.exists(dest_path):
+            raise
+        aside = f"{dest_path}.old"
+        counter = 0
+        while os.path.exists(aside):
+            counter += 1
+            aside = f"{dest_path}.old.{counter}"
+        os.replace(dest_path, aside)
+        try:
+            os.replace(partial_path, dest_path)
+        except OSError:
+            # Restore the original so we never leave dest missing.
+            os.replace(aside, dest_path)
+            raise
 
 
 def _download_url_to_file(
@@ -315,7 +373,7 @@ def _download_url_to_file(
                     if total_size:
                         percent = int(downloaded * 100 / total_size)
                         on_status(f"Downloading {os.path.basename(dest_path)}: {percent}%")
-        os.replace(partial_path, dest_path)
+        _atomic_replace_native(partial_path, dest_path)
     except urllib.error.HTTPError as err:
         raise RuntimeError(f"HTTP Error {err.code}: {err.reason} for URL: {url}") from err
     except Exception as exc:
