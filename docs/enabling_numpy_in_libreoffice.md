@@ -30,8 +30,22 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
   - [Calc backlog from landscape survey](#calc-backlog-from-landscape-survey)
 8. [Collabora Online and jail-safe execution](numpy-jailsafe.md)
 9. [Implementation status](#9-implementation-status)
+### Related Documents
 
-**Related:** [Extension packaging](libreoffice-core-python-extension-split.md) · [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) (warm worker, protocol, wire formats, benchmarks) · [NumPy domain helpers](numpy-domains.md) (Analysis, Viz, Symbolic, Units, Text, Forecasting roadmaps) · [Monaco editor dev plan](python-monaco-editor-dev-plan.md) (IPC, phases 2B–2F, manual tests) · [Python-in-Calc future work](python-in-excel-dev-plan.md) (Phases 3–7 + backlog) · [DuckDB Calc integration (Phases A–C landed)](duckdb-calc-dev-plan.md) · [Jupyter notebook import](jupyter-notebook-import.md) · [Calc spreadsheet → Python import](calc-spreadsheet-to-python-import.md) (convert formulas to `=PY()` while preserving data — proposed) · [Image Recognition](image-recognition.md) · [Embeddings](embeddings.md) · [Analysis Sub-Agent](analysis-sub-agent.md) (chat path) · [SageMath integration (deferred)](sagemath-integration-dev-plan.md)
+| Document | Description / Notes |
+| :--- | :--- |
+| [Extension packaging](libreoffice-core-python-extension-split.md) | Packaging split between LibreOffice core and Python extension |
+| [Venv subprocess IPC & NumPy serialization](numpy-serialization.md) | Warm worker, protocol, wire formats, benchmarks |
+| [NumPy domain helpers](numpy-domains.md) | Analysis, Viz, Symbolic, Units, Text, Forecasting roadmaps |
+| [Monaco editor dev plan](python-monaco-editor-dev-plan.md) | IPC, phases 2B–2F, manual tests |
+| [Python-in-Calc future work](python-in-excel-dev-plan.md) | Phases 3–7 + backlog |
+| [DuckDB Calc integration (Phases A–C landed)](duckdb-calc-dev-plan.md) | DuckDB Calc integration plan |
+| [Jupyter notebook import](jupyter-notebook-import.md) | Notebook import details |
+| [Calc spreadsheet → Python import](calc-spreadsheet-to-python-import.md) | Convert formulas to `=PY()` while preserving data (proposed) |
+| [Image Recognition](image-recognition.md) | Image recognition and OCR features |
+| [Embeddings](embeddings.md) | Document and folder embeddings |
+| [Analysis Sub-Agent](analysis-sub-agent.md) | Chat path analysis subagent |
+| [SageMath integration (deferred)](sagemath-integration-dev-plan.md) | SageMath integration roadmap |
 
 ---
 
