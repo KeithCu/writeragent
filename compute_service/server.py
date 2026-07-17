@@ -2,14 +2,16 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Lightweight stdlib HTTP server for sandboxed Python execution (no FastAPI)."""
+"""Lightweight HTTP server for sandboxed Python execution using standard wsgiref."""
 
 from __future__ import annotations
 
 import json
 import os
+import selectors
+import socket
 import sys
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from typing import Any
 
 # Ensure repo root is on sys.path to resolve plugin.* / compute_service imports
@@ -20,9 +22,8 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.executor import execute_code, timeout_ms_to_sec
 
-# Reject absurd bodies early (bytes). Kit should not send multi-GB grids.
+# Reject absurd bodies early. Kit should not send multi-GB grids.
 _MAX_BODY_BYTES = 32 * 1024 * 1024
-
 
 def check_dependencies() -> None:
     """Verify required dependencies are importable; exit if missing."""
@@ -37,53 +38,39 @@ def check_dependencies() -> None:
         sys.exit(1)
 
 
-
-class ComputeHandler(BaseHTTPRequestHandler):
-    def log_message(self, format: str, *args: Any) -> None:
-        # Quieter default for ThreadingHTTPServer under tests; still prints.
-        sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), format % args))
-
-    def do_GET(self) -> None:
-        path = self.path.split("?", 1)[0]
-        print(f"recv GET {path} from {self.address_string()}")
-        if path == "/health":
-            self._send_json(200, {"status": "healthy"})
-            return
-        self.send_error(404, "Not Found")
-
-    def do_POST(self) -> None:
-        path = self.path.split("?", 1)[0]
-        print(f"recv POST {path} from {self.address_string()}")
-        if path != "/v1/execute":
-            self.send_error(404, "Not Found")
-            return
-
-        content_length = int(self.headers.get("Content-Length", 0))
-        if content_length <= 0:
-            self._send_json(400, {"status": "error", "error": "Missing Content-Length"})
-            return
-        if content_length > _MAX_BODY_BYTES:
-            self._send_json(413, {"status": "error", "error": "Request body too large"})
-            return
-
-        body = self.rfile.read(content_length)
+def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+    path = environ.get('PATH_INFO', '')
+    method = environ.get('REQUEST_METHOD', 'GET')
+    
+    if path == '/health' and method == 'GET':
+        start_response('200 OK', [('Content-Type', 'application/json')])
+        return [b'{"status": "healthy"}']
+        
+    if path == '/v1/execute' and method == 'POST':
         try:
-            req_data = json.loads(body.decode("utf-8"))
-        except json.JSONDecodeError:
-            print("POST /v1/execute rejected: invalid JSON")
-            self._send_json(400, {"status": "error", "error": "Invalid JSON"})
-            return
-
+            content_length = int(environ.get('CONTENT_LENGTH', 0))
+        except ValueError:
+            content_length = 0
+            
+        if content_length > _MAX_BODY_BYTES:
+            start_response('413 Payload Too Large', [('Content-Type', 'application/json')])
+            return [b'{"status": "error", "error": "Request body too large"}']
+            
+        try:
+            body = environ['wsgi.input'].read(content_length)
+            req_data = json.loads(body.decode('utf-8'))
+        except Exception:
+            start_response('400 Bad Request', [('Content-Type', 'application/json')])
+            return [b'{"status": "error", "error": "Invalid JSON"}']
+            
         if not isinstance(req_data, dict):
-            print("POST /v1/execute rejected: body not an object")
-            self._send_json(400, {"status": "error", "error": "JSON body must be an object"})
-            return
-
+            start_response('400 Bad Request', [('Content-Type', 'application/json')])
+            return [b'{"status": "error", "error": "JSON body must be an object"}']
+            
         code = req_data.get("code")
         if not code or not isinstance(code, str):
-            print("POST /v1/execute rejected: missing code")
-            self._send_json(400, {"status": "error", "error": "Missing 'code' string parameter."})
-            return
+            start_response('400 Bad Request', [('Content-Type', 'application/json')])
+            return [b'{"status": "error", "error": "Missing \'code\' string parameter."}']
 
         data = req_data.get("data")
         session_id = req_data.get("session_id")
@@ -109,33 +96,39 @@ class ComputeHandler(BaseHTTPRequestHandler):
             )
             status = result_payload.get("status") if isinstance(result_payload, dict) else None
             print(f"done /v1/execute status={status!r}")
-            self._send_json(200, result_payload)
+            
+            try:
+                response_body = json.dumps(result_payload, allow_nan=False).encode("utf-8")
+                start_response('200 OK', [
+                    ('Content-Type', 'application/json'),
+                    ('Content-Length', str(len(response_body)))
+                ])
+                return [response_body]
+            except (TypeError, ValueError) as e:
+                response_body = json.dumps({"status": "error", "error": f"JSON encode failed: {e}"}, allow_nan=False).encode("utf-8")
+                start_response('500 Internal Server Error', [
+                    ('Content-Type', 'application/json'),
+                    ('Content-Length', str(len(response_body)))
+                ])
+                return [response_body]
         except Exception as e:
             print(f"fail /v1/execute: {e}")
-            self._send_json(500, {"status": "error", "error": f"Server execution failure: {e}"})
+            response_body = json.dumps({"status": "error", "error": f"Server execution failure: {e}"}, allow_nan=False).encode("utf-8")
+            start_response('500 Internal Server Error', [
+                ('Content-Type', 'application/json'),
+                ('Content-Length', str(len(response_body)))
+            ])
+            return [response_body]
+            
+    # Default 404
+    start_response('404 Not Found', [('Content-Type', 'text/plain')])
+    return [b'Not Found']
 
-    def _send_json(self, code: int, payload: dict[str, Any]) -> None:
-        try:
-            response_body = json.dumps(payload, allow_nan=False).encode("utf-8")
-        except (TypeError, ValueError) as e:
-            # Last-resort: should not happen after normalize_execute_response
-            response_body = json.dumps({"status": "error", "error": f"JSON encode failed: {e}"}, allow_nan=False).encode("utf-8")
-            code = 500
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(response_body)))
-        self.end_headers()
-        self.wfile.write(response_body)
-
-
-import selectors
-import socket
 
 class DualStackThreadingHTTPServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that listens on both IPv4 and IPv6 loopback (or a single requested host/IP)."""
-    def __init__(self, server_address: tuple[str, int], RequestHandlerClass: type[BaseHTTPRequestHandler], bind_and_activate: bool = True) -> None:
+    def __init__(self, server_address: tuple[str, int], RequestHandlerClass: Any, bind_and_activate: bool = True) -> None:
         self.sockets: list[socket.socket] = []
-        # Call the super constructor with bind_and_activate=False, so we can set up our sockets ourselves.
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
 
         host, port = server_address
@@ -176,16 +169,13 @@ class DualStackThreadingHTTPServer(ThreadingHTTPServer):
                 sock.bind((ip, port))
                 self.sockets.append(sock)
             except OSError as e:
-                # Log warning to stderr, but continue if other binds succeed
                 print(f"Warning: Failed to bind to {ip}:{port} ({family}): {e}", file=sys.stderr)
 
         if not self.sockets:
             raise OSError(f"Could not bind to any address for {host}:{port}")
 
-        # For compatibility with any code checking self.socket or self.address_family
         self.socket = self.sockets[0]
         self.address_family = self.socket.family
-        # Retrieve actual bound port from first successful socket (especially if port was 0)
         actual_port = self.socket.getsockname()[1]
         self.server_address = (host, actual_port)
 
@@ -247,15 +237,43 @@ class DualStackThreadingHTTPServer(ThreadingHTTPServer):
             self.shutdown_request(request)
 
 
+class WSGIDualStackServer:
+    """Wrapper that mixes DualStackThreadingHTTPServer with wsgiref.simple_server.WSGIServer."""
+    def __init__(self, host: str, port: int) -> None:
+        from wsgiref.simple_server import WSGIServer, WSGIRequestHandler
+        
+        class _WSGIDualStackServer(DualStackThreadingHTTPServer, WSGIServer):
+            def __init__(self, server_address: tuple[str, int], RequestHandlerClass: Any, bind_and_activate: bool = True) -> None:
+                DualStackThreadingHTTPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate)
+                self.server_name = socket.getfqdn(self.server_address[0])
+                self.server_port = self.server_address[1]
+                self.setup_environ()
+                
+        self.srv = _WSGIDualStackServer((host, port), WSGIRequestHandler)
+
+    def set_app(self, app: Any) -> None:
+        self.srv.set_app(app)
+
+    def serve_forever(self) -> None:
+        self.srv.serve_forever()
+
+    def shutdown(self) -> None:
+        self.srv.shutdown()
+
+    def server_close(self) -> None:
+        self.srv.server_close()
+
+
 def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     check_dependencies()
-    httpd = DualStackThreadingHTTPServer((host, port), ComputeHandler)
     print(f"Starting Python Compute Service on {host}:{port}...")
+    server = WSGIDualStackServer(host, port)
+    server.set_app(wsgi_app)
     try:
-        httpd.serve_forever()
+        server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping Python Compute Service...")
-        httpd.server_close()
+        server.server_close()
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ import pytest
 
 from compute_service.executor import clamp_timeout_sec, execute_code, timeout_ms_to_sec
 from compute_service.json_egress import sanitize_for_strict_json, to_dumb_json_value
-from compute_service.server import ComputeHandler, DualStackThreadingHTTPServer
+from compute_service.server import DualStackThreadingHTTPServer
 
 
 def get_free_port() -> int:
@@ -34,11 +34,15 @@ def get_free_port() -> int:
 @pytest.fixture(scope="module")
 def compute_server_info():
     port = get_free_port()
-    server = DualStackThreadingHTTPServer(("", port), ComputeHandler)
+    from compute_service.server import WSGIDualStackServer, wsgi_app
+    
+    server = WSGIDualStackServer("", port)
+    server.set_app(wsgi_app)
+    
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.2)
-    yield port, server
+    yield port, server.srv
     server.shutdown()
     server.server_close()
     thread.join(timeout=5)
