@@ -574,11 +574,14 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     # --- XServiceDisplayName ---
     def getServiceDisplayName(self, aLocale: Any) -> str:
+        from plugin.framework.i18n import _
+
+        # Keep the product brand untranslated; only localize the role label.
         try:
-            return "WriterAgent AI Grammar"
+            return f"WriterAgent {_('AI Grammar')}"
         except Exception as e:
             log.warning("[grammar] getServiceDisplayName: %s", e, exc_info=True)
-            return "WriterAgent AI Grammar"
+            return f"WriterAgent {_('AI Grammar')}"
 
 
 try:

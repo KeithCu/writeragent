@@ -254,13 +254,15 @@ def _proofreading_suggestions(item: dict[str, Any], correct: Any) -> tuple[str, 
 
 
 def _suggestion_hint(suggestions: tuple[str, ...]) -> str:
+    from plugin.framework.i18n import _
+
     if not suggestions:
-        return "No automatic replacement is available."
+        return _("No automatic replacement is available.")
     if "" in suggestions:
-        return "Suggested fix: delete the highlighted text (the blank replacement below)."
+        return _("Suggested fix: delete the highlighted text (the blank replacement below).")
     if any(value.isspace() for value in suggestions):
-        return "Suggested fix: replace with one space (the blank replacement below)."
-    return "Choose a replacement below."
+        return _("Suggested fix: replace with one space (the blank replacement below).")
+    return _("Choose a replacement below.")
 
 
 def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
