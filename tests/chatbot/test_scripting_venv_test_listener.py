@@ -33,7 +33,7 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     with (
         patch("plugin.scripting.venv_probe_ui.get_optional", return_value=None),
         patch("plugin.scripting.venv_probe_ui.VenvProbeProgressDialog", _FakeProgress),
-        patch("plugin.scripting.venv_worker.probe_venv_path_with_progress", side_effect=fake_probe),
+        patch("plugin.scripting.venv_diagnostics.probe_venv_path_with_progress", side_effect=fake_probe),
         patch("plugin.scripting.payload_codec.fast_flatten_grid_2d", None),
     ):
         listener.on_action_performed(MagicMock())

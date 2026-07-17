@@ -10,8 +10,8 @@
 Used by worker_harness.py (venv child adds repo root to sys.path for ``plugin.*`` imports).
 Import policy is only VENV_AUTHORIZED_IMPORTS passed to LocalPythonExecutor—no find_spec pre-checks.
 
-Fixed host RPC stubs (vision, embeddings_index, …) bypass the executor entirely — see
-``_is_trusted_*_stub`` and ``run_sandboxed_code``.
+Trusted host helpers (vision, embeddings, …) use ``run_trusted_action`` via the worker
+harness / ``trusted_action_registry`` — not string stubs through this sandbox.
 """
 
 from __future__ import annotations
@@ -517,188 +517,6 @@ def _inject_bindings(executor: LocalPythonExecutor, bindings: dict[str, Any] | N
     executor.send_variables(dict(bindings))
 
 
-_TRUSTED_VISION_STUB_MARKER = "from plugin.vision.venv.vision import run_vision"
-_TRUSTED_EMBEDDINGS_STUB_MARKER = "from plugin.embeddings.venv.embeddings_index import"
-_TRUSTED_FOLDER_FTS_STUB_MARKER = "from plugin.embeddings.venv.folder_fts import"
-
-
-def _is_trusted_vision_stub(code: str) -> bool:
-    return _TRUSTED_VISION_STUB_MARKER in (code or "")
-
-
-def _is_trusted_embeddings_stub(code: str) -> bool:
-    c = code or ""
-    return _TRUSTED_EMBEDDINGS_STUB_MARKER in c or _TRUSTED_FOLDER_FTS_STUB_MARKER in c
-
-
-def _unpack_trusted_payload(data: Any | None) -> dict[str, Any]:
-    if data is None:
-        return {}
-    unpacked = child_unpack_data(data)
-    if is_multi_data(unpacked):
-        if isinstance(unpacked, list) and unpacked and isinstance(unpacked[0], dict):
-            return unpacked[0]
-        return {}
-    if isinstance(unpacked, dict):
-        return unpacked
-    return {}
-
-
-def _run_trusted_vision_payload(data: Any | None) -> dict[str, Any]:
-    """Run vision helpers outside LocalPythonExecutor (docling/paddle are not sandbox imports)."""
-    from plugin.vision.venv.vision import run_vision
-
-    payload = _unpack_trusted_payload(data)
-    try:
-        spec = payload.get("spec")
-        if spec is None:
-            spec = {}
-        result = run_vision(
-            spec,
-            payload.get("image"),
-            context=payload.get("context") or {},
-        )
-        return {"status": "ok", "result": serialize_result(result), "stdout": ""}
-    except Exception as e:
-        import traceback
-
-        log.exception("trusted vision unsandboxed run failed")
-        return {
-            "status": "error",
-            "message": str(e),
-            "traceback": traceback.format_exc(),
-            "stdout": "",
-        }
-
-
-def _run_trusted_embeddings_payload(code: str, data: Any | None) -> dict[str, Any]:
-    """Run fixed embeddings_index / folder_fts RPC stubs outside LocalPythonExecutor."""
-    from plugin.embeddings.venv import embeddings_index
-
-    payload = _unpack_trusted_payload(data)
-    stub = code or ""
-    try:
-        if _TRUSTED_FOLDER_FTS_STUB_MARKER in stub:
-            from plugin.embeddings.venv import folder_fts
-
-            if "maintain_folder_fts" in stub:
-                from typing import cast, Literal
-
-                mode_raw = str(payload.get("mode") or "auto")
-                if mode_raw not in ("auto", "cold", "incremental"):
-                    mode_raw = "auto"
-                result = folder_fts.maintain_folder_fts(
-                    str(payload.get("listing_root") or ""),
-                    cast("Literal['auto', 'cold', 'incremental']", mode_raw),
-                )
-            elif "search_folder_fts" in stub:
-                result = folder_fts.search_folder_fts(
-                    str(payload.get("fts_db_path") or ""),
-                    str(payload.get("query") or ""),
-                    k=int(payload.get("k") or 10),
-                    near_slop=int(payload.get("near_slop") or 10),
-                )
-            elif "fts_stats" in stub:
-                result = folder_fts.fts_stats(
-                    str(payload.get("fts_db_path") or ""),
-                    str(payload.get("meta_path") or ""),
-                )
-            else:
-                return {
-                    "status": "error",
-                    "message": "Unrecognized trusted folder FTS stub.",
-                    "stdout": "",
-                }
-            return {"status": "ok", "result": serialize_result(result), "stdout": ""}
-
-        if "maintain_folder_index" in stub:
-            result = embeddings_index.maintain_folder_index(
-                str(payload.get("listing_root") or ""),
-                str(payload.get("model") or ""),
-                str(payload.get("mode") or "auto"),
-                search_mode=str(payload.get("search_mode") or "embeddings"),
-            )
-        elif "index_paragraphs" in stub:
-            result = embeddings_index.index_paragraphs(
-                str(payload.get("db_path") or ""),
-                str(payload.get("meta_path") or ""),
-                str(payload.get("model") or ""),
-                list(payload.get("rows") or []),
-                build_fts=bool(payload.get("build_fts")),
-                build_vectors=bool(payload.get("build_vectors", True)),
-            )
-        elif "delete_paragraphs" in stub:
-            result = embeddings_index.delete_paragraphs(
-                str(payload.get("db_path") or ""),
-                str(payload.get("meta_path") or ""),
-                list(payload.get("keys") or []),
-                model_name=str(payload.get("model") or ""),
-                build_fts=bool(payload.get("build_fts")),
-                build_vectors=bool(payload.get("build_vectors", True)),
-            )
-        elif "knn_search" in stub:
-            result = embeddings_index.knn_search(
-                str(payload.get("db_path") or ""),
-                str(payload.get("query") or ""),
-                int(payload.get("k") or 5),
-                model_name=str(payload.get("model") or ""),
-                doc_url_filter=payload.get("doc_url_filter"),
-                use_mmr=bool(payload.get("use_mmr", True)),
-                rerank_model=payload.get("rerank_model"),
-                search_mode=str(payload.get("search_mode") or "embeddings"),
-            )
-        elif "hybrid_search" in stub:
-            result = embeddings_index.hybrid_search(
-                str(payload.get("db_path") or ""),
-                str(payload.get("query") or ""),
-                int(payload.get("k") or 10),
-                model_name=str(payload.get("model") or ""),
-                near_slop=int(payload.get("near_slop") or 10),
-                doc_url_filter=payload.get("doc_url_filter"),
-                use_mmr=bool(payload.get("use_mmr", True)),
-                rerank_model=payload.get("rerank_model"),
-                search_mode=str(payload.get("search_mode") or "hybrid"),
-            )
-        elif "collection_stats" in stub:
-            result = embeddings_index.collection_stats(
-                str(payload.get("db_path") or ""),
-                str(payload.get("meta_path") or ""),
-                model_name=str(payload.get("model") or ""),
-            )
-        elif "embed_texts" in stub:
-            result = embeddings_index.embed_texts(
-                str(payload.get("model") or ""),
-                list(payload.get("texts") or []),
-            )
-        elif "_get_embedder" in stub:
-            model_name = str(payload.get("model") or "")
-            if not model_name:
-                import re
-                match = re.search(r"_get_embedder\((['\"])(.*?)\1\)", stub)
-                if match:
-                    model_name = match.group(2)
-            if model_name:
-                embeddings_index._get_embedder(model_name)
-            result = {"status": "warmed"}
-        else:
-            return {
-                "status": "error",
-                "message": "Unrecognized trusted embeddings stub.",
-                "stdout": "",
-            }
-        return {"status": "ok", "result": serialize_result(result), "stdout": ""}
-    except Exception as e:
-        import traceback
-
-        log.exception("trusted embeddings unsandboxed run failed")
-        return {
-            "status": "error",
-            "message": str(e),
-            "traceback": traceback.format_exc(),
-            "stdout": "",
-        }
-
-
 def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]:
     try:
         code_output = executor(code)
@@ -765,12 +583,6 @@ def run_sandboxed_code(
     """
     if timeout_sec is None:
         timeout_sec = python_exec_timeout_default()
-
-    # Trusted host RPC stubs use real imports (not LocalPythonExecutor).
-    if _is_trusted_vision_stub(code):
-        return _run_trusted_vision_payload(data)
-    if _is_trusted_embeddings_stub(code):
-        return _run_trusted_embeddings_payload(code, data)
 
     # Force non-interactive backend so plt.show() doesn't block in the subprocess.
     mpl = optional_module("matplotlib")

@@ -93,6 +93,7 @@ _API = make_template_api(
 )
 
 parse_forecast_script_header = _API.parse_header
+get_forecast_script_templates = _API.get_templates
 
 
 def get_forecast_template(helper: str) -> str | None:

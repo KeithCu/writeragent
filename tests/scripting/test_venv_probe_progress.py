@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.scripting.config_limits import SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC
-from plugin.scripting.venv_worker import run_venv_self_check_with_progress
+from plugin.scripting.venv_diagnostics import run_venv_self_check_with_progress
 
 
 def test_run_venv_self_check_with_progress_emits_grouped_present_missing() -> None:

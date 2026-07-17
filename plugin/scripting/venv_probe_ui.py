@@ -145,7 +145,7 @@ class ScriptingVenvTestListener(BaseActionListener):
     def on_action_performed(self, rEvent) -> None:
         from plugin.scripting.audio_recorder_service import ensure_downloaded_audio_on_path
         from plugin.scripting.payload_codec import host_cython_status_line
-        from plugin.scripting.venv_worker import probe_venv_path_with_progress
+        from plugin.scripting.venv_diagnostics import probe_venv_path_with_progress
 
         # User-downloaded writeragent_vec may be on sys.path via audio_binaries.
         ensure_downloaded_audio_on_path()

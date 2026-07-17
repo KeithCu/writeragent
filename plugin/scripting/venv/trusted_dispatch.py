@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Trusted venv dispatch for scripting, vision, embedding encode, and langdetect domains."""
+"""Per-domain trusted venv dispatchers for run_trusted_action (scripting, vision, encode, langdetect)."""
 
 from __future__ import annotations
 
@@ -32,98 +32,149 @@ def _require_str_list(value: Any, label: str) -> list[str]:
     return [str(item) for item in value]
 
 
-def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
-    """Route a run_trusted_action packet to the correct venv compute entry point."""
-    domain = str(data.get("domain") or "")
-    helper = data.get("helper")
+def _packet_parts(data: dict[str, Any]) -> tuple[dict[str, Any], Any, dict[str, Any]]:
+    """Return ``(spec, data_range, context)`` from a trusted-action packet."""
     params = data.get("params") or {}
     if not isinstance(params, dict):
         params = {}
-    data_range = data.get("data_range")
+    spec = _trusted_action_spec(data.get("helper"), params)
     context = _trusted_action_context(data.get("context"))
-    spec = _trusted_action_spec(helper, params)
+    return spec, data.get("data_range"), context
 
-    if domain == "units":
-        from plugin.scripting.venv.units import run_units
 
-        return run_units(spec, context=context)
-    if domain in ("symbolic", "math"):
-        from plugin.scripting.venv.symbolic import run_symbolic
+def _dispatch_spec_data(run_fn: Callable[..., Any], data: dict[str, Any]) -> Any:
+    """Adapter for ``run_*(spec, data_range, context)`` domain entry points."""
+    spec, data_range, context = _packet_parts(data)
+    return run_fn(spec, data_range, context)
 
-        return run_symbolic(spec, context=context)
-    if domain == "viz":
-        from plugin.scripting.venv.viz import run_viz
 
-        return run_viz(spec, data_range, context)
-    if domain == "analysis":
-        from plugin.scripting.venv.analysis import run_analysis
+def dispatch_units(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.units import run_units
 
-        return run_analysis(spec, data_range, context)
-    if domain == "forecast":
-        from plugin.scripting.venv.forecast import run_forecast
+    spec, _, context = _packet_parts(data)
+    return run_units(spec, context=context)
 
-        return run_forecast(spec, data_range, context)
-    if domain == "optimize":
-        from plugin.scripting.venv.optimize import run_optimize
 
-        return run_optimize(spec, data_range, context)
-    if domain == "quant":
-        from plugin.scripting.venv.quant import run_quant
+def dispatch_symbolic(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.symbolic import run_symbolic
 
-        return run_quant(spec, data_range, context)
-    if domain == "text":
-        from plugin.scripting.venv.text_analytics import run_text_analytics
+    spec, _, context = _packet_parts(data)
+    return run_symbolic(spec, context=context)
 
-        text = data.get("text") if data.get("text") is not None else data_range
-        return run_text_analytics(spec, text, context)
-    if domain == "vision":
-        from plugin.vision.venv.vision import run_vision
 
-        return run_vision(spec, data.get("image"), context)
-    if domain == "sql":
-        from plugin.scripting.venv.duckdb_sql import query_folder_sql
+def dispatch_viz(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.viz import run_viz
 
-        return query_folder_sql(
-            data.get("scoped_dir"),
-            _require_str(data.get("sql"), "sql"),
-            data.get("files"),
-            data.get("preloaded"),
-            data.get("flat_files"),
-        )
-    if domain == "languagetool":
-        from plugin.scripting.venv.languagetool import run_languagetool_check
+    return _dispatch_spec_data(run_viz, data)
 
-        return run_languagetool_check(
-            _require_str(data.get("text"), "text"),
-            _require_str(data.get("bcp47"), "bcp47"),
-        )
-    if domain == "vale":
-        from plugin.scripting.venv.vale import run_vale_check
 
-        return run_vale_check(
-            _require_str(data.get("text"), "text"),
-            _require_str(data.get("config_dir"), "config_dir"),
-            _require_str(data.get("styles"), "styles"),
-        )
-    if domain == "harper":
-        from plugin.scripting.venv.harper import run_harper_check
+def dispatch_analysis(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.analysis import run_analysis
 
-        return run_harper_check(
-            _require_str(data.get("text"), "text"),
-            _require_str(data.get("config_dir"), "config_dir"),
-            bcp47=str(data.get("bcp47") or "en-US"),
-            heartbeat_fn=heartbeat_fn,
-        )
-    if domain == "embedding":
-        from plugin.embeddings.venv.embeddings_index import embed_texts
+    return _dispatch_spec_data(run_analysis, data)
 
-        model = _require_str(data.get("model"), "model")
-        texts = _require_str_list(data.get("texts"), "texts")
-        return embed_texts(model, texts)
-    if domain == "langdetect":
-        from plugin.embeddings.venv.langdetect_rpc import detect_lang_batch
 
-        texts = _require_str_list(data.get("texts"), "texts")
-        return {"languages": detect_lang_batch(texts)}
+def dispatch_forecast(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.forecast import run_forecast
 
-    raise ValueError(f"Unknown trusted action domain: {domain}")
+    return _dispatch_spec_data(run_forecast, data)
+
+
+def dispatch_optimize(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.optimize import run_optimize
+
+    return _dispatch_spec_data(run_optimize, data)
+
+
+def dispatch_quant(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.quant import run_quant
+
+    return _dispatch_spec_data(run_quant, data)
+
+
+def dispatch_text(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.text_analytics import run_text_analytics
+
+    spec, data_range, context = _packet_parts(data)
+    text = data.get("text") if data.get("text") is not None else data_range
+    return run_text_analytics(spec, text, context)
+
+
+def dispatch_vision(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.vision.venv.vision import run_vision
+
+    spec, _, context = _packet_parts(data)
+    return run_vision(spec, data.get("image"), context)
+
+
+def dispatch_sql(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.duckdb_sql import query_folder_sql
+
+    return query_folder_sql(
+        data.get("scoped_dir"),
+        _require_str(data.get("sql"), "sql"),
+        data.get("files"),
+        data.get("preloaded"),
+        data.get("flat_files"),
+    )
+
+
+def dispatch_languagetool(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.languagetool import run_languagetool_check
+
+    return run_languagetool_check(
+        _require_str(data.get("text"), "text"),
+        _require_str(data.get("bcp47"), "bcp47"),
+    )
+
+
+def dispatch_vale(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.scripting.venv.vale import run_vale_check
+
+    return run_vale_check(
+        _require_str(data.get("text"), "text"),
+        _require_str(data.get("config_dir"), "config_dir"),
+        _require_str(data.get("styles"), "styles"),
+    )
+
+
+def dispatch_harper(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    # Non-grammar callers only: realtime grammar uses harper_host in-process so users
+    # without a configured Python venv still get Harper (warm worker requires a venv).
+    from plugin.scripting.venv.harper import run_harper_check
+
+    return run_harper_check(
+        _require_str(data.get("text"), "text"),
+        _require_str(data.get("config_dir"), "config_dir"),
+        bcp47=str(data.get("bcp47") or "en-US"),
+        heartbeat_fn=heartbeat_fn,
+    )
+
+
+def dispatch_embedding(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.embeddings.venv.embeddings_index import embed_texts
+
+    model = _require_str(data.get("model"), "model")
+    texts = _require_str_list(data.get("texts"), "texts")
+    return embed_texts(model, texts)
+
+
+def dispatch_langdetect(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
+    del heartbeat_fn
+    from plugin.embeddings.venv.langdetect_rpc import detect_lang_batch
+
+    texts = _require_str_list(data.get("texts"), "texts")
+    return {"languages": detect_lang_batch(texts)}

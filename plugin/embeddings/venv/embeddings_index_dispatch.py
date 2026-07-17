@@ -84,5 +84,13 @@ def dispatch_trusted(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, 
             search_mode=str(params.get("search_mode") or "hybrid"),
             heartbeat_fn=heartbeat_fn,
         )
+    if helper == "warm_embedder":
+        from plugin.embeddings.venv.embeddings_index import _get_embedder
+
+        model = str(params.get("model") or "").strip()
+        if not model:
+            raise ValueError("model is required")
+        _get_embedder(model)
+        return {"status": "warmed", "model": model}
 
     raise ValueError(f"Unknown embeddings_index helper: {helper}")

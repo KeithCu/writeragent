@@ -365,6 +365,17 @@ def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
 # --- Picker domains (order in build_xdl_script_picker_state) ---
 
 
+@dataclass(frozen=True)
+class PickerWiring:
+    """Declarative picker section: supports/templates resolved lazily via module:attr strings."""
+
+    origin: str
+    display_prefix: str
+    title: str
+    supports: str  # "calc_only" or "module.path:attr"
+    templates: str  # "module.path:attr" returning dict[str, str]
+
+
 def _picker_calc_only(doc: Any) -> bool:
     try:
         return doc is not None and is_calc(doc)
@@ -372,182 +383,120 @@ def _picker_calc_only(doc: Any) -> bool:
         return False
 
 
+def _resolve_module_attr(target: str) -> Any:
+    import importlib
+
+    mod_name, attr_name = target.rsplit(":", 1)
+    return getattr(importlib.import_module(mod_name), attr_name)
+
+
+def _picker_supports_fn(supports: str) -> Callable[[Any], bool]:
+    if supports == "calc_only":
+        return _picker_calc_only
+
+    def _supports(doc: Any) -> bool:
+        if doc is None:
+            return False
+        try:
+            return bool(_resolve_module_attr(supports)(doc))
+        except Exception:
+            return False
+
+    return _supports
+
+
+def _picker_templates_fn(templates: str) -> Callable[[], dict[str, str]]:
+    def _templates() -> dict[str, str]:
+        return dict(_resolve_module_attr(templates)())
+
+    return _templates
+
+
+def _picker_builder_for(wiring: PickerWiring) -> Callable[[], PickerDomainSpec]:
+    title = wiring.title
+
+    def _build() -> PickerDomainSpec:
+        return PickerDomainSpec(
+            origin=wiring.origin,
+            display_prefix=wiring.display_prefix,
+            title_fn=lambda: _(title),
+            supports=_picker_supports_fn(wiring.supports),
+            templates=_picker_templates_fn(wiring.templates),
+        )
+
+    return _build
+
+
+PICKER_WIRING: tuple[PickerWiring, ...] = (
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_ANALYSIS,
+        display_prefix=ANALYSIS_SCRIPT_DISPLAY_PREFIX,
+        title="Analysis Helpers",
+        supports="calc_only",
+        templates="plugin.scripting.analysis:get_analysis_script_templates",
+    ),
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_SQL,
+        display_prefix=SQL_SCRIPT_DISPLAY_PREFIX,
+        title="SQL Helpers",
+        supports="calc_only",
+        templates="plugin.scripting.duckdb_sql:get_sql_script_templates",
+    ),
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_VISION,
+        display_prefix=VISION_SCRIPT_DISPLAY_PREFIX,
+        title="Vision Helpers",
+        supports="plugin.vision.vision_runner:supports_vision_manual",
+        templates="plugin.vision.vision_templates:get_vision_script_templates",
+    ),
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_VIZ,
+        display_prefix=VIZ_SCRIPT_DISPLAY_PREFIX,
+        title="Viz Helpers",
+        supports="plugin.scripting.viz:supports_viz_manual",
+        templates="plugin.scripting.viz:get_viz_script_templates",
+    ),
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_MATH,
+        display_prefix=MATH_SCRIPT_DISPLAY_PREFIX,
+        title="Math Helpers",
+        supports="plugin.scripting.symbolic:supports_symbolic_manual",
+        templates="plugin.scripting.symbolic:get_math_script_templates",
+    ),
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_UNITS,
+        display_prefix=UNITS_SCRIPT_DISPLAY_PREFIX,
+        title="Units Helpers",
+        supports="plugin.scripting.units:supports_units_manual",
+        templates="plugin.scripting.units:get_units_script_templates",
+    ),
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_QUANT,
+        display_prefix=QUANT_SCRIPT_DISPLAY_PREFIX,
+        title="Quant Helpers",
+        supports="plugin.scripting.quant:supports_quant_manual",
+        templates="plugin.scripting.quant:get_quant_script_templates",
+    ),
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_OPTIMIZE,
+        display_prefix=OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
+        title="Optimize Helpers",
+        supports="calc_only",
+        templates="plugin.scripting.optimize:get_optimize_script_templates",
+    ),
+    PickerWiring(
+        origin=SCRIPT_ORIGIN_FORECAST,
+        display_prefix=FORECAST_SCRIPT_DISPLAY_PREFIX,
+        title="Forecast Helpers",
+        supports="calc_only",
+        templates="plugin.scripting.forecast:get_forecast_script_templates",
+    ),
+)
+
+
 def get_picker_domains() -> list[PickerDomainSpec]:
     """Built-in helper sections for the script picker (lazy templates/supports)."""
-
-    def analysis_supports(doc: Any) -> bool:
-        return _picker_calc_only(doc)
-
-    def analysis_templates() -> dict[str, str]:
-        from plugin.scripting.analysis import get_analysis_script_templates
-
-        return get_analysis_script_templates()
-
-    def sql_supports(doc: Any) -> bool:
-        return _picker_calc_only(doc)
-
-    def sql_templates() -> dict[str, str]:
-        from plugin.scripting.duckdb_sql import get_sql_script_templates
-
-        return get_sql_script_templates()
-
-    def vision_supports(doc: Any) -> bool:
-        if doc is None:
-            return False
-        from plugin.vision.vision_runner import supports_vision_manual
-
-        try:
-            return supports_vision_manual(doc)
-        except Exception:
-            return False
-
-    def vision_templates() -> dict[str, str]:
-        from plugin.vision.vision_templates import get_vision_script_templates
-
-        return get_vision_script_templates()
-
-    def viz_supports(doc: Any) -> bool:
-        if doc is None:
-            return False
-        from plugin.scripting.viz import supports_viz_manual
-
-        try:
-            return supports_viz_manual(doc)
-        except Exception:
-            return False
-
-    def viz_templates() -> dict[str, str]:
-        from plugin.scripting.viz import get_viz_script_templates
-
-        return get_viz_script_templates()
-
-    def math_supports(doc: Any) -> bool:
-        if doc is None:
-            return False
-        from plugin.scripting.symbolic import supports_symbolic_manual
-
-        try:
-            return supports_symbolic_manual(doc)
-        except Exception:
-            return False
-
-    def math_templates() -> dict[str, str]:
-        from plugin.scripting.symbolic import get_math_script_templates
-
-        return get_math_script_templates()
-
-    def units_supports(doc: Any) -> bool:
-        if doc is None:
-            return False
-        from plugin.scripting.units import supports_units_manual
-
-        try:
-            return supports_units_manual(doc)
-        except Exception:
-            return False
-
-    def units_templates() -> dict[str, str]:
-        from plugin.scripting.units import get_units_script_templates
-
-        return get_units_script_templates()
-
-    def quant_supports(doc: Any) -> bool:
-        if doc is None:
-            return False
-        from plugin.scripting.quant import supports_quant_manual
-
-        try:
-            return supports_quant_manual(doc)
-        except Exception:
-            return False
-
-    def quant_templates() -> dict[str, str]:
-        from plugin.scripting.quant import HELPER_NAMES, get_quant_template
-
-        return {name: t for name in HELPER_NAMES if (t := get_quant_template(name))}
-
-    def optimize_supports(doc: Any) -> bool:
-        return _picker_calc_only(doc)
-
-    def optimize_templates() -> dict[str, str]:
-        from plugin.scripting.optimize import HELPER_NAMES, get_optimize_template
-
-        return {name: t for name in HELPER_NAMES if (t := get_optimize_template(name))}
-
-    def forecast_supports(doc: Any) -> bool:
-        return _picker_calc_only(doc)
-
-    def forecast_templates() -> dict[str, str]:
-        from plugin.scripting.forecast import HELPER_NAMES, get_forecast_template
-
-        return {name: t for name in HELPER_NAMES if (t := get_forecast_template(name))}
-
-    # Order: analysis, sql, vision, viz, math, units, quant, optimize, forecast
-    return [
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_ANALYSIS,
-            display_prefix=ANALYSIS_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("Analysis Helpers"),
-            supports=analysis_supports,
-            templates=analysis_templates,
-        ),
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_SQL,
-            display_prefix=SQL_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("SQL Helpers"),
-            supports=sql_supports,
-            templates=sql_templates,
-        ),
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_VISION,
-            display_prefix=VISION_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("Vision Helpers"),
-            supports=vision_supports,
-            templates=vision_templates,
-        ),
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_VIZ,
-            display_prefix=VIZ_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("Viz Helpers"),
-            supports=viz_supports,
-            templates=viz_templates,
-        ),
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_MATH,
-            display_prefix=MATH_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("Math Helpers"),
-            supports=math_supports,
-            templates=math_templates,
-        ),
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_UNITS,
-            display_prefix=UNITS_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("Units Helpers"),
-            supports=units_supports,
-            templates=units_templates,
-        ),
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_QUANT,
-            display_prefix=QUANT_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("Quant Helpers"),
-            supports=quant_supports,
-            templates=quant_templates,
-        ),
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_OPTIMIZE,
-            display_prefix=OPTIMIZE_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("Optimize Helpers"),
-            supports=optimize_supports,
-            templates=optimize_templates,
-        ),
-        PickerDomainSpec(
-            origin=SCRIPT_ORIGIN_FORECAST,
-            display_prefix=FORECAST_SCRIPT_DISPLAY_PREFIX,
-            title_fn=lambda: _("Forecast Helpers"),
-            supports=forecast_supports,
-            templates=forecast_templates,
-        ),
-    ]
+    return [_picker_builder_for(wiring)() for wiring in PICKER_WIRING]
 
 
 def picker_display_name(prefix: str, name: str) -> str:

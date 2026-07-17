@@ -67,7 +67,7 @@ def test_client_run_quant_happy_path(ctx):
         patch("plugin.scripting.client.configured_python_exec_timeout", return_value=30),
         patch("plugin.scripting.client.run_trusted_worker_action", return_value=worker_result) as mock_run,
     ):
-        result = run_quant(ctx, "fetch_historical_data", {"tickers": ["AAPL"]})
+        result = run_quant(ctx, {"helper": "fetch_historical_data", "params": {"tickers": ["AAPL"]}})
 
     assert result["helper"] == "fetch_historical_data"
     mock_run.assert_called_once()
@@ -85,7 +85,7 @@ def test_client_run_quant_worker_error(ctx):
         ),
     ):
         with pytest.raises(ToolExecutionError, match="boom"):
-            run_quant(ctx, "fetch_historical_data", {"tickers": ["AAPL"]})
+            run_quant(ctx, {"helper": "fetch_historical_data", "params": {"tickers": ["AAPL"]}})
 
 
 def test_helper_names_cover_templates():

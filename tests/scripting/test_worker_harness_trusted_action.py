@@ -24,7 +24,7 @@ def test_handle_request_run_trusted_action_unknown_domain() -> None:
     assert "Unknown trusted action domain" in res["message"]
 
 
-@patch("plugin.scripting.venv.trusted_dispatch.dispatch_trusted", return_value={"status": "ok", "helper": "describe_data"})
+@patch("plugin.scripting.venv.trusted_dispatch.dispatch_analysis", return_value={"status": "ok", "helper": "describe_data"})
 def test_handle_request_run_trusted_action_analysis(mock_dispatch) -> None:
     res = _handle_request(
         {

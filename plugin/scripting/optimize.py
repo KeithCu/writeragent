@@ -78,6 +78,7 @@ _API = make_template_api(
 )
 
 parse_optimize_script_header = _API.parse_header
+get_optimize_script_templates = _API.get_templates
 
 
 def get_optimize_template(helper: str) -> str | None:

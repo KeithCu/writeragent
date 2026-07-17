@@ -694,42 +694,30 @@ def warm_venv_worker(uno_ctx: Any, pool: str = WORKER_POOL_DEFAULT) -> None:
     if pool == WORKER_POOL_EMBEDDINGS:
         try:
             from plugin.framework.client.embedding_client import get_embedding_model
+
             model = get_embedding_model()
             if model:
-                code = (
-                    f"from plugin.embeddings.venv.embeddings_index import _get_embedder\n"
-                    f"_get_embedder({model!r})\n"
+                res = manager.execute(
+                    action="run_trusted_action",
+                    data={
+                        "domain": "embeddings_index",
+                        "helper": "warm_embedder",
+                        "params": {"model": model},
+                    },
                 )
-                res = manager.execute(code, data={"model": model})
                 if res.get("status") != "ok":
                     log.warning("Embedding model pre-warm returned status %s: %s", res.get("status"), res.get("message"))
         except Exception:
             log.exception("Failed to warm embedding model")
 
 
-# Backward-compatible re-exports (diagnostics + sandbox helpers used via venv_worker today).
-from plugin.scripting.sandbox import detect_sandbox  # noqa: E402
-from plugin.scripting.venv_diagnostics import (  # noqa: E402
-    probe_venv_path,
-    probe_venv_path_with_progress,
-    run_venv_self_check,
-    run_venv_self_check_with_progress,
-)
-
 __all__ = [
     "PythonWorkerManager",
-    "detect_sandbox",
-    "probe_venv_path",
-    "probe_venv_path_with_progress",
     "reset_python_session",
     "resolve_libreoffice_python",
     "resolve_venv_python",
     "run_code_in_user_venv",
-    "run_venv_self_check",
-    "run_venv_self_check_with_progress",
     "scrub_subprocess_env",
     "warm_venv_worker",
     "wrap_command_for_sandbox",
 ]
-
-# Re-export path/env helpers for callers that still import from venv_worker.

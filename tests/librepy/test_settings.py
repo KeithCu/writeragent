@@ -145,7 +145,7 @@ def test_venv_test_listener_ensures_downloaded_vec_on_path() -> None:
         patch("plugin.scripting.venv_probe_ui.get_optional", return_value=None),
         patch("plugin.scripting.venv_probe_ui.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.audio_recorder_service.ensure_downloaded_audio_on_path") as mock_ensure,
-        patch("plugin.scripting.venv_worker.probe_venv_path_with_progress", return_value=(True, "ok")),
+        patch("plugin.scripting.venv_diagnostics.probe_venv_path_with_progress", return_value=(True, "ok")),
         patch("plugin.scripting.payload_codec.host_cython_status_line", return_value="Cython Accelerator: Inactive (Pure Python)"),
     ):
         listener.on_action_performed(None)

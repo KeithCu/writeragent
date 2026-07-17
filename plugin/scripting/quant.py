@@ -77,6 +77,7 @@ _API = make_template_api(
 )
 
 parse_quant_script_header = _API.parse_header
+get_quant_script_templates = _API.get_templates
 
 
 def get_quant_template(helper: str) -> str | None:
@@ -145,4 +146,4 @@ def run_trusted_quant(
     if dr:
         context["range_a1"] = dr
 
-    return client_run_quant(uno_ctx, name, spec_params, py_data, context=context or None)
+    return client_run_quant(uno_ctx, {"helper": name, "params": spec_params}, py_data, context=context or None)

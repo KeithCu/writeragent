@@ -12,7 +12,11 @@ from plugin.scripting.trusted_action_registry import get_trusted_action_wiring
 def test_get_trusted_action_wiring_known_domains() -> None:
     analysis = get_trusted_action_wiring("analysis")
     assert analysis is not None
-    assert analysis.handler.endswith("trusted_dispatch:dispatch_trusted")
+    assert analysis.handler.endswith("trusted_dispatch:dispatch_analysis")
+
+    math = get_trusted_action_wiring("math")
+    assert math is not None
+    assert math.handler.endswith("trusted_dispatch:dispatch_symbolic")
 
     embeddings = get_trusted_action_wiring("embeddings_index")
     assert embeddings is not None
@@ -21,6 +25,7 @@ def test_get_trusted_action_wiring_known_domains() -> None:
     harper = get_trusted_action_wiring("harper")
     assert harper is not None
     assert harper.supports_heartbeat is True
+    assert harper.handler.endswith("trusted_dispatch:dispatch_harper")
 
 
 def test_get_trusted_action_wiring_unknown_domain() -> None:

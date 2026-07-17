@@ -160,34 +160,12 @@ run_forecast = _make_spec_runner(
     error_label="Forecast",
 )
 
-
-# --- Quant ---
-
-_QUANT_SESSION_PREFIX = "writeragent:quant"
-
-
-def run_quant(
-    ctx: Any,
-    helper: str,
-    params: dict[str, Any],
-    data: Any = None,
-    *,
-    context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Execute a trusted quant helper in the user venv."""
-    timeout_sec = configured_python_exec_timeout(ctx)
-    return _run_trusted_action(
-        ctx,
-        session_id=_QUANT_SESSION_PREFIX,
-        domain="quant",
-        helper=helper,
-        params=params,
-        data_range=data,
-        context=context,
-        timeout_sec=timeout_sec,
-        error_code="QUANT_ERROR",
-        error_label="Quant",
-    )
+run_quant = _make_spec_runner(
+    session_prefix="writeragent:quant",
+    domain="quant",
+    error_code="QUANT_ERROR",
+    error_label="Quant",
+)
 
 
 # --- Vision ---

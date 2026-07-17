@@ -13,10 +13,10 @@ from typing import Any
 
 from plugin.scripting._lazy_venv import make_getattr, venv_attr
 from plugin.scripting.helper_domain import (
+    DomainFacadeConfig,
     HelperScriptMeta,
-    build_helper_script_template,
     header_prefix,
-    parse_helper_script_header,
+    make_template_api,
 )
 
 # --- Constants & Common ---
@@ -98,27 +98,19 @@ __getattr__ = make_getattr("analysis", _ANALYSIS_VENV_EXPORTS - frozenset({"Coer
 
 AnalysisScriptMeta = HelperScriptMeta
 
-
-def _template_body(helper: str, params: dict[str, Any]) -> str:
-    return build_helper_script_template(
+_API = make_template_api(
+    DomainFacadeConfig(
         tag="analysis",
-        helper=helper,
-        params=params,
-        description=_HELPER_DESCRIPTIONS.get(helper, helper),
-        style="run_import",
+        helper_names=HELPER_NAMES,
+        default_params=_DEFAULT_PARAMS,
+        descriptions=_HELPER_DESCRIPTIONS,
         import_module="writeragent.scripting.analysis",
         run_name="run_analysis",
         data_expr="data",
-        context_expr="{}",
         extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
     )
+)
 
-
-def get_analysis_script_templates() -> dict[str, str]:
-    """Return built-in analysis helper scripts keyed by helper name."""
-    return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(HELPER_NAMES)}
-
-
-def parse_analysis_script_header(code: str) -> AnalysisScriptMeta | None:
-    """Parse the machine-readable header from a built-in or copied analysis script."""
-    return parse_helper_script_header(code, tag="analysis", helper_names=HELPER_NAMES)
+_template_body = _API.template_body
+get_analysis_script_templates = _API.get_templates
+parse_analysis_script_header = _API.parse_header
