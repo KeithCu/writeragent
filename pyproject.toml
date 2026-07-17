@@ -106,7 +106,7 @@ python_version = "3.11"
 explicit_package_bases = true
 ignore_missing_imports = true
 disable_error_code = ["annotation-unchecked"]
-packages = ["plugin"]
+packages = ["plugin", "compute_service"]
 exclude = [
     "plugin/contrib/",
     "plugin/lib/",
@@ -149,7 +149,7 @@ skips = ["B310", "B314", "B608"]
 
 [tool.ty.src]
 # Optional: explicitly set what to include (defaults to common patterns)
-include = ["plugin"]
+include = ["plugin", "compute_service"]
 exclude = ["plugin/contrib", "plugin/lib", "plugin/tests", "plugin/xdl_strings.py", "tests", "plugin/scripting/venv/text_analytics.py"]
 
 [tool.ty.rules]
@@ -158,7 +158,7 @@ redundant-cast = "ignore"
 
 # Pyrefly (CLI: make pyrefly) — experimental; same scope as ty/mypy/pyright; not part of make test
 [tool.pyrefly]
-project-includes = ["plugin"]
+project-includes = ["plugin", "compute_service"]
 project-excludes = ["plugin/contrib/**", "plugin/lib/**", "plugin/tests/**", "tests/**", "plugin/scripting/venv/text_analytics.py"]
 python-version = "3.11"
 # Repo root so `from plugin...` inside `if TYPE_CHECKING:` resolves; Pyrefly treats TYPE_CHECKING as true.
@@ -172,7 +172,7 @@ infer-with-first-use = true
 pythonVersion = "3.11"
 venvPath = "."
 venv = ".venv"
-include = ["plugin"]
+include = ["plugin", "compute_service"]
 exclude = ["plugin/contrib", "plugin/lib", "plugin/tests", "tests", "plugin/scripting/venv/text_analytics.py"]
 reportMissingModuleSource = false
 reportMissingImports = "none"

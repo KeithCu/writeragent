@@ -11,6 +11,7 @@ import os
 import selectors
 import socket
 import sys
+import threading
 from http.server import ThreadingHTTPServer
 from typing import Any
 
@@ -129,11 +130,15 @@ class DualStackThreadingHTTPServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that listens on both IPv4 and IPv6 loopback (or a single requested host/IP)."""
     def __init__(self, server_address: tuple[str, int], RequestHandlerClass: Any, bind_and_activate: bool = True) -> None:
         self.sockets: list[socket.socket] = []
+        # Own shutdown state: BaseServer uses name-mangled ``__is_shut_down`` / ``__shutdown_request``
+        # that type checkers cannot see; our multi-socket ``serve_forever`` must pair with ``shutdown``.
+        self._dual_is_shut_down = threading.Event()
+        self._dual_shutdown_request = False
         super().__init__(server_address, RequestHandlerClass, bind_and_activate=False)
 
         host, port = server_address
 
-        bind_addresses = []
+        bind_addresses: list[tuple[socket.AddressFamily, str]] = []
         if host in ("", "127.0.0.1", "::1", "localhost"):
             # Secure default: bind only to local loopback interface.
             bind_addresses = [
@@ -153,7 +158,7 @@ class DualStackThreadingHTTPServer(ThreadingHTTPServer):
                 for family, _, _, _, sockaddr in infos:
                     if family not in seen_families:
                         seen_families.add(family)
-                        bind_addresses.append((family, sockaddr[0]))
+                        bind_addresses.append((family, str(sockaddr[0])))
             except Exception:
                 bind_addresses = [(socket.AF_INET, host)]
 
@@ -201,23 +206,30 @@ class DualStackThreadingHTTPServer(ThreadingHTTPServer):
         return self.socket.fileno()
 
     def serve_forever(self, poll_interval: float = 0.5) -> None:
-        self._BaseServer__is_shut_down.clear()
+        self._dual_is_shut_down.clear()
         try:
             with selectors.DefaultSelector() as selector:
                 for sock in self.sockets:
                     selector.register(sock, selectors.EVENT_READ)
 
-                while not self._BaseServer__shutdown_request:
+                while not self._dual_shutdown_request:
                     ready = selector.select(poll_interval)
-                    if self._BaseServer__shutdown_request:
+                    if self._dual_shutdown_request:
                         break
                     if ready:
                         for key, _ in ready:
-                            self._handle_request_noblock_for_socket(key.fileobj)
+                            ready_sock = key.fileobj
+                            if isinstance(ready_sock, socket.socket):
+                                self._handle_request_noblock_for_socket(ready_sock)
                     self.service_actions()
         finally:
-            self._BaseServer__shutdown_request = False
-            self._BaseServer__is_shut_down.set()
+            self._dual_shutdown_request = False
+            self._dual_is_shut_down.set()
+
+    def shutdown(self) -> None:
+        """Stop ``serve_forever`` (must be called from another thread while it is running)."""
+        self._dual_shutdown_request = True
+        self._dual_is_shut_down.wait()
 
     def _handle_request_noblock_for_socket(self, sock: socket.socket) -> None:
         try:
@@ -245,7 +257,7 @@ class WSGIDualStackServer:
         class _WSGIDualStackServer(DualStackThreadingHTTPServer, WSGIServer):
             def __init__(self, server_address: tuple[str, int], RequestHandlerClass: Any, bind_and_activate: bool = True) -> None:
                 DualStackThreadingHTTPServer.__init__(self, server_address, RequestHandlerClass, bind_and_activate)
-                self.server_name = socket.getfqdn(self.server_address[0])
+                self.server_name = socket.getfqdn(str(self.server_address[0]))
                 self.server_port = self.server_address[1]
                 self.setup_environ()
                 

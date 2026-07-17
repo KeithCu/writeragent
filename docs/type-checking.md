@@ -18,7 +18,7 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 
 ## Tooling (short)
 
-- **`pyproject.toml`** — `[tool.ty.src]`: `include = ["plugin"]`, `exclude = ["plugin/contrib", "plugin/lib", "plugin/tests"]`.
+- **`pyproject.toml`** — `[tool.ty.src]`: `include = ["plugin", "compute_service"]`, `exclude = ["plugin/contrib", "plugin/lib", "plugin/tests"]`. Mypy / Pyright / Pyrefly use the same include set.
 - **`Makefile`** — `make ty`: ensures `import uno` (via `make fix-uno` if needed), then `python -m ty check --exclude plugin/contrib/ --exclude plugin/lib/`.
 - **Dev dependency**: **`types-unopy`** (LibreOffice API stubs). **`make fix-uno`** links system UNO into `.venv` so `uno` and `com.sun.star` resolve; without that, the checker cannot see extension types.
 - **Windows / ARM64 note**: **`make fix-uno`** is a static-analysis helper, not proof that external Python can run PyUNO. On Windows, especially ARM64, LibreOffice's `pyuno.pyd` still depends on matching Python ABI and native DLL loading; the extension runtime uses LibreOffice's own Python.
@@ -27,7 +27,7 @@ Static checking does **not** prove LibreOffice runtime behavior: UNO remains hig
 
 - **`make mypy`** — same prelude as `ty` (`make manifest`, `import uno` → `make fix-uno`), then **`python -m mypy`** using **`[tool.mypy]`** in `pyproject.toml`.
 - **Not** part of **`make check`** or **`make build`** alone; it **is** part of **`make typecheck`** and **`make test`**. **`make release`** runs **`make test`** first, so mypy runs there too. Use standalone **`make mypy`** to compare against **`ty`**. Mypy often reports issues `ty` does not (and vice versa).
-- **Scope**: `packages = ["plugin"]` with path **`exclude`** plus **`[[tool.mypy.overrides]]`** `ignore_errors = true` for **`plugin.contrib.*`**, **`plugin.lib.*`**, and **`plugin.tests.*`**. Plain `exclude` alone does not stop mypy from checking vendored trees when resolving the `plugin` package, so the overrides mirror ty’s “no contrib / no lib / no tests” intent.
+- **Scope**: `packages = ["plugin", "compute_service"]` with path **`exclude`** plus **`[[tool.mypy.overrides]]`** `ignore_errors = true` for **`plugin.contrib.*`**, **`plugin.lib.*`**, and **`plugin.tests.*`**. Plain `exclude` alone does not stop mypy from checking vendored trees when resolving the `plugin` package, so the overrides mirror ty’s “no contrib / no lib / no tests” intent.
 - **Stubs**: **`types-requests`**, **`types-unopy`**, and overrides for **`officehelper`** are configured for a usable first run; remaining diagnostics are normal application code until you tighten further. Venv-only packages (e.g. **`sounddevice`** for sidebar recording) are type-checked only when imported inside `plugin/scripting/venv/`.
 
 ### Pyright (optional)
