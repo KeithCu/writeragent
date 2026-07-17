@@ -295,7 +295,7 @@ Global monotonic counter (`next_enqueue_seq()` in [`grammar_work_queue.py`](../p
 | Token cost / privacy | Master switch **off** by default; user must enable on the **Doc** tab; Writer tab documents that checked text is sent to the configured endpoint. |
 | UI freeze | `doProofreading` does **not** wait on the main thread for LLM results (avoids dead menus while grammar runs). HTTP/LLM runs on a background worker; underlines update on a **later** proofreading pass when the sentence cache is ready. |
 | Stale underlines | Sentence cache (locale + sentence text fingerprint) plus work queue with same-key supersede, pre-execute stale skip, and post-LLM cache-write guard. **Cache hit** → immediate errors; **miss** → empty return once, queue workers fill cache for the next pass. See **Open backlog** for evolving this. |
-| Concurrent chat agent | Optional guard (`doc.grammar_proofreader_pause_during_agent`) skips grammar while chat/agent runs. With **`doc.grammar_proofreader_max_in_flight` = 1**, grammar HTTP shares global `llm_request_lane` with chat. With **>1**, grammar requests can overlap chat unless pause is enabled—raise concurrency only when the endpoint tolerates it. |
+| Concurrent chat agent | Optional guard (`doc.grammar_proofreader_pause_during_agent`) skips **LLM** grammar while chat/agent runs; Harper, LanguageTool, and Vale keep checking. With **`doc.grammar_proofreader_max_in_flight` = 1**, grammar HTTP shares global `llm_request_lane` with chat. With **>1**, grammar requests can overlap chat unless pause is enabled—raise concurrency only when the endpoint tolerates it. |
 
 ---
 

@@ -138,6 +138,46 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
         )
     client_cls.assert_not_called()
 
+
+def test_worker_does_not_pause_local_provider_when_agent_active() -> None:
+    """Harper / LanguageTool / Vale keep checking while chat runs; pause is LLM-only."""
+
+    def _get_config(key: str):
+        if key == "doc.grammar_proofreader_enabled":
+            return "harper"
+        if key == "doc.grammar_proofreader_pause_during_agent":
+            return True
+        return None
+
+    def _get_config_bool(key: str) -> bool:
+        if key == "doc.grammar_proofreader_enabled":
+            return True
+        if key == "doc.grammar_proofreader_pause_during_agent":
+            return True
+        raise AssertionError(f"unexpected key: {key}")
+
+    with (
+        patch("plugin.framework.config.get_config", side_effect=_get_config),
+        patch("plugin.framework.config.get_config_int", return_value=0),
+        patch("plugin.framework.config.get_config_bool", side_effect=_get_config_bool),
+        patch("plugin.framework.queue_executor.is_agent_active", return_value=True),
+        patch("plugin.writer.locale.grammar_work_queue._run_grammar_check") as run_check,
+        patch(
+            "plugin.writer.locale.grammar_proofread_cache.cache_get_sentence",
+            return_value=None,
+        ),
+    ):
+        api = proofreader._get_testing_api()
+        api["run_llm_and_cache"](
+            ctx=None,
+            text="test",
+            enqueue_seq=3,
+            inflight_key="doc|en",
+            grammar_bcp47="en-US",
+        )
+    run_check.assert_called_once()
+
+
 def test_apply_proofreading_end_positions_skips_space_after_sentence() -> None:
     from plugin.writer.locale.ai_grammar_proofreader import _apply_proofreading_end_positions
     class Res:

@@ -654,8 +654,12 @@ def _worker_batch_gates(ctx: Any, items: list[GrammarWorkItem]) -> bool:
         return False
     pause_during_agent = config.get_config_bool_safe("doc.grammar_proofreader_pause_during_agent")
     if pause_during_agent and queue_executor.is_agent_active():
-        grammar_obs("worker_batch_skip", reason="pause_during_agent", item_count=len(items))
-        return False
+        from plugin.framework.config import get_grammar_provider
+
+        # Local engines do not share the LLM request lane; only pause the LLM provider.
+        if get_grammar_provider() not in ("harper", "languagetool", "vale"):
+            grammar_obs("worker_batch_skip", reason="pause_during_agent", item_count=len(items))
+            return False
     return True
 
 

@@ -618,7 +618,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     """Retrieve all open documents from the desktop context with metadata."""
     from plugin.framework.thread_guard import assert_main_thread
     from plugin.framework.uno_context import get_desktop
-    from plugin.doc.document_helpers import get_document_type, DocumentType, get_runtime_uid
+    from plugin.doc.document_helpers import get_document_type, get_runtime_uid
     import os
 
     assert_main_thread("document_research.get_open_documents")
