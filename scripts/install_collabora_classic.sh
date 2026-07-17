@@ -6,10 +6,10 @@ TARGET_DIR="/opt/collaboraoffice"
 TEMP_DIR=$(mktemp -d -t collabora-XXXXXX)
 
 # Base URL for the Collabora snapshot repo
-REPO_URL="https://www.collaboraoffice.com/downloads/Collabora-Office-25-Snapshot/Linux/apt"
+REPO_URL="https://www.collaboraoffice.com/downloads/Collabora-Office-26-Snapshot/Linux/apt"
 
 # The specific version to download (from current Packages manifest)
-VERSION="25.04.11-20260710"
+VERSION="26.04.0-20260715"
 
 # List of essential packages including Python dependencies
 PACKAGES=(
@@ -27,6 +27,10 @@ PACKAGES=(
     # Python Support Components (Required for Python extensions)
     "collaboraofficebasis-pyuno_${VERSION}_amd64.deb"
     "collaboraofficebasis-python-script-provider_${VERSION}_amd64.deb"
+
+    # Desktop VCL plugins (without these, only libvclplug_genlo.so is present → Win95-style UI)
+    "collaboraofficebasis-gnome-integration_${VERSION}_amd64.deb"
+    "collaboraofficebasis-kde-integration_${VERSION}_amd64.deb"
 )
 
 echo "Creating target directory: $TARGET_DIR"

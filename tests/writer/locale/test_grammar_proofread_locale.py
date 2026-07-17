@@ -76,9 +76,12 @@ def test_grammar_tags_match_gettext_folders() -> None:
 def test_grammar_tags_include_english_variants() -> None:
     assert "en-US" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
     assert "en-GB" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert "en-AU" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert "en-CA" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
+    assert "en-IN" in gl.GRAMMAR_REGISTRY_LOCALE_TAGS
 
 def test_grammar_tag_count() -> None:
-    assert len(gl.GRAMMAR_REGISTRY_LOCALE_TAGS) == 2 + len(_GETTEXT_LOCALE_DIRS)
+    assert len(gl.GRAMMAR_REGISTRY_LOCALE_TAGS) == 5 + len(_GETTEXT_LOCALE_DIRS)
 
 def test_normalize_german_regional() -> None:
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("de", "AT")) == "de-DE"
@@ -94,6 +97,9 @@ def test_bcp47_to_icu_sentence_breaker_locale() -> None:
 def test_normalize_english_choices() -> None:
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "US")) == "en-US"
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "GB")) == "en-GB"
+    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "AU")) == "en-AU"
+    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "CA")) == "en-CA"
+    assert gl.normalize_uno_locale_to_bcp47(_uno_locale("en", "IN")) == "en-IN"
 
 def test_normalize_chinese() -> None:
     assert gl.normalize_uno_locale_to_bcp47(_uno_locale("zh", "CN")) == "zh-CN"

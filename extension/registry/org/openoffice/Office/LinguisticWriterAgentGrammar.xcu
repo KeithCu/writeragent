@@ -7,7 +7,7 @@
         <node oor:name="GrammarCheckers">
             <node oor:name="org.extension.writeragent.comp.pyuno.AiGrammarProofreader" oor:op="fuse">
                 <prop oor:name="Locales" oor:type="oor:string-list">
-                    <value>en-US en-GB bg-BG bn-IN ca-ES cs-CZ da-DK de-DE el-GR es-ES et-EE fi-FI fr-FR hi-IN hr-HR hu-HU id-ID it-IT ja-JP ko-KR lt-LT lv-LV nb-NO nl-NL nn-NO pl-PL pt-BR ro-RO ru-RU sk-SK sv-SE tr-TR uk-UA ur-PK zh-CN zh-TW</value>
+                    <value>en-US en-GB en-AU en-CA en-IN bg-BG bn-IN ca-ES cs-CZ da-DK de-DE el-GR es-ES et-EE fi-FI fr-FR hi-IN hr-HR hu-HU id-ID it-IT ja-JP ko-KR lt-LT lv-LV nb-NO nl-NL nn-NO pl-PL pt-BR ro-RO ru-RU sk-SK sv-SE tr-TR uk-UA ur-PK zh-CN zh-TW</value>
                 </prop>
             </node>
         </node>

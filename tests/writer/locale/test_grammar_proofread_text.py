@@ -67,6 +67,71 @@ def test_normalize_errors_preserves_harper_rule_identifier() -> None:
     assert norms[0].rule_identifier == "harper||SentenceCapitalization"
     assert norms[0].rule_identifier != "wa_g_rule||Start with a capital letter."
 
+
+def test_normalize_harper_errors_uses_native_offsets_and_explains_blank_fixes() -> None:
+    text = "can it    finded enny misteaks ?"
+    items = [
+        {
+            "wrong": "    ",
+            "correct": " ",
+            "n_error_start": 6,
+            "n_error_length": 4,
+            "type": "Spaces",
+            "reason": "There are 4 spaces where there should be only one.",
+            "short_comment": "There are 4 spaces where there should be only one.",
+            "full_comment": "There are 4 spaces where there should be only one.",
+            "rule_identifier": "harper||Spaces",
+            "suggestions": [" "],
+        },
+        {
+            "wrong": " ",
+            "correct": "",
+            "n_error_start": 30,
+            "n_error_length": 1,
+            "type": "Spaces",
+            "reason": "Unnecessary space at the end of the sentence.",
+            "short_comment": "Unnecessary space at the end of the sentence.",
+            "full_comment": "Unnecessary space at the end of the sentence.",
+            "rule_identifier": "harper||Spaces",
+            "suggestions": [""],
+        },
+        {
+            "wrong": "enny",
+            "correct": "envy",
+            "n_error_start": 17,
+            "n_error_length": 4,
+            "type": "SpellCheck",
+            "reason": "Did you mean to spell `enny` this way?",
+            "short_comment": "Did you mean to spell `enny` this way?",
+            "full_comment": "Did you mean to spell `enny` this way?",
+            "rule_identifier": "harper||SpellCheck",
+            "suggestions": ["envy", "jenny"],
+        },
+        {
+            "wrong": "finded",
+            "correct": "find ed",
+            "n_error_start": 10,
+            "n_error_length": 6,
+            "type": "SplitWords",
+            "reason": "`finded` should probably be written as `find ed`.",
+            "short_comment": "`finded` should probably be written as `find ed`.",
+            "full_comment": "`finded` should probably be written as `find ed`.",
+            "rule_identifier": "harper||SplitWords",
+            "suggestions": ["find ed", "found"],
+        },
+    ]
+
+    norms = gt.normalize_errors_for_text(text, 0, len(text), items)
+
+    assert [(item.n_error_start, item.n_error_length) for item in norms] == [(6, 4), (30, 1), (17, 4), (10, 6)]
+    assert norms[0].suggestions == (" ",)
+    assert "replace with one space" in norms[0].short_comment
+    assert norms[1].suggestions == ("",)
+    assert "delete the highlighted text" in norms[1].short_comment
+    assert norms[2].suggestions == ("envy", "jenny")
+    assert "Choose a replacement below" in norms[2].short_comment
+
+
 def test_normalize_errors_respects_slice() -> None:
     full = "xx they is yy"
     items = [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": ""}]

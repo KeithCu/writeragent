@@ -394,11 +394,15 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         return self._supported_service_names
 
     # --- XSupportedLocales ---
+    def _normalize_locale(self, a_locale: Any) -> str | None:
+        """Return the grammar locale used by this proofreader implementation."""
+        return normalize_uno_locale_to_bcp47(a_locale)
+
     def hasLocale(self, aLocale: Any) -> bool:
         try:
             if aLocale is None or not self._locales:
                 return False
-            return normalize_uno_locale_to_bcp47(aLocale) is not None
+            return self._normalize_locale(aLocale) is not None
         except Exception as e:
             log.warning("[grammar] hasLocale: %s", e, exc_info=True)
             return False
@@ -417,7 +421,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         enabled = is_grammar_enabled()
 
         loc_raw = _locale_key(a_locale)
-        grammar_bcp47 = normalize_uno_locale_to_bcp47(a_locale)
+        grammar_bcp47 = self._normalize_locale(a_locale)
 
         if not enabled:
             global _GRAMMAR_DISABLED_NOTICE_EMITTED

@@ -945,8 +945,8 @@ def test_grammar_check_routes_to_harper() -> None:
         max_tok=512,
         gq=MagicMock(),
         detect_lang_mode="off",
-        grammar_bcp47="en-US",
-        original_bcp47="en-US",
+        grammar_bcp47="en-AU",
+        original_bcp47="en-AU",
     )
     chunk = [(a, a.text)]
 
@@ -957,9 +957,9 @@ def test_grammar_check_routes_to_harper() -> None:
         mock_harper_check.return_value = {
             "errors": [{"n_error_start": 0, "n_error_length": 4, "wrong": "This", "correct": "That", "suggestions": ["That"]}]
         }
-        _run_grammar_check(chunk, "en-US", "en-US", ec)
+        _run_grammar_check(chunk, "en-AU", "en-AU", ec)
 
-        mock_harper_check.assert_called_once_with(ec.ctx, "This is a test sentence.", "/tmp", bcp47="en-US")
+        mock_harper_check.assert_called_once_with(ec.ctx, "This is a test sentence.", "/tmp", bcp47="en-AU")
         mock_process.assert_called_once()
 
 

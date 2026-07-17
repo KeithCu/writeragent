@@ -7,7 +7,7 @@
         <node oor:name="GrammarCheckers">
             <node oor:name="org.extension.libreharper.comp.pyuno.HarperProofreader" oor:op="fuse">
                 <prop oor:name="Locales" oor:type="oor:string-list">
-                    <value>en-US en-GB en-AU en-CA</value>
+                    <value>en-US en-GB en-AU en-CA en-IN</value>
                 </prop>
             </node>
         </node>

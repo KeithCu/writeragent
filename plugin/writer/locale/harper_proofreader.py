@@ -44,7 +44,27 @@ log = logging.getLogger("writeragent.grammar")
 IMPLEMENTATION_NAME = "org.extension.libreharper.comp.pyuno.HarperProofreader"
 SERVICE_DISPLAY_NAME = "LibreHarper"
 # Must match LinguisticLibreHarperGrammar.xcu Locales (Harper English dialects).
-HARPER_LOCALE_TAGS: tuple[str, ...] = ("en-US", "en-GB", "en-AU", "en-CA")
+HARPER_LOCALE_TAGS: tuple[str, ...] = ("en-US", "en-GB", "en-AU", "en-CA", "en-IN")
+
+
+def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
+    """Preserve the regional English dialects understood by Harper."""
+    try:
+        language = str(getattr(a_locale, "Language", "") or "").strip()
+        country = str(getattr(a_locale, "Country", "") or "").strip().upper()
+    except Exception:
+        return None
+
+    if "-" in language and not country:
+        language, country = language.split("-", 1)
+        country = country.upper()
+    if language.lower() == "en":
+        tag = f"en-{country}" if country else "en-US"
+        if tag in HARPER_LOCALE_TAGS:
+            return tag
+
+    fallback_tag = normalize_uno_locale_to_bcp47(a_locale)
+    return fallback_tag if fallback_tag in HARPER_LOCALE_TAGS else None
 
 uno_mod: Any
 try:
@@ -75,12 +95,14 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
         self._implementation_name = IMPLEMENTATION_NAME
         self._locales = _harper_locale_tuple()
 
+    def _normalize_locale(self, a_locale: Any) -> str | None:
+        return normalize_harper_locale_to_bcp47(a_locale)
+
     def hasLocale(self, aLocale: Any) -> bool:
         try:
             if aLocale is None or not self._locales:
                 return False
-            tag = normalize_uno_locale_to_bcp47(aLocale)
-            return tag in HARPER_LOCALE_TAGS
+            return self._normalize_locale(aLocale) is not None
         except Exception as e:
             log.warning("[grammar] LibreHarper hasLocale: %s", e, exc_info=True)
             return False

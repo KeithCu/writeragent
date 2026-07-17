@@ -35,7 +35,7 @@ _INIT_BUDGET_SEC = 5.0
 
 _LSP_POSITION_CODEC = PositionCodec("utf-16")
 
-_BCP47_TO_DIALECT: dict[str, str] = {"en-GB": "British", "en-AU": "Australian", "en-CA": "Canadian"}
+_BCP47_TO_DIALECT: dict[str, str] = {"en-GB": "British", "en-AU": "Australian", "en-CA": "Canadian", "en-IN": "Indian"}
 
 
 def _lsp_notification(method: str, params: dict | None) -> dict:

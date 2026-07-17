@@ -138,10 +138,13 @@ Operations use monotonic deadline budgets (`_LINT_BUDGET_SEC = 15.0` for lints, 
 
 Code actions are fetched with **one `textDocument/codeAction` request per diagnostic**. A single sentence with many issues therefore incurs N sequential LSP round trips after diagnostics arrive. In practice this is usually a small N because each Harper call lints one sentence, not a whole paragraph.
 
+LibreOffice builds the native proofreading popup from `aShortComment` and literal `aSuggestions` strings. The comment row explains the issue but is not itself a replacement action. A one-space or deletion suggestion is necessarily rendered as a blank-looking replacement row, so WriterAgent adds an explicit instruction to the comment while retaining `" "` or `""` as the actual replacement. Harper's provider-native LSP offsets and complete suggestion list are preserved; this is required because Harper groups diagnostics by rule rather than returning them in text order.
+
 ### Language and configuration
 
 - `languageId` is still hardcoded to `"markdown"` (Harper is currently English-focused; full multi-language `languageId` support is deferred).
-- Harper now receives useful configuration: the `workspace/configuration` reply (and `workspace/didChangeConfiguration` notifications) supply a `dialect` (American/British/Australian/Canadian derived from BCP47) plus an optional `userDictPath` under the user profile for custom words. Broader rule toggles are not yet exposed.
+- Harper now receives useful configuration: the `workspace/configuration` reply (and `workspace/didChangeConfiguration` notifications) supply a `dialect` (American/British/Australian/Canadian/Indian derived from BCP47) plus an optional `userDictPath` under the user profile for custom words. The shared WriterAgent grammar registry and LibreHarper both preserve these regional tags, so Harper receives the same dialect through either OXT. Broader rule toggles are not yet exposed.
+- Harper 2.6 intentionally treats a one-sentence paragraph of five words or fewer as label-like text and skips `SentenceCapitalization`. LibreHarper does not override that upstream heuristic.
 
 ### Position encoding
 
@@ -242,7 +245,7 @@ Ship a **small Linguistic2-only** extension for people who want offline Harper g
 | Default config | `doc.grammar_proofreader_enabled` = **`harper`** (install → works) |
 | Config file (v1) | Reuse `writeragent.json` via existing [`config.py`](../plugin/framework/config.py); slim `_manifest` exposes only `off` / `harper` |
 | Settings UI (v1) | **None** — no Jobs.xcu, menus, or dialogs; LO Writing aids lists the GrammarChecker |
-| Locales in XCU | `en-US`, `en-GB`, `en-AU`, `en-CA` (Harper dialects) |
+| Locales in XCU | `en-US`, `en-GB`, `en-AU`, `en-CA`, `en-IN` (Harper dialects) |
 | `harper-ls` | Still auto-downloaded into the user profile `harper/` directory — **not** bundled in the OXT |
 
 ### 9.3 Architecture

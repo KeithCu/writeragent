@@ -94,6 +94,9 @@ def _mock_harper_lsp_stream(responses: list[bytes]) -> MagicMock:
 
 def test_harper_lsp_settings_dialect_mapping() -> None:
     assert _harper_lsp_settings("en-GB", "/tmp")["harper-ls"]["dialect"] == "British"
+    assert _harper_lsp_settings("en-AU", "/tmp")["harper-ls"]["dialect"] == "Australian"
+    assert _harper_lsp_settings("en-CA", "/tmp")["harper-ls"]["dialect"] == "Canadian"
+    assert _harper_lsp_settings("en-IN", "/tmp")["harper-ls"]["dialect"] == "Indian"
     assert _harper_lsp_settings("en-US", "/tmp")["harper-ls"]["dialect"] == "American"
     assert _harper_lsp_settings("en-GB", "/tmp")["harper-ls"]["userDictPath"] == str(Path("/tmp") / "harper-dictionary.txt")
 

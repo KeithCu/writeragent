@@ -184,6 +184,9 @@ def normalize_reason(reason: str) -> str:
 GRAMMAR_REGISTRY_LOCALES: dict[str, str] = {
     "en-US": "English (United States)",
     "en-GB": "English (United Kingdom)",
+    "en-AU": "English (Australia)",
+    "en-CA": "English (Canada)",
+    "en-IN": "English (India)",
     "bg-BG": "Bulgarian",
     "bn-IN": "Bengali (India)",
     "ca-ES": "Catalan",

@@ -9,8 +9,9 @@ from __future__ import annotations
 import ast
 import os
 import xml.etree.ElementTree as ET
+from types import SimpleNamespace
 
-from plugin.writer.locale.harper_proofreader import HARPER_LOCALE_TAGS, IMPLEMENTATION_NAME
+from plugin.writer.locale.harper_proofreader import HARPER_LOCALE_TAGS, IMPLEMENTATION_NAME, normalize_harper_locale_to_bcp47
 
 _OOR = "http://openoffice.org/2001/registry"
 
@@ -64,6 +65,15 @@ def test_linguistic_libreharper_grammar_xcu_locales_match_tags() -> None:
     val_el = next(c for c in locales_prop if _local_tag(c) == "value")
     assert val_el.text is not None
     assert tuple(val_el.text.split()) == HARPER_LOCALE_TAGS
+
+
+def test_libreharper_preserves_supported_english_dialects() -> None:
+    for country, expected in (("US", "en-US"), ("GB", "en-GB"), ("AU", "en-AU"), ("CA", "en-CA"), ("IN", "en-IN")):
+        locale = SimpleNamespace(Language="en", Country=country, Variant="")
+        assert normalize_harper_locale_to_bcp47(locale) == expected
+
+    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="en-AU", Country="", Variant="")) == "en-AU"
+    assert normalize_harper_locale_to_bcp47(SimpleNamespace(Language="de", Country="DE", Variant="")) is None
 
 
 def test_libreharper_manifest_registers_harper_proofreader_only() -> None:

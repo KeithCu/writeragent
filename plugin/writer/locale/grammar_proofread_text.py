@@ -233,6 +233,36 @@ def anchor_wrong_in_window(window: str, wrong: str, search_pos: int, *, wrong_id
     return rel
 
 
+def _provider_error_span(window: str, item: dict[str, Any], wrong: str) -> tuple[int, int] | None:
+    """Return a validated provider-native span relative to *window*, when present."""
+    start = item.get("n_error_start")
+    length = item.get("n_error_length")
+    if isinstance(start, bool) or isinstance(length, bool) or not isinstance(start, int) or not isinstance(length, int):
+        return None
+    if start < 0 or length <= 0 or start + length > len(window):
+        return None
+    if wrong and window[start : start + length] != wrong:
+        return None
+    return start, length
+
+
+def _proofreading_suggestions(item: dict[str, Any], correct: Any) -> tuple[str, ...]:
+    raw = item.get("suggestions")
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(value) for value in raw)
+    return (str(correct),) if correct else ()
+
+
+def _suggestion_hint(suggestions: tuple[str, ...]) -> str:
+    if not suggestions:
+        return "No automatic replacement is available."
+    if "" in suggestions:
+        return "Suggested fix: delete the highlighted text (the blank replacement below)."
+    if any(value.isspace() for value in suggestions):
+        return "Suggested fix: replace with one space (the blank replacement below)."
+    return "Choose a replacement below."
+
+
 def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: int, items: Iterable[dict[str, Any]], ctx: Any = None, loc_key: str | None = None) -> list[NormalizedProofError]:
     """Map ``wrong`` substrings to absolute positions in ``full_text`` (Writer buffer)."""
     slice_end = min(n_slice_end, len(full_text))
@@ -248,18 +278,25 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
     for idx, it in enumerate(items):
         wrong = it.get("wrong", "")
         correct = it.get("correct", "")
-        rel = anchor_wrong_in_window(window, wrong, search_pos, wrong_idx=idx)
-        if rel is None:
-            continue
+        # Harper returns diagnostics grouped by rule, not text position. Re-searching those
+        # substrings in order moved a final single-space error into an earlier space run and
+        # then dropped earlier-word diagnostics. Trust validated LSP offsets so each issue
+        # remains attached to the span Harper actually reported.
+        provider_span = _provider_error_span(window, it, wrong)
+        if provider_span is not None:
+            rel, length = provider_span
+            pos = slice_start + rel
+        else:
+            anchored_rel = anchor_wrong_in_window(window, wrong, search_pos, wrong_idx=idx)
+            if anchored_rel is None:
+                continue
+            pos = slice_start + anchored_rel
+            length = len(wrong)
+            if length <= 0:
+                continue
+            search_pos = anchored_rel + 1
 
-        pos = slice_start + rel
-        length = len(wrong)
-        if length <= 0:
-            continue
-
-        search_pos = rel + 1
-
-        if correct:
+        if correct and provider_span is None:
             suffix = full_text[pos + length :]
             t_c = _tokenize(correct, bi, locale)
             t_s = _tokenize(suffix, bi, locale)
@@ -291,10 +328,15 @@ def normalize_errors_for_text(full_text: str, n_slice_start: int, n_slice_end: i
         existing = str(it.get("rule_identifier") or "").strip()
         rule_id = existing if existing else f"{WA_G_RULE_PREFIX}{reason}"
 
-        sugg = (correct,) if correct else ()
+        sugg = _proofreading_suggestions(it, correct)
         typ = it.get("type", "grammar")
-        short = f"({typ}) {reason}".strip() if reason else str(typ)
-        full = reason or short
+        provider_short = str(it.get("short_comment") or "").strip()
+        provider_full = str(it.get("full_comment") or "").strip()
+        comment = provider_short or reason
+        short = f"({typ}) {comment}".strip() if comment else str(typ)
+        full = provider_full or reason or short
+        if provider_short or provider_full:
+            short = f"{short} {_suggestion_hint(sugg)}"
         try:
             results.append(NormalizedProofError(n_error_start=pos, n_error_length=length, suggestions=sugg, short_comment=short[:500], full_comment=full[:2000], rule_identifier=rule_id))
         except Exception as e:
