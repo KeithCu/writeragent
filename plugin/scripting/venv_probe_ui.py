@@ -149,6 +149,9 @@ class ScriptingVenvTestListener(BaseActionListener):
 
         # User-downloaded writeragent_vec may be on sys.path via audio_binaries.
         ensure_downloaded_audio_on_path()
+        # Reload on the main thread (not the probe worker): after redownload the
+        # worker must not be the first site that imports / calls into natives.
+        cython_status = host_cython_status_line(reload=True)
 
         path_ctrl = get_optional(self._dlg, "scripting__python_venv_path")
         raw = get_control_text(path_ctrl) if path_ctrl else ""
@@ -158,7 +161,7 @@ class ScriptingVenvTestListener(BaseActionListener):
                 raw,
                 on_display,
                 on_status=on_status,
-                extra_lines_after_header=(host_cython_status_line(),),
+                extra_lines_after_header=(cython_status,),
             )
 
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe)

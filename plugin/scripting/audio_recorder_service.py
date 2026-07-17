@@ -284,6 +284,13 @@ def _download_url_to_file(
     dest_path: str,
     on_status: Callable[[str], None],
 ) -> None:
+    """Download *url* to *dest_path* via a sibling ``.partial`` file + ``os.replace``.
+
+    Never truncate an existing destination in place: host natives (``pack*.so``,
+    ``_cffi_backend*.so``) may already be mmap'd after a prior import; in-place
+    ``open(..., "wb")`` rewrite can SIGBUS LibreOffice on the next call into
+    the old mapping (redownload crash).
+    """
     import urllib.error
     import urllib.request
 
@@ -291,13 +298,14 @@ def _download_url_to_file(
         url,
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
     )
+    partial_path = dest_path + ".partial"
     try:
         with urllib.request.urlopen(req) as response:
             total_size = int(response.headers.get("content-length", 0))
             block_size = 8192
             downloaded = 0
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-            with open(dest_path, "wb") as fh:
+            os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
+            with open(partial_path, "wb") as fh:
                 while True:
                     buffer = response.read(block_size)
                     if not buffer:
@@ -307,10 +315,17 @@ def _download_url_to_file(
                     if total_size:
                         percent = int(downloaded * 100 / total_size)
                         on_status(f"Downloading {os.path.basename(dest_path)}: {percent}%")
+        os.replace(partial_path, dest_path)
     except urllib.error.HTTPError as err:
         raise RuntimeError(f"HTTP Error {err.code}: {err.reason} for URL: {url}") from err
     except Exception as exc:
         raise RuntimeError(f"Failed to download {url}: {exc}") from exc
+    finally:
+        if os.path.exists(partial_path):
+            try:
+                os.remove(partial_path)
+            except OSError:
+                pass
 
 
 def run_vec_pack_download(
@@ -354,6 +369,10 @@ def run_vec_pack_download(
     _download_url_to_file(vec_bin_url, vec_bin_dest, on_status)
 
     ensure_downloaded_audio_on_path()
+    # Drop stale in-process module after replace so the next load binds the new inode.
+    from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
+
+    invalidate_host_cython_accelerator()
     if include_header:
         on_display("\nCython accelerator binary installed successfully.\n")
     return True

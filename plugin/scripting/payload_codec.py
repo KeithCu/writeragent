@@ -22,6 +22,7 @@ import array
 import logging
 import math
 import os
+import sys
 import tempfile
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -146,16 +147,37 @@ def load_cython_accelerator() -> None:
         log.debug("payload_codec: Cython accelerator not found, using pure Python")
 
 
+def invalidate_host_cython_accelerator() -> None:
+    """Drop in-process accelerator state after host natives were replaced on disk.
+
+    Redownload uses atomic replace (new inode), but ``sys.modules`` may still hold
+    the old ``writeragent_vec`` module object. Clear globals and module cache so
+    the next load binds the new file instead of calling into a stale mapping.
+    """
+    global fast_flatten_grid_2d, fast_flatten_grid_1d, _CYTHON_ACCELERATOR_DISABLED
+    fast_flatten_grid_2d = None
+    fast_flatten_grid_1d = None
+    _CYTHON_ACCELERATOR_DISABLED = False
+    for key in list(sys.modules):
+        if key == "writeragent_vec" or key.startswith("writeragent_vec."):
+            sys.modules.pop(key, None)
+
+
 def reload_host_cython_accelerator() -> None:
-    """Re-attempt loading the host-side Cython pack accelerator (Settings → Python Test)."""
+    """Re-attempt loading the host-side Cython pack accelerator (main thread)."""
     global _CYTHON_ACCELERATOR_DISABLED
     _CYTHON_ACCELERATOR_DISABLED = False
     load_cython_accelerator()
 
 
-def host_cython_status_line() -> str:
-    """Human-readable host Cython status for Settings → Python Test probe header."""
-    reload_host_cython_accelerator()
+def host_cython_status_line(*, reload: bool = False) -> str:
+    """Human-readable host Cython status for Settings → Python Test probe header.
+
+    Default is report-only (no import/reload). Pass ``reload=True`` on the main
+    thread after ``ensure_downloaded_audio_on_path`` when a fresh load is wanted.
+    """
+    if reload:
+        reload_host_cython_accelerator()
     status = "Active (Optimized)" if fast_flatten_grid_2d is not None else "Inactive (Pure Python)"
     return f"Cython Accelerator: {status}"
 

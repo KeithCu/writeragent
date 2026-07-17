@@ -12,6 +12,7 @@ def test_python_test_uses_modal_incremental_probe() -> None:
     fake_dlg = MagicMock()
     probe_displays: list[str] = []
     probe_statuses: list[str] = []
+    captured_extra: list[tuple[str, ...]] = []
 
     class _FakeProgress:
         def __init__(self, ctx, parent_dlg=None):
@@ -24,21 +25,33 @@ def test_python_test_uses_modal_incremental_probe() -> None:
             return True
 
     def fake_probe(_raw, on_display, on_status=None, extra_lines_after_header=None):
-        on_display("Python 3.12 responds OK. Cython Accelerator: Inactive (Pure Python)\n\nScientific Libraries: numpy\nMissing: pandas")
+        captured_extra.append(tuple(extra_lines_after_header or ()))
+        on_display(
+            "Python 3.12 responds OK. Cython Accelerator: Inactive (Pure Python)\n\n"
+            "Scientific Libraries: numpy\nMissing: pandas"
+        )
         if on_status:
             on_status("Scientific Libraries: numpy")
         return True, "Python 3.12 responds OK."
+
+    def fake_status(*, reload=False):
+        order.append(f"cython_status_reload={reload}")
+        return "Cython Accelerator: Inactive (Pure Python)"
 
     listener = ScriptingVenvTestListener(fake_ctx, fake_dlg)
     with (
         patch("plugin.scripting.venv_probe_ui.get_optional", return_value=None),
         patch("plugin.scripting.venv_probe_ui.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.venv_diagnostics.probe_venv_path_with_progress", side_effect=fake_probe),
-        patch("plugin.scripting.payload_codec.fast_flatten_grid_2d", None),
+        patch("plugin.scripting.payload_codec.host_cython_status_line", side_effect=fake_status),
+        patch("plugin.scripting.audio_recorder_service.ensure_downloaded_audio_on_path"),
     ):
         listener.on_action_performed(MagicMock())
 
     assert "progress_run_modal" in order
+    # Status reload happens on the main thread before the probe worker runs.
+    assert order.index("cython_status_reload=True") < order.index("progress_run_modal")
+    assert captured_extra == [("Cython Accelerator: Inactive (Pure Python)",)]
     assert any("Scientific Libraries: numpy" in text for text in probe_displays)
     assert any("Cython Accelerator" in text for text in probe_displays)
     assert any("numpy" in status for status in probe_statuses)

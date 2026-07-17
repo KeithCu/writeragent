@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import math
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -1010,4 +1011,50 @@ def test_date_and_datetime_serialization_handling():
     assert child_unpacked_ts[0][0] == "2026-06-25 14:30:00"
 
 
+def test_invalidate_host_cython_accelerator_clears_globals_and_modules() -> None:
+    import sys
+    import types
+
+    prev_2d = payload_codec.fast_flatten_grid_2d
+    prev_1d = payload_codec.fast_flatten_grid_1d
+    prev_disabled = payload_codec._CYTHON_ACCELERATOR_DISABLED
+    fake = types.ModuleType("writeragent_vec")
+    fake.fast_flatten_grid_2d = object()
+    sys.modules["writeragent_vec"] = fake
+    sys.modules["writeragent_vec.pack"] = types.ModuleType("writeragent_vec.pack")
+
+    try:
+        payload_codec.fast_flatten_grid_2d = object()
+        payload_codec.fast_flatten_grid_1d = object()
+        payload_codec._CYTHON_ACCELERATOR_DISABLED = True
+
+        payload_codec.invalidate_host_cython_accelerator()
+
+        assert payload_codec.fast_flatten_grid_2d is None
+        assert payload_codec.fast_flatten_grid_1d is None
+        assert payload_codec._CYTHON_ACCELERATOR_DISABLED is False
+        assert "writeragent_vec" not in sys.modules
+        assert "writeragent_vec.pack" not in sys.modules
+    finally:
+        payload_codec.fast_flatten_grid_2d = prev_2d
+        payload_codec.fast_flatten_grid_1d = prev_1d
+        payload_codec._CYTHON_ACCELERATOR_DISABLED = prev_disabled
+        sys.modules.pop("writeragent_vec", None)
+        sys.modules.pop("writeragent_vec.pack", None)
+
+
+def test_host_cython_status_line_report_only_by_default() -> None:
+    prev_2d = payload_codec.fast_flatten_grid_2d
+    try:
+        with patch.object(payload_codec, "reload_host_cython_accelerator") as mock_reload:
+            payload_codec.fast_flatten_grid_2d = None
+            line = payload_codec.host_cython_status_line()
+            mock_reload.assert_not_called()
+            assert line == "Cython Accelerator: Inactive (Pure Python)"
+
+            payload_codec.fast_flatten_grid_2d = object()
+            assert payload_codec.host_cython_status_line(reload=True) == "Cython Accelerator: Active (Optimized)"
+            mock_reload.assert_called_once()
+    finally:
+        payload_codec.fast_flatten_grid_2d = prev_2d
 

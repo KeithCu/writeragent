@@ -62,6 +62,10 @@ Release default remains `x86-64` in [`setup.py`](../native/writeragent_vec/setup
 | Use Cython for **tight numeric loops** on the host (pack, embeddings top-k, binary decode) | Load `sqlite-vec` or full vector DB stacks in LO — use the **venv** for that ([embeddings.md](embeddings.md)) |
 | Build matrix with **cibuildwheel + CI** | Expect one Arch laptop to produce Windows/macOS wheels |
 | Profile in LO before adding OXT weight | Ship pyarrow-scale stacks |
+| **Atomic replace** when downloading host natives (`temp` + `os.replace`) | Truncate a mapped `.so` in place (`open(..., "wb")`) — SIGBUS on redownload |
+
+> [!WARNING]
+> Settings → Python **Download** must never overwrite an already-`dlopen`’d host native in place. Write to a sibling `.partial` file and `os.replace`. After replace, invalidate `writeragent_vec` in `sys.modules` so the next load binds the new inode. Settings → **Test** should reload Cython status on the **main thread** and pass a report-only string into the probe worker.
 
 ---
 
