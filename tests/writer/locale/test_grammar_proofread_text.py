@@ -132,6 +132,136 @@ def test_normalize_harper_errors_uses_native_offsets_and_explains_blank_fixes() 
     assert "Choose a replacement below" in norms[2].short_comment
 
 
+def test_provider_span_wrong_mismatch_falls_back_to_substring() -> None:
+    """Offsets that do not match ``wrong`` are ignored; substring search places the error."""
+    full = "xx they is yy"
+    items = [
+        {
+            "wrong": "they is",
+            "correct": "they are",
+            "n_error_start": 0,
+            "n_error_length": 3,
+            "type": "grammar",
+            "reason": "agreement",
+            "rule_identifier": "harper||Agreement",
+        }
+    ]
+    # Offsets claim "xx " but wrong is "they is" → mismatch → fall back.
+    assert gt._provider_error_span(full, items[0], "they is") is None
+    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    assert len(norms) == 1
+    assert norms[0].n_error_start == 3
+    assert norms[0].n_error_length == 7
+
+
+def test_provider_span_missing_offsets_falls_back() -> None:
+    """LLM-style items without native offsets still normalize via substring search."""
+    full = "xx they is yy"
+    items = [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": "agreement"}]
+    assert gt._provider_error_span(full, items[0], "they is") is None
+    norms = gt.normalize_errors_for_text(full, 0, len(full), items)
+    assert len(norms) == 1
+    assert norms[0].n_error_start == 3
+    assert full[3:10] == "they is"
+
+
+def test_provider_span_rejects_bool_and_non_int() -> None:
+    """bool is a subclass of int in Python; the explicit guard must reject it."""
+    assert gt._provider_error_span("hello", {"n_error_start": True, "n_error_length": 1}, "h") is None
+    assert gt._provider_error_span("hello", {"n_error_start": 0, "n_error_length": True}, "h") is None
+    assert gt._provider_error_span("hello", {"n_error_start": "0", "n_error_length": 1}, "h") is None
+    assert gt._provider_error_span("hello", {"n_error_start": 0, "n_error_length": "1"}, "h") is None
+
+
+def test_provider_span_rejects_out_of_bounds() -> None:
+    assert gt._provider_error_span("hello", {"n_error_start": -1, "n_error_length": 1}, "h") is None
+    assert gt._provider_error_span("hello", {"n_error_start": 0, "n_error_length": 6}, "hello!") is None
+    assert gt._provider_error_span("hello", {"n_error_start": 4, "n_error_length": 2}, "oX") is None
+    assert gt._provider_error_span("hello", {"n_error_start": 0, "n_error_length": 0}, "") is None
+
+
+def test_provider_span_respects_slice_start() -> None:
+    """Native offsets are relative to the proofread window; results are absolute in full_text."""
+    full = "xx they is yy"
+    # Window is "they is" at [3, 10).
+    items = [
+        {
+            "wrong": "they is",
+            "correct": "they are",
+            "n_error_start": 0,
+            "n_error_length": 7,
+            "type": "grammar",
+            "reason": "agreement",
+            "short_comment": "agreement",
+            "full_comment": "agreement",
+            "rule_identifier": "harper||Agreement",
+            "suggestions": ["they are"],
+        }
+    ]
+    norms = gt.normalize_errors_for_text(full, 3, 10, items)
+    assert len(norms) == 1
+    assert norms[0].n_error_start == 3
+    assert norms[0].n_error_length == 7
+
+
+def test_provider_span_overlapping_second_dropped() -> None:
+    """used_spans drops a later provider diagnostic that overlaps an earlier one."""
+    text = "hello world"
+    items = [
+        {
+            "wrong": "hello",
+            "correct": "Hello",
+            "n_error_start": 0,
+            "n_error_length": 5,
+            "type": "Capitalization",
+            "reason": "capitalize",
+            "short_comment": "capitalize",
+            "full_comment": "capitalize",
+            "rule_identifier": "harper||Capitalization",
+            "suggestions": ["Hello"],
+        },
+        {
+            "wrong": "hello ",
+            "correct": "Hello ",
+            "n_error_start": 0,
+            "n_error_length": 6,
+            "type": "Capitalization",
+            "reason": "overlap",
+            "short_comment": "overlap",
+            "full_comment": "overlap",
+            "rule_identifier": "harper||Capitalization",
+            "suggestions": ["Hello "],
+        },
+    ]
+    norms = gt.normalize_errors_for_text(text, 0, len(text), items)
+    assert len(norms) == 1
+    assert norms[0].n_error_start == 0
+    assert norms[0].n_error_length == 5
+    assert norms[0].suggestions == ("Hello",)
+
+
+def test_provider_span_zero_length_rejected() -> None:
+    """Characterization: zero-width Harper inserts are still dropped (not enabled yet)."""
+    text = "Hello.world"
+    items = [
+        {
+            "wrong": "",
+            "correct": " ",
+            "n_error_start": 5,
+            "n_error_length": 0,
+            "type": "MissingSpace",
+            "reason": "Insert space",
+            "short_comment": "Insert space",
+            "full_comment": "Insert space",
+            "rule_identifier": "harper||MissingSpace",
+            "suggestions": [" "],
+        }
+    ]
+    assert gt._provider_error_span(text, items[0], "") is None
+    norms = gt.normalize_errors_for_text(text, 0, len(text), items)
+    assert norms == []
+
+
 def test_normalize_errors_respects_slice() -> None:
     full = "xx they is yy"
     items = [{"wrong": "they is", "correct": "they are", "type": "grammar", "reason": ""}]
