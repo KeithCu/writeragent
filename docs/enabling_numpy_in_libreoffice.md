@@ -39,6 +39,7 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
 | [NumPy domain helpers](numpy-domains.md) | Analysis, Viz, Symbolic, Units, Text, Forecasting roadmaps |
 | [Monaco editor dev plan](python-monaco-editor-dev-plan.md) | IPC, phases 2B–2F, manual tests |
 | [Python-in-Calc future work](python-in-excel-dev-plan.md) | Phases 3–7 + backlog |
+| [Why not copy Microsoft’s `=PY()`](ms-py-libreoffice-compatibility.md) | LibreOffice/Collabora analysis: `xl()` + co-volatility costs vs native `=PY(code, data?)`; defer `PY_XL` |
 | [DuckDB Calc integration (Phases A–C landed)](duckdb-calc-dev-plan.md) | DuckDB Calc integration plan |
 | [Jupyter notebook import](jupyter-notebook-import.md) | Notebook import details |
 | [Calc spreadsheet → Python import](calc-spreadsheet-to-python-import.md) | Convert formulas to `=PY()` while preserving data (proposed) |
@@ -920,6 +921,8 @@ Tier 1 reuses existing `DialogProvider` / XDL patterns (`[plugin/chatbot/dialogs
 
 
 ### Microsoft Python in Excel vs Calc `=PY()` {#microsoft-python-in-excel-vs-writeragent}
+
+> **Collabora / LibreOffice deep dive:** For why matching Microsoft’s formula model is a bad default for Calc (hidden `xl()` deps, co-volatility vs the DAG, engine spill), and why a later `PY_XL` / import rewriter is the right compatibility lane, see **[ms-py-libreoffice-compatibility.md](ms-py-libreoffice-compatibility.md)**.
 
 Microsoft **Python in Excel** runs user code in **cloud containers** with `=PY(code, return_type)` and an `xl()` bridge inside Python strings. Here code runs **locally** in the user's venv with `=PY(code, data?)` — closer to Neptyne or LibrePythonista's compute model, but with explicit formula arguments instead of parsing `xl("A1")` out of code strings.
 
