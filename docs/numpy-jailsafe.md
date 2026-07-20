@@ -1,6 +1,6 @@
 # Collabora Online and jail-safe execution
 
-> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Correctness/lifecycle/platform blockers from the 2026-07 review (ranges, typed JSON parse, `pythonexecute` ids, unlock-before-finish, early emitter, Solar/weak lifetimes, kit emit marshal, multi-view/MOBILEAPP) are addressed in tree. Still open before Gerrit: request caps, service isolation, passive timeout / LRU identity, UnitWSD CI, commit series — see [Still open before Gerrit](#still-open-before-gerrit). Product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
+> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Correctness/lifecycle/platform blockers from the 2026-07 review (ranges, typed JSON parse, `pythonexecute` ids, unlock-before-finish, early emitter, Solar/weak lifetimes, kit emit marshal, multi-view/MOBILEAPP) are addressed in tree. **G6a (active pending timeout) landed** — AddIn one-shot `vcl::Timer` clears `#BUSY!` without recalc. **G6c (AddIn.idl identity) landed** — param cache now holds weak refs and never evicts live entries. Still open before Gerrit: request caps, service isolation, UnitWSD CI, commit series — see [Still open before Gerrit](#still-open-before-gerrit). Product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
 
 Related architecture comparison (AI chat / kit protocol, not Python compute): [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md).
 
@@ -104,7 +104,7 @@ Live in the Collabora Online / LibreOffice trees (`collabofficefull`), not write
 1. **Config:** `security.python_compute.enable` (default `false`) + `security.python_compute.url` in `coolwsd.xml.in` / `ConfigUtil.cpp`.
 2. **coolwsd:** `ClientSession::handlePythonComputeFromKit` — kit `pythoncompute:` → `http::Session` POST → `pythoncomputeresult:`.
 3. **kit:** `PythonComputeEmitter` — spreadsheet-only install; one stable egress owner among live views (no last-wins steal); MOBILEAPP no-op; `handlePythonComputeResult` → `pythoncompute_complete_json` (no product browser echo). Retries `dlsym` until AddIn symbols resolve. Debug kick: `pythonexecute` (`ENABLE_DEBUG` only; rejects `py-*` ids).
-4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile LRU (cap 256), `finish` / listener push under `SolarMutexGuard`, Any↔dumb JSON (`JsonWriter` + local hand parser — see [JSON note](#anyjson-dumb-json-note)), pending map (finish outside bridge mutex), matrix spill via `sequence<sequence<…>>`. No `FormulaError::Busy`.
+4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile weak-ref identity map (soft cap 256, never evicts live entries), `finish` / listener push under `SolarMutexGuard`, Any↔dumb JSON (`JsonWriter` + local hand parser — see [JSON note](#anyjson-dumb-json-note)), pending map (finish outside bridge mutex), matrix spill via `sequence<sequence<…>>`. No `FormulaError::Busy`.
 5. **Future work:** see [below](#future-work-prototype--hardened-online). Monaco / browser cell editor remains a separate Online UI track (LibrePy uses pywebview; do not port that into the kit).
 
 #### Cell markers / diagnosis (`#BUSY!`, `#DISABLED`, `#VALUE!`)
@@ -118,7 +118,7 @@ Volatile / finish values are **not** new Core `FormulaError` enum entries (Excel
 | `#VALUE!` | Other `status=error` / bad JSON / missing `result` (`FormulaError::NoValue`) | Service or network failures, parse failures |
 | `#N/A` | No emitter, timeout, superseded pending (`FormulaError::NotAvailable`) | Bridge lifecycle |
 
-**If `=PY()` shows `#DISABLED`:** turn on the flag in the **running** `coolwsd.xml` (or `--o:security.python_compute.enable=true`), restart coolwsd, and **reload the document** — the param→volatile LRU can stick the finished disabled result until params change or the kit is fresh. Keep `coolwsd.xml.in` / ConfigUtil defaults **`false`** for git/upstream; local `coolwsd.xml` is the demo override.
+**If `=PY()` shows `#DISABLED`:** turn on the flag in the **running** `coolwsd.xml` (or `--o:security.python_compute.enable=true`), restart coolwsd, and **reload the document** — the param→volatile cache can stick the finished disabled result until params change or the kit is fresh. Keep `coolwsd.xml.in` / ConfigUtil defaults **`false`** for git/upstream; local `coolwsd.xml` is the demo override.
 
 
 Logs: coolwsd → `/tmp/coolwsd.log` (`Python compute: disabled; rejecting…` / `POST …`); Core AddIn → `export SAL_LOG=+INFO.scaddins.pythoncompute` before starting coolwsd (`complete_json: detail=[…]`).
@@ -376,7 +376,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 | C++ `split_grid` / Pickle5 | Violates the dumb-JSON tip on purpose |
 | Kit-side NumPy / warm venv | Jail-incompatible by design |
 | Formula errors vs string cells | Admin-off → cell `#DISABLED` string (landed); other timeouts / service failures still `#VALUE!` / `#N/A` for now |
-| Per-document cache eviction | Process-wide LRU (cap 256); identity best-effort past the cap — see `kParamCacheCapacity` |
+| Per-document cache keying | Process-wide weak-ref identity map (soft cap 256, never evicts live entries); cleared on kit teardown — no per-`ScDocument` map (AddIn has no doc pointer; Core shares one volatile across docs) |
 
 ---
 
@@ -392,8 +392,8 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 |---|--------|--------|
 | G4 | No size / in-flight caps | Deferred for prototype — comments near WSD POST; implement before multi-tenant |
 | G5 | Service isolation aspirational | Deferred — bind/auth comments only; see [F4](#f4--compute-service-container-hardening) |
-| G6a | Pending timeout is passive | Open — `#BUSY!` can stick if idle and service silent |
-| G6c | LRU breaks AddIn.idl identity; sticky errors | Open — process LRU can evict / stick `#N/A` |
+| G6a | Pending timeout is passive | Done — AddIn one-shot `vcl::Timer` expires pending → `#N/A` without recalc |
+| G6c | LRU breaks AddIn.idl identity; sticky errors | Done — weak-ref identity map never evicts live entries; sticky retry = change params (documented) |
 | G8 | Missing UnitWSD / formula-level CI | Open — see [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
 | G9 | Series / hygiene | Open — split Core vs Online; squash tiny follow-ups; PY naming note |
 
@@ -429,22 +429,22 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 
 ### G6 — Remaining lifecycle gaps
 
-#### G6a — Pending timeout is passive
+#### G6a — Pending timeout is passive — **done**
 
-`expireStale_NoLock` (90 s) only runs from `startCompute` / `complete_json`. Idle sheet + silent service → `#BUSY!` forever. Align with WSD timeout and/or add an active timer / always-reply-from-WSD.
+AddIn arms a process-wide one-shot `vcl::Timer` to the earliest `g_aPending` deadline (default 90 s, cushion above WSD’s ~60 s HTTP timeout). `Invoke` reuses `expireStale_NoLock` + `finishExpired` under Solar (Unipoll feeds SalTimer into `kitPoll`). Idle sheet + silent service → `#N/A` without another `startCompute` / `complete_json`. CppUnit: `test_pendingTimeoutWithoutRecalc`.
 
-#### G6c — LRU breaks AddIn.idl identity; sticky errors
+#### G6c — LRU breaks AddIn.idl identity; sticky errors — **done**
 
-Process-wide LRU (cap 256) can evict keys while cells still hold the volatile; finished errors can stick until params change. Prefer per-document maps or never-evict mid-flight / still-referenced entries; document retry semantics.
+`g_aParamCache` is now a process-wide param→volatile map of `unotools::WeakReference`s (same shape as `AccessibleSpreadsheet::m_mapCells`). A still-live entry is **never** evicted, so `getPy` returns the same `XVolatileResult` for the same params even past the soft cap — no duplicate HTTP emit. `kParamCacheSoftCap` (256) only prunes lapsed weaks; the live set may grow past it (like `ScAddInAsync`, bounded by listeners). A weak lapses once no cell holds the volatile **and** the request finished (in-flight `#BUSY!` is pinned by `g_aPending`). Kit teardown calls `pythoncompute_clear_caches` from `clearEmitter` (last session) for memory — not identity. Sticky finished success/error stays v1; retry = change `code`/`data`. CppUnit: `test_paramCacheIdentityUnderPressure`, `test_paramCacheDropsLapsedWeak`.
 
 ### G8 — Test coverage gaps
 
-Core CppUnit covers scalars, typed strings, mixed/numeric grids, emitter round-trip, identity cache happy path. Still missing for Gerrit CI:
+Core CppUnit covers scalars, typed strings, mixed/numeric grids, emitter round-trip, identity cache happy path, identity under cache pressure, weak lapse. Still missing for Gerrit CI:
 
 | Area | Missing today |
 |------|----------------|
 | UnitWSD | enable/disable, POST happened, `pythoncomputeresult:`, allowlist reject, corrupt frame → error reply |
-| Lifecycle | timeout expiry without recalc; disconnect mid-flight |
+| Lifecycle | disconnect mid-flight (timeout-without-recalc covered by AddIn CppUnit) |
 | Limits | oversize body rejected; inflight cap (when G4 lands) |
 
 Land [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) with or before the Online change (stub HTTP in-unit).
@@ -454,7 +454,7 @@ Land [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) with 
 - Split **Core AddIn** vs **Online kit/wsd** (squash tiny id follow-ups into Online).
 - Explicit PR/IDL note on display name `PY` vs Excel semantics.
 - en-US-only strings / `SAL_DLLPUBLIC_EXPORT` test helpers / IDL comment vs volatile runtime — nits.
-- Cover letter: #16010, experimental + default off, non-goals (plots, shared kernel, Monaco), residual risk = G4/G5/G6a/c/G8.
+- Cover letter: #16010, experimental + default off, non-goals (plots, shared kernel, Monaco), residual risk = G4/G5/G8.
 
 Suggested series:
 
@@ -489,8 +489,8 @@ Code / product gaps still relevant for a Collabora-facing PR (overlaps the open 
 | Item | Where | Notes |
 |------|--------|--------|
 | **Request size / in-flight caps** | `wsd/ClientSession.cpp` | G4 |
-| **Pending timeout is passive** | `pythoncompute_bridge.cxx` | G6a |
-| **LRU / sticky errors** | param cache in bridge | G6c |
+| **Pending timeout is passive** | `pythoncompute_bridge.cxx` | G6a — **done** (VCL one-shot timer) |
+| **LRU / sticky errors** | param cache in bridge | G6c — **done** (weak-ref identity map) |
 | **Display name `PY`** | IDL / release notes | G9 |
 | **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | G8 / [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
 | **Service auth + private bind** | coolwsd ↔ compute | G5 / [F4](#f4--compute-service-container-hardening) |

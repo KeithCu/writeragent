@@ -27,6 +27,14 @@ markers = [
     "slow: excluded from default pytest; run via make slowtests",
     "integration: full subprocess worker IPC (optional, slower)",
 ]
+filterwarnings = [
+    "ignore::DeprecationWarning:matplotlib.*",
+    "ignore::DeprecationWarning:pyparsing.*",
+    "ignore::pyparsing.PyparsingDeprecationWarning",
+    "ignore:Precision loss occurred in moment calculation:RuntimeWarning:scipy.*",
+    "ignore::statsmodels.tools.sm_exceptions.ValueWarning",
+    "ignore:invalid value encountered in sqrt:RuntimeWarning:sklearn.*",
+]
 
 [build-system]
 requires = ["setuptools"]

@@ -167,7 +167,7 @@ def compare_png_images(reference_png: Path, imported_png: Path, diff_png: Path, 
     diff.save(diff_png)
     stat = ImageStat.Stat(diff)
     mae = sum(stat.mean) / (3.0 * 255.0)
-    diff_pixels = sum(sum(cast("tuple[int, ...]", px)) > pixel_threshold for px in cast("Any", diff.getdata()))
+    diff_pixels = sum(sum(cast("tuple[int, ...]", px)) > pixel_threshold for px in cast("Any", diff.get_flattened_data()))
     total = ref.size[0] * ref.size[1] or 1
     return VisualMetrics(
         width=ref.size[0],
