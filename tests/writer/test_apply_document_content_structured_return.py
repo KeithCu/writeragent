@@ -37,6 +37,7 @@ def _no_libreoffice(monkeypatch):
     monkeypatch.setattr(content_mod, "_normalize_search_string_for_find", lambda s: s)
     monkeypatch.setattr(format_mod, "replace_preserving_format", lambda *a, **k: None)
     monkeypatch.setattr(format_mod, "replace_single_range_with_content", lambda *a, **k: None)
+    monkeypatch.setattr(content_mod, "_drawing_shape_object_containing", lambda *a, **k: None)
 
 
 class MockRange:
