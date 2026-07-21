@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-12 17:49-0400\n"
+"POT-Creation-Date: 2026-07-21 19:07-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -420,27 +420,6 @@ msgstr ""
 msgid "No structured tables or text blocks to insert."
 msgstr ""
 
-#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
-msgid "Venv OK"
-msgstr ""
-
-#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
-msgid "Venv check failed"
-msgstr ""
-
-#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
-#: plugin/xdl_strings.py
-msgid "Testing Python environment..."
-msgstr ""
-
-#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
-msgid "Done"
-msgstr ""
-
-#: plugin/librepy/settings.py plugin/chatbot/dialog_views.py
-msgid "Failed"
-msgstr ""
-
 #: plugin/librepy/settings.py
 msgid "Cython Accelerator Download"
 msgstr ""
@@ -471,6 +450,27 @@ msgstr ""
 
 #: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
+msgstr ""
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "No automatic replacement is available."
+msgstr ""
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid ""
+"Suggested fix: delete the highlighted text (the blank replacement below)."
+msgstr ""
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Suggested fix: replace with one space (the blank replacement below)."
+msgstr ""
+
+#: plugin/writer/locale/grammar_proofread_text.py
+msgid "Choose a replacement below."
+msgstr ""
+
+#: plugin/writer/locale/ai_grammar_proofreader.py
+msgid "AI Grammar"
 msgstr ""
 
 #: plugin/writer/math/latex_dialog.py
@@ -1431,6 +1431,26 @@ msgstr ""
 msgid "Output"
 msgstr ""
 
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv OK"
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Venv check failed"
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py plugin/xdl_strings.py
+msgid "Testing Python environment..."
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Done"
+msgstr ""
+
+#: plugin/scripting/venv_probe_ui.py
+msgid "Failed"
+msgstr ""
+
 #: plugin/scripting/editor_host.py
 msgid ""
 "Set the Python venv path in WriterAgent Settings → Python (same venv where "
@@ -1749,42 +1769,6 @@ msgstr ""
 #: plugin/scripting/domain_registry.py
 #, python-brace-format
 msgid "{domain} '{helper}' completed. (took {time})"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "Analysis Helpers"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "SQL Helpers"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "Vision Helpers"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "Viz Helpers"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "Math Helpers"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "Units Helpers"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "Quant Helpers"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "Optimize Helpers"
-msgstr ""
-
-#: plugin/scripting/domain_registry.py
-msgid "Forecast Helpers"
 msgstr ""
 
 #: plugin/scripting/session_manager.py
