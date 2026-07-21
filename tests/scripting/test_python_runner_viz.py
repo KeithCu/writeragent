@@ -26,7 +26,10 @@ def test_execute_and_insert_viz_skips_fast_path(mock_venv, mock_run, mock_insert
     doc.getCurrentController.return_value = MagicMock()
     doc.getCurrentController.return_value.getSelection.return_value = None
 
-    with patch("plugin.scripting.python_runner.is_calc", return_value=True):
+    with (
+        patch("plugin.scripting.python_runner.is_writer", return_value=False),
+        patch("plugin.scripting.python_runner.is_calc", return_value=True),
+    ):
         mock_venv.return_value = {
             "status": "ok",
             "result": {

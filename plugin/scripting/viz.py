@@ -207,7 +207,7 @@ def insert_image_payload_for_doc(
     raise ToolExecutionError(_("Unsupported document type for plot insertion."), code="VIZ_ERROR")
 
 
-def insert_viz_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> None:
+def insert_viz_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a viz helper result (image nested under ``image`` key)."""
     if result.get("status") == "error":
         code = str(result.get("code") or "VIZ_ERROR")
@@ -223,6 +223,7 @@ def insert_viz_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> No
     title = str(result.get("title") or result.get("helper") or "Plot")
     for img in images:
         insert_image_payload_for_doc(ctx, doc, img, title=title)
+    return len(images)
 
 
 def try_insert_plot_result(ctx: Any, doc: Any, result_data: Any) -> bool:

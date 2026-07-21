@@ -100,14 +100,34 @@ def _parse_unit_or_quantity(ureg: Any, text: str, *, helper: str, param: str) ->
         return _parse_quantity_value(ureg, raw, helper=helper)
 
 
-def convert_quantity(*, value: str, from_unit: str, to_unit: str) -> dict[str, Any]:
+def convert_quantity(
+    value: str,
+    from_unit: str = "",
+    to_unit: str = "",
+    *,
+    from_unit_kw: str = "",
+    to_unit_kw: str = "",
+    **kwargs: Any,
+) -> dict[str, Any]:
     helper = "convert_quantity"
     if _require_pint(helper) is None:
         return _missing_package(helper)
-    from_text = str(from_unit or "").strip()
-    to_text = str(to_unit or "").strip()
+    from_text = str(
+        from_unit
+        or from_unit_kw
+        or kwargs.get("from")
+        or kwargs.get("from_unit")
+        or ""
+    ).strip()
+    to_text = str(
+        to_unit
+        or to_unit_kw
+        or kwargs.get("to")
+        or kwargs.get("to_unit")
+        or ""
+    ).strip()
     if not from_text or not to_text:
-        return _error_result("MISSING_PARAM", "from_unit and to_unit are required", helper=helper)
+        return _error_result("MISSING_PARAM", "from and to units are required", helper=helper)
     try:
         ureg = _get_ureg()
         qty = ureg.Quantity(f"{float(str(value or '0').strip())} {from_text}")
@@ -200,8 +220,8 @@ def _dispatch_helper(name: str, params: dict[str, Any]) -> dict[str, Any]:
     if name == "convert_quantity":
         return convert_quantity(
             value=str(params.get("value") or ""),
-            from_unit=str(params.get("from_unit") or ""),
-            to_unit=str(params.get("to_unit") or ""),
+            from_unit=str(params.get("from") or params.get("from_unit") or ""),
+            to_unit=str(params.get("to") or params.get("to_unit") or ""),
         )
     if name == "parse_quantity":
         return parse_quantity(quantity=str(params.get("quantity") or ""))

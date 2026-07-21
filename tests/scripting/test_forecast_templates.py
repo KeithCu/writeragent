@@ -15,7 +15,7 @@ from plugin.scripting.forecast import (
 def test_get_forecast_template_is_executable():
     code = get_forecast_template("forecast_time_series")
     assert code is not None
-    assert "run_forecast" in code
+    assert "from writeragent.scripting.forecast import forecast_time_series" in code
     assert "forecast_time_series" in code
     assert "# writeragent:forecast" not in code
 
@@ -34,7 +34,7 @@ def test_get_forecast_template_anomaly_helper():
     assert code is not None
     assert "anomaly_detection_time_series" in code
     assert "stl_residual" in code
-    assert "run_forecast" in code
+    assert "from writeragent.scripting.forecast import anomaly_detection_time_series" in code
 
 
 def test_parse_forecast_script_header_invalid():

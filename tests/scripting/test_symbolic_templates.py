@@ -12,11 +12,11 @@ from plugin.scripting.symbolic import get_math_script_templates
 def test_get_math_script_templates_include_run_call():
     templates = get_math_script_templates()
     assert "solve_equation" in templates
-    assert "run_symbolic" in templates["solve_equation"]
+    assert "from writeragent.scripting.symbolic import solve_equation" in templates["solve_equation"]
     assert "# writeragent:math" not in templates["solve_equation"]
 
 
 def test_math_template_body_includes_helper_params():
     code = get_math_script_templates()["integrate"]
     assert '"expression":"sin(x)"' in code
-    assert '"helper": "integrate"' in code
+    assert "from writeragent.scripting.symbolic import integrate" in code

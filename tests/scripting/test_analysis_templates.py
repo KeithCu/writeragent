@@ -22,8 +22,7 @@ def test_template_body_round_trip():
     templates = get_analysis_script_templates()
     code = templates["describe_data"]
     assert "# writeragent:analysis" not in code
-    assert '"helper": "describe_data"' in code
-    assert "run_analysis" in code
+    assert "from writeragent.scripting.analysis import describe_data" in code
 
 
 def test_parse_header_with_params():

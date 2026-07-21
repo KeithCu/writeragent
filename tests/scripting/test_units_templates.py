@@ -13,11 +13,11 @@ def test_get_units_script_templates_include_run_call():
     templates = get_units_script_templates()
     assert "convert_quantity" in templates
     assert '"value":"10"' in templates["convert_quantity"]
-    assert "run_units" in templates["convert_quantity"]
+    assert "from writeragent.scripting.units import convert_quantity" in templates["convert_quantity"]
     assert "# writeragent:units" not in templates["convert_quantity"]
 
 
 def test_units_template_body_includes_helper_params():
     code = get_units_script_templates()["parse_quantity"]
     assert '"quantity":"10 m/s"' in code
-    assert '"helper": "parse_quantity"' in code
+    assert "from writeragent.scripting.units import parse_quantity" in code

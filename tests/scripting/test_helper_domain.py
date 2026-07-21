@@ -72,8 +72,8 @@ def test_build_run_import_template_has_header_and_import():
     assert not body.startswith("# writeragent:")
     assert body.startswith("# Convert")
     assert '"value":"10"' in body
-    assert "from writeragent.scripting.units import run_units" in body
-    assert "result = run_units(" in body
+    assert "from writeragent.scripting.units import convert_quantity" in body
+    assert "result = convert_quantity(" in body
 
 
 def test_parse_run_import_call_params_reads_body():

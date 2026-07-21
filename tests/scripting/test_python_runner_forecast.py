@@ -22,6 +22,7 @@ def test_execute_and_insert_forecast_venv_path(mock_venv, mock_insert):
     doc = MagicMock()
 
     with (
+        patch("plugin.scripting.python_runner.is_writer", return_value=False),
         patch("plugin.scripting.domain_registry.is_calc", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
     ):

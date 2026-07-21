@@ -25,6 +25,7 @@ def test_execute_and_insert_analysis_skips_fast_path(mock_venv, mock_run, mock_i
     doc.getCurrentController.return_value.getSelection.return_value = None
 
     with (
+        patch("plugin.scripting.python_runner.is_writer", return_value=False),
         patch("plugin.scripting.domain_registry.is_calc", return_value=True),
         patch("plugin.scripting.python_runner.is_calc", return_value=True),
     ):

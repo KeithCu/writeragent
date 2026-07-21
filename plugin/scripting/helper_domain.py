@@ -121,8 +121,8 @@ def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] 
 
 
 def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
-    """Return the first positional spec dict from ``run_name({...}, ...)`` when literal."""
-    if not code or not run_name:
+    """Return the first positional spec dict from ``run_name({...}, ...)`` or direct helper call when literal."""
+    if not code:
         return None
     try:
         tree = ast.parse(code)
@@ -132,15 +132,22 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if not isinstance(func, ast.Name) or func.id != run_name:
+        if not isinstance(func, ast.Name):
             continue
-        if not node.args:
-            continue
-        spec = _literal_value(node.args[0])
-        if isinstance(spec, dict):
-            return spec
-        if isinstance(spec, str):
-            return {"helper": spec, "params": {}}
+        if func.id == run_name:
+            if not node.args:
+                continue
+            spec = _literal_value(node.args[0])
+            if isinstance(spec, dict):
+                return spec
+            if isinstance(spec, str):
+                return {"helper": spec, "params": {}}
+        elif node.keywords and any(kw.arg is None for kw in node.keywords):
+            for kw in node.keywords:
+                if kw.arg is None:
+                    val = _literal_value(kw.value)
+                    if isinstance(val, dict):
+                        return {"helper": func.id, "params": val}
     return None
 
 
@@ -196,18 +203,14 @@ def build_helper_script_template(
         return "\n".join(lines) + "\n"
 
     # run_import style (analysis / units / viz / math / …) — executable Python only; no header comment.
-    if not import_module or not run_name:
-        raise ValueError("import_module and run_name required for style='run_import'")
-    default_extra = extra_comment_lines or ("# Edit the run call below, then Run.",)
+    if not import_module:
+        raise ValueError("import_module required for style='run_import'")
+    default_extra = extra_comment_lines or ("# Edit the call below, then Run.",)
     body_lines = [
         f"# {description}",
         *default_extra,
-        f"from {import_module} import {run_name}\n",
-        f"result = {run_name}(",
-        f'    {{"helper": "{helper}", "params": {params_json}}},',
-        f"    {data_expr},",
-        f"    {context_expr},",
-        ")",
+        f"from {import_module} import {helper}\n",
+        f"result = {helper}(**{params_json})",
         "",
     ]
     return "\n".join(body_lines)

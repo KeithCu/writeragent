@@ -382,20 +382,19 @@ def execute_and_insert_result(
     bindings: dict[str, Any] | None = None
     from plugin.scripting.helper_domain import parse_run_import_call_spec, script_uses_run_import
 
-    if is_writer(doc):
+    if is_writer(doc) and (script_uses_run_import(code, run_name="run_text_analytics") or "writeragent.scripting.text_analytics" in code):
         from plugin.scripting.helper_domain import prepend_run_import_document_bindings
         from plugin.scripting.text_analytics import resolve_text_analytics_document_inputs
 
-        if script_uses_run_import(code, run_name="run_text_analytics"):
-            call_spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
-            helper = str(call_spec.get("helper") or "full")
-            text, document_context = resolve_text_analytics_document_inputs(doc, helper)
-            exec_code = prepend_run_import_document_bindings(
-                code,
-                bindings={"text": text, "document_context": document_context},
-            )
+        call_spec = parse_run_import_call_spec(code, run_name="run_text_analytics") or {}
+        helper = str(call_spec.get("helper") or "full")
+        text, document_context = resolve_text_analytics_document_inputs(doc, helper)
+        exec_code = prepend_run_import_document_bindings(
+            code,
+            bindings={"text": str(text), "document_context": document_context if isinstance(document_context, dict) else {}},
+        )
 
-    if script_uses_run_import(code, run_name="run_vision"):
+    if "run_vision" in code and script_uses_run_import(code, run_name="run_vision"):
         from plugin.framework.errors import ToolExecutionError
         from plugin.vision.vision_common import merge_vision_params
         from plugin.vision.vision_runner import resolve_vision_image_bytes, supports_vision_manual

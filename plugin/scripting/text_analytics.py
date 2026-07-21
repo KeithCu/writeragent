@@ -329,7 +329,7 @@ def _result_to_html_table(data: dict[str, Any]) -> str:
     return '<table border="1" style="border-collapse:collapse"><tbody>' + "".join(rows) + "</tbody></table>"
 
 
-def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> None:
+def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
     from plugin.doc.document_helpers import is_writer
     from plugin.framework.errors import ToolExecutionError
@@ -368,6 +368,7 @@ def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, 
         pass
 
     insert_content_at_position(doc, ctx, html, "selection")
+    return 1
 
 
 def insert_text_analytics_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any]) -> None:

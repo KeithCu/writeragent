@@ -34,7 +34,10 @@ def my_setup(ctx):
 def my_teardown(ctx):
     global _doc
     if _doc:
-        _doc.close(True)
+        try:
+            _doc.close(True)
+        except Exception:
+            pass
     _doc = None
 
 

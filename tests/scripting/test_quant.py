@@ -28,7 +28,7 @@ setup_uno_mocks()
 def test_quant_template_is_executable():
     code = get_quant_template("fetch_historical_data")
     assert code is not None
-    assert "run_quant" in code
+    assert "from writeragent.scripting.quant import fetch_historical_data" in code
     assert "fetch_historical_data" in code
     assert QUANT_HEADER_PREFIX not in code.splitlines()[0]
 

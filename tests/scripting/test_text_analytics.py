@@ -63,10 +63,7 @@ def test_text_analytics_templates_include_run_call():
         if h in temps:
             code = temps[h]
             assert ta.TEXT_ANALYTICS_HEADER_PREFIX not in code
-            assert f'"helper": "{h}"' in code
-            assert "run_text_analytics" in code
-            assert "text" in code
-            assert "document_context" in code
+            assert f"from writeragent.scripting.text_analytics import {h}" in code
 
 
 def test_text_analytics_is_result_shapes():
@@ -127,7 +124,7 @@ def test_text_analytics_topics_in_helernames_and_templates():
     temps = ta.get_text_analytics_script_templates()
     assert "topics" in temps
     code = temps["topics"]
-    assert '"helper": "topics"' in code
+    assert "from writeragent.scripting.text_analytics import topics" in code
     assert '"n_topics":4' in code or '"n_topics": 4' in code
 
 
@@ -170,8 +167,7 @@ def test_text_analytics_sentiment_in_helernames_and_templates():
     temps = ta.get_text_analytics_script_templates()
     assert "sentiment" in temps
     code = temps["sentiment"]
-    assert '"helper": "sentiment"' in code
-    assert "run_text_analytics" in code
+    assert "from writeragent.scripting.text_analytics import sentiment" in code
 
 
 def test_text_analytics_sentiment_uses_config_model_via_params():

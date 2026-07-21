@@ -203,14 +203,13 @@ def insert_symbolic_result_into_calc(doc: Any, ctx: Any, result: dict[str, Any])
     return len(grid)
 
 
-def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], *, display_block: bool = False) -> None:
+def insert_symbolic_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any], *, display_block: bool = False) -> int:
     """Insert a symbolic helper result into Writer or Calc."""
     if is_writer(doc):
         insert_symbolic_result_into_writer(ctx, doc, result, display_block=display_block)
-        return
+        return 1
     if is_calc(doc):
-        insert_symbolic_result_into_calc(doc, ctx, result)
-        return
+        return insert_symbolic_result_into_calc(doc, ctx, result)
     raise ToolExecutionError(_("Unsupported document type for symbolic insertion."), code="SYMBOLIC_ERROR")
 
 

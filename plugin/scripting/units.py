@@ -28,7 +28,7 @@ UNITS_HEADER_PREFIX = header_prefix("units")
 _SHIPPED_TEMPLATES = frozenset({"convert_quantity", "parse_quantity", "check_dimensionality"})
 
 _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "convert_quantity": {"value": "10", "from_unit": "m/s", "to_unit": "km/h"},
+    "convert_quantity": {"value": "10", "from": "m/s", "to": "km/h"},
     "parse_quantity": {"quantity": "10 m/s"},
     "check_dimensionality": {"quantity_a": "10 m/s", "quantity_b": "5 km/h"},
 }
@@ -243,14 +243,13 @@ def insert_units_result_into_doc(
     result: dict[str, Any],
     *,
     output_style: str | None = None,
-) -> None:
+) -> int:
     """Insert a units helper result into Writer or Calc."""
     if is_writer(doc):
         insert_units_result_into_writer(ctx, doc, result)
-        return
+        return 1
     if is_calc(doc):
-        insert_units_result_into_calc(doc, ctx, result, output_style=output_style)
-        return
+        return insert_units_result_into_calc(doc, ctx, result, output_style=output_style)
     raise ToolExecutionError(_("Unsupported document type for units insertion."), code="UNITS_ERROR")
 
 

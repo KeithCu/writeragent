@@ -39,8 +39,7 @@ def test_units_templates_cover_shipped_helpers():
     templates = get_units_script_templates()
     assert set(templates.keys()) == set(_SHIPPED_TEMPLATES)
     for helper, code in templates.items():
-        assert f'"helper": "{helper}"' in code
-        assert "run_units" in code
+        assert f"from writeragent.scripting.units import {helper}" in code
 
 
 def test_text_templates_cover_shipped_helpers():
@@ -51,24 +50,22 @@ def test_text_templates_cover_shipped_helpers():
     public = {h for h in TEXT_HELPERS if h not in ("diagnostics", "check")}
     assert set(templates.keys()) == public
     for helper, code in templates.items():
-        assert f'"helper": "{helper}"' in code
-        assert "run_text_analytics" in code
+        assert f"from writeragent.scripting.text_analytics import {helper}" in code
 
 
 @pytest.mark.parametrize(
-    "template_fn,helper_names,run_name",
+    "template_fn,helper_names,module_path",
     [
-        (get_forecast_template, FORECAST_HELPERS, "run_forecast"),
-        (get_optimize_template, OPTIMIZE_HELPERS, "run_optimize"),
-        (get_quant_template, QUANT_HELPERS, "run_quant"),
+        (get_forecast_template, FORECAST_HELPERS, "writeragent.scripting.forecast"),
+        (get_optimize_template, OPTIMIZE_HELPERS, "writeragent.scripting.optimize"),
+        (get_quant_template, QUANT_HELPERS, "writeragent.scripting.quant"),
     ],
 )
-def test_per_helper_templates_are_executable(template_fn, helper_names, run_name):
+def test_per_helper_templates_are_executable(template_fn, helper_names, module_path):
     for helper in helper_names:
         code = template_fn(helper)
         assert code is not None
-        assert run_name in code
-        assert f'"helper": "{helper}"' in code
+        assert f"from {module_path} import {helper}" in code
         assert f"# writeragent:" not in code.splitlines()[0]
 
 

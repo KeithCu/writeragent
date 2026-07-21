@@ -12,14 +12,14 @@ from plugin.scripting.viz import get_viz_script_templates, parse_viz_script_head
 def test_get_viz_script_templates_include_run_call():
     templates = get_viz_script_templates()
     assert "quick_plot" in templates
-    assert "run_viz" in templates["quick_plot"]
+    assert "from writeragent.scripting.viz import quick_plot" in templates["quick_plot"]
     assert "# writeragent:viz" not in templates["quick_plot"]
 
 
 def test_viz_template_body_includes_helper_params():
     code = get_viz_script_templates()["correlation_heatmap"]
     assert '"method":"pearson"' in code
-    assert '"helper": "correlation_heatmap"' in code
+    assert "from writeragent.scripting.viz import correlation_heatmap" in code
 
 
 def test_parse_viz_script_header_rejects_unknown_helper():
