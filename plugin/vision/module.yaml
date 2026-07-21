@@ -6,7 +6,7 @@ settings_tab: false
 
 config_dialog:
   id: VisionSettingsDialog
-  library: WriterAgentDialogs
+  library: Dialogs
   title: Vision / OCR Settings
   width: 350
   height: 170

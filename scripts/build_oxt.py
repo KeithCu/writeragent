@@ -39,7 +39,7 @@ ALWAYS_INCLUDE_EXTENSION = [
     "extension/Jobs.xcu",
     "extension/registration/",
     "extension/registry/",
-    "extension/WriterAgentDialogs/",
+    "extension/Dialogs/",
     "extension/assets/",
 ]
 
@@ -102,7 +102,7 @@ EXCLUDE_PATTERNS = (
 # Generated files (XCS/XCU, XDL dialogs)
 GENERATED_INCLUDES = [
     "build/generated/dialogs/",
-    "build/generated/WriterAgentDialogs/",
+    "build/generated/Dialogs/",
     "build/generated/Addons.xcu",
     "build/generated/Accelerators.xcu",
 ]

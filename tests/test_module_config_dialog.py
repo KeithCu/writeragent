@@ -22,7 +22,7 @@ def test_get_module_config_dialog_id_for_vision():
         "plugin.chatbot.settings_fields.find_module_manifest",
         return_value={
             "name": "vision",
-            "config_dialog": {"id": "VisionSettingsDialog", "library": "WriterAgentDialogs"},
+            "config_dialog": {"id": "VisionSettingsDialog", "library": "Dialogs"},
         },
     ):
         assert get_module_config_dialog_id("vision") == "VisionSettingsDialog"

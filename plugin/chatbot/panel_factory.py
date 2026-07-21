@@ -89,7 +89,7 @@ log = logging.getLogger(__name__)
 
 # Extension ID from description.xml; XDL path inside the .oxt
 EXTENSION_ID = "org.extension.writeragent"
-XDL_PATH = "WriterAgentDialogs/ChatPanelDialog.xdl"
+XDL_PATH = "Dialogs/ChatPanelDialog.xdl"
 _PRE_NEGOTIATION_PANEL_WIDTH = 420
 
 # Default max tool rounds when not in config (get_api_config supplies chat_max_tool_rounds)

@@ -33,7 +33,7 @@ def _mock_control(x, y, width, height):
 
 
 def _xdl_snapshot():
-    """Positions from extension/WriterAgentDialogs/ChatPanelDialog.xdl."""
+    """Positions from extension/Dialogs/ChatPanelDialog.xdl."""
     return {
         "response": (4, 16, 142, 110),
         "status": (4, 128, 142, 10),

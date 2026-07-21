@@ -50,7 +50,7 @@ def _xdl_paths() -> list[str]:
         if rel.endswith(".xdl"):
             paths.append(os.path.join(PROJECT_ROOT, rel))
     for pattern in (
-        os.path.join(PROJECT_ROOT, "build", "generated", "WriterAgentDialogs", "*.xdl"),
+        os.path.join(PROJECT_ROOT, "build", "generated", "Dialogs", "*.xdl"),
         os.path.join(PROJECT_ROOT, "build", "generated", "dialogs", "*.xdl"),
     ):
         paths.extend(sorted(glob.glob(pattern)))

@@ -151,7 +151,7 @@ class ModuleConfigDialog:
             smgr = ctx.getServiceManager()
             base_url = get_extension_url()
             dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-            dlg = dp.createDialog(base_url + "/WriterAgentDialogs/%s.xdl" % dialog_id)
+            dlg = dp.createDialog(base_url + "/Dialogs/%s.xdl" % dialog_id)
         except Exception:
             log.exception("Failed to load module config dialog %s", dialog_id)
             return

@@ -316,22 +316,22 @@ function Install-ToCache {
     }
 
     # Sync dialogs (static + dynamically generated)
-    $staticDialogs = Join-Path $ProjectRoot "extension\WriterAgentDialogs"
-    $generatedDialogs = Join-Path $ProjectRoot "build\generated\WriterAgentDialogs"
+    $staticDialogs = Join-Path $ProjectRoot "extension\Dialogs"
+    $generatedDialogs = Join-Path $ProjectRoot "build\generated\Dialogs"
     if (Test-Path $staticDialogs) {
-        $dst = Join-Path $extDir "WriterAgentDialogs"
+        $dst = Join-Path $extDir "Dialogs"
         if (Test-Path $dst) { Remove-Item -Path $dst -Recurse -Force }
         Copy-Item -Path $staticDialogs -Destination $dst -Recurse -Force
         if (Test-Path $generatedDialogs) {
             Copy-Item -Path (Join-Path $generatedDialogs "*") -Destination $dst -Recurse -Force
         }
-        Write-Host "    WriterAgentDialogs/ synced"
+        Write-Host "    Dialogs/ synced"
         $deployed++
     } elseif (Test-Path $generatedDialogs) {
-        $dst = Join-Path $extDir "WriterAgentDialogs"
+        $dst = Join-Path $extDir "Dialogs"
         if (Test-Path $dst) { Remove-Item -Path $dst -Recurse -Force }
         Copy-Item -Path $generatedDialogs -Destination $dst -Recurse -Force
-        Write-Host "    WriterAgentDialogs/ (generated) synced"
+        Write-Host "    Dialogs/ (generated) synced"
         $deployed++
     }
 

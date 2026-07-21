@@ -1,6 +1,565 @@
 {
-  "updated_at": "2026-07-05T21:10:10.177Z",
+  "updated_at": "2026-07-16T01:10:20.002Z",
   "models": [
+    {
+      "id": "kwaipilot/kat-coder-air-v2.5",
+      "name": "KAT-Coder-Air V2.5",
+      "author_name": "Kwaipilot",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "kwaipilot/kat-coder-air-v2.5-20260710",
+      "created_at": "2026-07-10T20:16:30.659Z",
+      "context_length": 256000,
+      "supported_parameters": [
+        "frequency_penalty",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 3e-08,
+        "text_cache_write": null,
+        "text_input": 1.5e-07,
+        "text_output": 6e-07
+      }
+    },
+    {
+      "id": "kwaipilot/kat-coder-pro-v2.5",
+      "name": "KAT-Coder-Pro V2.5",
+      "author_name": "Kwaipilot",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": false,
+      "variant": "standard",
+      "version_id": "kwaipilot/kat-coder-pro-v2.5-20260710",
+      "created_at": "2026-07-10T20:16:29.989Z",
+      "context_length": 256000,
+      "supported_parameters": [
+        "frequency_penalty",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 1.5e-07,
+        "text_cache_write": null,
+        "text_input": 7.4e-07,
+        "text_output": 2.96e-06
+      }
+    },
+    {
+      "id": "openai/gpt-5.6-luna-pro",
+      "name": "GPT-5.6 Luna Pro",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "openai/gpt-5.6-luna-pro-20260709",
+      "created_at": "2026-07-09T09:54:27.822Z",
+      "context_length": 1050000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 1.03333e-07,
+        "text_cache_write": 1.291667e-06,
+        "text_input": 1.033333e-06,
+        "text_output": 6.2e-06
+      }
+    },
+    {
+      "id": "openai/gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "openai/gpt-5.6-luna-20260709",
+      "created_at": "2026-07-09T09:54:24.706Z",
+      "context_length": 1050000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 1.03333e-07,
+        "text_cache_write": 1.291667e-06,
+        "text_input": 1.033333e-06,
+        "text_output": 6.2e-06
+      }
+    },
+    {
+      "id": "openai/gpt-5.6-terra-pro",
+      "name": "GPT-5.6 Terra Pro",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "openai/gpt-5.6-terra-pro-20260709",
+      "created_at": "2026-07-09T09:54:21.715Z",
+      "context_length": 1050000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2.58333e-07,
+        "text_cache_write": 3.229167e-06,
+        "text_input": 2.583333e-06,
+        "text_output": 1.55e-05
+      }
+    },
+    {
+      "id": "openai/gpt-5.6-terra",
+      "name": "GPT-5.6 Terra",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "openai/gpt-5.6-terra-20260709",
+      "created_at": "2026-07-09T09:54:17.907Z",
+      "context_length": 1050000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2.58333e-07,
+        "text_cache_write": 3.229167e-06,
+        "text_input": 2.583333e-06,
+        "text_output": 1.55e-05
+      }
+    },
+    {
+      "id": "openai/gpt-5.6-sol-pro",
+      "name": "GPT-5.6 Sol Pro",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "openai/gpt-5.6-sol-pro-20260709",
+      "created_at": "2026-07-09T09:54:14.664Z",
+      "context_length": 1050000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 5.16667e-07,
+        "text_cache_write": 6.458333e-06,
+        "text_input": 5.166667e-06,
+        "text_output": 3.1e-05
+      }
+    },
+    {
+      "id": "openai/gpt-5.6-sol",
+      "name": "GPT-5.6 Sol",
+      "author_name": "OpenAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "openai/gpt-5.6-sol-20260709",
+      "created_at": "2026-07-09T09:54:10.415Z",
+      "context_length": 1050000,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_completion_tokens",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "structured_outputs",
+        "tool_choice",
+        "tools"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 5.16667e-07,
+        "text_cache_write": 6.458333e-06,
+        "text_input": 5.166667e-06,
+        "text_output": 3.1e-05
+      }
+    },
+    {
+      "id": "x-ai/grok-4.5",
+      "name": "Grok 4.5",
+      "author_name": "xAI",
+      "input_modalities": [
+        "file",
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "x-ai/grok-4.5-20260708",
+      "created_at": "2026-07-08T15:05:54.846Z",
+      "context_length": 500000,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": true,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 5e-07,
+        "text_cache_write": null,
+        "text_input": 2e-06,
+        "text_output": 6e-06
+      }
+    },
+    {
+      "id": "aion-labs/aion-3.0-mini",
+      "name": "Aion-3.0-Mini",
+      "author_name": "AionLabs",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "aion-labs/aion-3.0-mini-20260707",
+      "created_at": "2026-07-07T16:51:36.409Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 1.8e-07,
+        "text_cache_write": null,
+        "text_input": 7e-07,
+        "text_output": 1.4e-06
+      }
+    },
+    {
+      "id": "aion-labs/aion-3.0",
+      "name": "Aion-3.0",
+      "author_name": "AionLabs",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "aion-labs/aion-3.0-20260707",
+      "created_at": "2026-07-07T16:51:35.786Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 7.5e-07,
+        "text_cache_write": null,
+        "text_input": 3e-06,
+        "text_output": 6e-06
+      }
+    },
+    {
+      "id": "tencent/hy3:free",
+      "name": "Hy3 (free)",
+      "author_name": "Tencent",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "free",
+      "version_id": "tencent/hy3-20260706",
+      "created_at": "2026-07-06T13:20:48.963Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": null
+    },
+    {
+      "id": "tencent/hy3",
+      "name": "Hy3",
+      "author_name": "Tencent",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "tencent/hy3-20260706",
+      "created_at": "2026-07-06T13:20:48.963Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 4e-08,
+        "text_cache_write": null,
+        "text_input": 1.6e-07,
+        "text_output": 6.53333e-07
+      }
+    },
     {
       "id": "poolside/laguna-xs-2.1:free",
       "name": "Laguna XS 2.1 (free)",
@@ -108,6 +667,51 @@
         "text_cache_write": 2.571429e-06,
         "text_input": 2.057143e-06,
         "text_output": 1.0285714e-05
+      }
+    },
+    {
+      "id": "nex-agi/nex-n2-mini",
+      "name": "Nex-N2-Mini",
+      "author_name": "Nex AGI",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "nex-agi/nex-n2-mini",
+      "created_at": "2026-06-24T14:56:04.369Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2.5e-09,
+        "text_cache_write": null,
+        "text_input": 2.5e-08,
+        "text_output": 1e-07
       }
     },
     {
@@ -274,10 +878,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.59718e-07,
+        "text_cache_read": 2.74373e-07,
         "text_cache_write": null,
-        "text_input": 1.282814e-06,
-        "text_output": 4.183743e-06
+        "text_input": 1.332275e-06,
+        "text_output": 4.298936e-06
       }
     },
     {
@@ -328,10 +932,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.89367e-07,
+        "text_cache_read": 1.85422e-07,
         "text_cache_write": null,
-        "text_input": 9.51833e-07,
-        "text_output": 4.108333e-06
+        "text_input": 9.26677e-07,
+        "text_output": 4.058667e-06
       }
     },
     {
@@ -372,10 +976,54 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1e-06,
-        "text_cache_write": 1.25e-05,
-        "text_input": 1e-05,
-        "text_output": 5e-05
+        "text_cache_read": 1.016667e-06,
+        "text_cache_write": 1.2708333e-05,
+        "text_input": 1.0166667e-05,
+        "text_output": 5.0833333e-05
+      }
+    },
+    {
+      "id": "nex-agi/nex-n2-pro",
+      "name": "Nex-N2-Pro",
+      "author_name": "Nex AGI",
+      "input_modalities": [
+        "image",
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "nex-agi/nex-n2-pro",
+      "created_at": "2026-06-08T16:45:40.435Z",
+      "context_length": 262144,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 1.375e-07,
+        "text_cache_write": null,
+        "text_input": 3.75e-07,
+        "text_output": 1.75e-06
       }
     },
     {
@@ -450,10 +1098,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.5e-07,
+        "text_cache_read": 1.625e-07,
         "text_cache_write": null,
-        "text_input": 7e-07,
-        "text_output": 2.933333e-06
+        "text_input": 5.75e-07,
+        "text_output": 2.975e-06
       }
     },
     {
@@ -551,8 +1199,8 @@
         "reasoning_output": null,
         "text_cache_read": 6e-08,
         "text_cache_write": null,
-        "text_input": 3.42857e-07,
-        "text_output": 1.371429e-06
+        "text_input": 3.33333e-07,
+        "text_output": 1.333333e-06
       }
     },
     {
@@ -602,10 +1250,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 4e-08,
+        "text_cache_read": 3.75e-08,
         "text_cache_write": null,
-        "text_input": 2e-07,
-        "text_output": 1.15e-06
+        "text_input": 1.975e-07,
+        "text_output": 1.1475e-06
       }
     },
     {
@@ -670,11 +1318,13 @@
       "context_length": 1000000,
       "supported_parameters": [
         "include_reasoning",
+        "max_completion_tokens",
         "max_tokens",
         "reasoning",
         "response_format",
         "stop",
         "structured_outputs",
+        "temperature",
         "tool_choice",
         "tools",
         "verbosity"
@@ -688,10 +1338,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5e-07,
-        "text_cache_write": 6.25e-06,
-        "text_input": 5e-06,
-        "text_output": 2.5e-05
+        "text_cache_read": 5.14286e-07,
+        "text_cache_write": 6.428571e-06,
+        "text_input": 5.142857e-06,
+        "text_output": 2.5714286e-05
       }
     },
     {
@@ -733,10 +1383,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.5e-07,
-        "text_cache_write": 1.5625e-06,
-        "text_input": 1.25e-06,
-        "text_output": 3.75e-06
+        "text_cache_read": 2.95e-07,
+        "text_cache_write": 1.84375e-06,
+        "text_input": 1.475e-06,
+        "text_output": 4.425e-06
       }
     },
     {
@@ -744,6 +1394,7 @@
       "name": "Grok Build 0.1",
       "author_name": "xAI",
       "input_modalities": [
+        "file",
         "image",
         "text"
       ],
@@ -988,18 +1639,12 @@
       "created_at": "2026-05-05T16:56:52.607Z",
       "context_length": 400000,
       "supported_parameters": [
-        "frequency_penalty",
-        "logit_bias",
-        "logprobs",
         "max_tokens",
-        "presence_penalty",
         "response_format",
         "seed",
-        "stop",
         "structured_outputs",
         "tool_choice",
-        "tools",
-        "top_logprobs"
+        "tools"
       ],
       "chat_completions": true,
       "native_web_search": true,
@@ -1190,71 +1835,6 @@
       "chat_completions": true,
       "native_web_search": false,
       "pricing": null
-    },
-    {
-      "id": "poolside/laguna-xs.2:free",
-      "name": "Laguna XS.2 (free)",
-      "author_name": "Poolside",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "free",
-      "version_id": "poolside/laguna-xs.2-20260421",
-      "created_at": "2026-04-28T15:20:04.226Z",
-      "context_length": 262144,
-      "supported_parameters": [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "temperature",
-        "tool_choice",
-        "tools"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": null
-    },
-    {
-      "id": "poolside/laguna-xs.2",
-      "name": "Laguna XS.2",
-      "author_name": "Poolside",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "poolside/laguna-xs.2-20260421",
-      "created_at": "2026-04-28T15:20:04.226Z",
-      "context_length": 262144,
-      "supported_parameters": [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "temperature",
-        "tool_choice",
-        "tools"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": 5e-08,
-        "text_cache_write": null,
-        "text_input": 1e-07,
-        "text_output": 2e-07
-      }
     },
     {
       "id": "poolside/laguna-m.1:free",
@@ -1462,10 +2042,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.53733e-07,
+        "text_cache_read": 1.62e-07,
         "text_cache_write": null,
-        "text_input": 1.8024e-07,
-        "text_output": 1.16305e-06
+        "text_input": 1.76e-07,
+        "text_output": 1.160625e-06
       }
     },
     {
@@ -1560,10 +2140,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.425e-07,
+        "text_cache_read": 1.40269e-07,
         "text_cache_write": null,
-        "text_input": 3.54333e-07,
-        "text_output": 2.827778e-06
+        "text_input": 3.54017e-07,
+        "text_output": 2.825111e-06
       }
     },
     {
@@ -1696,10 +2276,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.26377e-07,
+        "text_cache_read": 1.38023e-07,
         "text_cache_write": null,
-        "text_input": 1.388847e-06,
-        "text_output": 2.77476e-06
+        "text_input": 1.364519e-06,
+        "text_output": 2.738586e-06
       }
     },
     {
@@ -1747,10 +2327,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3.0235e-08,
+        "text_cache_read": 3.4289e-08,
         "text_cache_write": null,
-        "text_input": 1.28006e-07,
-        "text_output": 2.572e-07
+        "text_input": 1.35883e-07,
+        "text_output": 2.66656e-07
       }
     },
     {
@@ -1858,7 +2438,7 @@
       "variant": "standard",
       "version_id": "xiaomi/mimo-v2.5-pro-20260422",
       "created_at": "2026-04-22T16:11:13.016Z",
-      "context_length": 1048576,
+      "context_length": 1050000,
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
@@ -1889,10 +2469,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5.2875e-08,
+        "text_cache_read": 6.2359e-08,
         "text_cache_write": null,
-        "text_input": 5.984e-07,
-        "text_output": 1.7568e-06
+        "text_input": 5.49707e-07,
+        "text_output": 1.56608e-06
       }
     },
     {
@@ -1912,7 +2492,7 @@
       "variant": "standard",
       "version_id": "xiaomi/mimo-v2.5-20260422",
       "created_at": "2026-04-22T16:11:09.307Z",
-      "context_length": 1048576,
+      "context_length": 1050000,
       "supported_parameters": [
         "frequency_penalty",
         "include_reasoning",
@@ -1943,10 +2523,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 4.57e-08,
+        "text_cache_read": 3.0886e-08,
         "text_cache_write": null,
-        "text_input": 1.85e-07,
-        "text_output": 6.24e-07
+        "text_input": 1.72143e-07,
+        "text_output": 5.25714e-07
       }
     },
     {
@@ -2043,10 +2623,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.79579e-07,
+        "text_cache_read": 1.776e-07,
         "text_cache_write": null,
         "text_input": 8.3945e-07,
-        "text_output": 3.747e-06
+        "text_output": 3.717e-06
       }
     },
     {
@@ -2068,6 +2648,7 @@
       "context_length": 1000000,
       "supported_parameters": [
         "include_reasoning",
+        "max_completion_tokens",
         "max_tokens",
         "reasoning",
         "response_format",
@@ -2086,10 +2667,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5e-07,
-        "text_cache_write": 6.25e-06,
-        "text_input": 5e-06,
-        "text_output": 2.5e-05
+        "text_cache_read": 5.14286e-07,
+        "text_cache_write": 6.428571e-06,
+        "text_input": 5.142857e-06,
+        "text_output": 2.5714286e-05
       }
     },
     {
@@ -2190,10 +2771,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5.5e-08,
+        "text_cache_read": 5e-08,
         "text_cache_write": null,
-        "text_input": 1.15e-07,
-        "text_output": 3.97e-07
+        "text_input": 1.14e-07,
+        "text_output": 3.92e-07
       }
     },
     {
@@ -2283,10 +2864,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 8.25e-08,
+        "text_cache_read": 2.12143e-07,
         "text_cache_write": null,
-        "text_input": 1.88462e-07,
-        "text_output": 5.4e-07
+        "text_input": 2.45714e-07,
+        "text_output": 6.07857e-07
       }
     },
     {
@@ -2309,16 +2890,12 @@
       "supported_parameters": [
         "include_reasoning",
         "max_tokens",
-        "min_p",
         "reasoning",
         "response_format",
         "seed",
-        "stop",
         "temperature",
         "tool_choice",
         "tools",
-        "top_a",
-        "top_k",
         "top_p"
       ],
       "chat_completions": true,
@@ -2642,10 +3219,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5.7167e-08,
+        "text_cache_read": 6.73e-08,
         "text_cache_write": null,
-        "text_input": 5.4825e-07,
-        "text_output": 1.933333e-06
+        "text_input": 3.585e-07,
+        "text_output": 1.431429e-06
       }
     },
     {
@@ -2795,19 +3372,12 @@
       "variant": "standard",
       "version_id": "z-ai/glm-5-turbo-20260315",
       "created_at": "2026-03-15T14:06:13.880Z",
-      "context_length": 262144,
+      "context_length": 202752,
       "supported_parameters": [
-        "frequency_penalty",
         "include_reasoning",
-        "logit_bias",
         "max_tokens",
-        "min_p",
-        "presence_penalty",
         "reasoning",
-        "repetition_penalty",
         "response_format",
-        "seed",
-        "stop",
         "temperature",
         "tool_choice",
         "tools",
@@ -2905,7 +3475,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": null,
+        "text_cache_read": 6e-08,
         "text_cache_write": null,
         "text_input": 1.6875e-07,
         "text_output": 5.5125e-07
@@ -3005,8 +3575,8 @@
         "reasoning_output": null,
         "text_cache_read": null,
         "text_cache_write": null,
-        "text_input": 1.175e-07,
-        "text_output": 1.75e-07
+        "text_input": 1.14e-07,
+        "text_output": 1.9e-07
       }
     },
     {
@@ -3202,7 +3772,6 @@
         "reasoning",
         "response_format",
         "seed",
-        "stop",
         "structured_outputs",
         "temperature",
         "tool_choice",
@@ -3424,8 +3993,8 @@
         "reasoning_output": null,
         "text_cache_read": 3e-07,
         "text_cache_write": null,
-        "text_input": 3.05e-07,
-        "text_output": 2.44e-06
+        "text_input": 3.02e-07,
+        "text_output": 2.432e-06
       }
     },
     {
@@ -3563,6 +4132,46 @@
       }
     },
     {
+      "id": "aion-labs/aion-2.0",
+      "name": "Aion-2.0",
+      "author_name": "AionLabs",
+      "input_modalities": [
+        "text"
+      ],
+      "output_modalities": [
+        "text"
+      ],
+      "reasoning": true,
+      "variant": "standard",
+      "version_id": "aion-labs/aion-2.0-20260223",
+      "created_at": "2026-02-23T21:15:06.199Z",
+      "context_length": 131072,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "chat_completions": true,
+      "native_web_search": false,
+      "pricing": {
+        "audio_cache_write": null,
+        "audio_input": null,
+        "image_input": null,
+        "image_output": null,
+        "per_request": null,
+        "reasoning_output": null,
+        "text_cache_read": 2e-07,
+        "text_cache_write": null,
+        "text_input": 8e-07,
+        "text_output": 1.6e-06
+      }
+    },
+    {
       "id": "google/gemini-3.1-pro-preview",
       "name": "Gemini 3.1 Pro Preview",
       "author_name": "Google",
@@ -3650,10 +4259,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3e-07,
-        "text_cache_write": 3.75e-06,
-        "text_input": 3e-06,
-        "text_output": 1.5e-05
+        "text_cache_read": 3.1125e-07,
+        "text_cache_write": 3.890625e-06,
+        "text_input": 3.1125e-06,
+        "text_output": 1.55625e-05
       }
     },
     {
@@ -3750,10 +4359,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.77143e-07,
+        "text_cache_read": 2.50143e-07,
         "text_cache_write": null,
-        "text_input": 5.27083e-07,
-        "text_output": 3.349167e-06
+        "text_input": 5.29545e-07,
+        "text_output": 3.335455e-06
       }
     },
     {
@@ -3803,10 +4412,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 6.3357e-08,
+        "text_cache_read": 6.3133e-08,
         "text_cache_write": null,
-        "text_input": 2.64375e-07,
-        "text_output": 1.1775e-06
+        "text_input": 2.71875e-07,
+        "text_output": 1.2075e-06
       }
     },
     {
@@ -3854,10 +4463,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.20833e-07,
+        "text_cache_read": 2.18462e-07,
         "text_cache_write": null,
-        "text_input": 8.82143e-07,
-        "text_output": 2.747857e-06
+        "text_input": 8.78571e-07,
+        "text_output": 2.736429e-06
       }
     },
     {
@@ -3946,10 +4555,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5e-07,
-        "text_cache_write": 6.25e-06,
-        "text_input": 5e-06,
-        "text_output": 2.5e-05
+        "text_cache_read": 5.08333e-07,
+        "text_cache_write": 6.354167e-06,
+        "text_input": 5.083333e-06,
+        "text_output": 2.5416667e-05
       }
     },
     {
@@ -3996,8 +4605,8 @@
         "reasoning_output": null,
         "text_cache_read": 5.8667e-08,
         "text_cache_write": null,
-        "text_input": 1.525e-07,
-        "text_output": 1e-06
+        "text_input": 1.82e-07,
+        "text_output": 1.1e-06
       }
     },
     {
@@ -4087,7 +4696,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.375e-07,
+        "text_cache_read": 1.43455e-07,
         "text_cache_write": null,
         "text_input": 4.97727e-07,
         "text_output": 2.543182e-06
@@ -4132,42 +4741,6 @@
         "text_input": 1.5e-07,
         "text_output": 6e-07
       }
-    },
-    {
-      "id": "liquid/lfm-2.5-1.2b-thinking:free",
-      "name": "LFM2.5-1.2B-Thinking (free)",
-      "author_name": "LiquidAI",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "free",
-      "version_id": "liquid/lfm-2.5-1.2b-thinking-20260120",
-      "created_at": "2026-01-20T16:45:27.038Z",
-      "context_length": 32768,
-      "supported_parameters": [
-        "frequency_penalty",
-        "include_reasoning",
-        "max_tokens",
-        "min_p",
-        "presence_penalty",
-        "reasoning",
-        "repetition_penalty",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": null
     },
     {
       "id": "openai/gpt-audio",
@@ -5203,52 +5776,6 @@
       }
     },
     {
-      "id": "arcee-ai/trinity-mini",
-      "name": "Trinity Mini",
-      "author_name": "Arcee AI",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "arcee-ai/trinity-mini-20251201",
-      "created_at": "2025-12-01T15:08:40.000Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "include_reasoning",
-        "logprobs",
-        "max_completion_tokens",
-        "max_tokens",
-        "reasoning",
-        "response_format",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_k",
-        "top_logprobs",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": null,
-        "audio_input": null,
-        "image_input": null,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": null,
-        "text_cache_read": null,
-        "text_cache_write": null,
-        "text_input": 4.5e-08,
-        "text_output": 1.5e-07
-      }
-    },
-    {
       "id": "deepseek/deepseek-v3.2",
       "name": "DeepSeek V3.2",
       "author_name": "DeepSeek",
@@ -5293,10 +5820,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.17964e-07,
+        "text_cache_read": 1.45021e-07,
         "text_cache_write": 4.63125e-07,
-        "text_input": 5.59525e-07,
-        "text_output": 1.077725e-06
+        "text_input": 5.70714e-07,
+        "text_output": 1.024375e-06
       }
     },
     {
@@ -5318,6 +5845,7 @@
       "context_length": 200000,
       "supported_parameters": [
         "include_reasoning",
+        "max_completion_tokens",
         "max_tokens",
         "reasoning",
         "response_format",
@@ -5338,10 +5866,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5e-07,
-        "text_cache_write": 6.25e-06,
-        "text_input": 5e-06,
-        "text_output": 2.5e-05
+        "text_cache_read": 5.08333e-07,
+        "text_cache_write": 6.354167e-06,
+        "text_input": 5.083333e-06,
+        "text_output": 2.5416667e-05
       }
     },
     {
@@ -5381,10 +5909,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.28333e-07,
+        "text_cache_read": 1.32667e-07,
         "text_cache_write": null,
-        "text_input": 1.25e-06,
-        "text_output": 1e-05
+        "text_input": 1.291667e-06,
+        "text_output": 1.0333333e-05
       }
     },
     {
@@ -5831,6 +6359,7 @@
       "context_length": 200000,
       "supported_parameters": [
         "include_reasoning",
+        "max_completion_tokens",
         "max_tokens",
         "reasoning",
         "response_format",
@@ -5851,10 +6380,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1e-07,
-        "text_cache_write": 1.25e-06,
-        "text_input": 1e-06,
-        "text_output": 5e-06
+        "text_cache_read": 1.03333e-07,
+        "text_cache_write": 1.291667e-06,
+        "text_input": 1.033333e-06,
+        "text_output": 5.166667e-06
       }
     },
     {
@@ -6283,10 +6812,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 9.8e-08,
+        "text_cache_read": 1.02e-07,
         "text_cache_write": null,
-        "text_input": 5.22e-07,
-        "text_output": 2.018e-06
+        "text_input": 5.36e-07,
+        "text_output": 2.07e-06
       }
     },
     {
@@ -6308,6 +6837,7 @@
       "context_length": 1000000,
       "supported_parameters": [
         "include_reasoning",
+        "max_completion_tokens",
         "max_tokens",
         "reasoning",
         "response_format",
@@ -6328,10 +6858,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 3e-07,
-        "text_cache_write": 3.75e-06,
-        "text_input": 3e-06,
-        "text_output": 1.5e-05
+        "text_cache_read": 3.075e-07,
+        "text_cache_write": 3.84375e-06,
+        "text_input": 3.075e-06,
+        "text_output": 1.5375e-05
       }
     },
     {
@@ -6383,53 +6913,6 @@
         "text_cache_write": null,
         "text_input": 2.7e-07,
         "text_output": 4.1e-07
-      }
-    },
-    {
-      "id": "google/gemini-2.5-flash-lite-preview-09-2025",
-      "name": "Gemini 2.5 Flash Lite Preview 09-2025",
-      "author_name": "Google",
-      "input_modalities": [
-        "audio",
-        "file",
-        "image",
-        "text",
-        "video"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "standard",
-      "version_id": "google/gemini-2.5-flash-lite-preview-09-2025",
-      "created_at": "2025-09-25T17:01:26.198Z",
-      "context_length": 1048576,
-      "supported_parameters": [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": {
-        "audio_cache_write": 3e-08,
-        "audio_input": 3e-07,
-        "image_input": 1e-07,
-        "image_output": null,
-        "per_request": null,
-        "reasoning_output": 4e-07,
-        "text_cache_read": 1e-08,
-        "text_cache_write": 8.3333e-08,
-        "text_input": 1e-07,
-        "text_output": 4e-07
       }
     },
     {
@@ -7131,8 +7614,8 @@
         "reasoning_output": null,
         "text_cache_read": 2.3625e-07,
         "text_cache_write": null,
-        "text_input": 4.07143e-07,
-        "text_output": 1.227143e-06
+        "text_input": 4.3625e-07,
+        "text_output": 1.30625e-06
       }
     },
     {
@@ -7303,10 +7786,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.25e-07,
+        "text_cache_read": 1.29167e-07,
         "text_cache_write": null,
-        "text_input": 1.25e-06,
-        "text_output": 1e-05
+        "text_input": 1.291667e-06,
+        "text_output": 1.0333333e-05
       }
     },
     {
@@ -7346,10 +7829,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.8333e-08,
+        "text_cache_read": 2.9333e-08,
         "text_cache_write": null,
-        "text_input": 2.5e-07,
-        "text_output": 2e-06
+        "text_input": 2.58333e-07,
+        "text_output": 2.066667e-06
       }
     },
     {
@@ -7389,10 +7872,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 8.333e-09,
+        "text_cache_read": 8.667e-09,
         "text_cache_write": null,
-        "text_input": 5e-08,
-        "text_output": 4e-07
+        "text_input": 5.1667e-08,
+        "text_output": 4.13333e-07
       }
     },
     {
@@ -7441,44 +7924,11 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.24e-07,
+        "text_cache_read": 1.06667e-07,
         "text_cache_write": null,
-        "text_input": 1.0985e-07,
-        "text_output": 4.8575e-07
+        "text_input": 1.11048e-07,
+        "text_output": 4.98333e-07
       }
-    },
-    {
-      "id": "openai/gpt-oss-120b:free",
-      "name": "gpt-oss-120b (free)",
-      "author_name": "OpenAI",
-      "input_modalities": [
-        "text"
-      ],
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": true,
-      "variant": "free",
-      "version_id": "openai/gpt-oss-120b",
-      "created_at": "2025-08-05T17:17:11.000Z",
-      "context_length": 131072,
-      "supported_parameters": [
-        "include_reasoning",
-        "max_tokens",
-        "min_p",
-        "reasoning",
-        "seed",
-        "stop",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_a",
-        "top_k",
-        "top_p"
-      ],
-      "chat_completions": true,
-      "native_web_search": false,
-      "pricing": null
     },
     {
       "id": "openai/gpt-oss-20b",
@@ -7551,7 +8001,6 @@
         "include_reasoning",
         "logprobs",
         "max_tokens",
-        "min_p",
         "presence_penalty",
         "reasoning",
         "repetition_penalty",
@@ -7562,7 +8011,6 @@
         "temperature",
         "tool_choice",
         "tools",
-        "top_a",
         "top_k",
         "top_logprobs",
         "top_p"
@@ -7590,6 +8038,7 @@
       "context_length": 200000,
       "supported_parameters": [
         "include_reasoning",
+        "max_completion_tokens",
         "max_tokens",
         "reasoning",
         "response_format",
@@ -7635,6 +8084,7 @@
       "supported_parameters": [
         "frequency_penalty",
         "max_tokens",
+        "prediction",
         "presence_penalty",
         "response_format",
         "seed",
@@ -7701,7 +8151,7 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": null,
+        "text_cache_read": 9e-08,
         "text_cache_write": null,
         "text_input": 2.065e-07,
         "text_output": 8.625e-07
@@ -7727,6 +8177,7 @@
         "logit_bias",
         "logprobs",
         "max_tokens",
+        "min_p",
         "presence_penalty",
         "repetition_penalty",
         "response_format",
@@ -7751,8 +8202,8 @@
         "reasoning_output": null,
         "text_cache_read": 1e-07,
         "text_cache_write": null,
-        "text_input": 9.363e-08,
-        "text_output": 3.2261e-07
+        "text_input": 1.01164e-07,
+        "text_output": 3.51864e-07
       }
     },
     {
@@ -7887,8 +8338,8 @@
         "reasoning_output": null,
         "text_cache_read": 2e-07,
         "text_cache_write": null,
-        "text_input": 2.265e-07,
-        "text_output": 2.265e-06
+        "text_input": 2.82375e-07,
+        "text_output": 2.57375e-06
       }
     },
     {
@@ -8060,10 +8511,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1.25e-07,
+        "text_cache_read": 1.06667e-07,
         "text_cache_write": null,
-        "text_input": 1.72682e-07,
-        "text_output": 7.11636e-07
+        "text_input": 1.87458e-07,
+        "text_output": 8.065e-07
       }
     },
     {
@@ -9058,10 +9509,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 5e-07,
+        "text_cache_read": 5.16667e-07,
         "text_cache_write": null,
-        "text_input": 2e-06,
-        "text_output": 8e-06
+        "text_input": 2.066667e-06,
+        "text_output": 8.266667e-06
       }
     },
     {
@@ -9101,10 +9552,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 1e-07,
+        "text_cache_read": 1.03333e-07,
         "text_cache_write": null,
-        "text_input": 4e-07,
-        "text_output": 1.6e-06
+        "text_input": 4.13333e-07,
+        "text_output": 1.653333e-06
       }
     },
     {
@@ -9144,10 +9595,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 2.8333e-08,
+        "text_cache_read": 2.9333e-08,
         "text_cache_write": null,
-        "text_input": 1e-07,
-        "text_output": 4e-07
+        "text_input": 1.03333e-07,
+        "text_output": 4.13333e-07
       }
     },
     {
@@ -9196,8 +9647,8 @@
         "reasoning_output": null,
         "text_cache_read": 1.7e-07,
         "text_cache_write": null,
-        "text_input": 2.74e-07,
-        "text_output": 8.94e-07
+        "text_input": 2.84e-07,
+        "text_output": 9.34e-07
       }
     },
     {
@@ -9916,6 +10367,7 @@
         "logit_bias",
         "logprobs",
         "max_tokens",
+        "prediction",
         "presence_penalty",
         "response_format",
         "seed",
@@ -10287,6 +10739,7 @@
         "logprobs",
         "max_completion_tokens",
         "max_tokens",
+        "prediction",
         "presence_penalty",
         "response_format",
         "seed",
@@ -10483,6 +10936,7 @@
         "logit_bias",
         "logprobs",
         "max_tokens",
+        "prediction",
         "presence_penalty",
         "response_format",
         "seed",
@@ -10533,6 +10987,7 @@
         "logprobs",
         "max_completion_tokens",
         "max_tokens",
+        "prediction",
         "presence_penalty",
         "response_format",
         "seed",
@@ -10554,10 +11009,10 @@
         "image_output": null,
         "per_request": null,
         "reasoning_output": null,
-        "text_cache_read": 7.5e-08,
+        "text_cache_read": 7.75e-08,
         "text_cache_write": null,
-        "text_input": 1.5e-07,
-        "text_output": 6e-07
+        "text_input": 1.55e-07,
+        "text_output": 6.2e-07
       }
     },
     {
@@ -10583,6 +11038,7 @@
         "logprobs",
         "max_completion_tokens",
         "max_tokens",
+        "prediction",
         "presence_penalty",
         "response_format",
         "seed",
@@ -10633,6 +11089,7 @@
         "logprobs",
         "max_completion_tokens",
         "max_tokens",
+        "prediction",
         "presence_penalty",
         "response_format",
         "seed",

@@ -63,7 +63,7 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
         smgr = ctx.getServiceManager()
         base_url = get_extension_url()
         dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", ctx)
-        dlg_url = base_url + "/WriterAgentDialogs/EditInputDialog.xdl"
+        dlg_url = base_url + "/Dialogs/EditInputDialog.xdl"
         dlg = dp.createDialog(dlg_url)
     except Exception as e:
         log.error("input_box: failed to create dialog: %s", e)
@@ -176,7 +176,7 @@ class SettingsDialog:
         smgr = self._ctx.getServiceManager()
         base_url = get_extension_url()
         dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", self._ctx)
-        dialog_url = base_url + "/WriterAgentDialogs/SettingsDialog.xdl"
+        dialog_url = base_url + "/Dialogs/SettingsDialog.xdl"
         self._dlg = dp.createDialog(dialog_url)
 
     def _setup_tabs(self):
@@ -607,7 +607,7 @@ class EvalDashboard:
         smgr = self._ctx.getServiceManager()
         base_url = get_extension_url()
         dp = smgr.createInstanceWithContext("com.sun.star.awt.DialogProvider", self._ctx)
-        self._dlg = dp.createDialog(base_url + "/WriterAgentDialogs/EvalDialog.xdl")
+        self._dlg = dp.createDialog(base_url + "/Dialogs/EvalDialog.xdl")
 
         try:
             self._populate()

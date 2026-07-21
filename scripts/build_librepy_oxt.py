@@ -47,22 +47,22 @@ LIBREPY_EXTENSION_INCLUDES = [
     "extension-core/Jobs.xcu",
     "extension-core/registry/",
     "extension/assets/",
-    "extension/WriterAgentDialogs/",
-    "build/generated/WriterAgentDialogs/",
+    "extension/Dialogs/",
+    "build/generated/Dialogs/",
     "build/generated/dialogs/",
 ]
 
 LIBREPY_DIALOG_FILES = (
-    "extension/WriterAgentDialogs/PythonScriptDialog.xdl",
-    "extension/WriterAgentDialogs/PythonTestProgressDialog.xdl",
-    "extension/WriterAgentDialogs/TextAnalyticsDialog.xdl",
-    "extension/WriterAgentDialogs/LatexInputDialog.xdl",
-    "extension/WriterAgentDialogs/MsgBoxWithCopyDialog.xdl",
-    "extension/WriterAgentDialogs/ErrorReportDialog.xdl",
-    "extension/WriterAgentDialogs/ShortTextInputDialog.xdl",
-    "extension/WriterAgentDialogs/EditInputDialog.xdl",
-    "extension/WriterAgentDialogs/dialog.xlb",
-    "extension/WriterAgentDialogs/script.xlb",
+    "extension/Dialogs/PythonScriptDialog.xdl",
+    "extension/Dialogs/PythonTestProgressDialog.xdl",
+    "extension/Dialogs/TextAnalyticsDialog.xdl",
+    "extension/Dialogs/LatexInputDialog.xdl",
+    "extension/Dialogs/MsgBoxWithCopyDialog.xdl",
+    "extension/Dialogs/ErrorReportDialog.xdl",
+    "extension/Dialogs/ShortTextInputDialog.xdl",
+    "extension/Dialogs/EditInputDialog.xdl",
+    "extension/Dialogs/dialog.xlb",
+    "extension/Dialogs/script.xlb",
 )
 
 
@@ -72,7 +72,7 @@ def _librepy_remap_path(path: str) -> str:
         return path[len("extension-core/") :]
     if path.startswith("extension/assets/"):
         return path[len("extension/") :]
-    if path.startswith("extension/WriterAgentDialogs/"):
+    if path.startswith("extension/Dialogs/"):
         return path[len("extension/") :]
     return remap_path(path)
 

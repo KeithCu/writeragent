@@ -414,7 +414,7 @@ def test_format_exception_detail_unwraps_uno_target_object():
 
 def test_collect_xdl_load_diagnostics_reports_missing_file(tmp_path):
     ctx = MagicMock()
-    missing = tmp_path / "WriterAgentDialogs" / "PythonScriptDialog.xdl"
+    missing = tmp_path / "Dialogs" / "PythonScriptDialog.xdl"
     parent = missing.parent
     parent.mkdir()
     (parent / "OtherDialog.xdl").write_text("<x/>", encoding="utf-8")

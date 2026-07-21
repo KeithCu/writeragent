@@ -270,8 +270,8 @@ def main():
     dialogs_dir = os.path.join(build_dir, "dialogs")
     generate_xdl_files(sorted_modules, dialogs_dir)
     standalone_dialog_ids = generate_standalone_config_dialogs(sorted_modules, build_dir)
-    wa_dialogs_ext = os.path.join(PROJECT_ROOT, "extension", "WriterAgentDialogs")
-    wa_dialogs_gen = os.path.join(build_dir, "WriterAgentDialogs")
+    wa_dialogs_ext = os.path.join(PROJECT_ROOT, "extension", "Dialogs")
+    wa_dialogs_gen = os.path.join(build_dir, "Dialogs")
     update_dialog_xlb(wa_dialogs_ext, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
     update_dialog_xlb(wa_dialogs_gen, standalone_dialog_ids, tpl_path=os.path.join(wa_dialogs_ext, "dialog.xlb.tpl"))
 
@@ -288,8 +288,8 @@ def main():
     # 7. SettingsDialog Tabs
     generate_settings_dialog_tabs(
         sorted_modules,
-        os.path.join(PROJECT_ROOT, "extension", "WriterAgentDialogs", "SettingsDialog.xdl.tpl"),
-        os.path.join(PROJECT_ROOT, "build", "generated", "WriterAgentDialogs", "SettingsDialog.xdl"),
+        os.path.join(PROJECT_ROOT, "extension", "Dialogs", "SettingsDialog.xdl.tpl"),
+        os.path.join(PROJECT_ROOT, "build", "generated", "Dialogs", "SettingsDialog.xdl"),
         librepy_flavor=librepy_flavor,
     )
 

@@ -43,7 +43,7 @@ def extract_strings_from_file(filepath):
 
 def main():
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    extension_dir = os.path.join(root_dir, 'extension', 'WriterAgentDialogs')
+    extension_dir = os.path.join(root_dir, 'extension', 'Dialogs')
 
     all_strings = set()
 

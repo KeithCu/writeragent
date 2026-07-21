@@ -910,7 +910,7 @@ def _create_xdl_dialog(smgr: Any, ctx: Any, dialog_url: str) -> tuple[Any | None
 
 
 def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> tuple[Any | None, str | None]:
-    """Load an XDL dialog from WriterAgentDialogs/; return (dialog, failure_detail)."""
+    """Load an XDL dialog from Dialogs/; return (dialog, failure_detail)."""
     if ctx is None:
         ctx = get_ctx()
     assert ctx is not None
@@ -926,7 +926,7 @@ def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> 
         return smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx_any), None
 
     base = get_extension_url(ctx)
-    url = base + "/WriterAgentDialogs/" + dialog_name + ".xdl"
+    url = base + "/Dialogs/" + dialog_name + ".xdl"
     dlg, provider_failure = _create_xdl_dialog(smgr, ctx_any, url)
     if dlg:
         translate_dialog(dlg)
@@ -938,7 +938,7 @@ def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> 
 
 
 def load_writeragent_dialog(dialog_name, ctx=None):
-    """Load an XDL dialog from the WriterAgentDialogs/ directory."""
+    """Load an XDL dialog from the Dialogs/ directory."""
     dlg, _detail = load_writeragent_dialog_detail(dialog_name, ctx=ctx)
     return dlg
 

@@ -279,22 +279,22 @@ install_to_cache() {
     done
 
     # Sync dialogs (static + dynamically generated)
-    if [ -d "$PROJECT_ROOT/extension/WriterAgentDialogs" ]; then
+    if [ -d "$PROJECT_ROOT/extension/Dialogs" ]; then
         local excludes=()
-        if [ -d "$PROJECT_ROOT/build/generated/WriterAgentDialogs" ]; then
-            for f in "$PROJECT_ROOT/build/generated/WriterAgentDialogs"/*; do
+        if [ -d "$PROJECT_ROOT/build/generated/Dialogs" ]; then
+            for f in "$PROJECT_ROOT/build/generated/Dialogs"/*; do
                 if [ -f "$f" ]; then
                     excludes+=(--exclude "$(basename "$f")")
                 fi
             done
         fi
-        rsync -av --delete "${excludes[@]}" "$PROJECT_ROOT/extension/WriterAgentDialogs/" "$ext_dir/WriterAgentDialogs/"
-        echo "    WriterAgentDialogs/ (static) synced"
+        rsync -av --delete "${excludes[@]}" "$PROJECT_ROOT/extension/Dialogs/" "$ext_dir/Dialogs/"
+        echo "    Dialogs/ (static) synced"
         deployed=$((deployed + 1))
     fi
-    if [ -d "$PROJECT_ROOT/build/generated/WriterAgentDialogs" ]; then
-        rsync -av "$PROJECT_ROOT/build/generated/WriterAgentDialogs/" "$ext_dir/WriterAgentDialogs/"
-        echo "    WriterAgentDialogs/ (generated) synced"
+    if [ -d "$PROJECT_ROOT/build/generated/Dialogs" ]; then
+        rsync -av "$PROJECT_ROOT/build/generated/Dialogs/" "$ext_dir/Dialogs/"
+        echo "    Dialogs/ (generated) synced"
     fi
     if [ -d "$PROJECT_ROOT/build/generated/dialogs" ]; then
         rsync -av --delete "$PROJECT_ROOT/build/generated/dialogs/" "$ext_dir/dialogs/"

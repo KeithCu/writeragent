@@ -263,7 +263,7 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
         except Exception:
             log.exception("Error in CalcSpillModifyListener.modified")
 
-    def disposing(self, aEvent: Any) -> None:
+    def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
 
 

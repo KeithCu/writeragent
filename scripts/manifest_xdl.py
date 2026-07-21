@@ -873,8 +873,8 @@ def generate_standalone_config_dialog(module):
 
 
 def generate_standalone_config_dialogs(modules, output_base):
-    """Write standalone config_dialog XDL files under output_base/WriterAgentDialogs/."""
-    out_dir = os.path.join(output_base, "WriterAgentDialogs")
+    """Write standalone config_dialog XDL files under output_base/Dialogs/."""
+    out_dir = os.path.join(output_base, "Dialogs")
     os.makedirs(out_dir, exist_ok=True)
     dialog_names: list[str] = []
     count = 0
@@ -924,7 +924,7 @@ def update_dialog_xlb(library_dir, dialog_names, tpl_path=None):
             '<?xml version="1.0" encoding="UTF-8"?>\n'
             '<!DOCTYPE library:library PUBLIC "-//OpenOffice.org//DTD OfficeDocument 1.0//EN" "library.dtd">\n'
             '<library:library xmlns:library="http://openoffice.org/2000/library" '
-            'library:name="WriterAgentDialogs" library:readonly="false" library:passwordprotected="false">\n'
+            'library:name="Dialogs" library:readonly="false" library:passwordprotected="false">\n'
             f"{marker}\n"
             "</library:library>\n"
         )
@@ -997,7 +997,7 @@ def generate_xdl_files(modules, output_dir):
         if name in inline_set:
             continue
 
-        # Standalone config_dialog modules use WriterAgentDialogs/ instead.
+        # Standalone config_dialog modules use Dialogs/ instead.
         if m.get("config_dialog"):
             continue
 

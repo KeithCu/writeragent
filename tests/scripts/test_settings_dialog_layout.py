@@ -36,7 +36,7 @@ def _same_layout_row(tops: dict[str, str], left_id: str, right_id: str) -> bool:
 def _generate_settings_xdl(tmp_path: Path) -> tuple[Path, str]:
     from plugin._manifest import MODULES
 
-    tpl = _REPO / "extension" / "WriterAgentDialogs" / "SettingsDialog.xdl.tpl"
+    tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
     out = tmp_path / "SettingsDialog.xdl"
     generate_settings_dialog_tabs(MODULES, str(tpl), str(out))
     assert out.is_file(), "generate_settings_dialog_tabs did not write output"
@@ -161,7 +161,7 @@ def test_librepy_flavor_omits_ppt_master_from_scripting_page(tmp_path: Path) -> 
             },
         }
     ]
-    tpl = _REPO / "extension" / "WriterAgentDialogs" / "SettingsDialog.xdl.tpl"
+    tpl = _REPO / "extension" / "Dialogs" / "SettingsDialog.xdl.tpl"
     out = tmp_path / "SettingsDialog-librepy.xdl"
     generate_settings_dialog_tabs(modules, str(tpl), str(out), librepy_flavor=True)
     tops = _control_tops(out)
