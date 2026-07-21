@@ -347,28 +347,39 @@ def perform_deferred_spill(
             save_spill_registry_for_doc(doc)
             return
 
-        # 3. Spill new values (no collision check needed here as it was validated synchronously)
+        # 3. Coerce and pad grid values for rectangular setDataArray block write
+        coerced_grid = []
+        for row in grid:
+            coerced_row = []
+            for col_idx in range(num_cols):
+                val = row[col_idx] if col_idx < len(row) else None
+                calc_val = to_calc_compatible(val)
+                if isinstance(calc_val, bool):
+                    calc_val = 1.0 if calc_val else 0.0
+                elif calc_val is None:
+                    calc_val = ""
+                coerced_row.append(calc_val)
+            coerced_grid.append(coerced_row)
+
+        # 4. Spill new values using setDataArray to avoid O(N) individual cell writes
+        if num_cols > 1:
+            first_row_range = sheet.getCellRangeByPosition(
+                formula_col + 1, formula_row, formula_col + num_cols - 1, formula_row
+            )
+            first_row_range.setDataArray((tuple(coerced_grid[0][1:]),))
+
+        if num_rows > 1:
+            remaining_range = sheet.getCellRangeByPosition(
+                formula_col, formula_row + 1, formula_col + num_cols - 1, formula_row + num_rows - 1
+            )
+            remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
+
         new_spills = []
         for r_offset in range(num_rows):
             for c_offset in range(num_cols):
-                target_r = formula_row + r_offset
-                target_c = formula_col + c_offset
-                
-                if (target_r, target_c) == (formula_row, formula_col):
+                if (r_offset, c_offset) == (0, 0):
                     continue
-                
-                cell = sheet.getCellByPosition(target_c, target_r)
-                val = grid[r_offset][c_offset] if c_offset < len(grid[r_offset]) else None
-                calc_val = to_calc_compatible(val)
-                
-                if isinstance(calc_val, (int, float)):
-                    cell.setValue(calc_val)
-                elif isinstance(calc_val, bool):
-                    cell.setValue(1.0 if calc_val else 0.0)
-                else:
-                    cell.setString(str(calc_val))
-                    
-                new_spills.append((target_r, target_c))
+                new_spills.append((formula_row + r_offset, formula_col + c_offset))
 
         SPILL_REGISTRY[reg_key] = new_spills
         save_spill_registry_for_doc(doc)

@@ -180,12 +180,17 @@ def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) 
 
     sheet.getCellByPosition.side_effect = get_cell
 
+    # Mock range for setDataArray
+    mock_range = MagicMock()
+    sheet.getCellRangeByPosition.return_value = mock_range
+
     result = [10.0, 20.0]  # 1D list, will be treated as shape (2, 1)
     val = finalize_python_return(ctx, "test_code", result)
 
     assert val == 10.0
-    # Verify B3 was written to (B2 is formula cell, we leave it alone so Calc shows the returned 10.0)
-    cell_B3.setValue.assert_called_once_with(20.0)
+    # Verify B3 range was written to via setDataArray (B2 is formula cell, we leave it alone so Calc shows the returned 10.0)
+    sheet.getCellRangeByPosition.assert_called_once_with(1, 2, 1, 2)
+    mock_range.setDataArray.assert_called_once_with(((20.0,),))
 
     # Check that spill registry has recorded B3
     key = ("file:///fake.ods", sheet.getName(), 1, 1)
@@ -341,6 +346,83 @@ def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pyte
     
     kwargs = python_function.get_python_init_kwargs(ctx)
     assert kwargs == {"dummy": True}
+
+
+def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that a 2D result triggers block spills via setDataArray on appropriate ranges."""
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+    selection = MagicMock()
+    selection.getRangeAddress.return_value = SimpleNamespace(StartColumn=1, EndColumn=1, StartRow=1, EndRow=1)
+    controller = MagicMock()
+    controller.getActiveSheet.return_value = sheet
+    controller.getSelection.return_value = selection
+    doc = MagicMock()
+    doc.getCurrentController.return_value = controller
+    doc.getURL.return_value = "file:///fake2d.ods"
+    doc.getSheets().getByName.return_value = sheet
+    desktop = MagicMock()
+    desktop.getCurrentComponent.return_value = doc
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = desktop
+    ctx = SimpleNamespace(ServiceManager=smgr)
+
+    python_function.SPILL_REGISTRY.clear()
+
+    class DummyTimer:
+        def __init__(self, interval, function, args=(), kwargs={}):
+            self.function = function
+            self.args = args
+            self.kwargs = kwargs
+        def start(self):
+            self.function(*self.args, **self.kwargs)
+
+    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+
+    # 2x2 grid: formula cell at B2 (1,1), spilled cells at C2 (1,2), B3 (2,1), C3 (2,2)
+    cell_B2 = MagicMock()
+    cell_B2.getFormula.return_value = '=PYTHON("test_code_2d")'
+    
+    empty_cell = MagicMock()
+    empty_cell.getType.return_value = 0
+    empty_cell.getFormula.return_value = ''
+
+    def get_cell(c, r):
+        if r == 1 and c == 1:
+            return cell_B2
+        return empty_cell
+
+    sheet.getCellByPosition.side_effect = get_cell
+
+    first_row_range = MagicMock()
+    remaining_range = MagicMock()
+
+    def get_range(start_c, start_r, end_c, end_r):
+        if start_r == 1 and end_r == 1:
+            return first_row_range
+        if start_r == 2 and end_r == 2:
+            return remaining_range
+        return MagicMock()
+
+    sheet.getCellRangeByPosition.side_effect = get_range
+
+    result = [[10.0, 20.0], [30.0, 40.0]]
+    val = finalize_python_return(ctx, "test_code_2d", result)
+
+    assert val == 10.0
+    
+    # First row spill: (1, 2) to (1, 2)
+    sheet.getCellRangeByPosition.assert_any_call(2, 1, 2, 1)
+    first_row_range.setDataArray.assert_called_once_with(((20.0,),))
+
+    # Remaining rows: (1, 2) to (2, 2)
+    sheet.getCellRangeByPosition.assert_any_call(1, 2, 2, 2)
+    remaining_range.setDataArray.assert_called_once_with(((30.0, 40.0),))
+
+    key = ("file:///fake2d.ods", "Sheet1", 1, 1)
+    assert key in python_function.SPILL_REGISTRY
+    assert set(python_function.SPILL_REGISTRY[key]) == {(1, 2), (2, 1), (2, 2)}
+
 
 
 
