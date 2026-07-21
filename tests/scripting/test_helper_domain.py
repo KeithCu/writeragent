@@ -61,19 +61,19 @@ def test_build_run_import_template_has_header_and_import():
     body = build_helper_script_template(
         tag="units",
         helper="convert_quantity",
-        params={"value": "10"},
+        params={"value": 10, "from": "m/s", "to": "km/h"},
         description="Convert",
         style="run_import",
         import_module="writeragent.scripting.units",
         run_name="run_units",
         data_expr="None",
+        positional_args=("value", "from", "to"),
         extra_comment_lines=("# Edit the run call below, then Run.",),
     )
     assert not body.startswith("# writeragent:")
     assert body.startswith("# Convert")
-    assert '"value":"10"' in body
+    assert 'convert_quantity(10, "m/s", "km/h")' in body
     assert "from writeragent.scripting.units import convert_quantity" in body
-    assert "result = convert_quantity(" in body
 
 
 def test_parse_run_import_call_params_reads_body():

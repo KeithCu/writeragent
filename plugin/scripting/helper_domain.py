@@ -142,12 +142,33 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
                 return spec
             if isinstance(spec, str):
                 return {"helper": spec, "params": {}}
-        elif node.keywords and any(kw.arg is None for kw in node.keywords):
+        elif func.id != run_name and not func.id.startswith("run_"):
+            # Check for standard call signature: helper(arg1, arg2, kw1=val1)
+            params = {}
+            # 1. Unpacked dict kwarg helper(**{...})
+            if node.keywords and any(kw.arg is None for kw in node.keywords):
+                for kw in node.keywords:
+                    if kw.arg is None:
+                        val = _literal_value(kw.value)
+                        if isinstance(val, dict):
+                            params.update(val)
+            # 2. Standard keyword args helper(kw1=val1)
             for kw in node.keywords:
-                if kw.arg is None:
-                    val = _literal_value(kw.value)
-                    if isinstance(val, dict):
-                        return {"helper": func.id, "params": val}
+                if kw.arg is not None:
+                    params[kw.arg] = _literal_value(kw.value)
+            # 3. Positional args helper(val, from_unit, to_unit)
+            if node.args:
+                if len(node.args) == 3:
+                    # Positional convert_quantity(value, from, to)
+                    params.setdefault("value", _literal_value(node.args[0]))
+                    params.setdefault("from", _literal_value(node.args[1]))
+                    params.setdefault("to", _literal_value(node.args[2]))
+                elif len(node.args) == 1:
+                    params.setdefault("quantity", _literal_value(node.args[0]))
+                elif len(node.args) == 2:
+                    params.setdefault("quantity_a", _literal_value(node.args[0]))
+                    params.setdefault("quantity_b", _literal_value(node.args[1]))
+            return {"helper": func.id, "params": params}
     return None
 
 
@@ -184,6 +205,7 @@ def build_helper_script_template(
     data_expr: str = "data",
     context_expr: str = "{}",
     extra_comment_lines: tuple[str, ...] = (),
+    positional_args: tuple[str, ...] | None = None,
     compact_json: bool = True,
 ) -> str:
     """Build a Run Python Script template body."""
@@ -206,11 +228,19 @@ def build_helper_script_template(
     if not import_module:
         raise ValueError("import_module required for style='run_import'")
     default_extra = extra_comment_lines or ("# Edit the call below, then Run.",)
+
+    if positional_args:
+        args_str = ", ".join(json.dumps(params[k], ensure_ascii=False) for k in positional_args if k in params)
+    elif params:
+        args_str = ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in params.items())
+    else:
+        args_str = ""
+
     body_lines = [
         f"# {description}",
         *default_extra,
         f"from {import_module} import {helper}\n",
-        f"result = {helper}(**{params_json})",
+        f"result = {helper}({args_str})",
         "",
     ]
     return "\n".join(body_lines)
@@ -353,6 +383,7 @@ class DomainFacadeConfig:
     shipped_templates: frozenset[str] | None = None
     data_expr: str = "data"
     context_expr: str = "{}"
+    positional_args: dict[str, tuple[str, ...]] | None = None
     extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
     compact_json: bool = True
     require_prefix: bool = True
@@ -363,6 +394,7 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
     """Build _template_body, get_templates, and parse_header functions dynamically."""
     def _template_body(helper: str, params: dict[str, Any]) -> str:
         desc = cfg.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
+        pos = cfg.positional_args.get(helper) if cfg.positional_args else None
         return build_helper_script_template(
             tag=cfg.tag,
             helper=helper,
@@ -374,6 +406,7 @@ def make_template_api(cfg: DomainFacadeConfig) -> Any:
             data_expr=cfg.data_expr,
             context_expr=cfg.context_expr,
             extra_comment_lines=cfg.extra_comment_lines,
+            positional_args=pos,
             compact_json=cfg.compact_json,
         )
 

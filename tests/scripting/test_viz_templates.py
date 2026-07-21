@@ -18,7 +18,7 @@ def test_get_viz_script_templates_include_run_call():
 
 def test_viz_template_body_includes_helper_params():
     code = get_viz_script_templates()["correlation_heatmap"]
-    assert '"method":"pearson"' in code
+    assert 'correlation_heatmap(method="pearson")' in code
     assert "from writeragent.scripting.viz import correlation_heatmap" in code
 
 

@@ -18,5 +18,5 @@ def test_get_math_script_templates_include_run_call():
 
 def test_math_template_body_includes_helper_params():
     code = get_math_script_templates()["integrate"]
-    assert '"expression":"sin(x)"' in code
+    assert 'integrate(expression="sin(x)", variable="x")' in code
     assert "from writeragent.scripting.symbolic import integrate" in code

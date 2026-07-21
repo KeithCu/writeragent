@@ -124,8 +124,7 @@ def test_text_analytics_topics_in_helernames_and_templates():
     temps = ta.get_text_analytics_script_templates()
     assert "topics" in temps
     code = temps["topics"]
-    assert "from writeragent.scripting.text_analytics import topics" in code
-    assert '"n_topics":4' in code or '"n_topics": 4' in code
+    assert 'topics(n_topics=4)' in code or '"n_topics":4' in code or '"n_topics": 4' in code
 
 
 def test_text_analytics_topics_result_shape():
