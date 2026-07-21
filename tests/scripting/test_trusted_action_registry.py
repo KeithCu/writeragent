@@ -22,10 +22,9 @@ def test_get_trusted_action_wiring_known_domains() -> None:
     assert embeddings is not None
     assert embeddings.supports_heartbeat is True
 
-    harper = get_trusted_action_wiring("harper")
-    assert harper is not None
-    assert harper.supports_heartbeat is True
-    assert harper.handler.endswith("trusted_dispatch:dispatch_harper")
+    languagetool = get_trusted_action_wiring("languagetool")
+    assert languagetool is not None
+    assert languagetool.handler.endswith("trusted_dispatch:dispatch_languagetool")
 
 
 def test_get_trusted_action_wiring_unknown_domain() -> None:

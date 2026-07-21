@@ -12,20 +12,20 @@ import os
 import queue
 import pytest
 
-from plugin.scripting.venv.harper import (
+from plugin.writer.locale.harper import (
     HarperLSClient,
     _harper_lsp_settings,
     _read_exactly,
     lsp_range_to_offset,
     run_harper_check,
 )
-from plugin.scripting.venv.harper_binary import (
+from plugin.writer.locale.harper_binary import (
     HarperReleaseAsset,
     _fetch_latest_release_asset,
     _read_installed_version,
 )
-import plugin.scripting.venv.harper as harper_module
-import plugin.scripting.venv.harper_binary as harper_binary_module
+import plugin.writer.locale.harper as harper_module
+import plugin.writer.locale.harper_binary as harper_binary_module
 
 
 @pytest.fixture(autouse=True)
@@ -100,7 +100,7 @@ def test_harper_lsp_settings_dialect_mapping() -> None:
     assert _harper_lsp_settings("en-US", "/tmp")["harper-ls"]["dialect"] == "American"
     assert _harper_lsp_settings("en-GB", "/tmp")["harper-ls"]["userDictPath"] == str(Path("/tmp") / "harper-dictionary.txt")
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
 def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
     mock_get_bin.return_value = "/bin/harper-ls"
@@ -202,7 +202,7 @@ def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMo
     assert err["suggestions"] == ["This"]
 
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
 def test_harper_check_soft_line_break_offsets(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
     """Diagnostic on line 1 maps to offset after embedded newline in one sentence."""
@@ -279,7 +279,7 @@ def test_harper_check_soft_line_break_offsets(mock_popen: MagicMock, mock_get_bi
     assert err["correct"] == "World"
 
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
 def test_harper_ls_timeout(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
     mock_get_bin.return_value = "/bin/harper-ls"
@@ -294,7 +294,7 @@ def test_harper_ls_timeout(mock_popen: MagicMock, mock_get_bin: MagicMock) -> No
             client.lint("test text")
 
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
 def test_harper_check_empty_diagnostics(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
     mock_get_bin.return_value = "/bin/harper-ls"
@@ -323,7 +323,7 @@ def test_harper_check_empty_diagnostics(mock_popen: MagicMock, mock_get_bin: Mag
     assert res == {"errors": []}
 
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
 def test_harper_check_zero_width_diagnostic(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
     mock_get_bin.return_value = "/bin/harper-ls"
@@ -366,7 +366,7 @@ def test_harper_check_zero_width_diagnostic(mock_popen: MagicMock, mock_get_bin:
     assert err["n_error_length"] == 0
 
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
 def test_harper_workspace_configuration_dialect(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
     mock_get_bin.return_value = "/bin/harper-ls"
@@ -407,7 +407,7 @@ def test_harper_workspace_configuration_dialect(mock_popen: MagicMock, mock_get_
     assert b'"dialect": "British"' in written
 
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper._get_harper_binary")
 def test_harper_run_harper_check_retries_after_failure(mock_get_bin: MagicMock) -> None:
     mock_get_bin.return_value = "/bin/harper-ls"
     broken_client = MagicMock()
@@ -415,8 +415,8 @@ def test_harper_run_harper_check_retries_after_failure(mock_get_bin: MagicMock) 
     fresh_client = MagicMock()
     fresh_client.lint.return_value = []
 
-    with patch("plugin.scripting.venv.harper._get_or_create_client", return_value=broken_client), \
-         patch("plugin.scripting.venv.harper.HarperLSClient", return_value=fresh_client) as mock_ctor:
+    with patch("plugin.writer.locale.harper._get_or_create_client", return_value=broken_client), \
+         patch("plugin.writer.locale.harper.HarperLSClient", return_value=fresh_client) as mock_ctor:
         res = run_harper_check("retry me.", "/tmp")
 
     assert res == {"errors": []}
@@ -459,8 +459,8 @@ def _harper_binary_name() -> str:
     return "harper-ls.exe" if os.name == "nt" else "harper-ls"
 
 
-@patch("plugin.scripting.venv.harper_binary._download_harper_binary")
-@patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
+@patch("plugin.writer.locale.harper_binary._download_harper_binary")
+@patch("plugin.writer.locale.harper_binary._fetch_latest_release_asset")
 def test_get_harper_binary_redownloads_when_latest_changes(
     mock_fetch: MagicMock,
     mock_download: MagicMock,
@@ -473,15 +473,15 @@ def test_get_harper_binary_redownloads_when_latest_changes(
     binary_path.write_bytes(b"old")
     (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
 
-    with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
+    with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
         path = harper_binary_module._get_harper_binary(str(tmp_path))
 
     mock_download.assert_called_once_with(binary_path, mock_fetch.return_value, heartbeat_fn=None)
     assert path == str(binary_path)
 
 
-@patch("plugin.scripting.venv.harper_binary._download_harper_binary")
-@patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
+@patch("plugin.writer.locale.harper_binary._download_harper_binary")
+@patch("plugin.writer.locale.harper_binary._fetch_latest_release_asset")
 def test_get_harper_binary_skips_download_when_up_to_date(
     mock_fetch: MagicMock,
     mock_download: MagicMock,
@@ -494,15 +494,15 @@ def test_get_harper_binary_skips_download_when_up_to_date(
     binary_path.write_bytes(b"current")
     (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
 
-    with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
+    with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
         path = harper_binary_module._get_harper_binary(str(tmp_path))
 
     mock_download.assert_not_called()
     assert path == str(binary_path)
 
 
-@patch("plugin.scripting.venv.harper_binary._download_harper_binary")
-@patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
+@patch("plugin.writer.locale.harper_binary._download_harper_binary")
+@patch("plugin.writer.locale.harper_binary._fetch_latest_release_asset")
 def test_migrate_legacy_bin_install_moves_binary(
     mock_fetch: MagicMock,
     mock_download: MagicMock,
@@ -517,7 +517,7 @@ def test_migrate_legacy_bin_install_moves_binary(
     (legacy_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
     (legacy_dir / "harper-ls.release.json").write_text("{}", encoding="utf-8")
 
-    with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
+    with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
         path = harper_binary_module._get_harper_binary(str(tmp_path))
 
     harper_dir = tmp_path / "harper"
@@ -530,7 +530,7 @@ def test_migrate_legacy_bin_install_moves_binary(
     mock_download.assert_not_called()
 
 
-@patch("plugin.scripting.venv.harper_binary.retrieve")
+@patch("plugin.writer.locale.harper_binary.retrieve")
 def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
@@ -547,7 +547,7 @@ def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_pa
 
     dest = harper_dir / "harper-ls"
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with patch("plugin.scripting.venv.harper_binary.Untar", return_value=mock_processor):
+    with patch("plugin.writer.locale.harper_binary.Untar", return_value=mock_processor):
         harper_binary_module._download_harper_binary(dest, release)
 
     mock_retrieve.assert_called_once()
@@ -557,7 +557,7 @@ def test_download_harper_binary_installs_binary(mock_retrieve: MagicMock, tmp_pa
     assert extracted.is_file()
 
 
-@patch("plugin.scripting.venv.harper_binary.retrieve")
+@patch("plugin.writer.locale.harper_binary.retrieve")
 def test_download_harper_binary_removes_archive_after_success(mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
@@ -585,7 +585,7 @@ def test_download_harper_binary_removes_archive_after_success(mock_retrieve: Mag
 
     mock_retrieve.side_effect = fake_retrieve
     mock_processor = MagicMock(return_value=[str(extracted)])
-    with patch("plugin.scripting.venv.harper_binary.Untar", return_value=mock_processor):
+    with patch("plugin.writer.locale.harper_binary.Untar", return_value=mock_processor):
         harper_binary_module._download_harper_binary(dest, release)
 
     assert dest.read_bytes() == b"fake-binary"
@@ -596,7 +596,7 @@ def test_download_harper_binary_removes_archive_after_success(mock_retrieve: Mag
     assert extracted.is_file()
 
 
-@patch("plugin.scripting.venv.harper_binary.retrieve")
+@patch("plugin.writer.locale.harper_binary.retrieve")
 def test_download_harper_binary_propagates_retrieve_failure(mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
@@ -629,17 +629,17 @@ def test_fetch_latest_release_asset_uses_github_api(tmp_path: Path) -> None:
         ],
     }
 
-    with patch("plugin.scripting.venv.harper_binary._github_api_request", return_value=api_payload), \
-         patch("plugin.scripting.venv.harper_binary.platform.system", return_value="Linux"), \
-         patch("plugin.scripting.venv.harper_binary.platform.machine", return_value="x86_64"):
+    with patch("plugin.writer.locale.harper_binary._github_api_request", return_value=api_payload), \
+         patch("plugin.writer.locale.harper_binary.platform.system", return_value="Linux"), \
+         patch("plugin.writer.locale.harper_binary.platform.machine", return_value="x86_64"):
         release = _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
 
     assert release.version == "2.7.0"
     assert release.sha256 == "abc123"
 
 
-@patch("plugin.scripting.venv.harper_binary._download_harper_binary")
-@patch("plugin.scripting.venv.harper_binary._fetch_latest_release_asset")
+@patch("plugin.writer.locale.harper_binary._download_harper_binary")
+@patch("plugin.writer.locale.harper_binary._fetch_latest_release_asset")
 def test_get_harper_binary_emits_heartbeat_progress(
     mock_fetch: MagicMock,
     mock_download: MagicMock,
@@ -656,7 +656,7 @@ def test_get_harper_binary_emits_heartbeat_progress(
     def heartbeat_fn(payload: dict[str, str]) -> None:
         messages.append(str(payload.get("message") or ""))
 
-    with patch("plugin.scripting.venv.harper_binary.shutil.which", return_value=None):
+    with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
         harper_binary_module._get_harper_binary(str(tmp_path), heartbeat_fn=heartbeat_fn)
 
     assert "Resolving harper-ls binary…" in messages
@@ -664,7 +664,7 @@ def test_get_harper_binary_emits_heartbeat_progress(
     mock_download.assert_not_called()
 
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
 def test_run_harper_check_emits_heartbeat_progress(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
     mock_get_bin.return_value = "/bin/harper-ls"
@@ -700,12 +700,12 @@ def test_run_harper_check_emits_heartbeat_progress(mock_popen: MagicMock, mock_g
     assert mock_get_bin.call_args.kwargs.get("heartbeat_fn") is heartbeat_fn
 
 
-@patch("plugin.scripting.venv.harper_binary.log")
+@patch("plugin.writer.locale.harper_binary.log")
 def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: MagicMock, tmp_path: Path) -> None:
     harper_binary_module._release_cache.clear()
     api_payload = {"tag_name": "v2.7.0", "assets": []}
 
-    with patch("plugin.scripting.venv.harper_binary._github_api_request", return_value=api_payload):
+    with patch("plugin.writer.locale.harper_binary._github_api_request", return_value=api_payload):
         with pytest.raises(RuntimeError, match="not found in latest release"):
             _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
 
@@ -713,11 +713,11 @@ def test_fetch_latest_release_asset_logs_error_when_asset_missing(mock_log: Magi
     assert "not found" in mock_log.error.call_args[0][1]
 
 
-@patch("plugin.scripting.venv.harper_binary.log")
+@patch("plugin.writer.locale.harper_binary.log")
 def test_fetch_latest_release_asset_logs_github_api_failure(mock_log: MagicMock, tmp_path: Path) -> None:
     harper_binary_module._release_cache.clear()
 
-    with patch("plugin.scripting.venv.harper_binary._github_api_request", side_effect=OSError("network down")):
+    with patch("plugin.writer.locale.harper_binary._github_api_request", side_effect=OSError("network down")):
         with pytest.raises(RuntimeError, match="Harper releases API request failed"):
             _fetch_latest_release_asset("linux", "x86_64", tmp_path / "harper")
 
@@ -725,8 +725,8 @@ def test_fetch_latest_release_asset_logs_github_api_failure(mock_log: MagicMock,
     assert mock_log.error.call_args.kwargs.get("exc_info") is True
 
 
-@patch("plugin.scripting.venv.harper_binary.retrieve")
-@patch("plugin.scripting.venv.harper_binary.log")
+@patch("plugin.writer.locale.harper_binary.retrieve")
+@patch("plugin.writer.locale.harper_binary.log")
 def test_download_harper_binary_logs_error_with_exc_info(mock_log: MagicMock, mock_retrieve: MagicMock, tmp_path: Path) -> None:
     release = HarperReleaseAsset(
         version="2.6.0",
@@ -745,8 +745,8 @@ def test_download_harper_binary_logs_error_with_exc_info(mock_log: MagicMock, mo
     assert mock_log.error.call_args.kwargs.get("exc_info") is True
 
 
-@patch("plugin.scripting.venv.harper._get_harper_binary")
-@patch("plugin.scripting.venv.harper.log")
+@patch("plugin.writer.locale.harper._get_harper_binary")
+@patch("plugin.writer.locale.harper.log")
 def test_run_harper_check_logs_binary_resolve_failure(mock_log: MagicMock, mock_get_bin: MagicMock) -> None:
     mock_get_bin.side_effect = RuntimeError("Failed to auto-download Harper binary: boom")
 
@@ -758,7 +758,7 @@ def test_run_harper_check_logs_binary_resolve_failure(mock_log: MagicMock, mock_
     assert mock_log.error.call_args.kwargs.get("exc_info") is True
 
 
-@patch("plugin.scripting.venv.harper.log")
+@patch("plugin.writer.locale.harper.log")
 def test_harper_lsp_initialize_logs_exception_on_failure(mock_log: MagicMock) -> None:
     with patch("subprocess.Popen", side_effect=OSError("exec failed")):
         with pytest.raises(RuntimeError, match="Failed to start/initialize harper-ls"):

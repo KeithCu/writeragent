@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import sys
 
 from plugin.writer.locale.grammar_ignore_rules import LANGUAGETOOL_RULE_PREFIX, make_rule_identifier
-from plugin.scripting.venv.languagetool import run_languagetool_check
+from plugin.writer.locale.languagetool import run_languagetool_check
 
 
 def test_run_languagetool_check_prefixes_rule_identifier() -> None:
@@ -29,7 +29,7 @@ def test_run_languagetool_check_prefixes_rule_identifier() -> None:
 
     with (
         patch.dict(sys.modules, {"language_tool_python": MagicMock()}),
-        patch("plugin.scripting.venv.languagetool._LT_CACHE", {"en-US": tool}),
+        patch("plugin.writer.locale.languagetool._LT_CACHE", {"en-US": tool}),
     ):
         res = run_languagetool_check("teh word", "en-US")
 

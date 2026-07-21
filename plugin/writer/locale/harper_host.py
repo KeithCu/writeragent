@@ -40,7 +40,7 @@ def _pump_grammar_status_ui(ctx: Any) -> None:
 
 def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
     """Run Harper on the host (no venv worker). Downloads harper-ls into the user profile if needed."""
-    from plugin.scripting.venv.harper import run_harper_check as _run_harper_in_process
+    from plugin.writer.locale.harper import run_harper_check as _run_harper_in_process
     from plugin.writer.locale.grammar_obs import emit_harper_worker_status
 
     emit_harper_worker_status(text, "Starting Harper…")

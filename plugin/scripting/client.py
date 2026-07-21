@@ -323,7 +323,6 @@ def run_text_analytics(
         additional_data={"text": text},
     )
 
-
 # --- LanguageTool ---
 
 _LT_SESSION_PREFIX = "writeragent:languagetool"
@@ -366,8 +365,3 @@ def run_vale_check(ctx: Any, text: str, config_dir: str, styles: str) -> dict[st
         error_label="Vale Linter",
         additional_data={"text": text, "config_dir": config_dir, "styles": styles},
     )
-
-
-# --- Harper Rust Linter (host; implementation lives in harper_host to avoid this module's RPC imports) ---
-
-from plugin.scripting.harper_host import _pump_grammar_status_ui, run_harper_check  # noqa: E402,F401

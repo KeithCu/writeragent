@@ -10,19 +10,20 @@ import logging
 import os
 import queue
 import subprocess
-import sys
 import threading
 import time
-from collections.abc import Callable
 from pathlib import Path
-from typing import BinaryIO, cast
+from typing import TYPE_CHECKING, BinaryIO, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.worker_pool import get_subprocess_creationflags
 from plugin.scripting.sandbox import wrap_command_for_sandbox
 
 from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
-from plugin.scripting.venv.harper_binary import _get_harper_binary
+from plugin.writer.locale.harper_binary import _get_harper_binary
 from plugin.writer.locale.grammar_ignore_rules import HARPER_RULE_PREFIX, make_rule_identifier
 
 log = logging.getLogger("writeragent.grammar")
@@ -126,7 +127,7 @@ class HarperLSClient:
     def _read_loop(self) -> None:
         try:
             while self.proc and self.proc.stdout:
-                msg = json_rpc_framing.read_frame(cast(BinaryIO, self.proc.stdout))
+                msg = json_rpc_framing.read_frame(cast("BinaryIO", self.proc.stdout))
                 if msg is None:
                     break
                 self.stdout_queue.put(msg)
@@ -141,7 +142,7 @@ class HarperLSClient:
     def _write(self, payload: dict) -> None:
         if not self.proc or self.proc.stdin is None:
             raise RuntimeError("harper-ls process not running")
-        json_rpc_framing.write_frame(cast(BinaryIO, self.proc.stdin), payload)
+        json_rpc_framing.write_frame(cast("BinaryIO", self.proc.stdin), payload)
 
     def _read(self, deadline: float) -> dict | None:
         if not self.proc:

@@ -17,7 +17,7 @@ log = logging.getLogger("writeragent.grammar")
 def run_languagetool_check(text: str, bcp47: str) -> dict:
     """Execute grammar check on text using language_tool_python in the venv."""
     try:
-        import language_tool_python
+        import language_tool_python  # type: ignore
     except ImportError:
         raise RuntimeError(
             "The 'language-tool-python' package is not installed in the venv. "

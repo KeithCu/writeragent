@@ -14,9 +14,12 @@ import shutil
 import tempfile
 import time
 import urllib.request
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.contrib.pooch import HTTPDownloader, Untar, Unzip, retrieve
 from plugin.framework.constants import USER_AGENT

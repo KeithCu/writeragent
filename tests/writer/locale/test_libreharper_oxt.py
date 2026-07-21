@@ -107,8 +107,8 @@ def test_collect_libreharper_plugin_paths() -> None:
     from scripts.libreharper_bundle_paths import collect_libreharper_plugin_paths
 
     paths = collect_libreharper_plugin_paths(_repo_root())
-    assert "plugin/scripting/harper_host.py" in paths
-    assert "plugin/scripting/venv/harper.py" in paths
+    assert "plugin/writer/locale/harper_host.py" in paths
+    assert "plugin/writer/locale/harper.py" in paths
     assert "plugin/doc/udprops.py" in paths
     assert not any(p.endswith("grammar_worker_llm.py") for p in paths)
     assert not any("llm_client" in p for p in paths)

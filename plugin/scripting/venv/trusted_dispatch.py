@@ -128,10 +128,9 @@ def dispatch_sql(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]
         data.get("flat_files"),
     )
 
-
 def dispatch_languagetool(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
     del heartbeat_fn
-    from plugin.scripting.venv.languagetool import run_languagetool_check
+    from plugin.writer.locale.languagetool import run_languagetool_check
 
     return run_languagetool_check(
         _require_str(data.get("text"), "text"),
@@ -147,19 +146,6 @@ def dispatch_vale(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any
         _require_str(data.get("text"), "text"),
         _require_str(data.get("config_dir"), "config_dir"),
         _require_str(data.get("styles"), "styles"),
-    )
-
-
-def dispatch_harper(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
-    # Non-grammar callers only: realtime grammar uses harper_host in-process so users
-    # without a configured Python venv still get Harper (warm worker requires a venv).
-    from plugin.scripting.venv.harper import run_harper_check
-
-    return run_harper_check(
-        _require_str(data.get("text"), "text"),
-        _require_str(data.get("config_dir"), "config_dir"),
-        bcp47=str(data.get("bcp47") or "en-US"),
-        heartbeat_fn=heartbeat_fn,
     )
 
 
