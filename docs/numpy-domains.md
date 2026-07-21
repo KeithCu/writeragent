@@ -122,7 +122,7 @@ We are actively expanding the set of supported scientific libraries. These packa
 | Domain | Packages | Implementation |
 |--------|----------|----------------|
 | **Data Engineering** | `pint`, `pyarrow` | Trusted module `plugin/scripting/units.py` or `io.py` |
-| **NLP** | `langdetect` (grammar Local + embeddings plain-text locale), `spacy` (shipped via [`text_analytics.py`](../plugin/scripting/text_analytics.py)) | Venv `langdetect` via [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py); Writer dialog + `# writeragent:text` |
+| **NLP** | `langdetect` (grammar Local + embeddings plain-text locale), `spacy` (shipped via [`text_analytics.py`](../plugin/scripting/text_analytics.py)) | Venv `langdetect` via [`langdetect_rpc.py`](../plugin/embeddings/venv/langdetect_rpc.py); Writer dialog + Run Python Script direct imports |
 | **Bayesian Opt** | `scikit-optimize` | Trusted module `plugin/scripting/optimization.py` |
 
 The implementation should follow the [Domain helper pattern](#domain-helper-pattern-analysis--vision-canonical) using the established RPC stub architecture.
@@ -466,7 +466,7 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 | Piece | Location |
 |-------|----------|
 | Trusted module | [`symbolic.py`](../plugin/scripting/symbolic.py), [`symbolic_client.py`](../plugin/framework/client/symbolic_client.py) |
-| Run Python Script | `# writeragent:math` templates in [`symbolic_templates.py`](../plugin/scripting/symbolic_templates.py), **Math Helpers** in [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
+| Run Python Script | Direct import templates in [`symbolic.py`](../plugin/scripting/symbolic.py), **Math Helpers** in [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
 | Writer Math insert | [`symbolic_egress.py`](../plugin/scripting/symbolic_egress.py) → [`math_mml_convert.py`](../plugin/writer/math/math_mml_convert.py) |
 | Chat tool | [`symbolic_math`](../plugin/calc/symbolic_math.py) (`domain="python"`) |
 
@@ -502,14 +502,14 @@ Optional second table `all_scores` (truncated) for debugging — keep behind `pa
 | Piece | Location |
 |-------|----------|
 | Trusted module | [`units.py`](../plugin/scripting/units.py), [`client.py`](../plugin/scripting/client.py) `run_units` |
-| Run Python Script | `# writeragent:units` templates, **Units Helpers** in [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
+| Run Python Script | Direct import templates in [`units.py`](../plugin/scripting/units.py), **Units Helpers** in [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
 | Writer / Calc egress | `insert_units_result_into_doc` in [`units.py`](../plugin/scripting/units.py) |
 
 **Packages:** `pint` (required). Settings → Python **Data Engineering Libraries** group lists pint.
 
-**Run Python Script templates:** **Units Helpers →** `[Units] convert_quantity`, `[Units] parse_quantity`, `[Units] check_dimensionality`. Edit parameters in the `run_units(...)` call.
+**Run Python Script templates:** **Units Helpers →** `[Units] convert_quantity`, `[Units] parse_quantity`, `[Units] check_dimensionality`. Edit positional or keyword arguments in the direct helper function call (e.g. `convert_quantity(10, "m/s", "km/h")`).
 
-**Calc egress:** By default, `convert_quantity` and `parse_quantity` write a **single formatted cell** at the selection anchor (e.g. `36 km/h`). Writer inserts the same formatted string as plain text. For a debug/report layout, pass `output_style: "detailed"` in the `run_units` **params** dict — this writes a key-value grid (formatted value on the first row, then magnitude/units or compatibility fields). `check_dimensionality` defaults to `detailed`.
+**Calc egress:** By default, `convert_quantity` and `parse_quantity` write a **single formatted cell** at the selection anchor (e.g. `36 km/h`). Writer inserts the same formatted string as plain text. For a debug/report layout, pass `output_style="detailed"` in the function call — this writes a key-value grid (formatted value on the first row, then magnitude/units or compatibility fields). `check_dimensionality` defaults to `detailed`.
 
 ```text
 # formatted (default for convert/parse) — anchor cell:
