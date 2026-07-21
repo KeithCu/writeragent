@@ -216,6 +216,57 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
 SPILL_REGISTRY: dict[tuple[str, str, int, int], list[tuple[int, int]]] = {}
 LOADED_DOCUMENTS: set[str] = set()
 
+import unohelper
+from com.sun.star.util import XModifyListener
+
+SHEET_MODIFY_LISTENERS: dict[tuple[str, str], CalcSpillModifyListener] = {}
+
+class CalcSpillModifyListener(unohelper.Base, XModifyListener):
+    """Listens to sheet changes to automatically clean up orphaned spilled cells."""
+    def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
+        self.ctx = ctx
+        self.doc_url = doc_url
+        self.sheet_name = sheet_name
+
+    def modified(self, aEvent: Any) -> None:
+        try:
+            sheet = aEvent.Source
+            if sheet is None:
+                return
+
+            to_remove = []
+            for key, value in list(SPILL_REGISTRY.items()):
+                doc_url, sheet_name, frow, fcol = key
+                if doc_url == self.doc_url and sheet_name == self.sheet_name:
+                    try:
+                        cell = sheet.getCellByPosition(fcol, frow)
+                        formula = cell.getFormula()
+                        if not formula or not (("PYTHON" in formula or "PY" in formula)):
+                            # Clear previously spilled cells
+                            for r, c in value:
+                                if (r, c) != (frow, fcol):
+                                    try:
+                                        spill_cell = sheet.getCellByPosition(c, r)
+                                        spill_cell.clearContents(23)
+                                    except Exception:
+                                        pass
+                            to_remove.append(key)
+                    except Exception:
+                        log.debug("Failed to inspect formula cell %r", key, exc_info=True)
+
+            if to_remove:
+                for key in to_remove:
+                    SPILL_REGISTRY.pop(key, None)
+                doc = _get_calc_doc(self.ctx)
+                if doc is not None:
+                    save_spill_registry_for_doc(doc)
+        except Exception:
+            log.exception("Error in CalcSpillModifyListener.modified")
+
+    def disposing(self, aEvent: Any) -> None:
+        SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
+
+
 
 def load_spill_registry_for_doc(doc: Any) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
@@ -453,6 +504,16 @@ def finalize_python_return(
                                 if doc_url not in LOADED_DOCUMENTS:
                                     load_spill_registry_for_doc(doc)
                                     LOADED_DOCUMENTS.add(doc_url)
+
+                                # Register sheet modify listener for auto-cleanup of spills
+                                sheet_key = (doc_url, sheet_name)
+                                if sheet_key not in SHEET_MODIFY_LISTENERS:
+                                    try:
+                                        listener = CalcSpillModifyListener(ctx, doc_url, sheet_name)
+                                        sheet.addModifyListener(listener)
+                                        SHEET_MODIFY_LISTENERS[sheet_key] = listener
+                                    except Exception:
+                                        log.exception("Failed to register modify listener on sheet")
                                 
                                 num_rows = len(grid_to_spill)
                                 num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0

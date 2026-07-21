@@ -424,5 +424,52 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
     assert set(python_function.SPILL_REGISTRY[key]) == {(1, 2), (2, 1), (2, 2)}
 
 
+def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that CalcSpillModifyListener cleans up spilled cells when formula is removed."""
+    sheet = MagicMock()
+    aEvent = SimpleNamespace(Source=sheet)
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///fake_cleanup.ods"
+    
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda ctx: doc)
+    
+    saved = []
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
+
+    ctx = MagicMock()
+    listener = python_function.CalcSpillModifyListener(ctx, "file:///fake_cleanup.ods", "Sheet1")
+
+    key = ("file:///fake_cleanup.ods", "Sheet1", 1, 1)
+    python_function.SPILL_REGISTRY[key] = [(2, 1)]
+
+    cell_B2 = MagicMock()
+    cell_B3 = MagicMock()
+    
+    def get_cell(c, r):
+        if r == 1 and c == 1:
+            return cell_B2
+        if r == 2 and c == 1:
+            return cell_B3
+        return MagicMock()
+    
+    sheet.getCellByPosition.side_effect = get_cell
+
+    # Case 1: Formula still contains PYTHON
+    cell_B2.getFormula.return_value = '=PYTHON("some_code")'
+    listener.modified(aEvent)
+    
+    assert key in python_function.SPILL_REGISTRY
+    cell_B3.clearContents.assert_not_called()
+
+    # Case 2: Formula cleared (removed)
+    cell_B2.getFormula.return_value = ''
+    listener.modified(aEvent)
+    
+    assert key not in python_function.SPILL_REGISTRY
+    cell_B3.clearContents.assert_called_once_with(23)
+    assert len(saved) == 1
+
+
+
 
 

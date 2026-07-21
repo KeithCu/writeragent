@@ -629,6 +629,19 @@ Microsoft Excel can **auto-spill** multi-cell results (DataFrames, 2D arrays) in
 - **Grid egress over a data range** — use **two arguments only**: `=PY("np.sum(data)"; B1:B10)` or `=PY("(np.array(data) * 2).tolist()"; D6:G9)` as a matrix formula (**Ctrl+Shift+Enter**). The add-in IDL accepts only `(code, data)`; a third argument such as `ROW()-1` causes **Err:504** (error in parameter list). When the 2nd argument is the full range, `data` in Python is that grid; use `ROW()-n` as the 2nd argument only when it is the per-cell index, not together with a range.
 - **Single cell, full list as text** — `=PY("result = str([1, 2, 3])")` + Enter.
 
+##### Auto-Spill Optimization & Future Enhancements {#auto-spill-optimizations}
+
+The auto-spill implementation includes the following components:
+
+- **What's Done:**
+  - **Auto-Cleanup of Orphaned Spills:** An `XModifyListener` (`CalcSpillModifyListener`) is registered on sheets containing auto-spill cells. If the originating `=PYTHON()` formula cell is cleared, overwritten, or deleted, the listener automatically runs, clears all associated spilled cells, updates `WriterAgentSpillRegistry`, and saves the document properties.
+
+- **What's Left (Future Work):**
+  - **Dynamic Spill References:** Implementing support for a spill reference helper function (e.g., `=PY_REF("A1")`) to dynamically resolve and reference the bounding range of a spilled cell since Calc does not support the Excel `#` suffix (e.g., `=A1#`).
+  - **Thread-safe Event Loop Integration:** Replacing the background `threading.Timer` with Calc's native event-loop queue / async task drain on the main UI thread to minimize potential calculation lifecycle hazards.
+  - **LibreOffice C++ Core Integration:** Exposing a recalculation/resizing hook to UNO to avoid background timer delays entirely, or supporting multi-dimensional `XVolatileResult` arrays natively in the core Calc calculation engine (`sc`) to bypass simulated dynamic arrays entirely.
+
+
 
 
 ### Usage
