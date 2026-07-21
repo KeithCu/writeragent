@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Trusted Harper Rust grammar linter helper executing inside the user's virtual environment."""
+"""Trusted Harper Rust grammar linter helper executing inside the embedded interpreter (in-process)."""
 
 from __future__ import annotations
 
