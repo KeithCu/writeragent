@@ -1,6 +1,6 @@
 # Collabora Online and jail-safe execution
 
-> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Correctness/lifecycle/platform blockers from the 2026-07 review (ranges, typed JSON parse, `pythonexecute` ids, unlock-before-finish, early emitter, Solar/weak lifetimes, kit emit marshal, multi-view/MOBILEAPP) are addressed in tree. **G6a (active pending timeout) landed** — AddIn one-shot `vcl::Timer` clears `#BUSY!` without recalc. **G6c (AddIn.idl identity) landed** — param cache now holds weak refs and never evicts live entries. Still open before Gerrit: request caps, service isolation, UnitWSD CI, commit series — see [Still open before Gerrit](#still-open-before-gerrit). Product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
+> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Correctness/lifecycle/platform blockers from the 2026-07 review (ranges, typed JSON parse, `pythonexecute` ids, unlock-before-finish, early emitter, Solar/weak lifetimes, kit emit marshal, multi-view/MOBILEAPP) are addressed in tree. **G6a (active pending timeout) landed** — AddIn one-shot `vcl::Timer` clears `#BUSY!` without recalc. **G6c (AddIn.idl identity) landed** — param cache now holds weak refs and never evicts live entries. Still open before Gerrit: request caps, service isolation, UnitWSD CI, commit series — see [Still open before Gerrit](#still-open-before-gerrit). Product follow-ups (not coded): **visible short Python errors ([F6](#f6--visible-short-python-errors))**, **single-cell auto-spill ([F7](#f7--single-cell-auto-spill))** — design notes under [cell markers](#cell-markers--diagnosis-busy-disabled-value) / [matrix spill](#matrix-list-results--auto-spill-not-yet). Product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
 
 Related architecture comparison (AI chat / kit protocol, not Python compute): [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md).
 
@@ -101,27 +101,71 @@ flowchart LR
 
 Live in the Collabora Online / LibreOffice trees (`collabofficefull`), not writeragent:
 
-1. **Config:** `security.python_compute.enable` (default `false`) + `security.python_compute.url` in `coolwsd.xml.in` / `ConfigUtil.cpp`.
+1. **Config:** `security.python_compute.enable` (default `false`), `url`, optional `api_key` (Bearer), `timeout_secs` in `coolwsd.xml.in` / `ConfigUtil.cpp`. No HTTP retries (formula POST is not idempotent).
 2. **coolwsd:** `ClientSession::handlePythonComputeFromKit` — kit `pythoncompute:` → `http::Session` POST → `pythoncomputeresult:`.
 3. **kit:** `PythonComputeEmitter` — spreadsheet-only install; one stable egress owner among live views (no last-wins steal); MOBILEAPP no-op; `handlePythonComputeResult` → `pythoncompute_complete_json` (no product browser echo). Retries `dlsym` until AddIn symbols resolve. Debug kick: `pythonexecute` (`ENABLE_DEBUG` only; rejects `py-*` ids).
-4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile weak-ref identity map (soft cap 256, never evicts live entries), `finish` / listener push under `SolarMutexGuard`, Any↔dumb JSON (`JsonWriter` + local hand parser — see [JSON note](#anyjson-dumb-json-note)), pending map (finish outside bridge mutex), matrix spill via `sequence<sequence<…>>`. No `FormulaError::Busy`.
+4. **Core AddIn (Step C):** [`engine/scaddins/source/pythoncompute/`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/) — UNO `org.collaboraoffice.sheet.addin.PythonComputeFunctions`, C++ ns `collaboraoffice::pythoncompute`, `getPy` / `getPython`, `XVolatileResult` interim `"#BUSY!"`, param→volatile weak-ref identity map, `finish` under `SolarMutexGuard`, Any↔dumb JSON (see [JSON note](#anyjson-dumb-json-note)), pending map + timer. List/grid results → `sequence<sequence<…>>` → Core `ScMatrix` (see [matrix / spill](#matrix-list-results--auto-spill-not-yet)). No `FormulaError::Busy`.
 5. **Future work:** see [below](#future-work-prototype--hardened-online). Monaco / browser cell editor remains a separate Online UI track (LibrePy uses pywebview; do not port that into the kit).
 
 #### Cell markers / diagnosis (`#BUSY!`, `#DISABLED`, `#VALUE!`)
 
-Volatile / finish values are **not** new Core `FormulaError` enum entries (Excel/Calc’s set stays fixed). The AddIn uses the same string-marker pattern as interim busy:
+Volatile / finish values are **not** new Core `FormulaError` enum entries (Excel/Calc’s set stays fixed). Two existing Calc conventions coexist:
 
-| Cell shows | Meaning | Where |
-|------------|---------|--------|
-| `#BUSY!` | Request in flight (interim volatile text) | AddIn before `complete_json` |
-| `#DISABLED` | coolwsd rejected because `security.python_compute.enable` is false | wsd `replyError(..., "Python compute is disabled")` → AddIn maps that exact error string to literal `"#DISABLED"` in `jsonResultToAny` (not `#VALUE!`) |
-| `#VALUE!` | Other `status=error` / bad JSON / missing `result` (`FormulaError::NoValue`) | Service or network failures, parse failures |
-| `#N/A` | No emitter, timeout, superseded pending (`FormulaError::NotAvailable`) | Bridge lifecycle |
+1. **True formula errors** — `CreateDoubleError` / void Any → cell `#VALUE!` / `#N/A`; Online `!` help + status bar show only fixed `GetLongErrorString` (e.g. “Error: No value”). Keeps `ISERROR` / `IFERROR`. **There is no free-form message field on `FormulaError`.**
+2. **String markers** — plain `OUString` in the cell (same family as interim busy). Readable text, but **not** a formula error (`ISERROR` is false).
+
+**Today (landed):**
+
+| Cell shows | Kind | Meaning | Where |
+|------------|------|---------|--------|
+| `#BUSY!` | string | Request in flight | AddIn before `complete_json` |
+| `#DISABLED` | string | Feature flag off | exact coolwsd error `"Python compute is disabled"` → literal in `jsonResultToAny` |
+| `#VALUE!` | `FormulaError::NoValue` | Most `status=error`, bad JSON, missing `result` | opaque — **Python exception text is log-only** |
+| `#N/A` | `FormulaError::NotAvailable` (void Any) | No emitter, pending timeout, superseded | Bridge lifecycle |
+
+Service JSON `"error"` is parsed into `rError` and logged (`complete_json: detail=[…]`) then **discarded for the cell**. That is why a SyntaxError looks like every other `#VALUE!`.
 
 **If `=PY()` shows `#DISABLED`:** turn on the flag in the **running** `coolwsd.xml` (or `--o:security.python_compute.enable=true`), restart coolwsd, and **reload the document** — the param→volatile cache can stick the finished disabled result until params change or the kit is fresh. Keep `coolwsd.xml.in` / ConfigUtil defaults **`false`** for git/upstream; local `coolwsd.xml` is the demo override.
 
+Logs: coolwsd → `/tmp/coolwsd.log` (`Python compute: …`); Core AddIn → `export SAL_LOG=+INFO.scaddins.pythoncompute` or `+WARN.scaddins.pythoncompute` before starting coolwsd.
 
-Logs: coolwsd → `/tmp/coolwsd.log` (`Python compute: disabled; rejecting…` / `POST …`); Core AddIn → `export SAL_LOG=+INFO.scaddins.pythoncompute` before starting coolwsd (`complete_json: detail=[…]`).
+##### Planned: visible short Python errors (not implemented yet)
+
+Authors need to **see** the Python failure cause without inventing a new Core error channel. Pure FormulaError-only cannot carry `SyntaxError: …` into the sheet or Online help (`GetLongErrorString` is fixed per code).
+
+**Agreed direction (implement later in Core AddIn `jsonResultToAny` / bridge):**
+
+| Cause | Cell | `ISERROR` | Notes |
+|-------|------|-----------|--------|
+| No emitter, pending timeout, superseded | `#N/A` | yes | keep |
+| coolwsd infra: timeout / network / empty URL / allowlist | `#N/A` | yes | classify known `replyError` prefixes (today many of these still collapse to `#VALUE!`) |
+| `"Python compute is disabled"` | `#DISABLED` | no | keep |
+| Service `status=error` with a message (Python exception text, etc.) | **short string** | no | reuse `#DISABLED`-style escape hatch; first line / truncate ~200–256 chars; **no full traceback in the cell** |
+| Bad JSON / missing `result` / empty error | `#VALUE!` | yes | no useful message |
+| Empty `code` | `Err:502` | yes | already `IllegalArgumentException` |
+
+Full detail (including truncated-away remainder) stays in `SAL_WARN`. Do **not** add new `FormulaError` enum values or custom Online `errorDescription` protocol for v1 of this fix. Track as [F6](#f6--visible-short-python-errors).
+
+#### Matrix / list results / auto-spill (not yet)
+
+JSON lists already convert to `sequence<sequence<double|Any>>` → `ScUnoAddInCall::SetResult` builds `ScMatrix` → interpreter `PushMatrix`. That path is real.
+
+**Single-cell `=PY(...)` does not auto-spill.** If the formula was not entered as a matrix / dynamic-array formula, Core keeps **only the top-left** value and drops the rest:
+
+```text
+// engine/sc/source/core/data/formulacell.cxx (~2501–2508)
+// If the formula wasn't entered as a matrix formula, live on with
+// the upper left corner and let reference counting delete the matrix.
+```
+
+`=PY` is also not a Core “matrix function” for UI auto-dynamic-array promotion (`rpnIntendsArrayResult`), so typing `=PY("result = [1,2,3]")` + Enter yields **`1`**, not a spill of three cells and not `#VALUE!`.
+
+| Case | Online AddIn today | LibrePy Classic |
+|------|--------------------|-----------------|
+| Single-cell → list/2D | Top-left only | `scripting.python_auto_spill` writes neighbors + `#SPILL!` |
+| Ctrl+Shift+Enter matrix block | Full `ScMatrix` into declared range | matrix / index / spill paths |
+
+**Future (do not forget — comments/README in tree when touching anyjson):** single-cell auto-spill for Online AddIn `PY` (LibrePy-style UNO write-back, or Core dynamic-array promotion for this AddIn). Not required for Gerrit of the thin tip. Track as [F7](#f7--single-cell-auto-spill). See also Classic docs [Dynamic auto-spill](enabling_numpy_in_libreoffice.md#dynamic-auto-spill).
 
 ### Security invariants
 
@@ -167,8 +211,8 @@ collabora-online (kit/wsd)/
 1. Python compute service + Dockerfile + tests against JSON grids.
 2. Classic `RemoteComputeBackend` against the service (fast Python-only iteration).
 3. C++ hooks: kit stub + coolwsd broker → wire works (`pythoncompute:` / `pythoncomputeresult:`; debug `pythonexecute`). **Landed in tree** — remaining submit gaps in [Still open before Gerrit](#still-open-before-gerrit).
-4. Core `=PY()` AddIn + `#BUSY!` volatile + matrix spill. **Landed in tree** (scaddins `pythoncompute` + kit emitter). Rebuild LibreOffice (`libpythoncomputelo.so`) + Online coolkit to pick up.
-5. Future work below — UnitWSD CI, NumPy smoke, plots / container hardening / shared kernel. Caps / isolation / timeout / series still outrank F3–F5 for Collabora review.
+4. Core `=PY()` AddIn + `#BUSY!` volatile + list→`ScMatrix` (single-cell = top-left only). **Landed in tree** (scaddins `pythoncompute` + kit emitter). Rebuild LibreOffice (`libpythoncomputelo.so`) + Online coolkit to pick up.
+5. Future work below — UnitWSD CI, NumPy smoke, plots / container hardening / shared kernel, **visible short Python errors (F6)**, **auto-spill (F7)**. Caps / isolation / series still outrank F3–F5 for Collabora review.
 
 Until Collabora ships images with Step C linked **and** the remaining open items below are acceptable for an experimental merge, **Classic** remains the product where full desktop NumPy `=PY()` works end-to-end without a Core rebuild.
 
@@ -187,6 +231,8 @@ AddIn `timeout_ms` emission is **deferred** (wsd defaults 60s; service clamps; p
 | F3 | `images[]` sheet insert | Core AddIn + kit (+ maybe browser) | Service already emits plots; Online currently stubs a string |
 | F4 | Compute container hardening | `compute_service/Dockerfile` + run scripts | Makes the OS boundary real for Collabora admins |
 | F5 | Shared workbook kernel | AddIn + kit + service (already half-ready) | LibrePy `mode=shared` parity; tenant-safe session ids |
+| F6 | Visible short Python errors | Core `jsonResultToAny` / bridge | Authors can see exception message in-cell (not opaque `#VALUE!`) |
+| F7 | Single-cell auto-spill | Core AddIn (+ maybe Calc) | List/2D from single-cell `=PY` fills neighbors; today top-left only |
 
 ---
 
@@ -322,9 +368,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
    ```
    coolwsd on the host reaches `127.0.0.1:8000`; the container has **no** route to the public internet (tenant `urllib` / sockets die). If the sandbox AST already blocks many imports, network isolation is still the real boundary for C-extension sockets.
 6. **No docker.sock, no privileged, no host FS mounts** of tenant data. Scratch only under `/tmp`. If models/weights are needed later, bake into the image (admin curates) — never bind-mount `~/.writeragent_venv`.
-7. **Auth between coolwsd and service (optional/separate):**
-   - Shared secret header `Authorization: Bearer …` configured next to `security.python_compute.url` (new `security.python_compute.auth_header` or reuse URL userinfo carefully).
-   - Service rejects missing/wrong token with 401; UnitWSD stub can ignore.
+7. **Auth between coolwsd and service:** coolwsd already has optional `security.python_compute.api_key` → `Authorization: Bearer …` on the POST. Service-side token check + private bind remain ops ([F4](#f4--compute-service-container-hardening) / G5).
 8. **Resource quotas already partially exist:** `timeout_ms` / `clamp_timeout_sec` in [`executor.py`](../compute_service/executor.py); add RSS watch or rely on cgroup `--memory`. Document that wall-clock alone does not stop a malloc bomb — cgroup does.
 9. **Health / readiness:** keep `/health`; orchestrators use it. Do not expose `/v1/execute` without the allowlist auth once enabled.
 
@@ -367,15 +411,55 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 
 ---
 
+### F6 — Visible short Python errors
+
+**Goal:** When `=PY()` fails with a Python/service message, the **cell shows a short readable string** (exception message), not opaque `#VALUE!`. Infra failures stay true formula errors.
+
+**Why FormulaError alone is not enough:** Calc packs errors as `FormulaError` in a NaN (`CreateDoubleError`). Display is fixed short/long strings (`GetErrorString` / `GetLongErrorString`). Online’s `CellFormulaError` help button only re-shows those fixed strings. Free-form Python text **cannot** ride on a formula-error cell. Exception text is already parsed into `rError` and logged, then discarded for the cell today.
+
+**Reuse existing conventions (no new Core UX):**
+
+1. **Infra** (timeout, network, no emitter, allowlist, empty URL) → `FormulaError::NotAvailable` → `#N/A` (`ISERROR` true). Classify known coolwsd `replyError` prefixes in `jsonResultToAny` (several of these still become `#VALUE!` today).
+2. **Disabled** → keep `#DISABLED` string.
+3. **Service `status=error` with message** → finish volatile with **short `OUString`** (first line / truncate ~200–256 chars; no full traceback). Same escape hatch as `#DISABLED` / `#BUSY!`. **`ISERROR` is false** for these cells — acceptable tradeoff so authors can see the cause.
+4. **Parse / missing result / empty error** → keep `#VALUE!` (`NoValue`).
+5. Log full detail at `SAL_WARN` (`complete_json: detail=[…]`).
+
+**Files:** `engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx` (`jsonResultToAny`), `pythoncompute_bridge.cxx` (log level), README + CppUnit in `engine/scaddins/qa/pythoncompute.cxx`.
+
+**Out of scope for F6:** new `FormulaError` enum values, custom Online `errorDescription` protocol, full stack traces in cells.
+
+**Done when:** `=PY("result = 1/0")` (or service SyntaxError) shows a short message in the cell; timeout still `#N/A`; disabled still `#DISABLED`; CppUnit covers the matrix above.
+
+---
+
+### F7 — Single-cell auto-spill
+
+**Goal:** Single-cell `=PY(...)` returning a list / 2D array fills adjacent cells (Excel / LibrePy parity), with `#SPILL!` when blocked.
+
+**Today:** list→`ScMatrix` works, but non-matrix formulas keep **top-left only** (`formulacell.cxx` ~2501–2508). Matrix formula (Ctrl+Shift+Enter) over a range still works for full grids.
+
+**Options (pick when implementing):**
+
+- LibrePy-style deferred UNO write into neighbors + spill registry (`scripting.python_auto_spill` pattern in Classic), or
+- Promote AddIn `PY` into Core dynamic-array eligibility / matrix-function intent so Calc’s native spill path runs.
+
+**Until then:** leave **code comments** near `elemsToAny` / README so this is not forgotten. Do not block Gerrit on F7.
+
+**Done when:** single-cell `=PY("result = [1,2,3]")` spills three cells (or shows `#SPILL!` if blocked), matching Classic auto-spill expectations.
+
+---
+
 ### Explicitly deferred (not proto-blocking)
 
 | Item | Why deferred |
 |------|----------------|
-| AddIn-emitted `timeout_ms` | WSD defaults 60s; service clamps; pending map 90s |
+| AddIn-emitted `timeout_ms` | WSD admin `timeout_secs` (default 60s); service clamps; pending map 90s |
 | Browser Monaco / cell editor | Separate Online UI project; LibrePy pywebview is Classic-only |
 | C++ `split_grid` / Pickle5 | Violates the dumb-JSON tip on purpose |
 | Kit-side NumPy / warm venv | Jail-incompatible by design |
-| Formula errors vs string cells | Admin-off → cell `#DISABLED` string (landed); other timeouts / service failures still `#VALUE!` / `#N/A` for now |
+| Visible short Python errors in cell | **Deferred — design agreed, not coded.** See [cell markers](#cell-markers--diagnosis-busy-disabled-value) + [F6](#f6--visible-short-python-errors). Today: detail log-only; cell `#VALUE!` / `#N/A` / `#DISABLED` |
+| Single-cell auto-spill | **Deferred — documented only.** See [matrix / spill](#matrix-list-results--auto-spill-not-yet) + [F7](#f7--single-cell-auto-spill). Today: top-left only |
 | Per-document cache keying | Process-wide weak-ref identity map (soft cap 256, never evicts live entries); cleared on kit teardown — no per-`ScDocument` map (AddIn has no doc pointer; Core shares one volatile across docs) |
 
 ---
@@ -396,6 +480,8 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 | G6c | LRU breaks AddIn.idl identity; sticky errors | Done — weak-ref identity map never evicts live entries; sticky retry = change params (documented) |
 | G8 | Missing UnitWSD / formula-level CI | Open — see [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
 | G9 | Series / hygiene | Open — split Core vs Online; squash tiny follow-ups; PY naming note |
+| G10 | Opaque `#VALUE!` hides Python message | Open / deferred — design in [F6](#f6--visible-short-python-errors); not coded |
+| G11 | No single-cell auto-spill | Open / deferred — documented in [F7](#f7--single-cell-auto-spill); top-left only today |
 
 ### Any↔JSON (dumb JSON note)
 
@@ -404,7 +490,7 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 - **Emit:** `tools::JsonWriter` in `pythoncompute_anyjson.cxx` — Calc ranges as `Sequence<Sequence<…>>` first, then flatten 1×N / N×1 when useful (Any **and** typed double grids).
 - **Parse:** local hand parser in the same file (not `boost::property_tree`, not Boost.JSON, not Poco in Core). Online coolwsd stays on Poco/`JsonUtil`.
 - **Scalars:** JSON `"42"` / `"true"` / `"null"` stay strings; bare `42` / `true` / `null` → double / bool / empty string (Classic `None` parity).
-- **Grids:** nested lists; rectangular numerics → `sequence<sequence<double>>`; mixed → `sequence<sequence<Any>>`.
+- **Grids:** nested lists; rectangular numerics → `sequence<sequence<double>>`; mixed → `sequence<sequence<Any>>`. Single-cell formulas keep **top-left only** until [F7](#f7--single-cell-auto-spill).
 - **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today).
 - **Tests:** `engine/scaddins/qa/pythoncompute.cxx` + writeragent `tests/compute_service/test_online_py_json_contract.py`.
 
@@ -423,7 +509,7 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 
 ### G5 — Compute-service isolation claims are not operational
 
-**Status: Partly resolved.** Loopback-only (`127.0.0.1`) host binding and multi-stage Dockerfile hardening (dropping `build-essential`) are complete. Bearer auth / shared secrets between coolwsd and the service are still open.
+**Status: Partly resolved.** Loopback-only (`127.0.0.1`) host binding and multi-stage Dockerfile hardening (dropping `build-essential`) are complete. coolwsd optional `security.python_compute.api_key` Bearer on POST is landed; **service-side** token verification is still open.
 
 **Recommended solution:** shared secret; complete remainder of [F4](#f4--compute-service-container-hardening) runtime setup; do not claim AST sandbox is the OS boundary; state shipped vs ops docs in the PR letter.
 
@@ -476,9 +562,10 @@ Suggested series:
 ### What already looks good (keep)
 
 - Out-of-kit compute; C++ tip free of NumPy / `split_grid` / Pickle5.
-- `security.python_compute.enable` default `false`; `HostUtil::isForbiddenKitHost` when allowlist set.
+- `security.python_compute.enable` default `false`; optional `api_key` / `timeout_secs`; `HostUtil::isForbiddenKitHost` when allowlist set.
+- UNO package `org.collaboraoffice.sheet.addin.*` (not `com.sun.star.sheet.addin` for this AddIn).
 - Typed dumb-JSON round-trip; Calc range grids emit; Solar on finish/listener; unlock-before-finish; early spreadsheet emitter; stable multi-view owner; MOBILEAPP compile-out.
-- gbuild / `.component` / IDL mirrors sibling AddIns.
+- gbuild / `.component` / IDL for the Collabora Office AddIn.
 
 ---
 
@@ -493,7 +580,9 @@ Code / product gaps still relevant for a Collabora-facing PR (overlaps the open 
 | **LRU / sticky errors** | param cache in bridge | G6c — **done** (weak-ref identity map) |
 | **Display name `PY`** | IDL / release notes | G9 |
 | **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | G8 / [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
-| **Service auth + private bind** | coolwsd ↔ compute | G5 / [F4](#f4--compute-service-container-hardening) |
+| **Service auth + private bind** | coolwsd ↔ compute | G5 / [F4](#f4--compute-service-container-hardening) — coolwsd `api_key` Bearer landed; service-side verify still ops |
+| **Visible short Python errors** | `jsonResultToAny` | G10 / [F6](#f6--visible-short-python-errors) — design agreed, not coded |
+| **Single-cell auto-spill** | AddIn / Calc | G11 / [F7](#f7--single-cell-auto-spill) — top-left only today |
 | **en-US help only** | AddIn display strings | No `.hrc` yet |
 | **IDL vs runtime** | `XPythonComputeFunctions.idl` | Comment may say error string; runtime always returns volatile |
 | **`SAL_DLLPUBLIC_EXPORT` on anyjson** | helpers | Prefer C ABI-only exports long-term |

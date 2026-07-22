@@ -33,3 +33,14 @@ def test_librepy_bundle_includes_calc_functions_common():
 def test_librepy_bundle_includes_bug_report():
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
     assert "plugin/framework/bug_report.py" in paths
+
+
+def test_librepy_bundle_includes_udprops():
+    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
+    assert "plugin/doc/udprops.py" in paths
+
+
+def test_librepy_bundle_includes_calc_utils():
+    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
+    assert "plugin/calc/calc_utils.py" in paths
+
