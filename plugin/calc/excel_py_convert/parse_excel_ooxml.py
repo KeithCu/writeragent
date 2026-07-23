@@ -429,6 +429,31 @@ def _enrich_anchors_openpyxl(model: ExcelWorkbookModel, path: Path) -> None:
         wb.close()
 
 
+def has_excel_python_xlsx(path: str | Path) -> bool:
+    """True when *path* is an ``.xlsx`` with ``pythonScripts`` and/or ``_xlws.PY`` cells.
+
+    Peeks the ZIP on disk (stock Calc import may have dropped these parts from the
+    in-memory model). Safe to call on any path; returns False on I/O/parse errors.
+    """
+    path = Path(path)
+    if path.suffix.lower() != ".xlsx" or not path.is_file():
+        return False
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            names = zf.namelist()
+            if any(n == "xl/pythonScripts.xml" or n.startswith("xl/pythonScripts/") for n in names):
+                return True
+            for name in names:
+                if not name.startswith("xl/worksheets/") or not name.endswith(".xml"):
+                    continue
+                data = zf.read(name)
+                if b"_xlws.PY" in data or b"_xlws.py" in data:
+                    return True
+    except Exception:
+        return False
+    return False
+
+
 def load_excel_model(path: str | Path, *, prefer_openpyxl_anchors: bool = True) -> ExcelWorkbookModel:
     """Load from ``.xlsx`` or a JSON fixture matching ``ExcelWorkbookModel.to_dict()``."""
     path = Path(path)

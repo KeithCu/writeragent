@@ -95,6 +95,12 @@ def bootstrap(ctx=None) -> None:
             install_calc_cell_context_menu(ctx)
         except Exception:
             log.debug("Calc cell context menu install failed", exc_info=True)
+        try:
+            from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
+
+            install_excel_py_auto_convert(ctx)
+        except Exception:
+            log.debug("Excel PY auto-convert on open install failed", exc_info=True)
         _initialized = True
 
 

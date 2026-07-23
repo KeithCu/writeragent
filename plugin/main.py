@@ -282,6 +282,13 @@ def _register_core_handlers():
     except Exception:
         log.debug("Calc cell context menu install failed", exc_info=True)
 
+    try:
+        from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
+
+        install_excel_py_auto_convert(get_ctx())
+    except Exception:
+        log.debug("Excel PY auto-convert on open install failed", exc_info=True)
+
     def _import_ipynb():
         from plugin.notebook.import_dialog import run_import_ipynb_dialog
         run_import_ipynb_dialog(get_ctx())

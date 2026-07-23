@@ -332,6 +332,17 @@ Excel samples also split scripts across cells and share Python globals. The conv
 
 Unresolved deps, dynamic `xl()`, and missing anchor snapshots **fail closed** (cell left unchanged; CLI exits nonzero) unless `--best-effort` is set. `--write-xlsx` clears the source array/spill range around each converted anchor, refuses unmapped sheet titles, and strips obsolete `pythonScripts` package parts.
 
+#### Auto-convert on open (no menu)
+
+LibrePy and WriterAgent register a Calc `OnLoadFinished` listener ([`plugin/calc/excel_py_convert/auto_open.py`](../plugin/calc/excel_py_convert/auto_open.py)). When the opened document’s URL is a local `.xlsx` that still contains `xl/pythonScripts.xml` and/or `_xlws.PY` **on disk**, the converter rewrites to DAG `=PY` automatically:
+
+1. Peek the ZIP on disk (stock Calc import may have dropped `pythonScripts` from the in-memory model).
+2. Fail-closed: if any cell cannot convert, leave the imported workbook open and log a warning — never block File → Open.
+3. Prefer writing a sibling `*_py_dag.xlsx` (openpyxl) and swapping documents so the original Excel file is not overwritten.
+4. If openpyxl is missing on the LibreOffice host (typical LibrePy OXT), apply formulas in place via UNO `setFormula` and set document property `ExcelPyDagConverted` so later view events do not re-run.
+
+There is **no** new menu item. Re-opening an already-converted file (no `pythonScripts` / `_xlws.PY`) is a no-op.
+
 That ordering edge does **not** carry Python globals by itself: converted multi-cell scripts still require shared-kernel/session mode so names created by the prior stage remain in the namespace. The two mechanisms have separate jobs:
 
 - formula arguments give Calc correct dirtying and execution order;
@@ -376,7 +387,7 @@ WriterAgent keeps a **defensive** `sanitize_inline_py_code` when *emitting* Calc
 |--------|----------------|-----------|---------|
 | **A. Native only (current)** `=PY(code, data?)` | Correct DAG, offline NumPy, Online-friendly requests | Thin Add-In + volatile + matrix (Collabora path) | **Do this** |
 | **B. Cosmetic Excel** Same name, still `data` args; docs say “like Excel” | Familiar name, different formulas | Almost none | Honest marketing only |
-| **C. Import rewriter** XLSX `xl` / `%Pn%` → `; ranges` (DAG-style) | Many Excel sheets become native PY | [`plugin/calc/excel_py_convert/`](../plugin/calc/excel_py_convert/) + `scripts/convert_excel_py.py` (`--to dag` / `--to excel`); formula-static samples only | **Shipped converter (script shape)** |
+| **C. Import rewriter** XLSX `xl` / `%Pn%` → `; ranges` (DAG-style) | Many Excel sheets become native PY | [`plugin/calc/excel_py_convert/`](../plugin/calc/excel_py_convert/) (CLI + **auto on open**); formula-static samples only | **Shipped (auto-convert + CLI)** |
 | **D. `=PY_XL(code)` compatibility function** Runtime `xl()` + dynamic dirty registration (and/or volatile) + optional co-volatility | IPC + listeners + optional scheduler | **Defer**; quarantine complexity | Acceptable long-term escape hatch |
 | **E. Full Excel semantics as default `=PY`** `xl` + co-volatility + engine spill + object cards + cloud | §§5.1–5.3 as platform projects | **Do not schedule as PY MVP** | |
 

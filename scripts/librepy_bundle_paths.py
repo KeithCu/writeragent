@@ -37,6 +37,8 @@ LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
     ),
     "plugin/vision/": ("vision_tools.py",),
     "plugin/contrib/scripting/assets/editor/": (),
+    # Excel Python-in-Excel → DAG =PY auto-convert on open (stdlib OOXML + optional openpyxl write).
+    "plugin/calc/excel_py_convert/": (),
 }
 
 # Explicit files outside the directory rules above.

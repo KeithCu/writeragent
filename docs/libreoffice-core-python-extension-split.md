@@ -803,7 +803,7 @@ Deduplicated union of **Layers 0–6**. Counts are approximate (~100 `plugin/` p
 
 ### Layer 4 adds (~8 paths)
 
-`editor_host.py`, `editor_ipc.py`, `calc/python/editor.py`, `calc/python/formula_edit.py`, `calc/python/editor_context_menu.py`, `calc/python/workbook_lifecycle.py`, `venv/editor_main.py`
+`editor_host.py`, `editor_ipc.py`, `calc/python/editor.py`, `calc/python/formula_edit.py`, `calc/python/editor_context_menu.py`, `calc/python/workbook_lifecycle.py`, `venv/editor_main.py`, `calc/excel_py_convert/` (Excel Python-in-Excel → DAG `=PY` auto-convert on open)
 
 Dev reference only (not OXT): `contrib/scripting/assets/editor/*`
 
@@ -1017,6 +1017,7 @@ flowchart LR
 | [`plugin/calc/python/formula_edit.py`](../plugin/calc/python/formula_edit.py) | Parse/rebuild `=PY()` formulas |
 | [`plugin/calc/python/editor_context_menu.py`](../plugin/calc/python/editor_context_menu.py) | Cell context menu |
 | [`plugin/calc/python/workbook_lifecycle.py`](../plugin/calc/python/workbook_lifecycle.py) | Init script session reset |
+| [`plugin/calc/excel_py_convert/`](../plugin/calc/excel_py_convert/) | Excel Python-in-Excel → DAG `=PY` (auto on open + CLI) |
 | [`plugin/scripting/venv/editor_main.py`](../plugin/scripting/venv/editor_main.py) | Child process entry (runs in user venv) |
 
 Requires Layer 2 (`appearance.py`, `document_scripts.py`, `python_runner.py`) and Layer 0 worker for **Run** from Monaco.
