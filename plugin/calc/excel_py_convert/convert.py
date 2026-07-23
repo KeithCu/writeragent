@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import zipfile
 from pathlib import Path
@@ -17,6 +18,8 @@ from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
+
+log = logging.getLogger(__name__)
 
 _RE_A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
@@ -118,14 +121,10 @@ def _iter_a1_span(ref: str) -> list[str]:
 
 
 def _xlsx_formula_for_cell(cell: ConvertedCell) -> str:
-    """Render a comma-separated OOXML ``=PY`` formula (no Calc sanitizer)."""
-    args = list(cell.data_args) + list(cell.ordering_args)
-    return rebuild_python_formula_with_data(
-        cell.converted_code,
-        args,
-        separator=",",
-        excel_escape=True,
-    )
+    """Render a comma-separated OOXML ``=PY`` formula (script bank ref, no Calc sanitizer)."""
+    from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
+
+    return formula_for_converted_cell(cell, separator=",", excel_escape=True, use_script_bank=True)
 
 
 def _clear_spill_range(ws: Any, anchor: str, array_ref: str) -> None:
@@ -187,6 +186,8 @@ def write_dag_formulas_xlsx(
 ) -> None:
     """Copy *source_xlsx* and replace successfully converted PY cells with DAG formulas.
 
+    - Parks rewritten Python on visible ``py_code_<Sheet>`` sheets at the **same A1**
+      as each caller (one bank sheet per source worksheet).
     - OOXML formulas use **comma** separators (not Calc ``;``).
     - Clears the source array/spill ``ref`` range (except the anchor) so old
       cached results do not block the new spill.
@@ -196,14 +197,27 @@ def write_dag_formulas_xlsx(
     from openpyxl import load_workbook
     from openpyxl.utils.exceptions import IllegalCharacterError
 
+    from plugin.calc.excel_py_convert.script_bank import (
+        collect_script_bank,
+        report_safety_warnings,
+        write_script_bank_openpyxl,
+    )
+
     source_xlsx = Path(source_xlsx)
     out_path = Path(out_path)
     wb = load_workbook(source_xlsx)
     sheet_by_key = {ws.title: ws for ws in wb.worksheets}
     errors: list[str] = []
 
+    bank, bank_warnings = collect_script_bank(report)
+    for w in bank_warnings:
+        log.warning("excel_py convert: %s", w)
+    for w in report_safety_warnings(report):
+        log.warning("excel_py convert: %s", w)
+    write_script_bank_openpyxl(wb, bank)
+
     for cell in report.cells:
-        if not cell.converted or not cell.dag_formula:
+        if not cell.converted or not cell.converted_code:
             continue
         ws = sheet_by_key.get(cell.sheet)
         if ws is None:

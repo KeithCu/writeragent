@@ -363,6 +363,26 @@ def rebuild_python_formula_with_data(
     prefix = f"={CALC_PYTHON_FN}("
     return f'{prefix}"{escaped}"{build_data_suffix(data_args, separator=separator, excel_ranges=excel_escape or separator == ",")}'
 
+
+def rebuild_python_formula_with_code_ref(
+    code_ref: str,
+    data_args: list[str],
+    *,
+    separator: str = ";",
+    excel_ranges: bool = False,
+) -> str:
+    """Build ``=PY(Sheet.A1; ranges…)`` with code taken from a cell (Excel script-bank shape).
+
+    Avoids Calc ``MAXSTRLEN`` by keeping Python source out of the formula string.
+    *code_ref* is a sheet-qualified address (``py_code_Pivots.A1`` or ``py_code_Pivots!A1``).
+    """
+    use_excel = excel_ranges or separator == ","
+    fmt = format_excel_data_range if use_excel else format_py_data_range
+    ref = fmt(code_ref.strip())
+    prefix = f"={CALC_PYTHON_FN}("
+    return f"{prefix}{ref}{build_data_suffix(data_args, separator=separator, excel_ranges=use_excel)}"
+
+
 def cell_looks_python_like(formula: str) -> bool:
     """True if *formula* appears to be a PY/PYTHON call (even if strict parse failed)."""
     if not formula:

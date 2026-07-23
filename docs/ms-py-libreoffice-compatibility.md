@@ -334,12 +334,14 @@ Unresolved deps, dynamic `xl()`, and missing anchor snapshots **fail closed** (c
 
 #### Auto-convert on open (no menu)
 
-LibrePy and WriterAgent register a Calc `OnLoadFinished` listener ([`plugin/calc/excel_py_convert/auto_open.py`](../plugin/calc/excel_py_convert/auto_open.py)). When the opened document’s URL is a local `.xlsx` that still contains `xl/pythonScripts.xml` and/or `_xlws.PY` **on disk**, the converter rewrites to DAG `=PY` automatically:
+LibreOffice Calc (with the Python/`=PY` extension) registers a Calc `OnLoadFinished` listener ([`plugin/calc/excel_py_convert/auto_open.py`](../plugin/calc/excel_py_convert/auto_open.py)). When the opened document’s URL is a local `.xlsx` that still contains `xl/pythonScripts.xml` and/or `_xlws.PY` **on disk**, the converter rewrites to DAG `=PY` automatically:
 
 1. Peek the ZIP on disk (stock Calc import may have dropped `pythonScripts` from the in-memory model).
 2. Fail-closed: if any cell cannot convert, leave the imported workbook open and log a warning — never block File → Open.
 3. Prefer writing a sibling `*_py_dag.xlsx` (openpyxl) and swapping documents so the original Excel file is not overwritten.
 4. If openpyxl is missing on the LibreOffice host (typical LibrePy OXT), apply formulas in place via UNO `setFormula` and set document property `ExcelPyDagConverted` so later view events do not re-run.
+
+**Script bank (MS-shaped):** Excel keeps Python in `pythonScripts.xml` and cells only hold a short `_xlws.PY(index, …)` formula — so it never hits Calc’s formula-string `MAXSTRLEN` (1024). After convert, rewritten scripts are parked on a **visible** sheet **per source worksheet** (`Pivots!H4` → `py_code_Pivots!H4`) and formulas become `=PY(py_code_Pivots.H4; ranges…)`. Same A1 on two data sheets can hold different code without colliding. Users can open those `py_code_*` sheets to see/edit the scripts. Inline `=PY("…")` remains available for short hand-authored formulas (budget **1000** chars under `MAXSTRLEN`). Multi-cell Excel workbooks still need **shared-kernel** session mode (admin/config flag — conversion does not flip it).
 
 There is **no** new menu item. Re-opening an already-converted file (no `pythonScripts` / `_xlws.PY`) is a no-op.
 

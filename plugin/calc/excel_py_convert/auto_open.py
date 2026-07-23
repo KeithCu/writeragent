@@ -5,7 +5,7 @@ No menu: a GlobalEventBroadcaster listener runs on Calc ``OnLoadFinished``.
 Detection re-reads the ``.xlsx`` on disk (stock import often drops
 ``pythonScripts.xml``). Prefer writing a sibling ``*_py_dag.xlsx`` via openpyxl
 and swapping documents; fall back to in-place UNO ``setFormula`` when openpyxl
-is missing (LibrePy host). Failures leave the original document open.
+is missing on the host. Failures leave the original document open.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
         try:
             write_dag_formulas_xlsx(path, report, out)
             if _swap_to_converted(ctx, doc, out):
-                log.info("excel_py auto-open: converted %s → %s", path, out)
+                log.info("excel_py auto-open: converted %s → %s (per-sheet py_code_* banks)", path, out)
                 return True
             log.warning("excel_py auto-open: wrote %s but could not swap documents", out)
         except ImportError:
@@ -133,7 +133,7 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
                 doc.setModified(True)
         except Exception:
             pass
-        log.info("excel_py auto-open: applied DAG =PY in place for %s", path)
+        log.info("excel_py auto-open: applied DAG =PY in place for %s (py_code_* sheets)", path)
         return True
     except Exception:
         log.warning("excel_py auto-open: conversion failed for %s", path, exc_info=True)

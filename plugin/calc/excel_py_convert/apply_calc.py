@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Apply a DAG conversion report to an open Calc document via UNO.
 
-Used when openpyxl is unavailable in the LibreOffice host (LibrePy OXT does not
-vendor it). Formulas use Calc ``;`` separators; spill ranges are cleared before
-rewrite so cached array results do not block the new ``=PY``.
+Used when openpyxl is unavailable in the LibreOffice host. Parks code on a visible
+``py_code_<Sheet>`` bank sheet (one per source worksheet) at the caller A1; formulas
+use Calc ``;`` separators. Spill ranges are cleared before rewrite.
 """
 
 from __future__ import annotations
@@ -12,7 +12,12 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
+from plugin.calc.excel_py_convert.script_bank import (
+    collect_script_bank,
+    formula_for_converted_cell,
+    report_safety_warnings,
+    write_script_bank_uno,
+)
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
@@ -62,15 +67,13 @@ def _iter_a1_span(ref: str) -> list[str]:
 
 
 def _calc_formula_for_cell(cell: ConvertedCell) -> str:
-    args = list(cell.data_args) + list(cell.ordering_args)
-    return rebuild_python_formula_with_data(cell.converted_code, args, separator=";")
+    return formula_for_converted_cell(cell, separator=";", use_script_bank=True)
 
 
 def _resolve_sheet(doc: Any, sheet_name: str) -> Any | None:
     sheets = doc.getSheets()
     if sheets.hasByName(sheet_name):
         return sheets.getByName(sheet_name)
-    # Case-insensitive fallback (Excel titles vs Calc import quirks).
     for i in range(sheets.getCount()):
         sh = sheets.getByIndex(i)
         if str(sh.getName()).lower() == sheet_name.lower():
@@ -97,8 +100,18 @@ def _clear_spill_uno(sheet: Any, anchor: str, array_ref: str) -> None:
 
 
 def apply_dag_formulas_to_calc_doc(doc: Any, report: ConversionReport) -> list[str]:
-    """Write successfully converted cells onto *doc*. Returns a list of error strings."""
+    """Write script bank + converted formulas onto *doc*. Returns error strings."""
     errors: list[str] = []
+    bank, bank_warnings = collect_script_bank(report)
+    for w in bank_warnings:
+        log.warning("excel_py apply: %s", w)
+    for w in report_safety_warnings(report):
+        log.warning("excel_py apply: %s", w)
+    try:
+        write_script_bank_uno(doc, bank)
+    except Exception as exc:
+        return [f"script bank write failed: {exc}"]
+
     for cell in report.cells:
         if not cell.converted or not cell.converted_code:
             continue

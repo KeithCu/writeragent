@@ -423,6 +423,7 @@ def convert_cell_to_dag(
         converted_code="",
         return_type=cell.return_type,
         array_ref=cell.array_ref,
+        script_index=cell.script_index,
         converted=False,
     )
     if cell.script_index < 0 or cell.script_index >= len(model.scripts):
@@ -489,7 +490,15 @@ def convert_cell_to_dag(
         base.converted = False
         return base
 
-    dag_formula = rebuild_python_formula_with_data(new_code, formula_args) if new_code is not None else ""
+    dag_formula = ""
+    if new_code is not None:
+        from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
+
+        # Placeholder ConvertedCell for formula builder (fields already on base below).
+        base.converted_code = new_code
+        base.data_args = data_args
+        base.ordering_args = ordering_args
+        dag_formula = formula_for_converted_cell(base, separator=";", use_script_bank=True)
 
     base.converted_code = new_code
     base.data_args = data_args

@@ -480,14 +480,17 @@ def test_write_xlsx_artifact_commas_spill_and_sheets(tmp_path: Path):
     out = tmp_path / "out_pivots.xlsx"
     write_dag_formulas_xlsx(src, report, out)
     wb = openpyxl.load_workbook(out)
-    assert wb.sheetnames == ["Data", "Pivots", "Sheet1"]
+    assert "Data" in wb.sheetnames and "Pivots" in wb.sheetnames
+    assert "py_code_Pivots" in wb.sheetnames
+    # Caller A1 mirrored on the per-sheet script bank.
+    assert isinstance(wb["py_code_Pivots"]["C1"].value, str)
+    assert "pd.DataFrame" in wb["py_code_Pivots"]["C1"].value or "data" in wb["py_code_Pivots"]["C1"].value
     formula = wb["Pivots"]["C1"].value
     assert isinstance(formula, str)
     assert formula.startswith("=PY(")
+    assert "py_code_Pivots!C1" in formula or "py_code_Pivots.C1" in formula
     assert "Data!A1:AA5850" in formula
-    tail = formula.rsplit('"', 1)[-1]
-    assert tail.startswith(",")
-    assert ";" not in tail
+    assert ";" not in formula
     assert wb["Data"]["A1"].value == "keep-me"
     wb.close()
 
@@ -506,6 +509,8 @@ def test_write_xlsx_artifact_commas_spill_and_sheets(tmp_path: Path):
     assert wb2["Sheet1"]["I38"].value is None
     assert isinstance(wb2["Sheet1"]["H37"].value, str)
     assert wb2["Sheet1"]["H37"].value.startswith("=PY(")
+    assert "py_code_Sheet1!H37" in wb2["Sheet1"]["H37"].value
+    assert wb2["py_code_Sheet1"]["H37"].value == "df"
     wb2.close()
 
 

@@ -120,6 +120,8 @@ class ConvertedCell:
     return_type: int = 0
     converted: bool = True
     array_ref: str = ""
+    # Excel pythonScripts.xml index (0-based); retained for diagnostics / round-trip.
+    script_index: int = -1
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -139,6 +141,7 @@ class ConvertedCell:
             "return_type": self.return_type,
             "converted": self.converted,
             "array_ref": self.array_ref,
+            "script_index": self.script_index,
         }
 
 

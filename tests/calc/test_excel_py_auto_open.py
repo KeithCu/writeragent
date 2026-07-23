@@ -87,6 +87,8 @@ def test_apply_dag_formulas_sets_calc_semicolon_formula():
     spill = MagicMock()
     anchor = MagicMock()
     sheet = MagicMock()
+    code_sheet = MagicMock()
+    code_cell = MagicMock()
 
     def _range(name: str):
         if name == "C1":
@@ -94,18 +96,105 @@ def test_apply_dag_formulas_sets_calc_semicolon_formula():
         return spill
 
     sheet.getCellRangeByName.side_effect = _range
+    code_sheet.getCellRangeByName.return_value = code_cell
     sheets = MagicMock()
-    sheets.hasByName.return_value = True
-    sheets.getByName.return_value = sheet
+
+    def _has(name: str) -> bool:
+        return name in ("Sheet1",)
+
+    def _get(name: str):
+        if name == "Sheet1":
+            return sheet
+        if name == "py_code_Sheet1":
+            return code_sheet
+        raise KeyError(name)
+
+    sheets.hasByName.side_effect = _has
+    sheets.getByName.side_effect = _get
+    sheets.getCount.return_value = 1
     doc = MagicMock()
     doc.getSheets.return_value = sheets
 
     errors = apply_dag_formulas_to_calc_doc(doc, report)
     assert errors == []
+    sheets.insertNewByName.assert_called_once_with("py_code_Sheet1", 1)
+    code_cell.setString.assert_called()
     formula = anchor.setFormula.call_args[0][0]
-    assert formula.startswith('=PY("')
+    assert formula.startswith("=PY(")
+    assert "py_code_Sheet1.C1" in formula
     assert ";A1:B2)" in formula or formula.endswith(";A1:B2)")
     assert spill.setFormula.called  # spill cells cleared
+
+
+def test_script_bank_mirrors_caller_a1_per_source_sheet():
+    from plugin.calc.excel_py_convert.script_bank import (
+        code_bank_ref,
+        code_sheet_name_for,
+        collect_script_bank,
+        collect_safety_warnings,
+        formula_for_converted_cell,
+        normalize_bank_a1,
+    )
+
+    assert normalize_bank_a1("$h$4") == "H4"
+    assert code_sheet_name_for("Pivots") == "py_code_Pivots"
+    assert code_bank_ref("Pivots", "H4") == "py_code_Pivots.H4"
+    assert code_bank_ref("Pivots", "H4", excel_bang=True) == "py_code_Pivots!H4"
+
+    cells = [
+        ConvertedCell(
+            sheet="Pivots",
+            cell="C9",
+            direction="dag",
+            original_code="a",
+            converted_code="x = data",
+            data_args=["C4"],
+            converted=True,
+            script_index=3,
+        ),
+        ConvertedCell(
+            sheet="Pivots",
+            cell="D9",
+            direction="dag",
+            original_code="a",
+            converted_code="x = data",
+            data_args=["D4"],
+            converted=True,
+            script_index=3,
+        ),
+        ConvertedCell(
+            sheet="Data",
+            cell="H4",
+            direction="dag",
+            original_code="b",
+            converted_code="y = data",
+            data_args=["A1"],
+            converted=True,
+            script_index=0,
+        ),
+        # Same A1 on another sheet — must not collide (separate bank sheet).
+        ConvertedCell(
+            sheet="Other",
+            cell="H4",
+            direction="dag",
+            original_code="c",
+            converted_code="z = data",
+            data_args=["B1"],
+            converted=True,
+            script_index=1,
+        ),
+    ]
+    banks, warns = collect_script_bank(ConversionReport(direction="dag", cells=cells))
+    assert warns == []
+    assert banks["py_code_Pivots"] == {"C9": "x = data", "D9": "x = data"}
+    assert banks["py_code_Data"]["H4"] == "y = data"
+    assert banks["py_code_Other"]["H4"] == "z = data"
+    f = formula_for_converted_cell(cells[0], separator=";")
+    assert f == "=PY(py_code_Pivots.C9;C4)"
+
+    assert any("xl()" in w for w in collect_safety_warnings("y = xl(1)"))
+    assert any("whitelist" in w for w in collect_safety_warnings("import requests\nx=1"))
+
 
 
 def test_maybe_convert_skips_non_candidate(tmp_path: Path):
