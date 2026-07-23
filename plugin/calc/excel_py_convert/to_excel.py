@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any
+from typing import Any, Sequence, cast
 
-from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, HeaderMode
+from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, DepRole, HeaderMode
 from plugin.calc.python.formula_edit import escape_code_for_excel_formula, parse_python_formula
 
 _DF_DATA_RE = re.compile(
@@ -28,6 +28,9 @@ _OBJECT_SUPPRESS_RE = re.compile(
     r"\n?# excel_py: returnType=1 \(Object\).*?\nresult = None\s*$",
     re.DOTALL,
 )
+
+# (sheet, cell, formula) or (sheet, cell, formula, report-cell-meta)
+DagFormulaItem = tuple[str, str, str] | tuple[str, str, str, dict[str, Any]]
 
 
 def _p_token(index: int) -> str:
@@ -43,32 +46,22 @@ def _xl_expr(index: int, header_mode: HeaderMode) -> str:
     return f"xl({tok})"
 
 
-def _header_modes_from_bindings(bindings: list[BindingInfo] | list[dict[str, Any]] | None, n: int) -> list[HeaderMode]:
-    modes: list[HeaderMode] = ["omit"] * max(n, 0)
-    if not bindings:
-        return modes
-    for b in bindings:
-        if isinstance(b, dict):
-            a1 = str(b.get("a1") or "")
-            hm = str(b.get("header_mode") or "omit")
-            role = str(b.get("role") or "data")
-            idxs = list(b.get("original_indices") or [])
-        else:
-            a1 = b.a1
-            hm = b.header_mode
-            role = b.role
-            idxs = list(b.original_indices)
-        if role == "ordering" or not a1:
-            continue
-        mode: HeaderMode = "true" if hm == "true" else "false" if hm == "false" else "omit"
-        # Bindings are stored in normalized data-arg order.
-        # Prefer mapping via position in bindings list when original_indices empty.
-        if not idxs:
-            continue
-        for oi in idxs:
-            if 0 <= oi < len(modes):
-                modes[oi] = mode
-    return modes
+def _as_header_mode(value: object) -> HeaderMode:
+    if value == "true":
+        return "true"
+    if value == "false":
+        return "false"
+    return "omit"
+
+
+def _as_dep_role(value: object) -> DepRole:
+    if value == "ordering":
+        return "ordering"
+    return "data"
+
+
+def _omit_modes(n: int) -> list[HeaderMode]:
+    return ["omit" for _ in range(max(n, 0))]
 
 
 def rewrite_dag_code_to_excel(
@@ -85,7 +78,7 @@ def rewrite_dag_code_to_excel(
     """
     issues: list[str] = []
     deps = list(data_args)
-    modes = list(header_modes) if header_modes is not None else ["omit"] * len(deps)
+    modes: list[HeaderMode] = list(header_modes) if header_modes is not None else _omit_modes(len(deps))
     while len(modes) < len(deps):
         modes.append("omit")
     multi = len(deps) > 1
@@ -118,14 +111,16 @@ def rewrite_dag_code_to_excel(
         if idx >= len(deps):
             issues.append(f"data[{idx}] with only {len(deps)} deps")
             return m.group(0)
-        return _xl_expr(idx, modes[idx] if idx < len(modes) else "omit")
+        hm: HeaderMode = modes[idx] if idx < len(modes) else "omit"
+        return _xl_expr(idx, hm)
 
     text = re.sub(r"\bdata\[\s*(\d+)\s*\]", data_index_repl, text)
 
     if not multi and deps:
 
         def bare_repl(_m: re.Match[str]) -> str:
-            return _xl_expr(0, modes[0] if modes else "omit")
+            hm: HeaderMode = modes[0] if modes else "omit"
+            return _xl_expr(0, hm)
 
         text = re.sub(r"(?<![\w.])data(?!\s*\[)", bare_repl, text)
     elif re.search(r"(?<![\w.])data(?!\s*\[)", text) and multi:
@@ -175,7 +170,8 @@ def _rewrite_data_names_ast(
             # Skip if this subscript is inside a DataFrame pattern already handled — still OK to rewrite.
             start = offset(node.lineno, node.col_offset)
             end = offset(node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
-            hits.append(_Hit(start, end, _xl_expr(idx, modes[idx] if idx < len(modes) else "omit")))
+            hm: HeaderMode = modes[idx] if idx < len(modes) else "omit"
+            hits.append(_Hit(start, end, _xl_expr(idx, hm)))
         elif isinstance(node, ast.Name) and node.id == "data" and isinstance(node.ctx, ast.Load):
             if multi:
                 issues.append("bare `data` with multiple deps; ambiguous")
@@ -184,7 +180,8 @@ def _rewrite_data_names_ast(
                 continue
             start = offset(node.lineno, node.col_offset)
             end = offset(node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
-            hits.append(_Hit(start, end, _xl_expr(0, modes[0] if modes else "omit")))
+            hm0: HeaderMode = modes[0] if modes else "omit"
+            hits.append(_Hit(start, end, _xl_expr(0, hm0)))
 
     if not hits:
         # Still may have had DataFrame regex applied by caller — return None to use regex path? 
@@ -272,12 +269,13 @@ def convert_dag_formula_to_excel(
     if isinstance(bindings_raw, list):
         for b in bindings_raw:
             if isinstance(b, dict):
+                raw = cast(dict[str, Any], b)
                 bindings.append(
                     BindingInfo(
-                        a1=str(b.get("a1") or ""),
-                        header_mode=b.get("header_mode") or "omit",  # type: ignore[arg-type]
-                        role=b.get("role") or "data",  # type: ignore[arg-type]
-                        original_indices=list(b.get("original_indices") or []),
+                        a1=str(raw.get("a1") or ""),
+                        header_mode=_as_header_mode(raw.get("header_mode") or "omit"),
+                        role=_as_dep_role(raw.get("role") or "data"),
+                        original_indices=list(raw.get("original_indices") or []),
                     )
                 )
 
@@ -287,7 +285,7 @@ def convert_dag_formula_to_excel(
         for b in bindings:
             if b.role == "ordering":
                 continue
-            modes.append(b.header_mode if b.header_mode in ("true", "false", "omit") else "omit")
+            modes.append(_as_header_mode(b.header_mode))
     while len(modes) < len(data_args):
         modes.append("omit")
 
@@ -316,7 +314,7 @@ def convert_dag_formula_to_excel(
 
 
 def convert_dag_cells_to_excel(
-    formulas: list[tuple[str, str, str]] | list[tuple[str, str, str, dict[str, Any]]],
+    formulas: Sequence[DagFormulaItem],
     *,
     return_type: int = 0,
     report_meta: dict[str, Any] | None = None,
@@ -329,11 +327,12 @@ def convert_dag_cells_to_excel(
         "to-excel is a script/dependency export until native OOXML pythonScripts/_xlws.PY writing ships"
     )
     for item in formulas:
+        sheet = item[0]
+        cell = item[1]
+        formula = item[2]
         meta: dict[str, Any] = {}
         if len(item) == 4:
-            sheet, cell, formula, meta = item  # type: ignore[misc]
-        else:
-            sheet, cell, formula = item  # type: ignore[misc]
+            meta = cast(tuple[str, str, str, dict[str, Any]], item)[3]
         report.cells.append(
             convert_dag_formula_to_excel(formula, sheet=sheet, cell=cell, return_type=return_type, meta=meta)
         )
