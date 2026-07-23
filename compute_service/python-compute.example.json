@@ -1,0 +1,14 @@
+{
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 8000
+  },
+  "auth": {
+    "api_key_file": "/run/secrets/python_compute_api_key"
+  },
+  "limits": {
+    "max_body_bytes": 33554432,
+    "default_timeout_sec": 30,
+    "max_timeout_sec": 600
+  }
+}

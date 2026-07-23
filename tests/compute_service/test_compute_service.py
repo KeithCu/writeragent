@@ -10,13 +10,15 @@ import json
 import socket
 import threading
 import time
+import urllib.error
 import urllib.request
 
 import pytest
 
 from compute_service.executor import clamp_timeout_sec, execute_code, timeout_ms_to_sec
 from compute_service.json_egress import sanitize_for_strict_json, to_dumb_json_value
-from compute_service.server import DualStackThreadingHTTPServer
+from compute_service.server import DualStackThreadingHTTPServer, create_wsgi_app
+from compute_service.config import ComputeSettings, load_settings
 
 
 def get_free_port() -> int:
@@ -34,11 +36,13 @@ def get_free_port() -> int:
 @pytest.fixture(scope="module")
 def compute_server_info():
     port = get_free_port()
-    from compute_service.server import WSGIDualStackServer, wsgi_app
-    
+    from compute_service.server import WSGIDualStackServer
+
+    # Keyless loopback — matches local-dev default.
+    app = create_wsgi_app(ComputeSettings(host="127.0.0.1", port=port))
     server = WSGIDualStackServer("", port)
-    server.set_app(wsgi_app)
-    
+    server.set_app(app)
+
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     time.sleep(0.2)
@@ -203,3 +207,210 @@ class TestComputeHttp:
         with urllib.request.urlopen(f"http://[::1]:{port}/health") as resp:
             assert resp.status == 200
             assert json.loads(resp.read().decode())["status"] == "healthy"
+
+
+class TestComputeSettings:
+    def test_keyless_ok(self) -> None:
+        s = load_settings(environ={"HOST": "127.0.0.1", "PORT": "8000"})
+        assert s.host == "127.0.0.1"
+        assert not s.auth_required
+
+    def test_wildcard_without_key_is_insecure_ok(self) -> None:
+        s = load_settings(environ={"HOST": "0.0.0.0", "PORT": "8000"})
+        assert s.host == "0.0.0.0"
+        assert not s.auth_required
+
+    def test_env_api_key_and_legacy_host(self) -> None:
+        s = load_settings(
+            environ={
+                "HOST": "0.0.0.0",
+                "PORT": "9001",
+                "PYTHON_COMPUTE_API_KEY": "secret-token",
+            }
+        )
+        assert s.host == "0.0.0.0"
+        assert s.port == 9001
+        assert s.api_key == "secret-token"
+        assert s.auth_required
+
+    def test_python_compute_host_overrides_legacy(self) -> None:
+        s = load_settings(
+            environ={
+                "HOST": "0.0.0.0",
+                "PYTHON_COMPUTE_HOST": "127.0.0.1",
+                "PYTHON_COMPUTE_API_KEY": "x",
+            }
+        )
+        assert s.host == "127.0.0.1"
+
+    def test_key_file_strips_trailing_newline(self, tmp_path) -> None:
+        key_path = tmp_path / "key"
+        key_path.write_text("abc123\n", encoding="utf-8")
+        s = load_settings(api_key_file=key_path, environ={"HOST": "127.0.0.1"})
+        assert s.api_key == "abc123"
+
+    def test_cli_key_file_beats_env_key(self, tmp_path) -> None:
+        key_path = tmp_path / "key"
+        key_path.write_text("from-file", encoding="utf-8")
+        s = load_settings(
+            api_key_file=key_path,
+            environ={"PYTHON_COMPUTE_API_KEY": "from-env", "HOST": "127.0.0.1"},
+        )
+        assert s.api_key == "from-file"
+
+    def test_config_json_nested(self, tmp_path) -> None:
+        cfg = tmp_path / "python-compute.json"
+        key_path = tmp_path / "secret"
+        key_path.write_text("json-secret", encoding="utf-8")
+        cfg.write_text(
+            json.dumps(
+                {
+                    "listen": {"host": "127.0.0.1", "port": 8123},
+                    "auth": {"api_key_file": str(key_path)},
+                    "limits": {"max_body_bytes": 4096, "default_timeout_sec": 12},
+                }
+            ),
+            encoding="utf-8",
+        )
+        s = load_settings(config_path=cfg, environ={})
+        assert s.port == 8123
+        assert s.api_key == "json-secret"
+        assert s.max_body_bytes == 4096
+        assert s.default_timeout_sec == 12
+
+    def test_cli_host_overrides_config(self, tmp_path) -> None:
+        cfg = tmp_path / "cfg.json"
+        cfg.write_text(json.dumps({"listen": {"host": "0.0.0.0", "port": 8000}}), encoding="utf-8")
+        s = load_settings(config_path=cfg, host="127.0.0.1", environ={})
+        assert s.host == "127.0.0.1"
+        assert not s.auth_required
+
+
+class TestBearerAuthHttp:
+    @pytest.fixture()
+    def auth_server(self):
+        port = get_free_port()
+        from compute_service.server import WSGIDualStackServer
+
+        executed: list[str] = []
+
+        def fake_execute(**kwargs):
+            executed.append(kwargs["code"])
+            return {"status": "ok", "result": 1, "stdout": ""}
+
+        settings = ComputeSettings(host="127.0.0.1", port=port, api_key="correct-secret")
+        app = create_wsgi_app(settings, execute_fn=fake_execute)
+        server = WSGIDualStackServer("127.0.0.1", port)
+        server.set_app(app)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        time.sleep(0.15)
+        yield f"http://127.0.0.1:{port}", executed
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    def _post(self, url: str, headers: dict[str, str] | None = None) -> tuple[int, dict]:
+        req = urllib.request.Request(
+            f"{url}/v1/execute",
+            data=json.dumps({"code": "result = 1"}).encode("utf-8"),
+            headers={"Content-Type": "application/json", **(headers or {})},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            body = err.read().decode("utf-8")
+            return err.code, json.loads(body) if body else {}
+
+    def test_health_public(self, auth_server) -> None:
+        url, executed = auth_server
+        with urllib.request.urlopen(f"{url}/health") as resp:
+            assert resp.status == 200
+        assert executed == []
+
+    def test_correct_bearer(self, auth_server) -> None:
+        url, executed = auth_server
+        status, body = self._post(url, {"Authorization": "Bearer correct-secret"})
+        assert status == 200
+        assert body["result"] == 1
+        assert executed == ["result = 1"]
+
+    def test_missing_bearer(self, auth_server) -> None:
+        url, executed = auth_server
+        status, body = self._post(url)
+        assert status == 401
+        assert body.get("status") == "error"
+        assert executed == []
+
+    def test_wrong_bearer(self, auth_server) -> None:
+        url, executed = auth_server
+        status, body = self._post(url, {"Authorization": "Bearer wrong"})
+        assert status == 401
+        assert executed == []
+
+    def test_malformed_bearer(self, auth_server) -> None:
+        url, executed = auth_server
+        status, _body = self._post(url, {"Authorization": "bearer correct-secret"})
+        assert status == 401
+        assert executed == []
+
+    def test_www_authenticate_header(self, auth_server) -> None:
+        url, _ = auth_server
+        req = urllib.request.Request(
+            f"{url}/v1/execute",
+            data=b'{"code":"result=1"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            urllib.request.urlopen(req)
+        assert ei.value.headers.get("WWW-Authenticate") == "Bearer"
+
+
+class TestImportBoundary:
+    def test_config_auth_startup_avoids_writeragent_config(self) -> None:
+        """Config + auth app construction must not import plugin.framework.config
+        or open writeragent.json (executor sandbox coupling is deferred to first execute).
+        """
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        repo = Path(__file__).resolve().parents[2]
+        code = r"""
+import builtins
+import sys
+from pathlib import Path
+
+opened = []
+_real_open = builtins.open
+
+def _tracking_open(file, *args, **kwargs):
+    path = Path(file) if not isinstance(file, Path) else file
+    opened.append(str(path))
+    return _real_open(file, *args, **kwargs)
+
+builtins.open = _tracking_open
+
+from compute_service.config import load_settings
+from compute_service.server import authenticate_request, create_wsgi_app
+
+s = load_settings(environ={"HOST": "127.0.0.1"})
+app = create_wsgi_app(s)
+principal, err = authenticate_request({}, s)
+assert principal == "default" and err is None
+assert "plugin.framework.config" not in sys.modules
+assert not any(Path(p).name == "writeragent.json" for p in opened), opened
+print("ok")
+"""
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(repo),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "ok" in proc.stdout

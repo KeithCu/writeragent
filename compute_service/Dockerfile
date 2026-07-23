@@ -32,15 +32,24 @@ WORKDIR /app
 # Copy the pre-compiled packages from the builder stage
 COPY --from=builder /app/pkgs /app/pkgs
 
-# Only what the service imports (not the whole extension UI surface).
+# Runtime import closure only — not the WriterAgent Settings / writeragent.json stack.
 COPY compute_service /app/compute_service
-COPY plugin/scripting /app/plugin/scripting
-COPY plugin/framework /app/plugin/framework
 COPY plugin/__init__.py /app/plugin/__init__.py
+COPY plugin/scripting /app/plugin/scripting
+COPY plugin/framework/__init__.py /app/plugin/framework/__init__.py
+COPY plugin/framework/constants.py /app/plugin/framework/constants.py
+COPY plugin/contrib/smolagents /app/plugin/contrib/smolagents
+COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py
 
 ENV PYTHONPATH=/app/pkgs:/app
 ENV HOST=127.0.0.1
 ENV PORT=8000
+# Prefer a mounted secret file in production:
+#   -e PYTHON_COMPUTE_API_KEY_FILE=/run/secrets/python_compute_api_key
+# or:
+#   -e PYTHON_COMPUTE_API_KEY=...
+# Match coolwsd security.python_compute.api_key when set.
+# Empty key = no auth (dev/test only).
 
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser

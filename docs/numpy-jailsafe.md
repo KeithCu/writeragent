@@ -1,6 +1,6 @@
 # Collabora Online and jail-safe execution
 
-> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Correctness/lifecycle/platform blockers from the 2026-07 review (ranges, typed JSON parse, `pythonexecute` ids, unlock-before-finish, early emitter, Solar/weak lifetimes, kit emit marshal, multi-view/MOBILEAPP) are addressed in tree. **G6a (active pending timeout) landed** — AddIn one-shot `vcl::Timer` clears `#BUSY!` without recalc. **G6c (AddIn.idl identity) landed** — param cache now holds weak refs and never evicts live entries. Still open before Gerrit: request caps, service isolation, UnitWSD CI, commit series — see [Still open before Gerrit](#still-open-before-gerrit). Product follow-ups (not coded): **visible short Python errors ([F6](#f6--visible-short-python-errors))**, **single-cell auto-spill ([F7](#f7--single-cell-auto-spill))** — design notes under [cell markers](#cell-markers--diagnosis-busy-disabled-value) / [matrix spill](#matrix-list-results--auto-spill-not-yet). Product slices: [Future work](#future-work-prototype--hardened-online). Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
+> **Status: Step A (compute service) + Step B (kit/wsd wire) + Step C (Core Calc AddIn) landed.** Correctness/lifecycle/platform blockers from the 2026-07 review are addressed in tree. **G6a (active pending timeout)** and **G6c (weak AddIn.idl identity cache)** are done. The uncommitted 2026-07-23 C++ cleanup in the current working tree adds emitter re-entrancy/ABI fixes, corrupt-frame replies, Unicode-surrogate and rectangular-grid hardening, reviewer hygiene, and **F1 UnitWSD enable/disable + POST/result CI**. Core CppUnit, UnitWSD, `coolwsd`, and both forkit variants pass locally. Still open before Gerrit: request/in-flight caps, the remaining service-isolation work, and commit-series preparation — see [Still open before Gerrit](#still-open-before-gerrit). Product follow-ups (not coded): **visible short Python errors ([F6](#f6--visible-short-python-errors))** and **single-cell auto-spill ([F7](#f7--single-cell-auto-spill))**. Classic remains the warm-venv path. ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
 
 Related architecture comparison (AI chat / kit protocol, not Python compute): [collabora-online-ai-comparison.md](collabora-online-ai-comparison.md).
 
@@ -234,7 +234,7 @@ collabora-online (kit/wsd)/
 2. Classic `RemoteComputeBackend` against the service (fast Python-only iteration).
 3. C++ hooks: kit stub + coolwsd broker → wire works (`pythoncompute:` / `pythoncomputeresult:`; debug `pythonexecute`). **Landed in tree** — remaining submit gaps in [Still open before Gerrit](#still-open-before-gerrit).
 4. Core `=PY()` AddIn + `#BUSY!` volatile + list→`ScMatrix` (single-cell = top-left only). **Landed in tree** (scaddins `pythoncompute` + kit emitter). Rebuild LibreOffice (`libpythoncomputelo.so`) + Online coolkit to pick up.
-5. Future work below — UnitWSD CI, NumPy smoke, plots / container hardening / shared kernel, **visible short Python errors (F6)**, **auto-spill (F7)**. Caps / isolation / series still outrank F3–F5 for Collabora review.
+5. Future work below — NumPy smoke, plots / remaining container hardening / shared kernel, **visible short Python errors (F6)**, **auto-spill (F7)**. UnitWSD CI is done; caps / isolation / series still outrank F3–F5 for Collabora review.
 
 Until Collabora ships images with Step C linked **and** the remaining open items below are acceptable for an experimental merge, **Classic** remains the product where full desktop NumPy `=PY()` works end-to-end without a Core rebuild.
 
@@ -248,7 +248,7 @@ AddIn `timeout_ms` emission is **deferred** (wsd defaults 60s; service clamps; p
 
 | # | Slice | Primary tree | Why |
 |---|-------|--------------|-----|
-| F1 | UnitWSD wire CI | `collabofficefull/test/` | Proves kit↔wsd↔HTTP without waiting on Core rebuilds in CI |
+| F1 | UnitWSD wire CI — **done** | `collabofficefull/test/` | Proves kit↔wsd↔HTTP without waiting on Core rebuilds in CI |
 | F2 | Scalar NumPy smoke | writeragent + local coolwsd | Human/demo proof NumPy never enters the kit |
 | F3 | `images[]` sheet insert | Core AddIn + kit (+ maybe browser) | Service already emits plots; Online currently stubs a string |
 | F4 | Compute container hardening | `compute_service/Dockerfile` + run scripts | Makes the OS boundary real for Collabora admins |
@@ -260,40 +260,42 @@ AddIn `timeout_ms` emission is **deferred** (wsd defaults 60s; service clamps; p
 
 ### F1 — UnitWSD wire test (`pythonexecute` → POST → `pythoncomputeresult:`)
 
+**Status: implemented and passing in the current uncommitted tree (2026-07-23).** `test/UnitPythonCompute.cpp` is registered in
+`test/Makefile.am`, builds as `unit-python-compute.la`, and passes locally.
+
 **Goal:** CI-enforce the security claim that coolwsd is the only network hop, independent of LibreOffice AddIn mapping.
 
-**Files (Online tree):**
+**Implemented (Online tree):**
 
-- New: `test/UnitPythonCompute.cpp` (subclass `UnitWSD`, same pattern as `UnitKitChildSession` / `UnitHTTP`).
-- Edit: `test/Makefile.am` — `unit_python_compute_la_SOURCES = UnitPythonCompute.cpp` + plugin registration like siblings.
+- New: `test/UnitPythonCompute.cpp`, based on `WopiTestServer`, with enabled and disabled `UnitWSD` cases.
+- Edited: `test/Makefile.am` — plugin source, library, and `all_la_unit_tests` registration.
 - Reuse: `kit/ChildSession::requestPythonCompute` (`pythonexecute <json>`), `wsd/ClientSession::handlePythonComputeFromKit`, config knobs in `common/ConfigUtil.cpp` / `coolwsd.xml.in`.
 
-**Stub HTTP inside the unit (do not hit writeragent in CI):**
+The unit reuses the UnitWSD/WOPI listener as the local `/v1/execute` stub (no writeragent
+or external service in CI). Once WSD has assigned its final port, `invokeWSDTest()` points
+`security.python_compute.url` at that loopback endpoint. The handler asserts the POST method,
+`id`, and `code`, records the POST, and replies:
 
-Online units already spin `SocketPoll` and outbound `http::Session`. Mirror how LLM/WOPI tests stand up local endpoints:
+```json
+{"id":"wire-1","status":"ok","result":42}
+```
 
-1. In `configure()`, force:
-   - `security.python_compute.enable` = `true`
-   - `security.python_compute.url` = `http://127.0.0.1:<ephemeral>/v1/execute`
-2. Bind a tiny accepting socket on that port (Poco `HTTPServer` / existing test HTTP helper if one exists for redirects). Handler must:
-   - Accept `POST /v1/execute`
-   - Parse JSON body; assert `code` present; echo `id`
-   - Reply `200` + `{"id":"…","status":"ok","result":42}`
-   - Record that a POST happened (atomic counter)
-3. In `invokeWSDTest()`:
-   - Load any small `.ods` via the normal unit doc helper (emitter install happens on load; for echo path, load still matters for session wiring).
-   - WS send: `pythonexecute {"id":"t1","code":"result=1"}`
-   - Wait (poll / callback) until client receives a frame starting with `pythoncomputeresult:`
-   - `LOK_ASSERT` body JSON `result == 42` (or status/`id` match)
-   - `LOK_ASSERT_EQUAL(1, postCount)`
-
-**Negative case:** same unit (or second method) with `enable=false` — expect `pythoncomputeresult:` with `status=error` / `"Python compute is disabled"` and **zero** POSTs to the stub. (AddIn maps that error string to cell `#DISABLED`; UnitWSD can assert the JSON error text without needing the AddIn.)
+The enabled case loads `empty.ods`, sends
+`pythonexecute {"id":"wire-1","code":"result=1"}`, receives
+`pythoncomputeresult:`, and asserts the id/status/result plus exactly one POST. The disabled
+case drives the same kit path, asserts structured error `"Python compute is disabled"`, and
+asserts zero POSTs. The debug-only browser command deliberately forwards even when disabled
+so the broker's normal structured disabled response is covered end-to-end.
 
 **Fallback path note:** `ChildSession::handlePythonComputeResult` echoes to the browser when `pythoncompute_complete_json` is not mapped (`dlsym` miss). That is **desirable** for F1: the unit proves broker HTTP without requiring `libpythoncomputelo.so` in the unit harness. Add a follow-up assert later once the test kit image links the AddIn (then `completeFromJson` returns 1 and the echo may stop).
 
 **Out of scope for F1:** real NumPy, formula evaluation, `KIT_HOST_ALLOWLIST` matrix (cover with a third case only if allowlist is always-on in your install).
 
-**Done when:** `make check` / `unittest` runs `unit_python_compute` green on a stock Online build.
+**Verified locally:**
+
+- `test/run_unit.sh --test-name unit-python-compute.la` — pass (enabled + disabled).
+- `make -C engine CppunitTest_scaddins_pythoncompute` — pass.
+- `make coolwsd coolforkit-ns coolforkit-caps` — pass.
 
 ---
 
@@ -390,7 +392,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
    ```
    coolwsd on the host reaches `127.0.0.1:8000`; the container has **no** route to the public internet (tenant `urllib` / sockets die). If the sandbox AST already blocks many imports, network isolation is still the real boundary for C-extension sockets.
 6. **No docker.sock, no privileged, no host FS mounts** of tenant data. Scratch only under `/tmp`. If models/weights are needed later, bake into the image (admin curates) — never bind-mount `~/.writeragent_venv`.
-7. **Auth between coolwsd and service:** coolwsd already has optional `security.python_compute.api_key` → `Authorization: Bearer …` on the POST. Service-side token check + private bind remain ops ([F4](#f4--compute-service-container-hardening) / G5).
+7. **Auth between coolwsd and service:** coolwsd sends optional `security.python_compute.api_key` as `Authorization: Bearer …`. The compute service verifies that Bearer only when a key is configured (`PYTHON_COMPUTE_API_KEY` / key file / `python-compute.json`); empty key = no auth (dev/test). Remaining ops: cgroup/network isolation ([F4](#f4--compute-service-container-hardening) / G5).
 8. **Resource quotas already partially exist:** `timeout_ms` / `clamp_timeout_sec` in [`executor.py`](../compute_service/executor.py); add RSS watch or rely on cgroup `--memory`. Document that wall-clock alone does not stop a malloc bomb — cgroup does.
 9. **Health / readiness:** keep `/health`; orchestrators use it. Do not expose `/v1/execute` without the allowlist auth once enabled.
 
@@ -497,11 +499,11 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 | # | Topic | Status |
 |---|--------|--------|
 | G4 | No size / in-flight caps | Deferred for prototype — comments near WSD POST; implement before multi-tenant |
-| G5 | Service isolation aspirational | Deferred — bind/auth comments only; see [F4](#f4--compute-service-container-hardening) |
+| G5 | Service isolation | Bearer verify when key set; empty key = open (dev); cgroup/network isolation still ops — [F4](#f4--compute-service-container-hardening) |
 | G6a | Pending timeout is passive | Done — AddIn one-shot `vcl::Timer` expires pending → `#N/A` without recalc |
 | G6c | LRU breaks AddIn.idl identity; sticky errors | Done — weak-ref identity map never evicts live entries; sticky retry = change params (documented) |
-| G8 | Missing UnitWSD / formula-level CI | Open — see [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
-| G9 | Series / hygiene | Open — split Core vs Online; squash tiny follow-ups; PY naming note |
+| G8 | UnitWSD / formula-level CI | UnitWSD done; full formula-level Online CI remains optional follow-up |
+| G9 | Series / hygiene | Hygiene done; series preparation remains intentionally pending |
 | G10 | Opaque `#VALUE!` hides Python message | Open / deferred — design in [F6](#f6--visible-short-python-errors); not coded |
 | G11 | No single-cell auto-spill | Open / deferred — documented in [F7](#f7--single-cell-auto-spill); top-left only today |
 
@@ -510,9 +512,9 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 **Landed in tree** as the Core ↔ service dialect (keep for contracts / F3 plots / shared kernel).
 
 - **Emit:** `tools::JsonWriter` in `pythoncompute_anyjson.cxx` — Calc ranges as `Sequence<Sequence<…>>` first, then flatten 1×N / N×1 when useful (Any **and** typed double grids).
-- **Parse:** local hand parser in the same file (not `boost::property_tree`, not Boost.JSON, not Poco in Core). Online coolwsd stays on Poco/`JsonUtil`.
+- **Parse:** local hand parser in the same file (not `boost::property_tree`, not Boost.JSON, not Poco in Core). It combines UTF-16 surrogate pairs, rejects unpaired surrogates/trailing junk, and rejects ragged nested arrays. Online coolwsd stays on Poco/`JsonUtil`.
 - **Scalars:** JSON `"42"` / `"true"` / `"null"` stay strings; bare `42` / `true` / `null` → double / bool / empty string (Classic `None` parity).
-- **Grids:** nested lists; rectangular numerics → `sequence<sequence<double>>`; mixed → `sequence<sequence<Any>>`. Single-cell formulas keep **top-left only** until [F7](#f7--single-cell-auto-spill).
+- **Grids:** nested lists; rectangular numerics → `sequence<sequence<double>>`; mixed → `sequence<sequence<Any>>`; one-element lists of every scalar type stay 1×1 matrices. Single-cell formulas keep **top-left only** until [F7](#f7--single-cell-auto-spill).
 - **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today).
 - **Tests:** `engine/scaddins/qa/pythoncompute.cxx` + writeragent `tests/compute_service/test_online_py_json_contract.py`.
 
@@ -526,14 +528,14 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 
 1. Config knobs: `max_request_bytes`, `max_response_bytes`, `max_inflight_per_doc`, admin-owned `timeout_secs`.
 2. Hard-reject oversized bodies with `status=error` JSON back to kit.
-3. Fail-visible handling for corrupt `pythoncompute:` frames (`replyError`).
+3. Fail-visible handling for corrupt `pythoncompute:` frames (`replyError`) — **done**.
 4. Cancel in-flight HTTP on disconnect; optionally cap AddIn `g_aPending`.
 
 ### G5 — Compute-service isolation claims are not operational
 
-**Status: Partly resolved.** Loopback-only (`127.0.0.1`) host binding and multi-stage Dockerfile hardening (dropping `build-essential`) are complete. coolwsd optional `security.python_compute.api_key` Bearer on POST is landed; **service-side** token verification is still open.
+**Status: Mostly resolved for auth/bind.** Loopback-only (`127.0.0.1`) host binding by default, multi-stage Dockerfile hardening, coolwsd optional `security.python_compute.api_key` Bearer on POST, and **service-side** Bearer verification when a key is set (`compute_service/config.py` + `authenticate_request`). Empty key ⇒ no auth (dev/test). Config is standalone (`PYTHON_COMPUTE_*` / `python-compute.json`) — not `writeragent.json`.
 
-**Recommended solution:** shared secret; complete remainder of [F4](#f4--compute-service-container-hardening) runtime setup; do not claim AST sandbox is the OS boundary; state shipped vs ops docs in the PR letter.
+**Still open (ops):** cgroup `--memory`/`--cpus`, private bridge networking, no docker.sock — complete remainder of [F4](#f4--compute-service-container-hardening); do not claim AST sandbox is the OS boundary.
 
 ### G6 — Remaining lifecycle gaps
 
@@ -547,22 +549,25 @@ AddIn arms a process-wide one-shot `vcl::Timer` to the earliest `g_aPending` dea
 
 ### G8 — Test coverage gaps
 
-Core CppUnit covers scalars, typed strings, mixed/numeric grids, emitter round-trip, identity cache happy path, identity under cache pressure, weak lapse. Still missing for Gerrit CI:
+Core CppUnit now also covers Unicode surrogate pairs, one-element string/bool matrices,
+mixed numeric/string rows, rectangular columns, ragged-array rejection, and trailing/invalid
+JSON. UnitWSD covers enabled/disabled routing, the local POST, response id/status/result, and
+the zero-POST disabled invariant. Remaining coverage gaps:
 
 | Area | Missing today |
 |------|----------------|
-| UnitWSD | enable/disable, POST happened, `pythoncomputeresult:`, allowlist reject, corrupt frame → error reply |
+| UnitWSD | allowlist reject; direct corrupt upward-frame injection (production handler now replies with structured error) |
 | Lifecycle | disconnect mid-flight (timeout-without-recalc covered by AddIn CppUnit) |
 | Limits | oversize body rejected; inflight cap (when G4 lands) |
 
-Land [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) with or before the Online change (stub HTTP in-unit).
+[F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) is implemented and registered with the Online unit suite.
 
 ### G9 — Commit series, naming, and hygiene
 
-- Split **Core AddIn** vs **Online kit/wsd** (squash tiny id follow-ups into Online).
+- Prepare **Core AddIn** vs **Online kit/wsd** review boundaries when requested; no split or commits have been made during the current cleanup.
 - Explicit PR/IDL note on display name `PY` vs Excel semantics.
-- en-US-only strings / `SAL_DLLPUBLIC_EXPORT` test helpers / IDL comment vs volatile runtime — nits.
-- Cover letter: #16010, experimental + default off, non-goals (plots, shared kernel, Monaco), residual risk = G4/G5/G8.
+- en-US-only strings / `SAL_DLLPUBLIC_EXPORT` test helpers remain nits. The IDL volatile-runtime comment is corrected.
+- Cover letter: #16010, experimental + default off, non-goals (plots, shared kernel, Monaco), residual risk = G4/G5 plus the remaining formula/allowlist/lifecycle gaps under G8.
 
 Suggested series:
 
@@ -575,11 +580,11 @@ Suggested series:
 
 | Item | Recommendation |
 |------|----------------|
-| `EmitFn` `int` vs `sal_Int32` | Align kit typedef with Core C API |
+| `EmitFn` ABI type | Done — Core C ABI and kit use fixed-width `int32_t` / `std::int32_t` |
 | Duplicated anyjson writers | Factor when touching that file again |
 | IWYU filter | Update `IwyuFilter_scaddins.yaml` if CI enables it |
 | en-US-only help | Accept for v0.1 with PR note; follow with `.hrc` |
-| Engine subtree README | Keep short; ops detail lives here / issue |
+| Engine subtree README | Updated for the hand parser, matrix behavior, and actual dependencies |
 
 ### What already looks good (keep)
 
@@ -601,12 +606,12 @@ Code / product gaps still relevant for a Collabora-facing PR (overlaps the open 
 | **Pending timeout is passive** | `pythoncompute_bridge.cxx` | G6a — **done** (VCL one-shot timer) |
 | **LRU / sticky errors** | param cache in bridge | G6c — **done** (weak-ref identity map) |
 | **Display name `PY`** | IDL / release notes | G9 |
-| **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | G8 / [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) |
-| **Service auth + private bind** | coolwsd ↔ compute | G5 / [F4](#f4--compute-service-container-hardening) — coolwsd `api_key` Bearer landed; service-side verify still ops |
+| **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | **Done** — enabled/disabled, POST/result, and zero-POST invariant |
+| **Service auth + private bind** | coolwsd ↔ compute | G5 — Bearer verify when key set; empty = open (dev); cgroup/network isolation still ops ([F4](#f4--compute-service-container-hardening)) |
 | **Visible short Python errors** | `jsonResultToAny` | G10 / [F6](#f6--visible-short-python-errors) — design agreed, not coded |
 | **Single-cell auto-spill** | AddIn / Calc | G11 / [F7](#f7--single-cell-auto-spill) — top-left only today |
 | **en-US help only** | AddIn display strings | No `.hrc` yet |
-| **IDL vs runtime** | `XPythonComputeFunctions.idl` | Comment may say error string; runtime always returns volatile |
+| **IDL vs runtime** | `XPythonComputeFunctions.idl` | **Done** — comment now describes interim volatile and `ResultEvent` |
 | **`SAL_DLLPUBLIC_EXPORT` on anyjson** | helpers | Prefer C ABI-only exports long-term |
-| **Kit `EmitFn` `int` vs `sal_Int32`** | emitter vs Core | Align if reviewers care |
+| **Kit/Core length ABI** | emitter vs Core | **Done** — fixed-width 32-bit C ABI |
 | **anyjson structure** | duplicated writers | Maintainability nit |

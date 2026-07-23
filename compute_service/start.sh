@@ -17,6 +17,8 @@ if [ ! -f "$PYTHON_EXE" ] && [ -f "$VENV_PATH/Scripts/python.exe" ]; then
     PYTHON_EXE="$VENV_PATH/Scripts/python.exe"
 fi
 
+# Pass-through CLI: --config, --host, --port, --api-key-file (see README.md).
+# Secrets: PYTHON_COMPUTE_API_KEY / PYTHON_COMPUTE_API_KEY_FILE — not writeragent.json.
 if [ -f "$PYTHON_EXE" ]; then
     echo "Starting compute service with venv python: $PYTHON_EXE"
     exec "$PYTHON_EXE" "$SCRIPT_DIR/server.py" "$@"

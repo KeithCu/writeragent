@@ -17,10 +17,6 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, ".."))
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from plugin.framework.uno_bootstrap import register_alias_importer
-
-register_alias_importer()
-
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code
 
 from compute_service.json_egress import normalize_execute_response
@@ -29,6 +25,7 @@ from compute_service.json_egress import normalize_execute_response
 _SESSION_RUN_LOCKS: dict[str, threading.Lock] = {}
 _SESSION_RUN_LOCKS_GUARD = threading.Lock()
 
+# Service-owned defaults — never fall back to writeragent module.yaml / writeragent.json.
 _MAX_TIMEOUT_SEC = 600
 _DEFAULT_TIMEOUT_SEC = 30
 
@@ -42,23 +39,37 @@ def _session_lock(session_id: str) -> threading.Lock:
         return lock
 
 
-def clamp_timeout_sec(timeout_sec: float | int | None) -> int:
+def clamp_timeout_sec(
+    timeout_sec: float | int | None,
+    *,
+    default_timeout_sec: int = _DEFAULT_TIMEOUT_SEC,
+    max_timeout_sec: int = _MAX_TIMEOUT_SEC,
+) -> int:
     if timeout_sec is None:
-        return _DEFAULT_TIMEOUT_SEC
+        return default_timeout_sec
     try:
         sec = int(timeout_sec)
     except (TypeError, ValueError):
-        return _DEFAULT_TIMEOUT_SEC
-    return max(1, min(_MAX_TIMEOUT_SEC, sec))
+        return default_timeout_sec
+    return max(1, min(max_timeout_sec, sec))
 
 
-def timeout_ms_to_sec(timeout_ms: Any) -> int:
+def timeout_ms_to_sec(
+    timeout_ms: Any,
+    *,
+    default_timeout_sec: int = _DEFAULT_TIMEOUT_SEC,
+    max_timeout_sec: int = _MAX_TIMEOUT_SEC,
+) -> int:
     if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)):
-        return _DEFAULT_TIMEOUT_SEC
+        return default_timeout_sec
     if timeout_ms <= 0:
-        return _DEFAULT_TIMEOUT_SEC
+        return default_timeout_sec
     # Round up so 1500ms → 2s, not 1s
-    return clamp_timeout_sec((int(timeout_ms) + 999) // 1000)
+    return clamp_timeout_sec(
+        (int(timeout_ms) + 999) // 1000,
+        default_timeout_sec=default_timeout_sec,
+        max_timeout_sec=max_timeout_sec,
+    )
 
 
 def execute_code(
@@ -69,9 +80,16 @@ def execute_code(
     *,
     mode: str = "isolated",
     init_script: str | None = None,
+    default_timeout_sec: int = _DEFAULT_TIMEOUT_SEC,
+    max_timeout_sec: int = _MAX_TIMEOUT_SEC,
 ) -> dict[str, Any]:
     """Execute *code* under AST sandboxing; return §8-shaped dumb-JSON payload."""
-    timeout_sec = clamp_timeout_sec(timeout_sec)
+    # Always pass an explicit timeout so the sandbox never consults WriterAgent defaults.
+    timeout_sec = clamp_timeout_sec(
+        timeout_sec,
+        default_timeout_sec=default_timeout_sec,
+        max_timeout_sec=max_timeout_sec,
+    )
 
     # Shared kernel only when explicitly requested *and* a session id is provided.
     use_session: str | None = None
