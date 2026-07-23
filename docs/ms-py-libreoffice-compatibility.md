@@ -350,11 +350,23 @@ python -m plugin.calc.excel_py_convert --to excel converted.xlsx -o excel-shape.
 
 ---
 
-### 5.9 Formula lexer hazards (small but real)
+### 5.9 Formula lexer hazards (corrected diagnosis; LO core deferred)
 
-WriterAgent already hits Calc lexer quirks: string arguments containing nested `()` and names like `float` can yield `#NAME?` **before** the Add-In runs ([enabling_numpy §6 lexer quirks](enabling_numpy_in_libreoffice.md)). Microsoft’s long Python strings make this **more** frequent, not less.
+**Corrected (2026-07):** ASCII double-quoted strings are already opaque to Calc’s formula lexer (`ScCompiler::NextSymbol` `ssGetString`). Live checks: `=PY("float(1)")`, `=LEN("float(1)")`, and nested `()` inside `"…"` do **not** yield `#NAME?`. Earlier docs that claimed the lexer “scans inside” `=PY("float(…)")` were wrong.
 
-**Effort:** Small–medium compiler fixes; worth doing for any PY design; not specific to `xl()`.
+What actually fails today:
+
+| Symptom | Cause |
+|---------|--------|
+| `#NAME?` | **Unquoted** `float(` / unknown name treated as a spreadsheet function (`=PY(float(1))`, `=float(1)`) |
+| `Err:513` | Formula **symbol** longer than Calc’s `MAXSTRLEN` (**1024**) — bites multi-KB Excel-style Python in `=PY("…")` |
+| `Err:508` | Wrong arg separator (`,` vs `;`), **or** curly/smart quotes `“…”` used as delimiters (not `CharString` seps) |
+
+Microsoft-length Python in the formula string makes **`MAXSTRLEN` and curly quotes** more painful, not “float inside ASCII quotes.”
+
+WriterAgent keeps a **defensive** `sanitize_inline_py_code` when *emitting* Calc formulas ([`formula_edit.py`](../plugin/calc/python/formula_edit.py)); Excel export uses quote-escape only. That sanitizer is not a substitute for core fixes.
+
+**Upstream (deferred):** see [Future LibreOffice formula-string work](enabling_numpy_in_libreoffice.md#future-libreoffice-formula-string-work) for the concrete Calc compiler plan (`MAXSTRLEN` / curly quotes / tests). Do **not** treat this as WriterAgent scope right now.
 
 ---
 
@@ -416,7 +428,7 @@ Registering a name is the easy 5%. Precedents, co-volatility, and spill are the 
 ## 9. Recommended stance for Collabora / LibreOffice
 
 1. **Standardize on** `=PY(code, data…)` **(and `PYTHON` alias)** as the Calc-native API—desktop extension today, core/Online Add-In as in [numpy-jailsafe.md](numpy-jailsafe.md).
-2. **Invest core effort** in: volatile busy results, robust matrix return, eventually **real dynamic spill for all of Calc**, and formula-string lexer fixes—not in making `xl()` + co-volatility the default dependency model.
+2. **Invest core effort** in: volatile busy results, robust matrix return, eventually **real dynamic spill for all of Calc**, and (when scheduled) formula-string limits for long `=PY("…")` — see [Future LibreOffice formula-string work](enabling_numpy_in_libreoffice.md#future-libreoffice-formula-string-work). Do **not** make `xl()` + co-volatility the default dependency model.
 3. **Treat Microsoft’s formula shape as a later compatibility lane** (`PY_XL` and/or XLSX import rewrite), scheduled only with explicit demand and after spill/import foundations exist.
 4. **Do not** make co-volatility the default in LibreOffice; if ever offered, gate it behind a compatibility mode and expect to document Partial-calc analogues.
 5. **Keep compute pluggable** (local venv vs HTTP service). Formula semantics must not require cloud `xl()` round-trips.

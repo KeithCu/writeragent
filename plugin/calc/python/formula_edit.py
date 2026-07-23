@@ -155,7 +155,19 @@ def parse_python_formula(formula: str) -> PythonFormulaParts | None:
     return PythonFormulaParts(prefix=raw[:inner_start], code=code, data_suffix=data_suffix)
 
 
-# Calc's formula lexer scans inside PY code strings and treats these as spreadsheet calls.
+# Defensive rewrites when *emitting* Calc ``=PY("…")`` formulas.
+#
+# Corrected diagnosis (2026-07): ASCII-quoted strings are already opaque in
+# ScCompiler::NextSymbol (ssGetString). ``=PY("float(1)")`` does not #NAME? from
+# scanning inside quotes. ``#NAME?`` happens for *unquoted* ``float(`` (unknown
+# spreadsheet function). Real LO limits for long Excel-style Python are
+# MAXSTRLEN (1024) → Err:513 and curly quotes → Err:508 — see
+# docs/enabling_numpy_in_libreoffice.md#future-libreoffice-formula-string-work.
+#
+# TODO(libreoffice): one day raise/grow string-symbol limit and accept/normalize
+# curly quotes in Calc core; then this sanitizer can be slimmed or removed.
+# Until then we still rewrite float/int/str when building Calc formulas in case
+# quotes are lost or tooling strips them.
 _LEXER_COLLISION_FLOAT_RE = re.compile(r"\bfloat\s*\(")
 _LEXER_COLLISION_INT_RE = re.compile(r"\bint\s*\(")
 _LEXER_COLLISION_STR_RE = re.compile(r"\bstr\s*\(")
@@ -201,7 +213,12 @@ def _rewrite_token_calls(code: str, token: str, rewrite_inner) -> str:
 
 
 def sanitize_inline_py_code(code: str) -> str:
-    """Rewrite tokens that trigger Calc ``#NAME?`` inside ``=PY("…")`` code strings."""
+    """Defensive rewrite of tokens that are dangerous if formula quotes are lost.
+
+    Not required for correct Calc parsing of ASCII-quoted ``=PY("float(…)")``
+    (strings are opaque). Kept when *emitting* Calc formulas until LibreOffice
+    raises ``MAXSTRLEN`` / curly-quote handling — see module comment above.
+    """
     if not code:
         return code
     sanitized = code.replace("dtype=float", "dtype=np.float64")
@@ -213,7 +230,7 @@ def sanitize_inline_py_code(code: str) -> str:
 
 
 def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
-    """Return Calc-lexer collision token names still present in *code*."""
+    """Return token names still present that ``sanitize_inline_py_code`` would rewrite."""
     hits: list[str] = []
     if _LEXER_COLLISION_FLOAT_RE.search(code):
         hits.append("float")
@@ -229,13 +246,13 @@ def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
 def escape_code_for_formula(code: str) -> str:
     """Escape Python source for embedding in a Calc string literal.
 
-    Applies Calc lexer collision sanitization (``float(`` etc.) then doubles quotes.
+    Applies defensive sanitization (``float(`` etc.) then doubles quotes.
     """
     return sanitize_inline_py_code(code).replace('"', '""')
 
 
 def escape_code_for_excel_formula(code: str) -> str:
-    """Quote-escape Python for Excel ``=PY("…")`` / OOXML — no Calc lexer rewrites."""
+    """Quote-escape Python for Excel ``=PY("…")`` / OOXML — no Calc sanitizer rewrites."""
     return (code or "").replace('"', '""')
 
 

@@ -9,6 +9,8 @@ from __future__ import annotations
 from plugin.calc.python.formula_edit import (
     build_data_suffix,
     build_new_python_formula,
+    escape_code_for_excel_formula,
+    escape_code_for_formula,
     format_data_binding_display,
     format_data_binding_text,
     normalize_formula_string,
@@ -17,6 +19,7 @@ from plugin.calc.python.formula_edit import (
     rebuild_python_formula,
     rebuild_python_formula_with_data,
     replace_python_code,
+    sanitize_inline_py_code,
 )
 
 
@@ -170,4 +173,28 @@ def test_format_data_binding_text_round_trip():
     args = ["A1:B10", "C1:C5"]
     text = format_data_binding_text(args)
     assert parse_data_binding_text(text) == args
+
+
+def test_calc_escape_sanitizes_float_excel_escape_preserves():
+    """Calc emit path rewrites float(; Excel/OOXML path quote-escapes only."""
+    code = "x = float(1)"
+    assert "+0.0" in sanitize_inline_py_code(code)
+    assert "+0.0" in escape_code_for_formula(code)
+    assert escape_code_for_excel_formula(code) == code
+    calc = rebuild_python_formula_with_data(code, [])
+    xlsx = rebuild_python_formula_with_data(code, [], separator=",", excel_escape=True)
+    assert "+0.0" in calc
+    assert "float(1)" in xlsx
+    assert xlsx.startswith('=PY("')
+
+
+def test_normalize_curly_quotes_around_code_string():
+    """Smart quotes around the PY code arg become ASCII before parse."""
+    formula = '=PY(\u201cresult = 1\u201d)'
+    normalized = normalize_formula_string(formula)
+    assert '"' in normalized
+    assert "\u201c" not in normalized and "\u201d" not in normalized
+    parts = parse_python_formula(normalized)
+    assert parts is not None
+    assert parts.code == "result = 1"
 

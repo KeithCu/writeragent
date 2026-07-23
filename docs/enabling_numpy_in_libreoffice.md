@@ -22,6 +22,7 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
   - [Keyboard shortcuts and recalc](#keyboard-shortcuts-and-recalc)
   - [Empty cells vs NaN](#empty-cells-vs-nan)
   - [Calc formula lexer quirks (inline code)](#calc-formula-lexer-quirks-inline-code)
+  - [Future LibreOffice formula-string work](#future-libreoffice-formula-string-work)
   - [Data handoff and shaping](#data-handoff-and-shaping)
   - [Multi-range support (varargs)](#multi-range-support-varargs)
 7. [Deferred roadmap](#7-deferred-roadmap)
@@ -678,66 +679,70 @@ No code changes or new APIs (such as `PythonCell()`) are required.
 #### Gotchas & Design Invariants:
 
 - **Empty Code Cells**: If the referenced code cell evaluates to an empty string, our robust subprocess script runner gracefully detects the empty code block and returns a cell with the error message: `Error: No code provided.`
-- **Implicit Intersection**: If a user passes a multi-cell range as the first argument (e.g., `=PY(A1:A2; B1:B10)`), Calc will perform implicit intersection using the active row/column. To ensure predictable behavior, users should always pass single cell references (like `A1`) or explicit absolute coordinates (like `$A$1`).
+- **Implicit Intersection**: If a user passes a multi-cell range as the first argument (e.g., `=PY(A1:A2; B1:B10)`), Calc will perform implicit intersection using the active row/column. To ensure predictable behavior, users should always pass ### Calc formula lexer quirks (inline code)
 
+**Status (corrected 2026-07):** Calc’s formula compiler parses the cell **before** the `=PY()` add-in runs. Failures here are **not** venv/NumPy/sandbox errors — Python never executes.
 
+**Important correction:** ASCII `"…"` string literals are already **opaque**. Identifiers like `float` and nested `()` *inside* a proper ASCII-quoted string do **not** become spreadsheet function tokens. Live checks: `=PY("float(1)")` and `=LEN("float(1)")` succeed when `PY` is registered.
 
-### Calc formula lexer quirks (inline code)
+| Symptom | Typical cause | What users see |
+| -------- | ------------- | -------------- |
+| **#NAME?** | **Unquoted** name + `(` treated as unknown spreadsheet function | `=PY(float(1))` or `=float(1)` → `#NAME?`; `=PY("float(1)")` works |
+| **Err:513** | One formula **symbol** exceeds Calc `MAXSTRLEN` (**1024**) | Long inline Python in `=PY("…")` fails before the add-in |
+| **Err:508** | Wrong **argument separator** (`;` vs `,`), or **curly quotes** `“…”` used instead of ASCII `"` | XLSX/locale mismatch; pasted smart quotes |
+| **Err:510** | Cell text starts with `=` (e.g. section label `=== normal ===`) | Use plain labels like `[normal]`, not leading `=` |
+| **#NAME?** | XLSX import lowercases the add-in name; lookup failed on display-only name | Prefer `=PY(...)` (uppercase). Add-in accepts `python` / `PYTHON` after 2026-05 |
 
-**Status:** observed in the field (2026); no extension code change can fix Calc’s parser — only workarounds and documentation until LibreOffice behavior improves or we ship richer UX (cell-reference-first prompts, edit dialog).
+#### Why fixtures stopped wrapping in `float(...)`
 
-When `code` is a **string literal inside the formula**, LibreOffice Calc parses the **entire cell** (including the quoted Python) **before** the `=PY()` add-in runs. Failures here are **not** venv, NumPy, or sandbox errors — Python never executes.
+Early test fixtures used `float(np.sum(data))` so compare formulas could use `ABS(oracle - python)`. That cast is **redundant**: [`to_calc_compatible`](../plugin/calc/python/function.py) already coerces NumPy scalars and Python `int` to Calc `double`. Prefer bare `np.sum(data)` etc.
 
-
-| Symptom     | Typical cause                                                                                               | What users see                                                                                                                                                                                        |
-| ----------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **#NAME?**  | Token inside the string is treated as a **spreadsheet** function name (e.g. `float`)                        | `=PY("float(np.sum(data))"; D6:G6)` fails; `=PY("np.sum(data)"; D6:G6)` works                                                                                                                         |
-| **Err:508** | Wrong **argument separator** for locale/file format (`;` vs `,`), or parenthesis pairing confused on import | Common when opening **XLSX** generated with European `;` on **en-US** Calc (see [manual serialization suite](numpy-serialization.md#priority-1--profile-inside-libreoffice-gate-for-everything-else)) |
-| **Err:510** | Cell text starts with `=` (e.g. section label `=== normal ===`)                                             | Use plain labels like `[normal]`, not leading `=`                                                                                                                                                     |
-| **#NAME?**  | XLSX import lowercases the add-in name to `python`; lookup failed on display-only `PYTHON`                  | Use `=PY(...)` (uppercase). The add-in accepts `python` / `PYTHON` after 2026-05; regenerate test XLSX if needed                                                                                      |
-
-
-
-
-#### Why `float(np.sum(data))` in the formula string is a bad idea
-
-Early test fixtures wrapped results in `float(...)` so compare formulas could use `ABS(oracle - python)`. That cast is **redundant**: `[to_calc_compatible](../plugin/calc/python/function.py)` already coerces NumPy scalars and Python `int` to Calc `double` on return. Runtime never required `float()` in the script.
-
-The real problem is **Calc’s formula lexer**, not type coercion:
+`#NAME?` on `float` appears when the call is **outside** quotes (or quotes were lost / became curly). WriterAgent’s [`sanitize_inline_py_code`](../plugin/calc/python/formula_edit.py) still rewrites `float(`/`int(`/`str(` when *emitting* Calc formulas as a defensive measure; do not treat that as proof the lexer scans inside ASCII strings.
 
 ```text
-=PY("float(np.sum(data))"; D6:G6)   → often #NAME?  (Calc looks for a FLOAT function)
-=PY("np.sum(data)"; D6:G6)           → works; bridge coerces the NumPy scalar
+=PY(float(1))                 → #NAME?   (unquoted float = unknown function)
+=PY("float(1)")               → OK       (ASCII string opaque)
+=LEN("float(np.sum(data))")   → OK
+=LEN(“float(1)”)              → Err:508  (U+201C/U+201D not string seps)
+=LEN("<1023+ char string>")   → Err:513  (MAXSTRLEN)
 ```
-
-Nested parentheses inside the quoted string (`float(…(…)…)`) can make pairing worse on some import paths. The identifier `float` is the usual trigger for **#NAME?**.
-
-**Guidance:** prefer `np.sum(data)`, `np.max(data)`, `np.nansum(data)` in inline formulas; do not emit `float(...)` unless code lives **outside** the formula string (see below).
 
 #### Recommended patterns (today)
 
+| Pattern | When to use | Example |
+| ------- | ----------- | ------- |
+| **Bare NumPy / expression** | Default for short inline code | `=PY("np.sum(data)"; B1:B10)` |
+| **Code in a cell** | Multi-line / huge scripts (avoids `MAXSTRLEN`) | `A1` = script text; `=PY($A$1; B1:B10)` |
+| **ASCII quotes only** | Always when pasting / generating formulas | Normalize curly `“”` → `"` (WriterAgent does this on parse) |
+| **Comma vs semicolon** | Match file/locale | XLSX OOXML → commas; Calc UI often `;` |
+| **XLSX test sheets** | Manual serialization regression | See [`scripts/generate_serialization_spreadsheet.py`](../scripts/generate_serialization_spreadsheet.py) |
 
-| Pattern                             | When to use                                       | Example                                                                                                                                                                                                 |
-| ----------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Bare NumPy / expression**         | Default for short inline code                     | `=PY("np.sum(data)"; B1:B10)`                                                                                                                                                                           |
-| **Code in a cell**                  | Any `float(…)`, multi-line scripts, heavy quoting | `A1` = `float(np.sum(data))`; formula `=PY($A$1; B1:B10)`                                                                                                                                               |
-| **Coerce without** `float` **name** | Need a float scalar inline; lexer-sensitive       | `np.sum(data) + 0.0`, `np.asarray(data, float).sum()` (still watch nested `()`)                                                                                                                         |
-| `result = …` **assignment**         | Multi-statement scripts                           | `=PY("result = np.sum(data)"; B1:B10)` — assignment form is fine; avoid wrapping the *expression* in `float()` in the same string if `#NAME?` appears                                                   |
-| **XLSX test sheets**                | Manual serialization regression                   | Use **comma** separators in generated formulas (Excel OOXML); LO converts to locale on import — see `[scripts/generate_serialization_spreadsheet.py](../scripts/generate_serialization_spreadsheet.py)` |
+**XLSX input cells must be numeric, not text:** if the sheet stores values as strings (e.g. `"1.0"` from `str()` in a generator), Calc passes them as text, `split_grid` lands them in the `strings` map, and `np.sum(data)` fails with a Unicode dtype `TypeError`. Regenerate [`serialization_tests.xlsx`](../tests/fixtures/serialization_tests.xlsx) after fixing the generator so ints/floats are written as native cell types.
+
+#### Future product directions (WriterAgent)
+
+These are **not** implemented; kept so design discussions do not rediscover the same traps.
+
+1. **Cell-reference-first UX** — Settings or formula wizard default: “put script in one cell, reference it from `=PY`” (already supported by IDL; needs prompts/UI). Best mitigation for huge scripts until LO raises `MAXSTRLEN`.
+2. **LLM / `=PROMPT()` guardrails** — Prefer cell refs for long code; emit ASCII `"` only; avoid unquoted Python in the formula.
+3. **Native ODS fixtures** — Shipped: [`tests/fixtures/numpy_domains_demo.ods`](../tests/fixtures/numpy_domains_demo.ods). Use ODS for manual `=PY()` QA (preserves uppercase add-in name; semicolon args).
+4. **Documentation parity** — Serialization fixtures intentionally use `np.sum` / `np.max` without unnecessary `float()`.
+
+### Future LibreOffice formula-string work
+
+> **Deferred upstream work** — not in WriterAgent. Schedule as a LibreOffice/Collabora Calc patch when long inline `=PY("…")` / Excel import becomes a product priority. Details below are a future **dev plan** for core.
+
+ASCII-quoted opacity is already correct. Remaining compiler gaps:
+
+1. **Raise / grow string-symbol limit** — `sc/inc/compiler.hxx` `#define MAXSTRLEN 1024` and fixed `cSymbol[MAXSTRLEN+1]` in `sc/source/core/tool/compiler.cxx` (`ScCompiler::NextSymbol`, `ssGetString` / `ssSkipString`). Prefer a growable `OUStringBuffer` for **string literals** with a high soft cap; idents can stay shorter. Symptom today: `Err:513` on long symbols.
+2. **Curly / smart quotes** — Normalize U+201C/U+201D (and ideally U+2018/U+2019) to ASCII `"` before or during compile, **or** treat them as `CharString` / `StringSep`. Symptom today: `=LEN(“float(1)”)` → `Err:508`.
+3. **Core tests** (e.g. `sc/qa/unit/ucalc_formula.cxx`): `=LEN("float(1)")` / `=LEN("a(b(c))")` stay OK; long string (>1024) succeeds after (1); curly-quoted `LEN` succeeds after (2). Use `LEN`/`CONCATENATE` — no PY add-in required.
+4. **Optional Bugzilla** — Attach the three `LEN` reproducers after a patch lands or when filing.
+
+Until then: keep scripts in cells for large Python; WriterAgent normalizes curly quotes on formula parse and may sanitize `float(` when emitting Calc formulas defensively.
 
 
-**XLSX input cells must be numeric, not text:** if the sheet stores values as strings (e.g. `"1.0"` from `str()` in a generator), Calc passes them as text, `split_grid` lands them in the `strings` map, and `np.sum(data)` fails with a Unicode dtype `TypeError`. Regenerate `[serialization_tests.xlsx](../tests/fixtures/serialization_tests.xlsx)` after fixing the generator so ints/floats are written as native cell types.
-
-#### Future product directions (to consider)
-
-These are **not** implemented; kept here so design discussions do not rediscover the same traps.
-
-1. **Cell-reference-first UX** — Settings or formula wizard default: “put script in one cell, reference it from `=PY`” (already supported by IDL; needs prompts/UI).
-2. **LLM /** `=PROMPT()` **guardrails** — When generating `=PY("…")`, forbid `float(` in inline strings; suggest `A1` reference or `np.sum` instead.
-3. **Pre-flight in add-in (limited)** — If `code` still arrives as a string, we cannot fix `#NAME?` (add-in never called). A **macro or import filter** that rewrites known-bad patterns before recalc is fragile and out of scope for the extension core.
-4. **Native ODS fixtures** — Shipped: `[tests/fixtures/numpy_domains_demo.ods](../tests/fixtures/numpy_domains_demo.ods)` from `[scripts/generate_numpy_domains_demo_spreadsheet.py](../scripts/generate_numpy_domains_demo_spreadsheet.py)`. Use ODS for manual `=PY()` QA (preserves uppercase add-in name; semicolon args) instead of importing XLSX.
-5. **Upstream** — LibreOffice issue: add-in string arguments with nested `()` and names like `float` should parse as opaque string literals. Worth filing if we collect minimal reproducers (XLSX + `=PY("float(1)")`).
-6. **Documentation parity** — `[tests/fixtures/serialization_tests.xlsx](../tests/fixtures/serialization_tests.xlsx)` cases intentionally use `np.sum` / `np.max` without `float()`; README generated alongside the sheet documents the quirk.
+.max` without `float()`; README generated alongside the sheet documents the quirk.
 
 
 
