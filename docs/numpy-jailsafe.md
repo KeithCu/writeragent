@@ -56,7 +56,7 @@ Track with Collabora: [online#16010](https://github.com/CollaboraOnline/online/i
 
 ### Excel `xl()` compatibility is handled before execution
 
-The Online bridge deliberately accepts the native, explicit-data surface `=PY(code, data…)`; it does not implement Microsoft's runtime `xl()` callback. Excel Python workbooks can instead pass through the bidirectional rewriter in [`plugin/calc/excel_py_convert/`](../plugin/calc/excel_py_convert/) (CLI and **auto-convert on open** with visible `py_code_<Sheet>` banks mirroring caller A1 addresses — see [ms-py §5.8](ms-py-libreoffice-compatibility.md#58-ooxml--xlfnpy-import)):
+The Online bridge deliberately accepts the native, explicit-data surface `=PY(code, data…)`; it does not implement Microsoft's runtime `xl()` callback. Excel Python workbooks can instead pass through the bidirectional rewriter in [`plugin/calc/excel_py_convert/`](../plugin/calc/excel_py_convert/) (CLI and **auto-convert on open**; scripts **>1000 chars** use visible `py_code_<Sheet>` banks, shorter stay inline — see [ms-py §5.8](ms-py-libreoffice-compatibility.md#58-ooxml--xlfnpy-import)):
 
 ```text
 pythonScripts.xml:  df = xl(%P2%, headers=True)

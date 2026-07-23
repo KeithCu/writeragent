@@ -481,27 +481,26 @@ def test_write_xlsx_artifact_commas_spill_and_sheets(tmp_path: Path):
     write_dag_formulas_xlsx(src, report, out)
     wb = openpyxl.load_workbook(out)
     assert "Data" in wb.sheetnames and "Pivots" in wb.sheetnames
-    assert "py_code_Pivots" in wb.sheetnames
-    # Caller A1 mirrored on the per-sheet script bank.
-    assert isinstance(wb["py_code_Pivots"]["C1"].value, str)
-    assert "pd.DataFrame" in wb["py_code_Pivots"]["C1"].value or "data" in wb["py_code_Pivots"]["C1"].value
+    # Short converted C1 stays inline — no py_code_Pivots sheet.
+    assert "py_code_Pivots" not in wb.sheetnames
     formula = wb["Pivots"]["C1"].value
     assert isinstance(formula, str)
-    assert formula.startswith("=PY(")
-    assert "py_code_Pivots!C1" in formula or "py_code_Pivots.C1" in formula
+    assert formula.startswith('=PY("')
     assert "Data!A1:AA5850" in formula
     assert ";" not in formula
     assert wb["Data"]["A1"].value == "keep-me"
     wb.close()
 
-    # Spill cleanup on a tiny array_ref (same code path as large Excel spills).
+    # Spill cleanup + long script → bank sheet at same A1.
+    long_script = "df = data\n" + ("# pad\n" * 250)
     spill_model = ExcelWorkbookModel(
-        scripts=["df"],
+        scripts=[long_script],
         cells=[_cell("Sheet1", "H37", 0, array_ref="H37:I38", row=37, col=8)],
         sheets=[_sheet("Sheet1")],
     )
     spill_report = convert_model_to_dag(spill_model)
     assert spill_report.ok
+    assert len(spill_report.cells[0].converted_code) > 1000
     out2 = tmp_path / "out_spill.xlsx"
     write_dag_formulas_xlsx(src, spill_report, out2)
     wb2 = openpyxl.load_workbook(out2)
@@ -510,7 +509,7 @@ def test_write_xlsx_artifact_commas_spill_and_sheets(tmp_path: Path):
     assert isinstance(wb2["Sheet1"]["H37"].value, str)
     assert wb2["Sheet1"]["H37"].value.startswith("=PY(")
     assert "py_code_Sheet1!H37" in wb2["Sheet1"]["H37"].value
-    assert wb2["py_code_Sheet1"]["H37"].value == "df"
+    assert wb2["py_code_Sheet1"]["H37"].value == spill_report.cells[0].converted_code
     wb2.close()
 
 

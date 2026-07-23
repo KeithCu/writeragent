@@ -1,15 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Visible ``py_code_<Sheet>`` bank sheets mirroring caller cell positions.
+"""Optional ``py_code_<Sheet>`` bank sheets for long Excel→``=PY`` scripts.
 
 Microsoft keeps Python in ``xl/pythonScripts.xml`` and cells only hold a short
-``_xlws.PY(…)`` formula. Conversion parks rewritten source on a discoverable
-sheet **per source worksheet** at the **same A1** as the caller
-(``Pivots!H4`` → ``py_code_Pivots!H4``) and emits ``=PY(py_code_Pivots.H4; …)``.
+``_xlws.PY(…)`` formula. Calc formula string symbols are capped near
+``MAXSTRLEN`` (1024), so **rewritten code longer than**
+``INLINE_CODE_MAX_CHARS`` (1000) is parked on a visible sheet **per source
+worksheet** at the **same A1** as the caller (``Pivots!H4`` →
+``py_code_Pivots!H4``) and the formula becomes ``=PY(py_code_Pivots.H4; …)``.
 
-One bank sheet per source sheet avoids collisions when two worksheets both use
-the same A1 with different code. Sheets are **visible** so users can find and
-edit the scripts. ``INLINE_CODE_MAX_CHARS`` (1000) is the Calc ``MAXSTRLEN``-safe
-budget if a path still inlines code in the formula string.
+Shorter scripts stay **inline** as ``=PY("…"; ranges)``. One bank sheet per
+source sheet avoids collisions when two worksheets both use the same A1 with
+different long scripts. Raising Calc ``MAXSTRLEN`` later can retire the bank.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ _CODE_SHEET_MAX_LEN = 31
 CODE_SHEET_NOTE_CELL = "ZZ1"
 CODE_SHEET_NOTE = (
     "Python script bank (from Excel pythonScripts). "
+    "Used only for scripts longer than 1000 characters (Calc formula string limit). "
     "Each cell here holds the Python for the =PY formula at the same address "
     "on the matching data sheet (e.g. H4 here ↔ H4 on the source sheet). "
     "Enable shared-kernel session mode for multi-cell Excel scripts."
@@ -81,7 +83,7 @@ def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) 
 
 
 def should_inline_code(code: str) -> bool:
-    """True when *code* is short enough to embed in ``=PY(\"…\")`` under MAXSTRLEN."""
+    """True when *code* fits in ``=PY(\"…\")`` under Calc ``MAXSTRLEN`` (budget 1000)."""
     return len(code or "") <= INLINE_CODE_MAX_CHARS
 
 
@@ -92,9 +94,13 @@ def formula_for_converted_cell(
     excel_escape: bool = False,
     use_script_bank: bool = True,
 ) -> str:
-    """Build ``=PY`` for a converted cell (default: per-sheet bank ref at caller A1)."""
+    """Build ``=PY`` for a converted cell.
+
+    Inline when ``len(converted_code) <= 1000``; otherwise reference
+    ``py_code_<Sheet>.A1`` (same address as the caller).
+    """
     args = list(cell.data_args) + list(cell.ordering_args)
-    if use_script_bank and cell.cell and cell.sheet:
+    if use_script_bank and cell.cell and cell.sheet and not should_inline_code(cell.converted_code):
         try:
             return rebuild_python_formula_with_code_ref(
                 code_bank_ref(cell.sheet, cell.cell, excel_bang=(separator == "," or excel_escape)),
@@ -113,12 +119,14 @@ def formula_for_converted_cell(
 
 
 def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, str]], list[str]]:
-    """Map ``code_sheet_name → {A1 → code}``. Returns ``(banks, warnings)``."""
+    """Map ``code_sheet_name → {A1 → code}`` for cells that need banking (>1000 chars)."""
     banks: dict[str, dict[str, str]] = {}
     owners: dict[tuple[str, str], str] = {}
     warnings: list[str] = []
     for cell in report.cells:
         if not cell.converted or not cell.converted_code or not cell.cell or not cell.sheet:
+            continue
+        if should_inline_code(cell.converted_code):
             continue
         try:
             a1 = normalize_bank_a1(cell.cell)

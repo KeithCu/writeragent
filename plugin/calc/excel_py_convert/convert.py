@@ -187,7 +187,7 @@ def write_dag_formulas_xlsx(
     """Copy *source_xlsx* and replace successfully converted PY cells with DAG formulas.
 
     - Parks rewritten Python on visible ``py_code_<Sheet>`` sheets at the **same A1**
-      as each caller (one bank sheet per source worksheet).
+      as each caller when ``len(code) > 1000``; shorter scripts stay inline in ``=PY("…")``.
     - OOXML formulas use **comma** separators (not Calc ``;``).
     - Clears the source array/spill ``ref`` range (except the anchor) so old
       cached results do not block the new spill.

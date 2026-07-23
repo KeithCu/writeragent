@@ -2,8 +2,9 @@
 """Apply a DAG conversion report to an open Calc document via UNO.
 
 Used when openpyxl is unavailable in the LibreOffice host. Parks code on a visible
-``py_code_<Sheet>`` bank sheet (one per source worksheet) at the caller A1; formulas
-use Calc ``;`` separators. Spill ranges are cleared before rewrite.
+``py_code_<Sheet>`` bank sheet when code is longer than 1000 characters (one per
+source worksheet) at the caller A1; shorter scripts stay inline. Formulas use
+Calc ``;`` separators. Spill ranges are cleared before rewrite.
 """
 
 from __future__ import annotations
