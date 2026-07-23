@@ -54,6 +54,28 @@ Track with Collabora: [online#16010](https://github.com/CollaboraOnline/online/i
 - **All NumPy / packing / sandbox** stay in **Python** — C++ never implements [`split_grid`](numpy-serialization.md#strategy-3-split-grid-serialization-detail) or Pickle5.
 - **Lightweight service** — **stdlib `http.server`** (or equivalent minimal HTTP) so coolwsd can POST JSON.
 
+### Excel `xl()` compatibility is handled before execution
+
+The Online bridge deliberately accepts the native, explicit-data surface `=PY(code, data…)`; it does not implement Microsoft's runtime `xl()` callback. Excel Python workbooks can instead pass through the bidirectional rewriter in [`plugin/calc/excel_py_convert/`](../plugin/calc/excel_py_convert/):
+
+```text
+pythonScripts.xml:  df = xl(%P2%, headers=True)
+worksheet cell:     _xlws.PY(0, 1, A1:C100)
+
+rewritten code:     df = pd.DataFrame(data[1:], columns=data[0])
+Calc formula:       =PY("..."; A1:C100)
+```
+
+This is important for both correctness and the jail boundary:
+
+1. `A1:C100` becomes a real Calc formula precedent, so normal dirty tracking and DAG order still work.
+2. coolkit extracts that already-declared range once and includes it in the request; Python does not synchronously call back through service → wsd → kit for each `xl()` invocation.
+3. The compute service remains document-blind: it receives code and plain values, not a capability for arbitrary live worksheet reads.
+
+Excel scripts that share globals across multiple PY cells need two separate guarantees. The rewriter adds the representative prior PY stage as an ordering-only formula argument, making Calc schedule the stages as a DAG chain instead of using Excel co-volatility. The Online compute service must also run those cells in **shared** mode for the same document/session so the prior stage's Python names persist. DAG order without a shared namespace orders the calls but cannot preserve variables; a shared namespace without DAG edges does not guarantee which stage runs first.
+
+The rewriter handles formula-static references: fixed ranges, scalar cells, sheet-qualified table `[#All]` references, and `ANCHORARRAY`/spill anchors (the latter two become fixed A1 snapshots from workbook metadata). It **fails closed** on computed Python references such as `xl(f"A1:A{n}")` or `xl(name)`, and on missing table/anchor snapshots, rather than emitting shifted `data[i]` formulas.
+
 ```mermaid
 flowchart LR
   subgraph classic [Classic / LO desktop]

@@ -227,8 +227,16 @@ def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
 
 
 def escape_code_for_formula(code: str) -> str:
-    """Escape Python source for embedding in a Calc string literal."""
+    """Escape Python source for embedding in a Calc string literal.
+
+    Applies Calc lexer collision sanitization (``float(`` etc.) then doubles quotes.
+    """
     return sanitize_inline_py_code(code).replace('"', '""')
+
+
+def escape_code_for_excel_formula(code: str) -> str:
+    """Quote-escape Python for Excel ``=PY("…")`` / OOXML — no Calc lexer rewrites."""
+    return (code or "").replace('"', '""')
 
 
 def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
@@ -289,12 +297,35 @@ def format_py_data_range(range_addr: str) -> str:
     return f"{sheet}.{rest}"
 
 
-def build_data_suffix(data_args: list[str]) -> str:
-    """Build the ``data_suffix`` fragment from parsed range/index tokens."""
-    args = [format_py_data_range(a.strip()) for a in data_args if a.strip()]
+def format_excel_data_range(range_addr: str) -> str:
+    """Format a range for Excel OOXML ``=PY()`` data args (``Sheet!A1`` style)."""
+    addr = str(range_addr).strip().replace("$", "")
+    # Calc-style Sheet.A1 → Sheet!A1
+    if "!" not in addr and "." in addr:
+        sheet, _, rest = addr.partition(".")
+        if sheet and rest and not re.match(r"^\$?[A-Z]+\$?\d", sheet, re.IGNORECASE):
+            addr = f"{sheet}!{rest}"
+    if "!" in addr:
+        sheet, _, rest = addr.partition("!")
+        sheet = sheet.strip("'\"")
+        rest = rest.replace("$", "")
+        if re.search(r"[^\w]", sheet) or (sheet[:1].isdigit() if sheet else False):
+            return f"'{sheet}'!{rest}"
+        return f"{sheet}!{rest}"
+    return addr
+
+
+def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_ranges: bool = False) -> str:
+    """Build the ``data_suffix`` fragment from parsed range/index tokens.
+
+    *separator* is ``;`` for Calc formulas and ``,`` for Excel OOXML formulas.
+    """
+    sep = separator if separator in (";", ",") else ";"
+    fmt = format_excel_data_range if excel_ranges or sep == "," else format_py_data_range
+    args = [fmt(a.strip()) for a in data_args if a.strip()]
     if not args:
         return ")"
-    return f';{";".join(args)})'
+    return f"{sep}{sep.join(args)})"
 
 
 def rebuild_python_formula_with_data(
@@ -302,12 +333,18 @@ def rebuild_python_formula_with_data(
     data_args: list[str],
     *,
     parts: PythonFormulaParts | None = None,
+    separator: str = ";",
+    excel_escape: bool = False,
 ) -> str:
-    """Build ``=PY("…"; ranges…)`` from code and data arguments."""
-    escaped = escape_code_for_formula(code)
-    prefix = f"={CALC_PYTHON_FN}("
-    return f'{prefix}"{escaped}"{build_data_suffix(data_args)}'
+    """Build ``=PY("…"; ranges…)`` from code and data arguments.
 
+    Use ``separator=","`` and ``excel_escape=True`` when writing OOXML ``.xlsx``
+    formulas so Excel/LibreOffice do not see Calc ``;`` separators or Calc-only
+    source sanitization.
+    """
+    escaped = escape_code_for_excel_formula(code) if excel_escape else escape_code_for_formula(code)
+    prefix = f"={CALC_PYTHON_FN}("
+    return f'{prefix}"{escaped}"{build_data_suffix(data_args, separator=separator, excel_ranges=excel_escape or separator == ",")}'
 
 def cell_looks_python_like(formula: str) -> bool:
     """True if *formula* appears to be a PY/PYTHON call (even if strict parse failed)."""
