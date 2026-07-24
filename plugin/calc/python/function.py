@@ -555,13 +555,18 @@ def finalize_python_return(
                                 if collides:
                                     return "#SPILL!"
                                 
-                                t = threading.Timer(
-                                    0.1,
-                                    perform_deferred_spill,
-                                    args=(ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill)
-                                )
+                                from plugin.framework.queue_executor import post_to_main_thread
+
+                                def _deferred_spill_on_main() -> None:
+                                    post_to_main_thread(
+                                        lambda: perform_deferred_spill(
+                                            ctx, doc_url, sheet_name, formula_row, formula_col, grid_to_spill
+                                        )
+                                    )
+
+                                t = threading.Timer(0.1, _deferred_spill_on_main)
                                 t.start()
-                                
+
                                 return to_calc_compatible(grid_to_spill[0][0])
             except Exception:
                 log.exception("Error checking spill collision or locating formula cell")

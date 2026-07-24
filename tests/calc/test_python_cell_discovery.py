@@ -65,3 +65,31 @@ def test_list_python_cells_on_sheet_filters_non_py():
     assert len(found) == 1
     assert found[0].address == "Sheet1.A1"
     assert found[0].code == "result = 1"
+
+
+def test_list_python_cells_on_sheet_bulk_get_formulas():
+    sheet = MagicMock()
+    sheet.getName.return_value = "Sheet1"
+
+    range_obj = MagicMock()
+    range_obj.getRangeAddress.return_value = SimpleNamespace(
+        StartRow=0, EndRow=1, StartColumn=0, EndColumn=1
+    )
+    range_obj.getFormulas.return_value = (
+        ('=PY("result = 1")', "=SUM(A1:A2)"),
+        ("=B1+1", '=PY("result = 2")'),
+    )
+
+    enum = MagicMock()
+    enum.getCount.return_value = 1
+    enum.getByIndex.return_value = range_obj
+    sheet.queryContentCells.return_value = enum
+
+    found = list_python_cells_on_sheet(sheet)
+    assert len(found) == 2
+    assert found[0].address == "Sheet1.A1"
+    assert found[0].code == "result = 1"
+    assert found[1].address == "Sheet1.B2"
+    assert found[1].code == "result = 2"
+
+

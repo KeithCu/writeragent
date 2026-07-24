@@ -35,6 +35,8 @@ _ADDIN_PY_PREFIX_RE = re.compile(
 
 # CellFlags.FORMULA = 16
 _CELL_FLAG_FORMULA = 16
+_MAX_PYTHON_CELLS_FOUND = 100
+_MAX_CELLS_TO_SCAN = 50000
 
 
 @dataclass(frozen=True)
@@ -104,32 +106,68 @@ def list_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None) -> 
     except Exception:
         return []
 
+    scanned_count = 0
     for i in range(count):
+        if len(found) >= _MAX_PYTHON_CELLS_FOUND or scanned_count >= _MAX_CELLS_TO_SCAN:
+            break
         try:
             cell_range = formula_cells.getByIndex(i)
             addr = cell_range.getRangeAddress()
+            formula_matrix = cell_range.getFormulas() if hasattr(cell_range, "getFormulas") else None
         except Exception:
             continue
-        for row in range(addr.StartRow, addr.EndRow + 1):
-            for col in range(addr.StartColumn, addr.EndColumn + 1):
-                try:
-                    cell = sheet.getCellByPosition(col, row)
-                    formula = str(cell.getFormula() or "")
-                except Exception:
-                    continue
-                if not is_py_formula_text(formula):
-                    continue
-                code = extract_code_from_formula(formula)
-                found.append(
-                    PythonCellInfo(
-                        sheet=name,
-                        row=row,
-                        column=col,
-                        address=_cell_address(name, row, col),
-                        code=code,
-                        formula=formula,
+
+        if formula_matrix is not None and len(formula_matrix) > 0:
+            for r_idx, row_formulas in enumerate(formula_matrix):
+                row = addr.StartRow + r_idx
+                for c_idx, formula in enumerate(row_formulas):
+                    scanned_count += 1
+                    col = addr.StartColumn + c_idx
+                    if not formula or not is_py_formula_text(str(formula)):
+                        continue
+                    code = extract_code_from_formula(str(formula))
+                    found.append(
+                        PythonCellInfo(
+                            sheet=name,
+                            row=row,
+                            column=col,
+                            address=_cell_address(name, row, col),
+                            code=code,
+                            formula=str(formula),
+                        )
                     )
-                )
+                    if len(found) >= _MAX_PYTHON_CELLS_FOUND:
+                        break
+                if len(found) >= _MAX_PYTHON_CELLS_FOUND:
+                    break
+        else:
+            for row in range(addr.StartRow, addr.EndRow + 1):
+                if len(found) >= _MAX_PYTHON_CELLS_FOUND or scanned_count >= _MAX_CELLS_TO_SCAN:
+                    break
+                for col in range(addr.StartColumn, addr.EndColumn + 1):
+                    scanned_count += 1
+                    if scanned_count > _MAX_CELLS_TO_SCAN:
+                        break
+                    try:
+                        cell = sheet.getCellByPosition(col, row)
+                        formula = str(cell.getFormula() or "")
+                    except Exception:
+                        continue
+                    if not is_py_formula_text(formula):
+                        continue
+                    code = extract_code_from_formula(formula)
+                    found.append(
+                        PythonCellInfo(
+                            sheet=name,
+                            row=row,
+                            column=col,
+                            address=_cell_address(name, row, col),
+                            code=code,
+                            formula=formula,
+                        )
+                    )
+                    if len(found) >= _MAX_PYTHON_CELLS_FOUND:
+                        break
 
     found.sort(key=lambda c: (c.row, c.column))
     return found

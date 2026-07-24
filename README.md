@@ -13,7 +13,7 @@ A LibreOffice extension that adds agentic AI and NumPy features.
 
 ## ⚡ Quick Start
 
-1. **Install**: Download `.oxt` from [Release Assets](https://github.com/KeithCu/writeragent/releases/latest), double-click to install
+1. **Install**: Download **WriterAgent.oxt** (full AI suite) or **LibrePy.oxt** (Python/NumPy for Calc and Writer—no chat agent) from [Release Assets](https://github.com/KeithCu/writeragent/releases/latest), double-click to install
 2. **Configure**: Open **WriterAgent > Settings** in LibreOffice
 3. **Set Backend**: Enter endpoint (e.g., `http://localhost:11434` for Ollama) and model
 4. **Chat**: Open sidebar with **View → Sidebar → WriterAgent** or use **Ctrl+Q** / **Ctrl+E** shortcuts
@@ -65,6 +65,7 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 - **=PROMPT() Function**: Run AI prompts within spreadsheet cells.
 - **=PY() / =PYTHON() Function**: Run Python/NumPy within spreadsheet cells: `=PY("sp.prime(data)", A10)`. Supports multi-range inputs (e.g., `=PY("np.mean(data)", A1:A10, C1:C10)`) and auto-unpacks single-cell inputs to Python scalars. The `data` variable contains the cell values, dynamically injected at runtime. Returns can include lists/dicts of figures (multiple images) or DataFrames. Return semantics: `None` → empty cell; `float("nan")` / `np.nan` → Calc error cell (`#NUM!` / `#VALUE!`, cascades). Use `np.nanmean` / `np.nansum` etc. when input contains blanks. See [Data Handoff Guide](docs/enabling_numpy_in_libreoffice.md#data-handoff-and-shaping) and [Empty cells vs NaN](docs/calc-blanks-vs-nans.md).
+- **Python sidebar (diagnostics)**: Calc-only deck (**View → Sidebar → Python**; Python logo). Lists `=PY()` / `=PYTHON()` cells on the active sheet, shows filtered diagnostics (errors / stdout), and shortcuts for refresh, edit cell, run script, edit init script, reset session, and Python settings. Ships in both WriterAgent and LibrePy; the Monaco editor stays a separate window. See [NumPy in LibreOffice](docs/enabling_numpy_in_libreoffice.md).
 - **Automatic spill (Calc)**: On by default (Settings → Python → "Python auto spill in Calc"). A single-cell `=PYTHON()` returning a list, 2D array, or DataFrame automatically spills the result into adjacent cells. Blocked cells produce `#SPILL!` in the formula cell. Spill locations are saved in the document (persistent across reloads). Explicit matrix formulas (Ctrl+Shift+Enter) and per-row index arguments remain available for manual control.
 - **Trusted Calc helpers**: via `analyze_data`, chat delegation, and **Tools → Run Python Script** — set **Data** range where applicable.
 
