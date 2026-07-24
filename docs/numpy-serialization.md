@@ -572,18 +572,17 @@ This caches **execution output** on the host — separate from the worker [**cod
 
 ### Multi-range wire format {#multi-range-wire-format}
 
-**Status:** Shipped (2026-05) — varargs IDL + `multi_data` envelope.
+**Status:** Shipped — varargs IDL + `multi_data` of `calc_range` envelopes.
 
-Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `split_grid` or nested lists) so a list of 1D ranges is not confused with one 2D grid. Single-range wire format is unchanged.
+Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `items`: per-range `calc_range` payloads). Each `calc_range` wraps an inner list or `split_grid`. In the venv, this becomes `inputs: tuple[CalcRange, …]` with `data = inputs[0]`.
 
 | Layer | Module |
 |-------|--------|
-| Arg split / convert | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) — `split_python_addin_data_args`, `calc_addin_args_to_python` |
+| Arg split / convert | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) — rectangular grids + `pack_calc_data_for_wire` |
 | Add-in execution | [`python_function.py`](../plugin/calc/python/function.py) |
-| Wire codec | [`payload_codec.py`](../plugin/scripting/payload_codec.py) — `host_pack_multi_data`, `child_unpack_data` |
-| Tests | [`test_calc_addin_data.py`](../tests/calc/test_calc_addin_data.py), [`test_python_function_multi.py`](../tests/calc/python/test_function_multi.py), [`serialization_ab_support.py`](../tests/scripting/serialization_ab_support.py) |
-
-**Future work:** Hypothesis/CrossHair fuzz for list-of-grids (`serialization_ab_support.py` TODOs); live Calc UNO multi-range suite; chat tool multi `data_range` parity with formula varargs.
+| Range value type | [`calc_range.py`](../plugin/scripting/calc_range.py) — `CalcRange`, `materialize_inputs` |
+| Wire codec | [`payload_codec.py`](../plugin/scripting/payload_codec.py) |
+| Tests | [`test_calc_addin_data.py`](../tests/calc/test_calc_addin_data.py), [`test_calc_range.py`](../tests/scripting/test_calc_range.py), [`test_function_multi.py`](../tests/calc/python/test_function_multi.py) |
 
 User-facing varargs examples: [core §9 — Multi-Range Support](enabling_numpy_in_libreoffice.md#multi-range-support-varargs).
 

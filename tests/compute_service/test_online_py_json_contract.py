@@ -76,20 +76,21 @@ class TestOnlinePyJsonContract:
         # Document the AddIn request (id + code + optional data + mode).
         body = {
             "id": "py-test-1",
-            "code": "result = sum(data)",
+            "code": "result = float(np.sum(data))",
             "data": [1, 2, 3],
             "mode": "isolated",
         }
         json.dumps(body, allow_nan=False)
         out = execute_code(body["code"], data=body["data"], mode=body["mode"])
         assert out["status"] == "ok"
-        assert out["result"] == 6
+        assert out["result"] == 6.0
 
     def test_multi_range_data_as_list_of_grids(self) -> None:
         # C++ sends multiple ranges as a JSON array when aData.getLength() > 1.
+        # Injected as inputs: tuple[CalcRange, …] with data = inputs[0].
         data = [[[1, 2]], [[3], [4]]]
         out = execute_code(
-            "result = [len(data), data[0][0][0], data[1][1][0]]",
+            "result = [len(inputs), inputs[0].values[0][0], inputs[1].values[1][0]]",
             data=data,
         )
         assert out["status"] == "ok"

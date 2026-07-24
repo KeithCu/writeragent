@@ -68,13 +68,17 @@ def _placeholder_to_data_index(p_num: int) -> int:
 
 
 def _data_expr(index: int, *, multi: bool) -> str:
-    if not multi and index == 0:
+    if index == 0:
         return "data"
-    return f"data[{index}]"
+    return f"inputs[{index}]"
 
 
 def _headers_dataframe_expr(data_expr: str) -> str:
-    return f"pd.DataFrame({data_expr}[1:], columns={data_expr}[0])"
+    return f"{data_expr}.to_pandas()"
+
+
+def _no_headers_dataframe_expr(data_expr: str) -> str:
+    return f"{data_expr}.to_pandas(header_row=None)"
 
 
 def _header_mode_from_keywords(node: ast.Call) -> HeaderMode:
@@ -330,8 +334,10 @@ def rewrite_excel_code(
         hm = call.header_mode
         if hm == "true":
             repl = _headers_dataframe_expr(expr)
+        elif hm == "false":
+            repl = _no_headers_dataframe_expr(expr)
         else:
-            # headers=False and omitted both become data[i]; mode stored on BindingInfo.
+            # omitted → bare CalcRange; scripts that need a DataFrame call to_pandas()
             repl = expr
         new_code = new_code[: call.start] + repl + new_code[call.end :]
 

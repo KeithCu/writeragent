@@ -2,13 +2,21 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Grid-to-DataFrame coercion for trusted venv analysis helpers."""
+"""Grid-to-DataFrame coercion for trusted venv analysis helpers.
+
+The single conversion core is :func:`grid_to_dataframe` (also used by
+:meth:`plugin.scripting.calc_range.CalcRange.to_pandas`). Header policy is
+explicit via ``header_row``; string→number/date guessing is opt-in via
+``parse_strings``.
+"""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from typing import Any, cast
+
+from plugin.scripting.calc_range import _dedupe_column_names, ensure_rectangular_2d
 
 _NUMERIC_PROFILE_KEYS = (
     ("mean", "mean"),
@@ -90,7 +98,23 @@ def _parse_numeric_string(text: str) -> float | None:
     return None
 
 
-def _coerce_cell(value: Any) -> Any:
+def _coerce_cell_basic(value: Any) -> Any:
+    """Normalize blanks/errors; leave numbers and text unchanged."""
+    if is_missing_value(value):
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        return value
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
+def _coerce_cell_parse_strings(value: Any) -> Any:
+    """Like basic coerce, but parse currency/percent/plain numeric strings."""
     if is_missing_value(value):
         return None
     if isinstance(value, bool):
@@ -107,23 +131,12 @@ def _coerce_cell(value: Any) -> Any:
     return value
 
 
-def _dedupe_column_names(names: list[str]) -> list[str]:
-    seen: dict[str, int] = {}
-    out: list[str] = []
-    for raw in names:
-        base = (raw or "column").strip() or "column"
-        count = seen.get(base, 0)
-        if count:
-            out.append(f"{base}_{count}")
-        else:
-            out.append(base)
-        seen[base] = count + 1
-    return out
-
-
 def _normalize_input_grid(data: Any) -> list[list[Any]]:
     if data is None:
         return []
+    # CalcRange / objects with .values
+    if hasattr(data, "values") and hasattr(data, "shape") and type(data).__name__ == "CalcRange":
+        return ensure_rectangular_2d(data.values)
     if isinstance(data, dict):
         columns = data.get("columns")
         rows = data.get("rows")
@@ -141,19 +154,20 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
                         if key not in keys:
                             keys.append(key)
             return [[key for key in keys]] + [[row.get(key) if isinstance(row, dict) else None for key in keys] for row in data]
-        if isinstance(first, (list, tuple)):
-            return [list(row) for row in data]
-        return [[item] for item in data]
+        return ensure_rectangular_2d(data)
     return [[data]]
 
 
-def _coerce_column_types(df: Any) -> Any:
+def _coerce_column_types(df: Any, *, parse_strings: bool) -> Any:
+    """Optional string→numeric/datetime inference (opt-in)."""
+    if not parse_strings:
+        return df
     import pandas as pd
     out = df.copy()
     for col in out.columns:
         series = out[col]
         if series.dtype == object or str(series.dtype) == "string":
-            coerced = series.map(_coerce_cell)
+            coerced = series.map(_coerce_cell_parse_strings)
             numeric: Any = pd.to_numeric(coerced, errors="coerce")
             non_null = coerced.notna().sum()
             numeric_non_null = numeric.notna().sum()
@@ -186,25 +200,34 @@ def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> di
     return meta
 
 
-def coerce_to_dataframe(
+def grid_to_dataframe(
     data: Any,
     *,
-    headers: bool = True,
-    header_row: int = 0,
+    header_row: int | None = 0,
+    index_col: int | None = None,
+    parse_strings: bool = False,
     sheet_hint: str | None = None,
 ) -> CoerceResult:
-    """Convert wire-format *data* into a typed DataFrame with metadata."""
+    """Convert a rectangular grid / CalcRange into a typed DataFrame.
+
+    Args:
+        header_row: Row used as column names, or ``None`` for ``col_0..``.
+        index_col: Optional body column to become the index.
+        parse_strings: Opt-in currency/percent/numeric/datetime string parsing.
+        sheet_hint: Optional metadata tag.
+    """
     import pandas as pd
     grid = _normalize_input_grid(data)
     dropped_rows = 0
+    cell_fn = _coerce_cell_parse_strings if parse_strings else _coerce_cell_basic
 
     if not grid:
         empty = pd.DataFrame()
         return CoerceResult(df=empty, metadata=_build_metadata(empty, sheet_hint=sheet_hint, dropped_rows=0))
 
-    if headers:
-        header_idx = max(0, min(header_row, len(grid) - 1))
-        raw_headers = [_coerce_cell(cell) for cell in grid[header_idx]]
+    if header_row is not None:
+        header_idx = max(0, min(int(header_row), len(grid) - 1))
+        raw_headers = [cell_fn(cell) for cell in grid[header_idx]]
         col_names = _dedupe_column_names([str(h) if h is not None else "" for h in raw_headers])
         body = grid[header_idx + 1 :]
     else:
@@ -215,15 +238,45 @@ def coerce_to_dataframe(
     rows: list[list[Any]] = []
     for row in body:
         padded = list(row) + [None] * (len(col_names) - len(row))
-        coerced_row = [_coerce_cell(cell) for cell in padded[: len(col_names)]]
+        coerced_row = [cell_fn(cell) for cell in padded[: len(col_names)]]
         if all(cell is None for cell in coerced_row):
             dropped_rows += 1
             continue
         rows.append(coerced_row)
 
     df = pd.DataFrame(rows, columns=cast("Any", col_names))
-    df = _coerce_column_types(df)
+    df = _coerce_column_types(df, parse_strings=parse_strings)
+
+    if index_col is not None and 0 <= int(index_col) < len(df.columns):
+        col_name = df.columns[int(index_col)]
+        df = df.set_index(col_name)
+
     return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=dropped_rows))
+
+
+def coerce_to_dataframe(
+    data: Any,
+    *,
+    headers: bool = True,
+    header_row: int = 0,
+    parse_strings: bool = True,
+    sheet_hint: str | None = None,
+    index_col: int | None = None,
+) -> CoerceResult:
+    """Compatibility wrapper: ``headers=False`` maps to ``header_row=None``.
+
+    Analysis tools historically defaulted to parsing currency/percent strings; keep
+    that default here so trusted helpers stay useful on pasted text sheets. User
+    ``CalcRange.to_pandas()`` defaults ``parse_strings=False``.
+    """
+    resolved_header: int | None = header_row if headers else None
+    return grid_to_dataframe(
+        data,
+        header_row=resolved_header,
+        index_col=index_col,
+        parse_strings=parse_strings,
+        sheet_hint=sheet_hint,
+    )
 
 
 # --- Shared Result Shapes ---
@@ -269,4 +322,3 @@ def table_from_df(df: Any, *, name: str, max_rows: int = 50) -> dict[str, Any]:
 def records_from_df(df: Any, *, max_rows: int = 50) -> list[dict[str, Any]]:
     limited = df.head(max_rows)
     return limited.where(limited.notna(), None).to_dict(orient="records")
-

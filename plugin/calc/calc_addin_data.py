@@ -5,14 +5,24 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Convert Calc add-in range arguments into JSON-serializable Python structures."""
+"""Convert Calc add-in range arguments into rectangular Python grids.
+
+Every range is preserved as ``list[list]`` (including 1×N, N×1, and 1×1).
+Wire packing wraps each range in a ``calc_range`` envelope; ``split_grid``
+remains a private storage optimization inside that envelope.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
+from plugin.scripting.calc_range import (
+    ensure_rectangular_2d,
+    is_calc_range_payload,
+    pack_calc_range_envelope,
+)
 from plugin.scripting.config_limits import python_max_data_cells_default
-from plugin.scripting.payload_codec import ForceBinary, host_pack_data, host_pack_multi_data, is_multi_data, is_split_grid, wire_cell_count
+from plugin.scripting.payload_codec import ForceBinary, host_pack_data, is_multi_data, is_split_grid, wire_cell_count
 
 
 def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> Any:
@@ -48,47 +58,46 @@ def _is_row_sequence(value: Any) -> bool:
     return True
 
 
-def normalize_python_data_shape(grid: list[list[Any]]) -> list[Any] | list[list[Any]]:
-    """Shape range data for beginner-friendly formulas like ``sum(data)``.
+def normalize_python_data_shape(grid: list[list[Any]], *, as_column: bool = False) -> list[list[Any]]:
+    """Preserve rectangular 2D orientation for every Calc range.
 
-    - Single row, single column, or one cell → flat ``[v1, v2, …]`` so ``sum(data)`` works.
-    - True 2D block (both dimensions > 1) → row-major ``list[list]`` (see docs for summing).
+    - True 2D block → row-major ``list[list]``
+    - Single row → ``[[v1, v2, …]]``
+    - Single column → ``[[v1], [v2], …]`` when *as_column* or input was columnar
+    - Empty → ``[]``
     """
     if not grid:
         return []
-    nrows = len(grid)
-    ncols = max((len(row) for row in grid), default=0)
-    if nrows > 1 and ncols > 1:
-        return grid
-    if nrows == 1:
-        return list(grid[0])
-    if ncols == 1:
-        return [row[0] if row else None for row in grid]
-    return list(grid[0]) if grid else []
+    return ensure_rectangular_2d(grid)
 
 
-def finalize_python_data(raw: Any) -> list[Any] | list[list[Any]] | None:
+def finalize_python_data(raw: Any) -> list[list[Any]] | None:
     """Normalize tool/API ``data`` that may already be a nested list from the LLM."""
     if raw is None:
         return None
     if isinstance(raw, str):
-        return [raw]
+        return [[raw]]
     if not isinstance(raw, (list, tuple)):
-        return [raw]
+        return [[raw]]
     if not raw:
         return []
-    first = raw[0]
-    if isinstance(first, (list, tuple)):
-        return normalize_python_data_shape([list(row) for row in raw])
-    return list(raw)
+    return ensure_rectangular_2d(raw)
 
 
 def _is_legacy_single_column_range(items: list[Any]) -> bool:
-    """True when *items* looks like one column range passed without a varargs outer wrap."""
+    """True when *items* looks like one column range passed without a varargs outer wrap.
+
+    A bare column is ``((1.0,), (2.0,), …)`` — each row is a length-1 sequence of a
+    **scalar**. Two separate single-cell varargs look like ``(((1.0,),), ((2.0,),))``
+    and must stay multi-range (inner value is itself a sequence).
+    """
     if len(items) <= 1:
         return False
     for item in items:
         if not isinstance(item, (list, tuple)) or len(item) != 1:
+            return False
+        inner = item[0]
+        if isinstance(inner, (list, tuple)) and not isinstance(inner, (str, bytes)):
             return False
     return True
 
@@ -118,13 +127,13 @@ def calc_addin_args_from_split(
     args: list[Any],
     true_strings: set[str] | None = None,
     false_strings: set[str] | None = None,
-) -> list[Any] | list[list[Any]] | list[list[Any] | list[list[Any]]] | None:
-    """Convert pre-split varargs into sandbox ``data``: single shape or list of per-range shapes."""
+) -> list[list[Any]] | list[list[list[Any]]] | None:
+    """Convert pre-split varargs into sandbox grids: one 2D grid or list of 2D grids."""
     if not args:
         return None
     if len(args) == 1:
         return calc_addin_data_to_python(args[0], true_strings, false_strings)
-    converted: list[list[Any] | list[list[Any]]] = []
+    converted: list[list[list[Any]]] = []
     for arg in args:
         py_range = calc_addin_data_to_python(arg, true_strings, false_strings)
         if py_range is None:
@@ -137,8 +146,8 @@ def calc_addin_args_to_python(
     raw: Any,
     true_strings: set[str] | None = None,
     false_strings: set[str] | None = None,
-) -> list[Any] | list[list[Any]] | list[list[Any] | list[list[Any]]] | None:
-    """Convert varargs ``data`` into sandbox ``data``: single shape or list of per-range shapes."""
+) -> list[list[Any]] | list[list[list[Any]]] | None:
+    """Convert varargs ``data`` into sandbox grids: one 2D grid or list of 2D grids."""
     return calc_addin_args_from_split(split_python_addin_data_args(raw), true_strings, false_strings)
 
 
@@ -146,12 +155,14 @@ def calc_addin_data_to_python(
     value: Any,
     true_strings: set[str] | None = None,
     false_strings: set[str] | None = None,
-) -> list[Any] | list[list[Any]] | None:
-    """Convert a Calc ``=PYTHON()`` second argument into plain Python data.
+) -> list[list[Any]] | None:
+    """Convert a Calc ``=PYTHON()`` second argument into a rectangular 2D grid.
 
     - Missing / void → ``None`` (no ``data`` injection).
-    - Single cell, row, or column → flat ``[v1, v2, …]`` (``sum(data)``, ``max(data)``, etc.).
-    - 2D block (e.g. A1:C5) → ``list[list]`` row-major.
+    - Single cell → ``[[v]]``
+    - Single row → ``[[v1, v2, …]]``
+    - Single column → ``[[v1], [v2], …]``
+    - 2D block → ``list[list]`` row-major
     """
     if value is None:
         return None
@@ -159,7 +170,7 @@ def calc_addin_data_to_python(
     value = _unwrap_cell(value, true_strings, false_strings)
 
     if not _is_row_sequence(value):
-        return [value]
+        return [[value]]
 
     rows = list(value)
     if not rows:
@@ -168,37 +179,54 @@ def calc_addin_data_to_python(
     first = rows[0]
     if _is_row_sequence(first):
         grid = [[_unwrap_cell(c, true_strings, false_strings) for c in row] for row in rows]
-    else:
-        # 1D sequence (single row range from Calc)
-        grid = [[_unwrap_cell(c, true_strings, false_strings) for c in rows]]
+        # Column vector from Calc arrives as ((1,), (2,), …)
+        if len(grid) > 1 and all(len(r) == 1 for r in grid):
+            return grid
+        return ensure_rectangular_2d(grid)
 
-    return normalize_python_data_shape(grid)
+    # 1D sequence (single row range from Calc)
+    return [ [_unwrap_cell(c, true_strings, false_strings) for c in rows] ]
 
 
 def pack_calc_multi_data_for_wire(
-    py_data: list[list[Any] | list[list[Any]]],
+    py_data: list[list[list[Any]]],
     *,
     force: ForceBinary = "auto",
 ) -> Any:
-    """Pack multiple Calc ranges for the venv worker (``multi_data`` envelope)."""
+    """Pack multiple Calc ranges as ``multi_data`` of ``calc_range`` envelopes."""
     if not py_data:
         return None
-    return host_pack_multi_data(py_data, force=force)
+    from plugin.scripting.payload_codec import PAYLOAD_MULTI_DATA
+
+    items = [pack_calc_data_for_wire(grid, force=force) for grid in py_data]
+    return {
+        "__wa_payload__": PAYLOAD_MULTI_DATA,
+        "items": items,
+    }
 
 
 def pack_calc_data_for_wire(
-    py_data: list[Any] | list[list[Any]] | None,
+    py_data: list[list[Any]] | list[Any] | None,
     *,
     force: ForceBinary = "auto",
+    address: str | None = None,
 ) -> Any:
-    """Pack Calc ``data`` for the venv worker (json list or split_grid when dense numeric)."""
+    """Pack one Calc range as a ``calc_range`` envelope (inner list or split_grid)."""
     if py_data is None:
         return None
-    return host_pack_data(py_data, force=force)
+    grid = ensure_rectangular_2d(py_data)
+    return pack_calc_range_envelope(
+        grid,
+        address=address,
+        pack_inner=lambda g: host_pack_data(g, force=force),
+    )
 
 
 def count_cells(data: Any) -> int:
     """Return number of scalar cells in *data* for size guarding."""
+    if is_calc_range_payload(data):
+        shape = data.get("shape") or [0, 0]
+        return int(shape[0]) * int(shape[1]) if len(shape) == 2 else wire_cell_count(data.get("data"))
     if is_multi_data(data):
         return wire_cell_count(data)
     if is_split_grid(data):
@@ -245,10 +273,10 @@ def check_python_data_size(
     return None
 
 
-def values_from_inspector_range(range_data: list[list[dict]]) -> list[Any] | list[list[Any]]:
-    """Strip ``CellInspector.read_range`` dicts to a 2D value list."""
+def values_from_inspector_range(range_data: list[list[dict]]) -> list[list[Any]]:
+    """Strip ``CellInspector.read_range`` dicts to a rectangular 2D value grid."""
     grid = [[cell.get("value") for cell in row] for row in range_data]
-    return normalize_python_data_shape(grid)
+    return ensure_rectangular_2d(grid)
 
 
 def _resolve_python_data(ctx: Any, *, data_range: str | None, data: Any) -> tuple[Any | None, str | None]:
@@ -258,12 +286,15 @@ def _resolve_python_data(ctx: Any, *, data_range: str | None, data: Any) -> tupl
     from plugin.scripting.config_limits import configured_python_max_data_cells
 
     py_data: Any | None = None
+    address: str | None = None
     if data_range and str(data_range).strip():
         try:
             bridge = CalcBridge(ctx.doc)
             inspector = CellInspector(bridge)
-            range_data = inspector.read_range(str(data_range).strip())
+            addr = str(data_range).strip()
+            range_data = inspector.read_range(addr)
             py_data = values_from_inspector_range(range_data)
+            address = addr
         except Exception as e:
             return None, f"Failed to read data_range: {e}"
     elif data is not None:
@@ -273,7 +304,7 @@ def _resolve_python_data(ctx: Any, *, data_range: str | None, data: Any) -> tupl
         size_err = check_python_data_size(py_data, max_cells=configured_python_max_data_cells(ctx.ctx))
         if size_err:
             return None, size_err
-        py_data = pack_calc_data_for_wire(py_data)
+        py_data = pack_calc_data_for_wire(py_data, address=address)
     return py_data, None
 
 

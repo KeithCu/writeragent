@@ -144,6 +144,9 @@ def format_result_for_writer(result: Any) -> str:
 def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
     """Insert the result of a Python script into a Calc document."""
     try:
+        from plugin.calc.python.function import result_to_calc_grid
+        from plugin.scripting.payload_codec import is_dataframe_payload
+
         bridge = CalcBridge(doc)
         manipulator = CellManipulator(bridge)
         
@@ -161,6 +164,11 @@ def insert_result_into_calc(doc: Any, uno_ctx: Any, result: Any) -> None:
         def write_at(col_offset, row_offset, val):
             addr = f"{index_to_column(start_col + col_offset)}{start_row + row_offset + 1}"
             manipulator.write_formula_range(addr, val)
+
+        # DataFrame envelope → labeled grid (header + body) via the shared renderer.
+        if is_dataframe_payload(result):
+            write_at(0, 0, result_to_calc_grid(result))
+            return
 
         # Handle different result types
         current_row = 0

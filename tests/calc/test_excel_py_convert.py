@@ -178,7 +178,7 @@ def test_parse_xlws_py_formula():
 
 def test_rewrite_headers_single():
     code, issues, used, modes = rewrite_excel_code("df = xl(%P2%, headers=True)", num_deps=1)
-    assert "pd.DataFrame(data[1:], columns=data[0])" in code
+    assert "data.to_pandas()" in code
     assert "xl(" not in code
     assert used == ["0"]
     assert modes[0] == "true"
@@ -187,7 +187,7 @@ def test_rewrite_headers_single():
 
 def test_rewrite_headers_false_preserved_in_mode():
     code, _issues, _used, modes = rewrite_excel_code("x = xl(%P2%, headers=False)", num_deps=1)
-    assert code.strip() == "x = data"
+    assert "to_pandas(header_row=None)" in code
     assert modes[0] == "false"
 
 
@@ -196,7 +196,7 @@ def test_rewrite_multi_and_scalar():
         "filterDF.groupby(xl(%P2%))[[xl(%P3%)]].agg(xl(%P4%))",
         num_deps=3,
     )
-    assert "data[0]" in code and "data[1]" in code and "data[2]" in code
+    assert "data" in code and "inputs[1]" in code and "inputs[2]" in code
     assert "xl(" not in code
     assert used == ["0", "1", "2"]
 
@@ -258,7 +258,7 @@ def test_demo1_fillna_specifics():
     report = convert_model_to_dag(demo1_fillna())
     by_cell = {c.cell: c for c in report.cells}
     h4 = by_cell["H4"]
-    assert "pd.DataFrame" in h4.converted_code
+    assert "to_pandas()" in h4.converted_code
     assert h4.data_args == ["A6:B254"]
     assert h4.return_type == 1
     assert "result = None" in h4.converted_code
@@ -275,11 +275,11 @@ def test_demo3_table_and_scalar_groupby():
     by_cell = {c.cell: c for c in report.cells}
     c1 = by_cell["C1"]
     assert c1.data_args == ["Data!A1:AA5850"]
-    assert "pd.DataFrame" in c1.converted_code
+    assert "to_pandas()" in c1.converted_code
     c9 = by_cell["C9"]
     assert c9.data_args == ["C4", "C5", "C6"]
     assert c9.ordering_args == ["C3"]
-    assert "data[0]" in c9.converted_code and "data[2]" in c9.converted_code
+    assert "data" in c9.converted_code and "inputs[2]" in c9.converted_code
     d9 = by_cell["D9"]
     assert d9.data_args == ["D4", "D5", "D6"]
     assert d9.ordering_args == ["C9"]
@@ -300,9 +300,9 @@ def test_demo6_multi_range_and_headers_false():
     n17 = by_cell["N17"]
     assert n17.data_args[:2] == ["U8:U15", "M8:T15"]
     assert n17.ordering_args
-    assert "data[0]" in n17.converted_code and "data[1]" in n17.converted_code
+    assert "data" in n17.converted_code and "inputs[1]" in n17.converted_code
     ak = by_cell["AK34"]
-    assert "data[0]" in ak.converted_code and "data[1]" in ak.converted_code
+    assert "data" in ak.converted_code and "inputs[1]" in ak.converted_code
     assert ak.bindings[0].header_mode == "false"
 
 
@@ -332,13 +332,13 @@ def test_fail_closed_unresolved_dep():
 
 
 def test_roundtrip_dag_excel_headers():
-    dag_code = "df = pd.DataFrame(data[1:], columns=data[0])"
+    dag_code = "df = data.to_pandas()"
     excel_code, deps, issues = rewrite_dag_code_to_excel(dag_code, ["A3:F23"], header_modes=["true"])
     assert "xl(%P2%, headers=True)" in excel_code
     assert deps == ["A3:F23"]
     assert not issues
     again, _issues2, _used, modes = rewrite_excel_code(excel_code, num_deps=1)
-    assert "pd.DataFrame(data[1:], columns=data[0])" in again
+    assert "data.to_pandas()" in again
     assert modes[0] == "true"
 
 

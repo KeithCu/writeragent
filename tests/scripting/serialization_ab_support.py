@@ -98,21 +98,19 @@ from tests.scripting.payload_codec_test_support import (
 )
 
 # Worker code strings (assign to result — matches test_run_venv_code.py style).
-VENV_CODE_ECHO = "result = data"
+VENV_CODE_ECHO = "result = data.values"
 VENV_CODE_SUM = "result = float(np.sum(data))"
 VENV_CODE_DOUBLE = "result = (np.asarray(data) * 2).tolist()"
 VENV_CODE_NANSUM = "result = float(np.nansum(data))"
 VENV_CODE_MIXED_SUM = (
-    "result = sum(v for row in (data if (isinstance(data, list) and data and "
-    "isinstance(data[0], list)) else [data]) for v in row if isinstance(v, (int, float)))"
+    "result = sum(v for row in data.values for v in row if isinstance(v, (int, float)))"
 )
-VENV_CODE_MULTI_SUM = "result = sum(np.sum(d) for d in data_list)"
+VENV_CODE_MULTI_SUM = "result = sum(float(np.sum(d)) for d in inputs)"
 VENV_CODE_MULTI_MIXED_SUM = (
     "result = float(sum("
-    "v for g in data_list "
-    "for row in (g.tolist() if hasattr(g, 'shape') else "
-    "(g if isinstance(g, list) and g and isinstance(g[0], (list, tuple)) else [g if isinstance(g, list) else [g]])) "
-    "for v in (row if isinstance(row, (list, tuple)) else [row]) "
+    "v for g in inputs "
+    "for row in g.values "
+    "for v in row "
     "if isinstance(v, (int, float))"
     "))"
 )
@@ -890,7 +888,7 @@ def run_multi_venv_echo(
     use_subprocess: bool = False,
 ) -> Any:
     """Echo ``data`` through venv when injected as a multi-range list."""
-    code = "result = data"
+    code = "result = [r.values for r in inputs]"
     wire = host_pack_multi_data(grids, force=pack_force)
     if use_subprocess:
         mgr = PythonWorkerManager.get(sys.executable, _WORKER_ENV)

@@ -73,18 +73,23 @@ def test_python_addin_execution():
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 6}
-            res = func.python("result = sum(data)", (((1.0,), (2.0,), (3.0,)),))
+            res = func.python("result = float(np.sum(data))", (((1.0,), (2.0,), (3.0,)),))
             assert res == 6.0
             mock_run.assert_called_once()
             call_kw = mock_run.call_args
-            assert call_kw[0][1] == "result = sum(data)"
-            assert call_kw[1]["data"] == [1.0, 2.0, 3.0]
+            assert call_kw[0][1] == "result = float(np.sum(data))"
+            from plugin.scripting.calc_range import is_calc_range_payload
+
+            wire = call_kw[1]["data"]
+            assert is_calc_range_payload(wire)
+            assert wire["shape"] == [3, 1]
+            assert wire["data"] == [[1.0], [2.0], [3.0]]
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 9.0}
             col_a = ((1.0,), (2.0,), (3.0,))
             col_b = ((4.0,), (5.0,))
-            res = func.python("result = sum(data[0]) + sum(data[1])", (col_a, col_b))
+            res = func.python("result = float(np.sum(data)) + float(np.sum(inputs[1]))", (col_a, col_b))
             assert res == 9.0
             wire = mock_run.call_args.kwargs["data"]
             from plugin.scripting.payload_codec import is_multi_data
@@ -93,12 +98,15 @@ def test_python_addin_execution():
 
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 7919}
-            res = func.python("result = sp.prime(int(data[0]))", 1000.0)
+            res = func.python("result = sp.prime(int(data.values[0][0]))", 1000.0)
             assert res == 7919.0
             mock_run.assert_called_once()
             call_kw = mock_run.call_args
-            assert call_kw[0][1] == "result = sp.prime(int(data[0]))"
-            assert call_kw[1]["data"] == [1000.0]
+            assert call_kw[0][1] == "result = sp.prime(int(data.values[0][0]))"
+            wire = call_kw[1]["data"]
+            assert is_calc_range_payload(wire)
+            assert wire["shape"] == [1, 1]
+            assert wire["data"] == [[1000.0]]
 
             mock_run.return_value = {"status": "error", "message": "Syntax error"}
             res = func.python("bad code")

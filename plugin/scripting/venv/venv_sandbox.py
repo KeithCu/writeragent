@@ -29,10 +29,8 @@ from plugin.contrib.smolagents.local_python_executor import InterpreterError, Lo
 from plugin.scripting.payload_codec import (
     PAYLOAD_DATAFRAME,
     child_pack_result,
-    child_unpack_data,
     describe_wire_value,
     is_image_payload,
-    is_multi_data,
     is_split_grid,
     find_image_payloads,
 )
@@ -56,6 +54,7 @@ _INIT_STATE_SKIP_KEYS = frozenset(
         "result",
         "data",
         "data_list",
+        "inputs",
     }
 )
 
@@ -248,6 +247,13 @@ def _has_custom_serialize_objects(obj: Any) -> bool:
 
 
 def _serialize_result_impl(obj: Any) -> Any:
+    from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
+
+    if isinstance(obj, CalcRange):
+        # Returning a range echoes values (not a labeled table).
+        return child_pack_result(obj.values)
+    if is_calc_range_payload(obj):
+        return obj
     mpl_fig = optional_module("matplotlib.figure")
     if mpl_fig is not None and isinstance(obj, mpl_fig.Figure):
         return _figure_to_image_payload(obj)
@@ -499,14 +505,31 @@ def convert_datetimes_and_deltas(data: Any, locale: str | None, convert_datetime
 
 
 def _inject_data(executor: LocalPythonExecutor, data: Any | None, locale: str | None = None, convert_datetime: bool = False) -> None:
+    """Inject ``inputs`` (tuple of CalcRange) and ``data`` (= inputs[0] when present)."""
     if data is None:
         return
-    if is_split_grid(data):
+    from plugin.scripting.calc_range import CalcRange, materialize_inputs
+    from plugin.scripting.payload_codec import describe_wire_value, is_calc_range_payload, is_multi_data, is_split_grid
+
+    if is_split_grid(data) or is_calc_range_payload(data) or is_multi_data(data):
         log.debug("venv_sandbox injecting data %s", describe_wire_value(data))
-    unpacked = child_unpack_data(data)
-    unpacked = convert_datetimes_and_deltas(unpacked, locale, convert_datetime)
-    variables: dict[str, Any] = {"data": unpacked}
-    variables["data_list"] = unpacked if is_multi_data(data) else [unpacked]
+
+    inputs = materialize_inputs(data)
+    # Optional datetime conversion walks nested values inside each range.
+    if convert_datetime or locale:
+        converted: list[CalcRange] = []
+        for r in inputs:
+            vals = convert_datetimes_and_deltas(r.values, locale, convert_datetime)
+            converted.append(CalcRange(vals, address=r.address))
+        inputs = tuple(converted)
+
+    variables: dict[str, Any] = {"inputs": inputs}
+    if inputs:
+        variables["data"] = inputs[0]
+    else:
+        variables["data"] = None
+    # Alias kept for internal helpers that still iterate ranges as a list.
+    variables["data_list"] = list(inputs)
     executor.send_variables(variables)
 
 

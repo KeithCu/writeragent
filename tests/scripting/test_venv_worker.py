@@ -62,24 +62,30 @@ def test_execute_request_fresh_namespace():
 
 
 def test_execute_request_injects_data():
-    r = _execute_request("result = sum(data)", [1, 2, 3, 4])
+    r = _execute_request("result = float(np.sum(data))", [[1, 2, 3, 4]])
     assert r["status"] == "ok"
-    assert r["result"] == 10
+    assert r["result"] == 10.0
 
 
 def test_execute_request_injects_data_list_single_range():
-    r = _execute_request("result = (len(data_list), data_list[0] is data)", [1, 2, 3])
+    r = _execute_request(
+        "result = (len(inputs), data is inputs[0], len(data_list))",
+        [[1, 2, 3]],
+    )
     assert r["status"] == "ok"
-    assert r["result"] == [1, True]
+    assert r["result"] == [1, True, 1]
 
 
 def test_execute_request_injects_data_list_multi_range():
-    from plugin.scripting.payload_codec import host_pack_multi_data
+    from plugin.calc.calc_addin_data import pack_calc_multi_data_for_wire
 
-    wire = host_pack_multi_data([[1.0, 2.0, 3.0], [4.0, 5.0]], force="never")
-    r = _execute_request("result = (len(data_list), data_list is data)", wire)
+    wire = pack_calc_multi_data_for_wire([[[1.0, 2.0, 3.0]], [[4.0, 5.0]]], force="never")
+    r = _execute_request(
+        "result = (len(inputs), data is inputs[0], data_list[1] is inputs[1])",
+        wire,
+    )
     assert r["status"] == "ok"
-    assert r["result"] == [2, True]
+    assert r["result"] == [2, True, True]
 
 
 def test_blocked_import_os():
@@ -194,16 +200,18 @@ def test_manager_separate_pools_same_exe():
 
 
 def test_split_grid_data_round_trip_execute_request():
-    """Ingress split_grid: child receives ndarray from frombuffer."""
+    """Ingress split_grid: child receives CalcRange backed by numeric values."""
     np = pytest.importorskip("numpy")
     from plugin.calc.calc_addin_data import pack_calc_data_for_wire
     from plugin.scripting.payload_codec import BINARY_MIN_CELLS, is_split_grid
+    from plugin.scripting.calc_range import is_calc_range_payload
     from tests.scripting.payload_codec_test_support import NUMERIC_AT_THRESHOLD, sequential_grid_sum
 
     grid = NUMERIC_AT_THRESHOLD
     wire = pack_calc_data_for_wire(grid)
-    assert is_split_grid(wire)
-    r = _execute_request("result = float(data.sum())", wire)
+    assert is_calc_range_payload(wire)
+    assert is_split_grid(wire["data"])
+    r = _execute_request("result = float(np.sum(data))", wire)
     assert r["status"] == "ok"
     assert r["result"] == pytest.approx(sequential_grid_sum(BINARY_MIN_CELLS))
 
@@ -546,7 +554,9 @@ def test_split_grid_integration_pickle_mode():
 
         # Execute with input data as a large grid to trigger split-grid ingress packaging
         large_grid = [[float(r * 10 + c) for c in range(10)] for r in range(10)]
-        r2 = mgr.execute("result = float(data.sum())", data=large_grid)
+        from plugin.calc.calc_addin_data import pack_calc_data_for_wire
+
+        r2 = mgr.execute("result = float(np.sum(data))", data=pack_calc_data_for_wire(large_grid))
         assert r2["status"] == "ok"
         assert r2["result"] == pytest.approx(sum(r * 10 + c for r in range(10) for c in range(10)))
     finally:

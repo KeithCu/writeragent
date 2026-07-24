@@ -81,17 +81,18 @@ _ANALYSIS_VENV_EXPORTS = frozenset(
         "run_regression",
         "CoerceResult",
         "coerce_to_dataframe",
+        "grid_to_dataframe",
     }
 )
 
 
 def _analysis_venv_extra(name: str) -> Any:
-    if name in frozenset({"CoerceResult", "coerce_to_dataframe"}):
+    if name in frozenset({"CoerceResult", "coerce_to_dataframe", "grid_to_dataframe"}):
         return venv_attr("coerce", name)
     raise AttributeError(f"module 'plugin.scripting.analysis' has no attribute {name!r}")
 
 
-__getattr__ = make_getattr("analysis", _ANALYSIS_VENV_EXPORTS - frozenset({"CoerceResult", "coerce_to_dataframe"}), fallback=_analysis_venv_extra)
+__getattr__ = make_getattr("analysis", _ANALYSIS_VENV_EXPORTS - frozenset({"CoerceResult", "coerce_to_dataframe", "grid_to_dataframe"}), fallback=_analysis_venv_extra)
 
 
 # --- Templates ---

@@ -212,6 +212,10 @@ PAYLOAD_DATAFRAME = "dataframe"
 The inner 'data' uses split_grid for large numeric/mixed rectangular results (same as plain arrays)
 so that we avoid the expensive list-of-dicts records path while preserving column order/names."""
 
+PAYLOAD_CALC_RANGE = "calc_range"
+"""Ingress envelope: one rectangular Calc range. Inner ``data`` is list or split_grid.
+User scripts see :class:`plugin.scripting.calc_range.CalcRange`, not the raw wire dict."""
+
 # --- When to use binary envelope (default: at least 100 cells) -----------------------
 
 BINARY_MIN_CELLS = 100
@@ -320,8 +324,32 @@ def is_dataframe_payload(obj: Any) -> bool:
     return _is_dataframe_envelope(obj)
 
 
+def _is_calc_range_envelope(envelope: object) -> bool:
+    if not isinstance(envelope, dict):
+        return False
+    env_dict = cast("dict[str, Any]", envelope)
+    if env_dict.get("__wa_payload__") != PAYLOAD_CALC_RANGE:
+        return False
+    shape = env_dict.get("shape")
+    if not isinstance(shape, list) or len(shape) != 2:
+        return False
+    if not all(isinstance(d, int) and d >= 0 for d in shape):
+        return False
+    return "data" in env_dict
+
+
+def is_calc_range_payload(obj: Any) -> bool:
+    return _is_calc_range_envelope(obj)
+
+
 def _is_any_payload_envelope(obj: object) -> bool:
-    return _is_split_grid_envelope(obj) or _is_multi_data_envelope(obj) or _is_image_payload_envelope(obj) or _is_dataframe_envelope(obj)
+    return (
+        _is_split_grid_envelope(obj)
+        or _is_multi_data_envelope(obj)
+        or _is_image_payload_envelope(obj)
+        or _is_dataframe_envelope(obj)
+        or _is_calc_range_envelope(obj)
+    )
 
 
 def _is_split_grid_envelope(envelope: object) -> bool:
@@ -431,6 +459,9 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
         inner = obj.get("data")
         n = wire_cell_count(inner) if inner is not None else 0
         return f"dataframe cols={len(cols)} cells~{n}"
+    if is_calc_range_payload(obj):
+        shape = obj.get("shape")
+        return f"calc_range shape={shape} cells={wire_cell_count(obj)}"
     if obj is None:
         return "None"
     if isinstance(obj, (str, int, float, bool)):
@@ -520,12 +551,19 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
 
 
 def wire_cell_count(data: Any) -> int:
-    """Cell count for size limits; works on lists or split_grid / multi_data envelopes."""
+    """Cell count for size limits; works on lists or split_grid / multi_data / calc_range envelopes."""
+    if is_calc_range_payload(data):
+        shape = data.get("shape") or [0, 0]
+        if isinstance(shape, list) and len(shape) == 2:
+            return int(shape[0]) * int(shape[1])
+        return wire_cell_count(data.get("data"))
     if is_multi_data(data):
         items = data.get("items") or []
         return sum(wire_cell_count(item) for item in items)
     if is_split_grid(data):
         return cell_count(tuple(int(x) for x in data["shape"]))
+    if is_dataframe_payload(data):
+        return wire_cell_count(data.get("data"))
     if data is None:
         return 0
     if type(data) not in (list, tuple):
@@ -1008,9 +1046,18 @@ def host_unpack_split_grid(envelope: dict[str, Any], *, as_nested_list: bool = T
 @deal.post(lambda result, *_, **__: result is not None or result is None)
 @deal.raises(ValueError, TypeError, AttributeError)
 def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
-    """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, or dataframe)."""
+    """Unpack worker ``data`` or ``result`` on host (list, scalar, split_grid, multi_data, image, dataframe, calc_range)."""
     if is_image_payload(wire):
         return wire
+    if is_calc_range_payload(wire):
+        # Host egress consumers need the inner grid; preserve envelope metadata when present.
+        inner = host_unpack_data(wire.get("data"), as_nested_list=as_nested_list)
+        return {
+            "__wa_payload__": PAYLOAD_CALC_RANGE,
+            "shape": list(wire.get("shape") or [0, 0]),
+            "data": inner,
+            **({"address": wire["address"]} if wire.get("address") else {}),
+        }
     if is_multi_data(wire):
         items = wire.get("items") or []
         return [host_unpack_data(item, as_nested_list=as_nested_list) for item in items]
@@ -1181,11 +1228,20 @@ def _child_unpack_single_data(wire: Any) -> Any:
 @deal.post(lambda result, *_, **__: result is not None)
 @deal.raises(ValueError, TypeError, AttributeError)
 def child_unpack_data(wire: Any) -> Any:
-    """Materialize worker ``data`` in venv (ndarray/list from split_grid, or np.array from numeric list)."""
+    """Materialize worker ``data`` in venv.
+
+    For ``calc_range`` / ``multi_data`` of ranges, returns a :class:`CalcRange` or
+    list of CalcRange (caller should prefer :func:`materialize_inputs`).
+    Legacy bare grids still become ndarray/list.
+    """
     try:
+        from plugin.scripting.calc_range import is_calc_range_payload, materialize_calc_range
+
+        if is_calc_range_payload(wire):
+            return materialize_calc_range(wire)
         if is_multi_data(wire):
             items = wire.get("items") or []
-            return [_child_unpack_single_data(item) for item in items]
+            return [child_unpack_data(item) for item in items]
         return _child_unpack_single_data(wire)
     except Exception:
         log.exception(

@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """DAG-style ``data`` / DataFrame patterns → Excel ``xl(%Pn%)`` (inverse of ``to_dag``).
 
-Only reverses the *data bridge* we introduced: ``data`` / ``data[i]`` /
-``pd.DataFrame(data[1:], columns=data[0])`` become ``xl(...)`` again. Other Python
-is unchanged.
+Only reverses the *data bridge* we introduced: ``data`` / ``data[i]`` / ``inputs[i]`` /
+``data.to_pandas()`` / ``data.to_pandas(header_row=None)`` (and the older
+``pd.DataFrame(data[1:], columns=data[0])`` form) become ``xl(...)`` again. Other
+Python is unchanged.
 
 This is a **script/dependency export**, not a writer of native
 ``pythonScripts.xml`` / ``_xlws.PY``. Ordering-only deps are ignored when
@@ -22,6 +23,14 @@ from plugin.calc.python.formula_edit import escape_code_for_excel_formula, parse
 
 _DF_DATA_RE = re.compile(
     r"pd\.DataFrame\(\s*(data(?:\[\s*(\d+)\s*\])?)\[1:\]\s*,\s*columns\s*=\s*(data(?:\[\s*(\d+)\s*\])?)\[0\]\s*\)",
+    re.IGNORECASE,
+)
+_TO_PANDAS_TRUE_RE = re.compile(
+    r"(data|inputs)(?:\[\s*(\d+)\s*\])?\.to_pandas\(\s*\)",
+    re.IGNORECASE,
+)
+_TO_PANDAS_FALSE_RE = re.compile(
+    r"(data|inputs)(?:\[\s*(\d+)\s*\])?\.to_pandas\(\s*header_row\s*=\s*None\s*\)",
     re.IGNORECASE,
 )
 _OBJECT_SUPPRESS_RE = re.compile(
@@ -97,6 +106,25 @@ def rewrite_dag_code_to_excel(
             idx = 0
         return _xl_expr(idx, "true")
 
+    def to_pandas_false_repl(m: re.Match[str]) -> str:
+        idx_s = m.group(2)
+        idx = int(idx_s) if idx_s is not None else 0
+        if idx >= len(deps):
+            issues.append(f"to_pandas pattern references index {idx} but only {len(deps)} deps")
+            idx = 0
+        return _xl_expr(idx, "false")
+
+    def to_pandas_true_repl(m: re.Match[str]) -> str:
+        idx_s = m.group(2)
+        idx = int(idx_s) if idx_s is not None else 0
+        if idx >= len(deps):
+            issues.append(f"to_pandas pattern references index {idx} but only {len(deps)} deps")
+            idx = 0
+        return _xl_expr(idx, "true")
+
+    # Newer CalcRange API first, then legacy DataFrame slicing, then bare data names.
+    text = _TO_PANDAS_FALSE_RE.sub(to_pandas_false_repl, text)
+    text = _TO_PANDAS_TRUE_RE.sub(to_pandas_true_repl, text)
     text = _DF_DATA_RE.sub(df_repl, text)
 
     # Token-position rewrite for data / data[i] via AST when possible.

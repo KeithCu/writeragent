@@ -575,7 +575,7 @@ Calc **empty cells** and Python/NumPy **NaN** are intentionally **not distinguis
 | ----------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------- |
 | **Mixed** (any text in range)             | `None` in `list` / `list[list]` | Same as pre–split-grid list behavior.                                                       |
 | **Pure numeric** (≥100 cells, split_grid) | `np.nan` in `data`              | Fast path; use `np.nansum`, `np.nanmean`, or `np.isnan` when holes must be ignored.         |
-| **Small range** (<10 cells, nested list)  | `None` in lists                 | Same as mixed; may be promoted to `ndarray` only if the child reloads a clean numeric grid. |
+| **Small range** (<100 cells, nested list) | `None` in lists                 | Same as mixed; may be promoted to `ndarray` only if the child reloads a clean numeric grid. |
 
 
 **Egress (Python → Calc):**
@@ -653,8 +653,8 @@ The auto-spill implementation includes the following components:
 =PY("3 ** 8")
 =PY("str([sp.prime(x) for x in range(1000, 1006)])")   (Returns as single-cell string)
 =PY("np.mean(data)"; A1:A10)
-=PY("result = [sp.prime(int(x)) for x in data]"; ROW()-1)  (matrix over column; Ctrl+Shift+Enter)
-=PY("import pandas as pd; df = pd.DataFrame(data); df[0].mean()"; A1:C10)
+=PY("result = [sp.prime(int(x)) for x in data.to_numpy().ravel()]"; ROW()-1)  (matrix over column; Ctrl+Shift+Enter)
+=PY("df = data.to_pandas(); result = float(df['Sales'].mean())"; A1:C10)
 ```
 
 
@@ -805,48 +805,61 @@ flowchart LR
 ### Data handoff and shaping
 
 **Where does the** `data` **variable come from?**
-If you are editing your Python code in an IDE or reading it statically, referencing `data` (e.g., `data[0]`) might look like a `NameError` (an undefined variable). 
+If you are editing your Python code in an IDE or reading it statically, referencing `data` might look like a `NameError` (an undefined variable).
 
-In the `=PY()` environment, `data` **is a special variable injected dynamically into your script's execution namespace at runtime.** 
+In the `=PY()` environment, `data` **is a special variable injected dynamically into your script's execution namespace at runtime.**
 
 When you pass a range (or cell reference) as the second argument to `=PY(code; range)`, the LibreOffice Add-In:
 
-1. Resolves the range inside Calc and reads all cell values.
-2. Formats these values into standard Python lists (flat or 2D).
-3. Injects this list into the sandbox's execution namespace under the variable name `data` (if it is a single-cell or single-entry input, the child worker automatically unpacks it to a scalar and coerces integer floats to standard Python `int`s).
-4. Runs your Python script. Because of this runtime injection, your script can immediately access `data` as a fully defined, local variable.
+1. Resolves the range inside Calc and reads all cell values as a **rectangular 2D grid** (orientation preserved).
+2. Packs the grid in a `calc_range` wire envelope (`split_grid` remains a private storage optimization).
+3. Materializes a :class:`~plugin.scripting.calc_range.CalcRange` in the sandbox as `data`, and sets `inputs = (data, …)` for every call.
+4. Runs your Python script. Because of this runtime injection, your script can immediately access `data` / `inputs`.
 
+| Range you pass in Calc             | Structure of `data` in Python | Example usage |
+| ---------------------------------- | ----------------------------- | ------------- |
+| **Single cell** (e.g., `B1`)       | `CalcRange` shape `(1, 1)` — use `data.values[0][0]` or `float(np.asarray(data))` | `data.values[0][0] * 2` |
+| **Row** (e.g., `B1:D1`)            | `CalcRange` shape `(1, N)` | `np.mean(data)` (via `__array__`) |
+| **Column** (e.g., `B1:B10`)        | `CalcRange` shape `(N, 1)` | `np.mean(data)` |
+| **2D rectangle** (e.g., `B1:C5`)   | `CalcRange` shape `(rows, cols)` | `data.to_pandas()` or `data.to_numpy()` |
 
-| Range you pass in Calc             | Structure of `data` in Python                                                         | Example Usage in Script                     |
-| ---------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------- |
-| **Single cell** (e.g., `B1`)       | **Scalar**: coerced to `int` if mathematically whole float, else `float`/`str`/`bool` | `data * 2` or `sp.prime(data)`              |
-| **Row or Column** (e.g., `B1:B10`) | **Flat 1D** `list` (or 1D `ndarray` if numeric)                                       | `sum(data)` or `np.mean(data)`              |
-| **2D Rectangle** (e.g., `B1:C5`)   | **Nested 2D** `list` **(row-major)** (or 2D `ndarray` if numeric)                     | `pd.DataFrame(data)` or 2D numpy processing |
+**API (explicit conversions):**
 
+```python
+data.values                          # exact list[list] (None for blanks)
+data.to_numpy()                      # ndarray
+data.to_pandas()                     # header_row=0 by default
+data.to_pandas(header_row=None)      # all rows are data; columns col_0…
+data.to_pandas(parse_strings=True)   # opt-in currency/percent/date string parsing
+inputs[1]                            # second range (never `data[1]` for another range)
+```
 
-Conversion logic: `[plugin/calc/calc_addin_data.py](plugin/calc/calc_addin_data.py)`. Empty cells in Calc map to `None` in Python (or `np.nan` in pure numeric `ndarray` ingress — see [Empty cells vs NaN](#empty-cells-vs-nan)). Payload size cap: `scripting.python_max_data_cells` ([numpy-serialization.md — config](numpy-serialization.md#subprocess-module-map-and-config)).
+Returning a **pandas DataFrame** spills/writes with its **column header row** included. Returning a list/ndarray writes values only.
+
+Conversion logic: [`plugin/calc/calc_addin_data.py`](../plugin/calc/calc_addin_data.py), [`plugin/scripting/calc_range.py`](../plugin/scripting/calc_range.py). Empty cells map to `None` in `.values` (or `np.nan` inside pure-numeric `split_grid` transport — see [Empty cells vs NaN](#empty-cells-vs-nan)). Payload size cap: `scripting.python_max_data_cells` ([numpy-serialization.md — config](numpy-serialization.md#subprocess-module-map-and-config)).
 
 **Dates, Datetimes, and Coercion Policy**:
 
 - **Why we don't automatically coerce on ingress**: Calc stores dates internally as float serial numbers (days since `1899-12-30`). Checking whether a cell is a date requires checking the `NumberFormat` property on the main thread via UNO, which is extremely slow and degrades range performance.
-- **Ingress shape**: Date/datetime values from Calc ranges arrive as standard floats (serial numbers) or strings. 
+- **Ingress shape**: Date/datetime values from Calc ranges arrive as standard floats (serial numbers) or strings.
 - **User Coercion**: User scripts should explicitly parse dates using pandas or standard python libraries:
   - Float serial dates: `pd.to_datetime(df["date_col"], unit="D", origin="1899-12-30")`
   - String dates: `pd.to_datetime(df["date_col"])`
+- **Text stays text** by default (`"00123"` remains a string). Opt into string parsing with `to_pandas(parse_strings=True)`.
 
 **Host↔venv pipeline** (UNO read → pack → worker → unpack): [numpy-serialization.md — Current pipeline](numpy-serialization.md#current-pipeline-and-costs).
 
-**Gaps vs LibrePythonista (workarounds):** chat tool still single `data_range` (use multiple `=PY` cells or varargs in formulas); no `collapse` (tighter range or strip `None` in Python); no auto-DataFrame (`pd.DataFrame(data)`).
+**Gaps vs LibrePythonista (workarounds):** chat tool still single `data_range` (use multiple `=PY` cells or varargs in formulas); no `collapse` (tighter range or strip `None` in Python); DataFrame conversion is explicit via `data.to_pandas()` (not automatic).
 
 **Future formula parameters (not planned unless needed):** 3rd arg `extras` for recalc deps; `collapse` on conversion; host `lp()` bridge; `timeout_sec` on the formula (today uses the same Settings value as the chat tool).
 
 Wire format and cell semantics: [numpy-serialization.md](numpy-serialization.md) ([split_grid](numpy-serialization.md#strategy-3-split-grid-serialization-detail), [Cell semantics](numpy-serialization.md#cell-semantics-calc-python-and-numpy)).
 
-#### Multi-range support (varargs) 
+#### Multi-range support (varargs)
 
-**Status:** Shipped (2026-05) — varargs IDL and multi-range injection (`data = [range1, range2, …]`). Wire envelope: [numpy-serialization.md — Multi-range](numpy-serialization.md#multi-range-wire-format). Chat tool multi `data_range` remains future work.
+**Status:** Shipped — varargs IDL and multi-range injection. `inputs` is always a `tuple[CalcRange, …]`; `data` is always `inputs[0]` when at least one range was passed. Wire envelope: [numpy-serialization.md — Multi-range](numpy-serialization.md#multi-range-wire-format). Chat tool multi `data_range` remains future work.
 
-`=PY()` accepts **one or more** optional data arguments after `code`. Calc packs trailing arguments into a single `sequence<any>` (UNO varargs). Multiple ranges are injected as `data = [range1, range2, …]`; a single range keeps backward-compatible flat/2D `data`.
+`=PY()` accepts **one or more** optional data arguments after `code`. Calc packs trailing arguments into a single `sequence<any>` (UNO varargs). Multiple ranges become `inputs = (range0, range1, …)` with `data = inputs[0]`.
 
 ##### Technical Approach: UNO Varargs
 
@@ -873,7 +886,7 @@ While Calc's `=AVERAGE()` or `=SUM()` can handle multiple ranges, the power of `
 A common spreadsheet task is to find a weighted average across different data sets. For example, if you have Sales data from three different regions (A, B, and C), but Region B is "twice as important" for your target:
 
 - **Calc way**: `=(AVERAGE(A1:A10) + AVERAGE(C1:C10)*2 + AVERAGE(E1:E10)) / 4`
-- **NumPy way**: `=PY("result = (data[0].mean() + data[1].mean()*2 + data[2].mean()) / 4", A1:A10, C1:C10, E1:E10)`
+- **NumPy way**: `=PY("result = (np.mean(data) + np.mean(inputs[1])*2 + np.mean(inputs[2])) / 4"; A1:A10; C1:C10; E1:E10)`
 
 The NumPy version is often easier to read and maintain as the logic grows in complexity.
 
@@ -897,23 +910,17 @@ By using NumPy to calculate the `mean` across multiple ranges, we ensure our **m
 
 ##### Data Representation in Python
 
-...
+| Formula | `data` | `inputs` |
+| ------- | ------ | -------- |
+| `=PY("…"; A1:A5)` | `CalcRange` for `A1:A5` | `(data,)` |
+| `=PY("…"; A1:A5; C1:C5)` | first range | `(range0, range1)` |
 
-
-| Formula                    | `data` variable in Python        | `data_list` variable in Python       |
-| -------------------------- | -------------------------------- | ------------------------------------ |
-| `=PY("...", A1:A5)`        | flat list or 2D grid (unchanged) | `[data]` — always a one-element list |
-| `=PY("...", A1:A5, C1:C5)` | `[ range1_data, range2_data ]`   | same as `data`                       |
-
-
-Use `data_list` when you want generic logic that works for both single- and multi-range formulas, e.g. `[np.sum(d) for d in data_list]`. The `data` variable keeps backward-compatible shapes (flat/2D for one range; list of ranges for varargs).
+`data_list` remains an alias for `list(inputs)` for helpers that iterate ranges. Prefer `inputs` in new scripts.
 
 Example:
 
 ```python
-result = np.concatenate(data).mean()
-# OR
-result = np.mean([np.mean(d) for d in data])
+result = float(np.mean([np.mean(r) for r in inputs]))
 ```
 
 ---

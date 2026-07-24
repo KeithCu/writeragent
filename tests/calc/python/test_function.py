@@ -161,6 +161,12 @@ def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) 
             self.function(*self.args, **self.kwargs)
 
     monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    # Deferred spill posts to the main-thread queue; run immediately in unit tests.
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
+    python_function.LOADED_DOCUMENTS.clear()
 
     # Mock the cell value setting
     cell_B2 = MagicMock() # B2 (formula cell at col=1, row=1)
@@ -378,6 +384,11 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
             self.function(*self.args, **self.kwargs)
 
     monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
+    python_function.LOADED_DOCUMENTS.clear()
 
     # 2x2 grid: formula cell at B2 (1,1), spilled cells at C2 (1,2), B3 (2,1), C3 (2,2)
     cell_B2 = MagicMock()

@@ -48,6 +48,13 @@ def _markdown_table(columns: list[str], rows: list[list[Any]]) -> str:
 def _resolve_df(data: Any, *, headers: bool = True, header_row: int = 0, sheet_hint: str | None = None) -> CoerceResult:
     if isinstance(data, CoerceResult):
         return data
+    if type(data).__name__ == "CalcRange":
+        return coerce_to_dataframe(
+            data.values,
+            headers=headers,
+            header_row=header_row,
+            sheet_hint=sheet_hint or getattr(data, "address", None),
+        )
     if hasattr(data, "columns") and hasattr(data, "index"):
         df = data.copy()
         meta: dict[str, Any] = {

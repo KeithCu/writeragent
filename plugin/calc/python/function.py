@@ -26,6 +26,7 @@ from plugin.framework.errors import format_error_payload
 from plugin.framework.i18n import _
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.payload_codec import is_dataframe_payload, is_split_grid, find_image_payloads
+from plugin.scripting.calc_range import dataframe_to_labeled_grid
 # Optional: reset worker init/cell sessions on workbook close (see python_workbook_lifecycle.py).
 # from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
 from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
@@ -57,22 +58,31 @@ def is_scalar_index_arg(py_data: list | list[list] | None) -> bool:
     """True when arg 1 is one number (matrix index), not a data range."""
     if py_data is None:
         return False
-    if count_cells(py_data) != 1:
-        return False
-    first = py_data[0]
-    return not isinstance(first, (list, tuple))
+    return count_cells(py_data) == 1
+
+
+def _unwrap_single_cell(py_data: Any) -> Any:
+    """Unwrap ``[[v]]`` / ``[v]`` / scalar to the inner value."""
+    val = py_data
+    while isinstance(val, list) and len(val) == 1:
+        val = val[0]
+    return val
 
 
 # Tests and legacy imports
 _is_scalar_index_arg = is_scalar_index_arg
 
 
-def _strip_dataframe_envelope(result: Any) -> Any:
-    """If *result* is a dataframe payload envelope, return its inner 'data' grid for Calc consumers.
-    This lets =PY() matrix/session/index paths treat DF results like ordinary rectangular lists
-    (the columns are available for Writer/chat paths via the envelope)."""
+def result_to_calc_grid(result: Any, *, include_dataframe_header: bool = True) -> Any:
+    """Normalize worker results for Calc consumers.
+
+    DataFrame envelopes become a labeled 2D grid (header row + body) by default.
+    Lists/ndarrays (already unpacked on host) pass through unchanged.
+    """
     if is_dataframe_payload(result):
-        return result.get("data")
+        cols = list(result.get("columns") or [])
+        data = result.get("data")
+        return dataframe_to_labeled_grid(cols, data if isinstance(data, list) else [], include_header=include_dataframe_header)
     return result
 
 
@@ -274,18 +284,19 @@ def load_spill_registry_for_doc(doc: Any) -> None:
         from plugin.doc.document_helpers import get_document_property
         import json
         raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
-        if raw:
-            data = json.loads(raw)
-            doc_url = getattr(doc, "getURL", lambda: "")() or ""
-            for key, value in data.items():
-                parts = key.split(":")
-                if len(parts) == 2:
-                    sheet_name, coords = parts
-                    row_col = coords.split(",")
-                    if len(row_col) == 2:
-                        frow, fcol = int(row_col[0]), int(row_col[1])
-                        spill_coords = [(int(r), int(c)) for r, c in value]
-                        SPILL_REGISTRY[(doc_url, sheet_name, frow, fcol)] = spill_coords
+        if not isinstance(raw, str) or not raw.strip():
+            return
+        data = json.loads(raw)
+        doc_url = getattr(doc, "getURL", lambda: "")() or ""
+        for key, value in data.items():
+            parts = key.split(":")
+            if len(parts) == 2:
+                sheet_name, coords = parts
+                row_col = coords.split(",")
+                if len(row_col) == 2:
+                    frow, fcol = int(row_col[0]), int(row_col[1])
+                    spill_coords = [(int(r), int(c)) for r, c in value]
+                    SPILL_REGISTRY[(doc_url, sheet_name, frow, fcol)] = spill_coords
     except Exception:
         log.exception("Failed to load spill registry from document property")
 
@@ -450,7 +461,8 @@ def finalize_python_return(
     """Map worker result to a single value Calc's add-in bridge accepts."""
     # Worker egress (payload_codec.child_pack_result + host_unpack_data) always yields plain
     # lists/scalars on the host — NumPy lives only in the venv subprocess, not in LO's Python.
-    result = _strip_dataframe_envelope(result)
+    # DataFrame envelopes become labeled grids (header row + body) so columns survive spill.
+    result = result_to_calc_grid(result)
 
     # Auto-spill check: If it's a list/tuple, index_arg is not provided, and it's not a matrix selection
     is_matrix = False
@@ -597,8 +609,9 @@ def _format_error_for_display(exc: BaseException) -> str:
 
 
 def _code_uses_indexed_multi_data(code: str) -> bool:
-    """True when inline code references ``data[n]`` (all PY args are data ranges, not a matrix index)."""
-    return "data[" in (code or "")
+    """True when inline code references ``data[n]`` or ``inputs[n]`` (all PY args are data ranges)."""
+    src = code or ""
+    return "data[" in src or "inputs[" in src
 
 
 def get_python_init_kwargs(ctx: Any) -> dict[str, Any]:
@@ -649,7 +662,8 @@ def execute_python_addin(
                     else:
                         py_data = None
             elif is_scalar_index_arg(py_data) and not is_split_grid(py_data):
-                index_arg = py_data[0]
+                # Single cell may be a matrix index and/or the data value itself.
+                index_arg = _unwrap_single_cell(py_data)
         max_cells = configured_python_max_data_cells(ctx)
         if py_data is not None:
             if is_multi:
@@ -688,7 +702,6 @@ def execute_python_addin(
         if res.get("status") == "ok":
             _record_py_diagnostic(ctx, code, res, status="ok")
             result = res.get("result")
-            result = _strip_dataframe_envelope(result)
             log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
             images = find_image_payloads(result)
             if images:

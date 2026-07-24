@@ -527,21 +527,23 @@ def test_bool_cells_round_trip_in_numeric_grid() -> None:
 
 
 def test_bool_col_11_split_grid_sums() -> None:
-    """11 logical cells use split_grid; bools encode as 0/1 in float64 buffer."""
+    """11 logical cells use split_grid inside calc_range; bools encode as 0/1."""
     np = pytest.importorskip("numpy")
     from plugin.calc.calc_addin_data import calc_addin_data_to_python, pack_calc_data_for_wire
+    from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
 
     pattern = (True, True, True, False, True, False, True, False, True, True, False)
-    # Column range: calc_addin flattens to 1D before pack (same as =PYTHON(code;D1:D11)).
+    # Column range stays N×1 under the shape-preserving contract.
     uno_col = tuple((v,) for v in pattern)
     wire = pack_calc_data_for_wire(calc_addin_data_to_python(uno_col), force="always")
-    assert is_split_grid(wire)
+    assert is_calc_range_payload(wire)
+    assert is_split_grid(wire["data"])
     assert wire_cell_count(wire) == 11
-    assert wire["shape"] == [11]
-    arr = child_unpack_data(wire)
-    assert isinstance(arr, np.ndarray)
-    assert arr.shape == (11,)
-    assert float(np.sum(arr)) == pytest.approx(7.0)
+    assert wire["shape"] == [11, 1]
+    rng = child_unpack_data(wire)
+    assert isinstance(rng, CalcRange)
+    assert rng.shape == (11, 1)
+    assert float(np.sum(rng)) == pytest.approx(7.0)
 
 
 def test_split_grid_boundary_at_binary_min_cells() -> None:
@@ -556,17 +558,19 @@ def test_split_grid_boundary_at_binary_min_cells() -> None:
 
 
 def test_split_grid_flat_row_10_shape() -> None:
-    """1×10 row flattens to 1D split_grid after calc_addin shaping."""
+    """1×10 row stays 2D calc_range; inner split_grid is 1×10."""
     np = pytest.importorskip("numpy")
     from plugin.calc.calc_addin_data import calc_addin_data_to_python, pack_calc_data_for_wire
+    from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
 
     wire = pack_calc_data_for_wire(calc_addin_data_to_python((tuple(float(i + 1) for i in range(10)),)), force="always")
-    assert is_split_grid(wire)
-    assert wire["shape"] == [10]
-    arr = child_unpack_data(wire)
-    assert isinstance(arr, np.ndarray)
-    assert arr.shape == (10,)
-    assert float(np.sum(arr)) == pytest.approx(55.0)
+    assert is_calc_range_payload(wire)
+    assert is_split_grid(wire["data"])
+    assert wire["shape"] == [1, 10]
+    rng = child_unpack_data(wire)
+    assert isinstance(rng, CalcRange)
+    assert rng.shape == (1, 10)
+    assert float(np.sum(rng)) == pytest.approx(55.0)
 
 
 def test_child_pack_below_threshold_returns_list() -> None:

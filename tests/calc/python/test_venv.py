@@ -14,6 +14,8 @@ from plugin.framework.tool import ToolContext
 
 
 def test_resolve_python_data_prefers_data_range():
+    from plugin.scripting.calc_range import is_calc_range_payload
+
     ctx = MagicMock()
     ctx.doc = MagicMock()
     with patch("plugin.calc.bridge.CalcBridge") as bridge_cls, patch("plugin.calc.inspector.CellInspector") as insp_cls:
@@ -21,27 +23,36 @@ def test_resolve_python_data_prefers_data_range():
         insp.read_range.return_value = [[{"value": 1}, {"value": 2}]]
         py_data, err = _resolve_python_data(ctx, data_range="A1:B1", data=[[99]])
         assert err is None
-        assert py_data == [1, 2]
+        assert is_calc_range_payload(py_data)
+        assert py_data["data"] == [[1, 2]]
+        assert py_data["address"] == "A1:B1"
         insp.read_range.assert_called_once_with("A1:B1")
 
 
 def test_resolve_python_data_uses_data_param():
+    from plugin.scripting.calc_range import is_calc_range_payload
+
     ctx = MagicMock()
     py_data, err = _resolve_python_data(ctx, data_range=None, data=[[1, 2]])
     assert err is None
-    assert py_data == [1, 2]
+    assert is_calc_range_payload(py_data)
+    assert py_data["data"] == [[1, 2]]
 
 
 @patch("plugin.calc.python.venv.run_code_in_user_venv")
 def test_execute_passes_data(mock_run):
+    from plugin.scripting.calc_range import is_calc_range_payload
+
     mock_run.return_value = {"status": "ok", "result": 1}
     tool = RunVenvPythonScript()
     ctx = ToolContext(doc=MagicMock(), ctx=MagicMock(), doc_type="calc", services=MagicMock())
-    with patch("plugin.calc.python.venv.resolve_python_data_on_main_thread", return_value=([10], None)):
-        out = tool.execute(ctx, code="result = sum(data)")
+    packed = {"__wa_payload__": "calc_range", "shape": [1, 1], "data": [[10]]}
+    with patch("plugin.calc.python.venv.resolve_python_data_on_main_thread", return_value=(packed, None)):
+        out = tool.execute(ctx, code="result = float(np.sum(data))")
     assert out["status"] == "ok"
     mock_run.assert_called_once()
-    assert mock_run.call_args.kwargs["data"] == [10]
+    assert is_calc_range_payload(mock_run.call_args.kwargs["data"])
+    assert mock_run.call_args.kwargs["data"] == packed
 
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
