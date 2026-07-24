@@ -210,7 +210,6 @@ def materialize_calc_range(wire: Any) -> CalcRange:
     if isinstance(wire, CalcRange):
         return wire
     if is_calc_range_payload(wire):
-        from plugin.scripting.payload_codec import child_unpack_data, is_split_grid
 
         inner = wire.get("data")
         address = wire.get("address")

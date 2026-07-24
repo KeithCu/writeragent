@@ -31,12 +31,13 @@ _ALL_VENV_DOCS = [
     "com.sun.star.presentation.PresentationDocument",
 ]
 
+_DATA_RANGE_DESCRIPTION = (
+    "Optional A1 range(s) injected as CalcRange inputs: `data` is always inputs[0]; "
+    "additional ranges are inputs[1:]. Pass one address string, a comma/semicolon-separated "
+    "string (e.g. 'A1:A10, C1:C10'), or an array of address strings."
+)
 _DATA_RANGE_SCHEMA = {
-    "description": (
-        "Optional A1 range(s) injected as CalcRange inputs: `data` is always inputs[0]; "
-        "additional ranges are inputs[1:]. Pass one address string, a comma/semicolon-separated "
-        "string (e.g. 'A1:A10, C1:C10'), or an array of address strings."
-    ),
+    "description": _DATA_RANGE_DESCRIPTION,
     "oneOf": [
         {"type": "string"},
         {"type": "array", "items": {"type": "string"}},
@@ -82,7 +83,7 @@ _PARAMETERS_NEUTRAL = {
         },
         "data_range": {
             **_DATA_RANGE_SCHEMA,
-            "description": "(Calc only) " + _DATA_RANGE_SCHEMA["description"],
+            "description": "(Calc only) " + _DATA_RANGE_DESCRIPTION,
         },
         "data": {
             "type": "array",

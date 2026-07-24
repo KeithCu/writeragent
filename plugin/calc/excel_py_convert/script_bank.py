@@ -74,6 +74,50 @@ def normalize_bank_a1(cell: str) -> str:
     return f"{m.group(1).upper()}{m.group(2)}"
 
 
+def _col_letters_to_index(col: str) -> int:
+    n = 0
+    for ch in col.upper():
+        n = n * 26 + (ord(ch) - 64)
+    return n
+
+
+def _index_to_col_letters(n: int) -> str:
+    letters = []
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        letters.append(chr(65 + rem))
+    return "".join(reversed(letters))
+
+
+def iter_a1_span(ref: str) -> list[str]:
+    """Expand ``A1:B2`` (no sheet) into cell coordinates; single cell → [cell].
+
+    Used by openpyxl / UNO spill clear before rewriting a converted PY anchor.
+    """
+    # Spill refs are sheet-local A1; strip $ and optional Sheet! prefix only.
+    cell_re = re.compile(r"^([A-Za-z]+)(\d+)$")
+    raw = (ref or "").replace("$", "")
+    if "!" in raw:
+        raw = raw.split("!", 1)[1]
+    if ":" not in raw:
+        return [raw] if cell_re.match(raw) else []
+    left, right = raw.split(":", 1)
+    m1, m2 = cell_re.match(left), cell_re.match(right)
+    if not m1 or not m2:
+        return []
+    c1, r1 = _col_letters_to_index(m1.group(1)), int(m1.group(2))
+    c2, r2 = _col_letters_to_index(m2.group(1)), int(m2.group(2))
+    if c1 > c2:
+        c1, c2 = c2, c1
+    if r1 > r2:
+        r1, r2 = r2, r1
+    out: list[str] = []
+    for r in range(r1, r2 + 1):
+        for c in range(c1, c2 + 1):
+            out.append(f"{_index_to_col_letters(c)}{r}")
+    return out
+
+
 def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) -> str:
     """Sheet-qualified ref: ``py_code_Pivots.H4`` or ``py_code_Pivots!H4``."""
     a1 = normalize_bank_a1(cell_a1)

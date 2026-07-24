@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.excel_py_convert.parse_dag_formulas import iter_dag_py_formulas_xlsx
 from plugin.calc.excel_py_convert.parse_excel_ooxml import load_excel_model
+from plugin.calc.excel_py_convert.script_bank import iter_a1_span
 from plugin.calc.excel_py_convert.to_dag import convert_model_to_dag
 from plugin.calc.excel_py_convert.to_excel import convert_dag_cells_to_excel
 
@@ -19,8 +19,6 @@ if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell
 
 log = logging.getLogger(__name__)
-
-_RE_A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
 def convert_to_dag(path: str | Path, *, best_effort: bool = False) -> ConversionReport:
@@ -80,45 +78,6 @@ def convert_path(
     return report
 
 
-def _col_letters_to_index(col: str) -> int:
-    n = 0
-    for ch in col.upper():
-        n = n * 26 + (ord(ch) - 64)
-    return n
-
-
-def _index_to_col_letters(n: int) -> str:
-    letters = []
-    while n > 0:
-        n, rem = divmod(n - 1, 26)
-        letters.append(chr(65 + rem))
-    return "".join(reversed(letters))
-
-
-def _iter_a1_span(ref: str) -> list[str]:
-    """Expand ``A1:B2`` (no sheet) into cell coordinates; single cell → [cell]."""
-    raw = (ref or "").replace("$", "")
-    if "!" in raw:
-        raw = raw.split("!", 1)[1]
-    if ":" not in raw:
-        return [raw] if _RE_A1.match(raw) else []
-    left, right = raw.split(":", 1)
-    m1, m2 = _RE_A1.match(left), _RE_A1.match(right)
-    if not m1 or not m2:
-        return []
-    c1, r1 = _col_letters_to_index(m1.group(1)), int(m1.group(2))
-    c2, r2 = _col_letters_to_index(m2.group(1)), int(m2.group(2))
-    if c1 > c2:
-        c1, c2 = c2, c1
-    if r1 > r2:
-        r1, r2 = r2, r1
-    out: list[str] = []
-    for r in range(r1, r2 + 1):
-        for c in range(c1, c2 + 1):
-            out.append(f"{_index_to_col_letters(c)}{r}")
-    return out
-
-
 def _xlsx_formula_for_cell(cell: ConvertedCell) -> str:
     """Render a comma-separated OOXML ``=PY`` formula (script bank ref, no Calc sanitizer)."""
     from plugin.calc.excel_py_convert.script_bank import formula_for_converted_cell
@@ -130,7 +89,7 @@ def _clear_spill_range(ws: Any, anchor: str, array_ref: str) -> None:
     """Clear cached/array result cells in *array_ref*, keeping the anchor for rewrite."""
     if not array_ref:
         return
-    cells = _iter_a1_span(array_ref)
+    cells = iter_a1_span(array_ref)
     if len(cells) <= 1:
         return
     for coord in cells:

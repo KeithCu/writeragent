@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Excel ``xl(%Pn%)`` → DAG-style ``data`` / ``data[i]`` (code + formula args).
+"""Excel ``xl(%Pn%)`` → DAG-style ``data`` / ``inputs[i]`` (code + formula args).
 
 What the converter does
 -----------------------
@@ -19,7 +19,7 @@ are found only via AST; there is no regex ``xl(`` scanner.
 Per cell we do two paired steps:
 
 1. **Code:** rewrite each direct ``xl(...)`` *call* (AST positions) to ``data`` /
-   ``data[i]`` / ``.to_pandas()`` for header modes. Unrelated source
+   ``inputs[i]`` / ``.to_pandas()`` for header modes. Unrelated source
    (strings, comments) is left intact where possible.
 2. **Formula:** emit ``=PY("…rewritten…"; resolved_ranges)`` with deduplicated
    data args, then append **ordering-only** edges for prior PY cells in Excel
@@ -75,7 +75,7 @@ def _placeholder_to_data_index(p_num: int) -> int:
     return p_num - 2
 
 
-def _data_expr(index: int, *, multi: bool) -> str:
+def _data_expr(index: int) -> str:
     if index == 0:
         return "data"
     return f"inputs[{index}]"
@@ -206,8 +206,8 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         if getattr(node, "lineno", None) is None:
             continue
         # Offsets are valid on *src*: placeholder rewrites keep the same length.
-        start = _offset(src, node.lineno, node.col_offset)
-        end = _offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
+        start = ast_source_offset(src, node.lineno, node.col_offset)
+        end = ast_source_offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
         if start < 0 or end < 0 or end <= start:
             issues.append("xl() call without reliable source positions")
             continue
@@ -234,12 +234,12 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     return calls, issues
 
 
-def _offset(src: str, lineno: int, col: int) -> int:
+def ast_source_offset(src: str, lineno: int, col: int) -> int:
     """Map AST ``(lineno, col_offset)`` to an absolute character index in *src*.
 
     On Python 3.8+, ``col_offset`` / ``end_col_offset`` are UTF-8 *byte* offsets
     within the line — not Unicode character indices. Convert before slicing *src*
-    so a non-ASCII prefix cannot shift the rewrite window.
+    so a non-ASCII prefix cannot shift the rewrite window. Shared with ``to_excel``.
     """
     if lineno < 1 or col < 0:
         return -1
@@ -297,10 +297,6 @@ def rewrite_excel_code(
         elif prev != call.header_mode and call.header_mode != "omit":
             issues.append(f"conflicting headers mode for %P{call.p_num}%: {prev} vs {call.header_mode}")
 
-    # How many distinct normalized data slots will appear?
-    norm_indices = sorted({imap.get(i, i) for i in used}) if imap else sorted(used)
-    multi = len(norm_indices) > 1 or (num_deps > 1 and not imap)
-
     # Apply replacements from end → start so offsets stay valid.
     new_code = src
     for call in sorted(calls, key=lambda c: c.start, reverse=True):
@@ -312,9 +308,7 @@ def rewrite_excel_code(
         if orig_idx < 0:
             continue
         norm_idx = imap.get(orig_idx, orig_idx)
-        # multi relative to final normalized data arity
-        expr_multi = multi if imap else (num_deps > 1 or len(used) > 1)
-        expr = _data_expr(norm_idx, multi=expr_multi)
+        expr = _data_expr(norm_idx)
         hm = call.header_mode
         if hm == "true":
             repl = _headers_dataframe_expr(expr)

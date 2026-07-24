@@ -317,10 +317,12 @@ The shipped converter under [`plugin/calc/excel_py_convert/`](../plugin/calc/exc
 Excel code:      df = xl(%P2%, headers=True)
 Excel cell:      _xlws.PY(0, 1, A1:C100)
 
-DAG code:        df = pd.DataFrame(data[1:], columns=data[0])
+DAG code:        df = data.to_pandas()
 Calc formula:    =PY("..."; A1:C100)
 OOXML write:     =PY("...",A1:C100)   # commas for .xlsx; Calc still uses ;
 ```
+
+(Multi-range scripts use `data` for the first binding and `inputs[i]` for the rest. The reverse export still accepts the older `pd.DataFrame(data[1:], columns=data[0])` form.)
 
 Everything around `xl(...)`—pandas operations, groupby logic, plots, and ordinary Python statements—is preserved. Bare Excel `%Pn%` tokens are rewritten to equal-length `_Pn_` sentinels (outside strings/comments) so a single AST pass can find direct `xl(...)` call sites; there is no regex `xl(` scanner. Strings and comments stay intact. Tables (`Table1[#All]`) are resolved to **sheet-qualified** A1 snapshots (so a table on `Data` is not read from `Pivots`). Spill anchors (`ANCHORARRAY(A6)`) require a live array `ref` / snapshot; missing snapshots fail closed instead of shrinking to the anchor cell.
 
@@ -328,7 +330,7 @@ Everything around `xl(...)`—pandas operations, groupby logic, plots, and ordin
 
 The conversion does not replace hidden `xl()` reads with host RPC. It moves every formula-static range onto the Calc formula as a real argument. Consequently, editing `A1` dirties the converted `=PY(...; A1:C100)` through Calc's normal precedent graph.
 
-Excel samples also split scripts across cells and share Python globals. The converter chains PY cells in **workbook sheet order, then row/column** (not script-bank index alone) and appends the previous stage as an **ordering-only formula argument**. Duplicate ranges are deduplicated with a stable `%Pn%` → `data[i]` map. `returnType=1` (Object) suppresses cell value egress (`result = None`) until object cards exist, while leaving the setup assignments in the script for the shared kernel.
+Excel samples also split scripts across cells and share Python globals. The converter chains PY cells in **workbook sheet order, then row/column** (not script-bank index alone) and appends the previous stage as an **ordering-only formula argument**. Duplicate ranges are deduplicated with a stable `%Pn%` → `data` / `inputs[i]` map. `returnType=1` (Object) suppresses cell value egress (`result = None`) until object cards exist, while leaving the setup assignments in the script for the shared kernel.
 
 Unresolved deps, dynamic `xl()`, syntax errors after placeholder normalization, and missing anchor snapshots **fail closed** (cell left unchanged; CLI exits nonzero) unless `--best-effort` is set. `--write-xlsx` clears the source array/spill range around each converted anchor, refuses unmapped sheet titles, and strips obsolete `pythonScripts` package parts.
 
@@ -338,8 +340,7 @@ LibreOffice Calc (with the Python/`=PY` extension) registers a Calc `OnLoadFinis
 
 1. Peek the ZIP on disk (stock Calc import may have dropped `pythonScripts` from the in-memory model).
 2. Fail-closed: if any cell cannot convert, leave the imported workbook open and log a warning — never block File → Open.
-3. Prefer writing a sibling `*_py_dag.xlsx` (openpyxl) and swapping documents so the original Excel file is not overwritten.
-4. If openpyxl is missing on the LibreOffice host (typical LibrePy OXT), apply formulas in place via UNO `setFormula` and set document property `ExcelPyDagConverted` so later view events do not re-run.
+3. Apply formulas **in place** via UNO `setFormula` ([`apply_calc.py`](../plugin/calc/excel_py_convert/apply_calc.py)) and set document property `ExcelPyDagConverted` so later view events do not re-run. (CLI `--write-xlsx` can still emit a sibling converted workbook with openpyxl; auto-open does not swap documents.)
 
 **Script bank (MAXSTRLEN workaround):** Excel keeps Python in `pythonScripts.xml` and cells only hold a short `_xlws.PY(index, …)` formula. Calc formula string symbols are capped near `MAXSTRLEN` (1024). After convert, **rewritten scripts longer than 1000 characters** are parked on a **visible** sheet **per source worksheet** (`Pivots!H4` → `py_code_Pivots!H4`) and formulas become `=PY(py_code_Pivots.H4; ranges…)`. **Shorter scripts stay inline** as `=PY("…"; ranges)`. Same A1 on two data sheets can hold different long scripts without colliding. If Calc raises `MAXSTRLEN` (e.g. toward 32 KB), the bank path can be retired. Multi-cell Excel workbooks still need **shared-kernel** session mode (admin/config flag — conversion does not flip it).
 

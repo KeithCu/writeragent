@@ -17,6 +17,7 @@ from plugin.calc.excel_py_convert.parse_excel_ooxml import (
     split_top_level_args,
 )
 from plugin.calc.excel_py_convert.resolve_refs import resolve_dep
+from plugin.calc.excel_py_convert.script_bank import iter_a1_span
 from plugin.calc.excel_py_convert.to_dag import convert_model_to_dag, rewrite_excel_code
 from plugin.calc.excel_py_convert.to_excel import (
     convert_dag_formula_to_excel,
@@ -404,6 +405,44 @@ def test_roundtrip_dag_excel_headers():
     again, _issues2, _used, modes = rewrite_excel_code(excel_code, num_deps=1)
     assert "data.to_pandas()" in again
     assert modes[0] == "true"
+
+
+def test_roundtrip_multi_dep_data_and_inputs():
+    """Forward ``data`` + ``inputs[i]`` must reverse to ``xl(%Pn%)`` for each binding."""
+    dag_code = "a = data\nb = inputs[1]\nc = inputs[2].to_pandas()\n"
+    deps = ["A1:A2", "B1:B2", "C1:C2"]
+    excel_code, out_deps, issues = rewrite_dag_code_to_excel(
+        dag_code, deps, header_modes=["omit", "omit", "true"]
+    )
+    assert out_deps == deps
+    assert "xl(%P2%)" in excel_code
+    assert "xl(%P3%)" in excel_code
+    assert "xl(%P4%, headers=True)" in excel_code
+    assert "inputs[" not in excel_code
+    assert not any("ambiguous" in i for i in issues)
+    again, _issues2, used, modes = rewrite_excel_code(excel_code, num_deps=3)
+    assert "data" in again and "inputs[1]" in again and "inputs[2].to_pandas()" in again
+    assert used == ["0", "1", "2"]
+    assert modes[2] == "true"
+
+
+def test_reverse_non_ascii_prefix_offsets():
+    """UTF-8 multi-byte prefix must not shift reverse AST rewrite of ``data`` / ``inputs``."""
+    dag_code = "café = 1\nx = data\ny = inputs[1]\n"
+    excel_code, deps, issues = rewrite_dag_code_to_excel(dag_code, ["A1", "B1"], header_modes=["omit", "omit"])
+    assert "café = 1" in excel_code
+    assert "x = xl(%P2%)" in excel_code
+    assert "y = xl(%P3%)" in excel_code
+    assert "inputs[" not in excel_code
+    assert deps == ["A1", "B1"]
+    assert not any("ambiguous" in i for i in issues)
+
+
+def test_iter_a1_span_expands_ranges():
+    assert iter_a1_span("A1") == ["A1"]
+    assert iter_a1_span("A1:B2") == ["A1", "B1", "A2", "B2"]
+    assert iter_a1_span("Sheet1!B2:C3") == ["B2", "C2", "B3", "C3"]
+    assert iter_a1_span("") == []
 
 
 def test_reverse_preserves_headers_false_and_return_type():

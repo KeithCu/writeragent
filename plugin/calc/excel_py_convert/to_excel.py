@@ -19,6 +19,7 @@ import re
 from typing import Any, Sequence, cast
 
 from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, DepRole, HeaderMode
+from plugin.calc.excel_py_convert.to_dag import ast_source_offset
 from plugin.calc.python.formula_edit import escape_code_for_excel_formula, parse_python_formula
 
 _DF_DATA_RE = re.compile(
@@ -90,7 +91,6 @@ def rewrite_dag_code_to_excel(
     modes: list[HeaderMode] = list(header_modes) if header_modes is not None else _omit_modes(len(deps))
     while len(modes) < len(deps):
         modes.append("omit")
-    multi = len(deps) > 1
     text = code or ""
     if strip_object_suppress:
         text = _OBJECT_SUPPRESS_RE.sub("", text)
@@ -127,32 +127,31 @@ def rewrite_dag_code_to_excel(
     text = _TO_PANDAS_TRUE_RE.sub(to_pandas_true_repl, text)
     text = _DF_DATA_RE.sub(df_repl, text)
 
-    # Token-position rewrite for data / data[i] via AST when possible.
-    rewritten, ast_issues = _rewrite_data_names_ast(text, deps, modes, multi)
+    # Token-position rewrite for data / data[i] / inputs[i] via AST when possible.
+    rewritten, ast_issues = _rewrite_data_names_ast(text, deps, modes)
     issues.extend(ast_issues)
     if rewritten is not None:
         return rewritten, deps, issues
 
-    # Regex fallback
-    def data_index_repl(m: re.Match[str]) -> str:
+    # Regex fallback (legacy data[i] plus forward emit shape data / inputs[i]).
+    def index_repl(m: re.Match[str]) -> str:
         idx = int(m.group(1))
         if idx >= len(deps):
-            issues.append(f"data[{idx}] with only {len(deps)} deps")
+            issues.append(f"index [{idx}] with only {len(deps)} deps")
             return m.group(0)
         hm: HeaderMode = modes[idx] if idx < len(modes) else "omit"
         return _xl_expr(idx, hm)
 
-    text = re.sub(r"\bdata\[\s*(\d+)\s*\]", data_index_repl, text)
+    text = re.sub(r"\b(?:data|inputs)\[\s*(\d+)\s*\]", index_repl, text)
 
-    if not multi and deps:
+    if deps:
 
         def bare_repl(_m: re.Match[str]) -> str:
+            # Forward path always binds the first range to bare ``data``.
             hm: HeaderMode = modes[0] if modes else "omit"
             return _xl_expr(0, hm)
 
         text = re.sub(r"(?<![\w.])data(?!\s*\[)", bare_repl, text)
-    elif re.search(r"(?<![\w.])data(?!\s*\[)", text) and multi:
-        issues.append("bare `data` with multiple deps; ambiguous")
 
     return text, deps, issues
 
@@ -161,9 +160,8 @@ def _rewrite_data_names_ast(
     code: str,
     deps: list[str],
     modes: list[HeaderMode],
-    multi: bool,
 ) -> tuple[str | None, list[str]]:
-    """Rewrite ``data`` / ``data[i]`` Name/Subscript nodes; preserve strings/comments."""
+    """Rewrite ``data`` / ``data[i]`` / ``inputs[i]`` Name/Subscript nodes."""
     issues: list[str] = []
     try:
         tree = ast.parse(code)
@@ -180,12 +178,8 @@ def _rewrite_data_names_ast(
 
     hits: list[_Hit] = []
 
-    def offset(lineno: int, col: int) -> int:
-        lines = code.splitlines(keepends=True)
-        return sum(len(lines[i]) for i in range(lineno - 1)) + col
-
     for node in ast.walk(tree):
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "data":
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in ("data", "inputs"):
             sl = node.slice
             idx = None
             if isinstance(sl, ast.Constant) and isinstance(sl.value, int):
@@ -193,26 +187,26 @@ def _rewrite_data_names_ast(
             if idx is None:
                 continue
             if idx >= len(deps):
-                issues.append(f"data[{idx}] with only {len(deps)} deps")
+                issues.append(f"{node.value.id}[{idx}] with only {len(deps)} deps")
                 continue
-            # Skip if this subscript is inside a DataFrame pattern already handled — still OK to rewrite.
-            start = offset(node.lineno, node.col_offset)
-            end = offset(node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
+            start = ast_source_offset(code, node.lineno, node.col_offset)
+            end = ast_source_offset(code, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
+            if start < 0 or end < 0:
+                continue
             hm: HeaderMode = modes[idx] if idx < len(modes) else "omit"
             hits.append(_Hit(start, end, _xl_expr(idx, hm)))
         elif isinstance(node, ast.Name) and node.id == "data" and isinstance(node.ctx, ast.Load):
-            if multi:
-                issues.append("bare `data` with multiple deps; ambiguous")
-                continue
+            # Bare ``data`` is always the first range (forward emit), even with multi deps.
             if not deps:
                 continue
-            start = offset(node.lineno, node.col_offset)
-            end = offset(node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
+            start = ast_source_offset(code, node.lineno, node.col_offset)
+            end = ast_source_offset(code, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
+            if start < 0 or end < 0:
+                continue
             hm0: HeaderMode = modes[0] if modes else "omit"
             hits.append(_Hit(start, end, _xl_expr(0, hm0)))
 
     if not hits:
-        # Still may have had DataFrame regex applied by caller — return None to use regex path? 
         # If AST parsed but found no data names, return code unchanged.
         return code, issues
 
@@ -288,9 +282,6 @@ def convert_dag_formula_to_excel(
         # Without metadata, treat trailing args as data (cannot know ordering-only).
         data_args = list(all_args)
         ordering_args = []
-        # Heuristic: if report omitted meta, keep all — document limitation.
-        if ordering_args:
-            pass
 
     bindings_raw = meta.get("bindings")
     bindings: list[BindingInfo] = []
