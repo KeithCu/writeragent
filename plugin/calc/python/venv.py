@@ -31,6 +31,18 @@ _ALL_VENV_DOCS = [
     "com.sun.star.presentation.PresentationDocument",
 ]
 
+_DATA_RANGE_SCHEMA = {
+    "description": (
+        "Optional A1 range(s) injected as CalcRange inputs: `data` is always inputs[0]; "
+        "additional ranges are inputs[1:]. Pass one address string, a comma/semicolon-separated "
+        "string (e.g. 'A1:A10, C1:C10'), or an array of address strings."
+    ),
+    "oneOf": [
+        {"type": "string"},
+        {"type": "array", "items": {"type": "string"}},
+    ],
+}
+
 _PARAMETERS_CALC = {
     "type": "object",
     "properties": {
@@ -38,10 +50,7 @@ _PARAMETERS_CALC = {
             "type": "string",
             "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar).",
         },
-        "data_range": {
-            "type": "string",
-            "description": "Optional A1 range (e.g. B1:B10); values are injected as variable `data`.",
-        },
+        "data_range": _DATA_RANGE_SCHEMA,
         "data": {
             "type": "array",
             "items": {"type": "array", "items": {}},
@@ -72,8 +81,8 @@ _PARAMETERS_NEUTRAL = {
             "description": "Python / Numpy source. Set `result` to the return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar).",
         },
         "data_range": {
-            "type": "string",
-            "description": "(Calc only) Optional A1 range (e.g. B1:B10); values are injected as variable `data`.",
+            **_DATA_RANGE_SCHEMA,
+            "description": "(Calc only) " + _DATA_RANGE_SCHEMA["description"],
         },
         "data": {
             "type": "array",
@@ -87,8 +96,9 @@ _PARAMETERS_NEUTRAL = {
 _DESCRIPTION_CALC = (
     "Run Python code. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
     + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    + "Optional data_range (e.g. 'Sheet1.B1:B10') injects cell values as `data`. "
-    "The host reads the range on the main thread and sends shaped data over the efficient IPC path. "
+    + "Optional data_range (one A1 address, comma-separated addresses, or an array) injects "
+    "`inputs` as CalcRange objects with `data = inputs[0]`. "
+    "The host reads ranges on the main thread and sends shaped data over the efficient IPC path. "
     "For anything beyond tiny grids, use data_range (address) rather than passing values in the data parameter."
 )
 
@@ -109,7 +119,7 @@ _DESCRIPTION_DRAW = (
 _DESCRIPTION_NEUTRAL = (
     "Run Python code in the configured venv. Set `result` to a return value (NumPy ndarray, Pandas DataFrame, list, dict, or scalar). "
     + PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
-    + "In Calc, optional data_range (e.g. 'Sheet1.B1:B10') injects cell values as `data`; "
+    + "In Calc, optional data_range injects `inputs` / `data` from one or more A1 addresses; "
     "in Writer or Draw/Impress use document tools to read or change content (no spreadsheet `data` injection)."
 )
 

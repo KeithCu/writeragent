@@ -368,21 +368,23 @@ def execute_and_insert_result(
 
     t0 = time.perf_counter()
 
-    def _resolve_data_range() -> str | None:
+    def _resolve_data_ranges() -> list[str] | None:
         binding = str(data_range).strip() if data_range else ""
         if binding:
             ranges = parse_data_binding_text(binding)
             if ranges:
-                return ranges[0]
-            return binding
-        return calc_selection_to_a1(doc)
+                return ranges
+            return [binding]
+        sel = calc_selection_to_a1(doc)
+        return [sel] if sel else None
 
     py_data = None
     if is_calc(doc):
-        dr = _resolve_data_range()
-        if dr:
+        drs = _resolve_data_ranges()
+        if drs:
             tool_ctx = calc_tool_context(ctx, doc)
-            py_data, err = _resolve_python_data(tool_ctx, data_range=dr, data=None)
+            # Pass the full address list so multi Data: bindings become inputs[0], inputs[1], …
+            py_data, err = _resolve_python_data(tool_ctx, data_range=drs, data=None)
             if err:
                 return {"ok": False, "message": err}
 

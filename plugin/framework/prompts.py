@@ -522,7 +522,12 @@ CALC_PYTHON_FORMULA_LLM_HINT = ""
 def python_specialized_sub_agent_hint(agent_label: str) -> str:
     """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\")."""
     if agent_label == "Calc":
-        data_hint = " For bulk data use data_range (A1 address string) with run_venv_python_script; the host resolves it out-of-band. Avoid passing large values in the data parameter."
+        data_hint = (
+            " For bulk data use data_range with run_venv_python_script "
+            "(one A1 address, comma-separated addresses, or an array); "
+            "`data` is inputs[0] and extra ranges are inputs[1:]. "
+            "The host resolves addresses out-of-band. Avoid passing large values in the data parameter."
+        )
     else:
         data_hint = " run_venv_python_script does not inject spreadsheet `data`—use document tools for content."
     policy = _VENV_IMPORT_POLICY_FULL or _load_venv_import_policy_full()

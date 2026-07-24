@@ -192,13 +192,17 @@ def pack_calc_multi_data_for_wire(
     py_data: list[list[list[Any]]],
     *,
     force: ForceBinary = "auto",
+    addresses: list[str | None] | None = None,
 ) -> Any:
     """Pack multiple Calc ranges as ``multi_data`` of ``calc_range`` envelopes."""
     if not py_data:
         return None
     from plugin.scripting.payload_codec import PAYLOAD_MULTI_DATA
 
-    items = [pack_calc_data_for_wire(grid, force=force) for grid in py_data]
+    items = []
+    for i, grid in enumerate(py_data):
+        addr = addresses[i] if addresses and i < len(addresses) else None
+        items.append(pack_calc_data_for_wire(grid, force=force, address=addr))
     return {
         "__wa_payload__": PAYLOAD_MULTI_DATA,
         "items": items,
@@ -279,36 +283,70 @@ def values_from_inspector_range(range_data: list[list[dict]]) -> list[list[Any]]
     return ensure_rectangular_2d(grid)
 
 
-def _resolve_python_data(ctx: Any, *, data_range: str | None, data: Any) -> tuple[Any | None, str | None]:
-    """Return (py_data, error_message). Calc only; ``data_range`` wins over ``data`` when both set."""
+def _normalize_data_range_addresses(data_range: Any) -> list[str]:
+    """Normalize chat/RPS ``data_range`` into one or more A1 addresses.
+
+    Accepts a single string (optionally comma/semicolon-separated), or a list/tuple of strings.
+    """
+    if data_range is None:
+        return []
+    if isinstance(data_range, (list, tuple)):
+        return [str(a).strip() for a in data_range if str(a).strip()]
+    text = str(data_range).strip()
+    if not text:
+        return []
+    from plugin.calc.python.formula_edit import parse_data_binding_text
+
+    parts = parse_data_binding_text(text)
+    return parts if parts else [text]
+
+
+def _resolve_python_data(ctx: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
+    """Return (py_data, error_message). Calc only; ``data_range`` wins over ``data`` when both set.
+
+    ``data_range`` may be one A1 string, a comma/semicolon-separated string, or a list of addresses.
+    Multiple ranges pack as ``multi_data`` of ``calc_range`` (same as ``=PY()`` varargs).
+    """
     from plugin.calc.bridge import CalcBridge
     from plugin.calc.inspector import CellInspector
     from plugin.scripting.config_limits import configured_python_max_data_cells
 
-    py_data: Any | None = None
-    address: str | None = None
-    if data_range and str(data_range).strip():
+    addresses = _normalize_data_range_addresses(data_range)
+    max_cells = configured_python_max_data_cells(ctx.ctx)
+
+    if addresses:
         try:
             bridge = CalcBridge(ctx.doc)
             inspector = CellInspector(bridge)
-            addr = str(data_range).strip()
-            range_data = inspector.read_range(addr)
-            py_data = values_from_inspector_range(range_data)
-            address = addr
+            grids: list[list[list[Any]]] = []
+            for addr in addresses:
+                range_data = inspector.read_range(addr)
+                grids.append(values_from_inspector_range(range_data))
         except Exception as e:
             return None, f"Failed to read data_range: {e}"
-    elif data is not None:
-        py_data = finalize_python_data(data)
 
-    if py_data is not None:
-        size_err = check_python_data_size(py_data, max_cells=configured_python_max_data_cells(ctx.ctx))
+        if len(grids) == 1:
+            size_err = check_python_data_size(grids[0], max_cells=max_cells)
+            if size_err:
+                return None, size_err
+            return pack_calc_data_for_wire(grids[0], address=addresses[0]), None
+
+        size_err = check_python_multi_data_size(grids, max_cells=max_cells)
         if size_err:
             return None, size_err
-        py_data = pack_calc_data_for_wire(py_data, address=address)
-    return py_data, None
+        return pack_calc_multi_data_for_wire(grids, addresses=list(addresses)), None
+
+    if data is not None:
+        py_data = finalize_python_data(data)
+        if py_data is not None:
+            size_err = check_python_data_size(py_data, max_cells=max_cells)
+            if size_err:
+                return None, size_err
+            return pack_calc_data_for_wire(py_data), None
+    return None, None
 
 
-def resolve_python_data_on_main_thread(ctx: Any, *, data_range: str | None, data: Any) -> tuple[Any | None, str | None]:
+def resolve_python_data_on_main_thread(ctx: Any, *, data_range: Any = None, data: Any = None) -> tuple[Any | None, str | None]:
     """Marshal Calc range reads to the LO main thread (``is_async`` tools run on workers)."""
     from plugin.framework.queue_executor import execute_on_main_thread
 
