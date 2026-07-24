@@ -217,6 +217,70 @@ def test_rewrite_ignores_xl_in_strings_and_comments():
     assert not any("dynamic" in i for i in issues)
 
 
+def test_rewrite_ignores_xl_in_escaped_and_triple_quoted_strings():
+    src = (
+        'a = "say \\"xl(%P3%)\\" please"\n'
+        'b = """xl(%P4%)\nstill string"""\n'
+        "c = xl(%P2%)\n"
+    )
+    code, issues, used, _modes = rewrite_excel_code(src, num_deps=1)
+    assert 'xl(%P3%)' in code
+    assert 'xl(%P4%)' in code
+    assert "c = data" in code
+    assert used == ["0"]
+    assert not any("dynamic" in i for i in issues)
+
+
+def test_rewrite_quoted_placeholder_constant():
+    """Quoted ``xl("%P2%")`` is valid Python; AST Constant path must still bind."""
+    code, issues, used, modes = rewrite_excel_code('df = xl("%P2%", headers=True)', num_deps=1)
+    assert "data.to_pandas()" in code
+    assert used == ["0"]
+    assert modes[0] == "true"
+    assert not any("dynamic" in i for i in issues)
+
+
+def test_rewrite_non_ascii_prefix_offsets():
+    """UTF-8 multi-byte prefix must not shift the ``xl(...)`` rewrite window."""
+    src = "café = 1\ndf = xl(%P2%, headers=True)\n"
+    code, issues, used, _modes = rewrite_excel_code(src, num_deps=1)
+    assert "café = 1" in code
+    assert "df = data.to_pandas()" in code
+    assert "xl(" not in code
+    assert used == ["0"]
+    assert not any("dynamic" in i for i in issues)
+
+
+def test_rewrite_ignores_attribute_xl_calls():
+    """``obj.xl(...)`` is not the Excel data-bridge builtin — leave it alone."""
+    src = "x = obj.xl(%P2%)\ny = xl(%P2%)\n"
+    code, issues, used, _modes = rewrite_excel_code(src, num_deps=1)
+    assert "obj.xl(%P2%)" in code
+    assert "y = data" in code
+    assert used == ["0"]
+    assert not any("dynamic" in i for i in issues)
+
+
+def test_rewrite_syntax_error_with_placeholder_fail_closed():
+    """Malformed scripts fail closed even when they contain ``%Pn%`` (no regex guess)."""
+    code, issues, used, _modes = rewrite_excel_code("df = xl(%P2%, headers=True\n", num_deps=1)
+    assert any("syntax error" in i for i in issues)
+    assert "xl(%P2%" in code  # unchanged
+    assert used == []
+
+
+def test_convert_syntax_error_fail_closed():
+    model = ExcelWorkbookModel(
+        scripts=["df = xl(%P2%, headers=True"],
+        cells=[_cell("S", "A1", 0, deps=["B1"], row=1, col=1)],
+        sheets=[_sheet("S")],
+    )
+    report = convert_model_to_dag(model)
+    assert not report.cells[0].converted
+    assert report.cells[0].dag_formula == ""
+    assert any("syntax error" in i for i in report.cells[0].issues)
+
+
 def test_resolve_table_and_anchor():
     model = ExcelWorkbookModel(
         tables={"Table1": "Data!A3:F23"},

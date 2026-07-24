@@ -12,18 +12,22 @@ Excel stores Python separately from the cell formula:
 * cell ``_xlfn._xlws.PY(scriptIndex, returnType, A1:B10, ...)`` — trailing args
   fill ``%P2%``, ``%P3%``, …
 
+Bare ``%Pn%`` tokens are not valid Python, so before ``ast.parse`` we rewrite
+them (outside strings/comments) to equal-length ``_Pn_`` sentinels. Call sites
+are found only via AST; there is no regex ``xl(`` scanner.
+
 Per cell we do two paired steps:
 
-1. **Code:** rewrite each real ``xl(...)`` *call* (AST positions) to ``data`` /
-   ``data[i]`` / ``pd.DataFrame(...)`` for ``headers=True``. Unrelated source
-   (strings, comments) is left byte-stable where possible.
+1. **Code:** rewrite each direct ``xl(...)`` *call* (AST positions) to ``data`` /
+   ``data[i]`` / ``.to_pandas()`` for header modes. Unrelated source
+   (strings, comments) is left intact where possible.
 2. **Formula:** emit ``=PY("…rewritten…"; resolved_ranges)`` with deduplicated
    data args, then append **ordering-only** edges for prior PY cells in Excel
    workbook sheet/row order (shared kernel). Tables / ``ANCHORARRAY`` are
    snapped to A1 at convert time.
 
-Fail-closed: unresolved deps or dynamic ``xl()`` leave the cell unconverted
-(no ``dag_formula``) unless the caller opts into best-effort mode.
+Fail-closed: unresolved deps, dynamic ``xl()``, or syntax errors leave the cell
+unconverted (no ``dag_formula``) unless the caller opts into best-effort mode.
 """
 
 from __future__ import annotations
@@ -43,6 +47,10 @@ from plugin.calc.excel_py_convert.models import (
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
+# Bare Excel placeholder in source (not anchored); same length as ``_Pn_`` sentinel.
+_P_BARE_RE = re.compile(r"%P(\d+)%", re.IGNORECASE)
+# Equal-length stand-in so ``ast.parse`` accepts Excel scripts: ``%P2%`` → ``_P2_``.
+_P_SENTINEL_RE = re.compile(r"^_P(\d+)_$", re.IGNORECASE)
 _OBJECT_SUPPRESS = (
     "\n# excel_py: returnType=1 (Object) — cell value egress suppressed until object cards ship\n"
     "result = None"
@@ -93,31 +101,111 @@ def _header_mode_from_keywords(node: ast.Call) -> HeaderMode:
     return "omit"
 
 
+def _skip_string(src: str, i: int) -> int:
+    """Return index just past a string literal starting at *i* (quote char)."""
+    quote = src[i]
+    i += 1
+    n = len(src)
+    # Triple quotes
+    if i + 1 < n and src[i] == quote and src[i + 1] == quote:
+        i += 2
+        while i + 2 < n:
+            if src[i] == quote and src[i + 1] == quote and src[i + 2] == quote:
+                return i + 3
+            i += 1
+        return n
+    while i < n:
+        # Escapes apply in both quote styles (needed so \" mid-string is not a closer).
+        if src[i] == "\\":
+            i += 2
+            continue
+        if src[i] == quote:
+            return i + 1
+        i += 1
+    return n
+
+
+def _normalize_excel_placeholders(src: str) -> str:
+    """Rewrite bare ``%Pn%`` to equal-length ``_Pn_`` so ``ast.parse`` accepts Excel scripts.
+
+    Placeholders inside strings and comments are left untouched so quoted
+    ``xl("%P2%")`` stays a string constant on the AST path. Length is preserved
+    (``%`` ↔ ``_``) so AST byte/character offsets still index the original source.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(src)
+    while i < n:
+        ch = src[i]
+        if ch in ("'", '"'):
+            end = _skip_string(src, i)
+            out.append(src[i:end])
+            i = end
+            continue
+        if ch == "#":
+            j = i
+            while j < n and src[j] != "\n":
+                j += 1
+            out.append(src[i:j])
+            i = j
+            continue
+        m = _P_BARE_RE.match(src, i)
+        if m:
+            # ``%P12%`` and ``_P12_`` are the same length — offsets stay aligned.
+            out.append(f"_P{m.group(1)}_")
+            i = m.end()
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _p_num_from_arg(arg0: ast.AST) -> tuple[int | None, str | None, bool]:
+    """Interpret ``xl`` first arg → ``(p_num, literal, dynamic)``."""
+    if isinstance(arg0, ast.Name):
+        # Sentinel from ``_normalize_excel_placeholders``: ``_P2_`` ↔ ``%P2%``.
+        m = _P_SENTINEL_RE.match(arg0.id)
+        if m:
+            return int(m.group(1)), None, False
+        # xl(name) / xl(P2) — not a formula-static placeholder.
+        return None, None, True
+    if isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
+        m = _P_TOKEN_RE.match(arg0.value)
+        if m:
+            return int(m.group(1)), None, False
+        # literal xl("A1") without formula dep binding
+        return None, arg0.value, True
+    if isinstance(arg0, (ast.JoinedStr, ast.BinOp)):
+        return None, None, True
+    return None, None, True
+
+
 def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
-    """Locate ``xl(...)`` call expressions via AST; fall back carefully on syntax errors."""
+    """Locate direct ``xl(...)`` call expressions via AST after placeholder normalization."""
     issues: list[str] = []
     src = code or ""
     if not src.strip():
         return [], issues
-    # Excel ``%Pn%`` tokens are not valid Python — skip AST and scan call sites.
-    if "%P" in src:
-        return _find_xl_calls_regex_fallback(src, issues)
+    # Excel ``%Pn%`` is not valid Python; equal-length ``_Pn_`` lets us parse with AST.
+    normalized = _normalize_excel_placeholders(src)
     try:
-        tree = ast.parse(src)
+        tree = ast.parse(normalized)
     except SyntaxError as exc:
+        # Fail closed — do not guess call sites with a hand-rolled scanner.
         issues.append(f"Python syntax error in script: {exc.msg}")
-        return _find_xl_calls_regex_fallback(src, issues)
+        return [], issues
 
     calls: list[_XlCall] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
+        # Direct ``xl(...)`` only — ``obj.xl(...)`` is not the Excel data bridge.
         if not isinstance(func, ast.Name) or func.id != "xl":
             continue
         if getattr(node, "lineno", None) is None:
             continue
-        # ast positions are 1-based line/col; convert to absolute offsets.
+        # Offsets are valid on *src*: placeholder rewrites keep the same length.
         start = _offset(src, node.lineno, node.col_offset)
         end = _offset(src, node.end_lineno or node.lineno, node.end_col_offset or node.col_offset)
         if start < 0 or end < 0 or end <= start:
@@ -130,23 +218,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
         if not node.args:
             dynamic = True
         else:
-            arg0 = node.args[0]
-            if isinstance(arg0, ast.Name):
-                # Rare: xl(P2) — treat as dynamic
-                dynamic = True
-            elif isinstance(arg0, ast.Constant) and isinstance(arg0.value, str):
-                m = _P_TOKEN_RE.match(arg0.value)
-                if m:
-                    p_num = int(m.group(1))
-                else:
-                    literal = arg0.value
-                    dynamic = True  # literal xl("A1") without formula dep binding
-            elif isinstance(arg0, ast.JoinedStr) or isinstance(arg0, ast.BinOp):
-                dynamic = True
-            else:
-                # %P2% is not valid Python — Excel stores it as a bare Name-like token
-                # that fails ast.parse. Those go through the regex fallback path.
-                dynamic = True
+            p_num, literal, dynamic = _p_num_from_arg(node.args[0])
         calls.append(
             _XlCall(
                 start=start,
@@ -163,114 +235,26 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
 
 
 def _offset(src: str, lineno: int, col: int) -> int:
-    if lineno < 1:
+    """Map AST ``(lineno, col_offset)`` to an absolute character index in *src*.
+
+    On Python 3.8+, ``col_offset`` / ``end_col_offset`` are UTF-8 *byte* offsets
+    within the line — not Unicode character indices. Convert before slicing *src*
+    so a non-ASCII prefix cannot shift the rewrite window.
+    """
+    if lineno < 1 or col < 0:
         return -1
     lines = src.splitlines(keepends=True)
     if lineno > len(lines):
         return -1
-    return sum(len(lines[i]) for i in range(lineno - 1)) + col
-
-
-def _find_xl_calls_regex_fallback(src: str, issues: list[str]) -> tuple[list[_XlCall], list[str]]:
-    """Parse ``xl(%Pn%, headers=…)`` when the script is not valid Python (Excel placeholders).
-
-    Excel's ``%P2%`` tokens are not valid Python identifiers, so ``ast.parse`` fails.
-    We scan with a quote-aware matcher for ``xl(`` call spans only — not inside
-    strings/comments (token-ish scan).
-    """
-    calls: list[_XlCall] = []
-    i = 0
-    n = len(src)
-    while i < n:
-        # Skip strings
-        ch = src[i]
-        if ch in ("'", '"'):
-            i = _skip_string(src, i)
-            continue
-        if ch == "#":
-            while i < n and src[i] not in "\n":
-                i += 1
-            continue
-        if src.startswith("xl", i) and (i == 0 or not (src[i - 1].isalnum() or src[i - 1] == "_")):
-            j = i + 2
-            while j < n and src[j].isspace():
-                j += 1
-            if j < n and src[j] == "(":
-                end = _matching_paren(src, j)
-                if end < 0:
-                    issues.append("unclosed xl() call")
-                    break
-                inner = src[j + 1 : end]
-                call = _parse_xl_inner(src, i, end + 1, inner)
-                calls.append(call)
-                i = end + 1
-                continue
-        i += 1
-    return calls, issues
-
-
-def _skip_string(src: str, i: int) -> int:
-    quote = src[i]
-    i += 1
-    n = len(src)
-    # Triple quotes
-    if i + 1 < n and src[i] == quote and src[i + 1] == quote:
-        i += 2
-        while i + 2 < n:
-            if src[i] == quote and src[i + 1] == quote and src[i + 2] == quote:
-                return i + 3
-            i += 1
-        return n
-    while i < n:
-        if src[i] == "\\" and quote == '"':
-            i += 2
-            continue
-        if src[i] == quote:
-            return i + 1
-        i += 1
-    return n
-
-
-def _matching_paren(src: str, open_idx: int) -> int:
-    depth = 0
-    i = open_idx
-    n = len(src)
-    while i < n:
-        ch = src[i]
-        if ch in ("'", '"'):
-            i = _skip_string(src, i)
-            continue
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                return i
-        i += 1
-    return -1
-
-
-def _parse_xl_inner(src: str, start: int, end: int, inner: str) -> _XlCall:
-    text = inner.strip()
-    header_mode: HeaderMode = "omit"
-    hm = re.search(r"headers\s*=\s*(True|False)", text, re.IGNORECASE)
-    if hm:
-        header_mode = "true" if hm.group(1).lower() == "true" else "false"
-    m = re.match(r"%P(\d+)%", text, re.IGNORECASE)
-    if m:
-        return _XlCall(start=start, end=end, p_num=int(m.group(1)), header_mode=header_mode, raw=src[start:end])
-    lit = re.match(r'["\']([^"\']*)["\']', text)
-    if lit:
-        return _XlCall(
-            start=start,
-            end=end,
-            p_num=None,
-            header_mode=header_mode,
-            literal=lit.group(1),
-            dynamic=True,
-            raw=src[start:end],
-        )
-    return _XlCall(start=start, end=end, p_num=None, header_mode=header_mode, dynamic=True, raw=src[start:end])
+    line_start = sum(len(lines[i]) for i in range(lineno - 1))
+    line = lines[lineno - 1]
+    raw = line.encode("utf-8")
+    if col > len(raw):
+        return -1
+    # If *col* landed mid-codepoint, back up to a valid UTF-8 boundary.
+    while col > 0 and col < len(raw) and (raw[col] & 0xC0) == 0x80:
+        col -= 1
+    return line_start + len(raw[:col].decode("utf-8"))
 
 
 def rewrite_excel_code(
@@ -448,7 +432,9 @@ def convert_cell_to_dag(
 
     unresolved = len(index_map) != len(cell.deps)
     dynamic = any("dynamic xl()" in i for i in rewrite_issues0)
-    syntax_fatal = any("syntax error" in i for i in rewrite_issues0) and "%P" not in original
+    # Syntax errors are always fatal now that placeholders are normalized for AST
+    # (previously ``%P`` scripts skipped AST and used a regex scanner).
+    syntax_fatal = any("syntax error" in i for i in rewrite_issues0)
 
     # Second rewrite with dedup index map when every original dep resolved.
     if unresolved:
