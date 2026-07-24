@@ -1,0 +1,14 @@
+Python logo (python_logo.svg → python_32.png)
+==============================================
+Dev tree only — not shipped in the .oxt (see scripts/build_oxt.py should_exclude).
+
+Source: https://commons.wikimedia.org/wiki/File:Python-logo-notext.svg
+Official two-snakes logo device of the Python Software Foundation.
+Trademark of the PSF; used under the PSF Trademark Usage Policy to indicate
+suitability for / implementation in Python:
+https://www.python.org/psf/trademarks/
+https://www.python.org/community/logos/
+
+Regenerate 32×32 PNG:
+  rsvg-convert -w 64 -h 64 --background-color=none python_logo.svg -o /tmp/py64.png
+  magick /tmp/py64.png -resize 32x32 -filter Lanczos PNG32:python_32.png

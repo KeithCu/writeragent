@@ -14,7 +14,6 @@ from plugin.calc.excel_py_convert.parse_dag_formulas import iter_dag_py_formulas
 from plugin.calc.excel_py_convert.parse_excel_ooxml import load_excel_model
 from plugin.calc.excel_py_convert.to_dag import convert_model_to_dag
 from plugin.calc.excel_py_convert.to_excel import convert_dag_cells_to_excel
-from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport, ConvertedCell

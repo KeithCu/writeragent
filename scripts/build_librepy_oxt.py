@@ -55,6 +55,7 @@ LIBREPY_EXTENSION_INCLUDES = [
 LIBREPY_DIALOG_FILES = (
     "extension/Dialogs/PythonScriptDialog.xdl",
     "extension/Dialogs/PythonTestProgressDialog.xdl",
+    "extension/Dialogs/PythonSidebarDialog.xdl",
     "extension/Dialogs/TextAnalyticsDialog.xdl",
     "extension/Dialogs/LatexInputDialog.xdl",
     "extension/Dialogs/MsgBoxWithCopyDialog.xdl",

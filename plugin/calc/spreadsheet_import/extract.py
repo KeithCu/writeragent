@@ -19,7 +19,7 @@ from plugin.calc.spreadsheet_import.models import PyCellExtract, SheetModel
 
 # LibreOffice stores registered add-ins as fully qualified names in getFormula().
 _ADDIN_PY_PREFIX_RE = re.compile(
-    r"^=\s*ORG\.EXTENSION\.WRITERAGENT\.PYTHONFUNCTION\.(?:PYTHON|PY)\s*\(",
+    r"^=\s*ORG\.EXTENSION\.(?:WRITERAGENT|LIBREPY)\.PYTHONFUNCTION\.(?:PYTHON|PY)\s*\(",
     re.IGNORECASE,
 )
 

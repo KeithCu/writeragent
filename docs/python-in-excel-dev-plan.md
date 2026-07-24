@@ -19,7 +19,7 @@ todos:
     status: pending
   - id: phase6-diagnostics
     content: "Phase 6: Diagnostics pane -- structured error display with cell navigation"
-    status: pending
+    status: completed
   - id: phase7-ai
     content: "Phase 7: AI code synthesis enhancements"
     status: pending
@@ -58,11 +58,12 @@ Authoritative detail: [enabling_numpy §6 — Session modes and recalc semantics
 
 **Shipped spine:** Edit Python in Cell…, Run Python Script… Monaco, dual save, data-binding textbox, context menu — see [enabling_numpy §3 Monaco](enabling_numpy_in_libreoffice.md#monaco-editor--run-python-script).
 
+**Also shipped (LibrePy sidebar):** active-sheet Python cell list + click-to-navigate in the Calc **LibrePy → Python** deck ([`plugin/calc/python/cell_discovery.py`](../plugin/calc/python/cell_discovery.py), [`plugin/librepy/python_sidebar.py`](../plugin/librepy/python_sidebar.py)). Monaco IPC `list_python_cells` remains optional polish.
+
 **Remaining in this phase:**
 
 | Item | Detail | Touch |
 |------|--------|-------|
-| **Sheet-level Python cell list** | `list_python_cells` IPC: host enumerates all `=PYTHON()` cells grouped by sheet; Monaco sidebar or picker | [`editor_host.py`](../plugin/scripting/editor_host.py), [`editor_ipc.py`](../plugin/scripting/editor_ipc.py), JS |
 | **Formula bar / toolbar polish** | Optional Calc input-line button; double-click cell → editor (if not already sufficient via menu) | [`python_editor.py`](../plugin/calc/python/editor.py), [`Addons.xcu`](../extension/Addons.xcu) |
 
 **Delegated to [Monaco dev plan](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed):** 2B syntax validate, 2C range picker, 2D Jedi, 2E theme sync, 2F Flatpak spawn — do not duplicate here.
@@ -88,18 +89,19 @@ Authoritative detail: [enabling_numpy §6 — Session modes and recalc semantics
 
 ---
 
-### Phase 6: Diagnostics pane
+### Phase 6: Diagnostics pane (shipped — LibrePy sidebar)
 
-**Goal:** Structured traceback + cell navigation when `=PYTHON()` fails (Excel `#PYTHON!` → editor analogue).
+**Goal:** Structured traceback + cell navigation when `=PY()` / `=PYTHON()` fails (Excel `#PYTHON!` → editor analogue).
 
-**Build:**
+**Shipped in LibrePy.oxt:**
 
-- Per-cell error log (address, snippet, `traceback`, `stdout` — worker fields exist)
-- **Python Diagnostics** panel: errors by sheet, click-to-navigate
-- Filters: errors / print output / all Python cells
-- **Cell-level traceback snippet** in the cell string until pane ships (truncate worker trace to N lines)
+- Bounded per-workbook log ([`plugin/calc/python/diagnostics.py`](../plugin/calc/python/diagnostics.py)) fed from [`function.py`](../plugin/calc/python/function.py) (errors + non-empty stdout only)
+- **LibrePy → Python** sidebar: filters (All / Errors / Output), detail pane, click-to-navigate
+- Active-sheet Python cell list with **Edit Cell** / **Run Script** / **Edit Init** / **Reset** / **Settings**
 
-**Touch:** [`python_function.py`](../plugin/calc/python/function.py), new `plugin/calc/python_diagnostics.py`, [`worker_harness.py`](../plugin/scripting/worker_harness.py).
+**Touch:** [`function.py`](../plugin/calc/python/function.py), [`diagnostics.py`](../plugin/calc/python/diagnostics.py), [`cell_discovery.py`](../plugin/calc/python/cell_discovery.py), [`plugin/librepy/panel_factory.py`](../plugin/librepy/panel_factory.py), [`python_sidebar.py`](../plugin/librepy/python_sidebar.py), [`extension-core/registry/.../Sidebar.xcu`](../extension-core/registry/org/openoffice/Office/UI/Sidebar.xcu).
+
+**Still optional:** truncate worker traceback into the cell error string for glanceable grid feedback.
 
 ---
 
@@ -144,8 +146,8 @@ graph TD
     P3 -.->|"Monaco 2B–2F parallel"| M["python-monaco-editor-dev-plan"]
 ```
 
-1. Finish **Phase 3** sheet list + Monaco 2B–2C (highest editor UX value).
-2. **Phase 6** (diagnostics) — unblocks better failure UX for all Python cells.
+1. Finish **Phase 3** Monaco 2B–2C (highest editor UX value); sheet list lives in LibrePy sidebar.
+2. **Phase 6** (diagnostics) — **done** (LibrePy Python sidebar).
 3. **Phase 5** (object cards) — needs shared kernel (done).
 4. **Phase 7** — prompt/polish after core UX is stable.
 5. **Unphased** items (named ranges, RPC) as separate PRs when prioritized.

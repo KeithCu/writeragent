@@ -10,6 +10,7 @@
  <library:element library:name="SearchDialog"/>
  <library:element library:name="SpreadsheetImportDialog"/>
  <library:element library:name="PythonScriptDialog"/>
+ <library:element library:name="PythonSidebarDialog"/>
  <library:element library:name="ServerStatusDialog"/>
  <library:element library:name="WebSearchQueryEditDialog"/>
  <library:element library:name="ShortTextInputDialog"/>

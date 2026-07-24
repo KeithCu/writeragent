@@ -134,6 +134,9 @@ def should_exclude(path, with_tests=False):
         or path_norm.startswith("build/generated/locales/")
     ) and (path_norm.endswith(".po") or path_norm.endswith(".pot")):
         return True
+    # Dev-only Python logo sources; ship only python_32.png in the OXT.
+    if path_norm.endswith("assets/python_logo.svg") or path_norm.endswith("assets/python_logo.NOTICE"):
+        return True
     for pat in EXCLUDE_PATTERNS:
         if pat in path:
             return True

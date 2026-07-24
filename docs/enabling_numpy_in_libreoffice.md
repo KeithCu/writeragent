@@ -140,9 +140,10 @@ For Monaco (recommended editor UI), also install `pywebview` (on Linux: `PyQt6 P
 
 | What you use                                  | Where                     | Notes                                                                                                   |
 | --------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **LibrePy Python sidebar** (Calc)             | LibrePy **and** WriterAgent | Cell list, diagnostics (stdout/errors), Reset / Edit Init / Run Script / Settings — Monaco stays separate; Calc-only **Python** deck |
 | **Run Python Script…**                        | Writer / Calc / Draw menu | Monaco editor (**Run** / **Save** / script picker), or a plain multiline dialog if pywebview is missing |
 | **Edit Python in Cell…** / `=PY(code, data?)` | Calc                      | Same warm venv runner; dual save as `=PY("…")` or plain text for `=PY($A$1; …)`                         |
-| **Edit Initialization Script…**               | Calc                      | Workbook startup script; seeds helpers for every `=PY()` cell                                           |
+| **Edit Initialization Script…**               | Calc (sidebar or Monaco)  | Workbook startup script; seeds helpers for every `=PY()` cell                                           |
 | Shared warm worker                            | All of the above          | One subprocess per venv path (`[venv_worker.py](plugin/scripting/venv_worker.py)`)                      |
 
 
@@ -160,8 +161,9 @@ The extension ships a **Monaco-based code editor** (pywebview child in the confi
 | **Edit Python in Cell…** (Calc menubar + cell context menu) | **Shipped** | Dual save (`=PY("…")` or plain text for `=PY($A$1; …)`); editable **Data:** range                |
 | **Run Python Script…** (Writer/Calc/Draw)                   | **Shipped** | **Run** / **Save** / script picker                                                               |
 | **Document-attached scripts**                               | **Shipped** | **This Document** vs **My Scripts** in the picker — scripts can travel with `.odt`/`.ods`/`.odg` |
-| **Edit Initialization Script…** (Calc)                      | **Shipped** | Workbook startup script in document properties                                                   |
-| Syntax squiggles, range picker, full Jedi, sheet cell list  | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed)          |
+| **Edit Initialization Script…** (Calc)                      | **Shipped** | Workbook startup script in document properties; LibrePy sidebar button + Monaco                  |
+| **LibrePy Python sidebar** (Calc deck)                      | **Shipped** | Cell list, filtered diagnostics, session/actions — not an embedded Monaco editor                 |
+| Syntax squiggles, range picker, full Jedi                   | **Backlog** | [Monaco dev plan §8](python-monaco-editor-dev-plan.md#8-next-development-plan-detailed)          |
 
 
 **Requirements:** Settings → Python → venv path with `pywebview` installed (Linux also needs `PyQt6 PyQt6-WebEngine qtpy`). **Edit Python in Cell…** does not fall back to embedded LO Python — fix the venv if the editor fails to open. **Run Python Script…** falls back to the native multiline dialog when pywebview is unavailable.
@@ -477,7 +479,7 @@ Deliberate accumulation (running totals, etc.) is fine — treat it as a choice,
 |                        | Microsoft Python in Excel                 | Calc `=PY()`                                                                                                                               |
 | ---------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Cell value**         | Last evaluated expression (Jupyter-style) | Explicit `result = …` assignment                                                                                                           |
-| `print()` **/ stdout** | Diagnostics pane only; cell gets `None`   | Captured in worker response; **not** shown in the cell today ([Phase 6 diagnostics](python-in-excel-dev-plan.md#phase-6-diagnostics-pane)) |
+| `print()` **/ stdout** | Diagnostics pane only; cell gets `None`   | Captured in worker response; shown in **LibrePy Python sidebar** diagnostics ([Phase 6](python-in-excel-dev-plan.md#phase-6-diagnostics-pane)); not written into the cell |
 | **Top-level** `return` | Syntax error in Excel                     | Use `result = …` instead                                                                                                                   |
 
 
@@ -981,10 +983,10 @@ Microsoft **Python in Excel** runs user code in **cloud containers** with `=PY(c
 | ------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Dynamic spill**  | Auto-fill adjacent cells; `#SPILL!` when blocked | **Shipped** — [§6 Dynamic auto-spill](#dynamic-auto-spill); `python_function.py` spill registry + deferred write                                                                                                                                                |
 | **Output / plots** | Object cards; embedded plot images               | **Plots shipped**; table + JSON egress + object cards → backlog                                                                                                                                                                                                 |
-| **UI / editor**    | Monaco task pane; sheet grouping                 | **Cell editor + Run Python Script Monaco shipped**; grouping, range picker → [Monaco 2C](python-monaco-editor-dev-plan.md#phase-2c--calc-range-picker-medium-risk-high-value); shortcuts → [§6](enabling_numpy_in_libreoffice.md#keyboard-shortcuts-and-recalc) |
+| **UI / editor**    | Monaco task pane; sheet grouping                 | **Cell editor + Run Python Script Monaco shipped**; **LibrePy Python sidebar** (cell list + diagnostics) shipped in LibrePy.oxt; Monaco grouping/range picker → [Monaco 2C](python-monaco-editor-dev-plan.md#phase-2c--calc-range-picker-medium-risk-high-value); shortcuts → [§6](enabling_numpy_in_libreoffice.md#keyboard-shortcuts-and-recalc) |
 | **Data handoff**   | `xl()` names, tables, `headers=True`             | **Range args + varargs shipped**; names/tables/labels → backlog                                                                                                                                                                                                 |
 | **Session / init** | Global init script; persistent kernel            | **Shared kernel + init scripts shipped**                                                                                                                                                                                                                        |
-| **Perf / debug**   | Diagnostics pane; `#PYTHON!` opens editor        | **Cell error string**; AST cache shipped; diagnostics pane → [Phase 6](python-in-excel-dev-plan.md)                                                                                                                                                             |
+| **Perf / debug**   | Diagnostics pane; `#PYTHON!` opens editor        | **LibrePy sidebar diagnostics** (stdout/errors + click-to-navigate) shipped; cell error string remains; AST cache shipped                                                                                                                                       |
 
 
 Phased implementation todos: [python-in-excel-dev-plan.md](python-in-excel-dev-plan.md) (Phases 3–7 + backlog).
@@ -1163,7 +1165,7 @@ See [numpy-jailsafe.md](numpy-jailsafe.md) for details on Collabora Online and j
 - **Calc landscape backlog** — range alignment, shared-kernel invalidation, Mito recorder, dynamic sidebar UI, shared-kernel memory bounds ([§7 Calc backlog](#calc-backlog-from-landscape-survey)).
 - **Blank vs NaN wire semantics** — [calc-blanks-vs-nans.md](calc-blanks-vs-nans.md).
 - Worker idle shutdown, per-formula `timeout_sec`, Python edit dialog tiers 1–3.
-- **Monaco backlog** — syntax validate (2B), range picker (2C), full Jedi (2D), sheet-level Python cell list — [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md). Theme sync (2E) is shipped.
+- **Monaco backlog** — syntax validate (2B), range picker (2C), full Jedi (2D) — [python-monaco-editor-dev-plan.md](python-monaco-editor-dev-plan.md). Theme sync (2E) and LibrePy sidebar cell list / diagnostics are shipped.
 - **Jupyter notebook import** — see [jupyter-notebook-import.md](jupyter-notebook-import.md) (Writer import shipped; execution loop deferred).
-- **Calc UX backlog** — object cards, diagnostics pane, named ranges/tables — [§7 Calc UX](#calc-ux-and-output-enhancements).
+- **Calc UX backlog** — object cards, named ranges/tables — [§7 Calc UX](#calc-ux-and-output-enhancements). Diagnostics pane shipped as LibrePy Python sidebar.
 

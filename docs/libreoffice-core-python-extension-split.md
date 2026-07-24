@@ -42,6 +42,7 @@ Aligned with [enabling_numpy_in_libreoffice.md](enabling_numpy_in_libreoffice.md
 | `=PYTHON()` / `=PY()` Calc add-in + warm venv worker | `=PROMPT()`, chat sidebar, MCP, grammar |
 | **Run Python Script…**, document scripts, init script, **Reset Python Session** | Chat tools (`run_venv_python_script`, `analyze_data`, `extract_text_from_image`, …) |
 | **Monaco** (Edit Python in Cell…, Run Python Script editor) | Analysis Sub-Agent, tool loop, LLM client |
+| **LibrePy Python sidebar** (Calc deck: cells + diagnostics; also in WriterAgent.oxt) | WriterAgent chat deck (`WriterAgentDeck`) |
 | **NumPy domain trusted helpers** (Analysis, Viz, Symbolic, Units, Forecast, Optimize, Quant, Text Analytics menu) | Embeddings (`plugin/embeddings/`, folder FTS, hybrid search) |
 | **Vision/OCR** (Run Python Script Vision Helpers + settings) | DuckDB SQL (`domain=sql`, spreadsheet SQL helpers) |
 | **TeX/Math** (Insert LaTeX Math + Writer HTML math in Run Python Script egress) | Jupyter notebook import (`import_ipynb`) |
@@ -566,9 +567,9 @@ flowchart TB
 
 | Install set | Expected | Status |
 |-------------|----------|--------|
-| **Core only (LibrePy)** | `=PY()` works; Run Python Script, Monaco, domains, Vision, LaTeX; Settings → Python; **no** chat sidebar | **Shipped** |
+| **Core only (LibrePy)** | `=PY()` works; Run Python Script, Monaco, domains, Vision, LaTeX; Settings → Python; **Python sidebar** (Calc); **no** chat sidebar | **Shipped** |
 | **Core + WriterAgent** | Same single `=PY()` add-in; chat tools call `plugin.scripting.venv_worker` from core; `=PROMPT()` from WriterAgent only | **Not shipped** |
-| **WriterAgent only** | Full WriterAgent Python stack + AI | **Shipped** (exclusive of LibrePy) |
+| **WriterAgent only** | Full WriterAgent Python stack + AI + **Python sidebar** (superset of LibrePy surfaces) | **Shipped** (exclusive of LibrePy) |
 | **WriterAgent only after strip** (no LibrePy, no bundled scripting) | Unsupported — needs LibrePy for `=PY()` | Future under option B |
 
 ### 1. New extension identity (core owns `=PY()`)
@@ -995,7 +996,7 @@ Monaco-based code editor (pywebview child in the user venv) for Calc formulas an
 | **Edit Python in Cell…** | [`calc/python/editor.py`](../plugin/calc/python/editor.py) |
 | **Run Python Script…** Monaco | [`python_runner.py`](../plugin/scripting/python_runner.py) + [`editor_host.py`](../plugin/scripting/editor_host.py) |
 | **Document scripts** | [`document_scripts.py`](../plugin/scripting/document_scripts.py) |
-| **Init script editor** | Monaco `scripts_manager.js` IPC + `session_manager.py` (no separate `init_script_editor.py`) |
+| **Init script editor** | [`init_script_editor.py`](../plugin/calc/python/init_script_editor.py) + LibrePy sidebar button; Monaco load/save of document `INIT` script |
 | **Theme sync** | [`appearance.py`](../plugin/framework/appearance.py) |
 
 ```mermaid
@@ -1017,10 +1018,21 @@ flowchart LR
 | [`plugin/calc/python/formula_edit.py`](../plugin/calc/python/formula_edit.py) | Parse/rebuild `=PY()` formulas |
 | [`plugin/calc/python/editor_context_menu.py`](../plugin/calc/python/editor_context_menu.py) | Cell context menu |
 | [`plugin/calc/python/workbook_lifecycle.py`](../plugin/calc/python/workbook_lifecycle.py) | Init script session reset |
+| [`plugin/calc/python/cell_discovery.py`](../plugin/calc/python/cell_discovery.py) | Enumerate `=PY()` cells for sidebar |
+| [`plugin/calc/python/diagnostics.py`](../plugin/calc/python/diagnostics.py) | Bounded stdout/error log for sidebar |
+| [`plugin/calc/python/init_script_editor.py`](../plugin/calc/python/init_script_editor.py) | Monaco editor for workbook INIT script |
+| [`plugin/librepy/panel_factory.py`](../plugin/librepy/panel_factory.py) | LibrePy Calc sidebar UNO factory |
+| [`plugin/librepy/python_sidebar.py`](../plugin/librepy/python_sidebar.py) | Sidebar controller (cells, diagnostics, actions) |
+| [`plugin/calc/navigation.py`](../plugin/calc/navigation.py) | Click-to-navigate from sidebar |
 | [`plugin/calc/excel_py_convert/`](../plugin/calc/excel_py_convert/) | Excel Python-in-Excel → DAG `=PY` (auto on open + CLI) |
 | [`plugin/scripting/venv/editor_main.py`](../plugin/scripting/venv/editor_main.py) | Child process entry (runs in user venv) |
+| [`extension-core/registry/.../Sidebar.xcu`](../extension-core/registry/org/openoffice/Office/UI/Sidebar.xcu) | LibrePyDeck + PythonPanel (Calc only); deck icon `assets/python_32.png` (PSF two-snakes) |
+| [`extension-core/registry/.../Factories.xcu`](../extension-core/registry/org/openoffice/Office/UI/Factories.xcu) | PythonPanelFactory registration |
+| [`extension/Dialogs/PythonSidebarDialog.xdl`](../extension/Dialogs/PythonSidebarDialog.xdl) | Sidebar layout |
 
 Requires Layer 2 (`appearance.py`, `document_scripts.py`, `python_runner.py`) and Layer 0 worker for **Run** from Monaco.
+
+**LibrePy Python sidebar:** Calc-only native deck (not chat). Lists active-sheet `=PY()` cells, shows filtered diagnostics, and dispatches existing menu actions. Monaco remains a separate pywebview window.
 
 ### Not in OXT
 

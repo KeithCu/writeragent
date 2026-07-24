@@ -41,7 +41,6 @@ from plugin.calc.excel_py_convert.models import (
     HeaderMode,
 )
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
-from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 _OBJECT_SUPPRESS = (
@@ -475,7 +474,6 @@ def convert_cell_to_dag(
         new_code = (new_code or "") + _OBJECT_SUPPRESS
         issues.append("returnType=1 (Object): suppressed cell value egress (shared object kept in script)")
 
-    formula_args = list(data_args) + list(ordering_args)
     fatal = unresolved or dynamic or syntax_fatal
 
     if fatal and not best_effort:

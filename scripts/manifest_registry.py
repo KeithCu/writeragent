@@ -532,6 +532,7 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/calc/python/addin.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/calc/prompt_addin.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/chatbot/panel_factory.py'),
+        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/librepy/panel_factory.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/writer/locale/ai_grammar_proofreader.py'),
         (
             'application/vnd.sun.star.configuration-data',

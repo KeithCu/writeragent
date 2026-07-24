@@ -92,6 +92,12 @@ def register_common_handlers() -> None:
 
     register_action_handler("scripting", "reset_python_session", _reset_python_session)
 
+    def _edit_init_script() -> None:
+        from plugin.calc.python.init_script_editor import open_init_script_editor
+        open_init_script_editor(get_ctx())
+
+    register_action_handler("scripting", "edit_init_script", _edit_init_script)
+
     def _open_vision_settings() -> None:
         from plugin.chatbot.module_config_dialog import show_vision_settings_dialog
         open_dialog_safely(show_vision_settings_dialog, "Failed to open Vision OCR settings")

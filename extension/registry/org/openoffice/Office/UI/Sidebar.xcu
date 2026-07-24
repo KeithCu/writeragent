@@ -22,6 +22,20 @@
                     <value oor:separator=";">com.sun.star.text.TextDocument, any, visible; com.sun.star.sheet.SpreadsheetDocument, any, visible; com.sun.star.drawing.DrawingDocument, any, visible; com.sun.star.presentation.PresentationDocument, any, visible;</value>
                 </prop>
             </node>
+            <node oor:name="LibrePyDeck" oor:op="replace">
+                <prop oor:name="Title" oor:type="xs:string">
+                    <value xml:lang="en-US">Python</value>
+                </prop>
+                <prop oor:name="Id" oor:type="xs:string">
+                    <value>LibrePyDeck</value>
+                </prop>
+                <prop oor:name="IconURL" oor:type="xs:string">
+                    <value>vnd.sun.star.extension://org.extension.writeragent/assets/python_32.png</value>
+                </prop>
+                <prop oor:name="ContextList">
+                    <value oor:separator=";">com.sun.star.sheet.SpreadsheetDocument, any, visible;</value>
+                </prop>
+            </node>
         </node>
         <node oor:name="PanelList">
             <node oor:name="ChatPanel" oor:op="replace">
@@ -54,6 +68,35 @@
                 </prop>
                 <prop oor:name="ImplementationURL" oor:type="xs:string">
                     <value>private:resource/toolpanel/ChatPanelFactory/ChatPanel</value>
+                </prop>
+                <prop oor:name="OrderIndex" oor:type="xs:int">
+                    <value>100</value>
+                </prop>
+                <prop oor:name="WantsCanvas" oor:type="xs:boolean">
+                    <value>false</value>
+                </prop>
+                <prop oor:name="WantsAWT" oor:type="xs:boolean">
+                    <value>true</value>
+                </prop>
+                <prop oor:name="DefaultMenuCommand">
+                    <value></value>
+                </prop>
+            </node>
+            <node oor:name="PythonPanel" oor:op="replace">
+                <prop oor:name="Title" oor:type="xs:string">
+                    <value xml:lang="en-US">Python</value>
+                </prop>
+                <prop oor:name="Id" oor:type="xs:string">
+                    <value>PythonPanel</value>
+                </prop>
+                <prop oor:name="DeckId" oor:type="xs:string">
+                    <value>LibrePyDeck</value>
+                </prop>
+                <prop oor:name="ContextList">
+                    <value oor:separator=";">com.sun.star.sheet.SpreadsheetDocument, any, visible;</value>
+                </prop>
+                <prop oor:name="ImplementationURL" oor:type="xs:string">
+                    <value>private:resource/toolpanel/PythonPanelFactory/PythonPanel</value>
                 </prop>
                 <prop oor:name="OrderIndex" oor:type="xs:int">
                     <value>100</value>

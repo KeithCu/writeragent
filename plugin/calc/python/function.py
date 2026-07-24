@@ -654,6 +654,7 @@ def execute_python_addin(
             if size_err:
                 ret = f"Error: {size_err}"
                 log.debug("PYTHON returning size error: %r", ret)
+                _record_py_diagnostic(ctx, code, None, status="error", message=ret)
                 return ret
             worker_data = pack_calc_multi_data_for_wire(py_data) if is_multi else pack_calc_data_for_wire(py_data)
         else:
@@ -680,6 +681,7 @@ def execute_python_addin(
             )
         log.debug("PYTHON res from worker: %r", res)
         if res.get("status") == "ok":
+            _record_py_diagnostic(ctx, code, res, status="ok")
             result = res.get("result")
             result = _strip_dataframe_envelope(result)
             log.debug("PYTHON raw result: %r (type: %s)", result, type(result).__name__)
@@ -692,10 +694,67 @@ def execute_python_addin(
             log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
             return final_ret
         err_msg = f"Error: {res.get('message') or res.get('error')}"
+        _record_py_diagnostic(ctx, code, res, status="error", message=err_msg)
         log.debug("PYTHON returning worker error: %r", err_msg)
         return err_msg
     except Exception as e:
         log.exception("PYTHON unexpected error during execution")
         err_msg = _format_error_for_display(e)
+        _record_py_diagnostic(ctx, code, None, status="error", message=err_msg, traceback=str(e))
         log.debug("PYTHON returning exception wrapper: %r", err_msg)
         return err_msg
+
+
+def _diagnostics_workbook_key(ctx: Any) -> str:
+    """Stable workbook key for the diagnostics store (UNO-light best effort)."""
+    try:
+        from plugin.scripting.document_scripts import get_calc_document_from_ctx
+        from plugin.scripting.session_manager import calc_workbook_base_session_id
+
+        doc = get_calc_document_from_ctx(ctx)
+        if doc is not None:
+            return calc_workbook_base_session_id(doc)
+    except Exception:
+        log.debug("diagnostics workbook key failed", exc_info=True)
+    return "unknown"
+
+
+def _record_py_diagnostic(
+    ctx: Any,
+    code: str,
+    res: dict[str, Any] | None,
+    *,
+    status: str,
+    message: str = "",
+    traceback: str = "",
+) -> None:
+    """Record stdout/errors for the LibrePy sidebar without extra UNO work.
+
+    Skips successful evaluations with empty stdout so the log stays actionable.
+    """
+    try:
+        from plugin.calc.python.diagnostics import record_python_eval
+
+        stdout = ""
+        tb = traceback
+        msg = message
+        if isinstance(res, dict):
+            stdout = str(res.get("stdout") or "")
+            if not msg:
+                msg = str(res.get("message") or res.get("error") or "")
+            if not tb:
+                raw_tb = res.get("traceback")
+                tb = str(raw_tb) if raw_tb else ""
+        if status == "ok" and not (stdout or "").strip():
+            return
+        record_python_eval(
+            workbook_key=_diagnostics_workbook_key(ctx),
+            code=code or "",
+            status=status,
+            message=msg,
+            stdout=stdout,
+            traceback=tb,
+        )
+    except Exception:
+        # Never break formula evaluation for diagnostics UI.
+        log.debug("record_python_eval failed", exc_info=True)

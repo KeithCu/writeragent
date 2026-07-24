@@ -269,7 +269,7 @@ def convert_dag_formula_to_excel(
     if isinstance(bindings_raw, list):
         for b in bindings_raw:
             if isinstance(b, dict):
-                raw = cast(dict[str, Any], b)
+                raw = cast("dict[str, Any]", b)
                 bindings.append(
                     BindingInfo(
                         a1=str(raw.get("a1") or ""),
@@ -332,7 +332,7 @@ def convert_dag_cells_to_excel(
         formula = item[2]
         meta: dict[str, Any] = {}
         if len(item) == 4:
-            meta = cast(tuple[str, str, str, dict[str, Any]], item)[3]
+            meta = cast("tuple[str, str, str, dict[str, Any]]", item)[3]
         report.cells.append(
             convert_dag_formula_to_excel(formula, sheet=sheet, cell=cell, return_type=return_type, meta=meta)
         )
