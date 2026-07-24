@@ -270,16 +270,14 @@ def test_maybe_convert_fail_closed_leaves_original(tmp_path: Path):
         patch("plugin.doc.document_helpers.get_document_path", return_value=str(src)),
         patch("plugin.doc.udprops.get_document_property", return_value=None),
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=bad),
-        patch("plugin.calc.excel_py_convert.convert.write_dag_formulas_xlsx") as write_xlsx,
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc") as apply_uno,
     ):
         assert maybe_convert_excel_py_document(MagicMock(), doc) is False
-        write_xlsx.assert_not_called()
         apply_uno.assert_not_called()
         doc.close.assert_not_called()
 
 
-def test_maybe_convert_uno_fallback_marks_converted(tmp_path: Path):
+def test_maybe_convert_uno_marks_converted(tmp_path: Path):
     src = tmp_path / "py.xlsx"
     _minimal_xlsx(src, with_scripts=True)
     doc = MagicMock()
@@ -299,10 +297,6 @@ def test_maybe_convert_uno_fallback_marks_converted(tmp_path: Path):
         patch("plugin.doc.udprops.get_document_property", return_value=None),
         patch("plugin.doc.udprops.set_document_property") as set_prop,
         patch("plugin.calc.excel_py_convert.convert.convert_to_dag", return_value=report),
-        patch(
-            "plugin.calc.excel_py_convert.convert.write_dag_formulas_xlsx",
-            side_effect=ImportError("no openpyxl"),
-        ),
         patch("plugin.calc.excel_py_convert.apply_calc.apply_dag_formulas_to_calc_doc", return_value=[]) as apply_uno,
     ):
         assert maybe_convert_excel_py_document(MagicMock(), doc) is True

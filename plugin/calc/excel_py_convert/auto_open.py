@@ -3,9 +3,8 @@
 
 No menu: a GlobalEventBroadcaster listener runs on Calc ``OnLoadFinished``.
 Detection re-reads the ``.xlsx`` on disk (stock import often drops
-``pythonScripts.xml``). Prefer writing a sibling ``*_py_dag.xlsx`` via openpyxl
-and swapping documents; fall back to in-place UNO ``setFormula`` when openpyxl
-is missing on the host. Failures leave the original document open.
+``pythonScripts.xml``). Applies formulas directly in-place via UNO ``setFormula``.
+Failures leave the original document open.
 """
 
 from __future__ import annotations
@@ -29,35 +28,6 @@ def _is_calc_doc(doc: Any) -> bool:
     try:
         return bool(doc and doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"))
     except Exception:
-        return False
-
-
-def _out_path_for(source: Path) -> Path:
-    return source.with_name(f"{source.stem}_py_dag.xlsx")
-
-
-def _swap_to_converted(ctx: Any, original_doc: Any, converted_path: Path) -> bool:
-    """Close *original_doc* without saving and open *converted_path* visibly."""
-    import uno
-
-    from plugin.framework.uno_context import get_desktop
-
-    desktop = get_desktop(ctx)
-    if desktop is None:
-        return False
-    url = uno.systemPathToFileUrl(str(converted_path.resolve()))
-    try:
-        if hasattr(original_doc, "setModified"):
-            original_doc.setModified(False)
-        original_doc.close(True)
-    except Exception:
-        log.warning("excel_py auto-open: failed to close original after convert", exc_info=True)
-        return False
-    try:
-        loaded = desktop.loadComponentFromURL(url, "_blank", 0, ())
-        return loaded is not None
-    except Exception:
-        log.warning("excel_py auto-open: failed to open converted workbook %s", converted_path, exc_info=True)
         return False
 
 
@@ -90,7 +60,8 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
         _busy_paths.add(path_str)
 
     try:
-        from plugin.calc.excel_py_convert.convert import convert_to_dag, write_dag_formulas_xlsx
+        from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
+        from plugin.calc.excel_py_convert.convert import convert_to_dag
 
         report = convert_to_dag(path)
         if not any(c.converted for c in report.cells):
@@ -104,20 +75,6 @@ def maybe_convert_excel_py_document(ctx: Any, doc: Any) -> bool:
                 or "; ".join(f"{c.sheet}!{c.cell}: {', '.join(c.issues)}" for c in report.cells if c.issues),
             )
             return False
-
-        out = _out_path_for(path)
-        try:
-            write_dag_formulas_xlsx(path, report, out)
-            if _swap_to_converted(ctx, doc, out):
-                log.info("excel_py auto-open: converted %s → %s (per-sheet py_code_* banks)", path, out)
-                return True
-            log.warning("excel_py auto-open: wrote %s but could not swap documents", out)
-        except ImportError:
-            log.debug("excel_py auto-open: openpyxl unavailable; applying formulas via UNO")
-        except Exception:
-            log.warning("excel_py auto-open: xlsx rewrite failed; trying UNO apply", exc_info=True)
-
-        from plugin.calc.excel_py_convert.apply_calc import apply_dag_formulas_to_calc_doc
 
         errors = apply_dag_formulas_to_calc_doc(doc, report)
         if errors:
