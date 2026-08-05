@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.framework.deal_shim import deal
 from plugin.framework.errors import UnoObjectError
 
 _FILTER_OPERATOR2_CODE_NAMES: tuple[str, ...] = (
@@ -62,6 +63,8 @@ _FILTER_OP_NUMERIC_ONLY = frozenset({"TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES
 _FILTER_OP_NO_VALUE = frozenset({"EMPTY", "NOT_EMPTY"})
 
 
+@deal.post(lambda result: result in (0, 1))
+@deal.raises(UnoObjectError)
 def filter_connection_code(name: str | None) -> int:
     """Map ``AND`` / ``OR`` to UNO ``FilterConnection`` (0 / 1 per IDL)."""
     if not name or name.upper() == "AND":
@@ -71,6 +74,8 @@ def filter_connection_code(name: str | None) -> int:
     raise UnoObjectError(f"Invalid filter connection: {name!r} (use AND or OR).")
 
 
+@deal.post(lambda result: isinstance(result, int) and result >= 0)
+@deal.raises(UnoObjectError)
 def resolve_filter_operator_code(operator: str) -> int:
     """Resolve ``FilterOperator2`` name to numeric code (table + optional UNO enum)."""
     code = filter_operator2_name_to_code(operator)
@@ -87,6 +92,8 @@ def resolve_filter_operator_code(operator: str) -> int:
     raise UnoObjectError(f"Unknown filter operator: {operator!r}")
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 6)
+@deal.raises(UnoObjectError)
 def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[int, int, int, bool, float, str]:
     """Return ``Field``, ``Operator``, ``Connection``, ``IsNumeric``, ``NumericValue``, ``StringValue``.
 

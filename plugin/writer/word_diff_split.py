@@ -187,6 +187,10 @@ class SplitResult:
         )
 
 
+from plugin.framework.deal_shim import deal
+
+
+@deal.post(lambda result: isinstance(result, list))
 def tokenize(s):
     """Split *s* into alternating word/separator :class:`Token` runs.
 
@@ -211,6 +215,7 @@ def _word_tokens(tokens):
     return [t for t in tokens if t.is_word]
 
 
+@deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
 def split_change(old, new, threshold=0.6):
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.
 

@@ -23,6 +23,8 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, cast
 
+from plugin.framework.deal_shim import deal
+
 # Aligned with upstream python-sdk LATEST_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = "2025-11-25"
 
@@ -57,6 +59,7 @@ class JsonRpcParseError:
     code: int = INVALID_REQUEST
 
 
+@deal.post(lambda result: isinstance(result, (ParsedJsonRpcRequest, JsonRpcParseError)))
 def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseError:
     """Parse and validate a single JSON-RPC request object.
 
@@ -81,6 +84,7 @@ def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseErr
     return ParsedJsonRpcRequest(method=method, params=dict(params), req_id=raw.get("id"), raw=raw)
 
 
+@deal.post(lambda result: isinstance(result, bool))
 def is_jsonrpc_notification(msg: object) -> bool:
     """True when *msg* is a JSON-RPC notification (no response expected)."""
     if not isinstance(msg, dict):
@@ -120,6 +124,7 @@ class InitializeResult:
         return out
 
 
+@deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
 def initialize_result(
     *,
     protocol_version: str | int,
@@ -183,6 +188,7 @@ def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
     return out
 
 
+@deal.post(lambda result: isinstance(result, dict) and "content" in result)
 def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_error: bool = False) -> dict[str, Any]:
     """Tool result carrying an IMAGE content block (MCP image type) instead of text.
 

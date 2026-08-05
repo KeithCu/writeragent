@@ -9,6 +9,7 @@ from __future__ import annotations
 import traceback
 from typing import Any, IO
 
+from plugin.framework.deal_shim import deal
 from plugin.scripting.ipc import IpcFrameError, pack_pickle_frame, read_frame_payload, unpack_pickle_frame
 
 EDITOR_DEFAULT_TITLE = " "
@@ -52,6 +53,7 @@ def exception_traceback(exc: BaseException) -> str:
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
+@deal.post(lambda result: isinstance(result, str))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Combine subprocess stderr, probe output, and/or an exception traceback."""
     chunks: list[str] = []
@@ -63,6 +65,7 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
     return "\n\n".join(chunks)
 
 
+@deal.post(lambda result: isinstance(result, str) and len(result) > 0)
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
     body = failure_detail(detail=detail, exc=exc)

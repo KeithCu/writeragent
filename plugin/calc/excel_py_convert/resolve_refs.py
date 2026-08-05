@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ExcelWorkbookModel
 
+from plugin.framework.deal_shim import deal
+
 _ANCHOR_RE = re.compile(r"^(?:_xlfn\.)?ANCHORARRAY\((.+)\)$", re.IGNORECASE)
 _TABLE_ALL_RE = re.compile(r"^([A-Za-z_][\w.]*)\[#All\]$", re.IGNORECASE)
 _SPILL_RE = re.compile(r"^(.+)#$")
@@ -67,6 +69,7 @@ def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "")
     return None
 
 
+@deal.post(lambda result: isinstance(result, ResolvedDep))
 def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") -> ResolvedDep:
     """Map one PY trailing arg to an A1 address for DAG ``data`` args."""
     raw = (dep or "").strip()

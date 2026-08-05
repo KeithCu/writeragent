@@ -16,9 +16,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.framework.deal_shim import deal
+
 PAYLOAD_CALC_RANGE = "calc_range"
 
 
+@deal.post(lambda result: isinstance(result, list))
 def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     """Normalize any scalar / 1D / 2D input into a rectangular ``list[list]``.
 
@@ -45,6 +48,7 @@ def column_vector_as_2d(values: list[Any]) -> list[list[Any]]:
     return [[v] for v in values]
 
 
+@deal.post(lambda result: isinstance(result, bool))
 def is_calc_range_payload(obj: Any) -> bool:
     if not isinstance(obj, dict):
         return False
@@ -58,6 +62,7 @@ def is_calc_range_payload(obj: Any) -> bool:
     return "data" in obj
 
 
+@deal.post(lambda result: isinstance(result, dict) and is_calc_range_payload(result))
 def pack_calc_range_envelope(
     grid: list[list[Any]],
     *,
@@ -83,6 +88,7 @@ def pack_calc_range_envelope(
     return envelope
 
 
+@deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
 def _dedupe_column_names(names: list[str]) -> list[str]:
     seen: dict[str, int] = {}
     out: list[str] = []

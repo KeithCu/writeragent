@@ -16,6 +16,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 from plugin.contrib.smolagents.local_python_executor import check_import_authorized
+from plugin.framework.deal_shim import deal
 
 # Statement/expression forms the interpreter refuses outright (see evaluate_ast else branch).
 _FORBIDDEN_NODE_TYPES: tuple[type[ast.AST], ...] = (
@@ -34,6 +35,7 @@ if hasattr(ast, "MatchStar"):
 _DEFAULT_MAX_ENTRIES = 256
 
 
+@deal.post(lambda result: result is None or isinstance(result, str))
 def validate_sandbox_ast(module: ast.Module, authorized_imports: list[str]) -> str | None:
     """Return an error message if *module* violates sandbox policy, else ``None``."""
     for node in ast.walk(module):

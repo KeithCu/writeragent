@@ -202,6 +202,107 @@
         "crosshair_result": "no_counterexamples_historical",
         "ci_integration": false
       },
+      "import_policy.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "venv_authorized_top_level_modules",
+          "venv_blocked_modules",
+          "inprocess_authorized_modules",
+          "format_venv_import_policy_for_prompt"
+        ],
+        "ci_integration": true
+      },
+      "config_limits.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "_clamp_timeout",
+          "resolve_python_exec_timeout"
+        ],
+        "ci_integration": true
+      },
+      "calc_range.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "ensure_rectangular_2d",
+          "is_calc_range_payload",
+          "pack_calc_range_envelope",
+          "_dedupe_column_names"
+        ],
+        "ci_integration": true
+      },
+      "helper_domain.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "header_prefix",
+          "parse_helper_script_header",
+          "parse_run_import_call_spec"
+        ],
+        "ci_integration": true
+      },
+      "trusted_action_registry.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "get_trusted_action_wiring"
+        ],
+        "ci_integration": true
+      },
+      "duckdb_sql.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "get_sql_script_templates",
+          "parse_sql_script_header"
+        ],
+        "ci_integration": true
+      },
+      "sandbox_cache.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "validate_sandbox_ast"
+        ],
+        "ci_integration": true
+      },
+      "trusted_rpc.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "parse_worker_dict_result"
+        ],
+        "ci_integration": true
+      },
+      "editor_ipc.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "failure_detail",
+          "failure_message"
+        ],
+        "ci_integration": true
+      },
+      "excel_xl.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "make_xl"
+        ],
+        "ci_integration": true
+      },
       "sandbox.py": {
         "status": "partial",
         "priority": "high",

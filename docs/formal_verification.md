@@ -430,8 +430,40 @@ Maintain a `verification_status.json` file tracking which components have been v
 21. **`plugin/chatbot/skills.py`** — `HUMANIZER_GUIDANCE` constant & skill store ([`tests/chatbot/test_chatbot_pure_verification.py`](../tests/chatbot/test_chatbot_pure_verification.py))
 22. **`plugin/chatbot/research_cache_fluff.py`** — `translated_research_cache_fluff` ([`tests/chatbot/test_chatbot_pure_verification.py`](../tests/chatbot/test_chatbot_pure_verification.py))
 23. **`plugin/chatbot/web_research_cache.py`** — `snowball_lang_from_locale_tag`, `parse_research_cache_key`, `format_research_cache_key`, `jaccard`, `research_cache_similarity` ([`tests/chatbot/test_chatbot_pure_verification.py`](../tests/chatbot/test_chatbot_pure_verification.py))
+24. **`plugin/scripting/import_policy.py`** — `venv_authorized_top_level_modules`, `venv_blocked_modules`, `inprocess_authorized_modules`, `format_venv_import_policy_for_prompt` ([`tests/scripting/test_scripting_pure_verification.py`](../tests/scripting/test_scripting_pure_verification.py))
+25. **`plugin/scripting/config_limits.py`** — `_clamp_timeout`, `resolve_python_exec_timeout` ([`tests/scripting/test_scripting_pure_verification.py`](../tests/scripting/test_scripting_pure_verification.py))
+26. **`plugin/scripting/calc_range.py`** — `ensure_rectangular_2d`, `is_calc_range_payload`, `pack_calc_range_envelope`, `_dedupe_column_names` ([`tests/scripting/test_scripting_pure_verification.py`](../tests/scripting/test_scripting_pure_verification.py))
+27. **`plugin/scripting/helper_domain.py`** — `header_prefix`, `parse_helper_script_header`, `parse_run_import_call_spec` ([`tests/scripting/test_scripting_phase2_verification.py`](../tests/scripting/test_scripting_phase2_verification.py))
+28. **`plugin/scripting/trusted_action_registry.py`** — `get_trusted_action_wiring` ([`tests/scripting/test_scripting_phase2_verification.py`](../tests/scripting/test_scripting_phase2_verification.py))
+29. **`plugin/scripting/duckdb_sql.py`** — `get_sql_script_templates`, `parse_sql_script_header` ([`tests/scripting/test_scripting_phase2_verification.py`](../tests/scripting/test_scripting_phase2_verification.py))
+30. **`plugin/scripting/sandbox_cache.py`** — `validate_sandbox_ast` ([`tests/scripting/test_scripting_ast_verification.py`](../tests/scripting/test_scripting_ast_verification.py))
+31. **`plugin/scripting/trusted_rpc.py`** — `parse_worker_dict_result` ([`tests/scripting/test_scripting_high_value_verification.py`](../tests/scripting/test_scripting_high_value_verification.py))
+32. **`plugin/scripting/editor_ipc.py`** — `failure_detail`, `failure_message` ([`tests/scripting/test_scripting_high_value_verification.py`](../tests/scripting/test_scripting_high_value_verification.py))
+33. **`plugin/scripting/excel_xl.py`** — `make_xl` ([`tests/scripting/test_scripting_high_value_verification.py`](../tests/scripting/test_scripting_high_value_verification.py))
+34. **`plugin/calc/formula_dep_chain.py`** — `_resolve_sheet_and_cell` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../tests/calc/test_calc_dep_and_filter_verification.py))
+35. **`plugin/calc/sheet_filter_criteria.py`** — `filter_connection_code`, `resolve_filter_operator_code`, `parse_sheet_filter_criterion` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../tests/calc/test_calc_dep_and_filter_verification.py))
+36. **`plugin/calc/excel_py_convert/resolve_refs.py`** — `resolve_dep` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../tests/calc/test_calc_dep_and_filter_verification.py))
+37. **`plugin/mcp/wire_types.py`** — `parse_jsonrpc_request`, `is_jsonrpc_notification`, `initialize_result`, `call_tool_result_image` ([`tests/mcp/test_mcp_wire_verification.py`](../tests/mcp/test_mcp_wire_verification.py))
+38. **`plugin/writer/word_diff_split.py`** — `tokenize`, `split_change` ([`tests/writer/test_writer_diff_and_html_verification.py`](../tests/writer/test_writer_diff_and_html_verification.py))
+39. **`plugin/writer/xhtml_style_postprocess.py`** — `decode_lo_css_class_suffix`, `compact_lo_style_name` ([`tests/writer/test_writer_diff_and_html_verification.py`](../tests/writer/test_writer_diff_and_html_verification.py))
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)
+
+---
+
+## 8. Development Guidelines & Best Practices
+
+1. **`deal_shim` Import Pattern (CRITICAL)**:
+   - Always import `deal` via `from plugin.framework.deal_shim import deal` in all `plugin/` files.
+   - LibreOffice's bundled Python runtime does **not** install `deal`. Using `import deal` directly will break LibreOffice component initialization at runtime. The `deal_shim` transparently falls back to no-op decorators when `deal` is missing.
+2. **Filtering Low-Value Targets**:
+   - Do NOT add contracts to pure constant sets or trivial single-line wrappers (e.g. `calc_functions_common.py`, `_lazy_venv.py`). Focus SMT verification on pure algorithms, security boundaries (`validate_sandbox_ast`, `scrub_subprocess_env`), data codecs (`payload_codec.py`), and state transition machines.
+3. **Excluding Evolving Modules**:
+   - Skip rapidly changing or experimental modules (e.g. vector search, folder FTS indexers) until their APIs stabilize.
+4. **CI & Verification Suite**:
+   - All verification unit tests MUST be added to `make verify` in `Makefile` and registered in `verification_status.json`.
+
+---
 
 ## Conclusion
 
@@ -463,10 +495,10 @@ By adopting concolic execution (CrossHair) and Design by Contract (`deal`), we c
          # ... implementation ...
      ```
 
-2. **`plugin/writer/format_support.py`**
-   - Text normalization functions
-   - Used across all document types
-   - Verify format preservation invariants
+2. **Pure Data Parsing & AST Transformation Modules**
+   - Pure string operations, payload codecs, AST policy validators, and tokenizers
+   - Used across Writer, Calc, and MCP protocols
+   - Verify format preservation, mathematical bounds, and contract invariants
 
 3. **`plugin/framework/tool.py`** (`to_openai_schema` / `to_mcp_schema` / `_normalize_schema_for_strict_providers`)
    - JSON schema transformations

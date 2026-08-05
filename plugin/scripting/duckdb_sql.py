@@ -72,6 +72,10 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
     )
 
 
+from plugin.framework.deal_shim import deal
+
+
+@deal.post(lambda result: isinstance(result, dict) and "query_folder_sql" in result and "query_sheet_sql" in result)
 def get_sql_script_templates() -> dict[str, str]:
     """Return built-in SQL helper templates for the Run Python Script picker."""
     return {helper: _template_body(helper, dict(_DEFAULT_PARAMS.get(helper, {}))) for helper in sorted(SQL_HELPER_NAMES)}
@@ -80,6 +84,7 @@ def get_sql_script_templates() -> dict[str, str]:
 SqlScriptMeta = HelperScriptMeta
 
 
+@deal.post(lambda result: result is None or isinstance(result, SqlScriptMeta))
 def parse_sql_script_header(code: str) -> SqlScriptMeta | None:
     """Parse machine header from SQL script template."""
     return parse_helper_script_header(code, tag="sql", helper_names=SQL_HELPER_NAMES)

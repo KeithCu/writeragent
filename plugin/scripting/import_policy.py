@@ -20,6 +20,8 @@ from plugin.scripting.sandbox import (
     VENV_AUTHORIZED_IMPORTS,
 )
 
+from plugin.framework.deal_shim import deal
+
 # Stdlib roots from VENV_AUTHORIZED_IMPORTS beyond BASE_BUILTIN_MODULES.
 _VENV_STDLIB_EXTRA: frozenset[str] = frozenset(
     {
@@ -73,6 +75,7 @@ INPROCESS_SANDBOX_CONTEXT_PREFIX = (
 )
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def venv_authorized_top_level_modules() -> tuple[str, ...]:
     """Top-level module names allowed in the venv worker sandbox."""
     roots: set[str] = set(BASE_BUILTIN_MODULES)
@@ -93,11 +96,13 @@ def _venv_package_modules() -> tuple[str, ...]:
     return tuple(sorted(m for m in venv_authorized_top_level_modules() if m not in stdlib))
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def venv_blocked_modules() -> tuple[str, ...]:
     """Explicitly dangerous modules plus common not-whitelisted mistakes."""
     return tuple(sorted(set(DANGEROUS_MODULES) | set(_VENV_COMMON_BLOCKED)))
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) > 0)
 def inprocess_authorized_modules() -> tuple[str, ...]:
     """Modules allowed in LO embedded execute_python_script sandbox."""
     return tuple(sorted(set(BASE_BUILTIN_MODULES) | set(CALC_AUTHORIZED_IMPORTS)))
@@ -109,6 +114,7 @@ def _join_modules(modules: tuple[str, ...]) -> str:
 # LLMs aren't told about the many calc. helpers yet. 
 #         "Use calc.* for Calc-parity helpers (SUMIF, XLOOKUP, FILTER, etc.). "
 
+@deal.post(lambda result: isinstance(result, str) and result.startswith(PYTHON_VENV_SANDBOX_CONTEXT_PREFIX))
 def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
     """Sandbox context prefix first, then import rules for LLM prompts."""
     auto_imports = (

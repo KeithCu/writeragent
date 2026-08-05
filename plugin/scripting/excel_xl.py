@@ -14,12 +14,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from plugin.framework.deal_shim import deal
+
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 
 # Sentinel so callers can distinguish omitted headers= from headers=False.
 _HEADERS_OMIT = object()
 
 
+@deal.post(lambda result: callable(result))
 def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
     """Return an Excel-shaped ``xl(ref, headers=…)`` closed over *ranges*."""
     bound = tuple(ranges or ())

@@ -730,6 +730,12 @@ verify:
 		tests/framework/test_framework_modules_verification.py \
 		tests/framework/test_framework_phase3_verification.py \
 		tests/chatbot/test_chatbot_pure_verification.py \
+		tests/scripting/test_scripting_pure_verification.py \
+		tests/scripting/test_scripting_phase2_verification.py \
+		tests/scripting/test_scripting_ast_verification.py \
+		tests/scripting/test_scripting_high_value_verification.py \
+		tests/calc/test_calc_dep_and_filter_verification.py \
+		tests/mcp/test_mcp_wire_verification.py \
 		tests/calc/test_address_utils_verification.py \
 		tests/mcp/test_cors_verification.py \
 		tests/scripting/test_scrub_env_verification.py \

@@ -57,9 +57,12 @@ _TRUSTED_ACTION_WIRING: tuple[TrustedActionWiring, ...] = (
     ),
 )
 
+from plugin.framework.deal_shim import deal
+
 _wiring_by_domain: dict[str, TrustedActionWiring] | None = None
 
 
+@deal.post(lambda result: result is None or isinstance(result, TrustedActionWiring))
 def get_trusted_action_wiring(domain: str) -> TrustedActionWiring | None:
     """Return wiring for *domain*, or None when unregistered."""
     global _wiring_by_domain

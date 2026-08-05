@@ -98,6 +98,9 @@ def _schema_int(field_name: str, name: str, *, fallback: int | None = None, requ
 # --- python_exec_timeout ---
 
 
+from plugin.framework.deal_shim import deal
+
+
 def python_exec_timeout_default() -> int:
     return _schema_int("python_exec_timeout", "default", fallback=_TIMEOUT_FALLBACK_DEFAULT)
 
@@ -110,12 +113,14 @@ def python_exec_timeout_max() -> int:
     return _schema_int("python_exec_timeout", "max", fallback=_TIMEOUT_FALLBACK_MAX)
 
 
+@deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def _clamp_timeout(value: int) -> int:
     lo = python_exec_timeout_min()
     hi = python_exec_timeout_max()
     return max(lo, min(hi, value))
 
 
+@deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def resolve_python_exec_timeout(
     timeout_sec: int | float | str | None,
     *,
@@ -127,7 +132,7 @@ def resolve_python_exec_timeout(
         return _clamp_timeout(base)
     try:
         parsed = int(float(timeout_sec))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return _clamp_timeout(base)
     return _clamp_timeout(parsed)
 

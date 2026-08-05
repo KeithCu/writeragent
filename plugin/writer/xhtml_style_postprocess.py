@@ -41,12 +41,16 @@ _TRAILING_EMPTY_P_RE = re.compile(
     r"\s*<p\b[^>]*>(?:\s|&nbsp;|&#160;|&#xa0;| )*</p>\s*$", re.IGNORECASE
 )
 
+from plugin.framework.deal_shim import deal
 
+
+@deal.post(lambda result: isinstance(result, str))
 def decode_lo_css_class_suffix(suffix):
     """Reverse ODF URL-style encoding in a CSS class suffix (``Heading_20_1`` -> ``Heading 1``)."""
     return re.sub(r"_([0-9a-fA-F]{2})_", lambda m: chr(int(m.group(1), 16)), suffix)
 
 
+@deal.post(lambda result: isinstance(result, str) and " " not in result)
 def compact_lo_style_name(uno_name):
     """Agent-facing token: drop spaces (``Heading 1`` -> ``Heading1``)."""
     return uno_name.replace(" ", "")

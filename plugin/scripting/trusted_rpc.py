@@ -13,12 +13,15 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_GRACE_S, WORKER_POOL_DEFAULT
+from plugin.framework.deal_shim import deal
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
 
 
+@deal.post(lambda result: isinstance(result, dict))
+@deal.raises(ToolExecutionError)
 def parse_worker_dict_result(
     response: dict[str, Any],
     *,
