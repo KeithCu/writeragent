@@ -139,6 +139,8 @@ def format_error_payload(e: Exception) -> dict[str, Any]:
 # remains in client/errors.py as a thin adapter + specialized helpers.
 # See client/errors.py for the rationale and the thin re-exports.
 
+@deal.pre(lambda e: isinstance(e, Exception))
+@deal.post(lambda result: isinstance(result, str))
 def format_error_message(e: Exception) -> str:
     """Map common exceptions to user-friendly, localized advice.
 

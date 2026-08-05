@@ -415,7 +415,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 6. **`plugin/framework/async_stream.py`** — `accumulate_delta` FQN ([`tests/framework/test_accumulate_delta_verification.py`](../tests/framework/test_accumulate_delta_verification.py))
 7. **FSM catch-up** — CrossHair on `state_machine.py` + `tool_loop_state.next_state` FQN ([`tests/chatbot/test_fsm_verification.py`](../tests/chatbot/test_fsm_verification.py)); `mcp_state.next_state` ([`tests/mcp/test_mcp_state_verification.py`](../tests/mcp/test_mcp_state_verification.py))
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../tests/framework/test_json_utils_verification.py))
-9. **`plugin/framework/errors.py`** — `format_error_payload` FQN ([`tests/framework/test_error_payload_verification.py`](../tests/framework/test_error_payload_verification.py)); `format_error_message` deferred
+9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_error_payload_verification.py`](../tests/framework/test_error_payload_verification.py))
 10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env` FQN ([`tests/scripting/test_scrub_env_verification.py`](../tests/scripting/test_scrub_env_verification.py))
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)

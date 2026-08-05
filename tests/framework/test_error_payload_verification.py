@@ -16,7 +16,21 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.errors import ConfigError, WriterAgentException, format_error_payload
+from plugin.framework.errors import ConfigError, WriterAgentException, format_error_message, format_error_payload
+
+
+def test_format_error_message_basic() -> None:
+    msg = format_error_message(ValueError("connection failed"))
+    assert isinstance(msg, str)
+    assert len(msg) > 0
+
+
+@given(msg=st.text(max_size=40))
+@settings(max_examples=40)
+def test_hypothesis_format_error_message_returns_str(msg: str) -> None:
+    result = format_error_message(RuntimeError(msg))
+    assert isinstance(result, str)
+
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.framework.errors.format_error_payload"

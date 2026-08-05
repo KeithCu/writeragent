@@ -1,12 +1,81 @@
 {
   "framework": {
-    "config.py": {
-      "status": "planned",
-      "priority": "high"
+    "url_utils.py": {
+      "status": "partial",
+      "priority": "high",
+      "tool": "crosshair+deal+hypothesis",
+      "functions_contracted": [
+        "get_api_version_suffix",
+        "normalize_endpoint_url",
+        "get_url_hostname",
+        "get_url_domain",
+        "get_url_path",
+        "get_url_query_dict",
+        "get_url_path_and_query",
+        "is_pdf_url"
+      ],
+      "crosshair_last_run": "2026-08-05",
+      "crosshair_result": "no_counterexamples",
+      "ci_integration": false
     },
-    "format_support.py": {
-      "status": "planned",
-      "priority": "medium"
+    "config.py": {
+      "status": "partial",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "as_bool",
+        "parse_int_robust",
+        "parse_float_robust"
+      ],
+      "notes": "Coerce helpers only; no whole-file CrossHair",
+      "ci_integration": false
+    },
+    "tool.py": {
+      "status": "partial",
+      "priority": "high",
+      "tool": "crosshair+deal+hypothesis",
+      "functions_contracted": [
+        "_collapse_union_type",
+        "_make_optional_scalar_nullable",
+        "_normalize_schema_for_strict_providers"
+      ],
+      "crosshair_target": "plugin.framework.tool._normalize_schema_for_strict_providers",
+      "ci_integration": false
+    },
+    "async_stream.py": {
+      "status": "partial",
+      "priority": "high",
+      "tool": "crosshair+deal+hypothesis",
+      "functions_contracted": [
+        "accumulate_delta"
+      ],
+      "crosshair_target": "plugin.framework.async_stream.accumulate_delta",
+      "ci_integration": false
+    },
+    "json_utils.py": {
+      "status": "partial",
+      "priority": "high",
+      "tool": "crosshair+deal+hypothesis",
+      "functions_contracted": [
+        "safe_json_loads"
+      ],
+      "crosshair_target": "plugin.framework.json_utils.safe_json_loads",
+      "crosshair_last_run": "2026-08-05",
+      "crosshair_result": "no_counterexamples",
+      "ci_integration": false
+    },
+    "errors.py": {
+      "status": "partial",
+      "priority": "high",
+      "tool": "crosshair+deal+hypothesis",
+      "functions_contracted": [
+        "format_error_payload",
+        "format_error_message"
+      ],
+      "crosshair_target": "plugin.framework.errors.format_error_payload",
+      "crosshair_last_run": "2026-08-05",
+      "crosshair_result": "no_counterexamples",
+      "ci_integration": false
     }
   },
   "modules": {
@@ -14,9 +83,11 @@
       "payload_codec.py": {
         "status": "partial",
         "tool": "crosshair+deal+pytest",
-        "contracts": 8,
+        "contracts": 10,
         "functions_contracted": [
           "_flatten_grid_to_components",
+          "column_kinds_for_grid",
+          "should_use_binary_envelope",
           "host_pack_split_grid",
           "host_pack_data",
           "host_unpack_split_grid",
@@ -25,14 +96,106 @@
           "child_pack_split_grid",
           "child_pack_result"
         ],
-        "crosshair_last_run": "2026-05-23",
-        "crosshair_result": "no_counterexamples",
-        "crosshair_notes": [
-          "Core module targeted as full file in test_serialization_verification.py and Makefile crosshair-check",
-          "Most ensures report Not confirmed; no counterexamples found",
-          "child_pack_split_grid pre may report Unable to meet precondition (ndarray synthesis)",
-          "Round-trip invariants validated in pytest, not deal ensures"
+        "crosshair_last_run": "2026-08-05",
+        "crosshair_result": "no_counterexamples_historical",
+        "ci_integration": false
+      },
+      "sandbox.py": {
+        "status": "partial",
+        "priority": "high",
+        "tool": "crosshair+deal+hypothesis",
+        "functions_contracted": [
+          "scrub_subprocess_env"
         ],
+        "crosshair_target": "plugin.scripting.sandbox.scrub_subprocess_env",
+        "crosshair_last_run": "2026-08-05",
+        "crosshair_result": "no_counterexamples",
+        "notes": "Security env scrub only; detect_sandbox / path resolvers deferred",
+        "ci_integration": false
+      }
+    },
+    "calc": {
+      "address_utils.py": {
+        "status": "partial",
+        "priority": "high",
+        "tool": "crosshair+deal+hypothesis",
+        "functions_contracted": [
+          "column_to_index",
+          "index_to_column",
+          "parse_address",
+          "parse_range_string",
+          "format_address"
+        ],
+        "crosshair_last_run": "2026-08-05",
+        "crosshair_result": "no_counterexamples",
+        "ci_integration": false
+      }
+    },
+    "mcp": {
+      "cors.py": {
+        "status": "partial",
+        "priority": "high",
+        "tool": "crosshair+deal+hypothesis",
+        "functions_contracted": [
+          "normalize_cors_origin",
+          "normalize_origins_list",
+          "is_private_browser_origin",
+          "is_extra_allowed_origin",
+          "is_safe_origin",
+          "merge_allow_headers"
+        ],
+        "ci_integration": false
+      },
+      "mcp_state.py": {
+        "status": "partial",
+        "tool": "crosshair+deal+pytest",
+        "functions_contracted": [
+          "next_state"
+        ],
+        "crosshair_target": "plugin.mcp.mcp_state.next_state",
+        "crosshair_last_run": "2026-08-05",
+        "crosshair_result": "no_counterexamples",
+        "notes": "Missing tool_name \u2192 SendErrorEffect; TOOL_COMPLETED \u2192 StreamResponseEffect; REQUEST_ERROR sets is_error",
+        "ci_integration": false
+      }
+    },
+    "chatbot": {
+      "send_state.py": {
+        "status": "partial",
+        "tool": "crosshair+deal+pytest",
+        "functions_contracted": [
+          "next_state"
+        ],
+        "crosshair_last_run": "2026-08-05",
+        "crosshair_result": "no_counterexamples",
+        "ci_integration": false
+      },
+      "audio_recorder_state.py": {
+        "status": "partial",
+        "tool": "crosshair+deal+pytest",
+        "functions_contracted": [
+          "next_state"
+        ],
+        "crosshair_last_run": "2026-08-05",
+        "crosshair_result": "no_counterexamples",
+        "ci_integration": false
+      },
+      "state_machine.py": {
+        "status": "partial",
+        "tool": "crosshair+deal+pytest",
+        "functions_contracted": [
+          "next_state"
+        ],
+        "notes": "STOP must not spawn workers; CrossHair via test_fsm_verification",
+        "ci_integration": false
+      },
+      "tool_loop_state.py": {
+        "status": "partial",
+        "tool": "crosshair+deal+pytest",
+        "functions_contracted": [
+          "next_state"
+        ],
+        "notes": "Thin ensures; CrossHair FQN next_state only",
         "ci_integration": false
       }
     }
