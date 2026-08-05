@@ -158,6 +158,8 @@
         "_luminance",
         "get_monaco_theme_info"
       ],
+      "crosshair_result": "skipped_engine_limitation",
+      "notes": "get_monaco_theme_info UNO StyleSettings crashes CrossHair; omitted from crosshair-check-all",
       "ci_integration": true
     },
     "event_bus.py": {
@@ -485,6 +487,8 @@
           "format_upsert_memory_chat_line",
           "format_upsert_memory_chat_line_from_arguments"
         ],
+        "crosshair_result": "skipped_engine_limitation",
+        "notes": "safe_json_loads / symbolic str → CrossHairInternal; omitted from crosshair-check-all",
         "ci_integration": true
       },
       "send_state.py": {
@@ -513,7 +517,8 @@
         "functions_contracted": [
           "next_state"
         ],
-        "notes": "STOP must not spawn workers; CrossHair via test_fsm_verification",
+        "crosshair_result": "skipped_engine_limitation",
+        "notes": "STOP must not spawn workers; CrossHair engine Traceback on check-all — omitted; pytest via test_fsm_verification",
         "ci_integration": false
       },
       "tool_loop_state.py": {
@@ -522,7 +527,8 @@
         "functions_contracted": [
           "next_state"
         ],
-        "notes": "Thin ensures; CrossHair FQN next_state only",
+        "crosshair_result": "skipped_engine_limitation",
+        "notes": "Thin ensures; TOOL_RESULT + safe_json_loads crashes CrossHair — omitted from check-all",
         "ci_integration": false
       }
     },

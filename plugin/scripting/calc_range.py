@@ -30,7 +30,9 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     """
     if grid is None:
         return []
-    if isinstance(grid, (str, bytes)) or not isinstance(grid, (list, tuple)):
+    # Plain list/tuple only — namedtuple subclasses tuple; treating them as grids
+    # iterates fields and blows up on non-sequence members (e.g. SplitResultBytes ints).
+    if isinstance(grid, (str, bytes)) or (type(grid) is not list and type(grid) is not tuple):
         return [[grid]]
     if not grid:
         return []

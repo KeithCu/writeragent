@@ -82,7 +82,9 @@ def finalize_python_data(raw: Any) -> list[list[Any]] | None:
         return None
     if isinstance(raw, str):
         return [[raw]]
-    if not isinstance(raw, (list, tuple)):
+    # Plain list/tuple only — namedtuple subclasses tuple and must not be treated as a grid
+    # (CrossHair found SplitResultBytes → TypeError iterating int fields in ensure_rectangular_2d).
+    if type(raw) is not list and type(raw) is not tuple:
         return [[raw]]
     if not raw:
         return []

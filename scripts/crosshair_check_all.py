@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+# WriterAgent — long-running CrossHair check of all deal-instrumented plugin modules
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Discover ``@deal.`` modules under ``plugin/`` and run CrossHair check (multi-hour OK).
+
+Runs **one file at a time** so a CrossHair engine crash in one module does not abort the rest.
+Errors are printed live and reprinted in a final ``ERRORS TO FIX`` / failed-module summary.
+
+Usage::
+
+    make crosshair-check-all
+    python scripts/crosshair_check_all.py
+    python scripts/crosshair_check_all.py --list
+    python scripts/crosshair_check_all.py plugin/scripting/payload_codec.py
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from scripts.crosshair_stream import _TeeTextIO, discover_deal_plugin_files, run_crosshair
+
+DEFAULT_LOG = Path("build/crosshair-check-all.log")
+
+# Modules where CrossHair crashes (CrossHairInternal / UNO proxies / symbolic json.loads)
+# rather than finding a contract counterexample. @deal remains for runtime; check-all skips
+# them so the full sweep stays useful. Pass an explicit path to force analysis.
+CROSSHAIR_CHECK_ALL_SKIP: frozenset[str] = frozenset(
+    {
+        "plugin/chatbot/memory.py",  # safe_json_loads / symbolic str → CrossHairInternal
+        "plugin/chatbot/tool_loop_state.py",  # TOOL_RESULT path + safe_json_loads
+        "plugin/chatbot/state_machine.py",  # engine Traceback on next_state contracts
+        "plugin/framework/appearance.py",  # UNO StyleSettings / hasattr under symbolic objects
+    }
+)
+
+
+def _posix_rel(path: Path) -> str:
+    return path.as_posix()
+
+
+def filter_check_all_targets(files: list[Path], *, apply_skip: bool) -> tuple[list[Path], list[str]]:
+    """Return (to_run, skipped_rels). Explicit CLI targets should pass apply_skip=False."""
+    if not apply_skip:
+        return files, []
+    to_run: list[Path] = []
+    skipped: list[str] = []
+    for path in files:
+        rel = _posix_rel(path)
+        if rel in CROSSHAIR_CHECK_ALL_SKIP:
+            skipped.append(rel)
+        else:
+            to_run.append(path)
+    return to_run, skipped
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="CrossHair check all deal-instrumented plugin modules")
+    parser.add_argument(
+        "targets",
+        nargs="*",
+        help="Optional file paths (default: every plugin/**/*.py containing @deal.)",
+    )
+    parser.add_argument(
+        "--plugin-root",
+        type=Path,
+        default=Path("plugin"),
+        help="Plugin tree to scan when no targets given (default: plugin)",
+    )
+    parser.add_argument(
+        "--log",
+        type=Path,
+        default=DEFAULT_LOG,
+        help=f"Tee formatted output here (default: {DEFAULT_LOG})",
+    )
+    parser.add_argument("--list", action="store_true", help="Print discovered files and exit")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Only errors/fatals and final banner")
+    parser.add_argument("--raw", action="store_true", help="Also print suppressed CrossHair -v spam")
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop after the first module that fails (default: continue and summarize)",
+    )
+    parser.add_argument(
+        "--include-skipped",
+        action="store_true",
+        help="Also analyze CROSSHAIR_CHECK_ALL_SKIP modules (engine-crash hosts)",
+    )
+    args = parser.parse_args(argv)
+
+    explicit = bool(args.targets)
+    if args.targets:
+        files = [Path(t) for t in args.targets]
+        missing = [p for p in files if not p.is_file()]
+        if missing:
+            print("Missing targets: " + ", ".join(str(p) for p in missing), file=sys.stderr)
+            return 2
+    else:
+        files = discover_deal_plugin_files(args.plugin_root)
+
+    apply_skip = not explicit and not args.include_skipped
+    files, skipped = filter_check_all_targets(files, apply_skip=apply_skip)
+    if not files and not skipped:
+        print(f"No @deal. modules under {args.plugin_root}", file=sys.stderr)
+        return 2
+
+    rels = [_posix_rel(p) for p in files]
+    print(f"CrossHair check-all: {len(rels)} module(s), one CrossHair process per file", flush=True)
+    for rel in rels:
+        print(f"  {rel}", flush=True)
+    if skipped:
+        print(f"Skipped (engine-hostile; pass path or --include-skipped to force): {len(skipped)}", flush=True)
+        for rel in skipped:
+            print(f"  SKIP {rel}", flush=True)
+    if args.list:
+        return 0
+    if not files:
+        print("Nothing to analyze after skip filter.", file=sys.stderr)
+        return 0
+
+    args.log.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Logging to {args.log} (no per_condition_timeout; may take hours)", flush=True)
+
+    failed: list[tuple[str, list[str]]] = []
+    with args.log.open("w", encoding="utf-8") as log_fp:
+        tee = _TeeTextIO(sys.stdout, log_fp)
+        for index, path in enumerate(files, start=1):
+            rel = str(path)
+            tee.write(f"\n######## [{index}/{len(files)}] {rel} ########\n")
+            tee.flush()
+            ch_args = ["-v", "--report_all", "--analysis_kind=deal", rel]
+            code, stats = run_crosshair("check", ch_args, "check", args.raw, args.quiet, out=tee)
+            if code != 0:
+                details = list(stats.error_details or [])
+                failed.append((rel, details))
+                tee.write(f"[CHECK ERROR           ] module failed: {rel} (exit {code})\n")
+                tee.flush()
+                if args.fail_fast:
+                    break
+
+        tee.write("\n=== check-all summary ===\n")
+        tee.write(f"  modules: {len(files)}\n")
+        tee.write(f"  skipped: {len(skipped)}\n")
+        tee.write(f"  failed:  {len(failed)}\n")
+        if skipped:
+            tee.write("\n=== SKIPPED (engine-hostile) ===\n")
+            for rel in skipped:
+                tee.write(f"  * {rel}\n")
+        if failed:
+            tee.write("\n=== ERRORS TO FIX (by module) ===\n")
+            for rel, details in failed:
+                tee.write(f"  * {rel}\n")
+                if details:
+                    for detail in details:
+                        tee.write(f"      - {detail}\n")
+                else:
+                    tee.write("      - (no classified details; re-run this file with --raw)\n")
+        tee.flush()
+
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

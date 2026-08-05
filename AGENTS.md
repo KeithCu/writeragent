@@ -75,7 +75,9 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 | `make build` | **`ty`** + **`ruff-fix`** then **`ruff`** + bundle (produces `build/WriterAgent.oxt` only) |
 | `make deploy` | **`make build`** + one-time **`unopkg`** register (if needed) + cache hot-sync (restart LO) |
 | `make typecheck` | **`ty`** + **mypy** + **pyright** |
-| `make test` | Full typecheck + **opengrep-lint** + pytest + LO tests + **bandit** (see `[tool.bandit]` in [`pyproject.toml`](pyproject.toml); skip if no `soffice`) |
+| `make test` | Full typecheck + **opengrep-lint** + pytest (includes all formal verification tests) + LO tests + **bandit** |
+| `make verify` | Fast pass over pure formal verification test suites (`pytest tests/ -k verification`) |
+| `make slowtests` | Heavy extensive A/B serialization fixtures + live Hypothesis fuzzing (`make vhs`) |
 | `make opengrep-lint` | Opengrep UNO thread + vendored security rules (ERROR; part of `make test`) |
 | `make opengrep-rules-sync` | Refresh pinned third-party rules under `tests/semgrep/third_party/` |
 | `make release` | **`make test`** then **`release-build`** (includes **`openrouter-catalog`** → [`extension/metadata/openrouter_models.json`](extension/metadata/openrouter_models.json)—not in OXT—plus [`default_models.py`](plugin/framework/default_models.py), translations, OXT) |

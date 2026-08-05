@@ -646,6 +646,20 @@ def test_accumulate_delta_errors():
         accumulate_delta(acc, {"items": ["bad"]})
 
 
+def test_accumulate_delta_rejects_non_plain_dict():
+    """Mapping subclasses that isinstance(dict) must be rejected (plain dict only)."""
+    from collections import UserDict
+
+    import deal
+
+    from plugin.framework.async_stream import accumulate_delta
+
+    with pytest.raises(deal.PreContractError):
+        accumulate_delta(UserDict({"a": 1}), {"a": 2})  # type: ignore[arg-type]
+    with pytest.raises(deal.PreContractError):
+        accumulate_delta({"a": 1}, UserDict({"a": 2}))  # type: ignore[arg-type]
+
+
 class TestAsyncStreamErrorHandling():
 
     def test_stream_drain_loop_success(self):

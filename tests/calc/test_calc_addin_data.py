@@ -95,6 +95,25 @@ def test_finalize_python_data_already_flat_becomes_row():
     assert finalize_python_data([1, 2]) == [[1, 2]]
 
 
+def test_finalize_python_data_namedtuple_is_scalar_wrap():
+    """Namedtuple subclasses tuple but is not a Calc grid (CrossHair SplitResultBytes case)."""
+    from collections import namedtuple
+
+    SplitResultBytes = namedtuple("SplitResultBytes", "a b c d e")
+    raw = SplitResultBytes([], "", "", 0, 0)
+    assert finalize_python_data(raw) == [[raw]]
+
+
+def test_ensure_rectangular_2d_namedtuple_is_scalar_wrap():
+    from collections import namedtuple
+
+    from plugin.scripting.calc_range import ensure_rectangular_2d
+
+    Row = namedtuple("Row", "x y")
+    raw = Row(1, 2)
+    assert ensure_rectangular_2d(raw) == [[raw]]
+
+
 def test_pack_calc_data_for_wire_uses_split_grid_at_threshold():
     """Calc-sized numeric range uses split_grid inside a calc_range envelope."""
     from plugin.scripting.payload_codec import BINARY_MIN_CELLS

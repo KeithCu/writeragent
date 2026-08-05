@@ -49,6 +49,9 @@ def _parse_color(color_str):
     """
     if not color_str:
         return None
+    # LLM/tool args may pass non-strings; only hex/name strings are parseable.
+    if not isinstance(color_str, str):
+        return None
     color_str = color_str.strip().lower()
     color_names = {"red": 0xFF0000, "green": 0x00FF00, "blue": 0x0000FF, "yellow": 0xFFFF00, "white": 0xFFFFFF, "black": 0x000000, "orange": 0xFF8C00, "purple": 0x800080, "gray": 0x808080}
     if color_str in color_names:

@@ -104,7 +104,11 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
     """
     if "field" not in raw:
         raise UnoObjectError("Each criterion needs 'field' (0-based column index within range).")
-    field = int(raw["field"])
+    try:
+        field = int(raw["field"])
+    except (TypeError, ValueError) as e:
+        # Empty/non-numeric field must stay UnoObjectError (@deal.raises); bare int('') is ValueError.
+        raise UnoObjectError(f"Invalid filter 'field' (need 0-based column index): {raw['field']!r}") from e
     op_name = str(raw.get("operator", "")).strip()
     if not op_name:
         raise UnoObjectError("Each criterion needs 'operator' (FilterOperator2 name).")

@@ -118,6 +118,9 @@ make verify-serialization
 make crosshair-check
 make crosshair-cover
 
+# All deal-instrumented plugin modules (multi-hour; tees build/crosshair-check-all.log)
+make crosshair-check-all
+
 # Or pipe manually
 crosshair check -v --report_all plugin/scripting/payload_codec.py 2>&1 \
     | python scripts/crosshair_stream.py check

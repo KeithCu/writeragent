@@ -149,6 +149,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy ensure-uno \
+        verify crosshair-check crosshair-cover crosshair-check-all \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run pyrefly-run \
@@ -221,6 +222,10 @@ help:
 	@echo "  make test-run               Pytest + LO tests only (skip typecheck/bandit; for quick reruns)"
 	@echo "  make slowtests              Slow serialization once each: A/B fixtures, contracts/CrossHair, Hypothesis (vhs)"
 	@echo "  make vhs                    Hypothesis serialization fuzz with verbose output (Hypothesis step of slowtests)"
+	@echo "  make verify                 Pytest formal-verification suite (-k verification)"
+	@echo "  make crosshair-check        CrossHair check on payload_codec.py (long; not in make test)"
+	@echo "  make crosshair-cover        CrossHair cover on payload_codec.py (long; not in make test)"
+	@echo "  make crosshair-check-all    CrossHair check every @deal. plugin module (multi-hour; log: build/crosshair-check-all.log)"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
 	@echo "  make opengrep-lint          Opengrep UNO + security rules (ERROR; part of make test)"
@@ -711,47 +716,21 @@ test:
 
 CROSSHAIR_MODULE = plugin/scripting/payload_codec.py
 
-verify-serialization:
-	@echo "=== Pytest oracles ==="
-	$(PYTHON) -m pytest tests/scripting/test_serialization_verification.py -k "not crosshair" -q
-	@echo "=== CrossHair check (full module, live filtered) ==="
-	$(MAKE) crosshair-check
-
 verify:
 	@echo "=== Running All Formal Verification Unit Tests ==="
-	$(PYTHON) -m pytest tests/framework/test_url_utils_verification.py \
-		tests/framework/test_config_coerce_verification.py \
-		tests/framework/test_tool_schema_verification.py \
-		tests/framework/test_accumulate_delta_verification.py \
-		tests/framework/test_json_utils_verification.py \
-		tests/framework/test_error_payload_verification.py \
-		tests/framework/test_html_and_auth_verification.py \
-		tests/framework/test_i18n_and_memory_verification.py \
-		tests/framework/test_framework_modules_verification.py \
-		tests/framework/test_framework_phase3_verification.py \
-		tests/chatbot/test_chatbot_pure_verification.py \
-		tests/scripting/test_scripting_pure_verification.py \
-		tests/scripting/test_scripting_phase2_verification.py \
-		tests/scripting/test_scripting_ast_verification.py \
-		tests/scripting/test_scripting_high_value_verification.py \
-		tests/writer/test_writer_diff_and_html_verification.py \
-		tests/calc/test_calc_dep_and_filter_verification.py \
-		tests/mcp/test_mcp_wire_verification.py \
-		tests/calc/test_address_utils_verification.py \
-		tests/mcp/test_cors_verification.py \
-		tests/scripting/test_scrub_env_verification.py \
-		tests/chatbot/test_fsm_verification.py \
-		tests/mcp/test_mcp_state_verification.py -q
-
-test-serialization-ab:
-	$(_SERIALIZATION_EXTENSIVE) $(PYTHON) -m pytest tests/scripting/test_serialization_ab.py -q
+	$(PYTHON) -m pytest tests/ -k "verification" -q
 
 # CrossHair on entire module files (correctness over speed; see docs/formal_verification.md)
+# Use stream.py `run` (not a shell pipe) so engine crashes and exit codes are classified + summarized.
 crosshair-check:
-	.venv/bin/crosshair check -v --report_all $(CROSSHAIR_MODULE) 2>&1 | $(PYTHON) scripts/crosshair_stream.py check
+	$(PYTHON) scripts/crosshair_stream.py run check -- -v --report_all $(CROSSHAIR_MODULE)
 
 crosshair-cover:
-	.venv/bin/crosshair cover -v $(CROSSHAIR_MODULE) 2>&1 | $(PYTHON) scripts/crosshair_stream.py cover
+	$(PYTHON) scripts/crosshair_stream.py run cover -- -v $(CROSSHAIR_MODULE)
+
+# Multi-hour: every plugin file with @deal. (deal contracts only). Not part of make test.
+crosshair-check-all:
+	$(PYTHON) scripts/crosshair_check_all.py
 
 # ── Benchmarks (scripts/prompt_optimization) ─────────────────────────────────
 

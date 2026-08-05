@@ -81,3 +81,11 @@ def test_iter_matches_remove_discovery() -> None:
     out, n = remove_expr_statements(src, _grammar_obs)
     assert n == len(found)
     assert "grammar_obs" not in out
+
+
+def test_is_name_call_expr_expr_without_value() -> None:
+    """Missing .value must not AttributeError (CrossHair-style incomplete Expr)."""
+    node = ast.Expr(value=ast.Constant(1))
+    del node.value
+    assert is_name_call_expr(node, frozenset({"xl"})) is False
+    assert is_name_call_expr(ast.Expr(value=ast.Constant(1)), frozenset({"xl"})) is False

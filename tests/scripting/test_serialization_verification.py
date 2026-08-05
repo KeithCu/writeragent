@@ -19,6 +19,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import deal
 import pytest
 
 pytestmark = pytest.mark.slow
@@ -30,7 +31,10 @@ from plugin.scripting.payload_codec import (
     _flatten_grid_to_components,
     child_unpack_split_grid,
     column_kinds_for_grid,
+    host_pack_data,
+    host_pack_multi_data,
     host_pack_split_grid,
+    host_unpack_data,
     host_unpack_split_grid,
     should_use_binary_envelope,
 )
@@ -116,6 +120,29 @@ def test_should_use_binary_envelope_force_contracts() -> None:
     assert should_use_binary_envelope((BINARY_MIN_CELLS,), force="never") is False
     assert should_use_binary_envelope((), min_cells=0, force="auto") is False
     assert should_use_binary_envelope((0,), min_cells=0, force="auto") is True
+
+
+def test_host_pack_data_force_min_cells_preconditions() -> None:
+    """Pack entrypoints share should_use_binary_envelope force/min_cells pre so CrossHair cannot invent bad kwargs."""
+    with pytest.raises(deal.PreContractError):
+        host_pack_data([[1.0]], min_cells=-1)
+    with pytest.raises(deal.PreContractError):
+        host_pack_data([[1.0]], force="")
+    with pytest.raises(deal.PreContractError):
+        host_pack_multi_data([[[1.0]]], force="nope")
+    with pytest.raises(deal.PreContractError):
+        host_pack_multi_data([[[1.0]]], min_cells=-5)
+
+
+def test_host_unpack_data_plain_dict_recurses() -> None:
+    """Plain dicts recurse; dict subclasses are left as-is (avoids CrossHair AttrDict __ch_pytype__)."""
+    assert host_unpack_data({"a": 1, "b": [2, 3]}) == {"a": 1, "b": [2, 3]}
+
+    class MappingLike(dict):
+        pass
+
+    nested = MappingLike(x=1)
+    assert host_unpack_data(nested) is nested
 
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")

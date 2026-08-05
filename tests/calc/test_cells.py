@@ -17,6 +17,9 @@ def test_cells_parse_color():
     assert _parse_color("#00FF00") == 0x00FF00
     assert _parse_color("#000") == 0x000000
     assert _parse_color("invalid") is None
+    assert _parse_color(2) is None
+    assert _parse_color(None) is None
+    assert _parse_color("") is None
 
 
 def test_inspector_single_cell_range_fallback():

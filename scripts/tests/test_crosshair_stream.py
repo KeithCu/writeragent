@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 from io import StringIO
+from pathlib import Path
 
-from scripts.crosshair_stream import classify_line, stream_lines
+from scripts.crosshair_stream import classify_line, discover_deal_plugin_files, print_error_summary, stream_lines
 
 
 def test_classify_check_confirmed() -> None:
@@ -18,10 +19,12 @@ def test_classify_check_confirmed() -> None:
 
 
 def test_classify_check_error() -> None:
-    line = "/path/payload_codec.py:483: error: IndexError when calling host_unpack_split_grid(...)"
+    line = "/home/keithcu/project/plugin/scripting/payload_codec.py:483: error: IndexError when calling host_unpack_split_grid(...)"
     got = classify_line(line, "check")
     assert got is not None
     assert got.tag == "CHECK ERROR"
+    assert "plugin/scripting/payload_codec.py:483" in got.detail
+    assert "IndexError" in got.detail
 
 
 def test_classify_verbose_analyzing_function() -> None:
@@ -69,3 +72,63 @@ def test_stream_lines_verbose_milestone() -> None:
     out = buf.getvalue()
     assert "CHECK PROGRESS" in out
     assert "choose_possible" not in out
+
+
+def test_classify_crosshair_internal_as_error() -> None:
+    line = "crosshair.util.CrossHairInternal: Numeric operation on symbolic while not tracing"
+    got = classify_line(line, "check")
+    assert got is not None
+    assert got.tag == "CHECK ERROR"
+
+
+def test_classify_traceback_as_error() -> None:
+    got = classify_line("Traceback (most recent call last):", "check")
+    assert got is not None
+    assert got.tag == "CHECK ERROR"
+
+
+def test_classify_plugin_traceback_frame() -> None:
+    line = 'File "/home/keithcu/Desktop/Python/writeragent/plugin/chatbot/memory.py", line 58, in upsert_memory_arguments_dict'
+    got = classify_line(line, "check")
+    assert got is not None
+    assert got.tag == "CHECK ERROR"
+    assert "plugin/chatbot/memory.py:58" in got.detail
+
+
+def test_error_summary_lists_unique_details() -> None:
+    lines = [
+        "plugin/scripting/payload_codec.py:500: error: TypeError when calling should_use_binary_envelope()\n",
+        "plugin/scripting/payload_codec.py:500: error: TypeError when calling should_use_binary_envelope()\n",
+        "crosshair.util.CrossHairInternal: boom\n",
+    ]
+    buf = StringIO()
+    stats = stream_lines(iter(lines), mode="check", out=buf, raw=False, quiet=True)
+    assert stats.check_errors >= 2
+    summary = StringIO()
+    print_error_summary(stats, summary)
+    text = summary.getvalue()
+    assert "=== ERRORS TO FIX ===" in text
+    assert "payload_codec.py:500" in text
+    assert "CrossHairInternal" in text
+
+
+def test_discover_deal_plugin_files_includes_payload_codec(tmp_path) -> None:
+    plugin = tmp_path / "plugin"
+    (plugin / "scripting").mkdir(parents=True)
+    target = plugin / "scripting" / "payload_codec.py"
+    target.write_text("import deal\n@deal.post(lambda result, *_, **__: True)\ndef f():\n    return 1\n", encoding="utf-8")
+    (plugin / "scripting" / "no_deal.py").write_text("def g():\n    return 2\n", encoding="utf-8")
+    found = discover_deal_plugin_files(plugin)
+    assert found == [target]
+
+
+def test_filter_check_all_targets_skip_list() -> None:
+    from scripts.crosshair_check_all import CROSSHAIR_CHECK_ALL_SKIP, filter_check_all_targets
+
+    paths = [Path(p) for p in sorted(CROSSHAIR_CHECK_ALL_SKIP)] + [Path("plugin/scripting/payload_codec.py")]
+    to_run, skipped = filter_check_all_targets(paths, apply_skip=True)
+    assert [p.as_posix() for p in to_run] == ["plugin/scripting/payload_codec.py"]
+    assert set(skipped) == set(CROSSHAIR_CHECK_ALL_SKIP)
+    all_run, none_skipped = filter_check_all_targets(paths, apply_skip=False)
+    assert all_run == paths
+    assert none_skipped == []

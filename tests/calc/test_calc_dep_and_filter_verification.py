@@ -65,6 +65,13 @@ def test_parse_sheet_filter_criterion_basic() -> None:
     assert str_val == "test"
 
 
+def test_parse_sheet_filter_criterion_bad_field_raises_uno() -> None:
+    with pytest.raises(UnoObjectError, match="Invalid filter 'field'"):
+        parse_sheet_filter_criterion({"field": "", "operator": "EQUAL", "value": "x"}, is_first=True)
+    with pytest.raises(UnoObjectError, match="Invalid filter 'field'"):
+        parse_sheet_filter_criterion({"field": None, "operator": "EQUAL", "value": "x"}, is_first=True)
+
+
 class DummyModel:
     def __init__(self) -> None:
         self.anchor_snapshots = {"A6": "A6:C10"}

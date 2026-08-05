@@ -721,7 +721,7 @@ def run_blocking_in_thread(ctx, func, *args, **kwargs):
 # License: Apache 2.0 (https://github.com/openai/openai-python/blob/main/LICENSE)
 
 
-@deal.pre(lambda acc, delta: isinstance(acc, dict) and isinstance(delta, dict))
+@deal.pre(lambda acc, delta: type(acc) is dict and type(delta) is dict)
 @deal.post(lambda result: isinstance(result, dict))
 @deal.raises(TypeError, RuntimeError)
 def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> dict[object, object]:
@@ -731,6 +731,9 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
     assistant message from SSE chunks. Content and tool_calls (with partial
     function.arguments) are merged by index; strings are concatenated.
     """
+    # Plain dict only — CrossHair AttrDict passes isinstance(dict) but .items() can engine-crash.
+    if type(acc) is not dict or type(delta) is not dict:
+        raise TypeError("accumulate_delta requires plain dict acc and delta")
     for key, delta_value in delta.items():
         if key not in acc:
             acc[key] = delta_value

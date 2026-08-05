@@ -35,9 +35,11 @@ from plugin.framework.deal_shim import deal
 @deal.post(lambda result: isinstance(result, bool))
 def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     """True if *node* is an expression-statement call to one of *names*."""
-    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+    # getattr: CrossHair may synthesize Expr() without .value; real ast.Expr always has it.
+    value = getattr(node, "value", None) if isinstance(node, ast.Expr) else None
+    if not isinstance(value, ast.Call):
         return False
-    func = node.value.func
+    func = value.func
     return isinstance(func, ast.Name) and func.id in names
 
 

@@ -141,6 +141,14 @@ def test_build_auth_headers_empty_key():
     assert "Authorization" not in headers
 
 
+def test_build_auth_headers_non_str_style_coerced():
+    """Non-str header_style must not AttributeError (CrossHair int case)."""
+    headers = build_auth_headers({"header_style": 2, "api_key": "k"})
+    assert "Authorization" not in headers  # "2" is not bearer/x-api-key
+    headers_bearer = build_auth_headers({"header_style": "BEARER", "api_key": "k"})
+    assert headers_bearer["Authorization"] == "Bearer k"
+
+
 @patch("plugin.framework.client.auth.normalize_endpoint_url")
 @patch("plugin.framework.client.auth.get_provider_from_endpoint")
 def test_resolve_auth_for_config_local_no_api_key(mock_get_provider, mock_normalize):
