@@ -13,7 +13,7 @@ from typing import Any
 from plugin.framework.constants import ModelCapability
 
 
-import deal
+from plugin.framework.deal_shim import deal
 
 
 @deal.post(lambda result: result is None or isinstance(result, str))

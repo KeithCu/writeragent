@@ -37,7 +37,7 @@ _active_locale: str = "en_US"
 _DEFAULT_LOCALE = "en_US"
 
 
-import deal
+from plugin.framework.deal_shim import deal
 
 @deal.post(lambda result: isinstance(result, str) and len(result) > 0)
 def get_active_locale() -> str:

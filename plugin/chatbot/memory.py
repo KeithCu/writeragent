@@ -9,7 +9,7 @@ from plugin.framework.errors import ConfigError
 log = logging.getLogger(__name__)
 
 
-import deal
+from plugin.framework.deal_shim import deal
 
 
 def _resolve_uno_ctx(ctx):

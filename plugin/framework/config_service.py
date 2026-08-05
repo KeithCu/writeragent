@@ -10,7 +10,7 @@ import json
 import os
 import logging
 from typing import Any, Callable, cast
-import deal
+from plugin.framework.deal_shim import deal
 
 from plugin.framework.service import ServiceBase
 from plugin.framework.event_bus import global_event_bus

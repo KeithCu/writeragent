@@ -25,7 +25,7 @@ from plugin.framework.service import ServiceBase
 log = logging.getLogger("writeragent.events")
 
 
-import deal
+from plugin.framework.deal_shim import deal
 
 
 class EventBus:

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-import deal
+from plugin.framework.deal_shim import deal
 
 
 @deal.post(lambda result: isinstance(result, bool))

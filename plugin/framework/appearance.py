@@ -65,7 +65,7 @@ def get_style_window(doc: Any = None, style_window: Any = None, ctx: Any = None)
     return win
 
 
-import deal
+from plugin.framework.deal_shim import deal
 
 
 @deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 255.0)

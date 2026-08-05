@@ -41,6 +41,16 @@
       ],
       "ci_integration": true
     },
+    "i18n.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "_",
+        "get_active_locale"
+      ],
+      "ci_integration": true
+    },
     "auth.py": {
       "status": "verified",
       "priority": "high",
@@ -98,6 +108,76 @@
       "crosshair_last_run": "2026-08-05",
       "crosshair_result": "no_counterexamples",
       "ci_integration": false
+    },
+    "openrouter_model_id.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "_split_suffix",
+        "resolve_openrouter_catalog_id",
+        "openrouter_model_ids_equivalent"
+      ],
+      "ci_integration": true
+    },
+    "ast_stmt_edit.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "is_name_call_expr",
+        "remove_expr_statements"
+      ],
+      "ci_integration": true
+    },
+    "default_models.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "resolve_model_id",
+        "get_provider_defaults"
+      ],
+      "ci_integration": true
+    },
+    "constants.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "get_local_timezone",
+        "now_aware"
+      ],
+      "ci_integration": true
+    },
+    "appearance.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "_luminance",
+        "get_monaco_theme_info"
+      ],
+      "ci_integration": true
+    },
+    "event_bus.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "EventBus.emit"
+      ],
+      "ci_integration": true
+    },
+    "config_service.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "ConfigService._check_read_access",
+        "ConfigService._check_write_access"
+      ],
+      "ci_integration": true
     }
   },
   "modules": {
@@ -182,6 +262,17 @@
       }
     },
     "chatbot": {
+      "memory.py": {
+        "status": "verified",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "upsert_memory_arguments_dict",
+          "memory_key_from_tool_arguments",
+          "format_upsert_memory_chat_line",
+          "format_upsert_memory_chat_line_from_arguments"
+        ],
+        "ci_integration": true
+      },
       "send_state.py": {
         "status": "partial",
         "tool": "crosshair+deal+pytest",

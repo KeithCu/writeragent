@@ -154,7 +154,7 @@ import datetime as _dt
 from typing import Optional
 
 
-import deal
+from plugin.framework.deal_shim import deal
 
 
 @deal.post(lambda result: result is None or isinstance(result, _dt.tzinfo))

@@ -2,6 +2,7 @@ import unittest
 import gettext
 from gettext import NullTranslations
 from unittest.mock import MagicMock, patch
+import deal
 from plugin.framework.i18n import _, get_lo_locale
 import plugin.framework.i18n as i18n_module
 import sys
@@ -26,7 +27,7 @@ class TestI18n(unittest.TestCase):
     def test_i18n_msgid_must_be_str(self):
         i18n_module._translation = NullTranslations()
         for bad in (123, ["a"], ("a",), None):
-            with self.assertRaises(TypeError, msg=repr(bad)):
+            with self.assertRaises((TypeError, deal.PreContractError), msg=repr(bad)):
                 _(bad)
 
     def test_locale_detection_uno(self):

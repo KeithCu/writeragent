@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-import deal
+from plugin.framework.deal_shim import deal
 
 # Dynamic: routing/behavior shortcuts (any model; strip for catalog lookup).
 OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})
