@@ -29,9 +29,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+import deal
+
+
+@deal.post(lambda result: isinstance(result, bool))
 def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     """True if *node* is an expression-statement call to one of *names*."""
-    if not isinstance(node.value, ast.Call):
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
         return False
     func = node.value.func
     return isinstance(func, ast.Name) and func.id in names
@@ -116,6 +120,7 @@ def _get_container(node: ast.AST, parent_map: dict[ast.AST, ast.AST]) -> list[as
     return None
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], int) and result[1] >= 0)
 def remove_expr_statements(
     source: str,
     should_remove: Callable[[ast.Expr], bool],

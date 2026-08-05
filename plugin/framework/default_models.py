@@ -13,6 +13,10 @@ from typing import Any
 from plugin.framework.constants import ModelCapability
 
 
+import deal
+
+
+@deal.post(lambda result: result is None or isinstance(result, str))
 def resolve_model_id(model: dict[str, Any], provider):
     """Resolve the effective model ID for a given provider.
 
@@ -29,6 +33,7 @@ def resolve_model_id(model: dict[str, Any], provider):
 
 
 # FIXME, this should be a list, stored with the other endpoint pre-configured params
+@deal.post(lambda result: isinstance(result, dict))
 def get_provider_defaults(provider):
     """Return default models mapped per provider based on boolean flags in DEFAULT_MODELS."""
     if not provider:

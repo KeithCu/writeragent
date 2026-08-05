@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+import deal
+
 # Dynamic: routing/behavior shortcuts (any model; strip for catalog lookup).
 OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})
 
@@ -21,6 +23,7 @@ OPENROUTER_DYNAMIC_SUFFIXES = frozenset({"nitro", "floor", "exacto", "online"})
 OPENROUTER_STATIC_SUFFIXES = frozenset({"free", "extended", "thinking"})
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2)
 def _split_suffix(model_id: str) -> tuple[str, str | None]:
     if ":" not in model_id:
         return model_id, None
@@ -30,6 +33,7 @@ def _split_suffix(model_id: str) -> tuple[str, str | None]:
     return base, suffix
 
 
+@deal.post(lambda result: isinstance(result, str))
 def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | None = None) -> str:
     """Return the catalog key to use for capabilities/metadata lookup.
 
@@ -49,6 +53,7 @@ def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | No
     return mid
 
 
+@deal.post(lambda result: isinstance(result, bool))
 def openrouter_model_ids_equivalent(a: str, b: str, catalog_ids: Iterable[str] | None = None) -> bool:
     """True if two OpenRouter ids refer to the same underlying catalog model."""
     sa, sb = str(a or "").strip(), str(b or "").strip()

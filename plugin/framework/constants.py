@@ -154,6 +154,10 @@ import datetime as _dt
 from typing import Optional
 
 
+import deal
+
+
+@deal.post(lambda result: result is None or isinstance(result, _dt.tzinfo))
 def get_local_timezone() -> Optional[_dt.tzinfo]:
     """Return the local timezone as a tzinfo object.
 
@@ -165,6 +169,7 @@ def get_local_timezone() -> Optional[_dt.tzinfo]:
     return _dt.datetime.now(_dt.timezone.utc).astimezone().tzinfo
 
 
+@deal.post(lambda result: isinstance(result, _dt.datetime) and result.tzinfo is not None)
 def now_aware() -> _dt.datetime:
     """Return the current local time as a timezone‑aware datetime.
 
