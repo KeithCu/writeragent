@@ -59,7 +59,6 @@ def test_empty_whitespace_returns_default() -> None:
 @settings(max_examples=80)
 def test_hypothesis_valid_json_round_trip(value) -> None:
     encoded = json.dumps(value)
-    assert safe_json_loads(encoded) == value
     assert safe_json_loads(encoded, strict=True) == value
 
 

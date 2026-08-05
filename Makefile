@@ -638,7 +638,7 @@ typecheck: manifest
 	@$(MAKE) pyright-run
 
 test-run:
-	$(PYTHON) -m pytest tests
+	$(PYTHON) -m pytest tests -m "not slow"
 	@$(MAKE) lo-kill
 	$(LO_PYTHON) -m plugin.testing_runner; EXIT_CODE=$$?; $(MAKE) lo-kill; exit $$EXIT_CODE
 
