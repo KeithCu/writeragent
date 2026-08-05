@@ -65,6 +65,10 @@ def get_style_window(doc: Any = None, style_window: Any = None, ctx: Any = None)
     return win
 
 
+import deal
+
+
+@deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 255.0)
 def _luminance(color: int) -> float:
     if not isinstance(color, int):
         return 255.0
@@ -105,6 +109,7 @@ def get_theme_colors(doc: Any = None, style_window: Any = None, ctx: Any = None)
     return _FALLBACK_BG, _FALLBACK_USER, _FALLBACK_ASSISTANT
 
 
+@deal.post(lambda result: isinstance(result, dict) and "monaco" in result and "is_dark" in result and "bg" in result)
 def get_monaco_theme_info(doc: Any = None, style_window: Any = None, ctx: Any = None) -> dict[str, Any]:
     """Return theme descriptor for the Python Monaco editor.
 

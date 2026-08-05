@@ -727,12 +727,13 @@ verify:
 		tests/framework/test_error_payload_verification.py \
 		tests/framework/test_html_and_auth_verification.py \
 		tests/framework/test_i18n_and_memory_verification.py \
+		tests/framework/test_framework_modules_verification.py \
+		tests/framework/test_framework_phase3_verification.py \
 		tests/calc/test_address_utils_verification.py \
 		tests/mcp/test_cors_verification.py \
 		tests/scripting/test_scrub_env_verification.py \
 		tests/chatbot/test_fsm_verification.py \
-		tests/mcp/test_mcp_state_verification.py \
-		tests/scripting/test_serialization_verification.py -q
+		tests/mcp/test_mcp_state_verification.py -q
 
 test-serialization-ab:
 	$(_SERIALIZATION_EXTENSIVE) $(PYTHON) -m pytest tests/scripting/test_serialization_ab.py -q

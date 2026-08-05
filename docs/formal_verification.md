@@ -417,6 +417,15 @@ Maintain a `verification_status.json` file tracking which components have been v
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../tests/framework/test_json_utils_verification.py))
 9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_error_payload_verification.py`](../tests/framework/test_error_payload_verification.py))
 10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env` FQN ([`tests/scripting/test_scrub_env_verification.py`](../tests/scripting/test_scrub_env_verification.py))
+11. **`plugin/framework/i18n.py`** — `_` translation and `get_active_locale` ([`tests/framework/test_i18n_and_memory_verification.py`](../tests/framework/test_i18n_and_memory_verification.py))
+12. **`plugin/chatbot/memory.py`** — `upsert_memory_arguments_dict`, `memory_key_from_tool_arguments`, `format_upsert_memory_chat_line` ([`tests/framework/test_i18n_and_memory_verification.py`](../tests/framework/test_i18n_and_memory_verification.py))
+13. **`plugin/framework/openrouter_model_id.py`** — `_split_suffix`, `resolve_openrouter_catalog_id`, `openrouter_model_ids_equivalent` ([`tests/framework/test_framework_modules_verification.py`](../tests/framework/test_framework_modules_verification.py))
+14. **`plugin/framework/ast_stmt_edit.py`** — `is_name_call_expr`, `remove_expr_statements` ([`tests/framework/test_framework_modules_verification.py`](../tests/framework/test_framework_modules_verification.py))
+15. **`plugin/framework/default_models.py`** — `resolve_model_id`, `get_provider_defaults` ([`tests/framework/test_framework_modules_verification.py`](../tests/framework/test_framework_modules_verification.py))
+16. **`plugin/framework/constants.py`** — `get_local_timezone`, `now_aware` ([`tests/framework/test_framework_modules_verification.py`](../tests/framework/test_framework_modules_verification.py))
+17. **`plugin/framework/appearance.py`** — `_luminance`, `get_monaco_theme_info` ([`tests/framework/test_framework_phase3_verification.py`](../tests/framework/test_framework_phase3_verification.py))
+18. **`plugin/framework/event_bus.py`** — `EventBus.emit` exception isolation ([`tests/framework/test_framework_phase3_verification.py`](../tests/framework/test_framework_phase3_verification.py))
+19. **`plugin/framework/config_service.py`** — `_check_read_access`, `_check_write_access` ([`tests/framework/test_framework_phase3_verification.py`](../tests/framework/test_framework_phase3_verification.py))
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)
 

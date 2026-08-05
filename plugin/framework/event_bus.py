@@ -25,6 +25,9 @@ from plugin.framework.service import ServiceBase
 log = logging.getLogger("writeragent.events")
 
 
+import deal
+
+
 class EventBus:
     """Publish/subscribe event bus.
 
@@ -73,6 +76,7 @@ class EventBus:
 
         self._subscribers[event] = [(cb, is_weak) for cb, is_weak in subs if self._resolve(cb, is_weak) is not callback]
 
+    @deal.post(lambda result: result is None)
     def emit(self, event, **data):
         """Emit *event*, calling all subscribers with **data as kwargs.
 

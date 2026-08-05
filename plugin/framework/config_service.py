@@ -10,6 +10,7 @@ import json
 import os
 import logging
 from typing import Any, Callable, cast
+import deal
 
 from plugin.framework.service import ServiceBase
 from plugin.framework.event_bus import global_event_bus
@@ -272,6 +273,7 @@ class ConfigService(ServiceBase):
                 return {}
         return get_config_dict()
 
+    @deal.raises(ConfigAccessError)
     def _check_read_access(self, key, caller_module):
         if caller_module is None or "." not in key:
             return
@@ -282,6 +284,7 @@ class ConfigService(ServiceBase):
         if not schema.get("public", False):
             raise ConfigAccessError(f"Module '{caller_module}' cannot read private config '{key}'")
 
+    @deal.raises(ConfigAccessError)
     def _check_write_access(self, key, caller_module):
         if caller_module is None or "." not in key:
             return
