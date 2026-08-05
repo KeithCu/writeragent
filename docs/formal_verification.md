@@ -426,6 +426,10 @@ Maintain a `verification_status.json` file tracking which components have been v
 17. **`plugin/framework/appearance.py`** — `_luminance`, `get_monaco_theme_info` ([`tests/framework/test_framework_phase3_verification.py`](../tests/framework/test_framework_phase3_verification.py))
 18. **`plugin/framework/event_bus.py`** — `EventBus.emit` exception isolation ([`tests/framework/test_framework_phase3_verification.py`](../tests/framework/test_framework_phase3_verification.py))
 19. **`plugin/framework/config_service.py`** — `_check_read_access`, `_check_write_access` ([`tests/framework/test_framework_phase3_verification.py`](../tests/framework/test_framework_phase3_verification.py))
+20. **`plugin/chatbot/chat_sidebar_mode.py`** — `sidebar_mode_flags_for_doc_type`, `get_mode_labels`, `mode_from_label` ([`tests/chatbot/test_chatbot_pure_verification.py`](../tests/chatbot/test_chatbot_pure_verification.py))
+21. **`plugin/chatbot/skills.py`** — `HUMANIZER_GUIDANCE` constant & skill store ([`tests/chatbot/test_chatbot_pure_verification.py`](../tests/chatbot/test_chatbot_pure_verification.py))
+22. **`plugin/chatbot/research_cache_fluff.py`** — `translated_research_cache_fluff` ([`tests/chatbot/test_chatbot_pure_verification.py`](../tests/chatbot/test_chatbot_pure_verification.py))
+23. **`plugin/chatbot/web_research_cache.py`** — `snowball_lang_from_locale_tag`, `parse_research_cache_key`, `format_research_cache_key`, `jaccard`, `research_cache_similarity` ([`tests/chatbot/test_chatbot_pure_verification.py`](../tests/chatbot/test_chatbot_pure_verification.py))
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)
 

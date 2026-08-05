@@ -262,6 +262,48 @@
       }
     },
     "chatbot": {
+      "chat_sidebar_mode.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "sidebar_mode_flags_for_doc_type",
+          "get_mode_labels",
+          "mode_from_label"
+        ],
+        "ci_integration": true
+      },
+      "skills.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "HUMANIZER_GUIDANCE"
+        ],
+        "ci_integration": true
+      },
+      "research_cache_fluff.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "translated_research_cache_fluff"
+        ],
+        "ci_integration": true
+      },
+      "web_research_cache.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "snowball_lang_from_locale_tag",
+          "parse_research_cache_key",
+          "format_research_cache_key",
+          "jaccard",
+          "research_cache_similarity"
+        ],
+        "ci_integration": true
+      },
       "memory.py": {
         "status": "verified",
         "tool": "deal+hypothesis",

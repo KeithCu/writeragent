@@ -14,6 +14,7 @@ import threading
 import time
 from typing import Any
 
+from plugin.framework.deal_shim import deal
 from plugin.writer.locale.linguistic_index import _ISO_TO_SNOWBALL
 
 log = logging.getLogger("writeragent.web_research_cache")
@@ -57,6 +58,7 @@ def stem_word(snowball_lang: str, token: str) -> str:
         return token
 
 
+@deal.post(lambda result: isinstance(result, str) and result in _SNOWBALL_LANGS)
 def snowball_lang_from_locale_tag(tag: str) -> str:
     iso = str(tag or "").replace("-", "_").split("_")[0].lower()
     return _ISO_TO_SNOWBALL.get(iso) or "english"
@@ -173,6 +175,7 @@ def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
     return result
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2)
 def parse_research_cache_key(raw_key: str) -> tuple[str, str]:
     """Return (snowball_lang, word_key). Legacy unprefixed keys are english."""
     if "|" in raw_key:
@@ -182,6 +185,7 @@ def parse_research_cache_key(raw_key: str) -> tuple[str, str]:
     return "english", raw_key
 
 
+@deal.post(lambda result: isinstance(result, str))
 def format_research_cache_key(snowball_lang: str, word_key: str) -> str:
     if not word_key:
         return word_key
@@ -200,6 +204,7 @@ def stem_set_from_word_key(word_key: str, snowball_lang: str) -> set[str]:
     return stems
 
 
+@deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 1.0)
 def jaccard(a: set[str], b: set[str]) -> float:
     if not a and not b:
         return 0.0
@@ -209,6 +214,7 @@ def jaccard(a: set[str], b: set[str]) -> float:
     return len(a & b) / len(union)
 
 
+@deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 1.0)
 def research_cache_similarity(query_stems: set[str], stored_stems: set[str]) -> float:
     """Similarity for fuzzy gate: max(union Jaccard, overlap/min-size).
 

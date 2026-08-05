@@ -729,6 +729,7 @@ verify:
 		tests/framework/test_i18n_and_memory_verification.py \
 		tests/framework/test_framework_modules_verification.py \
 		tests/framework/test_framework_phase3_verification.py \
+		tests/chatbot/test_chatbot_pure_verification.py \
 		tests/calc/test_address_utils_verification.py \
 		tests/mcp/test_cors_verification.py \
 		tests/scripting/test_scrub_env_verification.py \
