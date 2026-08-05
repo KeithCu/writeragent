@@ -18,6 +18,21 @@
 from __future__ import annotations
 
 
+import importlib
+from typing import Any
+
+deal: Any
+try:
+    deal = importlib.import_module("deal")
+except ImportError:
+
+    class _DummyDeal:
+        def __getattr__(self, name: str) -> Any:
+            return lambda *args, **kwargs: lambda f: f
+
+    deal = _DummyDeal()
+
+
 class StreamingHTMLStripper:
     """Stateful, stream-friendly HTML tag stripper.
 
@@ -31,6 +46,8 @@ class StreamingHTMLStripper:
         self.in_tag = False
         self.tag_buffer = ""
 
+    @deal.pre(lambda self, chunk: isinstance(chunk, str))
+    @deal.post(lambda result: isinstance(result, str))
     def feed(self, chunk: str) -> str:
         """Feed a chunk of text, return the approved cleaned string without HTML tags.
         
@@ -72,6 +89,7 @@ class StreamingHTMLStripper:
                         self.tag_buffer = ""
         return "".join(out)
 
+    @deal.post(lambda result: isinstance(result, str))
     def finalize(self) -> str:
         """Return any remaining buffered text when the stream is completed."""
         if self.in_tag and self.tag_buffer:
@@ -82,6 +100,9 @@ class StreamingHTMLStripper:
         return ""
 
 
+@deal.pre(lambda text: isinstance(text, str))
+@deal.post(lambda result: isinstance(result, str))
+@deal.ensure(lambda text, result: "<" not in result or ">" not in result or len(result) <= len(text))
 def strip_html_tags(text: str) -> str:
     """Synchronous utility to strip HTML tags from a complete string."""
     if not text:

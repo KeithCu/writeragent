@@ -104,6 +104,21 @@ def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> 
     return "custom"
 
 
+import importlib
+
+deal: Any
+try:
+    deal = importlib.import_module("deal")
+except ImportError:
+
+    class _DummyDeal:
+        def __getattr__(self, name: str) -> Any:
+            return lambda *args, **kwargs: lambda f: f
+
+    deal = _DummyDeal()
+
+
+@deal.post(lambda result: isinstance(result, bool))
 def provider_requires_api_key(provider_id: str | None) -> bool:
     """True when a known provider expects an API key (Bearer / x-api-key), not local/anonymous."""
     if not provider_id or provider_id == "custom":
@@ -114,6 +129,7 @@ def provider_requires_api_key(provider_id: str | None) -> bool:
     return provider_cfg.header_style != "none"
 
 
+@deal.post(lambda result: isinstance(result, bool))
 def provider_requires_slug_model_id(provider_id: str | None) -> bool:
     """True when combobox / LRU entries must use org/model slugs (OpenRouter, Together)."""
     if not provider_id:
@@ -178,6 +194,8 @@ def resolve_auth_for_config(api_config: Dict[str, Any]) -> Dict[str, Any]:
     return {"provider": provider_cfg.id, "endpoint": endpoint, "api_key": api_key, "header_style": provider_cfg.header_style, "headers": dict(provider_cfg.extra_headers)}
 
 
+@deal.pre(lambda auth_info: isinstance(auth_info, dict))
+@deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
 def build_auth_headers(auth_info: Dict[str, Any]) -> Dict[str, str]:
     """
     Convert a resolved auth descriptor into concrete HTTP headers.

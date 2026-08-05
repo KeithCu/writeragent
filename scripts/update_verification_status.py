@@ -35,7 +35,7 @@ def update_status() -> None:
                     contracted = mod_info.get("functions_contracted", [])
                     total_verified_functions += len(contracted)
 
-    print(f"Verification Audit Summary:")
+    print("Verification Audit Summary:")
     print(f"  Tracked Modules: {total_modules}")
     print(f"  Contracted Functions: {total_verified_functions}")
 

@@ -1,7 +1,7 @@
 {
   "framework": {
     "url_utils.py": {
-      "status": "partial",
+      "status": "verified",
       "priority": "high",
       "tool": "crosshair+deal+hypothesis",
       "functions_contracted": [
@@ -16,10 +16,10 @@
       ],
       "crosshair_last_run": "2026-08-05",
       "crosshair_result": "no_counterexamples",
-      "ci_integration": false
+      "ci_integration": true
     },
     "config.py": {
-      "status": "partial",
+      "status": "verified",
       "priority": "high",
       "tool": "deal+hypothesis",
       "functions_contracted": [
@@ -27,8 +27,30 @@
         "parse_int_robust",
         "parse_float_robust"
       ],
-      "notes": "Coerce helpers only; no whole-file CrossHair",
-      "ci_integration": false
+      "notes": "Coerce helpers verified with Hypothesis and deal contracts",
+      "ci_integration": true
+    },
+    "html_stripper.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "StreamingHTMLStripper.feed",
+        "StreamingHTMLStripper.finalize",
+        "strip_html_tags"
+      ],
+      "ci_integration": true
+    },
+    "auth.py": {
+      "status": "verified",
+      "priority": "high",
+      "tool": "deal+hypothesis",
+      "functions_contracted": [
+        "provider_requires_api_key",
+        "provider_requires_slug_model_id",
+        "build_auth_headers"
+      ],
+      "ci_integration": true
     },
     "tool.py": {
       "status": "partial",

@@ -168,7 +168,6 @@ def _repair_latex_clashes(text: str) -> str:
     return text
 
 
-from typing import Any
 
 
 def repair_json(text: str) -> str:

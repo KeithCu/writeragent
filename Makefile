@@ -717,6 +717,22 @@ verify-serialization:
 	@echo "=== CrossHair check (full module, live filtered) ==="
 	$(MAKE) crosshair-check
 
+verify:
+	@echo "=== Running All Formal Verification Unit Tests ==="
+	$(PYTHON) -m pytest tests/framework/test_url_utils_verification.py \
+		tests/framework/test_config_coerce_verification.py \
+		tests/framework/test_tool_schema_verification.py \
+		tests/framework/test_accumulate_delta_verification.py \
+		tests/framework/test_json_utils_verification.py \
+		tests/framework/test_error_payload_verification.py \
+		tests/framework/test_html_and_auth_verification.py \
+		tests/calc/test_address_utils_verification.py \
+		tests/mcp/test_cors_verification.py \
+		tests/scripting/test_scrub_env_verification.py \
+		tests/chatbot/test_fsm_verification.py \
+		tests/mcp/test_mcp_state_verification.py \
+		tests/scripting/test_serialization_verification.py -q
+
 test-serialization-ab:
 	$(_SERIALIZATION_EXTENSIVE) $(PYTHON) -m pytest tests/scripting/test_serialization_ab.py -q
 
