@@ -9,12 +9,24 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     import subprocess
+
+deal: Any
+try:
+    deal = importlib.import_module("deal")
+except ImportError:
+
+    class _DummyDeal:
+        def __getattr__(self, name: str) -> Any:
+            return lambda *args, **kwargs: lambda f: f
+
+    deal = _DummyDeal()
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
@@ -181,6 +193,17 @@ _cached_sandbox: str | None = _NOT_SET  # type: ignore[assignment]  # sentinel
 _PIPE_BUF_TARGET = 1024 * 1024
 
 
+@deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
+@deal.ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
+@deal.ensure(lambda base, result: all(not any(s in k.upper() for s in _BLOCKED_ENV_SUBSTR) for k in result))
+@deal.ensure(
+    lambda base, result: (not base)
+    or (
+        result.get("PYTHONIOENCODING") == "utf-8"
+        and result.get("PYTHONUTF8") == "1"
+        and result.get("PYTHONDONTWRITEBYTECODE") == "1"
+    )
+)
 def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python."""
     if not base:

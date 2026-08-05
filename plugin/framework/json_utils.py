@@ -17,9 +17,24 @@
 
 """JSON repair and robust parsing utilities for WriterAgent."""
 
-import json
+from __future__ import annotations
+
 import ast
+import importlib
+import json
 import re
+from typing import Any
+
+deal: Any
+try:
+    deal = importlib.import_module("deal")
+except ImportError:
+
+    class _DummyDeal:
+        def __getattr__(self, name: str) -> Any:
+            return lambda *args, **kwargs: lambda f: f
+
+    deal = _DummyDeal()
 
 _LATEX_CLASH_WORDS = [
     # \a (Bell)
@@ -193,6 +208,8 @@ def repair_json_object(text: str) -> Any:
     return json_repair.repair_json(stripped, return_objects=True)
 
 
+@deal.ensure(lambda text, default=None, strict=False, result=None: isinstance(text, (str, bytes, bytearray)) or result is default)
+@deal.ensure(lambda text, default=None, strict=False, result=None: not (isinstance(text, str) and text.strip() == "") or result is default)
 def safe_json_loads(text: Any, default: Any = None, strict: bool = False) -> Any:
     """Safely parse a JSON string into a Python object with optional robust repair logic.
 

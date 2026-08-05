@@ -167,6 +167,8 @@ def parse_int_robust(val) -> int:
         raise ValueError(f"Could not robustly parse integer from {val!r}") from e
 
 
+@deal.post(lambda result: isinstance(result, float))
+@deal.raises(ValueError)
 def parse_float_robust(val) -> float:
     """Robustly parse a float value from a string, int, or other type,
     handling locale-specific decimal commas (like "1,5" in German)."""

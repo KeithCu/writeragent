@@ -373,7 +373,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopStat
 
 **Reference implementation:** [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) — see [`docs/serialization-verification-plan.md`](serialization-verification-plan.md).
 
-**Status (partial):** `deal` on `send_state.next_state` (send/stop mutual exclusion), `audio_recorder_state.next_state` (valid status + error path), and thin ensures on `tool_loop_state.next_state` (STOP→`ExitLoopEffect`, round bound). Pytest oracles + slow CrossHair hooks in [`tests/chatbot/test_fsm_verification.py`](../tests/chatbot/test_fsm_verification.py). Tracking: [`verification_status.json`](../verification_status.json).
+**Status (partial):** `deal` on `send_state.next_state` (send/stop mutual exclusion), `audio_recorder_state.next_state` (valid status + error path), thin ensures on `tool_loop_state.next_state` (STOP→`ExitLoopEffect`, round bound), and `mcp_state.next_state` (missing tool_name → `SendErrorEffect`, `TOOL_COMPLETED` → `StreamResponseEffect`, `REQUEST_ERROR` sets `is_error`). Pytest oracles + slow CrossHair hooks in [`tests/chatbot/test_fsm_verification.py`](../tests/chatbot/test_fsm_verification.py) and [`tests/mcp/test_mcp_state_verification.py`](../tests/mcp/test_mcp_state_verification.py). Tracking: [`verification_status.json`](../verification_status.json).
 
 ### Step 1: Add Design by Contract to State Machines
 
@@ -393,7 +393,8 @@ def next_state(...):
 ```bash
 crosshair check plugin/chatbot/send_state.py
 crosshair check plugin/chatbot/audio_recorder_state.py
-# tool_loop_state: deal+pytest only for now (larger event surface)
+crosshair check plugin.mcp.mcp_state.next_state
+# tool_loop_state: deal+pytest + FQN CrossHair (larger event surface)
 ```
 
 ### Step 3: Add Verification to CI
@@ -409,10 +410,13 @@ Maintain a `verification_status.json` file tracking which components have been v
 1. **`plugin/framework/url_utils.py`** — `deal` + Hypothesis + CrossHair ([`tests/framework/test_url_utils_verification.py`](../tests/framework/test_url_utils_verification.py))
 2. **`plugin/calc/address_utils.py`** — inverse column/address contracts + Hypothesis ([`tests/calc/test_address_utils_verification.py`](../tests/calc/test_address_utils_verification.py))
 3. **`plugin/mcp/cors.py`** — origin normalize / safety ([`tests/mcp/test_cors_verification.py`](../tests/mcp/test_cors_verification.py))
-4. **`plugin/framework/config.py`** — `as_bool` / `parse_int_robust` only ([`tests/framework/test_config_coerce_verification.py`](../tests/framework/test_config_coerce_verification.py)); not whole-file CrossHair
+4. **`plugin/framework/config.py`** — `as_bool` / `parse_int_robust` / `parse_float_robust` ([`tests/framework/test_config_coerce_verification.py`](../tests/framework/test_config_coerce_verification.py)); not whole-file CrossHair
 5. **`plugin/framework/tool.py`** — `_normalize_schema_for_strict_providers` FQN ([`tests/framework/test_tool_schema_verification.py`](../tests/framework/test_tool_schema_verification.py))
 6. **`plugin/framework/async_stream.py`** — `accumulate_delta` FQN ([`tests/framework/test_accumulate_delta_verification.py`](../tests/framework/test_accumulate_delta_verification.py))
-7. **FSM catch-up** — CrossHair on `state_machine.py` + `tool_loop_state.next_state` FQN ([`tests/chatbot/test_fsm_verification.py`](../tests/chatbot/test_fsm_verification.py))
+7. **FSM catch-up** — CrossHair on `state_machine.py` + `tool_loop_state.next_state` FQN ([`tests/chatbot/test_fsm_verification.py`](../tests/chatbot/test_fsm_verification.py)); `mcp_state.next_state` ([`tests/mcp/test_mcp_state_verification.py`](../tests/mcp/test_mcp_state_verification.py))
+8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../tests/framework/test_json_utils_verification.py))
+9. **`plugin/framework/errors.py`** — `format_error_payload` FQN ([`tests/framework/test_error_payload_verification.py`](../tests/framework/test_error_payload_verification.py)); `format_error_message` deferred
+10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env` FQN ([`tests/scripting/test_scrub_env_verification.py`](../tests/scripting/test_scrub_env_verification.py))
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)
 

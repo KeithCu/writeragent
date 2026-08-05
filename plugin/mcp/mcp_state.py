@@ -1,8 +1,20 @@
 import dataclasses
+import importlib
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional
 
 from plugin.framework.service import BaseState, FsmTransition
+
+deal: Any
+try:
+    deal = importlib.import_module("deal")
+except ImportError:
+
+    class _DummyDeal:
+        def __getattr__(self, name: str) -> Any:
+            return lambda *args, **kwargs: lambda f: f
+
+    deal = _DummyDeal()
 
 
 # --- States ---
@@ -86,6 +98,16 @@ class SendErrorEffect:
 # --- State Machine Transition ---
 
 
+@deal.ensure(
+    lambda state, event, result: bool(event.data.get("tool_name"))
+    or event.kind != EventKind.REQUEST_RECEIVED
+    or (result.state.is_error and any(isinstance(e, SendErrorEffect) for e in result.effects))
+)
+@deal.ensure(
+    lambda state, event, result: event.kind != EventKind.TOOL_COMPLETED
+    or any(isinstance(e, StreamResponseEffect) for e in result.effects)
+)
+@deal.ensure(lambda state, event, result: event.kind != EventKind.REQUEST_ERROR or result.state.is_error)
 def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
     """Pure transition function for the MCP tool-calling loop."""
     effects: List[Any] = []

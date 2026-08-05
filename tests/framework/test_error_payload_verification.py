@@ -1,0 +1,89 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""deal / Hypothesis / CrossHair (FQN) for errors.format_error_payload."""
+
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+from plugin.framework.errors import ConfigError, WriterAgentException, format_error_payload
+
+_CROSSHAIR_ERROR_RE = re.compile(r": error:")
+_CROSSHAIR_TARGET = "plugin.framework.errors.format_error_payload"
+
+
+def _find_crosshair() -> str | None:
+    crosshair_path = shutil.which("crosshair")
+    if crosshair_path:
+        return crosshair_path
+    venv_bin_ch = Path(".venv/bin/crosshair")
+    if venv_bin_ch.exists():
+        return str(venv_bin_ch)
+    return None
+
+
+def test_generic_exception_internal_error() -> None:
+    payload = format_error_payload(ValueError("boom"))
+    assert payload["status"] == "error"
+    assert payload["code"] == "INTERNAL_ERROR"
+    assert payload["message"] == "boom"
+    assert payload["details"]["type"] == "ValueError"
+
+
+def test_writeragent_exception_preserves_code() -> None:
+    payload = format_error_payload(ConfigError("bad cfg", code="CONFIG_ERROR"))
+    assert payload["status"] == "error"
+    assert payload["code"] == "CONFIG_ERROR"
+    assert "message" in payload
+
+
+def test_writeragent_exception_with_details() -> None:
+    payload = format_error_payload(WriterAgentException("x", code="X", details={"a": 1}))
+    assert payload["code"] == "X"
+    assert payload["details"] == {"a": 1}
+
+
+@given(msg=st.text(max_size=40))
+@settings(max_examples=40)
+def test_hypothesis_generic_shape(msg: str) -> None:
+    payload = format_error_payload(RuntimeError(msg))
+    assert payload["status"] == "error"
+    assert payload["code"] == "INTERNAL_ERROR"
+    assert "code" in payload and "message" in payload
+    assert payload["details"]["type"] == "RuntimeError"
+
+
+@given(code=st.sampled_from(["INTERNAL_ERROR", "CONFIG_ERROR", "NETWORK_ERROR", "CUSTOM"]))
+@settings(max_examples=20)
+def test_hypothesis_wa_code_preserved(code: str) -> None:
+    payload = format_error_payload(WriterAgentException("m", code=code))
+    assert payload["code"] == code
+
+
+@pytest.mark.slow
+def test_crosshair_format_error_payload_fqn_if_available() -> None:
+    crosshair_path = _find_crosshair()
+    if not crosshair_path:
+        pytest.skip("CrossHair concolic execution engine is not installed.")
+    result = subprocess.run(
+        [crosshair_path, "check", "-v", "--report_all", _CROSSHAIR_TARGET],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    combined = f"{result.stdout}\n{result.stderr}".strip()
+    print(f"CrossHair output:\n{combined}")
+    errors = [line for line in combined.splitlines() if _CROSSHAIR_ERROR_RE.search(line)]
+    assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
+    if result.returncode == 2:
+        pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")

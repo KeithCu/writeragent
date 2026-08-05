@@ -21,10 +21,22 @@ All custom exceptions should inherit from WriterAgentException.
 
 from __future__ import annotations
 
+import importlib
 from typing import Any, Literal, TypedDict
 
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
+
+deal: Any
+try:
+    deal = importlib.import_module("deal")
+except ImportError:
+
+    class _DummyDeal:
+        def __getattr__(self, name: str) -> Any:
+            return lambda *args, **kwargs: lambda f: f
+
+    deal = _DummyDeal()
 
 
 # Status values for tool execution results
@@ -95,6 +107,12 @@ class NetworkError(WriterAgentException):
         super().__init__(message, code=code, context=context, details=details)
 
 
+@deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
+@deal.ensure(
+    lambda e, result: isinstance(e, WriterAgentException)
+    or (result.get("code") == "INTERNAL_ERROR" and isinstance(result.get("details"), dict) and "type" in result["details"])
+)
+@deal.ensure(lambda e, result: not isinstance(e, WriterAgentException) or result.get("code") == e.code)
 def format_error_payload(e: Exception) -> dict[str, Any]:
     """Format an exception into the standard JSON error payload schema."""
     if isinstance(e, WriterAgentException):
