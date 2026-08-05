@@ -9,6 +9,9 @@ from plugin.framework.errors import ConfigError
 log = logging.getLogger(__name__)
 
 
+import deal
+
+
 def _resolve_uno_ctx(ctx):
     """Accept ToolContext or raw UNO context."""
     return getattr(ctx, "ctx", ctx)
@@ -44,6 +47,7 @@ class MemoryStore:
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
+@deal.post(lambda result: result is None or isinstance(result, dict))
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     """Normalize smolagents ToolCall.arguments (dict or JSON string) to a dict."""
     if isinstance(arguments, dict):
@@ -56,6 +60,7 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
+@deal.post(lambda result: result is None or isinstance(result, str))
 def memory_key_from_tool_arguments(arguments: object) -> str | None:
     """Extract memory key from smolagents ToolCall.arguments (dict or JSON string)."""
     d = upsert_memory_arguments_dict(arguments)
@@ -65,6 +70,7 @@ def memory_key_from_tool_arguments(arguments: object) -> str | None:
     return k if isinstance(k, str) else None
 
 
+@deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when upsert_memory starts (main chat tool loop)."""
     key = func_args.get("key")
@@ -83,6 +89,7 @@ def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     return f"[Memory update: key {key!r} value {one_line!r}]\n"
 
 
+@deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
     """Chat preview for librarian ToolCall.arguments (dict or JSON string)."""
     d = upsert_memory_arguments_dict(arguments)

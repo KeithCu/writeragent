@@ -726,6 +726,7 @@ verify:
 		tests/framework/test_json_utils_verification.py \
 		tests/framework/test_error_payload_verification.py \
 		tests/framework/test_html_and_auth_verification.py \
+		tests/framework/test_i18n_and_memory_verification.py \
 		tests/calc/test_address_utils_verification.py \
 		tests/mcp/test_cors_verification.py \
 		tests/scripting/test_scrub_env_verification.py \

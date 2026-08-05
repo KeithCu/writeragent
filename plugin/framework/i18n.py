@@ -37,6 +37,9 @@ _active_locale: str = "en_US"
 _DEFAULT_LOCALE = "en_US"
 
 
+import deal
+
+@deal.post(lambda result: isinstance(result, str) and len(result) > 0)
 def get_active_locale() -> str:
     """Return the locale tag for the gettext catalog loaded by init_i18n()."""
     return _active_locale
@@ -99,6 +102,8 @@ def init_i18n(ctx=None) -> None:
         log.debug("i18n init: translation_type=%s", type(_translation).__name__)
 
 
+@deal.pre(lambda message: isinstance(message, str))
+@deal.post(lambda result: isinstance(result, str))
 def _(message: str) -> str:
     """Translate English msgid *message* via gettext. Must be :class:`str`."""
     if not isinstance(message, str):
