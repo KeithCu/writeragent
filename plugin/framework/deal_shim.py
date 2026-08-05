@@ -9,8 +9,13 @@ Provides actual `deal` decorators when deal is installed, or no-op stubs
 when running under standard LibreOffice Python runtime where deal is absent.
 """
 
+from typing import Any
+
+deal: Any
+
 try:
-    import deal
+    import deal as _deal  # type: ignore[no-redef]
+    deal = _deal
 except ImportError:
 
     class _DealStub:
@@ -43,4 +48,4 @@ except ImportError:
         def reason(self, *args, **kwargs):
             return lambda f: f
 
-    deal = _DealStub()  # type: ignore[assignment]
+    deal = _DealStub()

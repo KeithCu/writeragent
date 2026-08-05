@@ -25,6 +25,9 @@ from plugin.scripting.config_limits import python_max_data_cells_default
 from plugin.scripting.payload_codec import ForceBinary, host_pack_data, is_multi_data, is_split_grid, wire_cell_count
 
 
+from plugin.framework.deal_shim import deal
+
+
 def _unwrap_cell(value: Any, true_strings: set[str] | None = None, false_strings: set[str] | None = None) -> Any:
     """Normalize a single cell value from UNO / Calc."""
     if value is None:
@@ -58,6 +61,7 @@ def _is_row_sequence(value: Any) -> bool:
     return True
 
 
+@deal.post(lambda result: isinstance(result, list))
 def normalize_python_data_shape(grid: list[list[Any]], *, as_column: bool = False) -> list[list[Any]]:
     """Preserve rectangular 2D orientation for every Calc range.
 
@@ -71,6 +75,7 @@ def normalize_python_data_shape(grid: list[list[Any]], *, as_column: bool = Fals
     return ensure_rectangular_2d(grid)
 
 
+@deal.post(lambda result: result is None or isinstance(result, list))
 def finalize_python_data(raw: Any) -> list[list[Any]] | None:
     """Normalize tool/API ``data`` that may already be a nested list from the LLM."""
     if raw is None:
@@ -151,6 +156,7 @@ def calc_addin_args_to_python(
     return calc_addin_args_from_split(split_python_addin_data_args(raw), true_strings, false_strings)
 
 
+@deal.post(lambda result: result is None or isinstance(result, list))
 def calc_addin_data_to_python(
     value: Any,
     true_strings: set[str] | None = None,

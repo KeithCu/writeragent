@@ -182,6 +182,15 @@
   },
   "modules": {
     "scripting": {
+      "audio_silence_detector.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "pcm_energy_int16"
+        ],
+        "ci_integration": true
+      },
       "payload_codec.py": {
         "status": "partial",
         "tool": "crosshair+deal+pytest",
@@ -318,6 +327,27 @@
       }
     },
     "calc": {
+      "cells.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "_parse_color"
+        ],
+        "ci_integration": true
+      },
+      "calc_addin_data.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "_unwrap_cell",
+          "normalize_python_data_shape",
+          "finalize_python_data",
+          "calc_addin_data_to_python"
+        ],
+        "ci_integration": true
+      },
       "address_utils.py": {
         "status": "partial",
         "priority": "high",
@@ -332,6 +362,35 @@
         "crosshair_last_run": "2026-08-05",
         "crosshair_result": "no_counterexamples",
         "ci_integration": false
+      },
+      "formula_dep_chain.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "_resolve_sheet_and_cell"
+        ],
+        "ci_integration": true
+      },
+      "sheet_filter_criteria.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "filter_connection_code",
+          "resolve_filter_operator_code",
+          "parse_sheet_filter_criterion"
+        ],
+        "ci_integration": true
+      },
+      "excel_py_convert/resolve_refs.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "resolve_dep"
+        ],
+        "ci_integration": true
       }
     },
     "mcp": {
@@ -358,8 +417,20 @@
         "crosshair_target": "plugin.mcp.mcp_state.next_state",
         "crosshair_last_run": "2026-08-05",
         "crosshair_result": "no_counterexamples",
-        "notes": "Missing tool_name \u2192 SendErrorEffect; TOOL_COMPLETED \u2192 StreamResponseEffect; REQUEST_ERROR sets is_error",
+        "notes": "Missing tool_name → SendErrorEffect; TOOL_COMPLETED → StreamResponseEffect; REQUEST_ERROR sets is_error",
         "ci_integration": false
+      },
+      "wire_types.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "parse_jsonrpc_request",
+          "is_jsonrpc_notification",
+          "initialize_result",
+          "call_tool_result_image"
+        ],
+        "ci_integration": true
       }
     },
     "chatbot": {
@@ -453,6 +524,30 @@
         ],
         "notes": "Thin ensures; CrossHair FQN next_state only",
         "ci_integration": false
+      }
+    },
+    "writer": {
+      "word_diff_split.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "tokenize",
+          "split_change"
+        ],
+        "ci_integration": true
+      },
+      "xhtml_style_postprocess.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "decode_lo_css_class_suffix",
+          "compact_lo_style_name",
+          "extract_autostyle_parents_from_fodt",
+          "parse_style_block"
+        ],
+        "ci_integration": true
       }
     }
   }

@@ -56,3 +56,26 @@ def test_compact_lo_style_name_removes_spaces(name: str) -> None:
     compacted = compact_lo_style_name(name)
     assert isinstance(compacted, str)
     assert " " not in compacted
+
+
+from plugin.writer.xhtml_style_postprocess import (
+    extract_autostyle_parents_from_fodt,
+    parse_style_block,
+)
+
+
+@given(fodt=st.text(max_size=200))
+def test_extract_autostyle_parents_from_fodt_invariant(fodt: str) -> None:
+    res = extract_autostyle_parents_from_fodt(fodt)
+    assert isinstance(res, dict)
+    for k, v in res.items():
+        assert isinstance(k, str)
+        assert isinstance(v, str)
+
+
+@given(xhtml=st.text(max_size=200))
+def test_parse_style_block_invariant(xhtml: str) -> None:
+    raw_map, norm_map = parse_style_block(xhtml)
+    assert isinstance(raw_map, dict)
+    assert isinstance(norm_map, dict)
+

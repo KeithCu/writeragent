@@ -85,3 +85,41 @@ def test_resolve_dep_range_and_table() -> None:
     dep3 = resolve_dep("_xlfn.ANCHORARRAY(A6)", model)
     assert dep3.kind == "anchor_snapshot"
     assert dep3.a1 == "A6:C10"
+
+
+from plugin.calc.calc_addin_data import (
+    _unwrap_cell,
+    calc_addin_data_to_python,
+    split_python_addin_data_args,
+    normalize_python_data_shape,
+)
+
+
+@given(val=st.one_of(st.integers(), st.floats(), st.text(), st.booleans(), st.none()))
+def test_unwrap_cell_invariants(val) -> None:
+    res = _unwrap_cell(val)
+    if val == "":
+        assert res is None
+    elif isinstance(val, (int, float, bool)) or val is None:
+        assert res == val
+
+
+@given(data=st.one_of(
+    st.none(),
+    st.integers(),
+    st.text(),
+    st.lists(st.integers()),
+    st.lists(st.lists(st.integers())),
+    st.tuples(st.tuples(st.integers())),
+))
+@settings(max_examples=100)
+def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
+    grid = calc_addin_data_to_python(data)
+    if grid is not None:
+        assert isinstance(grid, list)
+        if grid:
+            first_len = len(grid[0])
+            for row in grid:
+                assert isinstance(row, list)
+                assert len(row) == first_len
+

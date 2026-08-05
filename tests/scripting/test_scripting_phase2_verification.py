@@ -71,3 +71,31 @@ def test_parse_run_import_call_spec_literal() -> None:
 
     params1 = parse_run_import_call_params(code1, run_name="run_sql")
     assert params1 == {"files": ["a.csv"]}
+
+
+from plugin.scripting.audio_silence_detector import pcm_energy_int16
+from plugin.calc.cells import _parse_color
+
+
+@given(pcm=st.binary(max_size=200))
+def test_pcm_energy_int16_invariants(pcm: bytes) -> None:
+    rms, peak = pcm_energy_int16(pcm)
+    assert isinstance(rms, float)
+    assert isinstance(peak, float)
+    assert 0.0 <= rms <= 1.0
+    assert 0.0 <= peak <= 1.0
+
+
+@given(code=st.text(max_size=100), run_name=st.sampled_from(["run_sql", "run_units", "run_analysis", "invalid_run"]))
+def test_parse_run_import_call_spec_no_crash(code: str, run_name: str) -> None:
+    res = parse_run_import_call_spec(code, run_name=run_name)
+    assert res is None or isinstance(res, dict)
+
+
+@given(color_str=st.one_of(st.text(max_size=30), st.none()))
+def test_parse_color_invariants(color_str: str | None) -> None:
+    res = _parse_color(color_str)
+    if res is not None:
+        assert isinstance(res, int)
+        assert 0 <= res <= 0xFFFFFF
+

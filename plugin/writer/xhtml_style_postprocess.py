@@ -59,6 +59,7 @@ def compact_lo_style_name(uno_name):
 _FODT_STYLE_RE = re.compile(r"<style:style\b([^>]*?)/?>", re.IGNORECASE)
 
 
+@deal.post(lambda result: isinstance(result, dict))
 def extract_autostyle_parents_from_fodt(fodt):
     """Map automatic paragraph style name (``P1``, ``P2``, ...) -> its parent named style, from a
     flat ODF (.fodt) export. The XHTML export flattens this parent away, so an autostyle's CSS
@@ -93,6 +94,7 @@ def _normalize_decl(decl):
     return ";".join(sorted(parts))
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], dict))
 def parse_style_block(xhtml):
     """Return ``(raw_map, norm_map)`` for every class rule in the ``<style>`` block(s).
 

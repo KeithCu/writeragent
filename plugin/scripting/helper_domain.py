@@ -114,6 +114,7 @@ def _literal_value(node: ast.AST) -> Any:
     return None
 
 
+@deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the ``params`` dict from ``run_name({"helper": ..., "params": {...}}, ...)`` when literal."""
     spec = parse_run_import_call_spec(code, run_name=run_name)
@@ -123,6 +124,7 @@ def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] 
     return params if isinstance(params, dict) else None
 
 
+@deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the first positional spec dict from ``run_name({...}, ...)`` or direct helper call when literal."""
     if not code:

@@ -734,6 +734,7 @@ verify:
 		tests/scripting/test_scripting_phase2_verification.py \
 		tests/scripting/test_scripting_ast_verification.py \
 		tests/scripting/test_scripting_high_value_verification.py \
+		tests/writer/test_writer_diff_and_html_verification.py \
 		tests/calc/test_calc_dep_and_filter_verification.py \
 		tests/mcp/test_mcp_wire_verification.py \
 		tests/calc/test_address_utils_verification.py \

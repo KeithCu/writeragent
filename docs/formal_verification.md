@@ -445,7 +445,10 @@ Maintain a `verification_status.json` file tracking which components have been v
 36. **`plugin/calc/excel_py_convert/resolve_refs.py`** — `resolve_dep` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../tests/calc/test_calc_dep_and_filter_verification.py))
 37. **`plugin/mcp/wire_types.py`** — `parse_jsonrpc_request`, `is_jsonrpc_notification`, `initialize_result`, `call_tool_result_image` ([`tests/mcp/test_mcp_wire_verification.py`](../tests/mcp/test_mcp_wire_verification.py))
 38. **`plugin/writer/word_diff_split.py`** — `tokenize`, `split_change` ([`tests/writer/test_writer_diff_and_html_verification.py`](../tests/writer/test_writer_diff_and_html_verification.py))
-39. **`plugin/writer/xhtml_style_postprocess.py`** — `decode_lo_css_class_suffix`, `compact_lo_style_name` ([`tests/writer/test_writer_diff_and_html_verification.py`](../tests/writer/test_writer_diff_and_html_verification.py))
+39. **`plugin/writer/xhtml_style_postprocess.py`** — `decode_lo_css_class_suffix`, `compact_lo_style_name`, `extract_autostyle_parents_from_fodt`, `parse_style_block` ([`tests/writer/test_writer_diff_and_html_verification.py`](../tests/writer/test_writer_diff_and_html_verification.py))
+40. **`plugin/calc/calc_addin_data.py`** — `_unwrap_cell`, `normalize_python_data_shape`, `finalize_python_data`, `calc_addin_data_to_python` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../tests/calc/test_calc_dep_and_filter_verification.py))
+41. **`plugin/scripting/audio_silence_detector.py`** — `pcm_energy_int16` ([`tests/scripting/test_scripting_phase2_verification.py`](../tests/scripting/test_scripting_phase2_verification.py))
+42. **`plugin/calc/cells.py`** — `_parse_color` ([`tests/scripting/test_scripting_phase2_verification.py`](../tests/scripting/test_scripting_phase2_verification.py))
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)
 

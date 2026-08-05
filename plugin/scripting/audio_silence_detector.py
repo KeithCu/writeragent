@@ -10,6 +10,8 @@ import logging
 import struct
 from dataclasses import dataclass
 
+from plugin.framework.deal_shim import deal
+
 log = logging.getLogger(__name__)
 
 # Algorithm tuning (not user config — adjust here if mic edge cases appear).
@@ -46,12 +48,13 @@ class SilenceDetectorResult:
     heard_speech: bool
 
 
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and 0.0 <= result[0] <= 1.0 and 0.0 <= result[1] <= 1.0)
 def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
     """Return (RMS, peak) of 16-bit little-endian PCM, each normalized to 0.0–1.0."""
     sample_count = len(pcm) // 2
     if sample_count == 0:
         return 0.0, 0.0
-    samples = struct.unpack(f"<{sample_count}h", pcm)
+    samples = struct.unpack(f"<{sample_count}h", pcm[: sample_count * 2])
     sum_sq = 0
     peak = 0
     for sample in samples:

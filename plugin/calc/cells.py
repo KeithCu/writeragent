@@ -31,12 +31,15 @@ from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.inspector import CellInspector
 from plugin.calc.manipulator import CellManipulator
 
+from plugin.framework.deal_shim import deal
+
 logger = logging.getLogger("writeragent.calc")
 
 
 # ── Colour helper ──────────────────────────────────────────────────────
 
 
+@deal.post(lambda result: result is None or (isinstance(result, int) and 0 <= result <= 0xFFFFFF))
 def _parse_color(color_str):
     """Convert a hex colour string or named colour to an RGB integer.
 
