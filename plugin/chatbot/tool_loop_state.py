@@ -1,24 +1,13 @@
 import dataclasses
-import importlib
 import json
 from enum import Enum, auto
-from typing import Any, Dict, List, Mapping, Optional, NamedTuple
+from typing import Any, Dict, List, Mapping, Optional, NamedTuple, cast
 
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.chatbot.state_machine import UIEffectKind
 from plugin.chatbot.memory import format_upsert_memory_chat_line
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
-
-deal: Any
-try:
-    deal = importlib.import_module("deal")
-except ImportError:
-
-    class _DummyDeal:
-        def __getattr__(self, name: str) -> Any:
-            return lambda *args, **kwargs: lambda f: f
-
-    deal = _DummyDeal()
+from plugin.framework.deal_shim import deal
 
 # Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
 DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
@@ -117,6 +106,84 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
 
     cache_block = format_research_cache_result_chat(result_data) if domain == "web_research" else ""
     return cache_block + f"[delegate ({domain}): done]\n"
+
+
+@deal.post(lambda result: isinstance(result, dict))
+def object_dict_or_empty(value: object) -> dict[str, Any]:
+    """Return *value* when it is a dict; otherwise ``{}`` (post-JSON coerce)."""
+    return cast("dict[str, Any]", value) if isinstance(value, dict) else {}
+
+
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 3 and all(isinstance(x, str) for x in result))
+def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
+    """Normalize a pending tool-call entry to ``(func_name, func_args_str, call_id)``."""
+    if not isinstance(tc, dict):
+        tc = {}
+    func_data = tc.get("function", {})
+    if not isinstance(func_data, dict):
+        func_data = {}
+    func_name = func_data.get("name", "unknown")
+    func_args_str = func_data.get("arguments", "{}")
+    call_id = tc.get("id", "")
+    if not isinstance(func_name, str):
+        func_name = "unknown"
+    if not isinstance(func_args_str, str):
+        func_args_str = "{}"
+    if not isinstance(call_id, str):
+        call_id = ""
+    return func_name, func_args_str, call_id
+
+
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], str) and result[0] and result[1].endswith("\n"))
+def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tuple[str, str]:
+    """Status bar text and chat run-line when a tool starts executing."""
+    if is_delegate_gateway(func_name):
+        return f"Running: {delegate_status_label(func_args)}", format_delegate_running_chat_line(func_args)
+    if func_name == "upsert_memory":
+        return f"Running: {func_name}", format_upsert_memory_chat_line(func_args)
+    return f"Running: {func_name}", f"[Running tool: {func_name}...]\n"
+
+
+@deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
+def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
+    """Chat append body for a tool result (error or success); does not mutate *result_data*."""
+    if result_data.get("status") == "error":
+        error_msg = result_data.get("message", "Unknown error")
+        if is_delegate_gateway(func_name):
+            detailed_text = format_delegate_result_chat_line(func_args, result_data)
+        else:
+            detailed_text = f"[{func_name} failed: {error_msg}]\n"
+        raw_details = result_data.get("details", {})
+        # Copy before popping traceback so callers' result_data is not mutated.
+        details = dict(raw_details) if isinstance(raw_details, dict) else {}
+        if details:
+            tb = details.pop("traceback", None)
+            if details:
+                detailed_text += f"Details: {json.dumps(details, indent=2)}\n"
+            if isinstance(tb, str) and tb.strip() and tb.strip() != "NoneType: None":
+                detailed_text += f"Traceback:\n{tb}\n"
+        return detailed_text
+
+    note = result_data.get("message", result_data.get("status", "done"))
+    if is_delegate_gateway(func_name):
+        return format_delegate_result_chat_line(func_args, result_data)
+    if func_name == "web_research":
+        from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+
+        cache_block = format_research_cache_result_chat(result_data)
+        return cache_block + f"[{func_name}: {note}]\n"
+    return f"[{func_name}: {note}]\n"
+
+
+@deal.post(lambda result: isinstance(result, bool))
+def is_replaced_zero_result(result_data: Mapping[str, Any], note: object) -> bool:
+    """True when apply_document_content reported zero replacements (structured or legacy message)."""
+    if result_data.get("replaced_count") == 0:
+        return True
+    # TODO(follow-up): drop legacy prefix once all callers emit replaced_count.
+    if isinstance(note, str):
+        return note.strip().startswith("Replaced 0 occurrence")
+    return False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -231,6 +298,7 @@ class CleanupAudioEffect:
 @deal.ensure(lambda state, event, result: result.state.round_num <= max(state.round_num + 1, state.max_rounds))
 def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[ToolLoopState]:
     """Pure transition function for the tool-calling loop."""
+    # crosshair: off
     effects: List[Any] = []
 
     match event.kind:
@@ -334,32 +402,12 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
                     return FsmTransition(dataclasses.replace(state, round_num=new_round_num), effects)
 
             else:
-                tc = state.pending_tools[0]
-                if not isinstance(tc, dict):
-                    tc = {}
-                func_data = tc.get("function", {})
-                if not isinstance(func_data, dict):
-                    func_data = {}
-
-                func_name = func_data.get("name", "unknown")
-                func_args_str = func_data.get("arguments", "{}")
-                call_id = tc.get("id", "")
+                func_name, func_args_str, call_id = pending_tool_call_fields(state.pending_tools[0])
 
                 from plugin.framework.errors import safe_json_loads
 
-                func_args = safe_json_loads(func_args_str) if func_args_str else {}
-                if not isinstance(func_args, dict):
-                    func_args = {}
-
-                if is_delegate_gateway(func_name):
-                    status_text = f"Running: {delegate_status_label(func_args)}"
-                    run_line = format_delegate_running_chat_line(func_args)
-                elif func_name == "upsert_memory":
-                    status_text = f"Running: {func_name}"
-                    run_line = format_upsert_memory_chat_line(func_args)
-                else:
-                    status_text = f"Running: {func_name}"
-                    run_line = f"[Running tool: {func_name}...]\n"
+                func_args = object_dict_or_empty(safe_json_loads(func_args_str) if func_args_str else {})
+                status_text, run_line = format_tool_running_ui(func_name, func_args)
                 effects.append(ToolLoopUIEffect(kind="status", text=status_text))
                 # web_research: chat shows internal DuckDuckGo `web_search` steps only (see
                 # web_research.py + web_research_chat.py), not a separate outer research banner.
@@ -384,54 +432,18 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             call_id = event.data.get("call_id", "")
             mutates_document = event.data.get("mutates_document", False)
 
-            result_data = safe_json_loads(result) if result else {}
-            if not isinstance(result_data, dict):
-                result_data = {}
-
+            result_data = object_dict_or_empty(safe_json_loads(result) if result else {})
             effects.append(ToolLoopUIEffect(kind="debug", text=f"Tool result: {result}"))
 
-            func_args = safe_json_loads(func_args_str) if func_args_str else {}
-            if not isinstance(func_args, dict):
-                func_args = {}
+            func_args = object_dict_or_empty(safe_json_loads(func_args_str) if func_args_str else {})
 
             if result_data.get("status") == "error":
-                import json
-
-                error_msg = result_data.get("message", "Unknown error")
-                details = result_data.get("details", {})
-
-                if is_delegate_gateway(func_name):
-                    detailed_text = format_delegate_result_chat_line(func_args, result_data)
-                else:
-                    detailed_text = f"[{func_name} failed: {error_msg}]\n"
-                if details:
-                    tb = details.pop("traceback", None)
-                    if details:
-                        detailed_text += f"Details: {json.dumps(details, indent=2)}\n"
-                    if tb and tb.strip() != "NoneType: None":
-                        detailed_text += f"Traceback:\n{tb}\n"
-
-                effects.append(ToolLoopUIEffect(kind="append", text=detailed_text))
-                note = error_msg
+                note = result_data.get("message", "Unknown error")
             else:
                 note = result_data.get("message", result_data.get("status", "done"))
-                if is_delegate_gateway(func_name):
-                    effects.append(ToolLoopUIEffect(kind="append", text=format_delegate_result_chat_line(func_args, result_data)))
-                elif func_name == "web_research":
-                    from plugin.chatbot.web_research_chat import format_research_cache_result_chat
+            effects.append(ToolLoopUIEffect(kind="append", text=format_tool_result_chat_text(func_name, func_args, result_data)))
 
-                    cache_block = format_research_cache_result_chat(result_data)
-                    effects.append(ToolLoopUIEffect(kind="append", text=cache_block + f"[{func_name}: {note}]\n"))
-                else:
-                    effects.append(ToolLoopUIEffect(kind="append", text=f"[{func_name}: {note}]\n"))
-
-            # Prefer the structured replaced_count (cleaner than parsing the message).
-            # TODO(follow-up): drop the legacy "Replaced 0 occurrence" message-prefix fallback once
-            # all callers emit replaced_count (pre-structured-return tool results / external hosts).
-            replaced_zero = result_data.get("replaced_count") == 0
-            if not replaced_zero and isinstance(note, str):
-                replaced_zero = note.strip().startswith("Replaced 0 occurrence")
-            if func_name == "apply_document_content" and replaced_zero:
+            if func_name == "apply_document_content" and is_replaced_zero_result(result_data, note):
                 params_display = func_args_str if len(func_args_str) <= 800 else func_args_str[:800] + "..."
                 effects.append(ToolLoopUIEffect(kind="append", text=f"[Debug: params {params_display}]\n"))
 

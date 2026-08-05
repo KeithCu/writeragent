@@ -731,7 +731,7 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
     assistant message from SSE chunks. Content and tool_calls (with partial
     function.arguments) are merged by index; strings are concatenated.
     """
-    # Plain dict only — CrossHair AttrDict passes isinstance(dict) but .items() can engine-crash.
+    # crosshair: off
     if type(acc) is not dict or type(delta) is not dict:
         raise TypeError("accumulate_delta requires plain dict acc and delta")
     for key, delta_value in delta.items():

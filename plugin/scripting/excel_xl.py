@@ -25,7 +25,8 @@ _HEADERS_OMIT = object()
 @deal.post(lambda result: callable(result))
 def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
     """Return an Excel-shaped ``xl(ref, headers=…)`` closed over *ranges*."""
-    bound = tuple(ranges or ())
+    # Avoid `ranges or ()` — CrossHair returns SymbolicBool from __bool__ on empty tuples.
+    bound = tuple(ranges) if ranges is not None else ()
 
     def xl(ref: Any, headers: Any = _HEADERS_OMIT) -> Any:
         if not isinstance(ref, str):

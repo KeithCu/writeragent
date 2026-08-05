@@ -96,3 +96,9 @@ def test_calc_range_packing_contracts(raw_val) -> None:
     if cr.values:
         assert cr.ncols == len(cr.values[0])
     assert cr.shape == (cr.nrows, cr.ncols)
+
+
+def test_pack_calc_range_envelope_ignores_non_callable_pack_inner() -> None:
+    envelope = pack_calc_range_envelope([], address=None, pack_inner="")
+    assert is_calc_range_payload(envelope) is True
+    assert envelope["data"] == []

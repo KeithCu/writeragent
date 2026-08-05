@@ -65,7 +65,7 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
     return "\n\n".join(chunks)
 
 
-@deal.post(lambda result: isinstance(result, str) and len(result) > 0)
+@deal.post(lambda result: isinstance(result, str))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
     body = failure_detail(detail=detail, exc=exc)

@@ -92,6 +92,11 @@ def test_parse_run_import_call_spec_reads_helper_and_params():
     assert spec == {"helper": "entities", "params": {"lang": "de"}}
 
 
+def test_parse_run_import_call_null_byte_returns_none():
+    assert parse_run_import_call_spec("\x00", run_name="\x00") is None
+    assert parse_run_import_call_params("\x00", run_name="\x00") is None
+
+
 def test_build_header_only_template():
     body = build_helper_script_template(
         tag="forecast",

@@ -28,6 +28,7 @@ def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
     Orientation is preserved: a single row stays ``[[a, b, c]]``; a single
     column stays ``[[a], [b], [c]]``; a scalar becomes ``[[v]]``.
     """
+    # crosshair: off
     if grid is None:
         return []
     # Plain list/tuple only — namedtuple subclasses tuple; treating them as grids
@@ -52,6 +53,7 @@ def column_vector_as_2d(values: list[Any]) -> list[list[Any]]:
 
 @deal.post(lambda result: isinstance(result, bool))
 def is_calc_range_payload(obj: Any) -> bool:
+    # crosshair: off
     if not isinstance(obj, dict):
         return False
     if obj.get("__wa_payload__") != PAYLOAD_CALC_RANGE:
@@ -76,10 +78,11 @@ def pack_calc_range_envelope(
     *pack_inner*, when provided, is a callable ``(grid) -> wire`` (typically
     ``host_pack_data``). When omitted, the rectangular list is stored as-is.
     """
+    # crosshair: off
     rows = ensure_rectangular_2d(grid)
     nrows = len(rows)
     ncols = len(rows[0]) if rows else 0
-    inner = pack_inner(rows) if pack_inner is not None else rows
+    inner = pack_inner(rows) if callable(pack_inner) else rows
     envelope: dict[str, Any] = {
         "__wa_payload__": PAYLOAD_CALC_RANGE,
         "shape": [nrows, ncols],

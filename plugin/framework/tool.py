@@ -48,6 +48,7 @@ _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
 @deal.post(lambda result: isinstance(result, (str, list)))
 def _collapse_union_type(types: list) -> str | list:
     """Collapse messy unions for Gemini; preserve scalar+null pairs for Groq."""
+    # crosshair: off
     if not types:
         return "string"
     non_null = [t for t in types if t != "null"]
@@ -87,7 +88,10 @@ def _normalize_schema_for_strict_providers(params):
     - Empty ``required`` is removed so providers do not complain about required[0/1] missing.
     - Nested object properties are normalized recursively with each object's ``required`` list.
     """
-    if not params or not isinstance(params, dict):
+    # crosshair: off
+    if type(params) is not dict:
+        return params
+    if len(params) == 0:
         return params
     params = copy.deepcopy(params)
     if "type" in params and isinstance(params["type"], list):

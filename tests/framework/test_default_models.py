@@ -2,7 +2,7 @@
 
 import unittest
 
-from plugin.framework.default_models import get_provider_defaults
+from plugin.framework.default_models import get_provider_defaults, resolve_model_id
 
 
 class TestGetProviderDefaults(unittest.TestCase):
@@ -11,6 +11,11 @@ class TestGetProviderDefaults(unittest.TestCase):
         self.assertTrue(bool(d.get("text_model")))
         self.assertTrue(bool(d.get("image_model")))
         self.assertTrue(bool(d.get("stt_model")))
+
+    def test_resolve_model_id_requires_ids_dict(self):
+        self.assertIsNone(resolve_model_id({"": 0, "ids": ""}, 0))
+        self.assertIsNone(resolve_model_id({"ids": None}, "openrouter"))
+        self.assertEqual(resolve_model_id({"ids": {"openrouter": "x"}}, "openrouter"), "x")
 
     def test_minimax_m27_together_catalog(self):
         from plugin.framework.default_models import DEFAULT_MODELS

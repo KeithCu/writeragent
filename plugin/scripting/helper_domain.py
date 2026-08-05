@@ -131,7 +131,7 @@ def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | 
         return None
     try:
         tree = ast.parse(code)
-    except SyntaxError:
+    except (SyntaxError, TypeError, ValueError):
         return None
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):

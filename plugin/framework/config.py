@@ -109,9 +109,11 @@ def as_bool(value):
         return value
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
-    if isinstance(value, (int, float)):
-        return value != 0
-    return False
+    # CrossHair can crash on direct != 0 for symbolic numbers; float() is safer.
+    try:
+        return float(value) != 0.0
+    except (TypeError, ValueError):
+        return False
 
 
 def _safe_float(value, default):

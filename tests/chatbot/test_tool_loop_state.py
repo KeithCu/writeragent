@@ -12,7 +12,12 @@ from plugin.chatbot.tool_loop_state import (
     SpawnFinalStreamEffect,
     UpdateDocumentContextEffect,
     format_empty_model_response_debug,
+    format_tool_result_chat_text,
+    format_tool_running_ui,
+    is_replaced_zero_result,
     next_state,
+    object_dict_or_empty,
+    pending_tool_call_fields,
 )
 
 # --- Helpers ---
@@ -388,3 +393,62 @@ def test_tool_result_parsing():
     # the 1000 'A's should be truncated to 800 + "..."
     assert any("..." in e.text for e in ui_effs)
     assert not any(isinstance(e, UpdateDocumentContextEffect) for e in effects_adc)  # mutates_document=False
+
+
+def test_object_dict_or_empty():
+    d = {"a": 1}
+    assert object_dict_or_empty(d) is d
+    assert object_dict_or_empty(None) == {}
+    assert object_dict_or_empty("x") == {}
+    assert object_dict_or_empty([1]) == {}
+
+
+def test_pending_tool_call_fields():
+    assert pending_tool_call_fields({"id": "c1", "function": {"name": "foo", "arguments": "{}"}}) == ("foo", "{}", "c1")
+    assert pending_tool_call_fields(None) == ("unknown", "{}", "")
+    assert pending_tool_call_fields({"id": "c2"}) == ("unknown", "{}", "c2")
+    assert pending_tool_call_fields({"function": "bad"}) == ("unknown", "{}", "")
+
+
+def test_format_tool_running_ui():
+    status, line = format_tool_running_ui("read_cell_range", {})
+    assert status == "Running: read_cell_range"
+    assert line == "[Running tool: read_cell_range...]\n"
+
+    status, line = format_tool_running_ui("delegate_to_specialized_calc_toolset", {"domain": "charts", "task": "plot"})
+    assert "delegate (charts)" in status
+    assert line.startswith("[Running delegate (charts):")
+    assert line.endswith("\n")
+
+    status, line = format_tool_running_ui("upsert_memory", {"key": "k", "content": "v"})
+    assert status == "Running: upsert_memory"
+    assert "Memory update" in line
+    assert line.endswith("\n")
+
+
+def test_format_tool_result_chat_text_error_does_not_mutate_details():
+    details = {"code": 1, "traceback": "Traceback (most recent call last):\n  File x\n"}
+    result_data = {"status": "error", "message": "boom", "details": details}
+    text = format_tool_result_chat_text("my_tool", {}, result_data)
+    assert "[my_tool failed: boom]" in text
+    assert "Details:" in text
+    assert "Traceback:" in text
+    assert "traceback" in details  # not popped from caller's dict
+    assert details["code"] == 1
+
+
+def test_format_tool_result_chat_text_success_and_delegate():
+    assert format_tool_result_chat_text("my_tool", {}, {"status": "ok", "message": "done"}) == "[my_tool: done]\n"
+    text = format_tool_result_chat_text(
+        "delegate_to_specialized_writer_toolset",
+        {"domain": "styles"},
+        {"status": "ok"},
+    )
+    assert text == "[delegate (styles): done]\n"
+
+
+def test_is_replaced_zero_result():
+    assert is_replaced_zero_result({"replaced_count": 0}, "ok") is True
+    assert is_replaced_zero_result({}, "Replaced 0 occurrences") is True
+    assert is_replaced_zero_result({"replaced_count": 2}, "ok") is False
+    assert is_replaced_zero_result({}, 42) is False

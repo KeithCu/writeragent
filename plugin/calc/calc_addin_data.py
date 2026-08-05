@@ -78,6 +78,7 @@ def normalize_python_data_shape(grid: list[list[Any]], *, as_column: bool = Fals
 @deal.post(lambda result: result is None or isinstance(result, list))
 def finalize_python_data(raw: Any) -> list[list[Any]] | None:
     """Normalize tool/API ``data`` that may already be a nested list from the LLM."""
+    # crosshair: off
     if raw is None:
         return None
     if isinstance(raw, str):

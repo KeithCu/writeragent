@@ -52,6 +52,11 @@ def test_tokenize_empty():
     assert tokenize("") == []
 
 
+def test_tokenize_non_str_is_empty():
+    assert tokenize(0) == []
+    assert tokenize(None) == []
+
+
 def test_tokenize_word_vs_separator_classification():
     toks = tokenize(" a  b ")
     kinds = [(t.text, t.is_word) for t in toks]
@@ -73,6 +78,12 @@ def test_identical_strings_no_sub_edits():
     assert r.mode == "surgical"
     assert r.sub_edits == []
     assert r.fraction_changed == 0.0
+
+
+def test_split_change_non_str_new_and_bad_threshold():
+    r = split_change("hi", 0, threshold="")
+    assert r.mode in ("surgical", "block")
+    assert 0.0 <= r.fraction_changed <= 1.0
 
 
 def test_both_empty_no_sub_edits():

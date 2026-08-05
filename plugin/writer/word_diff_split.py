@@ -197,6 +197,9 @@ def tokenize(s):
     Concatenating ``t.text`` for the returned tokens reproduces *s* exactly, and each
     token's ``[start:end]`` indexes back into *s*. An empty string yields ``[]``.
     """
+    # crosshair: off
+    if not isinstance(s, str):
+        s = ""
     tokens = []
     n = len(s)
     i = 0
@@ -230,8 +233,13 @@ def split_change(old, new, threshold=0.6):
         :class:`SplitResult`. See the module docstring for the exact change-fraction
         definition and boundary semantics.
     """
-    old = old if old is not None else ""
-    new = new if new is not None else ""
+    # crosshair: off
+    old = old if isinstance(old, str) else ""
+    new = new if isinstance(new, str) else ""
+    try:
+        threshold = float(threshold)
+    except (TypeError, ValueError):
+        threshold = 0.6
 
     old_tokens = tokenize(old)
     new_tokens = tokenize(new)

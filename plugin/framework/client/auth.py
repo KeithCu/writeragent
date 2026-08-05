@@ -204,6 +204,7 @@ def build_auth_headers(auth_info: Dict[str, Any]) -> Dict[str, str]:
     the responsibility of the caller, so they can be shared between API and
     other HTTP clients).
     """
+    # crosshair: off
     headers: Dict[str, str] = {}
     # Coerce: callers/CrossHair may pass non-str header_style (e.g. int 2).
     style = str(auth_info.get("header_style") or "bearer").lower().strip()

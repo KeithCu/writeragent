@@ -96,6 +96,10 @@ def test_failure_message_accepts_none_detail():
     assert msg == "Summary"
 
 
+def test_failure_message_empty_summary():
+    assert failure_message("", detail="", exc=None) == ""
+
+
 def test_failure_message_none_detail_with_exc():
     try:
         raise ValueError("probe failure")

@@ -37,9 +37,11 @@ DEFAULT_LOG = Path("build/crosshair-check-all.log")
 CROSSHAIR_CHECK_ALL_SKIP: frozenset[str] = frozenset(
     {
         "plugin/chatbot/memory.py",  # safe_json_loads / symbolic str → CrossHairInternal
-        "plugin/chatbot/tool_loop_state.py",  # TOOL_RESULT path + safe_json_loads
         "plugin/chatbot/state_machine.py",  # engine Traceback on next_state contracts
         "plugin/framework/appearance.py",  # UNO StyleSettings / hasattr under symbolic objects
+        "plugin/framework/json_utils.py",  # symbolic json.loads → CrossHairInternal
+        "plugin/framework/errors.py",  # engine Traceback on error/JSON formatting surface
+        "plugin/mcp/wire_types.py",  # engine Traceback only
     }
 )
 

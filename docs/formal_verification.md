@@ -222,7 +222,9 @@ Sample filtered **`check`** output:
 
 `make crosshair-check` / `make crosshair-check-all` both end with that **ERRORS TO FIX** block (unique contract errors, plugin traceback frames, and CrossHairInternal crashes). `check-all` also groups failures by module.
 
-**`crosshair-check-all` skip list:** some `@deal.` modules crash the CrossHair engine (`CrossHairInternal` on symbolic `json.loads` / UNO proxies) without a useful contract counterexample. Default discovery omits them (`CROSSHAIR_CHECK_ALL_SKIP` in [`scripts/crosshair_check_all.py`](../scripts/crosshair_check_all.py)); `@deal` still runs at runtime. Pass an explicit path or `--include-skipped` to force analysis. Current skips: `plugin/chatbot/memory.py`, `plugin/chatbot/tool_loop_state.py`, `plugin/chatbot/state_machine.py`, `plugin/framework/appearance.py`.
+**`crosshair-check-all` skip list:** some `@deal.` modules crash the CrossHair engine (`CrossHairInternal` on symbolic `json.loads` / UNO proxies) without a useful contract counterexample. Default discovery omits them (`CROSSHAIR_CHECK_ALL_SKIP` in [`scripts/crosshair_check_all.py`](../scripts/crosshair_check_all.py)); `@deal` still runs at runtime. Pass an explicit path or `--include-skipped` to force analysis. Current skips: `plugin/chatbot/memory.py`, `plugin/chatbot/state_machine.py`, `plugin/framework/appearance.py`, `plugin/framework/json_utils.py`, `plugin/framework/errors.py`, `plugin/mcp/wire_types.py`. (`tool_loop_state.py` stays in the sweep: `next_state` uses `# crosshair: off`; pure helpers are analyzed.)
+
+**`# crosshair: off`:** put the directive alone on its line (no trailing prose). CrossHair parses the rest of the line as options; characters like `—` raise `InvalidDirective`.
 
 ```text
 [CHECK PROGRESS        ] analyzing host_pack_split_grid
@@ -411,7 +413,7 @@ def next_state(...):
 crosshair check plugin/chatbot/send_state.py
 crosshair check plugin/chatbot/audio_recorder_state.py
 crosshair check plugin.mcp.mcp_state.next_state
-# tool_loop_state: deal+pytest + FQN CrossHair (larger event surface)
+# tool_loop_state: deal+pytest + CrossHair on pure helpers (next_state off)
 ```
 
 ### Step 3: Add Verification to CI
@@ -430,7 +432,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 4. **`plugin/framework/config.py`** — `as_bool` / `parse_int_robust` / `parse_float_robust` ([`tests/framework/test_config_coerce_verification.py`](../tests/framework/test_config_coerce_verification.py)); not whole-file CrossHair
 5. **`plugin/framework/tool.py`** — `_normalize_schema_for_strict_providers` FQN ([`tests/framework/test_tool_schema_verification.py`](../tests/framework/test_tool_schema_verification.py))
 6. **`plugin/framework/async_stream.py`** — `accumulate_delta` FQN ([`tests/framework/test_accumulate_delta_verification.py`](../tests/framework/test_accumulate_delta_verification.py))
-7. **FSM catch-up** — CrossHair on `state_machine.py` + `tool_loop_state.next_state` FQN ([`tests/chatbot/test_fsm_verification.py`](../tests/chatbot/test_fsm_verification.py)); `mcp_state.next_state` ([`tests/mcp/test_mcp_state_verification.py`](../tests/mcp/test_mcp_state_verification.py))
+7. **FSM catch-up** — CrossHair on `state_machine.py` + `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../tests/chatbot/test_fsm_verification.py)); `mcp_state.next_state` ([`tests/mcp/test_mcp_state_verification.py`](../tests/mcp/test_mcp_state_verification.py))
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../tests/framework/test_json_utils_verification.py))
 9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_error_payload_verification.py`](../tests/framework/test_error_payload_verification.py))
 10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env` FQN ([`tests/scripting/test_scrub_env_verification.py`](../tests/scripting/test_scrub_env_verification.py))

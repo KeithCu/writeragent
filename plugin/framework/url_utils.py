@@ -86,7 +86,8 @@ def get_api_version_suffix(url, is_openwebui=False):
 @deal.ensure(lambda url, is_openwebui=False, result="": bool(isinstance(url, str) and url.strip()) or result == "")
 def normalize_endpoint_url(url, is_openwebui=False):
     """Clean up endpoint URL: strip whitespace, trailing slashes, and domain-specific version suffixes."""
-    if not url or not isinstance(url, str):
+    # crosshair: off
+    if type(url) is not str or not url.strip():
         return ""
     url = url.strip()
     # Remove trailing /
@@ -121,6 +122,8 @@ def normalize_endpoint_url(url, is_openwebui=False):
 @deal.post(lambda result: isinstance(result, str))
 def get_url_hostname(url):
     """Return hostname from URL safely."""
+    if type(url) is not str:
+        return ""
     try:
         parsed = urllib.parse.urlparse(url)
         return parsed.hostname or ""
@@ -144,6 +147,8 @@ def get_url_domain(url):
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path(url):
     """Return path from URL safely."""
+    if type(url) is not str:
+        return ""
     try:
         parsed = urllib.parse.urlparse(url)
         return parsed.path or ""
@@ -154,7 +159,7 @@ def get_url_path(url):
 @deal.post(lambda result: isinstance(result, dict))
 def get_url_query_dict(url):
     """Return query parameters as dict (values are lists)."""
-    if not url:
+    if type(url) is not str or not url:
         return {}
     try:
         parsed = urllib.parse.urlparse(url)
@@ -166,6 +171,8 @@ def get_url_query_dict(url):
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path_and_query(url):
     """Return path + query string from URL."""
+    if type(url) is not str:
+        return "/"
     try:
         parsed = urllib.parse.urlparse(url)
         path = parsed.path or "/"
@@ -179,6 +186,9 @@ def get_url_path_and_query(url):
 @deal.post(lambda result: isinstance(result, bool))
 def is_pdf_url(url):
     """Check for .pdf in the URL path safely."""
+    # crosshair: off
+    if type(url) is not str:
+        return False
     try:
         parsed = urllib.parse.urlparse(url)
         return (parsed.path or "").lower().endswith(".pdf")

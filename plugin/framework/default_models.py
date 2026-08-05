@@ -29,6 +29,8 @@ def resolve_model_id(model: dict[str, Any], provider):
         available for this provider.
     """
     ids = model.get("ids", {})
+    if not isinstance(ids, dict):
+        return None
     return ids.get(provider)
 
 

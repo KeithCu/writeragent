@@ -56,12 +56,16 @@ def test_decode_lo_css_class_suffix():
     assert decode_lo_css_class_suffix("Table_20_Contents") == "Table Contents"
     assert decode_lo_css_class_suffix("Caption") == "Caption"
     assert decode_lo_css_class_suffix("Standard") == "Standard"
+    assert decode_lo_css_class_suffix(b"") == ""
+    assert decode_lo_css_class_suffix(None) == ""
 
 
 def test_compact_lo_style_name():
     assert compact_lo_style_name("Heading 1") == "Heading1"
     assert compact_lo_style_name("Text body") == "Textbody"
     assert compact_lo_style_name("Standard") == "Standard"
+    assert compact_lo_style_name(0) == ""
+    assert compact_lo_style_name(None) == ""
 
 
 def test_parse_style_block_extracts_class_declarations():

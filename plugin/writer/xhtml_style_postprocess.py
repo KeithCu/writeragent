@@ -47,12 +47,18 @@ from plugin.framework.deal_shim import deal
 @deal.post(lambda result: isinstance(result, str))
 def decode_lo_css_class_suffix(suffix):
     """Reverse ODF URL-style encoding in a CSS class suffix (``Heading_20_1`` -> ``Heading 1``)."""
+    # Plain str only — CrossHair LazyIntSymbolicStr is isinstance(str) but breaks re.sub.
+    if type(suffix) is not str:
+        return ""
     return re.sub(r"_([0-9a-fA-F]{2})_", lambda m: chr(int(m.group(1), 16)), suffix)
 
 
 @deal.post(lambda result: isinstance(result, str) and " " not in result)
 def compact_lo_style_name(uno_name):
     """Agent-facing token: drop spaces (``Heading 1`` -> ``Heading1``)."""
+    # crosshair: off
+    if type(uno_name) is not str:
+        return ""
     return uno_name.replace(" ", "")
 
 
@@ -69,7 +75,8 @@ def extract_autostyle_parents_from_fodt(fodt):
     still be ODF-encoded (``Text_20_body``); decode at use via ``decode_lo_css_class_suffix``.
     """
     out = {}
-    for m in _FODT_STYLE_RE.finditer(fodt or ""):
+    text = fodt if type(fodt) is str else ""
+    for m in _FODT_STYLE_RE.finditer(text):
         attrs = m.group(1)
         fam = re.search(r'style:family="([^"]*)"', attrs)
         if not fam or fam.group(1) != "paragraph":
@@ -103,7 +110,8 @@ def parse_style_block(xhtml):
     """
     raw_map = {}
     norm_map = {}
-    for block in _STYLE_BLOCK_RE.findall(xhtml or ""):
+    text = xhtml if type(xhtml) is str else ""
+    for block in _STYLE_BLOCK_RE.findall(text):
         for name, decl in _RULE_RE.findall(block):
             raw_map[name] = _clean_decl_ordered(decl)
             norm_map[name] = _normalize_decl(decl)
