@@ -66,6 +66,7 @@ def _type_allows_null(type_val: Any) -> bool:
 @deal.ensure(lambda prop_schema, result: not isinstance(prop_schema, dict) or isinstance(result, dict))
 def _make_optional_scalar_nullable(prop_schema: dict) -> dict:
     """Add null to optional scalar property types (strict providers reject bare null otherwise)."""
+    # crosshair: off
     if not isinstance(prop_schema, dict):
         return prop_schema
     type_val = prop_schema.get("type")

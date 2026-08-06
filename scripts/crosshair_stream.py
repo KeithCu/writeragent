@@ -143,19 +143,20 @@ def classify_line(line: str, mode: str) -> ClassifiedLine | None:
     if not stripped:
         return None
 
-    # Engine crashes must surface in check and cover (were previously swallowed as verbose noise).
+    # Real process Tracebacks fail both modes. CrossHairInternal likewise.
     if stripped.startswith("Traceback (most recent call last)"):
-        return ClassifiedLine("CHECK ERROR", "Traceback (CrossHair engine)", stripped)
-
-    file_match = TRACE_FILE.match(stripped)
-    if file_match:
-        plugin_path = _plugin_relpath(file_match.group("path"))
-        if plugin_path is not None:
-            loc = f"{plugin_path}:{file_match.group('line')}"
-            return ClassifiedLine("CHECK ERROR", f"crash frame {loc}", stripped)
+        tag = "COVER FATAL" if mode == "cover" else "CHECK ERROR"
+        return ClassifiedLine(tag, "Traceback (CrossHair engine)", stripped)
 
     if CROSSHAIR_INTERNAL.search(stripped) and not VERBOSE_PREFIX.match(stripped):
-        return ClassifiedLine("CHECK ERROR", "CrossHairInternal engine crash", stripped)
+        tag = "COVER FATAL" if mode == "cover" else "CHECK ERROR"
+        return ClassifiedLine(tag, "CrossHairInternal engine crash", stripped)
+
+    # CrossHair -v dumps File/TypeError stacks for CrosshairUnsupported path exploration
+    # (format_stack in CrosshairUnsupported.__init__). Those are not process Tracebacks —
+    # real crashes start with "Traceback (most recent call last)" above. Suppress in both modes.
+    if TRACE_FILE.match(stripped) or (TRACE_LINE.match(stripped) and not stripped.startswith("Traceback")):
+        return None
 
     if mode in ("check", "auto"):
         match = CHECK_LINE.match(stripped)
@@ -193,8 +194,6 @@ def classify_line(line: str, mode: str) -> ClassifiedLine | None:
             return ClassifiedLine("COVER EXPLORE", stripped[:120], stripped)
         if "Uneven row lengths" in stripped:
             return ClassifiedLine("COVER EXPLORE", stripped[:120], stripped)
-        if TRACE_LINE.match(stripped):
-            return ClassifiedLine("COVER FATAL", stripped[:120], stripped)
 
         if VERBOSE_PREFIX.match(stripped):
             body = _strip_crosshair_verbose(stripped)

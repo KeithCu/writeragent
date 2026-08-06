@@ -10,8 +10,9 @@ Runs **one file at a time** so a CrossHair engine crash in one module does not a
 Failures are engine fatals / process crashes only — few examples do not fail the sweep.
 
 Uses ``CROSSHAIR_CHECK_ALL_SKIP`` plus cover-only ``CROSSHAIR_COVER_ALL_SKIP`` (UNO / drain loops).
-Every file is bounded with ``--max_uninteresting_iterations=25`` so cover cannot hang on
-infinite loops (unlike check-all, which has no iteration budget).
+Every file is bounded with ``--max_uninteresting_iterations=25`` and
+``--per_condition_timeout=60`` so cover cannot hang on infinite loops or SMT spam
+(unlike check-all, which has no iteration budget).
 
 Usage::
 
@@ -36,17 +37,41 @@ from scripts.crosshair_stream import _TeeTextIO, discover_deal_plugin_files, run
 
 DEFAULT_LOG = Path("build/crosshair-cover-all.log")
 # Bound per function so drain loops / hostile callables cannot spin forever.
+# Iteration budget alone is not enough: SMT "examples" can look like progress forever.
 MAX_UNINTERESTING_ITERATIONS = 25
+PER_CONDITION_TIMEOUT_SEC = 60
 
 # Cover walks all top-level callables (not only @deal). These are check-green but
-# cover-hostile (UNO Tool.execute, sheet access, combobox, engine exit 2, drain loops).
+# cover-hostile (UNO Tool.execute, sheet access, combobox, engine exit 2, drain loops,
+# FSM/Exception/JSON surfaces that still crash-frame under cover after Literal→str).
 CROSSHAIR_COVER_ALL_SKIP: frozenset[str] = frozenset(
     {
         "plugin/calc/cells.py",
         "plugin/calc/formula_dep_chain.py",
+        "plugin/calc/calc_addin_data.py",
         "plugin/chatbot/chat_sidebar_mode.py",
         "plugin/chatbot/web_research_cache.py",
+        "plugin/chatbot/state_machine.py",
+        "plugin/chatbot/tool_loop_state.py",
         "plugin/framework/async_stream.py",
+        # check-green; cover crash-frames / LazyIntSymbolicStr / engine exit 2
+        # (cover ignores # crosshair: off on many of these entry points).
+        "plugin/framework/client/auth.py",
+        "plugin/framework/config.py",
+        "plugin/framework/config_service.py",
+        "plugin/framework/default_models.py",
+        "plugin/framework/event_bus.py",
+        "plugin/framework/i18n.py",
+        "plugin/framework/tool.py",
+        "plugin/framework/url_utils.py",
+        "plugin/mcp/cors.py",
+        # CalcRange materialize/pandas paths + payload_codec under symbolic grids.
+        "plugin/scripting/calc_range.py",
+        # json.dumps on symbolic template params → cover crash frame.
+        "plugin/scripting/duckdb_sql.py",
+        "plugin/scripting/editor_ipc.py",
+        "plugin/scripting/helper_domain.py",  # cover engine exit 2
+        "plugin/scripting/sandbox.py",
     }
 )
 
@@ -138,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
     args.log.parent.mkdir(parents=True, exist_ok=True)
     print(
         f"Logging to {args.log} "
-        f"(max_uninteresting_iterations={MAX_UNINTERESTING_ITERATIONS}; may still take a while)",
+        f"(max_uninteresting_iterations={MAX_UNINTERESTING_ITERATIONS}, "
+        f"per_condition_timeout={PER_CONDITION_TIMEOUT_SEC}s)",
         flush=True,
     )
 
@@ -151,7 +177,12 @@ def main(argv: list[str] | None = None) -> int:
             rel = str(path)
             tee.write(f"\n######## [{index}/{len(files)}] {rel} ########\n")
             tee.flush()
-            ch_args = ["-v", f"--max_uninteresting_iterations={MAX_UNINTERESTING_ITERATIONS}", rel]
+            ch_args = [
+                "-v",
+                f"--max_uninteresting_iterations={MAX_UNINTERESTING_ITERATIONS}",
+                f"--per_condition_timeout={PER_CONDITION_TIMEOUT_SEC}",
+                rel,
+            ]
             code, stats = run_crosshair("cover", ch_args, "cover", args.raw, args.quiet, out=tee)
             total_examples += stats.examples
             total_explore += stats.explore

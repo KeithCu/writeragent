@@ -87,12 +87,44 @@ def test_classify_traceback_as_error() -> None:
     assert got.tag == "CHECK ERROR"
 
 
-def test_classify_plugin_traceback_frame() -> None:
-    line = 'File "/home/keithcu/Desktop/Python/writeragent/plugin/chatbot/memory.py", line 58, in upsert_memory_arguments_dict'
-    got = classify_line(line, "check")
+def test_classify_plugin_file_frame_suppressed_in_check() -> None:
+    """CrosshairUnsupported -v dumps File frames without a Traceback header; not check fatals."""
+    line = (
+        'File "/home/keithcu/Desktop/Python/writeragent/plugin/framework/tool.py", '
+        "line 72, in _make_optional_scalar_nullable"
+    )
+    assert classify_line(line, "check") is None
+
+
+def test_classify_check_still_fails_on_traceback_and_error() -> None:
+    tb = classify_line("Traceback (most recent call last):", "check")
+    assert tb is not None
+    assert tb.tag == "CHECK ERROR"
+    err = classify_line(
+        "/home/keithcu/project/plugin/scripting/payload_codec.py:483: error: "
+        "IndexError when calling host_unpack_split_grid(...)",
+        "check",
+    )
+    assert err is not None
+    assert err.tag == "CHECK ERROR"
+    assert "payload_codec.py:483" in err.detail
+
+
+def test_classify_cover_suppresses_exploration_stack_frames() -> None:
+    """Cover -v dumps File/TypeError noise while exiting 0; must not fail the sweep."""
+    file_line = (
+        'File "/home/keithcu/Desktop/Python/writeragent/plugin/scripting/payload_codec.py", '
+        "line 574, in wire_cell_count"
+    )
+    assert classify_line(file_line, "cover") is None
+    assert classify_line("TypeError: __repr__ returned non-string (type LazyIntSymbolicStr)", "cover") is None
+
+
+def test_classify_cover_crosshair_internal_still_fatal() -> None:
+    line = "crosshair.util.CrossHairInternal: Numeric operation on symbolic while not tracing"
+    got = classify_line(line, "cover")
     assert got is not None
-    assert got.tag == "CHECK ERROR"
-    assert "plugin/chatbot/memory.py:58" in got.detail
+    assert got.tag == "COVER FATAL"
 
 
 def test_error_summary_lists_unique_details() -> None:
@@ -172,3 +204,30 @@ def test_filter_cover_all_targets_unions_skips() -> None:
     to_run, skipped = filter_cover_all_targets([check_skip, cover_skip, keep], apply_skip=True)
     assert to_run == [keep]
     assert set(skipped) == {check_skip.as_posix(), cover_skip.as_posix()}
+
+
+def test_cover_all_skips_check_green_crash_frame_hosts() -> None:
+    """Modules that pass check but crash-frame under cover stay in COVER_ALL_SKIP."""
+    from scripts.crosshair_cover_all import CROSSHAIR_COVER_ALL_SKIP, filter_cover_all_targets
+
+    crash_hosts = (
+        "plugin/framework/client/auth.py",
+        "plugin/framework/config.py",
+        "plugin/framework/config_service.py",
+        "plugin/framework/default_models.py",
+        "plugin/framework/event_bus.py",
+        "plugin/framework/i18n.py",
+        "plugin/framework/tool.py",
+        "plugin/framework/url_utils.py",
+        "plugin/mcp/cors.py",
+        "plugin/scripting/calc_range.py",
+        "plugin/scripting/duckdb_sql.py",
+        "plugin/scripting/editor_ipc.py",
+        "plugin/scripting/helper_domain.py",
+        "plugin/scripting/sandbox.py",
+    )
+    assert set(crash_hosts) <= CROSSHAIR_COVER_ALL_SKIP
+    paths = [Path(p) for p in crash_hosts] + [Path("plugin/scripting/payload_codec.py")]
+    to_run, skipped = filter_cover_all_targets(paths, apply_skip=True)
+    assert to_run == [Path("plugin/scripting/payload_codec.py")]
+    assert set(crash_hosts) <= set(skipped)

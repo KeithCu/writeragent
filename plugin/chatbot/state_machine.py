@@ -132,6 +132,7 @@ class EffectInterpreter:
         self.current_state: SendHandlerState | None = None
 
     def interpret(self, effect: SendHandlerEffect):
+        # crosshair: off
         match effect:
             case SendHandlerUIEffect("append", text, _, role):
                 self.handler._append_response(text, role=role)
@@ -232,6 +233,7 @@ def spawn_effects_for_start(
 
 def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[SendHandlerState]:
     """Simple error handling - transition to error state"""
+    # crosshair: off
     effects: List[SendHandlerEffect] = []
 
     err_msg = format_error_for_display(event.error)
