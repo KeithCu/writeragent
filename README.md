@@ -15,21 +15,6 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 ---
 
-
-| | |
-|---|---|
-| ![Arch Linux Resume](Showcase/Opus46Resume.png) | ![Spreadsheet Dashboard](Showcase/Sonnet46Spreadsheet.png) |
-| **Writer** — AI-generated resume with formatting | **Calc** — Chat sidebar with a dashboard |
-| ![Python in LibreOffice](Showcase/PythonLibreOffice.png) | ![Math Expressions](Showcase/Math.png) |
-| **Calc** — NumPy and pandas in `=PY()` cells | **Writer** — TeX → editable LibreOffice Math |
-| ![Hermes Web Research](Showcase/HermesAkihabara.png) | ![AI-generated diagram](Showcase/Sonnet46ArchDiagram.jpg) |
-| **Web research** — Hermes + Opus 4.6 | **Draw** — AI-generated diagram |
-
-
----
-
-
-
 ## Features
 
 
@@ -79,11 +64,37 @@ Full catalog with doc links: **[docs/features.md](docs/features.md)**.
 2. Open **WriterAgent → Settings** and set an OpenAI-compatible endpoint and model (e.g. `http://localhost:11434` for [Ollama](https://ollama.com/)).
 3. Open the sidebar: **View → Sidebar → WriterAgent**, or use **Ctrl+Q** / **Ctrl+E** for extend / edit selection.
 
-**No GPU?** Try [OpenRouter free models](https://openrouter.ai/collections/free-models) or [Together.AI](https://www.together.ai/)’s free tier. 
+**No GPU?** Try [OpenRouter free models](https://openrouter.ai/collections/free-models) or [Together.AI](https://www.together.ai/)’s free tier.
 
 ---
 
+## Showcase
 
+**Writer** — AI-generated resume with formatting
+
+![Arch Linux Resume](Showcase/Opus46Resume.png)
+
+**Calc** — Chat sidebar with a dashboard
+
+![Spreadsheet Dashboard](Showcase/Sonnet46Spreadsheet.png)
+
+**Calc** — NumPy and pandas in `=PY()` cells
+
+![Python in LibreOffice](Showcase/PythonLibreOffice.png)
+
+**Writer** — TeX → editable LibreOffice Math
+
+![Math Expressions](Showcase/Math.png)
+
+**Web research** — Hermes + Opus 4.6
+
+![Hermes Web Research](Showcase/HermesAkihabara.png)
+
+**Draw** — AI-generated diagram
+
+![AI-generated diagram](Showcase/Sonnet46ArchDiagram.jpg)
+
+---
 
 ## Docs & integrations
 
