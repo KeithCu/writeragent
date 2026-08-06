@@ -7,6 +7,8 @@ import copy
 import logging
 from typing import Any, Mapping
 
+from plugin.framework.deal_shim import deal
+
 log = logging.getLogger(__name__)
 
 # Echo reasoning on assistant messages for multi-turn tool loops (session only, not SQLite).
@@ -51,6 +53,11 @@ def _truncate_reasoning_string(value: str) -> str:
     return value[:max_len]
 
 
+@deal.pre(lambda text_parts, meta, delta: isinstance(text_parts, list) and isinstance(meta, dict))
+@deal.ensure(
+    lambda text_parts, meta, delta, result: meta.get("source") is None
+    or meta.get("source") in ("reasoning_details", "reasoning_content", "reasoning")
+)
 def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], delta: Mapping[str, Any]) -> None:
     """Append thinking text as each SSE delta arrives; meta records replay shape (set once)."""
     if not isinstance(delta, dict):
@@ -85,6 +92,11 @@ def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], d
             meta["index"] = item.get("index")
 
 
+@deal.pre(lambda entries: isinstance(entries, list))
+@deal.post(lambda result: isinstance(result, list))
+@deal.ensure(
+    lambda entries, result: len(result) <= sum(1 for e in entries if isinstance(e, dict))
+)
 def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     """Merge streaming fragments (same type + index) for sync/non-stream replay."""
     if not entries:
@@ -198,7 +210,8 @@ def iterate_sse(stream):
             yield line_str.decode("utf-8").strip()
 
 
-def _normalize_stream_delta(chunk_or_delta):
+@deal.post(lambda result: isinstance(result, dict))
+def _normalize_stream_delta(chunk_or_delta: object) -> dict[str, Any]:
     """Return choices[0].delta for a chat completion chunk, else the dict as-is (bare delta)."""
     if not isinstance(chunk_or_delta, dict):
         return {}
@@ -212,7 +225,9 @@ def _normalize_stream_delta(chunk_or_delta):
     return chunk_or_delta
 
 
-def _thinking_text_from_delta(delta):
+@deal.pre(lambda delta: isinstance(delta, dict))
+@deal.post(lambda result: isinstance(result, str))
+def _thinking_text_from_delta(delta: dict[str, Any]) -> str:
     """Extract thinking from a normalized delta (no choices wrapper)."""
     # Ollama /v1 often uses "reasoning", not "reasoning_content" (Qwen-Agent #789, ollama#12628).
     for field in _THINKING_STRING_FIELDS:
@@ -266,10 +281,30 @@ def _normalize_message_content(raw):
     return str(raw)
 
 
-def _normalize_delta(delta):
+def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
+    """Postcondition helper: Mistral/Azure null type/arguments repaired on dict tool_calls."""
+    tool_calls = delta.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        return True
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        if tc.get("type") is None:
+            return False
+        fn = tc.get("function")
+        if isinstance(fn, dict) and fn.get("arguments") is None:
+            return False
+    return True
+
+
+@deal.pre(lambda delta: isinstance(delta, dict))
+@deal.ensure(lambda delta, result: "role" not in delta or delta.get("role") is not None)
+@deal.ensure(lambda delta, result: _normalize_delta_tool_calls_ok(delta))
+def _normalize_delta(delta: dict[str, Any]) -> None:
     """Normalize delta for Mistral/Azure compat before accumulate_delta.
     LiteLLM: streaming_handler.py ~L847 (role), ~L853 (type), ~L820 (arguments).
     """
+    # Shim path (deal absent): keep the old non-dict no-op. With deal installed, pre rejects.
     if not isinstance(delta, dict):
         return
     # LiteLLM: streaming_handler.py ~L847 "mistral's api returns role as None"

@@ -25,6 +25,7 @@ import logging
 import re
 from typing import Any, cast
 
+from plugin.framework.deal_shim import deal
 from plugin.framework.prompts import LLM_DEV_BUILD_SYSTEM_PREFIX, should_prepend_dev_llm_system_prefix
 from plugin.framework.url_utils import get_url_path_and_query
 
@@ -35,6 +36,22 @@ _CHAT_TEMPLATE_CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
 _DATA_URI_IMAGE_RE = re.compile(r'data:image/([a-zA-Z+.-]+);base64,([a-zA-Z0-9+/=\s]+)')
 
 
+def _extracted_images_well_formed(result: list[dict[str, Any]]) -> bool:
+    return isinstance(result, list) and all(
+        isinstance(x, dict) and isinstance(x.get("mime_type"), str) and isinstance(x.get("data"), str) for x in result
+    )
+
+
+def _string_content_has_no_data_uri(message: dict[str, Any]) -> bool:
+    content = message.get("content")
+    if not isinstance(content, str):
+        return True
+    return _DATA_URI_IMAGE_RE.search(content) is None
+
+
+@deal.post(lambda result: isinstance(result, str))
+@deal.ensure(lambda content, result: _CHAT_TEMPLATE_CONTROL_TOKEN_RE.search(result) is None)
+@deal.ensure(lambda content, result: len(result) <= len(content or ""))
 def strip_leaked_chat_template_control_tokens(content: str | None) -> str:
     """Remove ``<|name|>`` chat-template tokens that models sometimes emit in plain text."""
     if not content:
@@ -42,6 +59,10 @@ def strip_leaked_chat_template_control_tokens(content: str | None) -> str:
     return _CHAT_TEMPLATE_CONTROL_TOKEN_RE.sub("", content).strip()
 
 
+# Optional strip_structured_image_blocks is often omitted; deal forwards provided args + result=.
+@deal.pre(lambda *args, **kwargs: bool(args) and isinstance(args[0], dict))
+@deal.post(lambda result: _extracted_images_well_formed(result))
+@deal.ensure(lambda *args, result=None, **kwargs: _string_content_has_no_data_uri(args[0]))
 def extract_and_strip_images_from_message(message: dict[str, Any], strip_structured_image_blocks: bool = True) -> list[dict[str, Any]]:
     """Scan message content, extract base64 images, and replace them with markers.
 

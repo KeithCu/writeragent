@@ -318,7 +318,7 @@ The refactor **separates concerns** in the same “hexagonal” spirit as the re
 
 This was a **pragmatic** foundation: Phase 5 records design tradeoffs and what we avoided over-engineering. Attaching `deal` and running CrossHair on every transition is **Phase 6**, not something we claim is already complete.
 
-For **remaining** orchestration that could be extracted in the future, see [STATE_MACHINE_ROADMAP.md](STATE_MACHINE_ROADMAP.md).
+For **remaining** orchestration that could be extracted in the future, see [docs/ROADMAP.md](ROADMAP.md) and the FSM modules listed under Phase 5.
 
 ## Phase 5: Elevating Orchestration to Pure State Machines
 
@@ -475,6 +475,8 @@ Maintain a `verification_status.json` file tracking which components have been v
 40. **`plugin/calc/calc_addin_data.py`** — `_unwrap_cell`, `normalize_python_data_shape`, `finalize_python_data`, `calc_addin_data_to_python` ([`tests/calc/test_calc_dep_and_filter_verification.py`](../tests/calc/test_calc_dep_and_filter_verification.py))
 41. **`plugin/scripting/audio_silence_detector.py`** — `pcm_energy_int16` ([`tests/scripting/test_scripting_phase2_verification.py`](../tests/scripting/test_scripting_phase2_verification.py))
 42. **`plugin/calc/cells.py`** — `_parse_color` ([`tests/scripting/test_scripting_phase2_verification.py`](../tests/scripting/test_scripting_phase2_verification.py))
+43. **`plugin/framework/client/stream_normalizer.py`** — `accumulate_streaming_thinking`, `_merge_reasoning_details`, `_normalize_stream_delta`, `_thinking_text_from_delta`, `_normalize_delta` ([`tests/framework/test_stream_normalizer_verification.py`](../tests/framework/test_stream_normalizer_verification.py))
+44. **`plugin/framework/client/response_normalizers.py`** — `strip_leaked_chat_template_control_tokens`, `extract_and_strip_images_from_message` ([`tests/framework/test_response_normalizers_verification.py`](../tests/framework/test_response_normalizers_verification.py))
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)
 
