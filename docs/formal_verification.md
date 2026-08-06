@@ -180,6 +180,7 @@ That produces tests of the form `assert foo(args) == <whatever it got>`. **Do no
 - **`make crosshair-cover`** runs on the **entire** [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) with **no** `--per_condition_timeout`—correctness over speed; can take a long time.
 - **`make crosshair-check`** is the contract pass on the same file; use both when hardening serialization.
 - **`make crosshair-check-all`** discovers every `plugin/**/*.py` that contains `@deal.` and runs `crosshair check --analysis_kind=deal` **one file at a time** (so an engine crash in one module does not abort the rest) with **no** per-condition timeout (multi-hour OK). Formatted output is teed to [`build/crosshair-check-all.log`](../build/crosshair-check-all.log). Not part of `make test`. Failures are CrossHair **errors** / engine crashes only; `NOT_CONFIRMED` / `UNABLE` are informational. List targets with `python scripts/crosshair_check_all.py --list`; pass explicit paths to check a subset.
+- **`make crosshair-cover-all`** uses the same `@deal.` discovery as check-all, plus a cover-only skip list for UNO/I/O hosts (`CROSSHAIR_COVER_ALL_SKIP` in [`scripts/crosshair_cover_all.py`](../scripts/crosshair_cover_all.py), unioned with `CROSSHAIR_CHECK_ALL_SKIP`). Runs `crosshair cover -v --max_uninteresting_iterations=25` **one file at a time** (tee: [`build/crosshair-cover-all.log`](../build/crosshair-cover-all.log)). The iteration bound prevents hangs on infinite loops (unlike check-all’s unbounded check). Failures are engine fatals / process crashes only—few examples do not fail the sweep. `cover` walks **top-level callables** in those modules (not only `@deal`), so a module that passes **check** may still need `# crosshair: off` or a cover skip. List targets with `python scripts/crosshair_cover_all.py --list`.
 
 **WriterAgent reference module:** [`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py) — see [`docs/serialization-verification-plan.md`](serialization-verification-plan.md).
 
@@ -205,6 +206,7 @@ make verify             # pytest formal verification suite
 make crosshair-check
 make crosshair-cover
 make crosshair-check-all   # all @deal. modules; multi-hour; log under build/
+make crosshair-cover-all   # same set; cover examples; multi-hour; log under build/
 ```
 
 Sample filtered **`check`** output:
@@ -220,9 +222,11 @@ Sample filtered **`check`** output:
   1. plugin/scripting/payload_codec.py:500  TypeError: ...
 ```
 
-`make crosshair-check` / `make crosshair-check-all` both end with that **ERRORS TO FIX** block (unique contract errors, plugin traceback frames, and CrossHairInternal crashes). `check-all` also groups failures by module.
+`make crosshair-check` / `make crosshair-check-all` both end with that **ERRORS TO FIX** block (unique contract errors, plugin traceback frames, and CrossHairInternal crashes). `check-all` also groups failures by module. `make crosshair-cover-all` uses the same grouping for cover fatals (not for low example counts).
 
-**`crosshair-check-all` skip list:** some `@deal.` modules crash the CrossHair engine (`CrossHairInternal` on symbolic `json.loads` / UNO proxies) without a useful contract counterexample. Default discovery omits them (`CROSSHAIR_CHECK_ALL_SKIP` in [`scripts/crosshair_check_all.py`](../scripts/crosshair_check_all.py)); `@deal` still runs at runtime. Pass an explicit path or `--include-skipped` to force analysis. Current skips: `plugin/chatbot/memory.py`, `plugin/chatbot/state_machine.py`, `plugin/framework/appearance.py`, `plugin/framework/json_utils.py`, `plugin/framework/errors.py`, `plugin/mcp/wire_types.py`. (`tool_loop_state.py` stays in the sweep: `next_state` uses `# crosshair: off`; pure helpers are analyzed.)
+**`crosshair-check-all` skip list:** some `@deal.` modules crash the CrossHair engine (`CrossHairInternal` on symbolic `json.loads` / UNO proxies) without a useful contract counterexample. Default discovery omits them (`CROSSHAIR_CHECK_ALL_SKIP` in [`scripts/crosshair_check_all.py`](../scripts/crosshair_check_all.py)); `@deal` still runs at runtime. Pass an explicit path or `--include-skipped` to force analysis. Current skips: `plugin/chatbot/memory.py`, `plugin/framework/appearance.py`, `plugin/framework/json_utils.py`, `plugin/framework/errors.py`, `plugin/mcp/wire_types.py`. (`state_machine.py` / `tool_loop_state.py` stay in the sweep: `next_state` uses `# crosshair: off`; pure helpers are analyzed.)
+
+**`crosshair-cover-all` extra skips:** cover walks non-`@deal` callables too, so UNO Tool/`execute`, sheet helpers, sidebar combobox, research-cache engine crashes, and stream drain loops are omitted by default (`CROSSHAIR_COVER_ALL_SKIP`: `cells.py`, `formula_dep_chain.py`, `chat_sidebar_mode.py`, `web_research_cache.py`, `async_stream.py`). Drain entry points also use `# crosshair: off`. Cover-all is **bounded** (`--max_uninteresting_iterations=25`) so a missed off cannot hang the sweep.
 
 **`# crosshair: off`:** put the directive alone on its line (no trailing prose). CrossHair parses the rest of the line as options; characters like `—` raise `InvalidDirective`.
 

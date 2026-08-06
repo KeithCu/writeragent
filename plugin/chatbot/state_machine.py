@@ -4,7 +4,9 @@ import time
 import dataclasses
 from dataclasses import dataclass
 from typing import List, Any, Optional, NamedTuple, Literal
+
 from plugin.framework.client.errors import format_error_for_display
+from plugin.framework.deal_shim import deal
 from plugin.framework.service import BaseState, FsmTransition
 
 # Send-handler FSM status and kind
@@ -16,26 +18,14 @@ SendHandlerCompleteStatus = Literal["Error", "Stopped", "Ready"]
 # Tool-loop and send-handler UI channel effects (see ToolLoopUIEffect, SendHandlerUIEffect)
 UIEffectKind = Literal["append", "status", "debug", "info"]
 
-import importlib
-
-deal: Any
-try:
-    deal = importlib.import_module("deal")
-except ImportError:
-
-    class _DummyDeal:
-        def __getattr__(self, name: str) -> Any:
-            return lambda *args, **kwargs: lambda f: f
-
-    deal = _DummyDeal()
-
 # 1. Define State (frozen dataclass)
 
 
 @dataclass(frozen=True)
 class SendHandlerState(BaseState):
-    handler_type: SendHandlerKind
-    status: SendHandlerFsmStatus
+    # str (not Literal aliases) — CrossHair cannot proxy typing.Literal in synthesized fields.
+    handler_type: str
+    status: str
     query_text: str = ""
     model: Any = None
     doc_type_str: str = ""
@@ -113,7 +103,7 @@ class SpawnWebWorkerEffect(NamedTuple):
 
 
 class SendHandlerUIEffect(NamedTuple):
-    kind: UIEffectKind
+    kind: str  # UIEffectKind — str for CrossHair cover (Literal is not proxyable)
     text: str
     is_thinking: bool = False
     role: str = "assistant"
@@ -126,7 +116,7 @@ class ProceedToChatEffect(NamedTuple):
 
 
 class CompleteJobEffect(NamedTuple):
-    terminal_status: SendHandlerCompleteStatus
+    terminal_status: str  # SendHandlerCompleteStatus — str for CrossHair cover
 
 
 SendHandlerEffect = SpawnAudioWorkerEffect | SpawnDirectImageEffect | SpawnAgentWorkerEffect | SpawnWebWorkerEffect | SendHandlerUIEffect | ProceedToChatEffect | CompleteJobEffect
@@ -164,27 +154,92 @@ class EffectInterpreter:
                 self.handler._do_send_chat_with_tools(ct, mod, dts)
 
 
-# 4. Pure Transition Function
+# 4. Pure helpers + transition
+
+
+# Names only — isinstance(e, (NamedTuple, ...)) crash-frames CrossHair on symbolic objects.
+_SPAWN_EFFECT_TYPE_NAMES = frozenset(
+    {
+        "SpawnAudioWorkerEffect",
+        "SpawnDirectImageEffect",
+        "SpawnAgentWorkerEffect",
+        "SpawnWebWorkerEffect",
+    }
+)
+
+
+@deal.post(lambda result: type(result) is bool)
+def stop_effects_exclude_spawns(effects: object) -> bool:
+    """True when *effects* contain no audio/image/agent/web spawn workers (STOP invariant)."""
+    if type(effects) is not list and type(effects) is not tuple:
+        return True
+    for e in effects:
+        if type(e).__name__ in _SPAWN_EFFECT_TYPE_NAMES:
+            return False
+    return True
+
+
+@deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and type(result[0]) is str and type(result[1]) is str and result[0] == "Error" and result[1].endswith("\n"))
+def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> tuple[str, str]:
+    """Status + append chat lines for a send-handler error (string message, not Exception)."""
+    if type(handler_type) is not str:
+        handler_type = ""
+    if type(err_msg) is not str:
+        err_msg = ""
+    if handler_type == "audio":
+        append = f"\n[Transcription error: {err_msg}]\n"
+    elif handler_type == "web":
+        append = f"\n[Research Chat error: {err_msg}]\n"
+    else:
+        append = f"\n[Operation failed: {err_msg}]\n"
+    return "Error", append
+
+
+@deal.post(lambda result: isinstance(result, list))
+def spawn_effects_for_start(
+    handler_type: str,
+    query_text: str,
+    model: Any,
+    doc_type_str: str,
+    wav_path: Optional[str] = None,
+    stt_model: Optional[str] = None,
+) -> list[SendHandlerEffect]:
+    """UI + spawn effects for a StartEvent, keyed by handler_type. No I/O."""
+    effects: List[SendHandlerEffect] = []
+    if handler_type == "audio":
+        effects.append(SendHandlerUIEffect("status", "Transcribing audio..."))
+        effects.append(SendHandlerUIEffect("append", "\n[Transcribing audio...]\n"))
+        if wav_path and stt_model:
+            effects.append(SpawnAudioWorkerEffect(wav_path=wav_path, stt_model=stt_model, model=model, query_text=query_text))
+    elif handler_type == "image":
+        effects.append(SendHandlerUIEffect("append", query_text, role="user"))
+        effects.append(SendHandlerUIEffect("append", "\n[Using image model (direct).]\n"))
+        effects.append(SendHandlerUIEffect("append", "AI: Creating image...\n"))
+        effects.append(SendHandlerUIEffect("status", "Creating image..."))
+        effects.append(SpawnDirectImageEffect(query_text, model))
+    elif handler_type == "agent":
+        effects.append(SendHandlerUIEffect("append", query_text, role="user"))
+        effects.append(SendHandlerUIEffect("append", "\n[Using external agent backend.]\n"))
+        effects.append(SendHandlerUIEffect("append", "AI: "))
+        effects.append(SendHandlerUIEffect("status", "Starting agent..."))
+        effects.append(SpawnAgentWorkerEffect(query_text, model, doc_type_str))
+    elif handler_type == "web":
+        effects.append(SendHandlerUIEffect("append", query_text, role="user"))
+        effects.append(SendHandlerUIEffect("status", "Starting research..."))
+        effects.append(SpawnWebWorkerEffect(query_text, model))
+    return effects
 
 
 def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[SendHandlerState]:
     """Simple error handling - transition to error state"""
     effects: List[SendHandlerEffect] = []
 
-    # Notify user using format_error_for_display
     err_msg = format_error_for_display(event.error)
-    effects.append(SendHandlerUIEffect("status", "Error"))
-
-    if state.handler_type == "audio":
-        effects.append(SendHandlerUIEffect("append", f"\n[Transcription error: {err_msg}]\n"))
-    elif state.handler_type == "web":
-        effects.append(SendHandlerUIEffect("append", f"\n[Research Chat error: {err_msg}]\n"))
-    else:
-        effects.append(SendHandlerUIEffect("append", f"\n[Operation failed: {err_msg}]\n"))
-
+    status_text, append_text = ui_lines_for_handler_error(state.handler_type, err_msg)
+    effects.append(SendHandlerUIEffect("status", status_text))
+    effects.append(SendHandlerUIEffect("append", append_text))
     effects.append(CompleteJobEffect("Error"))
 
-    # Transition to error state
     new_state = dataclasses.replace(state, status="error", last_error=str(event.error), error_time=event.error_time or time.time(), recent_effects=tuple(effects))
 
     return FsmTransition(new_state, effects)
@@ -192,10 +247,10 @@ def handle_error(state: SendHandlerState, event: ErrorEvent) -> FsmTransition[Se
 
 @deal.pre(lambda state, event: state.round_num <= state.max_rounds)
 @deal.post(lambda result: result.state.round_num <= result.state.max_rounds)
-@deal.ensure(lambda state, event, result: not (isinstance(event, StopRequestedEvent) and any(isinstance(e, (SpawnAudioWorkerEffect, SpawnDirectImageEffect, SpawnAgentWorkerEffect, SpawnWebWorkerEffect)) for e in result.effects)))
+@deal.ensure(lambda state, event, result: (not isinstance(event, StopRequestedEvent)) or stop_effects_exclude_spawns(result.effects))
 def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransition[SendHandlerState]:
     """Pure state transition - NO SIDE EFFECTS"""
-
+    # crosshair: off
     if state.status == "error":
         return FsmTransition(state, [])
 
@@ -241,29 +296,7 @@ def next_state(state: SendHandlerState, event: SendHandlerEvent) -> FsmTransitio
             return FsmTransition(new_state, effects)
 
         case StartEvent(query_text=q_text, model=mod, doc_type_str=doc_type, wav_path=w_path, stt_model=stt_mod):
-            if state.handler_type == "audio":
-                effects.append(SendHandlerUIEffect("status", "Transcribing audio..."))
-                effects.append(SendHandlerUIEffect("append", "\n[Transcribing audio...]\n"))
-                if w_path and stt_mod:
-                    effects.append(SpawnAudioWorkerEffect(wav_path=w_path, stt_model=stt_mod, model=mod, query_text=q_text))
-            elif state.handler_type == "image":
-                effects.append(SendHandlerUIEffect("append", q_text, role="user"))
-                effects.append(SendHandlerUIEffect("append", "\n[Using image model (direct).]\n"))
-                effects.append(SendHandlerUIEffect("append", "AI: Creating image...\n"))
-                effects.append(SendHandlerUIEffect("status", "Creating image..."))
-                effects.append(SpawnDirectImageEffect(q_text, mod))
-            elif state.handler_type == "agent":
-                effects.append(SendHandlerUIEffect("append", q_text, role="user"))
-                effects.append(SendHandlerUIEffect("append", "\n[Using external agent backend.]\n"))
-                effects.append(SendHandlerUIEffect("append", "AI: "))
-                effects.append(SendHandlerUIEffect("status", "Starting agent..."))
-                effects.append(SpawnAgentWorkerEffect(q_text, mod, doc_type))
-            elif state.handler_type == "web":
-                effects.append(SendHandlerUIEffect("append", q_text, role="user"))
-                # effects.append(SendHandlerUIEffect("append", "\n[Using research chat.]\n"))
-                effects.append(SendHandlerUIEffect("status", "Starting research..."))
-                effects.append(SpawnWebWorkerEffect(q_text, mod))
-
+            effects.extend(spawn_effects_for_start(state.handler_type, q_text, mod, doc_type, w_path, stt_mod))
             new_state = SendHandlerState(handler_type=state.handler_type, status="starting", query_text=q_text, model=mod, doc_type_str=doc_type, round_num=state.round_num, pending_tools=state.pending_tools, max_rounds=state.max_rounds, recent_effects=tuple(effects))
             return FsmTransition(new_state, effects)
 

@@ -1,7 +1,20 @@
 from plugin.chatbot.state_machine import (
-    SendHandlerState, next_state, StartEvent, StopRequestedEvent,
-    StreamChunkEvent, StreamDoneEvent, ErrorEvent, SendHandlerUIEffect, CompleteJobEffect,
-    SpawnDirectImageEffect, SpawnWebWorkerEffect,
+    SendHandlerState,
+    next_state,
+    StartEvent,
+    StopRequestedEvent,
+    StreamChunkEvent,
+    StreamDoneEvent,
+    ErrorEvent,
+    SendHandlerUIEffect,
+    CompleteJobEffect,
+    SpawnAudioWorkerEffect,
+    SpawnAgentWorkerEffect,
+    SpawnDirectImageEffect,
+    SpawnWebWorkerEffect,
+    spawn_effects_for_start,
+    ui_lines_for_handler_error,
+    stop_effects_exclude_spawns,
 )
 
 class TestSendHandlerStateMachine:
@@ -131,3 +144,47 @@ class TestSendHandlerStateMachine:
         step = next_state(state, event)
         new_state = step.state
         assert new_state.round_num <= 10 # Post condition passes
+
+
+class TestSendHandlerHelpers:
+    def test_spawn_effects_image(self):
+        effects = spawn_effects_for_start("image", "draw a cat", None, "image")
+        assert len(effects) == 5
+        assert isinstance(effects[-1], SpawnDirectImageEffect)
+
+    def test_spawn_effects_web(self):
+        effects = spawn_effects_for_start("web", "search python", None, "web")
+        assert len(effects) == 3
+        assert isinstance(effects[-1], SpawnWebWorkerEffect)
+
+    def test_spawn_effects_agent(self):
+        effects = spawn_effects_for_start("agent", "do work", "m", "writer")
+        assert any(isinstance(e, SpawnAgentWorkerEffect) for e in effects)
+
+    def test_spawn_effects_audio_with_paths(self):
+        effects = spawn_effects_for_start("audio", "q", None, "", wav_path="/tmp/a.wav", stt_model="whisper")
+        assert any(isinstance(e, SpawnAudioWorkerEffect) for e in effects)
+
+    def test_spawn_effects_audio_without_paths(self):
+        effects = spawn_effects_for_start("audio", "q", None, "")
+        assert not any(isinstance(e, SpawnAudioWorkerEffect) for e in effects)
+
+    def test_ui_lines_audio(self):
+        status, append = ui_lines_for_handler_error("audio", "boom")
+        assert status == "Error"
+        assert "Transcription error: boom" in append
+
+    def test_ui_lines_web(self):
+        status, append = ui_lines_for_handler_error("web", "boom")
+        assert status == "Error"
+        assert "Research Chat error: boom" in append
+
+    def test_ui_lines_other(self):
+        status, append = ui_lines_for_handler_error("image", "boom")
+        assert status == "Error"
+        assert "Operation failed: boom" in append
+
+    def test_stop_effects_exclude_spawns(self):
+        assert stop_effects_exclude_spawns([SendHandlerUIEffect("status", "Stopped"), CompleteJobEffect("Stopped")])
+        assert not stop_effects_exclude_spawns([SpawnWebWorkerEffect("q", None)])
+        assert stop_effects_exclude_spawns("not-a-list")

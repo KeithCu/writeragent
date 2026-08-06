@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-# WriterAgent — long-running CrossHair check of all deal-instrumented plugin modules
+# WriterAgent — long-running CrossHair cover of all deal-instrumented plugin modules
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Discover ``@deal.`` modules under ``plugin/`` and run CrossHair check (multi-hour OK).
+"""Discover ``@deal.`` modules under ``plugin/`` and run CrossHair cover (bounded).
 
 Runs **one file at a time** so a CrossHair engine crash in one module does not abort the rest.
-Errors are printed live and reprinted in a final ``ERRORS TO FIX`` / failed-module summary.
+Failures are engine fatals / process crashes only — few examples do not fail the sweep.
+
+Uses ``CROSSHAIR_CHECK_ALL_SKIP`` plus cover-only ``CROSSHAIR_COVER_ALL_SKIP`` (UNO / drain loops).
+Every file is bounded with ``--max_uninteresting_iterations=25`` so cover cannot hang on
+infinite loops (unlike check-all, which has no iteration budget).
 
 Usage::
 
-    make crosshair-check-all
-    python scripts/crosshair_check_all.py
-    python scripts/crosshair_check_all.py --list
-    python scripts/crosshair_check_all.py plugin/scripting/payload_codec.py
+    make crosshair-cover-all
+    python scripts/crosshair_cover_all.py
+    python scripts/crosshair_cover_all.py --list
+    python scripts/crosshair_cover_all.py plugin/scripting/payload_codec.py
 """
 
 from __future__ import annotations
@@ -27,20 +31,22 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from scripts.crosshair_check_all import CROSSHAIR_CHECK_ALL_SKIP
 from scripts.crosshair_stream import _TeeTextIO, discover_deal_plugin_files, run_crosshair
 
-DEFAULT_LOG = Path("build/crosshair-check-all.log")
+DEFAULT_LOG = Path("build/crosshair-cover-all.log")
+# Bound per function so drain loops / hostile callables cannot spin forever.
+MAX_UNINTERESTING_ITERATIONS = 25
 
-# Modules where CrossHair crashes (CrossHairInternal / UNO proxies / symbolic json.loads)
-# rather than finding a contract counterexample. @deal remains for runtime; check-all skips
-# them so the full sweep stays useful. Pass an explicit path to force analysis.
-CROSSHAIR_CHECK_ALL_SKIP: frozenset[str] = frozenset(
+# Cover walks all top-level callables (not only @deal). These are check-green but
+# cover-hostile (UNO Tool.execute, sheet access, combobox, engine exit 2, drain loops).
+CROSSHAIR_COVER_ALL_SKIP: frozenset[str] = frozenset(
     {
-        "plugin/chatbot/memory.py",  # safe_json_loads / symbolic str → CrossHairInternal
-        "plugin/framework/appearance.py",  # UNO StyleSettings / hasattr under symbolic objects
-        "plugin/framework/json_utils.py",  # symbolic json.loads → CrossHairInternal
-        "plugin/framework/errors.py",  # engine Traceback on error/JSON formatting surface
-        "plugin/mcp/wire_types.py",  # engine Traceback only
+        "plugin/calc/cells.py",
+        "plugin/calc/formula_dep_chain.py",
+        "plugin/chatbot/chat_sidebar_mode.py",
+        "plugin/chatbot/web_research_cache.py",
+        "plugin/framework/async_stream.py",
     }
 )
 
@@ -49,15 +55,16 @@ def _posix_rel(path: Path) -> str:
     return path.as_posix()
 
 
-def filter_check_all_targets(files: list[Path], *, apply_skip: bool) -> tuple[list[Path], list[str]]:
+def filter_cover_all_targets(files: list[Path], *, apply_skip: bool) -> tuple[list[Path], list[str]]:
     """Return (to_run, skipped_rels). Explicit CLI targets should pass apply_skip=False."""
     if not apply_skip:
         return files, []
+    combined = CROSSHAIR_CHECK_ALL_SKIP | CROSSHAIR_COVER_ALL_SKIP
     to_run: list[Path] = []
     skipped: list[str] = []
     for path in files:
         rel = _posix_rel(path)
-        if rel in CROSSHAIR_CHECK_ALL_SKIP:
+        if rel in combined:
             skipped.append(rel)
         else:
             to_run.append(path)
@@ -65,7 +72,7 @@ def filter_check_all_targets(files: list[Path], *, apply_skip: bool) -> tuple[li
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="CrossHair check all deal-instrumented plugin modules")
+    parser = argparse.ArgumentParser(description="CrossHair cover all deal-instrumented plugin modules")
     parser.add_argument(
         "targets",
         nargs="*",
@@ -94,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--include-skipped",
         action="store_true",
-        help="Also analyze CROSSHAIR_CHECK_ALL_SKIP modules (engine-crash hosts)",
+        help="Also analyze CHECK_ALL + COVER_ALL skip modules (engine-crash / UNO hosts)",
     )
     args = parser.parse_args(argv)
 
@@ -109,17 +116,17 @@ def main(argv: list[str] | None = None) -> int:
         files = discover_deal_plugin_files(args.plugin_root)
 
     apply_skip = not explicit and not args.include_skipped
-    files, skipped = filter_check_all_targets(files, apply_skip=apply_skip)
+    files, skipped = filter_cover_all_targets(files, apply_skip=apply_skip)
     if not files and not skipped:
         print(f"No @deal. modules under {args.plugin_root}", file=sys.stderr)
         return 2
 
     rels = [_posix_rel(p) for p in files]
-    print(f"CrossHair check-all: {len(rels)} module(s), one CrossHair process per file", flush=True)
+    print(f"CrossHair cover-all: {len(rels)} module(s), one CrossHair process per file", flush=True)
     for rel in rels:
         print(f"  {rel}", flush=True)
     if skipped:
-        print(f"Skipped (engine-hostile; pass path or --include-skipped to force): {len(skipped)}", flush=True)
+        print(f"Skipped (engine/UNO-hostile; pass path or --include-skipped to force): {len(skipped)}", flush=True)
         for rel in skipped:
             print(f"  SKIP {rel}", flush=True)
     if args.list:
@@ -129,31 +136,41 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     args.log.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Logging to {args.log} (no per_condition_timeout; may take hours)", flush=True)
+    print(
+        f"Logging to {args.log} "
+        f"(max_uninteresting_iterations={MAX_UNINTERESTING_ITERATIONS}; may still take a while)",
+        flush=True,
+    )
 
     failed: list[tuple[str, list[str]]] = []
+    total_examples = 0
+    total_explore = 0
     with args.log.open("w", encoding="utf-8") as log_fp:
         tee = _TeeTextIO(sys.stdout, log_fp)
         for index, path in enumerate(files, start=1):
             rel = str(path)
             tee.write(f"\n######## [{index}/{len(files)}] {rel} ########\n")
             tee.flush()
-            ch_args = ["-v", "--report_all", "--analysis_kind=deal", rel]
-            code, stats = run_crosshair("check", ch_args, "check", args.raw, args.quiet, out=tee)
+            ch_args = ["-v", f"--max_uninteresting_iterations={MAX_UNINTERESTING_ITERATIONS}", rel]
+            code, stats = run_crosshair("cover", ch_args, "cover", args.raw, args.quiet, out=tee)
+            total_examples += stats.examples
+            total_explore += stats.explore
             if code != 0:
                 details = list(stats.error_details or [])
                 failed.append((rel, details))
-                tee.write(f"[CHECK ERROR           ] module failed: {rel} (exit {code})\n")
+                tee.write(f"[COVER FATAL           ] module failed: {rel} (exit {code})\n")
                 tee.flush()
                 if args.fail_fast:
                     break
 
-        tee.write("\n=== check-all summary ===\n")
+        tee.write("\n=== cover-all summary ===\n")
         tee.write(f"  modules: {len(files)}\n")
         tee.write(f"  skipped: {len(skipped)}\n")
         tee.write(f"  failed:  {len(failed)}\n")
+        tee.write(f"  examples (aggregate): {total_examples}\n")
+        tee.write(f"  explore (aggregate):  {total_explore}\n")
         if skipped:
-            tee.write("\n=== SKIPPED (engine-hostile) ===\n")
+            tee.write("\n=== SKIPPED (engine/UNO-hostile) ===\n")
             for rel in skipped:
                 tee.write(f"  * {rel}\n")
         if failed:

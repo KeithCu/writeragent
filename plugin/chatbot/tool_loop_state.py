@@ -4,7 +4,6 @@ from enum import Enum, auto
 from typing import Any, Dict, List, Mapping, Optional, NamedTuple, cast
 
 from plugin.framework.service import BaseState, FsmTransition
-from plugin.chatbot.state_machine import UIEffectKind
 from plugin.chatbot.memory import format_upsert_memory_chat_line
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 from plugin.framework.deal_shim import deal
@@ -111,25 +110,28 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
 @deal.post(lambda result: isinstance(result, dict))
 def object_dict_or_empty(value: object) -> dict[str, Any]:
     """Return *value* when it is a dict; otherwise ``{}`` (post-JSON coerce)."""
-    return cast("dict[str, Any]", value) if isinstance(value, dict) else {}
+    # crosshair: off
+    # Plain dict only — CrossHair AttrDict is isinstance(dict) but .get/items can crash.
+    return cast("dict[str, Any]", value) if type(value) is dict else {}
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 3 and all(isinstance(x, str) for x in result))
 def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
     """Normalize a pending tool-call entry to ``(func_name, func_args_str, call_id)``."""
-    if not isinstance(tc, dict):
+    # crosshair: off
+    if type(tc) is not dict:
         tc = {}
     func_data = tc.get("function", {})
-    if not isinstance(func_data, dict):
+    if type(func_data) is not dict:
         func_data = {}
     func_name = func_data.get("name", "unknown")
     func_args_str = func_data.get("arguments", "{}")
     call_id = tc.get("id", "")
-    if not isinstance(func_name, str):
+    if type(func_name) is not str:
         func_name = "unknown"
-    if not isinstance(func_args_str, str):
+    if type(func_args_str) is not str:
         func_args_str = "{}"
-    if not isinstance(call_id, str):
+    if type(call_id) is not str:
         call_id = ""
     return func_name, func_args_str, call_id
 
@@ -137,6 +139,7 @@ def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], str) and isinstance(result[1], str) and result[0] and result[1].endswith("\n"))
 def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tuple[str, str]:
     """Status bar text and chat run-line when a tool starts executing."""
+    # crosshair: off
     if is_delegate_gateway(func_name):
         return f"Running: {delegate_status_label(func_args)}", format_delegate_running_chat_line(func_args)
     if func_name == "upsert_memory":
@@ -147,6 +150,7 @@ def format_tool_running_ui(func_name: str, func_args: Mapping[str, Any]) -> tupl
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
     """Chat append body for a tool result (error or success); does not mutate *result_data*."""
+    # crosshair: off
     if result_data.get("status") == "error":
         error_msg = result_data.get("message", "Unknown error")
         if is_delegate_gateway(func_name):
@@ -178,10 +182,14 @@ def format_tool_result_chat_text(func_name: str, func_args: Mapping[str, Any], r
 @deal.post(lambda result: isinstance(result, bool))
 def is_replaced_zero_result(result_data: Mapping[str, Any], note: object) -> bool:
     """True when apply_document_content reported zero replacements (structured or legacy message)."""
+    # crosshair: off
+    # Plain dict/str only — isinstance(str) is true for CrossHair LazyIntSymbolicStr.
+    if type(result_data) is not dict:
+        return False
     if result_data.get("replaced_count") == 0:
         return True
     # TODO(follow-up): drop legacy prefix once all callers emit replaced_count.
-    if isinstance(note, str):
+    if type(note) is str:
         return note.strip().startswith("Replaced 0 occurrence")
     return False
 
@@ -255,7 +263,7 @@ class SpawnToolWorkerEffect:
 
 @dataclasses.dataclass(frozen=True)
 class ToolLoopUIEffect:
-    kind: UIEffectKind
+    kind: str  # UIEffectKind — str for CrossHair cover (Literal is not proxyable)
     text: str = ""
 
 

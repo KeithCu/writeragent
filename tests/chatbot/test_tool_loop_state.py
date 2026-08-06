@@ -396,11 +396,14 @@ def test_tool_result_parsing():
 
 
 def test_object_dict_or_empty():
+    from collections import UserDict
+
     d = {"a": 1}
     assert object_dict_or_empty(d) is d
     assert object_dict_or_empty(None) == {}
     assert object_dict_or_empty("x") == {}
     assert object_dict_or_empty([1]) == {}
+    assert object_dict_or_empty(UserDict({"a": 1})) == {}
 
 
 def test_pending_tool_call_fields():

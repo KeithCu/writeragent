@@ -153,6 +153,7 @@ def test_crosshair_audio_recorder_state_if_available() -> None:
 
 @pytest.mark.slow
 def test_crosshair_state_machine_if_available() -> None:
+    # next_state is # crosshair: off; module check covers pure helpers with @deal.
     _run_crosshair("plugin/chatbot/state_machine.py", timeout=300)
 
 

@@ -132,3 +132,43 @@ def test_filter_check_all_targets_skip_list() -> None:
     all_run, none_skipped = filter_check_all_targets(paths, apply_skip=False)
     assert all_run == paths
     assert none_skipped == []
+
+
+def test_cover_all_list_discovers_deal_without_spawning(tmp_path, capsys) -> None:
+    """cover-all --list finds @deal. modules and exits 0 without spawning CrossHair."""
+    from scripts.crosshair_cover_all import main as cover_all_main
+
+    plugin = tmp_path / "plugin"
+    (plugin / "scripting").mkdir(parents=True)
+    target = plugin / "scripting" / "payload_codec.py"
+    target.write_text(
+        "import deal\n@deal.post(lambda result, *_, **__: True)\ndef f():\n    return 1\n",
+        encoding="utf-8",
+    )
+    (plugin / "scripting" / "no_deal.py").write_text("def g():\n    return 2\n", encoding="utf-8")
+
+    code = cover_all_main(["--list", "--plugin-root", str(plugin)])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "CrossHair cover-all: 1 module(s)" in out
+    assert "payload_codec.py" in out
+    assert "no_deal.py" not in out
+
+
+def test_cover_all_reuses_check_all_skip_list() -> None:
+    from scripts.crosshair_check_all import CROSSHAIR_CHECK_ALL_SKIP
+    from scripts.crosshair_cover_all import CROSSHAIR_CHECK_ALL_SKIP as cover_imported_check_skip
+
+    assert cover_imported_check_skip is CROSSHAIR_CHECK_ALL_SKIP
+
+
+def test_filter_cover_all_targets_unions_skips() -> None:
+    from scripts.crosshair_check_all import CROSSHAIR_CHECK_ALL_SKIP
+    from scripts.crosshair_cover_all import CROSSHAIR_COVER_ALL_SKIP, filter_cover_all_targets
+
+    check_skip = Path(sorted(CROSSHAIR_CHECK_ALL_SKIP)[0])
+    cover_skip = Path(sorted(CROSSHAIR_COVER_ALL_SKIP)[0])
+    keep = Path("plugin/scripting/payload_codec.py")
+    to_run, skipped = filter_cover_all_targets([check_skip, cover_skip, keep], apply_skip=True)
+    assert to_run == [keep]
+    assert set(skipped) == {check_skip.as_posix(), cover_skip.as_posix()}

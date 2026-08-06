@@ -149,7 +149,7 @@ endif
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
         log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy ensure-uno \
-        verify crosshair-check crosshair-cover crosshair-check-all \
+        verify crosshair-check crosshair-cover crosshair-check-all crosshair-cover-all \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run pyrefly-run \
@@ -226,6 +226,7 @@ help:
 	@echo "  make crosshair-check        CrossHair check on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-cover        CrossHair cover on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-check-all    CrossHair check every @deal. plugin module (multi-hour; log: build/crosshair-check-all.log)"
+	@echo "  make crosshair-cover-all    CrossHair cover every @deal. plugin module (multi-hour; log: build/crosshair-cover-all.log)"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
 	@echo "  make opengrep-lint          Opengrep UNO + security rules (ERROR; part of make test)"
@@ -731,6 +732,10 @@ crosshair-cover:
 # Multi-hour: every plugin file with @deal. (deal contracts only). Not part of make test.
 crosshair-check-all:
 	$(PYTHON) scripts/crosshair_check_all.py
+
+# Multi-hour: cover (example synthesis) on the same @deal. set / skip list. Not part of make test.
+crosshair-cover-all:
+	$(PYTHON) scripts/crosshair_cover_all.py
 
 # ── Benchmarks (scripts/prompt_optimization) ─────────────────────────────────
 
