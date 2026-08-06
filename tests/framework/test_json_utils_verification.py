@@ -8,10 +8,12 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 from hypothesis import given, settings
@@ -21,6 +23,17 @@ from plugin.framework.json_utils import safe_json_loads
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGET = "plugin.framework.json_utils.safe_json_loads"
+
+
+def _json_values_equal(a: Any, b: Any) -> bool:
+    """Deep equality that treats NaN == NaN (json.loads allows non-RFC NaN)."""
+    if isinstance(a, float) and isinstance(b, float) and math.isnan(a) and math.isnan(b):
+        return True
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_json_values_equal(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_json_values_equal(a[k], b[k]) for k in a)
+    return a == b
 
 
 def _find_crosshair() -> str | None:
@@ -74,7 +87,7 @@ def test_hypothesis_strict_garbage_returns_default(garbage: str) -> None:
     if parsed is None:
         assert safe_json_loads(garbage, default="SENTINEL", strict=True) == "SENTINEL"
     else:
-        assert safe_json_loads(garbage, default="SENTINEL", strict=True) == parsed
+        assert _json_values_equal(safe_json_loads(garbage, default="SENTINEL", strict=True), parsed)
 
 
 def test_strict_rejects_single_quoted() -> None:
