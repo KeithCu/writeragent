@@ -64,29 +64,29 @@ Full catalog with doc links: **[docs/features.md](docs/features.md)**.
 
 ## Showcase
 
-**Writer** — AI-generated resume with formatting
+**Hermes + Opus 4.6 (Web Research)**
 
-![Arch Linux Resume](Showcase/Opus46Resume.png)
+![Hermes-Agent / Opus-4.6 Akihabara](Showcase/HermesAkihabara.png)
 
-**Calc** — Chat sidebar with a dashboard
+**Arch Linux Resume**
 
-![Spreadsheet Dashboard](Showcase/Sonnet46Spreadsheet.png)
+![Opus 4.6 Resume](Showcase/Opus46Resume.png)
 
-**Calc** — NumPy and pandas in `=PY()` cells
+**Spreadsheet Dashboard**
 
-![Python in LibreOffice](Showcase/PythonLibreOffice.png)
+![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png)
 
-**Writer** — TeX → editable LibreOffice Math
+**Math Expressions**
 
 ![Math Expressions](Showcase/Math.png)
 
-**Web research** — Hermes + Opus 4.6
+**Python in LibreOffice**
 
-![Hermes Web Research](Showcase/HermesAkihabara.png)
+![Python in LibreOffice](Showcase/PythonLibreOffice.png)
 
-**Draw** — AI-generated diagram
+**Sonnet diagram of an Arch Linux deity**
 
-![AI-generated diagram](Showcase/Sonnet46ArchDiagram.jpg)
+![Sonnet 4.6 Visual](Showcase/Sonnet46ArchDiagram.jpg)
 
 ---
 
