@@ -1,11 +1,11 @@
 # WriterAgent
 
-WriterAgent logo
+![WriterAgent logo](https://raw.githubusercontent.com/KeithCu/writeragent/master/extension/assets/logo.jpg)
 
-[License: GPL v3+](https://www.gnu.org/licenses/gpl-3.0.html)
-[Python 3.11+](https://www.python.org/downloads/)
-[LibreOffice 7.0+](https://www.libreoffice.org/)
-[Release](https://github.com/KeithCu/writeragent/releases)
+[![License: GPL v3+](https://img.shields.io/badge/License-GPL%20v3%2B-blue.svg)](https://www.gnu.org/licenses/gpl-3.0.html)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![LibreOffice 7.0+](https://img.shields.io/badge/LibreOffice-7.0%2B-green.svg)](https://www.libreoffice.org/)
+[![Release](https://img.shields.io/github/v/release/KeithCu/writeragent)](https://github.com/KeithCu/writeragent/releases)
 
 A LibreOffice extension that brings agentic AI to Writer, Calc, and Draw — chat in the sidebar, edit documents, run Python in spreadsheets, research the web, and check grammar.
 
@@ -16,14 +16,14 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 ---
 
 
-|                                                  |                                              |
-| ------------------------------------------------ | -------------------------------------------- |
-| Arch Linux Resume                                | Spreadsheet Dashboard                        |
-| **Writer** — AI-generated resume with formatting | **Calc** — Chat sidebar with a dashboard     |
-| Python in LibreOffice                            | Math Expressions                             |
-| **Calc** — NumPy and pandas in `=PY()` cells     | **Writer** — TeX → editable LibreOffice Math |
-| Hermes Web Research                              | AI-generated diagram                         |
-| **Web research** — Hermes + Opus 4.6             | **Draw** — AI-generated diagram              |
+| | |
+|---|---|
+| ![Arch Linux Resume](Showcase/Opus46Resume.png) | ![Spreadsheet Dashboard](Showcase/Sonnet46Spreadsheet.png) |
+| **Writer** — AI-generated resume with formatting | **Calc** — Chat sidebar with a dashboard |
+| ![Python in LibreOffice](Showcase/PythonLibreOffice.png) | ![Math Expressions](Showcase/Math.png) |
+| **Calc** — NumPy and pandas in `=PY()` cells | **Writer** — TeX → editable LibreOffice Math |
+| ![Hermes Web Research](Showcase/HermesAkihabara.png) | ![AI-generated diagram](Showcase/Sonnet46ArchDiagram.jpg) |
+| **Web research** — Hermes + Opus 4.6 | **Draw** — AI-generated diagram |
 
 
 ---
@@ -103,7 +103,7 @@ Full catalog with doc links: **[docs/features.md](docs/features.md)**.
 
 Under the hood, all AI interactions are governed by a formally verified state machine with type checking, and static analysis. [Architecture](docs/writeragent-architecture.md) · [Formal verification](docs/formal_verification.md) · [Test architecture](docs/test_architecture_analysis.md)
 
-State machine architecture
+![State machine architecture](Showcase/full_super_unified_complete.png)
 
 Hit a rough edge? File an [issue](https://github.com/KeithCu/writeragent/issues) with steps to reproduce, or open a PR. A star helps too.
 
@@ -126,7 +126,8 @@ A weekly chronicle of building a professional AI suite inside LibreOffice:
 
 ## Contributing
 
-[Discussions](https://github.com/KeithCu/writeragent/discussions) · [DeepWiki](https://deepwiki.com/KeithCu/writeragent)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
+[Discussions](https://github.com/KeithCu/writeragent/discussions)
 
 **Prerequisites:** Python 3.11–3.13 for dev (pinned to **3.13** in `[.python-version](.python-version)`), [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg`. Run `make check-setup` to verify. On macOS: `make`, `gettext`, and LibreOffice via Homebrew or `/Applications`.
 
