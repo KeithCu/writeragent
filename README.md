@@ -21,21 +21,17 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 
 ### Writer
 
-- **Sidebar chat with deep tool-calling** — 9 core tools for everyday editing plus dozens of [specialized sub-agents](docs/writer-specialized-toolsets.md) that unlock [page layout](docs/page-api-reference.md), [shapes](docs/shape_support.md), charts, [bookmarks](docs/bookmarks-api-reference.md), [footnotes](docs/footnotes-api-reference.md), [track changes](docs/writer-tracking-api-reference.md), indexes, forms, and more. Try *"Do web research and write a report on the space elevator, suitable for mathematicians (or English teachers)"* — the AI will research, write, and format a complete document.
+- **Sidebar chat with deep tool-calling** — 9 core tools for everyday editing plus dozens of [specialized sub-agents](docs/writer-specialized-toolsets.md) that unlock [page layout](docs/page-api-reference.md), [shapes](docs/shape_support.md), charts, [bookmarks](docs/bookmarks-api-reference.md), [footnotes](docs/footnotes-api-reference.md), [track changes](docs/writer-tracking-api-reference.md), indexes, forms, and more. Try *"Do web research and write a report on the space elevator, suitable for mathematicians (or English teachers)"* — the AI will research, write, and format a complete document (the math version even uses LaTeX).
 - **Format-preserving edits** — Rewrite or tighten a selection and existing bold, italics, highlights, and font sizes survive intact. HTML import handles tables and nested lists. One **Ctrl+Z** reverts a whole AI turn.
 - **Realtime grammar** — Async proofreader with three backends: [Harper](https://github.com/Automattic/harper) (fast local Rust checker, auto-installs), [LanguageTool](https://languagetool.org) (local server), or any LLM. Sentence cache, Unicode-aware splitting, and optional auto language detection so mixed-locale documents get the right checker per sentence. [Details](docs/realtime-grammar-checker-plan.md)
 - **Math & analytics** — TeX/MathML delimiters become editable LibreOffice Math objects. SymPy helpers for symbolic math. Readability metrics, NER, and key phrases via spaCy. [Math](docs/math-tex.md)
 
-
-
 ### Calc
 
-- `**=PROMPT()` and `=PY()` / `=PYTHON()**` — AI prompts and NumPy/pandas code in spreadsheet cells with auto spill, shared kernel, init scripts, and document-attached scripts. [NumPy in LibreOffice](docs/enabling_numpy_in_libreoffice.md) · [Data shapes](docs/calc-py-data-shapes.md)
+- **`=PROMPT()` and `=PY()`** — AI prompts and NumPy/pandas code in spreadsheet cells with auto spill, shared kernel, init scripts, and document-attached scripts. [NumPy in LibreOffice](docs/enabling_numpy_in_libreoffice.md) · [Data shapes](docs/calc-py-data-shapes.md)
 - **Trusted helper domains** — Analysis (14 helpers: EDA, outliers, regression, Monte Carlo, …), Viz, Math, Quant, Optimize, and Units — via chat or **Tools → Run Python Script**. [Domain reference](docs/numpy-domains.md) · [Analysis tools](docs/calc-analysis-tools.md)
 - **Sheet → Python converter** — Rewrite 235+ Calc formula functions as `=PY()` while constants, dates, and formats stay unchanged. [Details](docs/calc-spreadsheet-to-python-import.md)
 - **DuckDB SQL** — Query folder files (CSV, Parquet, XLSX, ODS) and live Calc ranges from chat or scripts. Batch edits, [conditional formatting](docs/calc-conditional-formatting.md), and [sheet filters](docs/calc-sheet-filter.md).
-
-
 
 ### Multi-modal & intelligence
 
@@ -45,12 +41,10 @@ Unlike proprietary office suites that lock you into a single cloud provider and 
 - **Images, OCR, voice** — Generate or edit images; offline OCR via Docling; cross-platform voice recording. [Images](docs/image-generation.md) · [Vision](docs/image-recognition.md) · [Audio](docs/audio-architecture.md)
 - **Memory & locales** — Persistent agent memory across sessions; 34 shipped locales with AI-driven translation pipeline. [Memory](docs/hermes-agent-patterns.md) · [Localization](docs/localization.md)
 
-
-
 ### Integrations
 
-- **MCP server** — Enable in Settings to expose document tools on `localhost:8765/mcp` for Cursor, Claude Desktop, LM Studio, or custom agents. [MCP protocol](docs/mcp-protocol.md)
-- **External agent backends** — [Hermes](https://github.com/NousResearch/hermes-agent) or [Grok Build](https://zed.dev/acp/agent/grok-build) via ACP, with approve/reject dialogs for tool calls. [Cursor plugin](https://github.com/KeithCu/cursor-libreoffice) · [LO skill](https://github.com/KeithCu/libreoffice-skill)
+- **MCP server** — Enable in Settings → Http; endpoint `http://localhost:8765/mcp` for Cursor, Claude Desktop, LM Studio, or custom agents. Prefer a `document_url` argument on each tool call (or legacy `X-Document-URL` header) so clients do not edit the wrong window when several docs are open; discover targets with `list_open_documents`. [MCP protocol](docs/mcp-protocol.md)
+- **External agent backends** — Under **Settings → Agent backends**, swap built-in chat for [Hermes](https://github.com/NousResearch/hermes-agent) or [Grok Build](https://zed.dev/acp/agent/grok-build) via ACP, with approve/reject dialogs for tool calls. [Cursor plugin](https://github.com/KeithCu/cursor-libreoffice) · [LO skill](https://github.com/KeithCu/libreoffice-skill)
 
 Full catalog with doc links: **[docs/features.md](docs/features.md)**.
 
@@ -140,7 +134,7 @@ A weekly chronicle of building a professional AI suite inside LibreOffice:
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/KeithCu/writeragent)
 [Discussions](https://github.com/KeithCu/writeragent/discussions)
 
-**Prerequisites:** Python 3.11–3.13 for dev (pinned to **3.13** in `[.python-version](.python-version)`), [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg`. Run `make check-setup` to verify. On macOS: `make`, `gettext`, and LibreOffice via Homebrew or `/Applications`.
+**Prerequisites:** Python 3.11–3.13 for dev (pinned to **3.13** in [`.python-version`](.python-version)), [uv](https://docs.astral.sh/uv/), and LibreOffice with `unopkg`. Run `make check-setup` to verify. On macOS: `make`, `gettext`, and LibreOffice via Homebrew or `/Applications`.
 
 ```bash
 git clone https://github.com/KeithCu/writeragent.git
@@ -175,7 +169,7 @@ If `uv sync` fails on Python 3.14 / spaCy wheels: `rm -rf .venv && uv sync --pyt
 
 ## License
 
-**GNU GPL v3 (or later)** — see `[LICENSE](LICENSE)`. Originally MPL 2.0; relicensed in 2026 for stronger reciprocity and library compatibility.
+**GNU GPL v3 (or later)** — see [`LICENSE`](LICENSE). Originally MPL 2.0; relicensed in 2026 for stronger reciprocity and library compatibility.
 
 
 | Year      | Contribution                      | Contributor            |
