@@ -148,8 +148,8 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test test-run slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy ensure-uno \
-        verify crosshair-check crosshair-cover crosshair-check-all crosshair-cover-all \
+        log log-tail lo-log test test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy ensure-uno \
+        verify crosshair-check crosshair-cover crosshair-check-all crosshair-cover-all crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run pyrefly-run \
@@ -220,13 +220,15 @@ help:
 	@echo "  make run_eval               Run benchmark CLI (pass EVAL_ARGS=...)"
 	@echo "  make run_eval-smoke         Quick smoke: one model, one example"
 	@echo "  make test-run               Pytest + LO tests only (skip typecheck/bandit; for quick reruns)"
+	@echo "  make test-durations         Same pytest filter as test-run with --durations=40 (profile hotspots)"
 	@echo "  make slowtests              Slow serialization once each: A/B fixtures, contracts/CrossHair, Hypothesis (vhs)"
 	@echo "  make vhs                    Hypothesis serialization fuzz with verbose output (Hypothesis step of slowtests)"
 	@echo "  make verify                 Pytest formal-verification suite (-k verification)"
 	@echo "  make crosshair-check        CrossHair check on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-cover        CrossHair cover on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-check-all    CrossHair check every @deal. plugin module (multi-hour; log: build/crosshair-check-all.log)"
-	@echo "  make crosshair-cover-all    CrossHair cover every @deal. plugin module (multi-hour; log: build/crosshair-cover-all.log)"
+	@echo "  make crosshair-cover-all    CrossHair cover every @deal. plugin module (regular: 50 iters / 30s; process pool; log: build/crosshair-cover-all.log)"
+	@echo "  make crosshair-cover-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout)"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
 	@echo "  make opengrep-lint          Opengrep UNO + security rules (ERROR; part of make test)"
@@ -644,9 +646,12 @@ typecheck: manifest
 	@$(MAKE) pyright-run
 
 test-run:
-	$(PYTHON) -m pytest tests -m "not slow"
+	$(PYTHON) -m pytest tests -m "not slow and not integration"
 	@$(MAKE) lo-kill
 	$(LO_PYTHON) -m plugin.testing_runner; EXIT_CODE=$$?; $(MAKE) lo-kill; exit $$EXIT_CODE
+
+test-durations:
+	$(PYTHON) -m pytest tests -m "not slow and not integration" --durations=40
 
 _SERIALIZATION_EXTENSIVE = WRITERAGENT_SERIALIZATION_EXTENSIVE=1
 
@@ -733,9 +738,14 @@ crosshair-cover:
 crosshair-check-all:
 	$(PYTHON) scripts/crosshair_check_all.py
 
-# Multi-hour: cover (example synthesis) on the same @deal. set / skip list. Not part of make test.
+# Cover (example synthesis) on the same @deal. set / skip list. Not part of make test.
+# Regular: 50 uninteresting iters + 30s per condition. Deep: 200 iters, no timeout.
+# Regular payload_codec only: 5 / 5s (module_cover_bounds).
 crosshair-cover-all:
 	$(PYTHON) scripts/crosshair_cover_all.py
+
+crosshair-cover-all-deep:
+	$(PYTHON) scripts/crosshair_cover_all.py --deep
 
 # ── Benchmarks (scripts/prompt_optimization) ─────────────────────────────────
 

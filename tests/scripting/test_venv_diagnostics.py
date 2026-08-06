@@ -13,6 +13,7 @@ import subprocess
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from plugin.scripting.config_limits import (
     SELF_CHECK_IMPORT_PROBE_TIMEOUT_SEC,
@@ -53,6 +54,7 @@ def test_probe_venv_path_blank_fails_when_no_process_interpreter():
     assert "No process interpreter" in msg
 
 
+@pytest.mark.integration
 def test_run_venv_self_check_success():
     ok, msg = run_venv_self_check(sys.executable, timeout=10.0)
     assert ok is True
@@ -90,11 +92,31 @@ def test_run_venv_self_check_timeout():
 
 
 def test_run_venv_self_check_reports_architecture():
-    """Live self-check includes platform.machine() in the output."""
-    ok, msg = run_venv_self_check(sys.executable, timeout=10.0)
-    assert ok is True
+    """Self-check success message includes platform.machine() from the worker payload."""
     import platform
+
     expected_arch = platform.machine()
+    mock_mgr = MagicMock()
+    mock_mgr.execute.return_value = {
+        "status": "ok",
+        "result": {
+            "v": "3.12.0",
+            "arch": expected_arch,
+            "p": {},
+            "sci": [],
+            "eda": [],
+            "ui": [],
+        },
+    }
+    with (
+        patch("plugin.scripting.venv_worker.PythonWorkerManager.get", return_value=mock_mgr),
+        patch("plugin.scripting.venv_diagnostics._probe_nlp_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vision_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_vector_search_packages", return_value=({}, None)),
+        patch("plugin.scripting.venv_diagnostics._probe_audio_packages", return_value=({}, None)),
+    ):
+        ok, msg = run_venv_self_check("/x/python", timeout=1.0)
+    assert ok is True
     assert expected_arch in msg
 
 

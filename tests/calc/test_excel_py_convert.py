@@ -469,6 +469,7 @@ def test_excel_deps_roundtrip_on_xlws_export():
     assert "tradeData[#All]" in c1.excel_formula
 
 
+@pytest.mark.slow
 def test_package_meta_helpers_when_enabled(tmp_path: Path):
     """Package JSON helpers stay available; default path does not write them (USE_PACKAGE_META)."""
     from plugin.calc.excel_py_convert.convert import (
@@ -942,6 +943,7 @@ def test_parse_and_convert_synthetic_workbook_with_table(tmp_path: Path):
     assert by_cell["H4"].data_args[0].endswith("A6:B10") or "A6:B10" in by_cell["H4"].data_args[0]
 
 
+@pytest.mark.slow
 def test_libreoffice_import_smoke(tmp_path: Path):
     """When soffice is available, a converted synthetic XLSX must open without crash."""
     import shutil

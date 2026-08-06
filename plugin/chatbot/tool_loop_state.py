@@ -119,14 +119,11 @@ def object_dict_or_empty(value: object) -> dict[str, Any]:
 def pending_tool_call_fields(tc: object) -> tuple[str, str, str]:
     """Normalize a pending tool-call entry to ``(func_name, func_args_str, call_id)``."""
     # crosshair: off
-    if type(tc) is not dict:
-        tc = {}
-    func_data = tc.get("function", {})
-    if type(func_data) is not dict:
-        func_data = {}
+    tc_dict = object_dict_or_empty(tc)
+    func_data = object_dict_or_empty(tc_dict.get("function"))
     func_name = func_data.get("name", "unknown")
     func_args_str = func_data.get("arguments", "{}")
-    call_id = tc.get("id", "")
+    call_id = tc_dict.get("id", "")
     if type(func_name) is not str:
         func_name = "unknown"
     if type(func_args_str) is not str:

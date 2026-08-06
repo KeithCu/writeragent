@@ -101,7 +101,8 @@ def test_firefox_process_spawning(mock_urlopen, mock_popen, mock_run):
 
 
 @patch("plugin.contrib.cdp.browser_cdp_tool.browser_cdp")
-def test_visit_webpage_cdp_tool_forward(mock_browser_cdp):
+@patch("time.sleep", return_value=None)
+def test_visit_webpage_cdp_tool_forward(mock_sleep, mock_browser_cdp):
     # Mock CDP calls inside VisitWebpageCdpTool
     # First: Target.getTargets
     # Second: Page.navigate
@@ -132,3 +133,4 @@ def test_visit_webpage_cdp_tool_forward(mock_browser_cdp):
 
     assert result == "This is page text content retrieved via CDP."
     assert mock_browser_cdp.call_count == 3
+    mock_sleep.assert_called_once_with(3.0)

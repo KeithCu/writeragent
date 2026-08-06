@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -107,6 +109,8 @@ def test_unwrap_cell_invariants(val) -> None:
     res = _unwrap_cell(val)
     if val == "":
         assert res is None
+    elif isinstance(val, float) and math.isnan(val):
+        assert isinstance(res, float) and math.isnan(res)
     elif isinstance(val, (int, float, bool)) or val is None:
         assert res == val
 

@@ -78,7 +78,7 @@ class _Registry:
     """Stub tool_registry: .get(name) reports the lock contract; .execute is
     instrumented to measure the max concurrency observed inside the tool body."""
 
-    def __init__(self, is_mutation=True, hold=0.4, lock_required=None, lock_raises=False, tool_info=None):
+    def __init__(self, is_mutation=True, hold=0.05, lock_required=None, lock_raises=False, tool_info=None):
         self._is_mutation = is_mutation
         self._lock_required = lock_required
         self._lock_raises = lock_raises

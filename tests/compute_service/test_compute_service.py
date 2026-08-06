@@ -287,8 +287,9 @@ class TestComputeSettings:
 
 
 class TestBearerAuthHttp:
-    @pytest.fixture()
+    @pytest.fixture(scope="class")
     def auth_server(self):
+        """One HTTP server for the class; clear `executed` between tests via autouse below."""
         port = get_free_port()
         from compute_service.server import WSGIDualStackServer
 
@@ -309,6 +310,12 @@ class TestBearerAuthHttp:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+    @pytest.fixture(autouse=True)
+    def _clear_executed(self, auth_server):
+        _url, executed = auth_server
+        executed.clear()
+        yield
 
     def _post(self, url: str, headers: dict[str, str] | None = None) -> tuple[int, dict]:
         req = urllib.request.Request(

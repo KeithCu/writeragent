@@ -143,10 +143,18 @@ def classify_line(line: str, mode: str) -> ClassifiedLine | None:
     if not stripped:
         return None
 
-    # Real process Tracebacks fail both modes. CrossHairInternal likewise.
+    # Check: Tracebacks are hard failures (engine / uncaught).
+    # Cover: app code often log.exception() during path exploration (e.g. payload_codec
+    # unpacking garbage envelopes). Those print Traceback headers mid-run and are
+    # explore noise — not CrossHair process death. Fail cover on CrossHairInternal or
+    # non-zero process exit instead (see run_crosshair).
     if stripped.startswith("Traceback (most recent call last)"):
-        tag = "COVER FATAL" if mode == "cover" else "CHECK ERROR"
-        return ClassifiedLine(tag, "Traceback (CrossHair engine)", stripped)
+        if mode == "cover":
+            return ClassifiedLine("COVER EXPLORE", "Traceback (path exploration)", stripped)
+        if mode == "auto":
+            # Pipe auto: treat like check (safer); cover-all always passes mode=cover.
+            return ClassifiedLine("CHECK ERROR", "Traceback (CrossHair engine)", stripped)
+        return ClassifiedLine("CHECK ERROR", "Traceback (CrossHair engine)", stripped)
 
     if CROSSHAIR_INTERNAL.search(stripped) and not VERBOSE_PREFIX.match(stripped):
         tag = "COVER FATAL" if mode == "cover" else "CHECK ERROR"
@@ -299,12 +307,21 @@ def print_error_summary(stats: StreamStats, out: TextIO) -> None:
     out.flush()
 
 
-def print_banner(stats: StreamStats, mode: str, exit_code: int, out: TextIO) -> None:
-    label = mode.upper()
+def print_banner(
+    stats: StreamStats,
+    mode: str,
+    exit_code: int,
+    out: TextIO,
+    *,
+    label: str | None = None,
+) -> None:
+    mode_label = mode.upper()
     failed = stats.failure_count > 0 or exit_code not in (0,)
     status = "FAIL" if failed else "DONE"
+    out.write(f"\n=== CrossHair {mode_label} {status} (exit {exit_code}) ===\n")
+    if label:
+        out.write(f"  {label}\n")
     out.write(
-        f"\n=== CrossHair {label} {status} (exit {exit_code}) ===\n"
         f"  lines read: {stats.lines} (suppressed {stats.suppressed})\n"
         f"  {stats.summary(mode)}\n"
     )
@@ -372,6 +389,7 @@ def run_crosshair(
     quiet: bool,
     *,
     out: TextIO | None = None,
+    label: str | None = None,
 ) -> tuple[int, StreamStats]:
     """Spawn CrossHair and stream output. Returns ``(exit_code, stats)``."""
     crosshair_path = find_crosshair()
@@ -402,7 +420,7 @@ def run_crosshair(
         exit_code = 1 if proc_code == 1 else proc_code
     else:
         exit_code = 0
-    print_banner(stats, mode, exit_code, dest)
+    print_banner(stats, mode, exit_code, dest, label=label)
     return exit_code, stats
 
 

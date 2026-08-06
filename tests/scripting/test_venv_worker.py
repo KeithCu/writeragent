@@ -36,6 +36,13 @@ from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _shutdown_workers_after_module():
+    """Ensure no leftover worker processes after this file finishes."""
+    yield
+    PythonWorkerManager.shutdown_all()
+
+
 def test_worker_error_message_strips_command_path():
     long_cmd = ["/very/long/path/to/python", "/very/long/path/to/worker_harness.py"]
     exc = subprocess.TimeoutExpired(cmd=long_cmd, timeout=3)
@@ -160,35 +167,6 @@ def test_harness_main_loop_integration():
     proc_pickle.stdin.close()
     proc_pickle.wait(timeout=5)
 
-
-
-@patch("plugin.scripting.venv_worker.get_config_str", return_value="")
-@patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)
-def test_run_code_uses_manager(mock_lo_python, mock_cfg):
-
-    PythonWorkerManager.shutdown_all()
-    ctx = MagicMock()
-    r1 = run_code_in_user_venv(ctx, "result = 100")
-    assert r1["status"] == "ok"
-    assert r1["result"] == 100
-    r2 = run_code_in_user_venv(ctx, "result = nope + 1")
-    assert r2["status"] == "error"
-    PythonWorkerManager.shutdown_all()
-
-
-def test_manager_two_calls_same_process():
-    PythonWorkerManager.shutdown_all()
-    mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
-    r1 = mgr.execute("result = 1")
-    assert r1["status"] == "ok"
-    pid1 = mgr._proc.pid if mgr._proc else None
-    r2 = mgr.execute("result = 2")
-    assert r2["status"] == "ok"
-    pid2 = mgr._proc.pid if mgr._proc else None
-    assert pid1 is not None and pid1 == pid2
-    r3 = mgr.execute("result = prev")
-    assert r3["status"] == "error"
-    PythonWorkerManager.shutdown_all()
 
 
 def test_manager_real_spawn_drains_stderr_flood(tmp_path, monkeypatch):
@@ -381,38 +359,6 @@ def test_normalize_response_unpacks_split_grid():
     assert len(out["result"]) == 5
     assert out["result"][0][0] == pytest.approx(0.0)
     assert out["result"][4][4] == pytest.approx(44.0)
-
-
-def test_split_grid_result_round_trip_manager():
-    """API responses unpack split_grid so LLM/UI never see wire envelopes."""
-    pytest.importorskip("numpy")
-    PythonWorkerManager.shutdown_all()
-    mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
-    r = mgr.execute("import numpy as np\nresult = np.arange(16, dtype=np.float64).reshape(4, 4)")
-    assert r["status"] == "ok"
-    from plugin.scripting.payload_codec import is_split_grid
-
-    assert not is_split_grid(r["result"])
-    assert len(r["result"]) == 4
-    assert r["result"][0][0] == pytest.approx(0.0)
-    assert r["result"][3][3] == pytest.approx(15.0)
-    PythonWorkerManager.shutdown_all()
-
-
-def test_manager_unpacks_prime_tuple_list():
-    """List-of-tuples large enough for split_grid on wire must return nested lists to callers."""
-    pytest.importorskip("sympy")
-    PythonWorkerManager.shutdown_all()
-    mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
-    code = "result = [(i, int(sp.prime(i))) for i in range(100, 107)]"
-    r = mgr.execute(code)
-    assert r["status"] == "ok"
-    from plugin.scripting.payload_codec import is_split_grid
-
-    assert not is_split_grid(r["result"])
-    assert r["result"] == [[100, 541], [101, 547], [102, 557], [103, 563], [104, 569], [105, 571], [106, 577]]
-    assert all(isinstance(cell, int) for row in r["result"] for cell in row)
-    PythonWorkerManager.shutdown_all()
 
 
 def test_automatic_imports_math():
@@ -685,33 +631,83 @@ def test_warm_venv_worker_resolves_and_warms(mock_lo_python, mock_cfg):
     PythonWorkerManager.shutdown_all()
 
 
-def test_split_grid_integration_pickle_mode():
-    pytest.importorskip("numpy")
-    from plugin.scripting.venv_worker import PythonWorkerManager
+class TestLiveWorkerReuse:
+    """Contiguous live-worker tests sharing one warmed manager (after lifecycle tests above)."""
 
-    PythonWorkerManager.shutdown_all()
-    try:
+    @pytest.fixture(scope="class")
+    def warmed_worker_manager(self):
+        PythonWorkerManager.shutdown_all()
         mgr = PythonWorkerManager.get(sys.executable, {"PATH": "/usr/bin:/bin"})
+        mgr.warm()
+        yield mgr
+        PythonWorkerManager.shutdown_all()
 
-        # Execute some numpy array creation
+    @patch("plugin.scripting.venv_worker.get_config_str", return_value="")
+    @patch("plugin.scripting.venv_worker.resolve_libreoffice_python", return_value=sys.executable)
+    def test_run_code_uses_manager(self, mock_lo_python, mock_cfg, warmed_worker_manager):
+        del warmed_worker_manager
+        ctx = MagicMock()
+        r1 = run_code_in_user_venv(ctx, "result = 100")
+        assert r1["status"] == "ok"
+        assert r1["result"] == 100
+        r2 = run_code_in_user_venv(ctx, "result = nope + 1")
+        assert r2["status"] == "error"
+
+    def test_manager_two_calls_same_process(self, warmed_worker_manager):
+        mgr = warmed_worker_manager
+        r1 = mgr.execute("result = 1")
+        assert r1["status"] == "ok"
+        pid1 = mgr._proc.pid if mgr._proc else None
+        r2 = mgr.execute("result = 2")
+        assert r2["status"] == "ok"
+        pid2 = mgr._proc.pid if mgr._proc else None
+        assert pid1 is not None and pid1 == pid2
+        r3 = mgr.execute("result = prev")
+        assert r3["status"] == "error"
+
+    def test_split_grid_result_round_trip_manager(self, warmed_worker_manager):
+        """API responses unpack split_grid so LLM/UI never see wire envelopes."""
+        pytest.importorskip("numpy")
+        mgr = warmed_worker_manager
+        r = mgr.execute("import numpy as np\nresult = np.arange(16, dtype=np.float64).reshape(4, 4)")
+        assert r["status"] == "ok"
+        from plugin.scripting.payload_codec import is_split_grid
+
+        assert not is_split_grid(r["result"])
+        assert len(r["result"]) == 4
+        assert r["result"][0][0] == pytest.approx(0.0)
+        assert r["result"][3][3] == pytest.approx(15.0)
+
+    def test_manager_unpacks_prime_tuple_list(self, warmed_worker_manager):
+        """List-of-tuples large enough for split_grid on wire must return nested lists to callers."""
+        pytest.importorskip("sympy")
+        mgr = warmed_worker_manager
+        code = "result = [(i, int(sp.prime(i))) for i in range(100, 107)]"
+        r = mgr.execute(code)
+        assert r["status"] == "ok"
+        from plugin.scripting.payload_codec import is_split_grid
+
+        assert not is_split_grid(r["result"])
+        assert r["result"] == [[100, 541], [101, 547], [102, 557], [103, 563], [104, 569], [105, 571], [106, 577]]
+        assert all(isinstance(cell, int) for row in r["result"] for cell in row)
+
+    def test_split_grid_integration_pickle_mode(self, warmed_worker_manager):
+        pytest.importorskip("numpy")
+        mgr = warmed_worker_manager
+
         r = mgr.execute("import numpy as np\nresult = np.arange(100, dtype=np.float64).reshape(10, 10)")
         assert r["status"] == "ok"
-        
-        # Verify it was returned as regular nested list to callers (unpacked)
+
         assert len(r["result"]) == 10
         assert r["result"][0][0] == 0.0
         assert r["result"][9][9] == 99.0
 
-        # Execute with input data as a large grid to trigger split-grid ingress packaging
         large_grid = [[float(r * 10 + c) for c in range(10)] for r in range(10)]
         from plugin.calc.calc_addin_data import pack_calc_data_for_wire
 
         r2 = mgr.execute("result = float(np.sum(data))", data=pack_calc_data_for_wire(large_grid))
         assert r2["status"] == "ok"
         assert r2["result"] == pytest.approx(sum(r * 10 + c for r in range(10) for c in range(10)))
-    finally:
-        PythonWorkerManager.shutdown_all()
-
 
 
 def _pack_response(obj: dict) -> bytes:

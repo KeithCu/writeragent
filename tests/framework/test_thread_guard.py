@@ -111,6 +111,8 @@ def test_main_thread_only_decorator_raises_from_bg(monkeypatch):
     fake_bg.name = "bg-task"
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
     monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    # Skip violation popup marshal (execute_on_main_thread timeout=5s) — nothing pumps the queue under pytest.
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     was = tg.GUARD_ON
     tg.GUARD_ON = True
     try:

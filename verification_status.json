@@ -93,7 +93,8 @@
       ],
       "crosshair_target": "plugin.framework.json_utils.safe_json_loads",
       "crosshair_last_run": "2026-08-05",
-      "crosshair_result": "no_counterexamples",
+      "crosshair_result": "skipped_engine_limitation",
+      "notes": "CrossHairInternal on symbolic json.loads; omitted from crosshair-check-all",
       "ci_integration": false
     },
     "errors.py": {
@@ -106,7 +107,8 @@
       ],
       "crosshair_target": "plugin.framework.errors.format_error_payload",
       "crosshair_last_run": "2026-08-05",
-      "crosshair_result": "no_counterexamples",
+      "crosshair_result": "skipped_engine_limitation",
+      "notes": "Engine Traceback on error/JSON surface; omitted from crosshair-check-all",
       "ci_integration": false
     },
     "openrouter_model_id.py": {
@@ -432,6 +434,8 @@
           "initialize_result",
           "call_tool_result_image"
         ],
+        "crosshair_result": "skipped_engine_limitation",
+        "notes": "Engine Traceback only under CrossHair; omitted from crosshair-check-all",
         "ci_integration": true
       }
     },
@@ -515,20 +519,28 @@
         "status": "partial",
         "tool": "crosshair+deal+pytest",
         "functions_contracted": [
+          "stop_effects_exclude_spawns",
+          "ui_lines_for_handler_error",
+          "spawn_effects_for_start",
           "next_state"
         ],
-        "crosshair_result": "skipped_engine_limitation",
-        "notes": "STOP must not spawn workers; CrossHair engine Traceback on check-all — omitted; pytest via test_fsm_verification",
+        "crosshair_result": "helpers_analyzed_next_state_off",
+        "notes": "next_state has # crosshair: off (Exception events / handle_error / format_error_for_display); pure helpers are CrossHair targets; runtime deal on next_state kept",
         "ci_integration": false
       },
       "tool_loop_state.py": {
         "status": "partial",
         "tool": "crosshair+deal+pytest",
         "functions_contracted": [
+          "object_dict_or_empty",
+          "pending_tool_call_fields",
+          "format_tool_running_ui",
+          "format_tool_result_chat_text",
+          "is_replaced_zero_result",
           "next_state"
         ],
-        "crosshair_result": "skipped_engine_limitation",
-        "notes": "Thin ensures; TOOL_RESULT + safe_json_loads crashes CrossHair — omitted from check-all",
+        "crosshair_result": "helpers_analyzed_next_state_off",
+        "notes": "next_state has # crosshair: off (safe_json_loads); pure helpers are CrossHair targets; runtime deal on next_state kept",
         "ci_integration": false
       }
     },

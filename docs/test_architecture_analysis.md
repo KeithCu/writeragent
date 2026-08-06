@@ -59,6 +59,27 @@ The project already utilizes an `EvalRunner` for benchmarking LLM outputs (Corre
 
 ---
 
+### 3.5 Default pytest filter and profiling
+
+`make test-run` runs:
+
+```bash
+pytest tests -m "not slow and not integration"
+```
+
+- **`slow`**: CrossHair hooks, large-file / Opengrep full scans, soffice smoke — also via `make slowtests` / `make opengrep-lint` where applicable.
+- **`integration`**: Full subprocess worker IPC / live venv self-check smokes. Run with `-m integration` when needed.
+
+Profile hotspots without the LO native suite:
+
+```bash
+make test-durations   # same marker filter + --durations=40
+```
+
+Suite volume (~4500 tests) is cheap; wall time is dominated by real process spawns, intentional concurrency sleeps, and a few heavy-file tests—not collection or the root autouse config isolation fixture.
+
+---
+
 ### 4. Recommendations & Next Steps
 
 1.  **Do Not Add Pytest-Cov:** Adhere to the project rule against arbitrary coverage tracking. Focus on testing critical behaviors and regressions rather than chasing a 90% line-coverage metric.
