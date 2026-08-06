@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Callable
+
+from plugin.framework.deal_shim import deal
 
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"
@@ -32,9 +35,34 @@ class PythonFormulaParts:
     data_suffix: str  # remainder after code arg, e.g. ";A1:B10)" or ")"
 
 
+def _quoted_parse_result_ok(s: str, start: int, result: tuple[str, int] | None) -> bool:
+    if result is None:
+        return True
+    code, end = result
+    return isinstance(code, str) and isinstance(end, int) and 0 <= start < end <= len(s)
+
+
+def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
+    if result is None:
+        return True
+    return (
+        isinstance(result, PythonFormulaParts)
+        and isinstance(result.prefix, str)
+        and bool(result.prefix)
+        and _PYTHON_HEAD_RE.match(result.prefix) is not None
+        and isinstance(result.code, str)
+        and isinstance(result.data_suffix, str)
+        and result.data_suffix.endswith(")")
+    )
+
+
+@deal.pre(lambda s, start: isinstance(s, str) and isinstance(start, int) and start >= 0)
+@deal.post(lambda result: result is None or (isinstance(result, tuple) and len(result) == 2))
+@deal.ensure(lambda s, start, result: _quoted_parse_result_ok(s, start, result))
 def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
     """Parse a Calc double-quoted string starting at *start* (must point to ``"``)."""
-    if start >= len(s) or s[start] != '"':
+    # Reject negatives too: `start >= len(s)` alone misses start=-1 (CrossHair counterexample).
+    if start < 0 or start >= len(s) or s[start] != '"':
         return None
     i = start + 1
     chars: list[str] = []
@@ -51,6 +79,8 @@ def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
     return None
 
 
+@deal.pre(lambda inner_body: isinstance(inner_body, str))
+@deal.post(lambda result: result is None or (isinstance(result, str) and not result.startswith('"')))
 def _parse_unquoted_code_arg(inner_body: str) -> str | None:
     """Parse ``=PY(sp.prime(100))`` when Calc omits string quotes around code."""
     s = inner_body.strip()
@@ -93,6 +123,8 @@ def extract_python_code_loose(formula: str) -> str | None:
     return _parse_unquoted_code_arg(body)
 
 
+@deal.post(lambda result: isinstance(result, str))
+@deal.ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result and "\u2018" not in result and "\u2019" not in result)
 def normalize_formula_string(formula: str) -> str:
     """Normalize LibreOffice ``getFormula()`` / ``FormulaLocal`` variants for parsing."""
     raw = (formula or "").strip().translate(_QUOTE_NORMALIZE)
@@ -109,6 +141,8 @@ def build_new_python_formula(code: str) -> str:
     return f'={CALC_PYTHON_FN}("{escaped}")'
 
 
+@deal.post(lambda result: result is None or isinstance(result, PythonFormulaParts))
+@deal.ensure(lambda formula, result: _parts_result_ok(result))
 def parse_python_formula(formula: str) -> PythonFormulaParts | None:
     """Return code and data suffix if *formula* is a ``=PY()`` or ``=PYTHON()`` call."""
     if not formula:
@@ -174,6 +208,12 @@ _LEXER_COLLISION_STR_RE = re.compile(r"\bstr\s*\(")
 _LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\.text\s*\(")
 
 
+@deal.pre(lambda s, open_idx: isinstance(s, str) and isinstance(open_idx, int))
+@deal.post(lambda result: isinstance(result, int) and result >= -1)
+@deal.ensure(
+    lambda s, open_idx, result: result == -1
+    or (0 <= open_idx <= result < len(s) and s[result] == ")")
+)
 def _find_matching_paren(s: str, open_idx: int) -> int:
     """Return index of ``)`` matching ``(`` at *open_idx*, or -1."""
     depth = 0
@@ -190,7 +230,9 @@ def _find_matching_paren(s: str, open_idx: int) -> int:
     return -1
 
 
-def _rewrite_token_calls(code: str, token: str, rewrite_inner) -> str:
+@deal.pre(lambda code, token, rewrite_inner: isinstance(code, str) and isinstance(token, str) and callable(rewrite_inner))
+@deal.post(lambda result: isinstance(result, str))
+def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:
     """Replace ``token(inner)`` calls; *token* must not contain regex metacharacters."""
     pattern = re.compile(rf"\b{token}\s*\(")
     out: list[str] = []
@@ -212,6 +254,7 @@ def _rewrite_token_calls(code: str, token: str, rewrite_inner) -> str:
     return "".join(out)
 
 
+@deal.post(lambda result: isinstance(result, str))
 def sanitize_inline_py_code(code: str) -> str:
     """Defensive rewrite of tokens that are dangerous if formula quotes are lost.
 
@@ -243,6 +286,8 @@ def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
     return hits
 
 
+@deal.post(lambda result: isinstance(result, str))
+@deal.ensure(lambda code, result: result == sanitize_inline_py_code(code or "").replace('"', '""'))
 def escape_code_for_formula(code: str) -> str:
     """Escape Python source for embedding in a Calc string literal.
 
@@ -256,6 +301,9 @@ def escape_code_for_excel_formula(code: str) -> str:
     return (code or "").replace('"', '""')
 
 
+@deal.pre(lambda parts, new_code: isinstance(parts, PythonFormulaParts) and isinstance(new_code, str))
+@deal.post(lambda result: isinstance(result, str) and result.startswith(f'={CALC_PYTHON_FN}("'))
+@deal.ensure(lambda parts, new_code, result: parts.data_suffix in result)
 def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
     """Rebuild a formula from parsed parts and new inline code (preserves ``data_suffix``)."""
     escaped = escape_code_for_formula(new_code)
@@ -291,6 +339,7 @@ def format_data_binding_text(data_args: list[str]) -> str:
     return ", ".join(cleaned)
 
 
+@deal.post(lambda result: isinstance(result, str))
 def format_py_data_range(range_addr: str) -> str:
     """Format a range for ``=PY()`` data args (quote sheet names with spaces/special chars)."""
     addr = str(range_addr).strip().replace("$", "")
@@ -314,6 +363,7 @@ def format_py_data_range(range_addr: str) -> str:
     return f"{sheet}.{rest}"
 
 
+@deal.post(lambda result: isinstance(result, str))
 def format_excel_data_range(range_addr: str) -> str:
     """Format a range for Excel OOXML ``=PY()`` data args (``Sheet!A1`` style)."""
     addr = str(range_addr).strip().replace("$", "")
@@ -332,6 +382,10 @@ def format_excel_data_range(range_addr: str) -> str:
     return addr
 
 
+# Defaulted kwargs: deal only forwards provided args + result= (see formal_verification.md §8.1 A).
+@deal.pre(lambda *args, **kwargs: bool(args) and isinstance(args[0], list))
+@deal.post(lambda result: isinstance(result, str) and result.endswith(")"))
+@deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))
 def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_ranges: bool = False) -> str:
     """Build the ``data_suffix`` fragment from parsed range/index tokens.
 
@@ -345,6 +399,9 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_range
     return f"{sep}{sep.join(args)})"
 
 
+@deal.pre(lambda *args, **kwargs: len(args) >= 2 and isinstance(args[0], str) and isinstance(args[1], list))
+@deal.post(lambda result: isinstance(result, str) and result.startswith(f"={CALC_PYTHON_FN}("))
+@deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))
 def rebuild_python_formula_with_data(
     code: str,
     data_args: list[str],

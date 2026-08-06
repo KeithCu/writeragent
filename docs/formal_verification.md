@@ -477,6 +477,8 @@ Maintain a `verification_status.json` file tracking which components have been v
 42. **`plugin/calc/cells.py`** — `_parse_color` ([`tests/scripting/test_scripting_phase2_verification.py`](../tests/scripting/test_scripting_phase2_verification.py))
 43. **`plugin/framework/client/stream_normalizer.py`** — `accumulate_streaming_thinking`, `_merge_reasoning_details`, `_normalize_stream_delta`, `_thinking_text_from_delta`, `_normalize_delta` ([`tests/framework/test_stream_normalizer_verification.py`](../tests/framework/test_stream_normalizer_verification.py))
 44. **`plugin/framework/client/response_normalizers.py`** — `strip_leaked_chat_template_control_tokens`, `extract_and_strip_images_from_message` ([`tests/framework/test_response_normalizers_verification.py`](../tests/framework/test_response_normalizers_verification.py))
+45. **`plugin/calc/python/formula_edit.py`** — quoted/unquoted `=PY()` parse, sanitize/escape, rebuild, data-range formatters ([`tests/calc/python/test_formula_edit_verification.py`](../tests/calc/python/test_formula_edit_verification.py))
+46. **`plugin/calc/spreadsheet_import/preprocess.py`** — `normalize_lo_formula_for_parse` ([`tests/calc/python/test_formula_edit_verification.py`](../tests/calc/python/test_formula_edit_verification.py))
 
 (`format_support.py` does not exist; Writer HTML paths are UNO-heavy and deferred.)
 
@@ -493,6 +495,69 @@ Maintain a `verification_status.json` file tracking which components have been v
    - Skip rapidly changing or experimental modules (e.g. vector search, folder FTS indexers) until their APIs stabilize.
 4. **CI & Verification Suite**:
    - All verification unit tests MUST be added to `make verify` in `Makefile` and registered in `verification_status.json`.
+
+### 8.1 Contract pitfalls (read before writing `@deal`)
+
+These mistakes keep recurring when AIs add verification. Fix them in the contract/test, not by weakening production behavior.
+
+#### A. Optional / defaulted parameters break naive contract lambdas
+
+`deal` only forwards **arguments the caller actually passed**. Omitted defaults are **not** filled into `@deal.pre` / `@deal.ensure` lambdas. `@deal.ensure` also receives the return value as a **keyword** `result=...` (not always as a trailing positional).
+
+**Wrong** (TypeError at runtime when callers omit the default, or when `result=` is passed):
+
+```python
+@deal.pre(lambda message, strip_structured_image_blocks: isinstance(message, dict))
+@deal.ensure(lambda message, strip_structured_image_blocks, result: ...)
+@deal.ensure(lambda *args: _ok(args[0]))  # missing **kwargs → TypeError: unexpected keyword argument 'result'
+def extract_and_strip_images_from_message(message: dict, strip_structured_image_blocks: bool = True) -> list:
+    ...
+```
+
+**Right** (absorb missing defaults + `result=` kwarg):
+
+```python
+@deal.pre(lambda *args, **kwargs: bool(args) and isinstance(args[0], dict))
+@deal.post(lambda result: isinstance(result, list))
+@deal.ensure(lambda *args, result=None, **kwargs: _string_content_ok(args[0]))
+def extract_and_strip_images_from_message(message: dict, strip_structured_image_blocks: bool = True) -> list:
+    ...
+```
+
+For keyword-only / multi-default APIs (especially when CrossHair must see the return value reliably), prefer the [`payload_codec.py`](../plugin/scripting/payload_codec.py) pattern: `_DEAL_RETURN` sentinel + `_deal_return(*a, result=result)` and `@deal.pre(lambda arg, *_, **__: ...)`. See also [`docs/serialization-verification-plan.md`](serialization-verification-plan.md) (“Functions with keyword-only parameters…”).
+
+**Rule of thumb:** if the function has any defaulted parameter, do **not** write a fixed-arity `lambda a, b, result: ...` unless every call site always passes `b` positionally.
+
+#### B. Keep runtime guards when `deal` is shimmed
+
+Under LibreOffice, `deal_shim` is a no-op — `@deal.pre` does **not** run. If you delete `if not isinstance(x, dict): return` because “the pre already checks,” production regains AttributeError on bad inputs.
+
+**Wrong:** replace a defensive early-return with only `@deal.pre(lambda x: isinstance(x, dict))` and remove the body guard.
+
+**Right:** keep the cheap runtime guard in the body; let `@deal.pre` tighten CrossHair/Hypothesis under the dev venv.
+
+#### C. Hypothesis oracles vs greedy production regexes
+
+When fuzzing extractors that use greedy character classes (e.g. base64 `data:image/...;base64,([A-Za-z0-9+/=\s]+)`), random **suffix/prefix** text often uses the same alphabet. The regex then consumes past your intended payload and the oracle fails even though production is correct.
+
+**Wrong:** `content = prefix + uri + suffix` with unrestricted `st.text()` around a greedy URI match, then assert exact `b64` equality.
+
+**Right:** force a delimiter outside the regex alphabet (e.g. suffix = `"!" + …`), or assert weaker invariants (`mime_type` present, URI gone, `[Image Ref]` inserted) without requiring exact greedy-span equality.
+
+Same idea for any greedy tokenizer: Hypothesis neighbors must not be absorbable by the match.
+
+#### D. CrossHair annotation / directive traps (already easy to reintroduce)
+
+- Do **not** put `typing.Literal[...]` in **parameter** annotations CrossHair must proxy — use `str` (or similar) in the signature; keep `Literal` aliases for casts/comments only ([`payload_codec.py`](../plugin/scripting/payload_codec.py)).
+- `# crosshair: off` must sit alone on its line (no trailing prose). Extra characters can raise `InvalidDirective`.
+- Prefer **FQN** `crosshair check plugin.pkg.mod.fn` in `@pytest.mark.slow` tests for new slices; whole-module `cover` walks every top-level callable once `@deal.` exists in the file (I/O helpers, shims, SSE iterators) and may need `CROSSHAIR_COVER_ALL_SKIP` — do not add skips preemptively; only after a real cover/engine failure.
+
+#### E. Checklist when finishing a verification slice
+
+1. Run existing unit tests for the module **with deal installed** (contracts execute in the dev venv).
+2. Run the new `*_verification.py` file with `-m "not slow"`, then the slow CrossHair FQN tests.
+3. Update [`verification_status.json`](../verification_status.json) and the Phase 7 list in this doc.
+4. Do not leave broken doc links to non-existent roadmaps.
 
 ---
 
@@ -760,6 +825,15 @@ def ensure_scheme(url: str) -> str:
 4. **❌ Avoid verifying *tangled* UI/orchestration code**
    - Do not attempt to attach FV contracts to functions that intermingle state mutation and I/O (e.g., updating UI side-by-side with calculating states).
    - Instead, extract the implied state machine into a pure transition function (as described in Phase 5), and strictly verify *that* function instead.
+
+5. **❌ Don't write fixed-arity `@deal.ensure` / `@deal.pre` lambdas for defaulted parameters**
+   - Causes `TypeError: missing … argument` / `unexpected keyword argument 'result'` under real call sites. See §8.1 A and the `_DEAL_RETURN` helpers in `payload_codec.py`.
+
+6. **❌ Don't delete runtime type guards because `@deal.pre` “already checks”**
+   - `deal_shim` is a no-op inside LibreOffice. See §8.1 B.
+
+7. **❌ Don't build Hypothesis oracles that fight greedy regex alphabets**
+   - Delimit fuzz neighbors outside the match class. See §8.1 C.
 
 ## Recommended Tool Chain
 

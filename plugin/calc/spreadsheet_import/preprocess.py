@@ -7,8 +7,31 @@
 from __future__ import annotations
 
 from plugin.calc.python.formula_edit import normalize_formula_string
+from plugin.framework.deal_shim import deal
 
 
+def _no_unquoted_semicolon(s: str) -> bool:
+    """True when every ``;`` in *s* sits inside a Calc double-quoted string (or none exist)."""
+    in_quote = False
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == '"':
+            if in_quote and i + 1 < len(s) and s[i + 1] == '"':
+                i += 2
+                continue
+            in_quote = not in_quote
+            i += 1
+            continue
+        if ch == ";" and not in_quote:
+            return False
+        i += 1
+    return True
+
+
+@deal.post(lambda result: isinstance(result, str))
+@deal.ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result)
+@deal.ensure(lambda formula, result: _no_unquoted_semicolon(result))
 def normalize_lo_formula_for_parse(formula: str) -> str:
     """Map LO ``;`` argument separators to ``,`` for parse-only backends.
 

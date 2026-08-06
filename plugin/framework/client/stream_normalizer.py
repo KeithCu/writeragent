@@ -5,7 +5,7 @@
 
 import copy
 import logging
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from plugin.framework.deal_shim import deal
 
@@ -215,14 +215,16 @@ def _normalize_stream_delta(chunk_or_delta: object) -> dict[str, Any]:
     """Return choices[0].delta for a chat completion chunk, else the dict as-is (bare delta)."""
     if not isinstance(chunk_or_delta, dict):
         return {}
-    choices = chunk_or_delta.get("choices")
+    # isinstance(..., dict) is untyped for ty; cast so .get / return stay dict[str, Any].
+    chunk = cast("dict[str, Any]", chunk_or_delta)
+    choices = chunk.get("choices")
     if isinstance(choices, list) and choices:
         first = choices[0]
         if isinstance(first, dict):
             delta = first.get("delta")
             if isinstance(delta, dict):
-                return delta
-    return chunk_or_delta
+                return cast("dict[str, Any]", delta)
+    return chunk
 
 
 @deal.pre(lambda delta: isinstance(delta, dict))
