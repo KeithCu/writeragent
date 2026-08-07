@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import threading
+import time
 import traceback
 from typing import Any, Callable, Protocol
 
@@ -315,11 +316,17 @@ class ToolLoopEffectInterpreter:
 
             run_in_background(run_async, name=f"tool-async-{func_name}")
         else:
+            # Sync tools run inline on the drain thread — if Stop appears broken, check these
+            # enter/exit timings against document_to_content phase logs for the stuck step.
+            t0 = time.perf_counter()
+            log.debug("sync tool start name=%s", func_name)
             try:
                 if host._active_supports_status:
                     res = host._active_execute_tool_fn(func_name, func_args, host._active_model, host.ctx, status_callback=tool_status_callback)
                 else:
                     res = host._active_execute_tool_fn(func_name, func_args, host._active_model, host.ctx)
+                log.debug("sync tool done name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
                 host._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, res))
             except Exception as e:
+                log.debug("sync tool failed name=%s elapsed_ms=%.1f", func_name, (time.perf_counter() - t0) * 1000.0)
                 host._active_q.put((StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(format_error_payload(e))))

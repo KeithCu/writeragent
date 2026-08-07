@@ -227,8 +227,8 @@ help:
 	@echo "  make crosshair-check        CrossHair check on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-cover        CrossHair cover on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-check-all    CrossHair check every @deal. plugin module (multi-hour; log: build/crosshair-check-all.log)"
-	@echo "  make crosshair-cover-all    CrossHair cover every @deal. plugin module (regular: 50 iters / 30s; process pool; log: build/crosshair-cover-all.log)"
-	@echo "  make crosshair-cover-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout)"
+	@echo "  make crosshair-cover-all    CrossHair cover every @deal. plugin module (regular: 25 iters / 5s + 120s wall; process pool; log: build/crosshair-cover-all.log)"
+	@echo "  make crosshair-cover-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall)"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
 	@echo "  make opengrep-lint          Opengrep UNO + security rules (ERROR; part of make test)"
@@ -739,7 +739,7 @@ crosshair-check-all:
 	$(PYTHON) scripts/crosshair_check_all.py
 
 # Cover (example synthesis) on the same @deal. set / skip list. Not part of make test.
-# Regular: 50 uninteresting iters + 30s per condition. Deep: 200 iters, no timeout.
+# Regular: 25 uninteresting iters + 5s per condition + 120s module wall. Deep: 200 iters, no timeout/wall.
 # Regular payload_codec only: 5 / 5s (module_cover_bounds).
 crosshair-cover-all:
 	$(PYTHON) scripts/crosshair_cover_all.py

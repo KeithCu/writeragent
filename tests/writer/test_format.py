@@ -212,3 +212,23 @@ def test_run_writer_mutation_with_optional_review_import_error():
     with patch("builtins.__import__", side_effect=import_without_edit_review):
         run_writer_mutation_with_optional_review(MagicMock(), MagicMock(), apply_fn)
     apply_fn.assert_called_once()
+
+
+def test_document_to_content_full_timing_path_with_mocks():
+    """Phase timing logs must not change the full-scope export result."""
+    from unittest.mock import patch
+
+    import plugin.writer.format as fmt
+
+    xhtml = '<html><body><p class="paragraph-Text_20_body">hello</p></body></html>'
+    with (
+        patch.object(fmt, "_export_xhtml", return_value=xhtml) as export_xhtml,
+        patch.object(fmt, "_autostyle_parents", return_value={}) as autostyle,
+        patch.object(fmt.xhtml_post, "xhtml_to_semantic_html", return_value="<p>hello</p>") as post,
+    ):
+        out = fmt.document_to_content(object(), object(), None, scope="full")
+
+    export_xhtml.assert_called_once()
+    autostyle.assert_called_once()
+    post.assert_called_once_with(xhtml, {})
+    assert out == "<p>hello</p>"

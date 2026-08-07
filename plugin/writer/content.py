@@ -20,6 +20,7 @@ import itertools
 import logging
 import os
 import threading
+import time
 
 from plugin.framework.tool import ToolBase, ToolBaseDummy
 from plugin.framework.prompts import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
@@ -842,10 +843,12 @@ class GetDocumentContent(ToolBase):
 
     def execute(self, ctx, **kwargs):
         from . import format as format_support
+        t0 = time.perf_counter()
         scope = kwargs.get("scope", "full")
         max_chars = kwargs.get("max_chars")
         range_start = kwargs.get("start") if scope == "range" else None
         range_end = kwargs.get("end") if scope == "range" else None
+        log.debug("get_document_content: start scope=%r max_chars=%r", scope, max_chars)
 
         if scope == "range" and (range_start is None or range_end is None):
             return self._tool_error("scope 'range' requires start and end.")
@@ -876,10 +879,13 @@ class GetDocumentContent(ToolBase):
         # When the document has tracked changes, surface them explicitly (insertion vs deletion, with
         # text) and say they await the user's review — so the model treats them as pending, not errors,
         # and never resolves them itself.
+        n_tracked = 0
         try:
+            t_tracked = time.perf_counter()
             if hasattr(ctx.doc, "getRedlines") and ctx.doc.getRedlines().getCount() > 0:
                 changes = collect_tracked_changes(ctx.doc.getText())
                 if changes:
+                    n_tracked = len(changes)
                     result["tracked_changes"] = changes
                     result["tracked_changes_note"] = (
                         "This document has %d change(s) recorded as tracked changes (listed in "
@@ -887,8 +893,21 @@ class GetDocumentContent(ToolBase):
                         "not errors and not yet final. Do NOT accept or reject them yourself; that is the "
                         "user's decision." % len(changes)
                     )
+            log.debug(
+                "get_document_content: phase=tracked_changes elapsed_ms=%.1f n_tracked=%d",
+                (time.perf_counter() - t_tracked) * 1000.0,
+                n_tracked,
+            )
         except Exception:
             log.debug("get_document_content: could not collect tracked changes", exc_info=True)
+        log.debug(
+            "get_document_content: done scope=%r content_len=%d document_length=%d n_tracked=%d total_ms=%.1f",
+            scope,
+            len(content) if isinstance(content, str) else -1,
+            doc_len,
+            n_tracked,
+            (time.perf_counter() - t0) * 1000.0,
+        )
         return result
 
 

@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import time
 from html.parser import HTMLParser
 from typing import Any, cast
 
@@ -659,11 +660,27 @@ def document_to_content(
     Returns:
         Content string.
     """
+    t0 = time.perf_counter()
+    log.debug("document_to_content: start scope=%r max_chars=%r include_images=%s", scope, max_chars, include_images)
     config_svc = services.get("config") if services else None
+
+    def _done(content: str, path: str) -> str:
+        # Hang diagnosis: if chat stuck on get_document_content, these phase logs name the slow step.
+        log.debug(
+            "document_to_content: done path=%s scope=%r content_len=%d total_ms=%.1f",
+            path,
+            scope,
+            len(content) if isinstance(content, str) else -1,
+            (time.perf_counter() - t0) * 1000.0,
+        )
+        return content
 
     if scope == "selection":
         start, end = get_selection_range(model)
-        return _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc, include_images=include_images)
+        return _done(
+            _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc, include_images=include_images),
+            "selection",
+        )
 
     if scope == "range":
         start = int(range_start) if range_start is not None else 0
@@ -671,22 +688,44 @@ def document_to_content(
         doc_len = services.document.get_document_length(model) if services else 0
         start = max(0, min(start, doc_len))
         end = min(end, doc_len)
-        return _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc, include_images=include_images)
+        return _done(
+            _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc, include_images=include_images),
+            "range",
+        )
 
     # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
     try:
+        t_phase = time.perf_counter()
         xhtml = _export_xhtml(model, config_svc)
+        log.debug(
+            "document_to_content: phase=_export_xhtml elapsed_ms=%.1f xhtml_len=%d",
+            (time.perf_counter() - t_phase) * 1000.0,
+            len(xhtml) if isinstance(xhtml, str) else -1,
+        )
+        t_phase = time.perf_counter()
         parents = _autostyle_parents(model, config_svc)
+        log.debug(
+            "document_to_content: phase=_autostyle_parents elapsed_ms=%.1f parents=%d",
+            (time.perf_counter() - t_phase) * 1000.0,
+            len(parents) if isinstance(parents, dict) else -1,
+        )
+        t_phase = time.perf_counter()
         content = xhtml_post.xhtml_to_semantic_html(xhtml, parents)
         content = _apply_image_export_options(content, include_images=include_images)
         if max_chars and len(content) > max_chars:
             content = content[:max_chars] + "\n\n[... truncated ...]"
-        return content
+        log.debug(
+            "document_to_content: phase=postprocess elapsed_ms=%.1f content_len=%d",
+            (time.perf_counter() - t_phase) * 1000.0,
+            len(content),
+        )
+        return _done(content, "xhtml")
     except Exception:
         log.exception("document_to_content (full, XHTML) failed; falling back to StarWriter")
 
     # Fallback: legacy StarWriter export (so reads never hard-fail).
     try:
+        t_phase = time.perf_counter()
         filter_name, _ = _get_format_props(config_svc)
         with _with_temp_buffer(None, config_svc) as (path, file_url):
             props = (create_property_value("FilterName", filter_name),)
@@ -697,10 +736,15 @@ def document_to_content(
             content = _apply_image_export_options(content, include_images=include_images)
             if max_chars and len(content) > max_chars:
                 content = content[:max_chars] + "\n\n[... truncated ...]"
-            return content
+            log.debug(
+                "document_to_content: phase=starwriter_fallback elapsed_ms=%.1f content_len=%d",
+                (time.perf_counter() - t_phase) * 1000.0,
+                len(content),
+            )
+            return _done(content, "starwriter")
     except Exception:
         log.exception("document_to_content (full) failed")
-        return ""
+        return _done("", "failed")
 
 
 # ---------------------------------------------------------------------------
