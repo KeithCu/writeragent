@@ -20,10 +20,13 @@ Pipe CrossHair ``-v`` through the filter (full module, no timeout)::
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, TextIO
@@ -381,6 +384,32 @@ class _TeeTextIO:
             stream.flush()
 
 
+def _kill_crosshair_process(proc: subprocess.Popen[str]) -> None:
+    """Terminate the CrossHair process group (Z3 children included), then hard-kill."""
+    pid = proc.pid
+    if pid is None:
+        return
+    try:
+        os.killpg(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            return
+    try:
+        proc.wait(timeout=2)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+
 def run_crosshair(
     command: str,
     crosshair_args: list[str],
@@ -390,20 +419,58 @@ def run_crosshair(
     *,
     out: TextIO | None = None,
     label: str | None = None,
+    timeout_sec: float | None = None,
 ) -> tuple[int, StreamStats]:
-    """Spawn CrossHair and stream output. Returns ``(exit_code, stats)``."""
+    """Spawn CrossHair and stream output. Returns ``(exit_code, stats)``.
+
+    When ``timeout_sec`` is set, kill the process group at the deadline and treat
+    the run as a successful budget exhaustion (exit 0) unless stream failures
+    were already recorded — cover-all uses this as a per-module wall.
+    """
     crosshair_path = find_crosshair()
     dest = out if out is not None else sys.stdout
+    # New session so timeout can killpg CrossHair + solver children together.
     proc = subprocess.Popen(
         [crosshair_path, command, *crosshair_args],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        start_new_session=True,
     )
     assert proc.stdout is not None
-    stats = stream_lines(proc.stdout, mode=mode, out=dest, raw=raw, quiet=quiet)
-    proc_code = proc.wait()
+    timed_out = False
+    timer: threading.Timer | None = None
+    if timeout_sec is not None and timeout_sec > 0:
+
+        def _on_timeout() -> None:
+            nonlocal timed_out
+            # Finished before the timer fired — do not treat as wall timeout.
+            if proc.poll() is not None:
+                return
+            timed_out = True
+            _kill_crosshair_process(proc)
+
+        timer = threading.Timer(timeout_sec, _on_timeout)
+        timer.daemon = True
+        timer.start()
+    try:
+        stats = stream_lines(proc.stdout, mode=mode, out=dest, raw=raw, quiet=quiet)
+        proc_code = proc.wait()
+    finally:
+        if timer is not None:
+            timer.cancel()
+    # Wall budget exhausted: truncated exploration is success for cover-all.
+    if timed_out:
+        target = label or " ".join(crosshair_args[-1:]) or command
+        dest.write(
+            f"[COVER TIMEOUT         ] wall {timeout_sec:g}s exceeded for {target}\n"
+        )
+        dest.flush()
+        # Prefer stream failure_count if CrossHair already emitted a hard error.
+        exit_code = 1 if stats.failure_count > 0 else 0
+        print_banner(stats, mode, exit_code, dest, label=label)
+        return exit_code, stats
     # Counterexamples / engine fatals from the stream always fail the run.
     if stats.failure_count > 0:
         exit_code = 1

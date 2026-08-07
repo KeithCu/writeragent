@@ -15,13 +15,30 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.errors import ConfigError, WriterAgentException, format_error_message, format_error_payload
+from plugin.framework.errors import (
+    ConfigError,
+    ToolError,
+    ToolResult,
+    ToolSuccess,
+    WriterAgentException,
+    format_error_message,
+    format_error_payload,
+)
 
 
 def test_format_error_message_basic() -> None:
     msg = format_error_message(ValueError("connection failed"))
     assert isinstance(msg, str)
     assert len(msg) > 0
+
+
+def test_tool_result_typeddict_status_hints_are_str() -> None:
+    """CrossHair get_type_hints on Literal TypedDict fields TypeErrors; keep status as str."""
+    from typing import get_type_hints
+
+    assert get_type_hints(ToolSuccess)["status"] is str
+    assert get_type_hints(ToolError)["status"] is str
+    assert get_type_hints(ToolResult)["status"] is str
 
 
 @given(msg=st.text(max_size=40))

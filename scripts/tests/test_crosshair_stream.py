@@ -437,8 +437,8 @@ def test_resolve_cover_budget_regular_and_deep() -> None:
 
     regular = resolve_cover_budget(deep=False)
     assert regular.mode == "regular"
-    assert regular.max_uninteresting == REGULAR_MAX_UNINTERESTING == 50
-    assert regular.per_condition_timeout == REGULAR_PER_CONDITION_TIMEOUT_SEC == 30
+    assert regular.max_uninteresting == REGULAR_MAX_UNINTERESTING == 25
+    assert regular.per_condition_timeout == REGULAR_PER_CONDITION_TIMEOUT_SEC == 5
 
     deep = resolve_cover_budget(deep=True)
     assert deep.mode == "deep"
@@ -487,19 +487,33 @@ def test_build_timings_payload_sorts_longest_first() -> None:
     assert modules[0]["duration_sec"] == 100.0
 
 
-def test_order_cover_targets_longest_first() -> None:
+def test_order_cover_targets_unknowns_first_then_longest_known() -> None:
     from scripts.crosshair_cover_all import order_cover_targets
 
     short = Path("plugin/chatbot/research_cache_fluff.py")
-    mid = Path("plugin/mcp/mcp_state.py")
-    long = Path("plugin/scripting/payload_codec.py")
+    mid = Path("plugin/scripting/payload_codec.py")
+    long = Path("plugin/mcp/mcp_state.py")
     unknown = Path("plugin/zzz/new_deal_module.py")
     ordered = order_cover_targets([short, unknown, mid, long])
     assert [p.as_posix() for p in ordered] == [
-        "plugin/scripting/payload_codec.py",
-        "plugin/mcp/mcp_state.py",
-        "plugin/chatbot/research_cache_fluff.py",
         "plugin/zzz/new_deal_module.py",
+        "plugin/mcp/mcp_state.py",
+        "plugin/scripting/payload_codec.py",
+        "plugin/chatbot/research_cache_fluff.py",
+    ]
+
+
+def test_order_cover_targets_unknowns_alpha_among_themselves() -> None:
+    from scripts.crosshair_cover_all import order_cover_targets
+
+    known = Path("plugin/scripting/payload_codec.py")
+    a = Path("plugin/aaa/new_a.py")
+    z = Path("plugin/zzz/new_z.py")
+    ordered = order_cover_targets([known, z, a])
+    assert [p.as_posix() for p in ordered] == [
+        "plugin/aaa/new_a.py",
+        "plugin/zzz/new_z.py",
+        "plugin/scripting/payload_codec.py",
     ]
 
 
@@ -521,8 +535,22 @@ def test_cover_all_list_uses_schedule_order(tmp_path, capsys) -> None:
     code = cover_all_main(["--list", "--plugin-root", str(plugin)])
     assert code == 0
     out = capsys.readouterr().out
-    assert out.index("payload_codec.py") < out.index("mcp_state.py")
-    assert out.index("mcp_state.py") < out.index("research_cache_fluff.py")
+    # Schedule ranks mcp_state before payload_codec (longer measured run).
+    assert out.index("mcp_state.py") < out.index("payload_codec.py")
+    assert out.index("payload_codec.py") < out.index("research_cache_fluff.py")
+
+
+def test_cover_all_schedule_order_starts_with_slowest_measured() -> None:
+    from scripts.crosshair_cover_all import COVER_ALL_SCHEDULE_ORDER
+
+    assert COVER_ALL_SCHEDULE_ORDER[0] == "plugin/calc/python/formula_edit.py"
+    assert COVER_ALL_SCHEDULE_ORDER[1] == "plugin/mcp/mcp_state.py"
+    assert COVER_ALL_SCHEDULE_ORDER[2] == "plugin/framework/client/stream_normalizer.py"
+    assert "plugin/scripting/payload_codec.py" in COVER_ALL_SCHEDULE_ORDER
+    # Longest-first: earlier index must be listed before later index in the tuple.
+    assert COVER_ALL_SCHEDULE_ORDER.index("plugin/mcp/mcp_state.py") < COVER_ALL_SCHEDULE_ORDER.index(
+        "plugin/scripting/payload_codec.py"
+    )
 
 
 def test_module_cover_bounds_tightens_payload_codec_regular_only() -> None:
@@ -535,5 +563,42 @@ def test_module_cover_bounds_tightens_payload_codec_regular_only() -> None:
     regular = resolve_cover_budget(deep=False)
     deep = resolve_cover_budget(deep=True)
     assert module_cover_bounds(regular, PAYLOAD_CODEC_REL) == (5, 5)
-    assert module_cover_bounds(regular, "plugin/mcp/mcp_state.py") == (50, 30)
+    assert module_cover_bounds(regular, "plugin/mcp/mcp_state.py") == (25, 5)
     assert module_cover_bounds(deep, PAYLOAD_CODEC_REL) == (200, None)
+
+
+def test_regular_module_wall_timeout_constant() -> None:
+    from scripts.crosshair_cover_all import REGULAR_MODULE_WALL_TIMEOUT_SEC
+
+    assert REGULAR_MODULE_WALL_TIMEOUT_SEC == 120
+
+
+def test_run_crosshair_timeout_kills_and_exits_zero(monkeypatch) -> None:
+    """Wall timeout kills the child and returns exit 0 (budget exhaustion, not failure)."""
+    import sys
+    import time
+
+    import scripts.crosshair_stream as stream_mod
+
+    monkeypatch.setattr(stream_mod, "find_crosshair", lambda: sys.executable)
+    out = StringIO()
+    started = time.perf_counter()
+    # argv becomes: python -c "import time; time.sleep(30)"
+    code, stats = stream_mod.run_crosshair(
+        "-c",
+        ["import time; time.sleep(30)"],
+        "cover",
+        False,
+        False,
+        out=out,
+        label="plugin/fake_slow.py",
+        timeout_sec=0.4,
+    )
+    elapsed = time.perf_counter() - started
+    assert code == 0
+    assert elapsed < 5.0
+    text = out.getvalue()
+    assert "[COVER TIMEOUT" in text
+    assert "wall 0.4s exceeded for plugin/fake_slow.py" in text
+    assert "=== CrossHair COVER DONE (exit 0) ===" in text
+    assert stats.failure_count == 0

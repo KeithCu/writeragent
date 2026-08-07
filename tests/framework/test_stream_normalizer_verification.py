@@ -30,7 +30,7 @@ _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
     "plugin.framework.client.stream_normalizer._merge_reasoning_details",
     "plugin.framework.client.stream_normalizer._thinking_text_from_delta",
-    "plugin.framework.client.stream_normalizer._normalize_stream_delta",
+    # _normalize_stream_delta is # crosshair: off (Literal TypedDict heap crash); covered by unit tests.
 )
 
 
@@ -100,6 +100,23 @@ def test_normalize_stream_delta_unwraps_choices() -> None:
     assert _normalize_stream_delta("not-a-dict") == {}
 
 
+def test_accumulate_streaming_thinking_rejects_invalid_source() -> None:
+    """CrossHair found ensure false for meta source=''; pre + body guard reject/clear it.
+
+    With deal installed (dev venv), pre raises; under LibreOffice deal_shim the body
+    clears source to None. Either way ensure-equivalent invariant holds.
+    """
+    import deal
+
+    text_parts: list[str] = []
+    with pytest.raises(deal.PreContractError):
+        accumulate_streaming_thinking(text_parts, {"source": ""}, {})
+    meta = new_streaming_thinking_meta()
+    accumulate_streaming_thinking(text_parts, meta, {"reasoning": "hello"})
+    assert text_parts == ["hello"]
+    assert meta["source"] == "reasoning"
+
+
 def test_normalize_delta_repairs_mistral_nulls() -> None:
     delta = {
         "role": None,
@@ -111,11 +128,33 @@ def test_normalize_delta_repairs_mistral_nulls() -> None:
     assert delta["tool_calls"][0]["function"]["arguments"] == ""
 
 
+def test_normalize_delta_ignores_non_list_tool_calls() -> None:
+    """CrossHair found TypeError iterating tool_calls=2 (truthy non-list)."""
+    delta = {"role": None, "tool_calls": 2}
+    _normalize_delta(delta)
+    assert delta["role"] == "assistant"
+    assert delta["tool_calls"] == 2
+
+
 def test_merge_reasoning_details_skips_non_dicts() -> None:
     merged = _merge_reasoning_details(
         [None, "x", {"type": "reasoning.text", "text": "a", "index": 0}, {"type": "reasoning.text", "text": "b", "index": 0}]
     )
     assert merged == [{"type": "reasoning.text", "text": "ab", "index": 0}]
+
+
+def test_merge_reasoning_details_skips_dict_subclass_deepcopy_bomb() -> None:
+    """CrossHair AttrDict is isinstance(dict) but deepcopy KeyErrors; plain-dict guard skips it."""
+
+    class _DeepcopyBomb(dict):
+        def __deepcopy__(self, memo: object) -> dict:
+            raise KeyError("__deepcopy__")
+
+    bomb = _DeepcopyBomb({"type": "reasoning.text", "text": "nope", "index": 0})
+    plain = {"type": "reasoning.text", "text": "a", "index": 0}
+    merged = _merge_reasoning_details([bomb, plain, {"type": "reasoning.text", "text": "b", "index": 0}])
+    assert merged == [{"type": "reasoning.text", "text": "ab", "index": 0}]
+    assert bomb not in merged
 
 
 def test_merge_does_not_mutate_input_entries() -> None:

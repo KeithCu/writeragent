@@ -500,6 +500,10 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     return f"{type(obj).__name__}={repr(obj)[:120]}"
 
 
+@deal.pre(lambda shape: isinstance(shape, tuple) and all(isinstance(d, int) and d >= 0 for d in shape))
+@deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), int))
+@deal.ensure(lambda shape, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) >= 0)
+@deal.ensure(lambda shape, *a, result=_DEAL_RETURN, **k: len(shape) != 0 or _deal_return(*a, result=result) == 1)
 def cell_count(shape: tuple[int, ...]) -> int:
     n = 1
     for d in shape:
@@ -542,6 +546,16 @@ def binary_envelope_skip_reason(
     return f"needs cells >= {min_cells} (got {ncells} in shape {shape})"
 
 
+@deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
+@deal.ensure(
+    lambda value, *a, result=_DEAL_RETURN, **k: not (isinstance(value, str) and value.strip())
+    or _deal_return(*a, result=result) is False
+)
+@deal.ensure(lambda value, *a, result=_DEAL_RETURN, **k: value is not None or _deal_return(*a, result=result) is True)
+@deal.ensure(
+    lambda value, *a, result=_DEAL_RETURN, **k: not isinstance(value, (bool, int, float))
+    or _deal_return(*a, result=result) is True
+)
 def is_numeric_coercible(value: Any) -> bool:
     """True when a cell is numeric-only for ``is_numeric_grid`` / ``np.array(list)`` paths.
 
@@ -560,6 +574,9 @@ def is_numeric_coercible(value: Any) -> bool:
     return False
 
 
+@deal.pre(lambda grid: isinstance(grid, list))
+@deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
+@deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: bool(grid) or _deal_return(*a, result=result) is True)
 def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     """True when every cell is numeric-coercible (safe for numeric-only split_grid fast-path)."""
     if not grid:
@@ -569,8 +586,12 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     return all(is_numeric_coercible(cell) for cell in grid)
 
 
+@deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), int) and _deal_return(*a, result=result) >= 0)
+@deal.ensure(lambda data, *a, result=_DEAL_RETURN, **k: data is not None or _deal_return(*a, result=result) == 0)
 def wire_cell_count(data: Any) -> int:
     """Cell count for size limits; works on lists or split_grid / multi_data / calc_range envelopes."""
+    # crosshair: off
+    # Envelope detectors + typed payload tags hit CrossHairInternal/Literal proxy errors on garbage dicts.
     if is_calc_range_payload(data):
         shape = data.get("shape") or [0, 0]
         if isinstance(shape, list) and len(shape) == 2:

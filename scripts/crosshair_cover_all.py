@@ -14,16 +14,19 @@ lines from concurrent runs).
 
 Two presets only (no per-flag budget overrides):
 
-- **regular** (default): ``--max_uninteresting_iterations=50`` and
-  ``--per_condition_timeout=30`` — reasonable local sweep.
+- **regular** (default): ``--max_uninteresting_iterations=25`` and
+  ``--per_condition_timeout=5`` (breadth over depth), plus a hard **120s**
+  per-module wall kill so no file dominates the sweep.
 - **deep** (``--deep``): ``--max_uninteresting_iterations=200``, no per-condition
-  timeout — hour-scale exploration (CrossHair's "hundreds" guidance).
+  timeout and no wall — hour-scale exploration (CrossHair's "hundreds" guidance).
 
-Failures are engine fatals / process crashes only — few examples do not fail the sweep.
+Failures are engine fatals / process crashes only — wall timeout and few examples
+do not fail the sweep.
 
-Modules are submitted **longest-first** via ``COVER_ALL_SCHEDULE_ORDER`` (measured
-regular-run timings; ``payload_codec`` assumed slowest) so the pool does not idle
-on a long straggler after short jobs finish. Completion banners still use finish order.
+Modules are submitted via ``COVER_ALL_SCHEDULE_ORDER`` (measured regular-run
+timings; longest-first among known modules). Paths **not** in that list run
+**first** (stable by path) until they are timed and inserted into the schedule.
+Completion banners still use finish order.
 
 Uses ``CROSSHAIR_CHECK_ALL_SKIP`` plus cover-only ``CROSSHAIR_COVER_ALL_SKIP`` (UNO / drain loops).
 
@@ -61,12 +64,14 @@ from scripts.crosshair_stream import _TeeTextIO, discover_deal_plugin_files, run
 
 DEFAULT_LOG = Path("build/crosshair-cover-all.log")
 DEFAULT_TIMINGS_JSON = Path("build/crosshair-cover-all-timings.json")
-# Regular: medium iteration budget + hard per-function timeout so SMT cannot spin forever.
-REGULAR_MAX_UNINTERESTING = 50
-REGULAR_PER_CONDITION_TIMEOUT_SEC = 30
+# Regular: short per-condition slices so many callables get poked inside the wall.
+REGULAR_MAX_UNINTERESTING = 25
+REGULAR_PER_CONDITION_TIMEOUT_SEC = 5
+# Hard stop per module in regular mode (backstop; soft bounds aim to finish earlier).
+REGULAR_MODULE_WALL_TIMEOUT_SEC = 120
 # Deep: CrossHair "hundreds" for multi-hour runs; iteration budget is the stop (no timeout).
 DEEP_MAX_UNINTERESTING = 200
-# Regular only: payload_codec has ~55 top-level callables; tighten so wall ~peers mcp_state (~2 min).
+# Regular only: payload_codec has ~55 top-level callables; same 5s slice, fewer iters.
 PAYLOAD_CODEC_REL = "plugin/scripting/payload_codec.py"
 PAYLOAD_CODEC_REGULAR_MAX_UNINTERESTING = 5
 PAYLOAD_CODEC_REGULAR_PER_CONDITION_TIMEOUT_SEC = 5
@@ -108,30 +113,34 @@ CROSSHAIR_COVER_ALL_SKIP: frozenset[str] = frozenset(
 )
 
 # Longest → shortest submit order for the process pool (regular cover-all timings).
-# payload_codec was interrupted; kept first as the known straggler. Unknown future
-# @deal. modules sort after this list (stable by path).
+# Unknown @deal. modules (not in this list) sort *before* the schedule until timed
+# and inserted here.
 COVER_ALL_SCHEDULE_ORDER: tuple[str, ...] = (
-    "plugin/scripting/payload_codec.py",  # assumed slowest
-    "plugin/mcp/mcp_state.py",  # 135.7s
-    "plugin/scripting/audio_silence_detector.py",  # 100.8s
-    "plugin/chatbot/send_state.py",  # 78.1s
-    "plugin/calc/sheet_filter_criteria.py",  # 78.1s
-    "plugin/writer/word_diff_split.py",  # 69.3s
-    "plugin/calc/address_utils.py",  # 60.2s
-    "plugin/writer/xhtml_style_postprocess.py",  # 55.8s
-    "plugin/scripting/sandbox_cache.py",  # 45.3s
-    "plugin/framework/html_stripper.py",  # 34.9s
-    "plugin/framework/openrouter_model_id.py",  # 33.5s
-    "plugin/chatbot/audio_recorder_state.py",  # 32.0s
-    "plugin/scripting/config_limits.py",  # 25.8s
-    "plugin/framework/constants.py",  # 18.4s
-    "plugin/framework/ast_stmt_edit.py",  # 15.6s
-    "plugin/scripting/trusted_rpc.py",  # 13.8s
-    "plugin/scripting/trusted_action_registry.py",  # 12.3s
-    "plugin/scripting/import_policy.py",  # 8.5s
-    "plugin/calc/excel_py_convert/resolve_refs.py",  # 3.4s
-    "plugin/scripting/excel_xl.py",  # 2.6s
-    "plugin/chatbot/research_cache_fluff.py",  # 0.2s
+    "plugin/calc/python/formula_edit.py",  # 711.6s
+    "plugin/mcp/mcp_state.py",  # 478.5s
+    "plugin/framework/client/stream_normalizer.py",  # 433.8s
+    "plugin/chatbot/send_state.py",  # 275.5s
+    "plugin/writer/word_diff_split.py",  # 216.7s
+    "plugin/scripting/audio_silence_detector.py",  # 203.4s
+    "plugin/calc/sheet_filter_criteria.py",  # 158.4s
+    "plugin/scripting/payload_codec.py",  # 158.0s
+    "plugin/scripting/sandbox_cache.py",  # 156.2s
+    "plugin/writer/xhtml_style_postprocess.py",  # 145.1s
+    "plugin/framework/client/response_normalizers.py",  # 136.5s
+    "plugin/calc/address_utils.py",  # 126.9s
+    "plugin/chatbot/audio_recorder_state.py",  # 86.0s
+    "plugin/scripting/config_limits.py",  # 78.1s
+    "plugin/framework/openrouter_model_id.py",  # 72.3s
+    "plugin/framework/constants.py",  # 67.7s
+    "plugin/framework/html_stripper.py",  # 64.3s
+    "plugin/framework/ast_stmt_edit.py",  # 49.5s
+    "plugin/calc/spreadsheet_import/preprocess.py",  # 38.0s
+    "plugin/scripting/trusted_action_registry.py",  # 34.5s
+    "plugin/scripting/trusted_rpc.py",  # 30.6s
+    "plugin/scripting/import_policy.py",  # 17.2s
+    "plugin/calc/excel_py_convert/resolve_refs.py",  # 13.8s
+    "plugin/scripting/excel_xl.py",  # 8.2s
+    "plugin/chatbot/research_cache_fluff.py",  # 0.5s
 )
 _COVER_ALL_SCHEDULE_RANK: dict[str, int] = {rel: i for i, rel in enumerate(COVER_ALL_SCHEDULE_ORDER)}
 
@@ -228,14 +237,18 @@ def filter_cover_all_targets(files: list[Path], *, apply_skip: bool) -> tuple[li
 
 
 def order_cover_targets(files: list[Path]) -> list[Path]:
-    """Submit longest-first: known schedule ranks, then unknown paths alphabetically."""
-    unknown_base = len(COVER_ALL_SCHEDULE_ORDER)
+    """Submit unknowns first, then known schedule ranks (longest-first).
+
+    New ``@deal.`` modules are not in ``COVER_ALL_SCHEDULE_ORDER`` yet; running them
+    early avoids parking a potentially slow first-time cover at the end of the pool.
+    """
 
     def sort_key(path: Path) -> tuple[int, str]:
         key = _schedule_key(path)
-        rank = _COVER_ALL_SCHEDULE_RANK.get(key, unknown_base)
-        # Unknowns share unknown_base; secondary key keeps them stable by schedule key.
-        return (rank, key)
+        if key not in _COVER_ALL_SCHEDULE_RANK:
+            # Rank -1: all unknowns before index 0 of the known schedule; alpha among unknowns.
+            return (-1, key)
+        return (_COVER_ALL_SCHEDULE_RANK[key], key)
 
     return sorted(files, key=sort_key)
 
@@ -249,6 +262,7 @@ def _cover_one_module(
     raw: bool,
     max_uninteresting: int,
     per_condition_timeout: int | None,
+    wall_timeout_sec: float | None = None,
 ) -> CoverModuleResult:
     """Run CrossHair cover for one module; buffer all formatted output (pool worker entry)."""
     buf = io.StringIO()
@@ -272,6 +286,7 @@ def _cover_one_module(
         quiet,
         out=buf,
         label=f"{PROGRESS_SENTINEL} {rel}",
+        timeout_sec=wall_timeout_sec,
     )
     duration_sec = time.perf_counter() - started
     if code != 0:
@@ -453,10 +468,15 @@ def main(argv: list[str] | None = None) -> int:
     timeout_desc = (
         "none" if budget.per_condition_timeout is None else f"{budget.per_condition_timeout}s"
     )
+    wall_desc = (
+        f"{REGULAR_MODULE_WALL_TIMEOUT_SEC}s"
+        if budget.mode == "regular"
+        else "none"
+    )
     print(
         f"CrossHair cover-all [{budget.mode}]: {len(rels)} module(s), {jobs} worker(s) "
         f"(process pool; max_uninteresting={budget.max_uninteresting}, "
-        f"per_condition_timeout={timeout_desc})",
+        f"per_condition_timeout={timeout_desc}, module_wall={wall_desc})",
         flush=True,
     )
     for rel in rels:
@@ -491,6 +511,9 @@ def main(argv: list[str] | None = None) -> int:
                 max_uninteresting, per_condition_timeout = module_cover_bounds(
                     budget, _schedule_key(path)
                 )
+                wall_timeout = (
+                    float(REGULAR_MODULE_WALL_TIMEOUT_SEC) if budget.mode == "regular" else None
+                )
                 fut = executor.submit(
                     _cover_one_module,
                     rel,
@@ -500,6 +523,7 @@ def main(argv: list[str] | None = None) -> int:
                     raw=args.raw,
                     max_uninteresting=max_uninteresting,
                     per_condition_timeout=per_condition_timeout,
+                    wall_timeout_sec=wall_timeout,
                 )
                 futures[fut] = rel
             completed = 0

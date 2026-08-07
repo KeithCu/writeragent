@@ -39,13 +39,15 @@ except ImportError:
     deal = _DummyDeal()
 
 
-# Status values for tool execution results
+# Status values for tool execution results (cast/docs alias only — not TypedDict fields).
 StatusValue = Literal["ok", "error"]
 
 
-# Type for tool execution results (base type)
+# TypedDict status fields use str, not Literal/StatusValue: CrossHair calls get_type_hints on
+# TypedDicts when realizing Any-heap objects; Literal there TypeErrors and flakes check-all on
+# importers (e.g. stream_normalizer via plugin.framework.client). Same rule as payload_codec ColumnKind.
 class ToolResult(TypedDict, total=False):
-    status: StatusValue
+    status: str
     code: str
     message: str
     details: dict[str, Any]
@@ -53,13 +55,13 @@ class ToolResult(TypedDict, total=False):
 
 # Type for successful tool execution results
 class ToolSuccess(TypedDict):
-    status: Literal["ok"]
+    status: str  # "ok"
     # Other fields are optional in success case
 
 
 # Type for failed tool execution results
 class ToolError(TypedDict):
-    status: Literal["error"]
+    status: str  # "error"
     code: str
     message: str
     details: dict[str, Any]

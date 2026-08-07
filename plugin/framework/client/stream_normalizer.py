@@ -24,6 +24,8 @@ _REASONING_REPLAY_STRING_KEYS = ("reasoning", "reasoning_content")
 # Stripped from message_snapshot during streaming so thinking is not double-collected.
 THINKING_DELTA_KEYS = frozenset(_THINKING_STRING_FIELDS) | {"reasoning_details"}
 _DETAIL_TEXT_FIELDS = ("text", "summary", "data")
+# meta["source"] values set by accumulate_streaming_thinking / honored by ensure.
+_STREAMING_SOURCE_VALUES = frozenset({"reasoning_details", "reasoning_content", "reasoning"})
 
 
 def new_streaming_thinking_meta() -> dict[str, Any]:
@@ -53,15 +55,26 @@ def _truncate_reasoning_string(value: str) -> str:
     return value[:max_len]
 
 
-@deal.pre(lambda text_parts, meta, delta: isinstance(text_parts, list) and isinstance(meta, dict))
+@deal.pre(
+    lambda text_parts, meta, delta: isinstance(text_parts, list)
+    and type(meta) is dict
+    and (meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
+)
 @deal.ensure(
     lambda text_parts, meta, delta, result: meta.get("source") is None
-    or meta.get("source") in ("reasoning_details", "reasoning_content", "reasoning")
+    or meta.get("source") in _STREAMING_SOURCE_VALUES
 )
 def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], delta: Mapping[str, Any]) -> None:
     """Append thinking text as each SSE delta arrives; meta records replay shape (set once)."""
-    if not isinstance(delta, dict):
+    # Plain dict only — CrossHair AttrDict is isinstance(dict) but field access can crash.
+    if type(meta) is not dict:
         return
+    if type(delta) is not dict:
+        return
+    # Shim path (deal absent): clear garbage source so ensure-equivalent invariant holds.
+    src = meta.get("source")
+    if src is not None and src not in _STREAMING_SOURCE_VALUES:
+        meta["source"] = None
     if meta.get("source") is None:
         if isinstance(delta.get("reasoning_details"), list) and delta["reasoning_details"]:
             meta["source"] = "reasoning_details"
@@ -73,10 +86,11 @@ def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], d
     if chunk:
         text_parts.append(chunk)
     details = delta.get("reasoning_details")
-    if not isinstance(details, list):
+    if type(details) is not list:
         return
     for item in details:
-        if not isinstance(item, dict):
+        # Plain dict only — CrossHair AttrDict deepcopy can KeyError.
+        if type(item) is not dict:
             continue
         item_type = item.get("type")
         # OpenRouter: opaque blobs must be echoed back inside reasoning_details (not readable text).
@@ -95,7 +109,7 @@ def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], d
 @deal.pre(lambda entries: isinstance(entries, list))
 @deal.post(lambda result: isinstance(result, list))
 @deal.ensure(
-    lambda entries, result: len(result) <= sum(1 for e in entries if isinstance(e, dict))
+    lambda entries, result: len(result) <= sum(1 for e in entries if type(e) is dict)
 )
 def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     """Merge streaming fragments (same type + index) for sync/non-stream replay."""
@@ -105,7 +119,8 @@ def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     order: list[tuple[Any, Any]] = []
     extra: list[Any] = []
     for item in entries:
-        if not isinstance(item, dict):
+        # Plain dict only — CrossHair AttrDict is isinstance(dict) but deepcopy can KeyError.
+        if type(item) is not dict:
             continue
         idx = item.get("index")
         if not isinstance(idx, int):
@@ -213,16 +228,18 @@ def iterate_sse(stream):
 @deal.post(lambda result: isinstance(result, dict))
 def _normalize_stream_delta(chunk_or_delta: object) -> dict[str, Any]:
     """Return choices[0].delta for a chat completion chunk, else the dict as-is (bare delta)."""
-    if not isinstance(chunk_or_delta, dict):
+    # crosshair: off
+    # Plain dict only — CrossHair AttrDict / Literal TypedDict heap crashes on isinstance paths.
+    if type(chunk_or_delta) is not dict:
         return {}
-    # isinstance(..., dict) is untyped for ty; cast so .get / return stay dict[str, Any].
+    # type(...) is dict is untyped for ty; cast so .get / return stay dict[str, Any].
     chunk = cast("dict[str, Any]", chunk_or_delta)
     choices = chunk.get("choices")
-    if isinstance(choices, list) and choices:
+    if type(choices) is list and choices:
         first = choices[0]
-        if isinstance(first, dict):
+        if type(first) is dict:
             delta = first.get("delta")
-            if isinstance(delta, dict):
+            if type(delta) is dict:
                 return cast("dict[str, Any]", delta)
     return chunk
 
@@ -286,20 +303,20 @@ def _normalize_message_content(raw):
 def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
     """Postcondition helper: Mistral/Azure null type/arguments repaired on dict tool_calls."""
     tool_calls = delta.get("tool_calls")
-    if not isinstance(tool_calls, list):
+    if type(tool_calls) is not list:
         return True
     for tc in tool_calls:
-        if not isinstance(tc, dict):
+        if type(tc) is not dict:
             continue
         if tc.get("type") is None:
             return False
         fn = tc.get("function")
-        if isinstance(fn, dict) and fn.get("arguments") is None:
+        if type(fn) is dict and fn.get("arguments") is None:
             return False
     return True
 
 
-@deal.pre(lambda delta: isinstance(delta, dict))
+@deal.pre(lambda delta: type(delta) is dict)
 @deal.ensure(lambda delta, result: "role" not in delta or delta.get("role") is not None)
 @deal.ensure(lambda delta, result: _normalize_delta_tool_calls_ok(delta))
 def _normalize_delta(delta: dict[str, Any]) -> None:
@@ -307,18 +324,23 @@ def _normalize_delta(delta: dict[str, Any]) -> None:
     LiteLLM: streaming_handler.py ~L847 (role), ~L853 (type), ~L820 (arguments).
     """
     # Shim path (deal absent): keep the old non-dict no-op. With deal installed, pre rejects.
-    if not isinstance(delta, dict):
+    # Plain dict only — CrossHair AttrDict is isinstance(dict) but field access can crash.
+    if type(delta) is not dict:
         return
     # LiteLLM: streaming_handler.py ~L847 "mistral's api returns role as None"
     if "role" in delta and delta["role"] is None:
         delta["role"] = "assistant"
-    for tc in delta.get("tool_calls") or []:
-        if not isinstance(tc, dict):
+    # Truthy non-lists (e.g. tool_calls=2) must not be iterated — CrossHair counterexample.
+    tool_calls = delta.get("tool_calls")
+    if type(tool_calls) is not list:
+        return
+    for tc in tool_calls:
+        if type(tc) is not dict:
             continue
         # LiteLLM: streaming_handler.py ~L853 "mistral's api returns type: None"
         if tc.get("type") is None:
             tc["type"] = "function"
         fn = tc.get("function")
         # LiteLLM: streaming_handler.py ~L820 "## AZURE - check if arguments is not None"
-        if isinstance(fn, dict) and fn.get("arguments") is None:
+        if type(fn) is dict and fn.get("arguments") is None:
             fn["arguments"] = ""

@@ -17,6 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.calc.python.formula_edit import (
+    _find_matching_paren,
     _parse_quoted_string,
     _parse_unquoted_code_arg,
     escape_code_for_formula,
@@ -103,6 +104,19 @@ def test_parse_quoted_string_rejects_negative_start() -> None:
     with pytest.raises(deal.PreContractError):
         _parse_quoted_string('""', -1)
     assert _parse_quoted_string('"x"', 0) == ("x", 3)
+
+
+def test_find_matching_paren_rejects_negative_open_idx() -> None:
+    """CrossHair found IndexError on open_idx=-1 with empty s; pre + body guard reject it.
+
+    With deal installed (dev venv), pre raises; under LibreOffice deal_shim the body
+    returns -1. Either way we must not IndexError.
+    """
+    import deal
+
+    with pytest.raises(deal.PreContractError):
+        _find_matching_paren("", -1)
+    assert _find_matching_paren("(a)", 0) == 2
 
 
 def test_parse_rebuild_preserves_code_and_data_suffix() -> None:

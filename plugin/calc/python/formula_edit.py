@@ -208,7 +208,7 @@ _LEXER_COLLISION_STR_RE = re.compile(r"\bstr\s*\(")
 _LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\.text\s*\(")
 
 
-@deal.pre(lambda s, open_idx: isinstance(s, str) and isinstance(open_idx, int))
+@deal.pre(lambda s, open_idx: isinstance(s, str) and isinstance(open_idx, int) and 0 <= open_idx < len(s))
 @deal.post(lambda result: isinstance(result, int) and result >= -1)
 @deal.ensure(
     lambda s, open_idx, result: result == -1
@@ -216,6 +216,9 @@ _LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\.text\s*\(")
 )
 def _find_matching_paren(s: str, open_idx: int) -> int:
     """Return index of ``)`` matching ``(`` at *open_idx*, or -1."""
+    # Reject out-of-range open_idx: negatives index from the end (CrossHair '', -1).
+    if open_idx < 0 or open_idx >= len(s):
+        return -1
     depth = 0
     i = open_idx
     while i < len(s):
