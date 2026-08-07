@@ -197,7 +197,7 @@ Policy from the probes is closed under **Settled**. A short **Open** table remai
 | S11 | Tests split unit and UNO per [AGENTS.md](../AGENTS.md). |
 | S12 | Fractional seconds, leap seconds, `24:00`, durations-as-input, and locale display forms stay out of scope. |
 | S13 | Inspect destination formats only when at least one value passed the gate. |
-| S14 | Preserve the destination `NumberFormat` when it already displays the committed value without loss; otherwise apply the detected key. *(How to detect “lossless” is still Open — see M1.)* |
+| S14 | Preserve the destination `NumberFormat` when it already displays the committed value without loss; otherwise apply the detected key. *(How to detect “lossless” is still Open — full recommendation in [M1](#m1-recommendation--deciding-s14-lossless).)* |
 | S15 | Midnight datetime into a date cell, and date into a datetime cell, preserve the existing format (lossless under S14). |
 | S16 | Time into an elapsed-time cell (`[HH]:MM` / `[HH]:MM:SS`) preserves that format. |
 | S17 | ISO string into a Text (`@`) cell: apply the detected temporal format (`@` does not block conversion). |
@@ -221,15 +221,103 @@ These are not re-opened product debates. Each is a how-to that is expensive to r
 
 | ID | Situation | Recommendation | What closes it |
 | :--- | :--- | :--- | :--- |
-| M1 | How does the code decide S14 “lossless”? | Category / elapsed matrix for v1: preserve when destination Type matches (with S15/S16 cases); apply detected for General, `@`, non-temporal, or wrong category. Format-and-compare is a later refinement. | Design sign-off |
+| M1 | How does the code decide S14 “lossless”? | Gate category × dest category × midnight predicate ([full write-up below](#m1-recommendation--deciding-s14-lossless)). Reject display-string compare and `getInputString` round-trip. | Design sign-off |
 | M2 | Which `Locale` does S28 pass to `getStandardIndex`? | Document `CharLocale` (same as current `set_style`). Alternatives: UI/system locale, or fixed `en-US`. | Design sign-off (+ quick check that CharLocale vs view locale can diverge) |
 | M3 | Does `setDataArray` with **floats** preserve an existing `NumberFormat`? | Expect yes (only the string path was measured forcing `@`). If yes, snapshot keys only for text fallbacks (S29); if no, snapshot before every commit. | One measurement |
+
+#### M1 recommendation — deciding S14 “lossless”
+
+**Status: Open.** This subsection is a complete mechanism proposal for sign-off, not a settled rule. S14–S17 state *what* to preserve; M1 is *how the code decides*. Nothing below is coded yet (`write_formula_range` never sets `NumberFormat` today).
+
+##### Proposed rule
+
+Preserve the destination key when a **gate category × destination category × midnight** predicate says keep; otherwise apply the key from `detectNumberFormat`.
+
+Do **not** decide losslessness by comparing locale display text to the ISO input, and do **not** use `getInputString` → re-parse as the primary check (see [Rejected alternatives](#rejected-alternatives) below).
+
+##### Preserve matrix
+
+| Input (which §5.3 gate matched) | Dest DATE | Dest DATETIME | Dest TIME (clock or elapsed) | Non-temporal (General, `@`, NUMBER, …) |
+| :--- | :---: | :---: | :---: | :---: |
+| date | keep | keep (S15) | apply | apply |
+| time | apply | apply | keep (S16) | apply |
+| datetime, midnight | keep (S15) | keep | apply | apply |
+| datetime, not midnight | apply | keep | apply | apply |
+
+Elapsed formats (`[HH]:MM`, `[HH]:MM:SS`, …) report `Type` `TIME` / `DEFINED|TIME`, never `DURATION` 8196 (§1.1, §8.3). For this predicate, `dest_category == "time"` already covers clock and elapsed, so S16 needs no extra branch. (The §3.2 read-path `FormatString` bracket check remains a **read** concern; it is not required to evaluate S14 preserve.)
+
+##### Exact predicate
+
+At format-apply time, for each gated cell already converted:
+
+| Input | Source |
+| :--- | :--- |
+| `input_category` | `"date"` \| `"time"` \| `"datetime"` from **which gate regex matched**, never from `detected_key` Type |
+| `serial` | float from `convertStringToNumber` |
+| Destination | cell `NumberFormat` key → `Type` via `formats.getByKey` (cache per key for the invocation) |
+
+```text
+dest_category = _format_category_from_type(Type)   # plugin/calc/inspector.py; None → non-temporal
+is_midnight   = abs(serial - floor(serial)) < 1e-9 # whole-second wire; aligned with read-path second rounding
+
+preserve iff:
+  dest_category is not None
+  AND (
+    (input_category == "date"     AND dest_category in ("date", "datetime"))
+    OR (input_category == "time"  AND dest_category == "time")
+    OR (input_category == "datetime" AND dest_category == "datetime")
+    OR (input_category == "datetime" AND dest_category == "date" AND is_midnight)
+  )
+```
+
+Else → apply `detected_key`.
+
+Reuse [`_format_category_from_type`](../plugin/calc/inspector.py) (`DATE` 2 / `TIME` 4 / `DATETIME` 6, `DEFINED` masked off). Document the epsilon next to the helper; do not invent a second NullDate-based midnight check.
+
+##### Why this shape (not naive “same Type”)
+
+Settled product rules already reject naive category equality:
+
+- A date-formatted cell given `08:00` displays the NullDate calendar day (`1899-12-30` under the usual epoch) — lossy → **apply**.
+- Elapsed and clock share `Type` `TIME`. Time into `[HH]:MM` must **keep** (S16); date into that same Type must **apply**.
+- Midnight datetime → date, and date → datetime, keep the user’s key (S15); non-midnight datetime → date drops the time → **apply**.
+- General and `@` are non-temporal (`dest_category is None`) → **apply** (S17: `@` must not keep showing the raw serial).
+
+Eike Rathke’s note that date/time-ness is format-driven, not a cell content type, and that `TIME` may hold values `>= 1.0`, is the same underlying model: [libreoffice list, July 2018](https://lists.freedesktop.org/archives/libreoffice/2018-July/080606.html) (already cited from `inspector.py`).
+
+##### Rejected alternatives
+
+**1. Compare `convertNumberToString(dest_key, serial)` to the gated ISO input.** Invalid. That API returns locale *display* (`08/05/2026`, `08:00:00 AM`), not wire ISO. Equality would false-negative almost every preserve case under non-ISO column formats. See [`XNumberFormatter.convertNumberToString`](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1util_1_1XNumberFormatter.html).
+
+**2. `getInputString(dest_key, serial)` then `convertStringToNumber(dest_key, …)` and compare serials.** This is the only serious format-and-compare oracle: the IDL states the input-line string always re-parses with the *same* key. It would catch truncated codes (`YYYY-MM` losing the day) and non-midnight datetime→date. Recommend **against** it as the S14 mechanism:
+
+- It is stricter than S14–S16 product intent: compatible-category preserve keeps the user’s column style; the full serial remains in the cell even when display is short.
+- It would replace intentional month/short formats the user chose.
+- `@` / TEXT still needs an explicit apply branch (`convertStringToNumber` does not convert text formats).
+- Extra UNO per key versus O(distinct keys) `Type` lookups the read path already uses.
+
+If sign-off prefers round-trip instead, the matrix above is the thing being replaced — not a stub to finish later. If sign-off accepts the matrix, round-trip stays a non-goal unless a production bug falsifies the matrix (then reopen M1 / S14 with evidence).
+
+**3. Trust `NumberFormat.DURATION` (8196).** Measured never to appear on elapsed formats (§8.3). Do not read that bit for preserve/apply.
+
+##### Edge cases the implementation must not invent
+
+- **Gate owns `input_category`.** Detection may return locale AM/PM time keys; that must not reclassify a gated datetime or date.
+- **Formula cells (S24):** never enter the format pass.
+- **Empty cells in a coerced block (S25):** follow the block’s format decision; do not run the predicate on empty alone.
+- **Idempotent second write (§7.4):** same ISO into an already-matching temporal cell → preserve → no format IPC.
+- **Never use the `DURATION` bit** for this decision.
+- **Performance:** cache `(key → dest_category)` for the invocation; fits S8 / S13 (inspect destinations only when something passed the gate; apply by contiguous block).
+
+##### What closes M1
+
+Design sign-off on this subsection (or an explicit alternate written here). The destination-format matrix probe under “Still to write” is a fixture aid for UNO tests; it is not required to choose between the matrix and round-trip.
 
 #### Why these rules
 
 Probe measurements in §8 closed the former product-level open questions. The non-obvious settled ones, briefly:
 
-- **Lossless preserve (S14–S16), not “same category”.** A date-formatted cell given `08:00` displays `1899-12-30`. Elapsed formats report `Type` `TIME`, so a category-equality rule would wrongly clobber `[HH]:MM`. Midnight datetime↔date and date→datetime are lossless, so they keep the existing key.
+- **Lossless preserve (S14–S16), not bare “same category”.** A date-formatted cell given `08:00` displays `1899-12-30` (wrong category → must apply). Bare equality also misses S15 cross-keeps (midnight datetime→date, date→datetime) and does not by itself explain S16 (elapsed shares `Type` `TIME` with clock). **How to detect lossless is still Open — see [M1](#m1-recommendation--deciding-s14-lossless).**
 - **`@` must get a temporal format (S17).** The Text format does not block API conversion; leaving `@` shows the raw serial.
 - **Strict padded gate (S19); offsets stay text (S20).** Unpadded `2026-8-8` is unambiguous in every locale tested, but admitting it is a one-line later change. Calc rejects `Z`/offsets everywhere; the tool description must still tell the model to drop the offset printed by MCP clock context.
 - **No date imputation for bare times (S21).** Matches the read-path wire schema (`type: "time"`).
@@ -271,10 +359,12 @@ flowchart TD
     Gate -->|no| TextPass
     Gate -->|yes| Detect["detectNumberFormat + convertStringToNumber"]
     Detect -->|NotNumericException| TextPass
-    Detect --> Existing{"destination already has a temporal format?"}
-    Existing -->|"displays value losslessly"| KeepFormat["commit value, keep existing key"]
-    Existing -->|"lossy or non-temporal"| ApplyDetected["commit value, apply detected key"]
+    Detect --> Existing{"S14 preserve? (see M1)"}
+    Existing -->|yes| KeepFormat["commit value, keep existing key"]
+    Existing -->|no| ApplyDetected["commit value, apply detected key"]
 ```
+
+The S14 decision node is mechanism Open — proposed algorithm in [M1](#m1-recommendation--deciding-s14-lossless).
 
 Without the gate, `08/05/2026` becomes 5 August under `en-US` and 8 May under `fr-FR`, and `30:00` silently becomes `1.25`.
 
@@ -333,7 +423,7 @@ So date handling **already** differs today depending on whether the range happen
 3. **Convert temporal candidates** via `detectNumberFormat` / `convertStringToNumber`, recording `(value, detected_key)`. On `NotNumericException`, demote to text.
 4. **Commit values** with one `setDataArray`, leaving formula cells empty.
 5. **Overlay formulas** with `setFormula` per recorded cell. Never send ISO strings through `setFormulaArray`.
-6. **Apply formats** per contiguous block, skipping cells whose existing format already displays the value losslessly (S14). Cache keys per category for the invocation. Skip formula cells (S24); include empties inside a coerced block (S25).
+6. **Apply formats** per contiguous block, skipping cells the S14 predicate says to preserve ([M1](#m1-recommendation--deciding-s14-lossless) — still Open). Cache destination category per format key for the invocation. Skip formula cells (S24); include empties inside a coerced block (S25).
 
 #### Failure modes and partial writes
 
@@ -385,6 +475,7 @@ A homogeneous write should cost roughly: one formatter setup, one `getStandardIn
 - Fractional seconds, offsets/timezones, `24:00`, leap seconds, and durations as input.
 - Changing NumPy / `include_format_info=False` raw serial behavior (stays out of scope — internal pipelines keep floats).
 - `=PY` spill coercion, NumPy `datetime64` epoch conversion, and spreadsheet-import epoch cleanup.
+- `getInputString` round-trip as an S14 oracle is **not** a planned follow-up; it is an alternate considered under [M1](#m1-recommendation--deciding-s14-lossless). Only reopen if sign-off picks it, or a bug falsifies the matrix.
 
 ---
 
