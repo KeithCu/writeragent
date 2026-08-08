@@ -161,6 +161,7 @@ If `uv sync` fails on Python 3.14 / spaCy wheels: `rm -rf .venv && uv sync --pyt
 | [LibreOffice MCP Extension](https://github.com/quazardous/mcp-libre)                  | MCP server patterns, Makefile, tool registry    |
 | [Hermes Agent](https://github.com/NousResearch/hermes-agent)                          | Tool-call parsers, JSON repair, memory patterns |
 | [latex2mathml](https://github.com/roniemartinez/latex2mathml)                         | LaTeX → MathML                                  |
+| [isodate](https://github.com/gweis/isodate)                                           | ISO 8601 duration parse/format (Calc wire)      |
 
 
 ---

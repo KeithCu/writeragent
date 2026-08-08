@@ -1,8 +1,8 @@
 # Date and Time Lifecycle in LibreOffice Calc
 
-**Wire contract and write-path implementation plan**
+**Wire contract and write-path design (v1 shipped)**
 
-This document covers PyUNO cell values, read-path format enrichment, MCP clock context, and the planned conversion of date/time strings into Calc serial values.
+This document covers PyUNO cell values, read-path format enrichment, MCP clock context, and conversion of date/time strings into Calc serial values.
 
 ### LLM wire schema
 
@@ -11,18 +11,19 @@ For LLM tools (`read_cell_range` with format enrichment; the same strings are th
 ```json
 [
   {"address": "A20", "value": "2026-08-05", "formula": null, "type": "date", "format_category": "date"},
-  {"address": "B20", "value": "08:00:00", "formula": null, "type": "time", "format_category": "time"}
+  {"address": "B20", "value": "08:00:00", "formula": null, "type": "time", "format_category": "time"},
+  {"address": "C20", "value": "PT30H", "formula": null, "type": "duration", "format_category": "duration"}
 ]
 ```
 
-- `value` is the ISO 8601 string (`YYYY-MM-DD`, `HH:MM:SS`, or `YYYY-MM-DDTHH:MM:SS`).
-- `type` and `format_category` are `date`, `time`, or `datetime`.
+- `value` is the ISO 8601 string (`YYYY-MM-DD`, `HH:MM:SS`, `YYYY-MM-DDTHH:MM:SS`, or duration `PTnHnMnS`).
+- `type` and `format_category` are `date`, `time`, `datetime`, or `duration` (elapsed/`[HH]:…` formats).
 - There is no separate `iso8601` field.
 - Internal callers (`CellInspector.read_range(include_format_info=False)`) still receive raw Calc serial floats for NumPy / `=PY` / analysis.
 
-> **Status:** MCP clock context is in place. ISO-shaped write ingestion is not. Sections marked **Target** describe future write behavior. The implementation mechanisms formerly listed as M1–M3 have now been reviewed and resolved in §5.1.
+> **Status:** v1 is **shipped**, including duration wire (`PT30H`). MCP clock context, read enrichment, elapsed → duration enrichment (§3.2), mixed-formula commit, ISO write ingestion (gate → detect/convert → S29 restore → M1 format runs), PT duration write (isodate + formatindex 43), coercion report, and `WriteCellRange` ISO tool wording are in code. See [§2](#2-lifecycle-architecture) and [§5.7](#57-what-to-do-next).
 
-> **Write design (locked):** After a strict ISO gate, convert with `XNumberFormatter.detectNumberFormat` / `convertStringToNumber`, commit the serial, and apply the detected format key unless the destination already has a **category-compatible** temporal format to preserve (S14–S16). Do not hand-roll epoch arithmetic or format codes; do not rely on `setFormula` alone (it leaves General and breaks read enrichment).
+> **Write design (locked):** After a strict ISO gate, convert date/time with `XNumberFormatter.detectNumberFormat` / `convertStringToNumber`; convert `PT…` durations with vendored `isodate` + day-serial arithmetic. Commit the serial, and apply the detected (or elapsed) format key unless the destination already has a **category-compatible** temporal format to preserve (S14–S16). Do not hand-roll date epoch arithmetic or ASCII date format codes; do not rely on `setFormula` alone (it leaves General and breaks read enrichment).
 
 > **Every LibreOffice behavior claim in this document was measured**, not assumed. See [§8 Measured behavior](#8-measured-behavior-libreoffice-26252). Re-run the probes before trusting any claim here on a new LibreOffice major version.
 
@@ -58,7 +59,7 @@ Earlier revisions of this document claimed that `NumberFormat.DURATION` (8196) i
 | `[MM]:SS` | 5 | `"time"` |
 | `HH:MM:SS` | 4 | `"time"` |
 
-Consequence, verified end to end: a cell holding `1.25` under `[HH]:MM:SS` displays `30:00:00`, but `read_cell_range` reports `"value": "06:00:00"` with `type: "time"`. The whole day is silently dropped by `.time()` in `_iso8601_from_serial` ([plugin/calc/inspector.py](../plugin/calc/inspector.py)). This is a **live read-path bug**, independent of the write work — see [§3.2](#32-known-read-path-bug-elapsed-times-over-24-hours).
+Consequence (pre-fix): a cell holding `1.25` under `[HH]:MM:SS` displayed `30:00:00`, but `read_cell_range` reported `"value": "06:00:00"` with `type: "time"` because `.time()` in `_iso8601_from_serial` dropped whole days. **Fixed in v1** by skipping enrichment when `FormatString` contains a bracketed alphabetic time unit — see [§3.2](#32-elapsed-times-over-24-hours-fixed).
 
 ### 1.2 The LLM Friction Point
 
@@ -89,11 +90,17 @@ The end-to-end date/time architecture consists of three synchronized phases:
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Implementation status:**
+**Implementation status (v1 shipped):**
 
-- MCP clock context is in place; write-tool ISO guidance is not.
-- ISO string → serial + `NumberFormat` is **planned**. Product policy and the M1–M3 implementation mechanisms are settled in [§5.1](#51-decision-ledger).
-- Duration enrichment bug in §3.2 is outstanding.
+| Area | Status | Primary code |
+| :--- | :--- | :--- |
+| A. MCP clock context | Done | [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) |
+| B. Read enrichment + elapsed skip | Done | [`plugin/calc/inspector.py`](../plugin/calc/inspector.py), [`plugin/calc/datetime_wire.py`](../plugin/calc/datetime_wire.py) |
+| C. ISO write ingestion | Done | [`plugin/calc/manipulator.py`](../plugin/calc/manipulator.py) `write_formula_range`, [`plugin/calc/datetime_wire.py`](../plugin/calc/datetime_wire.py) |
+| Write-tool ISO guidance | Done | [`plugin/calc/cells.py`](../plugin/calc/cells.py) `WriteCellRange.description` |
+| Unit / UNO tests (core path) | Done | [`tests/calc/test_datetime_serial.py`](../tests/calc/test_datetime_serial.py), [`tests/calc/test_cells_uno.py`](../tests/calc/test_cells_uno.py) |
+| Extra edge-case UNO coverage | Done | [`tests/calc/test_cells_uno.py`](../tests/calc/test_cells_uno.py) (S15, S25, S29 invalid day, NullDate); S30 message in [`tests/calc/test_cells.py`](../tests/calc/test_cells.py) |
+| Product expansions (§5.7 deferred) | Not started | locale display forms, offsets, `=PY`, etc. |
 
 ---
 
@@ -118,26 +125,20 @@ When `read_cell_range` is invoked with `include_format_info=True` (enabled by de
 
    Then sets `value` to the ISO string, `type` to the category, and `format_category`. Helpers live in [plugin/calc/inspector.py](../plugin/calc/inspector.py).
 
-### 3.2 Known read-path bug: elapsed times over 24 hours
+### 3.2 Elapsed times over 24 hours (fixed)
 
-Because elapsed formats classify as `"time"` (§1.1), `_iso8601_from_serial` routes them through `.time()`, which discards whole days:
+Because elapsed formats classify as `"time"` (§1.1), routing them through `_iso8601_from_serial` → `.time()` discarded whole days:
 
-| Cell value | Format | Calc displays | LLM `value` reported | Correct? |
+| Cell value | Format | Calc displays | Pre-fix LLM `value` | Post-fix |
 | :--- | :--- | :--- | :--- | :--- |
-| `1.25` | `[HH]:MM:SS` | `30:00:00` | `06:00:00` | No |
-| `0.333…` | `[HH]:MM:SS` | `08:00:00` | `08:00:00` | Yes |
+| `1.25` | `[HH]:MM:SS` | `30:00:00` | `06:00:00` | `"PT30H"`, `type: "duration"` |
+| `0.333…` | `[HH]:MM:SS` | `08:00:00` | `08:00:00` | `"PT8H"`, `type: "duration"` |
 
-The existing comment at [plugin/calc/inspector.py](../plugin/calc/inspector.py) anticipates the ambiguity but the guard was written against `NumberFormat.DURATION`, which never fires. The alternatives considered were:
-
-1. Detect elapsed formats by inspecting the `FormatString` for a bracketed elapsed time unit (`[H`, `[HH`, `[MM`, `[SS]`, including localized equivalents), and omit enrichment for those cells (keep raw serial / `type: "value"` as originally intended for non-clock times).
-2. Emit an ISO 8601 duration (`PT30H`) under a distinct key, which is a wire-contract change.
-3. Enrich only when the serial is below `1.0`.
-
-**Review decision: adopt option 1 for v1.** It restores the documented intent without changing the wire contract. Reject option 3 because the value alone cannot distinguish an elapsed duration from a clock-formatted serial; defer option 2 until the product has a duration wire type. The implementation must account for localized format tokens rather than assuming every registry stores English `H`. Fix this separately from Area C.
+The old guard against `NumberFormat.DURATION` never fired. **v1 interim:** skip enrichment for bracketed FormatString. **Duration wire (shipped):** [`is_elapsed_format_string`](../plugin/calc/datetime_wire.py) detects bracketed units; category becomes `"duration"`; emit via [`iso_duration_from_serial`](../plugin/calc/datetime_wire.py) (hours may exceed 24 — `PT30H`, not `P1DT6H`). Write accepts the same `PT…` gate, parses with vendored [`isodate`](https://github.com/gweis/isodate), applies built-in formatindex 43 (`[HH]:MM:SS`) unless M1 preserves a TIME destination.
 
 ---
 
-## 4. Prompting and Context (Partly Implemented)
+## 4. Prompting and Context
 
 ### 4.1 Connection-Time Clock Context
 
@@ -161,21 +162,19 @@ The previously "unresolved" alternative — preserve wall-clock fields and disca
 ### 4.2 Tool Schema Definitions
 
 - **`ReadCellRange`** (`read_cell_range` in [plugin/calc/cells.py](../plugin/calc/cells.py)): see the LLM wire schema above.
-- **`WriteCellRange`** (`write_formula_range`): **does not yet** mention date/time strings.
+- **`WriteCellRange`** (`write_formula_range`): ISO guidance is **shipped** on the tool description.
 
-**Adopted v1 description text.** Tool descriptions are paid for on every request, so keep this wording compact and treat it as part of the contract, not a comment:
+**Shipped v1 description text** (paid for on every request; part of the contract):
 
-> Dates and times: use ISO 8601 only — `YYYY-MM-DD`, `HH:MM[:SS]`, or `YYYY-MM-DDTHH:MM[:SS]`. These become real Calc date/time values. Do not include a timezone offset or `Z`, and do not use locale forms like `08/05/2026`; those are stored as text. Prefix with an apostrophe (`'2026-08-08`) to force text.
+> Dates and times: use ISO 8601 only — `YYYY-MM-DD`, `HH:MM[:SS]`, or `YYYY-MM-DDTHH:MM[:SS]`. These become real Calc date/time values. Elapsed/stopwatch values: use `PTnHnMnS` (e.g. `PT30H`, `PT1H30M`); these become duration serials with elapsed formatting. Do not include a timezone offset or `Z`, and do not use locale forms like `08/05/2026`; those are stored as text. Prefix with an apostrophe (`'2026-08-08`) to force text.
 
 Do not broaden write parsing to locale display forms. §8 shows `08/05/2026` resolves to **2026-08-05** under `en-US` but **2026-05-08** under `fr-FR`.
 
 ---
 
-## 5. Write Path (Target)
+## 5. Write Path (Shipped)
 
-*Implementation plan — not yet in code*
-
-The first implementation applies only to the public `write_formula_range` path in [plugin/calc/manipulator.py](../plugin/calc/manipulator.py), which is the sole cell-writing entry point for this tool.
+*v1 is in code.* Pure helpers live in [`plugin/calc/datetime_wire.py`](../plugin/calc/datetime_wire.py); UNO write logic in [`plugin/calc/manipulator.py`](../plugin/calc/manipulator.py) `write_formula_range` (sole cell-writing entry point for this tool).
 
 ### 5.1 Decision Ledger
 
@@ -191,11 +190,11 @@ Policy from the probes is closed under **Settled**. The M1–M3 mechanisms below
 | S5 | `include_format_info=False` callers stay un-enriched. |
 | S6 | Time-only serials are independent of `NullDate`. |
 | S7 | Never pass ASCII format codes such as `"YYYY-MM-DD"` to `queryKey` for defaults (§6). |
-| S8 | Batch the value commit; apply formats per horizontal same-decision row run (prefer range sets over a per-cell loop; checkerboard may still need multiple runs — see S25 / §5.6). Vertically merge identical runs only as an optional optimization. |
+| S8 | Batch the value commit; apply formats as coalesced rectangles: horizontal same-decision row runs after S25, then vertically merge identical `(c0, c1, key)` spans on consecutive rows (prefer range sets over a per-cell loop; checkerboard may still need multiple runs — see S25 / §5.6). |
 | S9 | The mixed-formula commit fix (§5.5 step 2) merges independently of the feature. |
 | S10 | Scope is `write_formula_range` only. `=PY` spill, `spreadsheet_import/preserve.py`, `insert_cell_html`, and `editselection` keep current semantics, because they carry real Python types or source-file formats. |
 | S11 | Tests split unit and UNO per [AGENTS.md](../AGENTS.md). |
-| S12 | Fractional seconds, leap seconds, `24:00`, durations-as-input, and locale display forms stay out of scope. |
+| S12 | Fractional seconds, leap seconds, `24:00`, calendar durations (`PnD` / Y/M/W), and locale display forms stay out of scope. Strict `PTnHnMnS` duration input is in scope. |
 | S13 | Inspect destination formats only when at least one value passed the gate. |
 | S14 | Preserve the destination `NumberFormat` when it is **category-compatible** with the gated input (style preservation); otherwise apply the detected key. Existing compatible column style wins over preserving the input wire category and over showing every ISO field. Use the matrix adopted in [M1](#m1-decision--deciding-s14-preserve). |
 | S15 | Midnight datetime into a date cell, and date into a datetime cell, preserve the existing format (compatible under S14). |
@@ -217,7 +216,7 @@ Policy from the probes is closed under **Settled**. The M1–M3 mechanisms below
 
 #### Reviewed mechanism decisions
 
-These are not re-opened product debates. Each is a reviewed how-to that should be implemented as written unless new probe or production evidence falsifies it.
+These are not re-opened product debates. Each is implemented as written; reopen only with new probe or production evidence.
 
 | ID | Situation | Decision | Basis |
 | :--- | :--- | :--- | :--- |
@@ -227,7 +226,7 @@ These are not re-opened product debates. Each is a reviewed how-to that should b
 
 #### M1 decision — deciding S14 preserve
 
-**Status: Settled after review.** S14–S17 state the product outcomes; M1 is the concrete algorithm the write path will run. Nothing below is coded yet (`write_formula_range` never sets `NumberFormat` today).
+**Status: Settled and shipped.** S14–S17 state the product outcomes; M1 is implemented as `should_preserve_temporal_format` in [`datetime_wire.py`](../plugin/calc/datetime_wire.py) and applied after commit in `write_formula_range`.
 
 ##### What problem M1 solves
 
@@ -287,10 +286,11 @@ Same rule as a lookup table. Rows = what the model wrote (gate match). Columns =
 | :--- | :---: | :---: | :---: | :---: |
 | date | keep | keep (S15) | apply | apply |
 | time | apply | apply | keep (S16) | apply |
+| duration | apply | apply | keep (S16) | apply (formatindex 43) |
 | datetime, midnight | keep (S15) | keep | apply | apply |
 | datetime, not midnight | apply | keep | apply | apply |
 
-Elapsed formats (`[HH]:MM`, `[HH]:MM:SS`, …) sit in the Dest TIME column — no extra branch for S16. (The §3.2 read-path bug for elapsed values over 24h is a **read** concern; it does not change this preserve decision.)
+Elapsed formats (`[HH]:MM`, `[HH]:MM:SS`, …) sit in the Dest TIME column — no extra branch for S16. Duration write into non-temporal cells applies built-in formatindex 43 (`[HH]:MM:SS`).
 
 ##### Worked examples
 
@@ -300,6 +300,8 @@ Elapsed formats (`[HH]:MM`, `[HH]:MM:SS`, …) sit in the Dest TIME column — n
 | `2026-08-08` | `YYYY-MM-DD HH:MM:SS` (datetime) | keep | date into datetime is OK (S15) |
 | `2026-08-08` | General | apply | non-temporal; need a date format for enrichment |
 | `08:00` | `[HH]:MM` (elapsed time) | keep | time → time (S16) |
+| `PT30H` | `[HH]:MM:SS` (elapsed) | keep | duration → time (S16) |
+| `PT30H` | General | apply | formatindex 43 so readback is `duration` |
 | `08:00` | `YYYY-MM-DD` (date) | apply | time into date shows NullDate’s calendar day — wrong |
 | `2026-08-08T00:00:00` | `YYYY-MM-DD` (date) | keep | midnight datetime into date (S15) |
 | `2026-08-08T08:00:00` | `YYYY-MM-DD` (date) | apply | non-midnight; date format would hide 08:00 |
@@ -383,7 +385,7 @@ Adopt the matrix and integer-second midnight predicate above. Existing playgroun
 
 #### M2 decision — Locale for `getStandardIndex` / `detectNumberFormat`
 
-**Status: Settled after review.** Nothing below is wired into `write_formula_range` yet.
+**Status: Settled and shipped.** Locale comes from `_resolve_document_locale` (document `CharLocale` + en-US fallback) once per `write_formula_range` / `set_style` number-format path.
 
 ##### What problem M2 solves
 
@@ -498,7 +500,7 @@ Adopt document **`CharLocale`** for v1. It matches the existing Calc number-form
 
 #### M3 decision — `setDataArray` floats vs NumberFormat
 
-**Status: Settled after review.** The float behavior and snapshot scope are both resolved.
+**Status: Settled and shipped.** Float commits leave formats alone; ordinary-text S29 snapshot/restore runs in `write_formula_range`.
 
 ##### What problem M3 solves
 
@@ -584,16 +586,14 @@ All seven probe checks passed; `M3 float-preserve conclusion: YES`.
 
 Adopt the snapshot matrix above. Reopen M3 only if a supported LibreOffice version falsifies the measured float-preserve behavior; snapshot-before-every-commit is not justified by current evidence.
 
-#### Additional pre-implementation issues found in review
+#### Implementation boundaries (shipped as decided)
 
-M1–M3 were the only three formal Open rows, but review found four implementation boundaries worth making explicit before code is written:
+Review locked four boundaries that v1 follows:
 
-1. **Two-dimensional format block geometry.** “Contiguous” must not mean one flattened row-major sequence: the end of one row is not adjacent to the start of the next, and UNO ranges are rectangles. Build horizontal runs independently per row using S25. An optional second pass may merge vertically adjacent runs only when their column span and preserve/apply decision (including apply key) are identical. The simple row-run implementation is sufficient for v1.
-2. **S26 helper scope.** The write path starts with an ISO value and obtains a detected integer key; `set_style(number_format=…)` starts with an explicit user format string. They should share locale resolution and key-application utilities, not one parsing function. Forcing arbitrary style strings through `detectNumberFormat` would conflate values with format codes and break the existing API.
-3. **Post-commit failure reporting.** `setDataArray` is the semantic commit point. A later format failure cannot safely be presented as an ordinary all-or-nothing error, but a generic success is also misleading because the user may see raw serials. Keep S30 best-effort behavior, return `status: "ok"` under the current tool contract, and include a conspicuous warning with the affected range/count so the model can repair or report the partial result.
-4. **Formula-overlay partial writes.** The mixed-range correction intentionally commits constants before applying formulas one cell at a time. If a formula overlay unexpectedly raises, constants and earlier formulas may already be present; `WriterCompoundUndo` groups undo history but does not provide transaction rollback. Do not add a range snapshot/rollback subsystem for v1. Let the exception surface, keep all operations inside the compound undo context, and add a regression test proving a single user undo restores the pre-write state.
-
-These conclusions require no additional product discussion before Phase 3 unless the desired contract is strict transactional rollback. That would be a materially larger feature than date/time ingestion and should be designed separately.
+1. **Two-dimensional format block geometry.** After S25 empty resolve, coalesce horizontal apply runs and vertically merge identical `(c0, c1, key)` spans on consecutive rows (S8). No bridging end-of-row to start-of-next; span mismatches and preserve gaps split rects.
+2. **S26 helper scope.** Shared locale resolve + integer-key apply; `set_style` still uses `queryKey`/`addNew` for user format *strings*, not ISO detection.
+3. **Post-commit failure reporting.** Format pass is best-effort (S30): `status: "ok"` with an explicit warning naming range/count.
+4. **Formula-overlay partial writes.** Constants commit before formula overlay; no full transactional rollback beyond `WriterCompoundUndo`. Strict rollback would be a separate feature.
 
 #### Why these rules
 
@@ -607,7 +607,7 @@ Probe measurements in §8 closed the former product-level open questions. The no
 - **Restore format on ordinary text fallback (S29).** Non-empty string `setDataArray` forces `@` and would otherwise strip a date column when one near-miss lands in the range. Apostrophe-forced literals keep `@` (S18). Float/`int` commits preserve the key (**measured** — see [M3](#m3-decision--setdataarray-floats-vs-numberformat)).
 - **Best-effort format pass (S30).** Values are already committed, but formatting is not merely cosmetic here: it controls display and read enrichment. A failure therefore returns success only with a conspicuous partial-result warning.
 
-**Probes:** No further playground probes are required before Phase 3 / Area C. The existing scripts under [`scripts/playground/`](../scripts/playground/) plus §8 already close the write-path decisions. Verification belongs in the unit and UNO tests in §7. Destination-format `Locale`, optional hygiene on legacy probe assertion labels, and localized-bracket details for the §3.2 detector stay outside the write-path critical path.
+**Probes:** No further playground probes are required. Existing scripts under [`scripts/playground/`](../scripts/playground/) plus §8 closed the design. Verification is the unit/UNO suite in §7.
 
 ### 5.2 Write conversion design
 
@@ -665,14 +665,17 @@ Without the gate, `08/05/2026` becomes 5 August under `en-US` and 8 May under `f
 - Time: `HH:MM` or `HH:MM:SS`
 - Datetime: `YYYY-MM-DDTHH:MM[:SS]`
 - Compatibility datetime: one space may replace `T`
+- Duration: `PT` + at least one integer `H` / `M` / `S` (e.g. `PT30H`, `PT1H30M`, `PT45S`). No `Y`/`M`(month)/`W`/`D`, fractions, or sign.
 - Leading/trailing whitespace may be stripped
 
-Fast prefilter before regex:
+Date/time fast prefilter before regex:
 
 ```python
 if not any(c in val for c in ("-", ":")):
     return None  # Skip regexes for plain text, numbers, and prose
 ```
+
+Duration is a separate gate (`match_iso_duration`); it does not use the `-`/`:` prefilter. Parse uses vendored `isodate.parse_duration`; emit uses `iso_duration_from_serial` so 30 hours stays `PT30H` (not `P1DT6H`).
 
 ```python
 _DATE_RE = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
@@ -681,11 +684,12 @@ _DATETIME_RE = re.compile(
     r"^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])[T ]"
     r"([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$"
 )
+_DURATION_RE = re.compile(r"^PT(?=\d+[HMS])(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
 ```
 
-Evaluate datetime, date, then time; the first match records `input_category`. The anchors make the regexes non-overlapping today, but the explicit order prevents a future grammar expansion from silently reclassifying a datetime.
+Evaluate datetime, date, then time; the first match records `input_category`. Duration is checked independently before the clock/date path on write. The anchors make the regexes non-overlapping today, but the explicit order prevents a future grammar expansion from silently reclassifying a datetime.
 
-Under this design these are a **shape filter only**. Calendar validity, epoch arithmetic, and format selection all belong to Calc. `2026-02-30` passes the regex and then fails `detectNumberFormat`, which is the intended fallback to text.
+Under this design date/time gates are a **shape filter only**. Calendar validity, epoch arithmetic, and format selection for those belong to Calc. `2026-02-30` passes the regex and then fails `detectNumberFormat`, which is the intended fallback to text. Duration conversion is WriterAgent arithmetic (Calc does not parse `PT…`).
 
 What the gate deliberately rejects, and what Calc would otherwise do with it (§8):
 
@@ -697,32 +701,29 @@ What the gate deliberately rejects, and what Calc would otherwise do with it (§
 | `08:00 AM` | `en-US`/`fr-FR` time, else text | Text |
 | `08:00:00.500` | time with fractional seconds | Text |
 | `24:00` | `1.0` | Text |
-| `30:00` | `1.25` | Text |
+| `30:00` | `1.25` | Text (use `PT30H` for duration) |
+| `PT30H` | n/a (formatter rejects) | Duration gate → serial `1.25` + elapsed format |
+| `P1D` | n/a | False (calendar duration out of scope) |
 | `2026-08-08T08:00:00Z` | text in every locale | Text |
 | `2026-13-45` | n/a (invalid shape) | Text (shape gate; month/day out of range in the regex) |
 | `2026-02-30` | text via `NotNumericException` | Pass shape gate → convert fails → ordinary text (S4) |
 
 ### 5.4 Execution Workflow in `CellManipulator.write_formula_range`
 
-**Critical:** today's code, when any cell in the range is a formula, commits the **entire** range via `setFormulaArray` of stringified inputs and ignores `data_array`. The defect is not that native types break — numbers survive — it is that the two commit paths disagree on both type and format for the same input string:
+**Historical defect (fixed):** pre-v1 code, when any cell in the range was a formula, committed the **entire** range via `setFormulaArray` and ignored `data_array`, so the same ISO string became `TEXT`+`@` in a formula-free range and `VALUE`+General in a mixed range. v1 always commits via `setDataArray` and overlays formulas with per-cell `setFormula`.
 
-| Same input `"2026-08-08"` | Result |
-| :--- | :--- |
-| via `setDataArray` (formula-free range) | `TEXT`, and the cell's format is rewritten to `@` |
-| via `setFormulaArray` (mixed range) | `VALUE` `46242.0`, format left `General` |
+Shipped workflow:
 
-So date handling **already** differs today depending on whether the range happens to contain a formula. Fix the commit path first (§5.5 step 2).
-
-1. **Resolve document context once**: the formatter, document `CharLocale` with fallback ([M2](#m2-decision--locale-for-getstandardindex--detectnumberformat)), `getStandardIndex(locale)`, and `NullDate` (still needed for read-side symmetry and diagnostics).
-2. **Classify each input**: `=` prefix → formula overlay; apostrophe → text; gate match → temporal candidate; else `float()` → number; else text.
-3. **Convert temporal candidates** via `detectNumberFormat` / `convertStringToNumber`, recording `(value, detected_key)`. On `NotNumericException`, demote to text.
+1. **Resolve document context once**: the formatter, document `CharLocale` with fallback ([M2](#m2-decision--locale-for-getstandardindex--detectnumberformat)), `getStandardIndex(locale)`; when any `PT…` is present, resolve elapsed formatindex 43.
+2. **Classify each input**: `=` prefix → formula overlay; apostrophe → text; duration gate → serial via isodate; date/time gate → temporal candidate; else `float()` → number; else text.
+3. **Convert date/time candidates** via `detectNumberFormat` / `convertStringToNumber`, recording `(value, detected_key)`. Durations already have a serial + elapsed key. On `NotNumericException`, demote to text.
 4. **Commit values** with one `setDataArray`, leaving formula cells empty. Float/`int` cells keep existing `NumberFormat` ([M3](#m3-decision--setdataarray-floats-vs-numberformat)); for ordinary text-fallback cells, snapshot the prior key before commit and restore after (S29); for apostrophe-forced cells (S18), leave `@`.
 5. **Overlay formulas** with `setFormula` per recorded cell. Never send ISO strings through `setFormulaArray`.
-6. **Apply formats** as horizontal row runs of the same decision, skipping cells the S14 predicate says to preserve ([M1](#m1-decision--deciding-s14-preserve)). Cache destination category per format key for the invocation. Apply the integer `detected_key` directly rather than routing it through the format-string `queryKey` path. Skip formula cells (S24); join empties only per S25 block-split rules. Vertically merge identical runs only as an optional optimization.
+6. **Apply formats** as coalesced 2D rectangles (horizontal same-decision runs, then vertical merge of identical spans), skipping cells the S14 predicate says to preserve ([M1](#m1-decision--deciding-s14-preserve)). Cache destination category per format key for the invocation. Apply the integer `detected_key` directly rather than routing it through the format-string `queryKey` path. Skip formula cells (S24); join empties only per S25 block-split rules. Pure geometry helpers live in [`datetime_wire.py`](../plugin/calc/datetime_wire.py) (`coalesce_temporal_apply_rects`).
 
 #### Failure modes and partial writes
 
-`write_formula_range` currently wraps everything in one `try` / `except` that raises `ToolExecutionError`. If step 4 succeeds and step 6 throws, the serials are committed and rendering as raw numbers while the tool reports failure. Per S30 the format pass is **best-effort**: log the exception and return an explicit warning such as `wrote values; could not apply date formats to 2 cells in A1:D1`. Do not use the ordinary success wording for this partial result.
+Value commit (step 4) is the semantic commit point. Per S30 the format pass is **best-effort**: log the exception and return success with an explicit warning such as `could not apply date formats to 2 cells in A1:D1` rather than failing the whole write or using ordinary success wording alone.
 
 `WriteCellRange.execute` in [plugin/calc/cells.py](../plugin/calc/cells.py) already opens `WriterCompoundUndo`, so all steps collapse into one undo entry **only if** the format pass lives inside `write_formula_range`. The scripting API path in [plugin/scripting/writeragent_api.py](../plugin/scripting/writeragent_api.py) has no compound undo.
 
@@ -745,33 +746,50 @@ Input `["2026-08-08", "08:00", "08/05/2026", "=A1+1"]` into `A1:D1`, all cells G
 | A1 | `46242.0` | detected date | `2026-08-08` | `value: "2026-08-08"`, `type: "date"` |
 | B1 | `0.3333…` | detected time | `08:00:00 AM` (locale-preferred; S27) | `value: "08:00:00"`, `type: "time"` |
 | C1 | text `08/05/2026` | none; restore prior key if the cell had one (S29) | `08/05/2026` | plain text, no date enrichment |
-| D1 | formula | none (S24); Calc propagates from A1 | `2026-08-09` | `value: "2026-08-09"`, `type: "date"` |
+| D1 | formula | none (S24) | depends on cell format | formula present; value may stay a raw serial under General (no format apply on formula cells) |
 
 Return message: `Range A1:D1 filled with 4 values (2 dates, 1 text, 1 formula).`
 
-### 5.5 Merge-Safe Implementation Sequence
+### 5.5 Merge-Safe Implementation Sequence (completed)
 
-1. **Read-path duration fix** (§3.2). Independent, small, and fixes a shipping bug.
-2. **Mixed-formula commit correction.** Change `write_formula_range` to commit `data_array` first and overlay formulas. Add regression coverage proving a formula-free range and a mixed range now treat the same input identically.
-3. **Complete user-visible feature.** Gate, `detectNumberFormat` conversion, category-compatible style preservation (S14), tool-schema guidance, coercion report, and UNO write/readback tests together. Do not merge a state that writes serials without usable number formats — that is exactly the `setFormula`-only failure (General / no enrichment).
+All three steps landed in v1:
+
+1. **Read-path duration fix** (§3.2) — elapsed `FormatString` skip.
+2. **Mixed-formula commit correction** — always `setDataArray`, then per-cell `setFormula` overlay (no whole-range `setFormulaArray`).
+3. **Complete user-visible feature** — gate, `detectNumberFormat` conversion, M1 preserve/apply, tool-schema guidance, coercion report, and core UNO write/readback tests. Serials are never left without a usable format on successful ISO coercions into General/`@`.
 
 ### 5.6 Performance rules
 
 1. $O(1)$ char guard before regex (§5.3).
-2. Prefer `NumberFormat` range sets; do not set format per cell when a horizontal row run will do. Homogeneous rectangular ranges get one range set; sparse grids coalesce into row-local same-decision runs (S25), with optional vertical merging of identical spans. Alternating preserve/apply may still need multiple runs — up to O(n) format IPCs is acceptable; do not rewrite values just to coalesce.
+2. Prefer `NumberFormat` range sets; do not set format per cell when a rectangle will do. Homogeneous rectangular ranges get one range set; sparse grids coalesce into row-local same-decision runs (S25), then vertically merge identical `(c0, c1, key)` spans. Alternating preserve/apply may still need multiple runs — up to O(n) format IPCs is acceptable; do not rewrite values just to coalesce.
 3. Cache the formatter, the standard key, and resolved format keys per category for the invocation.
 4. Only inspect destination formats when at least one value passed the gate (S13).
 
 A homogeneous write should cost roughly: one formatter setup, one `getStandardIndex`, two calls per distinct input string, one `setDataArray`, and one format-block set. Sparse mixed grids scale with formula overlays and block count. These are design targets, not guarantees.
 
-### 5.7 Follow-ups
+### 5.7 What to do next
 
-- Locale-display write parsing.
-- Fractional seconds, offsets/timezones, `24:00`, leap seconds, and durations as input.
+**v1 product path is done.** Near-term UNO/message polish below is landed. Remaining work is deferred product expansions — not blockers for using ISO write/read.
+
+#### Near-term polish (tests / docs hygiene) — done
+
+- S25 empty-cell block split (`apply | empty | preserve` does not bridge)
+- S15 midnight datetime → date preserve, and non-midnight datetime → date apply
+- `2026-02-30` post-gate text fallback with S29 restore
+- Non-default `NullDate` write/read round trip
+- Explicit asserts on coercion-report wording and S30 format-warning messages
+- Probe summary labels in [`probe_calc_setformula_datetime.py`](../scripts/playground/probe_calc_setformula_datetime.py) aligned with §8.1 (setFormula leaves General)
+
+#### Deferred product expansions (not v1)
+
+- Locale-display write parsing (`08/05/2026`, etc.).
+- Unpadded dates (`2026-8-8`), fractional seconds, offsets/timezones as converted values, `24:00`, leap seconds, calendar durations (`P1D` / Y/M/W).
 - Changing NumPy / `include_format_info=False` raw serial behavior (stays out of scope — internal pipelines keep floats).
 - `=PY` spill coercion, NumPy `datetime64` epoch conversion, and spreadsheet-import epoch cleanup.
-- `getInputString` round-trip as an S14 oracle is **not** a planned follow-up; it is a rejected alternate under [M1](#m1-decision--deciding-s14-preserve). Only reopen if a bug falsifies the matrix.
 - Destination-format `Locale` (M2 alternate 4) — only if mixed-locale columns justify leaving document `CharLocale`.
+- Strict transactional rollback beyond existing `WriterCompoundUndo`.
+
+`getInputString` round-trip as an S14 oracle is **rejected**, not deferred — reopen only if a bug falsifies the M1 matrix.
 
 ---
 
@@ -811,18 +829,17 @@ Dates detect as ISO everywhere, but `en-US` times detect as `HH:MM:SS AM/PM`. Pe
 
 ## 7. Testing Strategy & Verification Plan
 
-### 7.1 Unit Tests (planned `tests/calc/test_datetime_serial.py`)
+### 7.1 Unit Tests (`tests/calc/test_datetime_serial.py` — shipped)
 
-The gate is pure and belongs in pytest. Conversion is not, and belongs in UNO tests.
+The gate and M1/elapsed helpers are pure pytest. Conversion stays in UNO tests.
 
-- Gate accepts: `2026-08-08`, `08:00`, `08:00:00`, `2026-08-08T08:00:00`, `2026-08-08 08:00:00`.
-- Gate rejects: slash and dot forms, `Z` and offsets, fractional seconds, `24:00`, `30:00`, `08:00 AM`, `Hello World`, `=SUM(A1:A10)`.
-- **Shape-gate reject (unit):** `2026-13-45` (month/day out of regex shape).
-- **Post-gate fallback (UNO):** `2026-02-30` passes the shape gate; `detectNumberFormat` / `convertStringToNumber` raises `NotNumericException` → ordinary text (S4), with S29 restore if the cell had a prior key.
-- Apostrophe handling: `'2026-08-08` stays text and keeps `@` (S18; no S29 restore). Whitespace stripping.
-- Gate rejects unpadded `2026-8-8` (S19).
+**Landed:** gate accept/reject matrix (including unpadded / offsets / slash forms / `2026-13-45` / shape-ok `2026-02-30`), elapsed FormatString detection, duration PT gate/parse/emit, midnight serial helper, M1 preserve matrix (including duration→time), S25/horizontal/vertical format-run coalesce helpers.
+
+**UNO edge cases (landed in §7.2):** post-gate `NotNumericException` for `2026-02-30` with S29 restore; apostrophe end-to-end.
 
 ### 7.2 Native UNO Integration Tests (`tests/calc/test_cells_uno.py`)
+
+**Landed:** write/read ISO date+time; mixed ISO+formula commit; compatible date preserve; elapsed keep; `@` → temporal apply; apostrophe keeps `@`; ordinary text S29 restore; idempotent second write; §3.2 duration wire (`1.25` → `"PT30H"`); write/read `PT30H` / preserve elapsed; S15 midnight preserve / non-midnight apply; S25 empty-cell split; `2026-02-30` text + S29; non-default `NullDate` round trip; coercion-report wording; vertical format-run merge (homogeneous ISO column). S30 format-warning wording and merge IPC count are covered by mocked unit tests in [`tests/calc/test_cells.py`](../tests/calc/test_cells.py).
 
 End-to-end write and readback against the LLM wire schema:
 
@@ -846,19 +863,6 @@ def test_write_and_read_date_time_cells():
     assert row[1]["type"] == "time"
     assert row[1]["format_category"] == "time"
 ```
-
-Coverage for the settled write rules, plus:
-
-- Mixed range: ISO date + formula in one call (two-step commit; no format apply on the formula cell).
-- Preserve a category-compatible existing format; apply when incompatible (including midnight datetime↔date cross-keeps per S15).
-- Elapsed `[HH]:MM` destination keeps its format.
-- ISO string into an `@` cell gets a temporal format.
-- `'2026-08-08` stays text and keeps `@` (no S29 restore).
-- Coercion report counts.
-- Ordinary text written into a date column restores the prior format key (S29).
-- Empty-cell block split: `apply | empty | preserve` does not bridge formats across the empty cell (S25).
-- Non-default `NullDate` round trip.
-- §3.2: `1.25` under `[HH]:MM:SS` must not report `06:00:00`.
 
 ### 7.3 Testing locales and epochs without changing the installation
 

@@ -46,7 +46,13 @@ else:
 
 
 from plugin.calc import CalcError
-from plugin.calc.datetime_wire import match_iso_temporal, should_preserve_temporal_format
+from plugin.calc.datetime_wire import (
+    coalesce_temporal_apply_rects,
+    duration_serial_from_iso,
+    match_iso_duration,
+    match_iso_temporal,
+    should_preserve_temporal_format,
+)
 from plugin.calc.inspector import _format_category_from_type
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, safe_json_loads
 from plugin.framework.uno_context import get_ctx
@@ -540,7 +546,18 @@ class CellManipulator:
         formatter.attachNumberFormatsSupplier(doc)
         return formatter
 
-    def _classify_write_cell(self, value, formatter, std_key):
+    def _resolve_elapsed_format_key(self, formats, locale) -> int:
+        """Built-in ``[HH]:MM:SS`` key (formatindex 43), with queryKey/addNew fallback."""
+        try:
+            return int(formats.getFormatIndex(43, locale))
+        except Exception:
+            logger.debug("getFormatIndex(43) failed; falling back to queryKey", exc_info=True)
+        key = formats.queryKey("[HH]:MM:SS", locale, False)
+        if key == -1:
+            key = formats.addNew("[HH]:MM:SS", locale)
+        return int(key)
+
+    def _classify_write_cell(self, value, formatter, std_key, *, elapsed_format_key: int | None = None):
         """Classify one write input into data/formula/meta for the ISO write path.
 
         Returns ``(data_value, formula_or_empty, meta)`` where *meta* keys are:
@@ -574,6 +591,20 @@ class CellManipulator:
             return value[1:], "", meta
 
         stripped = value.strip()
+        # Duration is WriterAgent arithmetic (isodate); Calc's formatter does not parse PT….
+        if match_iso_duration(stripped) and elapsed_format_key is not None:
+            try:
+                serial = duration_serial_from_iso(stripped)
+            except Exception as e:
+                logger.debug("Duration convert failed for %r: %s", stripped, e)
+                meta["kind"] = "text"
+                meta["restore_format"] = True
+                return value, "", meta
+            meta["kind"] = "temporal"
+            meta["input_category"] = "duration"
+            meta["detected_key"] = int(elapsed_format_key)
+            return float(serial), "", meta
+
         input_category = match_iso_temporal(stripped)
         if input_category is not None and formatter is not None:
             try:
@@ -600,52 +631,20 @@ class CellManipulator:
             meta["restore_format"] = True
             return value, "", meta
 
-    def _apply_temporal_format_runs(self, sheet, start, end, decisions):
-        """Apply detected NumberFormat keys as horizontal same-decision row runs (S8/S25)."""
-        start_col, start_row = start
-        end_row = end[1]
-        applied = 0
-        for row in range(start_row, end_row + 1):
-            r_off = row - start_row
-            row_decisions = decisions[r_off]
-            # Resolve empty cells that sit between agreeing coerced neighbors (S25).
-            resolved: list[tuple[str, int | None] | None] = []
-            for col_i, dec in enumerate(row_decisions):
-                if dec != "empty":
-                    resolved.append(dec)
-                    continue
-                left = None
-                right = None
-                for j in range(col_i - 1, -1, -1):
-                    if row_decisions[j] not in (None, "empty"):
-                        left = row_decisions[j]
-                        break
-                for j in range(col_i + 1, len(row_decisions)):
-                    if row_decisions[j] not in (None, "empty"):
-                        right = row_decisions[j]
-                        break
-                if left is not None and left == right:
-                    resolved.append(left)
-                else:
-                    resolved.append(None)
+    def _apply_temporal_format_runs(self, sheet, start, decisions):
+        """Apply detected NumberFormat keys as coalesced 2D rectangles (S8/S25).
 
-            col_i = 0
-            n = len(resolved)
-            while col_i < n:
-                dec = resolved[col_i]
-                if not isinstance(dec, tuple) or dec[0] != "apply":
-                    col_i += 1
-                    continue
-                key = dec[1]
-                run_end = col_i
-                while run_end + 1 < n and resolved[run_end + 1] == ("apply", key):
-                    run_end += 1
-                abs_c0 = start_col + col_i
-                abs_c1 = start_col + run_end
-                target = sheet.getCellRangeByPosition(abs_c0, row, abs_c1, row)
-                self._apply_number_format_key(target, int(key))
-                applied += run_end - col_i + 1
-                col_i = run_end + 1
+        Resolves empty-cell bridging per row, finds horizontal apply runs, then
+        vertically merges identical ``(c0, c1, key)`` spans before one range set
+        per rectangle.
+        """
+        start_col, start_row = start
+        rects = coalesce_temporal_apply_rects(decisions)
+        applied = 0
+        for r0, r1, c0, c1, key in rects:
+            target = sheet.getCellRangeByPosition(start_col + c0, start_row + r0, start_col + c1, start_row + r1)
+            self._apply_number_format_key(target, key)
+            applied += (r1 - r0 + 1) * (c1 - c0 + 1)
         return applied
 
     def write_formula_range(self, range_str: str, formula_or_values):
@@ -721,21 +720,23 @@ class CellManipulator:
             formats = doc.getNumberFormats()
             locale = self._resolve_document_locale(doc)
             std_key = formats.getStandardIndex(locale)
-            # Lazy formatter: only create when at least one string looks ISO-shaped.
+            # Lazy formatter: only create when at least one string looks ISO date/time-shaped.
             needs_formatter = any(isinstance(v, str) and not v.startswith("=") and not v.startswith("'") and match_iso_temporal(v.strip()) for v in values)
             formatter = self._make_number_formatter(doc) if needs_formatter else None
+            needs_duration = any(isinstance(v, str) and not v.startswith("=") and not v.startswith("'") and match_iso_duration(v.strip()) for v in values)
+            elapsed_format_key = self._resolve_elapsed_format_key(formats, locale) if needs_duration else None
 
             data_array: list[list] = []
             formula_cells: list[tuple[int, int, str]] = []  # (col, row, formula)
             # Per-cell meta in row-major order matching values
             cell_metas: list[dict] = []
-            counts = {"date": 0, "time": 0, "datetime": 0, "text": 0, "formula": 0, "number": 0}
+            counts = {"date": 0, "time": 0, "datetime": 0, "duration": 0, "text": 0, "formula": 0, "number": 0}
 
             cell_idx = 0
             for row in range(start[1], end[1] + 1):
                 data_row: list = []
                 for col in range(start[0], end[0] + 1):
-                    data_val, formula, meta = self._classify_write_cell(values[cell_idx], formatter, std_key)
+                    data_val, formula, meta = self._classify_write_cell(values[cell_idx], formatter, std_key, elapsed_format_key=elapsed_format_key)
                     if formula:
                         formula_cells.append((col, row, formula))
                         counts["formula"] += 1
@@ -793,10 +794,10 @@ class CellManipulator:
             format_warning = ""
             if any_temporal:
                 # Build row decisions: None | "empty" | ("apply", key) | ("preserve", None)
-                decisions: list[list] = []
+                decisions: list[list[tuple[str, int | None] | str | None]] = []
                 cell_idx = 0
                 for row in range(start[1], end[1] + 1):
-                    row_dec = []
+                    row_dec: list[tuple[str, int | None] | str | None] = []
                     for col in range(start[0], end[0] + 1):
                         meta = cell_metas[cell_idx]
                         data_val = data_array[row - start[1]][col - start[0]]
@@ -815,15 +816,15 @@ class CellManipulator:
                         cell_idx += 1
                     decisions.append(row_dec)
                 try:
-                    self._apply_temporal_format_runs(sheet, start, end, decisions)
+                    self._apply_temporal_format_runs(sheet, start, decisions)
                 except Exception:
                     logger.exception("Date/time format pass failed for range %s", range_str)
                     temporal_n = sum(1 for m in cell_metas if m["kind"] == "temporal")
                     format_warning = f"; could not apply date formats to {temporal_n} cells in {range_str}"
 
             parts = []
-            for singular, key in (("date", "date"), ("time", "time"), ("datetime", "datetime"), ("number", "number"), ("text", "text"), ("formula", "formula")):
-                n = counts.get(key, 0)
+            for singular, count_key in (("date", "date"), ("time", "time"), ("datetime", "datetime"), ("duration", "duration"), ("number", "number"), ("text", "text"), ("formula", "formula")):
+                n = counts.get(count_key, 0)
                 if n:
                     parts.append(f"{n} {singular}" + ("s" if n != 1 and singular != "text" else ""))
             detail = f" ({', '.join(parts)})" if parts else ""

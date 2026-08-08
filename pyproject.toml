@@ -43,6 +43,7 @@ build-backend = "setuptools.build_meta"
 [dependency-groups]
 dev = [
     "latex2mathml",
+    "isodate",
     "json-repair",
     "snowballstemmer",
     "websockets>=13.0,<16",

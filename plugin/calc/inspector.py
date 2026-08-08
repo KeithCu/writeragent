@@ -24,7 +24,7 @@ import datetime
 import logging
 import re
 
-from plugin.calc.datetime_wire import is_elapsed_format_string
+from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
 from plugin.framework.errors import ToolExecutionError
 
 try:
@@ -115,7 +115,7 @@ class CellInspector:
         """Resolve one number-format key, caching across equal-format ranges.
 
         Elapsed formats report Type TIME but use bracketed units (``[HH]``, …).
-        Those skip enrichment so values >= 1.0 are not truncated by ``.time()``.
+        Those enrich as ``duration`` (``PT30H``) so values >= 1.0 are not truncated.
         """
         try:
             key = int(format_key)
@@ -126,12 +126,12 @@ class CellInspector:
             category = _format_category_from_type(props.getPropertyValue("Type"))
             # DURATION bit never appears on elapsed formats; FormatString is the signal.
             if category == "time" and is_elapsed_format_string(props.getPropertyValue("FormatString")):
-                category = None
+                category = "duration"
             cache[key] = category
         return cache[key]
 
     def _enrich_cell_format(self, info: dict, cell) -> None:
-        """Rewrite LLM-facing date/time cells to ISO in ``value``.
+        """Rewrite LLM-facing date/time/duration cells to ISO in ``value``.
 
         Only used when ``include_format_info=True`` (tool path). Internal
         callers that need raw Calc serials must keep ``include_format_info=False``.
@@ -144,8 +144,11 @@ class CellInspector:
         category = self._format_category(self._safe_prop(cell, "NumberFormat"), formats, {})
         if category is None:
             return
-        null_date = doc.getNumberFormatSettings().getPropertyValue("NullDate")
-        info["value"] = _iso8601_from_serial(float(value), category, null_date)
+        if category == "duration":
+            info["value"] = iso_duration_from_serial(float(value))
+        else:
+            null_date = doc.getNumberFormatSettings().getPropertyValue("NullDate")
+            info["value"] = _iso8601_from_serial(float(value), category, null_date)
         info["type"] = category
         info["format_category"] = category
 
@@ -365,7 +368,10 @@ class CellInspector:
                         category = self._category_for_position(format_rows, row, col)
                         if category is not None:
                             # LLM path: ISO in value for round-trips; raw serials stay on include_format_info=False.
-                            cell_info["value"] = _iso8601_from_serial(float(value), category, null_date)
+                            if category == "duration":
+                                cell_info["value"] = iso_duration_from_serial(float(value))
+                            else:
+                                cell_info["value"] = _iso8601_from_serial(float(value), category, null_date)
                             cell_info["type"] = category
                             cell_info["format_category"] = category
                     row_data.append(cell_info)

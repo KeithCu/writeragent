@@ -176,6 +176,40 @@ def test_inspector_format_info_skips_format_groups_when_no_dates_or_formulas():
     cell_range.getUniqueCellFormatRanges.assert_not_called()
 
 
+def test_inspector_enriches_elapsed_format_as_duration():
+    """Elapsed [HH]:MM:SS → PT30H wire, not clock 06:00:00."""
+    from plugin.calc.inspector import CellInspector
+
+    date_addr = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+    representative = MagicMock()
+    representative.getPropertyValue.return_value = 43
+    elapsed_group = MagicMock()
+    elapsed_group.getCount.return_value = 1
+    elapsed_group.getByIndex.return_value = representative
+    elapsed_group.getRangeAddresses.return_value = (date_addr,)
+    format_groups = MagicMock()
+    format_groups.getCount.return_value = 1
+    format_groups.getByIndex.return_value = elapsed_group
+
+    # Two columns so read_range takes the batch path (single-cell uses read_cell).
+    bridge, cell_range, formats = _make_range_bridge(
+        data_array=((1.25, 42.0),),
+        formula_array=(("1.25", "42"),),
+        date_addresses=(date_addr,),
+        format_groups=format_groups,
+        format_type=4,  # TIME
+    )
+    format_props = formats.getByKey.return_value
+    format_props.getPropertyValue.side_effect = lambda name: 4 if name == "Type" else "[HH]:MM:SS"
+
+    result = CellInspector(bridge).read_range("A1:B1", include_format_info=True)
+
+    assert result[0][0]["value"] == "PT30H"
+    assert result[0][0]["type"] == "duration"
+    assert result[0][0]["format_category"] == "duration"
+    assert result[0][1]["value"] == 42.0
+
+
 def test_inspector_format_info_uses_format_groups_for_formula_only_ranges():
     from plugin.calc.inspector import CellInspector
 
@@ -248,3 +282,64 @@ def test_read_cell_range_tool_opts_into_format_info():
 
     assert result["status"] == "ok"
     inspector_cls.return_value.read_range.assert_called_once_with("A1", include_format_info=True)
+
+
+def test_write_formula_range_s30_format_pass_warning():
+    """S30: format-pass failure keeps value-commit success and warns in the message."""
+    from plugin.calc.manipulator import CellManipulator
+
+    addr = SimpleNamespace(StartColumn=0, EndColumn=0, StartRow=0, EndRow=0)
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = addr
+    sheet = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    sheet.getCellRangeByPosition.return_value = cell_range
+
+    cell = MagicMock()
+    cell.getPropertyValue.return_value = 0  # General
+    sheet.getCellByPosition.return_value = cell
+
+    formats = MagicMock()
+    formats.getStandardIndex.return_value = 1
+    format_props = MagicMock()
+    format_props.getPropertyValue.return_value = 0  # non-temporal Type
+    formats.getByKey.return_value = format_props
+
+    doc = MagicMock()
+    doc.getNumberFormats.return_value = formats
+    doc.getPropertyValue.return_value = SimpleNamespace(Language="en", Country="US", Variant="")
+
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.return_value = cell_range
+    bridge.get_active_document.return_value = doc
+
+    formatter = MagicMock()
+    formatter.detectNumberFormat.return_value = 37
+    formatter.convertStringToNumber.return_value = 46242.0
+
+    manip = CellManipulator(bridge)
+    with patch.object(manip, "_make_number_formatter", return_value=formatter):
+        with patch.object(manip, "_apply_temporal_format_runs", side_effect=RuntimeError("format boom")):
+            msg = manip.write_formula_range("A1", "2026-08-08")
+
+    assert "Range A1 filled with 1 values (1 date)" in msg
+    assert "could not apply date formats to 1 cells in A1" in msg
+    cell_range.setDataArray.assert_called_once()
+
+
+def test_apply_temporal_format_runs_vertically_merges_homogeneous_column():
+    """Homogeneous apply column → one getCellRangeByPosition covering all rows."""
+    from plugin.calc.manipulator import CellManipulator
+
+    sheet = MagicMock()
+    target = MagicMock()
+    sheet.getCellRangeByPosition.return_value = target
+    manip = CellManipulator(MagicMock())
+    apply = ("apply", 42)
+    decisions = [[apply], [apply], [apply]]
+
+    applied = manip._apply_temporal_format_runs(sheet, start=(0, 10), decisions=decisions)
+
+    assert applied == 3
+    sheet.getCellRangeByPosition.assert_called_once_with(0, 10, 0, 12)
+    target.setPropertyValue.assert_called_once_with("NumberFormat", 42)

@@ -273,20 +273,21 @@ def main() -> int:
     def val(label):
         return by[label]["type"] == "VALUE"
 
-    def fmt_is(label, *cats):
-        return by[label]["format_category"] in cats
+    def leaves_general(label):
+        # §8.1: setFormula converts to VALUE but leaves General (Eike interactive claim is false on UNO).
+        return by[label]["format_category"] not in ("date", "time", "datetime")
 
     checks = [
         ("ISO date → VALUE serial", val("date") and by["date"]["value"] == 46242.0),
-        ("ISO date → date NumberFormat applied (Eike claim via UNO)", fmt_is("date", "date")),
+        ("ISO date leaves General (Eike UNO claim false)", val("date") and leaves_general("date")),
         ("HH:MM → VALUE ~0.333", val("time_hm") and abs(by["time_hm"]["value"] - 1 / 3) < 1e-9),
-        ("HH:MM → time NumberFormat applied", fmt_is("time_hm", "time")),
+        ("HH:MM leaves General", val("time_hm") and leaves_general("time_hm")),
         ("T-datetime → VALUE", val("dt_T")),
-        ("T-datetime → datetime/date NumberFormat", fmt_is("dt_T", "datetime", "date")),
+        ("T-datetime leaves General", val("dt_T") and leaves_general("dt_T")),
         ("space-datetime → VALUE", val("dt_space")),
         ("unpadded date → VALUE", val("date_unpadded")),
         ("US slash → VALUE (locale-dependent; bad for router)", val("slash_us")),
-        ("EU dot → TEXT under en-US", by["slash_eu"]["type"] == "TEXT"),
+        ("EU dot 05.08.2026 → TEXT under en-US", by["slash_eu"]["type"] == "TEXT"),
         ("Zulu → TEXT", by["zulu"]["type"] == "TEXT"),
         ("offset → TEXT", by["offset"]["type"] == "TEXT"),
         ("apostrophe → TEXT", by["apostrophe"]["type"] == "TEXT"),
@@ -294,7 +295,8 @@ def main() -> int:
         ("30:00 → VALUE 1.25 (duration-like)", val("durationish") and by["durationish"]["value"] == 1.25),
         ("setDataArray leaves TEXT", mixed["setDataArray"]["type"] == "TEXT"),
         ("setFormulaArray makes VALUE", mixed["setFormulaArray"]["type"] == "VALUE"),
-        ("@ preformat blocks conversion", pre[0]["type"] == "TEXT"),
+        # §8.3: @ does not block setFormula conversion (claim that it blocks is false).
+        ("@ preformat does not block setFormula conversion", pre[0]["type"] == "VALUE"),
         ("[HH]:MM:SS preserved for 08:00", pre[1]["format_string"].startswith("[")),
         ("NullDate 1904 changes serial", info_1904["value"] == 44780.0),
     ]
