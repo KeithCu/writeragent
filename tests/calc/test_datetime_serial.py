@@ -33,6 +33,8 @@ from plugin.calc.datetime_wire import (
         ("08:00:00", "time"),
         ("2026-08-08T08:00:00", "datetime"),
         ("2026-08-08 08:00:00", "datetime"),
+        ("2026-08-08T08:00", "datetime"),
+        ("2026-08-08 08:00", "datetime"),
         ("  2026-08-08  ", "date"),
         ("2026-8-8", None),
         ("08/05/2026", None),
@@ -96,6 +98,7 @@ def test_is_midnight_serial():
         ("datetime", 46242.5, "date", False),
         ("datetime", 46242.5, "datetime", True),
         ("datetime", 46242.0, "time", False),
+        ("datetime", 46242.5, None, False),  # General / non-temporal
     ],
 )
 def test_should_preserve_temporal_format(input_cat, serial, dest, preserve):
@@ -130,6 +133,16 @@ def test_duration_serial_iso_round_trip():
     assert iso_duration_from_serial(1 / 3) == "PT8H"
     assert iso_duration_from_serial(0.0) == "PT0S"
     assert iso_duration_from_serial(8.5 / 24) == "PT8H30M"
+
+
+def test_iso_duration_from_serial_rejects_negative():
+    with pytest.raises(ValueError, match="negative duration serial"):
+        iso_duration_from_serial(-1.25)
+
+
+def test_duration_serial_from_iso_rejects_calendar_duration():
+    with pytest.raises(ValueError, match="unsupported calendar duration"):
+        duration_serial_from_iso("P1Y")
 
 
 def test_resolve_s25_row_empties_joins_when_neighbors_agree():

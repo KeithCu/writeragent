@@ -69,8 +69,9 @@ def _iso8601_from_serial(value: float, category: str, null_date) -> str:
     if category == "date":
         return converted.date().isoformat()
     if category == "time":
-        # Values >= 1.0 are durations longer than 24h; .time() drops whole days.
-        # Calc itself is ambiguous here (TIME vs datetime edit/display heuristic):
+        # Clock times only. Elapsed formats (serials >= 1.0 under [HH]:…) are classified
+        # as "duration" before this helper and emit via iso_duration_from_serial.
+        # Calc TIME vs datetime edit/display heuristic:
         # https://lists.freedesktop.org/archives/libreoffice/2018-July/080606.html
         return converted.time().isoformat()
     if category == "datetime":

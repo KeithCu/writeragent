@@ -100,8 +100,15 @@ def duration_serial_from_iso(text: str) -> float:
 
 
 def iso_duration_from_serial(serial: float) -> str:
-    """Emit compact ``PTnHnMnS`` with hours allowed to exceed 24 (not ``P1DT6H``)."""
-    total = abs(round(float(serial) * 86400.0))
+    """Emit compact ``PTnHnMnS`` with hours allowed to exceed 24 (not ``P1DT6H``).
+
+    Negative serials are out of scope for the wire contract (gate rejects ``-PT…``);
+    raise rather than silently emitting a positive duration.
+    """
+    value = float(serial)
+    if value < 0:
+        raise ValueError(f"negative duration serial is out of scope: {serial!r}")
+    total = round(value * 86400.0)
     hours, rem = divmod(total, 3600)
     minutes, seconds = divmod(rem, 60)
     parts = ["PT"]

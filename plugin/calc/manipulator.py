@@ -331,8 +331,6 @@ class CellManipulator:
             # Get value with type handling
             cell_type = cell.getType()
 
-            import sys
-
             CCT = sys.modules.get("com.sun.star.table", None)
             if CCT is not None and hasattr(CCT, "CellContentType"):
                 CCT = CCT.CellContentType
@@ -720,10 +718,20 @@ class CellManipulator:
             formats = doc.getNumberFormats()
             locale = self._resolve_document_locale(doc)
             std_key = formats.getStandardIndex(locale)
-            # Lazy formatter: only create when at least one string looks ISO date/time-shaped.
-            needs_formatter = any(isinstance(v, str) and not v.startswith("=") and not v.startswith("'") and match_iso_temporal(v.strip()) for v in values)
+            # Lazy setup: one pass over values for ISO date/time vs PT duration candidates.
+            needs_formatter = False
+            needs_duration = False
+            for v in values:
+                if not isinstance(v, str) or v.startswith("=") or v.startswith("'"):
+                    continue
+                stripped = v.strip()
+                if not needs_formatter and match_iso_temporal(stripped):
+                    needs_formatter = True
+                if not needs_duration and match_iso_duration(stripped):
+                    needs_duration = True
+                if needs_formatter and needs_duration:
+                    break
             formatter = self._make_number_formatter(doc) if needs_formatter else None
-            needs_duration = any(isinstance(v, str) and not v.startswith("=") and not v.startswith("'") and match_iso_duration(v.strip()) for v in values)
             elapsed_format_key = self._resolve_elapsed_format_key(formats, locale) if needs_duration else None
 
             data_array: list[list] = []

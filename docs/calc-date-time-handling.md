@@ -111,11 +111,11 @@ The end-to-end date/time architecture consists of three synchronized phases:
 When `read_cell_range` is invoked with `include_format_info=True` (enabled by default for LLM tool invocations), enrichment follows the wire schema above:
 
 1. **Pre-flight Check**: To prevent performance degradation on large datasets, `CellInspector._range_format_rows()` scans the range for cell formats. If no date/time formats or formulas exist in the target block, format inspection returns early.
-2. **Format grouping**: Queries `cell_range.getUniqueCellFormatRanges()` to group cells sharing a format. The response still requires an $O(N \times M)$ serialization walk, but format-related UNO round-trips scale with format groups rather than cells.
+2. **Format grouping**: Queries `cell_range.getUniqueCellFormatRanges()` to group cells sharing a format. The response still requires an O(N*M) serialization walk, but format-related UNO round-trips scale with format groups rather than cells.
 3. **Format classification**: Reads `getByKey(format_id).getPropertyValue("Type")`, masks `NumberFormat.DEFINED`, and classifies:
-   - `NUMBER_FORMAT_DATE` $\rightarrow$ `"date"`
-   - `NUMBER_FORMAT_TIME` $\rightarrow$ `"time"`
-   - `NUMBER_FORMAT_DATE | NUMBER_FORMAT_TIME` $\rightarrow$ `"datetime"`
+   - `NUMBER_FORMAT_DATE` -> `"date"`
+   - `NUMBER_FORMAT_TIME` -> `"time"`
+   - `NUMBER_FORMAT_DATE | NUMBER_FORMAT_TIME` -> `"datetime"`
 4. **Serial-to-ISO translation**:
    Reads `NullDate` from `doc.getNumberFormatSettings().getPropertyValue("NullDate")` and computes:
 
@@ -142,15 +142,7 @@ The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_ela
 
 ### 4.1 Connection-Time Clock Context
 
-[plugin/mcp/mcp_protocol.py](../plugin/mcp/mcp_protocol.py) injects current local clock context into MCP system instructions:
-
-```python
-def _format_mcp_clock_context(now: datetime.datetime | None = None) -> str:
-    local_now = now.astimezone() if now is not None else datetime.datetime.now().astimezone()
-    timezone_name = local_now.tzname()
-    timezone_suffix = f" ({timezone_name})" if timezone_name else ""
-    return f"Current local date and time: {local_now.strftime('%A')}, {local_now.isoformat(timespec='seconds')}{timezone_suffix}."
-```
+[plugin/mcp/mcp_protocol.py](../plugin/mcp/mcp_protocol.py) injects current local clock context into MCP system instructions via `_format_mcp_clock_context` (see source for the current implementation).
 
 Example string prepended to system instructions:
 `Current local date and time: Friday, 2026-08-07T11:04:25-04:00 (EDT).`
@@ -678,15 +670,7 @@ if not any(c in val for c in ("-", ":")):
 
 Duration is a separate gate (`match_iso_duration`); it does not use the `-`/`:` prefilter. Parse uses vendored `isodate.parse_duration`; emit uses `iso_duration_from_serial` so 30 hours stays `PT30H` (not `P1DT6H`).
 
-```python
-_DATE_RE = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$")
-_TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$")
-_DATETIME_RE = re.compile(
-    r"^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])[T ]"
-    r"([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$"
-)
-_DURATION_RE = re.compile(r"^PT(?=\d+[HMS])(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$")
-```
+The gate regexes live in [`datetime_wire.py`](../plugin/calc/datetime_wire.py) (`_DATE_RE`, `_TIME_RE`, `_DATETIME_RE`, `_DURATION_RE`) — prefer that source over copying them here.
 
 Evaluate datetime, date, then time; the first match records `input_category`. Duration is checked independently before the clock/date path on write. The anchors make the regexes non-overlapping today, but the explicit order prevents a future grammar expansion from silently reclassifying a datetime.
 
@@ -762,7 +746,7 @@ All three steps landed in v1 (duration wire completed afterward):
 
 ### 5.6 Performance rules
 
-1. $O(1)$ char guard before regex (§5.3).
+1. O(1) char guard before regex (§5.3).
 2. Prefer `NumberFormat` range sets; do not set format per cell when a rectangle will do. Homogeneous rectangular ranges get one range set; sparse grids coalesce into row-local same-decision runs (S25), then vertically merge identical `(c0, c1, key)` spans. Alternating preserve/apply may still need multiple runs — up to O(n) format IPCs is acceptable; do not rewrite values just to coalesce.
 3. Cache the formatter, the standard key, and destination-category lookups (`key → category`) for the invocation. Format **apply** coalesces into rectangles; detect/convert stay per gated cell (typical LLM grids have mostly unique ISO strings, so a same-string convert cache is not worth the complexity).
 4. Only inspect destination formats when at least one value passed the gate (S13).

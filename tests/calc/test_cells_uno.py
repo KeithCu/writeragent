@@ -665,3 +665,24 @@ def test_write_duration_preserves_elapsed_format():
     assert "1 duration" in res.get("message", ""), res.get("message")
     assert int(cell.getPropertyValue("NumberFormat")) == prior_key
     assert abs(cell.getValue() - (8.0 / 24.0)) < 1e-9
+
+
+@native_test
+def test_write_and_read_duration_pt1h30m():
+    """Multi-component PT1H30M round-trips as duration wire, not clock time."""
+    res = _execute_calc_tool(
+        "write_formula_range",
+        {"range_name": ["C43"], "formula_or_values": "PT1H30M"},
+    )
+    assert res.get("status") == "ok", res
+    assert "1 duration" in res.get("message", ""), res.get("message")
+
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+    cell = active_sheet.getCellByPosition(2, 42)  # C43
+    assert abs(cell.getValue() - (1.5 / 24.0)) < 1e-9
+
+    read_res = _execute_calc_tool("read_cell_range", {"range_name": ["C43"]})
+    info = read_res["result"][0][0][0]
+    assert info["value"] == "PT1H30M"
+    assert info["type"] == "duration"
+    assert info["format_category"] == "duration"
