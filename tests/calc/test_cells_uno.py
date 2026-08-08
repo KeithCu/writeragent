@@ -709,3 +709,58 @@ def test_write_and_read_duration_pt1h30m():
     assert info["value"] == "PT1H30M"
     assert info["type"] == "duration"
     assert info["format_category"] == "duration"
+
+
+@native_test
+def test_write_inherits_column_date_format():
+    """P1: Write ISO date into empty row below formatted column inherits format."""
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+    cell_a50 = active_sheet.getCellByPosition(0, 49)  # A50
+    _set_number_format(cell_a50, "MM/DD/YYYY")
+    cell_a50.setValue(46242.0)
+    expected_key = int(cell_a50.getPropertyValue("NumberFormat"))
+
+    res = _execute_calc_tool(
+        "write_formula_range",
+        {"range_name": ["A51"], "formula_or_values": "2026-08-08"},
+    )
+    assert res.get("status") == "ok", res
+    cell_a51 = active_sheet.getCellByPosition(0, 50)  # A51
+    assert int(cell_a51.getPropertyValue("NumberFormat")) == expected_key
+
+
+@native_test
+def test_write_inherits_column_format_with_empty_gap():
+    """P1: Upward template scan skips empty rows to find nearest compatible format."""
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+    cell_b50 = active_sheet.getCellByPosition(1, 49)  # B50
+    _set_number_format(cell_b50, "MM/DD/YYYY")
+    cell_b50.setValue(46242.0)
+    expected_key = int(cell_b50.getPropertyValue("NumberFormat"))
+
+    res = _execute_calc_tool(
+        "write_formula_range",
+        {"range_name": ["B52"], "formula_or_values": "2026-08-08"},
+    )
+    assert res.get("status") == "ok", res
+    cell_b52 = active_sheet.getCellByPosition(1, 51)  # B52
+    assert int(cell_b52.getPropertyValue("NumberFormat")) == expected_key
+
+
+@native_test
+def test_write_time_does_not_inherit_incompatible_date_format():
+    """P1: Incompatible template (date column for time write) is not inherited."""
+    active_sheet = _test_doc.getCurrentController().getActiveSheet()
+    cell_c50 = active_sheet.getCellByPosition(2, 49)  # C50
+    _set_number_format(cell_c50, "MM/DD/YYYY")
+    cell_c50.setValue(46242.0)
+    date_key = int(cell_c50.getPropertyValue("NumberFormat"))
+
+    res = _execute_calc_tool(
+        "write_formula_range",
+        {"range_name": ["C51"], "formula_or_values": "08:00"},
+    )
+    assert res.get("status") == "ok", res
+    cell_c51 = active_sheet.getCellByPosition(2, 50)  # C51
+    assert int(cell_c51.getPropertyValue("NumberFormat")) != date_key
+

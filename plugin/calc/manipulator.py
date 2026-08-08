@@ -49,6 +49,7 @@ from plugin.calc import CalcError
 from plugin.calc.datetime_wire import (
     coalesce_temporal_apply_rects,
     duration_serial_from_iso,
+    is_compatible_temporal_template,
     match_iso_duration,
     match_iso_temporal,
     should_preserve_temporal_format,
@@ -637,6 +638,52 @@ class CellManipulator:
             meta["restore_format"] = True
             return value, "", meta
 
+    def _find_column_temporal_templates(
+        self,
+        sheet,
+        formats,
+        columns_needing_templates: dict[int, str],
+        scan_start_row: int,
+        category_cache: dict[int, str | None],
+        max_scan: int = 100,
+    ) -> dict[int, int]:
+        """Find inherited NumberFormat keys by scanning upward in each column (P1).
+
+        Args:
+            sheet: The active sheet.
+            formats: doc.getNumberFormats().
+            columns_needing_templates: {col_index: input_category} for columns needing template.
+            scan_start_row: Row index to start scanning upward from (exclusive).
+            category_cache: Shared key -> category cache (mutated in place).
+            max_scan: Maximum rows to scan upward.
+
+        Returns:
+            {col_index: inherited_format_key} for columns where a template was found.
+        """
+        column_templates: dict[int, int] = {}
+        for col, input_category in columns_needing_templates.items():
+            start_r = scan_start_row - 1
+            min_r = max(0, scan_start_row - max_scan)
+            for r in range(start_r, min_r - 1, -1):
+                try:
+                    cell = sheet.getCellByPosition(col, r)
+                    key = int(cell.getPropertyValue("NumberFormat"))
+                except Exception:
+                    continue
+                if key == 0:
+                    continue
+                if key not in category_cache:
+                    try:
+                        props = formats.getByKey(key)
+                        category_cache[key] = _format_category_from_type(props.getPropertyValue("Type"))
+                    except Exception:
+                        category_cache[key] = None
+                cat = category_cache[key]
+                if is_compatible_temporal_template(input_category, cat):
+                    column_templates[col] = key
+                    break
+        return column_templates
+
     def _apply_temporal_format_runs(self, sheet, start, decisions):
         """Apply detected NumberFormat keys as coalesced 2D rectangles (S8/S25).
 
@@ -809,6 +856,23 @@ class CellManipulator:
 
             format_warning = ""
             if any_temporal:
+                # P1: collect columns needing templates (temporal cells with non-temporal destination)
+                cols_needing: dict[int, str] = {}
+                cell_idx = 0
+                for row in range(start[1], end[1] + 1):
+                    for col in range(start[0], end[0] + 1):
+                        meta = cell_metas[cell_idx]
+                        if meta["kind"] == "temporal" and dest_categories.get((col, row)) is None:
+                            if col not in cols_needing:
+                                cols_needing[col] = meta["input_category"]
+                        cell_idx += 1
+
+                column_templates: dict[int, int] = {}
+                if cols_needing:
+                    column_templates = self._find_column_temporal_templates(
+                        sheet, formats, cols_needing, start[1], category_cache
+                    )
+
                 # Build row decisions: None | "empty" | ("apply", key) | ("preserve", None)
                 decisions: list[list[tuple[str, int | None] | str | None]] = []
                 cell_idx = 0
@@ -824,7 +888,8 @@ class CellManipulator:
                             if should_preserve_temporal_format(meta["input_category"], float(data_val), dest_cat):
                                 row_dec.append(("preserve", None))
                             else:
-                                row_dec.append(("apply", meta["detected_key"]))
+                                apply_key = column_templates.get(col, meta["detected_key"])
+                                row_dec.append(("apply", apply_key))
                         elif data_val == "" and meta["kind"] == "empty":
                             row_dec.append("empty")
                         else:

@@ -237,7 +237,7 @@ So for each converted cell the code chooses one of two actions:
 | Action | Meaning |
 | :--- | :--- |
 | **preserve** (keep) | Leave the cell’s existing `NumberFormat` key alone. Only the value was written. |
-| **apply** | Set the cell’s `NumberFormat` to the key returned by `detectNumberFormat` for this ISO string. |
+| **apply** | Set the cell’s `NumberFormat` to an inherited compatible format key from upper cells in the same column (P1), or fall back to the key returned by `detectNumberFormat` for this ISO string if no column template exists. |
 
 M1 is how to choose between those two.
 

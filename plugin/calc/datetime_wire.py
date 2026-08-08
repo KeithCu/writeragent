@@ -139,6 +139,22 @@ def should_preserve_temporal_format(input_category: str, serial: float, dest_cat
     return False
 
 
+def is_compatible_temporal_template(input_category: str, template_category: str | None) -> bool:
+    """Check if a column template's format category is compatible with input_category."""
+    if template_category is None:
+        return False
+    if input_category == "date" and template_category in ("date", "datetime"):
+        return True
+    if input_category == "time" and template_category == "time":
+        return True
+    if input_category == "duration" and template_category == "time":
+        return True
+    if input_category == "datetime" and template_category in ("datetime", "date"):
+        return True
+    return False
+
+
+
 def resolve_s25_row_empties(row: list[FormatDecision]) -> list[FormatDecision]:
     """Join empty cells only when both adjacent non-empty coerced neighbors agree (S25)."""
     resolved: list[FormatDecision] = []

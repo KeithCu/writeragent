@@ -20,6 +20,7 @@ from plugin.calc.datetime_wire import (
     match_iso_duration,
     match_iso_temporal,
     merge_vertical_apply_rects,
+    is_compatible_temporal_template,
     resolve_s25_row_empties,
     should_preserve_temporal_format,
 )
@@ -103,6 +104,26 @@ def test_is_midnight_serial():
 )
 def test_should_preserve_temporal_format(input_cat, serial, dest, preserve):
     assert should_preserve_temporal_format(input_cat, serial, dest) is preserve
+
+
+@pytest.mark.parametrize(
+    "input_cat,template,compatible",
+    [
+        ("date", "date", True),
+        ("date", "datetime", True),
+        ("date", "time", False),
+        ("date", None, False),
+        ("time", "time", True),
+        ("time", "date", False),
+        ("duration", "time", True),
+        ("duration", "date", False),
+        ("datetime", "datetime", True),
+        ("datetime", "date", True),
+        ("datetime", "time", False),
+    ],
+)
+def test_is_compatible_temporal_template(input_cat, template, compatible):
+    assert is_compatible_temporal_template(input_cat, template) is compatible
 
 
 @pytest.mark.parametrize(

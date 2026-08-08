@@ -1,6 +1,6 @@
 # Calc / MCP follow-ups from discussion #374 (design)
 
-**Status:** easy fixes shipped (see §0.1); post-ship review in §11; P1 column inheritance still open.  
+**Status:** easy fixes & post-ship review items shipped (see §0.1, §11); P1 column inheritance shipped.  
 **Source:** [Discussion #374](https://github.com/KeithCu/writeragent/discussions/374) (bell07 + KeithCu).  
 **Related shipped doc:** [calc-date-time-handling.md](calc-date-time-handling.md).  
 **Out of scope here:** sidebar scroll / sticky thinking viewport (separate UX problem).
@@ -589,7 +589,7 @@ In [`inspector.py`](../plugin/calc/inspector.py) `read_range`, `format_rows` is 
 | Polish | Stale `format_rows` annotation | Fix 3-tuple → 4-tuple | **Fixed** |
 | Polish | Proxy `str = ""` default | Generalize when a second param is added | Skipped (speculative) |
 
-**P1** (column / nearest-above inheritance) remains the open product fix for Mechanism W on new empty rows — not part of this commit.
+**P1** (column / nearest-above inheritance) is now shipped as the product fix for Mechanism W on new empty rows.
 
 ---
 
