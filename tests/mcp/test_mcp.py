@@ -27,6 +27,7 @@ def test_initialize_instructions_lean_pointer_in_every_mode():
         assert "Current local date and time:" in text
         assert "WriterAgent MCP" in text          # base preserved
         assert "get_guidance" in text             # the pointer to the on-demand manual
+        assert "omit timezone offset" in text     # clock prints offset; Calc write rejects it
         assert "get_document_tree" not in text    # the nav workflow moved to the manual
         assert len(text) < 1500
 

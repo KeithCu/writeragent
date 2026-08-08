@@ -311,7 +311,9 @@ class CellInspector:
             2D list of dicts, each with keys: address, value, formula, type.
             When ``include_format_info`` is True, date/time-formatted numeric
             cells use an ISO string as ``value``, ``type`` of date/time/datetime,
-            and ``format_category``; otherwise ``value`` stays the raw serial.
+            and ``format_category``; elapsed formats use ``PTnHnMnS`` with
+            ``type`` / ``format_category`` ``duration``. Otherwise ``value``
+            stays the raw serial.
         """
         try:
             cell_range = self.bridge.resolve_range_or_address(range_name)

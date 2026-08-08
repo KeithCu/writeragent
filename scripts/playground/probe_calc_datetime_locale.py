@@ -342,8 +342,12 @@ def q4_duration(doc, sheet):
         cell.setPropertyValue("NumberFormat", key)
         info = CellInspector(CalcBridge(doc)).read_range("N1", include_format_info=True)[0][0]
         print(f"  cell displays '{cell.getString()}'  read_range -> {info}", flush=True)
-        if info.get("iso8601") == "06:00:00":
-            print("  ^^ WRONG: 30 hours reported as 06:00:00 (whole day silently dropped)", flush=True)
+        if info.get("value") == "06:00:00" or info.get("type") == "time":
+            print("  ^^ WRONG: 30 hours reported as clock time (whole day silently dropped)", flush=True)
+        elif info.get("value") == "PT30H" and info.get("type") == "duration":
+            print("  OK: duration wire PT30H", flush=True)
+        else:
+            print(f"  unexpected readback: value={info.get('value')!r} type={info.get('type')!r}", flush=True)
     except Exception as e:
         print(f"  SKIP: {type(e).__name__}: {e}", flush=True)
 

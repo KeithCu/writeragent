@@ -322,8 +322,8 @@ def test_write_formula_range_s30_format_pass_warning():
         with patch.object(manip, "_apply_temporal_format_runs", side_effect=RuntimeError("format boom")):
             msg = manip.write_formula_range("A1", "2026-08-08")
 
-    assert "Range A1 filled with 1 values (1 date)" in msg
-    assert "could not apply date formats to 1 cells in A1" in msg
+    assert "Range A1 filled with 1 value (1 date)" in msg
+    assert "could not apply date/time formats to 1 cells in A1" in msg
     cell_range.setDataArray.assert_called_once()
 
 

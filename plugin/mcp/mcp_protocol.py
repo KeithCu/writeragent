@@ -94,6 +94,13 @@ def _format_mcp_clock_context(now: datetime.datetime | None = None) -> str:
     return f"Current local date and time: {local_now.strftime('%A')}, {local_now.isoformat(timespec='seconds')}{timezone_suffix}."
 
 
+# Clock context prints an offset-bearing ISO stamp; Calc write rejects offset/Z (stored as text).
+_MCP_CALC_DATETIME_HINT = (
+    " When writing Calc date/time cells, use offset-free ISO (YYYY-MM-DD, HH:MM[:SS], YYYY-MM-DDTHH:MM[:SS]) "
+    "or PTnHnMnS for elapsed values; omit timezone offset and Z."
+)
+
+
 def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = None) -> str:
     """Assemble the MCP initialize `instructions` string for a tool-exposure mode.
 
@@ -119,7 +126,7 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
             " For specialized capabilities, call delegate_to_specialized_*_toolset with domain and task "
             "(requires a WriterAgent chat endpoint for the inner agent)."
         )
-    return _format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_GUIDANCE_POINTER
+    return _format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
 
 
 def _get_request_protocol_version(handler) -> str | None:

@@ -71,7 +71,7 @@ class ReadCellRange(ToolBase):
     """Read values from one or more cell ranges."""
 
     name = "read_cell_range"
-    description = "Reads values from the specified cell range(s). Date/time-formatted numeric cells return an ISO 8601 string in `value` with `type` and `format_category` of date, time, or datetime. Supports lists for non-contiguous areas."
+    description = "Reads values from the specified cell range(s). Date/time-formatted numeric cells return an ISO 8601 string in `value` with `type` and `format_category` of date, time, or datetime. Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with type/format_category duration. Supports lists for non-contiguous areas."
     parameters = {"type": "object", "properties": {"range_name": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) (e.g. ["A1:D10"] or ["A1", "C2:E5"]) for one or more ranges/cells.')}}, "required": ["range_name"]}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"

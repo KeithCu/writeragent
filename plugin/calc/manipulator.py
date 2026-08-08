@@ -820,7 +820,7 @@ class CellManipulator:
                 except Exception:
                     logger.exception("Date/time format pass failed for range %s", range_str)
                     temporal_n = sum(1 for m in cell_metas if m["kind"] == "temporal")
-                    format_warning = f"; could not apply date formats to {temporal_n} cells in {range_str}"
+                    format_warning = f"; could not apply date/time formats to {temporal_n} cells in {range_str}"
 
             parts = []
             for singular, count_key in (("date", "date"), ("time", "time"), ("datetime", "datetime"), ("duration", "duration"), ("number", "number"), ("text", "text"), ("formula", "formula")):
@@ -828,7 +828,9 @@ class CellManipulator:
                 if n:
                     parts.append(f"{n} {singular}" + ("s" if n != 1 and singular != "text" else ""))
             detail = f" ({', '.join(parts)})" if parts else ""
-            msg = f"Range {range_str} filled with {len(values)} values{detail}{format_warning}."
+            n_vals = len(values)
+            values_word = "value" if n_vals == 1 else "values"
+            msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{format_warning}."
             logger.info("%s", msg)
             return msg
         except Exception as e:
