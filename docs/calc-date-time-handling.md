@@ -145,11 +145,13 @@ The old guard against `NumberFormat.DURATION` never fired. **Shipped:** [`is_ela
 [plugin/mcp/mcp_protocol.py](../plugin/mcp/mcp_protocol.py) injects current local clock context into MCP system instructions via `_format_mcp_clock_context` (see source for the current implementation).
 
 Example string prepended to system instructions:
-`Current local date and time: Friday, 2026-08-07T11:04:25-04:00 (EDT).`
+`Current local date and time: Friday, 2026-08-07T11:04:25 (EDT).`
 
-**Policy (resolved):** Calc serials are timezone-less, and offset-bearing strings such as `2026-08-08T08:00:00-04:00` stay literal text. This costs nothing to enforce — Calc's own scanner rejects both `Z` and numeric offsets in every locale tested (§8). The remaining hazard is that the clock context prints exactly the shape we reject, so the write-tool description must tell the model to drop the offset.
+The numeric stamp is the local wall clock in Calc's accepted ISO shape (no `+HH:MM` / `Z`). Weekday and timezone *name* are locale/OS-facing; the stamp itself stays copy-pasteable into `write_formula_range`.
 
-The previously "unresolved" alternative — preserve wall-clock fields and discard the offset — is **rejected for v1**. It is lossy in a way the cell cannot record, and converting to a document-local time is not reliable without a document timezone and DST rules. Revisit only with a stored document timezone.
+**Policy (resolved):** Calc serials are timezone-less, and offset-bearing strings such as `2026-08-08T08:00:00-04:00` stay literal text. This costs nothing to enforce — Calc's own scanner rejects both `Z` and numeric offsets in every locale tested (§8). The write-tool description and MCP Calc hint still tell the model not to re-append an offset or `Z` from other sources.
+
+The previously "unresolved" alternative — accept offset-bearing input on write and discard the offset — is **rejected for v1**. It is lossy in a way the cell cannot record, and converting to a document-local time is not reliable without a document timezone and DST rules. Revisit only with a stored document timezone. The clock context itself *does* present wall-clock fields without an offset so the prompt matches the write gate.
 
 ### 4.2 Tool Schema Definitions
 
@@ -594,7 +596,7 @@ Probe measurements in §8 closed the former product-level open questions. The no
 
 - **Category-compatible style preserve (S14–S16), not bare “same category”.** A date-formatted cell given `08:00` displays `1899-12-30` (wrong category → must apply). Bare equality also misses S15 cross-keeps (midnight datetime→date, date→datetime) and does not by itself explain S16 (elapsed shares `Type` `TIME` with clock). Column style wins over wire-category / full-field display. Use the reviewed [M1 matrix](#m1-decision--deciding-s14-preserve).
 - **`@` must get a temporal format (S17).** The Text format does not block API conversion; leaving `@` shows the raw serial.
-- **Strict padded gate (S19); offsets stay text (S20).** Unpadded `2026-8-8` is unambiguous in every locale tested, but admitting it is a one-line later change. Calc rejects `Z`/offsets everywhere; the tool description must still tell the model to drop the offset printed by MCP clock context.
+- **Strict padded gate (S19); offsets stay text (S20).** Unpadded `2026-8-8` is unambiguous in every locale tested, but admitting it is a one-line later change. Calc rejects `Z`/offsets everywhere. MCP clock context already prints offset-free wall ISO; the tool description still tells the model not to re-append an offset or `Z` from other sources.
 - **No date imputation for bare times (S21).** Matches the read-path wire schema (`type: "time"`).
 - **Detected key as-is (S27–S28).** Hand-building localized format letters is unsafe (§6.1). Display is not part of the wire contract, so `en-US` AM/PM times are fine. Derive `std_key` explicitly from the document `CharLocale` per [M2](#m2-decision--locale-for-getstandardindex--detectnumberformat).
 - **Restore format on ordinary text fallback (S29).** Non-empty string `setDataArray` forces `@` and would otherwise strip a date column when one near-miss lands in the range. Apostrophe-forced literals keep `@` (S18). Float/`int` commits preserve the key (**measured** — see [M3](#m3-decision--setdataarray-floats-vs-numberformat)).

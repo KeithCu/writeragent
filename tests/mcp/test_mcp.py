@@ -11,23 +11,36 @@ def test_mcp_endpoint_url_helper():
     assert mcp_endpoint_url("127.0.0.1", 9000, use_ssl=True) == "https://127.0.0.1:9000/mcp"
 
 
-def test_mcp_clock_context_is_timezone_aware():
+def test_mcp_clock_context_is_offset_free_wall_time():
+    """Clock stamp matches Calc write ISO (no +HH:MM / Z); weekday/tz name stay human-facing."""
     now = datetime.datetime(2026, 8, 6, 13, 11, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=-4), "EDT"))
     text = _format_mcp_clock_context(now)
-    assert text.startswith("Current local date and time: Thursday, 2026-08-06T13:11:00-04:00")
-    assert "(EDT)" in text
+    local = now.astimezone()
+    wall = local.replace(tzinfo=None).isoformat(timespec="seconds")
+    weekday = local.strftime("%A")
+    assert text.startswith(f"Current local date and time: {weekday}, {wall}")
+    assert "-04:00" not in text
+    assert "+00:00" not in text
+    assert not text.rstrip(".").endswith("Z")
+    tzname = local.tzname()
+    if tzname:
+        assert f"({tzname})" in text
 
 
 def test_initialize_instructions_lean_pointer_in_every_mode():
     """T4/G2: every exposure mode keeps the base + its mode hint + the get_guidance pointer, and
     stays LEAN (clients drop/truncate the connect-time text, so the manual moved out of it)."""
     now = datetime.datetime(2026, 8, 6, 13, 11, 0, tzinfo=datetime.timezone.utc)
+    expected_wall = now.astimezone().replace(tzinfo=None).isoformat(timespec="seconds")
     for mode in ("delegate", "direct_flat", "direct_discovery", "unknown"):
         text = build_initialize_instructions(mode, now=now)
         assert "Current local date and time:" in text
+        assert expected_wall in text
+        assert "+00:00" not in text
+        assert "-04:00" not in text
         assert "WriterAgent MCP" in text          # base preserved
         assert "get_guidance" in text             # the pointer to the on-demand manual
-        assert "omit timezone offset" in text     # clock prints offset; Calc write rejects it
+        assert "do not append a timezone offset" in text
         assert "get_document_tree" not in text    # the nav workflow moved to the manual
         assert len(text) < 1500
 
