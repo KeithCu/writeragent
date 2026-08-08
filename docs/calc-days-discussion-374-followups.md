@@ -1,6 +1,6 @@
 # Calc / MCP follow-ups from discussion #374 (design)
 
-**Status:** easy fixes shipped (see §0.1); P1 column inheritance still open.  
+**Status:** easy fixes shipped (see §0.1); post-ship review in §11; P1 column inheritance still open.  
 **Source:** [Discussion #374](https://github.com/KeithCu/writeragent/discussions/374) (bell07 + KeithCu).  
 **Related shipped doc:** [calc-date-time-handling.md](calc-date-time-handling.md).  
 **Out of scope here:** sidebar scroll / sticky thinking viewport (separate UX problem).
@@ -506,10 +506,98 @@ Do not couple Bug 3 (`format_code` + sidebar enrich) and Bug 4 (P1 + P3) in one 
 
 ---
 
-## 11. References
+## 11. Post-ship review of easy fixes (commit `c4e5f5d8`)
+
+Review of the “easy fixes for calc days bugs” commit against this design package (Bug 1–3 + P3; P1 still open). Related unit tests (schema, list/guidance clock, inspector enrich) passed at review time.
+
+### 11.1 Bug — `number_format` still reaches chat/MCP execute (P3 incomplete)
+
+P3 removed `number_format` from the **LLM/MCP schema**, but `scripting_only_parameters` is honored for **every** caller in both kwargs strip and `ToolBase.validate` ([`tool.py`](../plugin/framework/tool.py) registry `execute` + `validate`).
+
+Verified at review:
+
+| `ctx.caller` | `number_format="0.00"` reaches `SetCellStyle.execute`? |
+| :--- | :--- |
+| `chat` / `chatbot` | **yes** |
+| `mcp` | **yes** |
+| `script` | yes (intended) |
+
+Consequences:
+
+- **Strict MCP hosts** that validate against `inputSchema` (property absent) will reject the extra arg before tools/call — good for those hosts.
+- **Sidebar / any path that forwards model kwargs** can still apply `number_format` if the model invents the parameter from training memory. That reopens **Mechanism S** (the same foot-gun P3 was meant to close).
+- The new unit test only covers `caller="script"`; it does **not** assert that chat/MCP drop `number_format`.
+
+**Fix direction:** allow `scripting_only_parameters` only when `ctx.caller == "script"` (or a small allowlist). Add regression tests: chat and MCP strip `number_format`; script preserves it.
+
+Until that lands, treat P3 as **schema-only**, not fully closed on the chat path.
+
+### 11.2 Polish — clock field not described on the tools
+
+`list_open_documents` and `get_guidance()` (no topic) return `current_local_datetime`, but tool **descriptions** still only document documents / topics. Models often ignore unknown result keys. Not a functional defect; a one-line description note would make Bug 1 piggyback more reliable.
+
+### 11.3 Polish — MCP `formula_or_values` items are flat-only
+
+MCP widen sets:
+
+```text
+type: ["string", "array"]
+items: { type: ["string", "number"] }
+```
+
+A native **nested** 2D array (multi-row grid) may fail host validation. Flat arrays and stringified JSON still work via existing execute coerce / write path. Fine for the reported one-row case; worth knowing if multi-row native arrays appear in the field.
+
+Also: widen is applied **after** `_normalize_schema_for_strict_providers`. If anything re-normalizes the MCP schema afterward, `_collapse_union_type` would collapse `["string","array"]` → `"array"` and `["string","number"]` → `"string"`. Current order is correct; keep widen last.
+
+> **Skipped (2026-08-08):** Not actionable — the widen handles the reported bug (single-row arrays). Nested 2D native arrays are hypothetical; the execute coerce + write path already handle stringified JSON for multi-row. No code change needed unless a real field failure appears.
+
+### 11.4 Polish — private MCP import from doc tools
+
+`ListOpenDocuments` / `GetGuidance` import `_format_mcp_clock_context` from [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py). No circular import today, but document tools now depend on the MCP module. Prefer a small shared helper (e.g. under `framework/`) if layering matters.
+
+> **Skipped (2026-08-08):** No circular import exists today. Creating a new `framework/clock.py` module for a 3-line helper adds a file for minimal gain. Revisit only if a circular import actually appears.
+
+### 11.5 Polish — stale type annotation
+
+In [`inspector.py`](../plugin/calc/inspector.py) `read_range`, `format_rows` is still annotated as `dict[int, list[tuple[int, int, str]]]`, but spans are now 4-tuples `(start, end, category, format_code)`. Runtime is fine; typing is wrong.
+
+### 11.6 Polish — proxy generator hardcodes `str = ""`
+
+[`generate_tool_proxies.py`](../scripts/generate_tool_proxies.py) always emits `extra: str = ""` for scripting-only params. Correct for `number_format`; brittle if a non-string scripting-only param is added later. Empty string is coerced to `None` in `SetCellStyle.execute` so it does not wipe formats.
+
+> **Skipped (2026-08-08):** There is exactly one `scripting_only_parameter` (`number_format`) and it is a string. Generalizing the type inference for a hypothetical future non-string param is speculative — fix it when a second param is actually added.
+
+### 11.7 What looked correct
+
+| Area | Notes |
+| :--- | :--- |
+| Bug 2 MCP widen | After normalize; OpenAI stays `"string"`; fill-all via single string preserved |
+| Bug 3 `format_code` | Only on temporal enrich; omitted for non-temporal / General |
+| Sidebar selection | `include_format_info=True` → ISO/`PT…` in CSV values |
+| Scripting empty `number_format` | `""` → `None`; does not clear NumberFormat |
+| Docs | Observability-only `format_code`; S26 updated away from LLM `set_style(number_format=…)` |
+| Tests | MCP union wire shape; schema omits `number_format`; clock keys on list/guidance |
+
+### 11.8 Summary table
+
+| Severity | Issue | Action | Status |
+| :--- | :--- | :--- | :--- |
+| **Bug** | `scripting_only_parameters` accepted for chat/MCP, not only script | Gate on `ctx.caller`; add tests | **Fixed** |
+| Polish | Describe `current_local_datetime` on the two tools | Description one-liners | **Fixed** |
+| Polish | Nested-array MCP items; keep widen after normalize | Document / only if field needs 2D native arrays | Skipped (not actionable) |
+| Polish | Private MCP import from doc tools | Optional shared clock helper | Skipped (no circular import) |
+| Polish | Stale `format_rows` annotation | Fix 3-tuple → 4-tuple | **Fixed** |
+| Polish | Proxy `str = ""` default | Generalize when a second param is added | Skipped (speculative) |
+
+**P1** (column / nearest-above inheritance) remains the open product fix for Mechanism W on new empty rows — not part of this commit.
+
+---
+
+## 12. References
 
 - Discussion: https://github.com/KeithCu/writeragent/discussions/374  
 - Shipped lifecycle: [calc-date-time-handling.md](calc-date-time-handling.md)  
 - MCP surfaces: [mcp-protocol.md](mcp-protocol.md) (`initialize.instructions` MAY be ignored by hosts)  
-- Code: [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) (`_format_mcp_clock_context`, `build_initialize_instructions`), [`cells.py`](../plugin/calc/cells.py) (`ReadCellRange`, `WriteCellRange`, `SetCellStyle`), [`inspector.py`](../plugin/calc/inspector.py), [`datetime_wire.py`](../plugin/calc/datetime_wire.py), [`tool.py`](../plugin/framework/tool.py) (`to_mcp_schema`, `_collapse_union_type`)  
+- Easy-fix commit reviewed in §11: `c4e5f5d8`  
+- Code: [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) (`_format_mcp_clock_context`, `build_initialize_instructions`), [`cells.py`](../plugin/calc/cells.py) (`ReadCellRange`, `WriteCellRange`, `SetCellStyle`), [`inspector.py`](../plugin/calc/inspector.py), [`datetime_wire.py`](../plugin/calc/datetime_wire.py), [`tool.py`](../plugin/framework/tool.py) (`to_mcp_schema`, `_collapse_union_type`, `scripting_only_parameters`)  
 - MCP spec note: `InitializeResult.instructions` is a client-optional hint (`MAY` add to system prompt), not a guaranteed model-visible field.

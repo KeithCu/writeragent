@@ -1,6 +1,8 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.framework.tool import ToolBase, _normalize_schema_for_strict_providers, to_mcp_schema, to_openai_schema
 
 class DummyTool(ToolBase):
@@ -256,4 +258,37 @@ def test_set_style_schema_omits_number_format_but_scripting_may_pass_it():
         kwargs = exe.call_args.kwargs
         assert kwargs.get("number_format") == "0.00"
         assert "bogus_llm_key" not in kwargs
+
+
+@pytest.mark.parametrize("caller", ["chat", "chatbot", "mcp"])
+def test_set_style_strips_number_format_for_non_script_callers(caller):
+    """§11.1: chat/MCP callers must not be able to apply scripting_only_parameters
+    like number_format even if the model invents the parameter from training memory."""
+    from plugin.calc.cells import SetCellStyle
+    from plugin.framework.tool import ToolRegistry
+
+    tool = SetCellStyle()
+    registry = ToolRegistry(MagicMock())
+    registry.register(tool)
+    ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.caller = caller
+    ctx.read_only_target = False
+    ctx.uno_services_supported = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
+    with patch.object(tool, "execute_safe", return_value={"status": "ok"}) as exe, patch(
+        "plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()
+    ):
+        registry.execute(
+            "set_style",
+            ctx,
+            range_name=["A1"],
+            bold=True,
+            number_format="0.00",
+        )
+        exe.assert_called_once()
+        kwargs = exe.call_args.kwargs
+        # number_format must be stripped — it is not in the schema and caller is not "script".
+        assert "number_format" not in kwargs
+        # Regular schema params still pass through.
+        assert kwargs.get("bold") is True
 

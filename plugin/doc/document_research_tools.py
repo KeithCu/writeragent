@@ -69,7 +69,8 @@ class ListOpenDocuments(ToolBase):
         "List all currently open documents in LibreOffice. "
         "Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). "
         "Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. "
-        "You cannot save documents yourself; when modified is true and the work is done, tell the user to save."
+        "You cannot save documents yourself; when modified is true and the work is done, tell the user to save. "
+        "Also returns current_local_datetime with the host's wall clock."
     )
     tier = "mcp"
     is_mutation = False
@@ -197,7 +198,8 @@ class GetGuidance(ToolBase):
         "Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; "
         "call with a topic to read just that section (so you don't load everything). Topics follow the "
         "open document's type (for Writer: editing, editing-html, review-modes, search, navigation, "
-        "images, concurrency). Use this when unsure how an edit, the review modes, search, or image ops work."
+        "images, concurrency). Use this when unsure how an edit, the review modes, search, or image ops work. "
+        "The no-topic index also returns current_local_datetime."
     )
     # Core, not mcp-exclusive: the sidebar's HYBRID prompt keeps search/navigation/images out of
     # the ambient text and relies on pulling them from here (same single source, same topics).

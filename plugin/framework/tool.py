@@ -857,11 +857,13 @@ class ToolRegistry:
 
             # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
             # from API/LLM) do not cause "Unknown parameter" validation errors.
-            # scripting_only_parameters stay available for in-process/scripting callers
-            # without being advertised in the LLM/MCP schema (e.g. set_style number_format).
+            # scripting_only_parameters (e.g. set_style number_format) are only kept
+            # for scripting callers — chat/MCP models must not apply hidden parameters
+            # from training memory when the property was removed from the schema
+            # (discussion #374 P3, §11.1 post-ship review).
             schema = tool.get_parameters(ctx.doc_type) or {}
             props = (schema or {}).get("properties", {})
-            extra_ok = getattr(tool, "scripting_only_parameters", None) or frozenset()
+            extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()
             if props:
                 kwargs = {k: v for k, v in kwargs.items() if k in props or k in extra_ok}
 

@@ -348,7 +348,7 @@ class CellInspector:
 
             data_array = cell_range.getDataArray()
             formula_array = cell_range.getFormulaArray()
-            format_rows: dict[int, list[tuple[int, int, str]]] = {}
+            format_rows: dict[int, list[tuple[int, int, str, str | None]]] = {}
             null_date = None
             if include_format_info:
                 try:
