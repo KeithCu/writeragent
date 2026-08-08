@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from plugin.framework.deal_shim import deal
+
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 64
 MIN_CHUNK = 120
@@ -65,6 +67,8 @@ def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE)
     return sentences or [(0, len(passage), passage)]
 
 
+@deal.pre(lambda passage, spans, base_meta, *_, **__: isinstance(spans, list))
+@deal.post(lambda result: isinstance(result, list))
 def _meta_chunks_from_spans(
     passage: str,
     spans: list[tuple[int, int]],
@@ -81,6 +85,8 @@ def _meta_chunks_from_spans(
     return chunks
 
 
+@deal.pre(lambda passage, sentences, *_, **__: isinstance(sentences, list))
+@deal.post(lambda result: isinstance(result, list) and all(isinstance(s, tuple) and len(s) == 2 and 0 <= s[0] <= s[1] for s in result))
 def _merge_small_sentences_to_spans(
     passage: str,
     sentences: list[tuple[int, int, str]],

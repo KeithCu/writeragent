@@ -24,6 +24,8 @@ import pytest
 
 pytestmark = pytest.mark.slow
 
+from hypothesis import given, strategies as st
+
 from plugin.scripting.payload_codec import (
     BINARY_MIN_CELLS,
     PAYLOAD_SPLIT_GRID,
@@ -69,6 +71,28 @@ def _find_crosshair() -> str | None:
     if venv_bin_ch.exists():
         return str(venv_bin_ch)
     return None
+
+
+@given(
+    st.lists(
+        st.one_of(
+            st.none(),
+            st.booleans(),
+            st.integers(min_value=-1000, max_value=1000),
+            st.floats(min_value=-1000.0, max_value=1000.0, allow_nan=False),
+            st.text(max_size=20),
+        ),
+        min_size=0,
+        max_size=30,
+    )
+)
+def test_hypothesis_split_grid_roundtrip_invariant(grid: list) -> None:
+    """Hypothesis property test proving host_unpack(host_pack(grid)) preserves flatten_semantic_cells."""
+    envelope = host_pack_split_grid(grid)
+    assert isinstance(envelope, dict)
+    reconstructed = host_unpack_split_grid(envelope)
+    assert flatten_semantic_cells(reconstructed) == flatten_semantic_cells(grid)
+
 
 
 def test_serialization_contracts_runtime_and_invariants() -> None:

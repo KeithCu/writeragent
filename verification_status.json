@@ -196,8 +196,8 @@
         "ci_integration": true
       },
       "payload_codec.py": {
-        "status": "partial",
-        "tool": "crosshair+deal+pytest",
+        "status": "verified",
+        "tool": "crosshair+deal+hypothesis+pytest",
         "contracts": 10,
         "functions_contracted": [
           "_flatten_grid_to_components",
@@ -213,7 +213,7 @@
         ],
         "crosshair_last_run": "2026-08-05",
         "crosshair_result": "no_counterexamples_historical",
-        "ci_integration": false
+        "ci_integration": true
       },
       "import_policy.py": {
         "status": "verified",
@@ -393,6 +393,38 @@
         "tool": "deal+hypothesis",
         "functions_contracted": [
           "resolve_dep"
+        ],
+        "ci_integration": true
+      },
+      "excel_py_convert/to_dag.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "_placeholder_to_data_index",
+          "_xl_binding_expr",
+          "_normalize_excel_placeholders"
+        ],
+        "ci_integration": true
+      },
+      "spreadsheet_import/preprocess.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "normalize_lo_formula_for_parse"
+        ],
+        "ci_integration": true
+      }
+    },
+    "embeddings": {
+      "embeddings_split.py": {
+        "status": "verified",
+        "priority": "high",
+        "tool": "deal+hypothesis",
+        "functions_contracted": [
+          "_merge_small_sentences_to_spans",
+          "_meta_chunks_from_spans"
         ],
         "ci_integration": true
       }

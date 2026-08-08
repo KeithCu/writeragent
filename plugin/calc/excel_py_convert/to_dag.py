@@ -55,6 +55,7 @@ from plugin.calc.excel_py_convert.models import (
     HeaderMode,
 )
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
+from plugin.framework.deal_shim import deal
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 # Bare Excel placeholder in source (not anchored); same length as ``_Pn_`` sentinel.
@@ -80,11 +81,15 @@ class _XlCall:
     raw: str = ""
 
 
+@deal.pre(lambda p_num, *_, **__: isinstance(p_num, int) and p_num >= 2)
+@deal.post(lambda result: isinstance(result, int) and result >= 0)
 def _placeholder_to_data_index(p_num: int) -> int:
     """Map Excel ``%Pk%`` to 0-based original dep index: ``%P2%`` → 0, ``%P3%`` → 1."""
     return p_num - 2
 
 
+@deal.pre(lambda index, *_, **__: isinstance(index, int) and index >= 0)
+@deal.post(lambda result: isinstance(result, str) and result.startswith("xl(") and result.endswith(")"))
 def _xl_binding_expr(index: int, header_mode: HeaderMode) -> str:
     """Runnable DAG ``xl("%Pn%", …)`` (quoted token; MS package uses bare ``%Pn%``)."""
     tok = f'"%P{index + 2}%"'
@@ -132,6 +137,8 @@ def _skip_string(src: str, i: int) -> int:
     return n
 
 
+@deal.pre(lambda src, *_, **__: isinstance(src, str))
+@deal.ensure(lambda *args, result="", **kwargs: len(result) == len(args[0]))
 def _normalize_excel_placeholders(src: str) -> str:
     """Rewrite bare ``%Pn%`` to equal-length ``_Pn_`` so ``ast.parse`` accepts Excel scripts.
 
