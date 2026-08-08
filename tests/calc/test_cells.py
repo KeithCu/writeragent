@@ -327,6 +327,56 @@ def test_write_formula_range_s30_format_pass_warning():
     cell_range.setDataArray.assert_called_once()
 
 
+def test_write_formula_range_s30_warning_counts_apply_only():
+    """S30: warning counts M1 apply cells, not preserve-only temporals."""
+    from plugin.calc.manipulator import CellManipulator
+
+    addr = SimpleNamespace(StartColumn=0, EndColumn=1, StartRow=0, EndRow=0)
+    cell_range = MagicMock()
+    cell_range.getRangeAddress.return_value = addr
+    sheet = MagicMock()
+    cell_range.getSpreadsheet.return_value = sheet
+    sheet.getCellRangeByPosition.return_value = cell_range
+
+    general_cell = MagicMock()
+    general_cell.getPropertyValue.return_value = 0  # General key
+    date_cell = MagicMock()
+    date_cell.getPropertyValue.return_value = 37  # existing date key
+    sheet.getCellByPosition.side_effect = lambda col, row: general_cell if col == 0 else date_cell
+
+    formats = MagicMock()
+    formats.getStandardIndex.return_value = 1
+
+    def _props_for_key(key):
+        props = MagicMock()
+        # Type 0 = non-temporal; Type 2 = DATE → preserve for date input
+        props.getPropertyValue.return_value = 0 if int(key) == 0 else 2
+        return props
+
+    formats.getByKey.side_effect = _props_for_key
+
+    doc = MagicMock()
+    doc.getNumberFormats.return_value = formats
+    doc.getPropertyValue.return_value = SimpleNamespace(Language="en", Country="US", Variant="")
+
+    bridge = MagicMock()
+    bridge.resolve_range_or_address.return_value = cell_range
+    bridge.get_active_document.return_value = doc
+
+    formatter = MagicMock()
+    formatter.detectNumberFormat.return_value = 37
+    formatter.convertStringToNumber.return_value = 46242.0
+
+    manip = CellManipulator(bridge)
+    with patch.object(manip, "_make_number_formatter", return_value=formatter):
+        with patch.object(manip, "_apply_temporal_format_runs", side_effect=RuntimeError("format boom")):
+            msg = manip.write_formula_range("A1:B1", '["2026-08-08", "2026-08-09"]')
+
+    assert "2 dates" in msg
+    assert "could not apply date/time formats to 1 cells in A1:B1" in msg
+    assert "to 2 cells" not in msg
+
+
 def test_apply_temporal_format_runs_vertically_merges_homogeneous_column():
     """Homogeneous apply column → one getCellRangeByPosition covering all rows."""
     from plugin.calc.manipulator import CellManipulator

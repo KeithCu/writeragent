@@ -123,7 +123,7 @@ When `read_cell_range` is invoked with `include_format_info=True` (enabled by de
    timestamp = NullDate + timedelta(seconds=round(serial_value * 86400))
    ```
 
-   Then sets `value` to the ISO string, `type` to the category, and `format_category`. Helpers live in [plugin/calc/inspector.py](../plugin/calc/inspector.py).
+   Then sets `value` to the ISO string, `type` to the category, and `format_category`. Serial→ISO lives in [plugin/calc/inspector.py](../plugin/calc/inspector.py) (`_iso8601_from_serial`); elapsed detection, duration emit/parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../plugin/calc/datetime_wire.py).
 
 ### 3.2 Elapsed times over 24 hours (fixed)
 
@@ -212,7 +212,7 @@ Policy from the probes is closed under **Settled**. The M1–M3 mechanisms below
 | S27 | Use the key returned by `detectNumberFormat` as-is (including locale-preferred times such as `en-US` AM/PM). |
 | S28 | Derive the standard format key from an explicit Locale rather than an ambient formatter default. For v1 use the document `CharLocale`, as adopted in [M2](#m2-decision--locale-for-getstandardindex--detectnumberformat). |
 | S29 | On **ordinary** text fallback, restore the prior `NumberFormat` key after `setDataArray`. Apostrophe-forced literals (S18) keep `@` — do not restore. Floats never need snapshot (see [M3](#m3-decision--setdataarray-floats-vs-numberformat)). |
-| S30 | The post-commit format pass is best-effort because the values may already be committed. Log failures and return success with an explicit warning naming the affected range/count; do not report unformatted serials as fully successful date writes. |
+| S30 | The post-commit format pass is best-effort because the values may already be committed. Log failures and return success with an explicit warning naming the range and the count of cells that needed **apply** (not preserve-only temporals); do not report unformatted serials as fully successful date writes. |
 
 #### Reviewed mechanism decisions
 
@@ -724,7 +724,7 @@ Shipped workflow:
 
 #### Failure modes and partial writes
 
-Value commit (step 4) is the semantic commit point. Per S30 the format pass is **best-effort**: log the exception and return success with an explicit warning such as `could not apply date/time formats to 2 cells in A1:D1` rather than failing the whole write or using ordinary success wording alone.
+Value commit (step 4) is the semantic commit point. Per S30 the format pass is **best-effort**: log the exception and return success with an explicit warning such as `could not apply date/time formats to 2 cells in A1:D1` (count = cells whose M1 decision was **apply**, not preserve) rather than failing the whole write or using ordinary success wording alone. If every temporal cell was preserve-only, the warning names the range without a cell count.
 
 `WriteCellRange.execute` in [plugin/calc/cells.py](../plugin/calc/cells.py) already opens `WriterCompoundUndo`, so all steps collapse into one undo entry **only if** the format pass lives inside `write_formula_range`. The scripting API path in [plugin/scripting/writeragent_api.py](../plugin/scripting/writeragent_api.py) has no compound undo.
 
@@ -764,10 +764,10 @@ All three steps landed in v1 (duration wire completed afterward):
 
 1. $O(1)$ char guard before regex (§5.3).
 2. Prefer `NumberFormat` range sets; do not set format per cell when a rectangle will do. Homogeneous rectangular ranges get one range set; sparse grids coalesce into row-local same-decision runs (S25), then vertically merge identical `(c0, c1, key)` spans. Alternating preserve/apply may still need multiple runs — up to O(n) format IPCs is acceptable; do not rewrite values just to coalesce.
-3. Cache the formatter, the standard key, and resolved format keys per category for the invocation.
+3. Cache the formatter, the standard key, and destination-category lookups (`key → category`) for the invocation. Format **apply** coalesces into rectangles; detect/convert stay per gated cell (typical LLM grids have mostly unique ISO strings, so a same-string convert cache is not worth the complexity).
 4. Only inspect destination formats when at least one value passed the gate (S13).
 
-A homogeneous write should cost roughly: one formatter setup, one `getStandardIndex`, two calls per distinct input string, one `setDataArray`, and one format-block set. Sparse mixed grids scale with formula overlays and block count. These are design targets, not guarantees.
+A homogeneous write should cost roughly: one formatter setup, one `getStandardIndex`, two UNO convert calls per gated cell, one `setDataArray`, and one format-block set when M1 applies. Sparse mixed grids scale with formula overlays and apply-block count. These are design targets, not guarantees.
 
 ### 5.7 What to do next
 
@@ -779,8 +779,8 @@ A homogeneous write should cost roughly: one formatter setup, one `getStandardIn
 - S15 midnight datetime → date preserve, and non-midnight datetime → date apply
 - `2026-02-30` post-gate text fallback with S29 restore
 - Non-default `NullDate` write/read round trip
-- Explicit asserts on coercion-report wording and S30 format-warning messages
-- Probe summary labels in [`probe_calc_setformula_datetime.py`](../scripts/playground/probe_calc_setformula_datetime.py) aligned with §8.1 (setFormula leaves General)
+- Explicit asserts on coercion-report wording and S30 format-warning messages (apply-cell count, not all temporals)
+- Probe summary labels in [`probe_calc_setformula_datetime.py`](../scripts/playground/probe_calc_setformula_datetime.py) aligned with §8.1 (setFormula leaves General); [`probe_calc_datetime_locale.py`](../scripts/playground/probe_calc_datetime_locale.py) Q3 wording matches wire `value` + `type` (no separate `iso8601` field)
 
 #### Deferred product expansions (not v1)
 

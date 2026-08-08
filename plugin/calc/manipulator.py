@@ -819,8 +819,12 @@ class CellManipulator:
                     self._apply_temporal_format_runs(sheet, start, decisions)
                 except Exception:
                     logger.exception("Date/time format pass failed for range %s", range_str)
-                    temporal_n = sum(1 for m in cell_metas if m["kind"] == "temporal")
-                    format_warning = f"; could not apply date/time formats to {temporal_n} cells in {range_str}"
+                    # S30: count cells that needed apply, not preserve-only temporals.
+                    apply_n = sum(1 for row_dec in decisions for d in row_dec if isinstance(d, tuple) and d[0] == "apply")
+                    if apply_n:
+                        format_warning = f"; could not apply date/time formats to {apply_n} cells in {range_str}"
+                    else:
+                        format_warning = f"; date/time format pass failed for {range_str}"
 
             parts = []
             for singular, count_key in (("date", "date"), ("time", "time"), ("datetime", "datetime"), ("duration", "duration"), ("number", "number"), ("text", "text"), ("formula", "formula")):

@@ -250,8 +250,9 @@ def q3_roundtrip(doc, sheet):
         print(f"  {label:<26} -> {cell_info}", flush=True)
 
     print(
-        "\n  Interpretation: any row lacking 'iso8601' is a broken round trip — the LLM\n"
-        "  reads a bare serial with no temporal marker.",
+        "\n  Interpretation: a good round trip has ISO in value plus type/format_category\n"
+        "  of date/time/datetime (or duration / PT… for elapsed). A bare numeric value\n"
+        "  with type 'value' means no temporal format was applied (e.g. setFormula-only).",
         flush=True,
     )
 
