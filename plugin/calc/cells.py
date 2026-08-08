@@ -201,7 +201,7 @@ class SetCellStyle(ToolBase):
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
     # Kept for scripting API / in-process callers; omitted from LLM schema so models cannot
-    # casually rewrite NumberFormat via set_style (discussion #374 P3).
+    # casually rewrite NumberFormat via set_style (see docs/calc-date-time-handling.md S26).
     scripting_only_parameters = frozenset({"number_format"})
 
     def execute(self, ctx, **kwargs):

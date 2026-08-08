@@ -18,13 +18,13 @@ For LLM tools (`read_cell_range` with format enrichment; the same strings are th
 
 - `value` is the ISO 8601 string (`YYYY-MM-DD`, `HH:MM:SS`, `YYYY-MM-DDTHH:MM:SS`, or duration `PTnHnMnS`).
 - `type` and `format_category` are `date`, `time`, `datetime`, or `duration` (elapsed/`[HH]:…` formats).
-- `format_code` is the locale `FormatString` (observability; letters vary by locale — see §6). It is **not** an LLM re-apply path: `set_style` no longer advertises `number_format` to models ([discussion #374 follow-ups](calc-days-discussion-374-followups.md)).
+- `format_code` is the locale `FormatString` on **temporally enriched** cells only (omit for General / non-temporal; letters vary by locale — see §6). It is **observability only** — not an LLM re-apply path. `set_style` omits `number_format` from the LLM/MCP schema ([S26](#51-decision-ledger)).
 - There is no separate `iso8601` field.
-- Internal callers (`CellInspector.read_range(include_format_info=False)`) still receive raw Calc serial floats for NumPy / `=PY` / analysis.
+- Internal callers (`CellInspector.read_range(include_format_info=False)`) still receive raw Calc serial floats for NumPy / `=PY` / analysis. Sidebar Calc selection context uses enrichment (`True`) so the model sees ISO/`PT…`, not raw serials.
 
-> **Status:** v1 is **shipped**, including duration wire (`PT30H`). MCP clock context (with Calc offset-omit hint), read enrichment (elapsed → `duration` / `PT…`), mixed-formula commit, ISO + PT write ingestion (gate → detect/convert or isodate → S29 restore → M1 format runs), coercion report, and tool wording are in code. See [§2](#2-lifecycle-architecture) and [§5.7](#57-what-to-do-next).
+> **Status:** v1 is **shipped**, including duration wire (`PT30H`). MCP clock context (with Calc offset-omit hint and tool piggyback — [§4.1](#41-connection-time-clock-context)), read enrichment (elapsed → `duration` / `PT…`, plus `format_code`), mixed-formula commit, ISO + PT write ingestion (gate → detect/convert or isodate → S29 restore → M1 preserve / P1 inherit / detect), coercion report, MCP `formula_or_values` array widen, and `number_format` quarantined from LLM `set_style` are in code. See [§2](#2-lifecycle-architecture) and [§5.7](#57-what-to-do-next).
 
-> **Write design (locked):** After a strict ISO gate, convert date/time with `XNumberFormatter.detectNumberFormat` / `convertStringToNumber`; convert `PT…` durations with vendored `isodate` + day-serial arithmetic. Commit the serial, and apply the detected (or elapsed) format key unless the destination already has a **category-compatible** temporal format to preserve (S14–S16). Do not hand-roll date epoch arithmetic or ASCII date format codes; do not rely on `setFormula` alone (it leaves General and breaks read enrichment).
+> **Write design (locked):** After a strict ISO gate, convert date/time with `XNumberFormatter.detectNumberFormat` / `convertStringToNumber`; convert `PT…` durations with vendored `isodate` + day-serial arithmetic. Commit the serial, and unless the destination already has a **category-compatible** temporal format to preserve (S14–S16), **apply** an inherited column template key when found (P1), else the detected (or elapsed) format key. Do not hand-roll date epoch arithmetic or ASCII date format codes; do not rely on `setFormula` alone (it leaves General and breaks read enrichment).
 
 > **Every LibreOffice behavior claim in this document was measured**, not assumed. See [§8 Measured behavior](#8-measured-behavior-libreoffice-26252). Re-run the probes before trusting any claim here on a new LibreOffice major version.
 
@@ -87,7 +87,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
                         ▼
 ┌────────────────────────────────────────────────────────────────────────────────┐
 │                         C. WRITE PATH INGESTION                                │
-│  gates ISO string ──► Calc detects format + value ──► applies key if needed    │
+│  gates ISO string ──► Calc detects format + value ──► preserve / inherit / detect │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -95,12 +95,16 @@ The end-to-end date/time architecture consists of three synchronized phases:
 
 | Area | Status | Primary code |
 | :--- | :--- | :--- |
-| A. MCP clock context | Done | [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) |
-| B. Read enrichment + duration wire | Done | [`plugin/calc/inspector.py`](../plugin/calc/inspector.py), [`plugin/calc/datetime_wire.py`](../plugin/calc/datetime_wire.py) |
+| A. MCP clock context (`initialize` + tool piggyback) | Done | [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/doc/document_research_tools.py`](../plugin/doc/document_research_tools.py) |
+| B. Read enrichment + duration wire + `format_code` | Done | [`plugin/calc/inspector.py`](../plugin/calc/inspector.py), [`plugin/calc/datetime_wire.py`](../plugin/calc/datetime_wire.py) |
+| Sidebar Calc selection enrichment | Done | [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py) `get_calc_context_for_chat` |
 | C. ISO + PT duration write ingestion | Done | [`plugin/calc/manipulator.py`](../plugin/calc/manipulator.py) `write_formula_range`, [`plugin/calc/datetime_wire.py`](../plugin/calc/datetime_wire.py) |
+| P1 column format inheritance on apply | Done | [`plugin/calc/manipulator.py`](../plugin/calc/manipulator.py) `_find_column_temporal_templates` |
+| MCP `formula_or_values` string\|array widen | Done | [`plugin/framework/tool.py`](../plugin/framework/tool.py) `to_mcp_schema` |
+| `number_format` omitted from LLM `set_style` (script-only) | Done | [`plugin/calc/cells.py`](../plugin/calc/cells.py), [`plugin/framework/tool.py`](../plugin/framework/tool.py) |
 | Write-tool ISO guidance | Done | [`plugin/calc/cells.py`](../plugin/calc/cells.py) `WriteCellRange.description` |
 | Unit / UNO tests (core path) | Done | [`tests/calc/test_datetime_serial.py`](../tests/calc/test_datetime_serial.py), [`tests/calc/test_cells_uno.py`](../tests/calc/test_cells_uno.py) |
-| Extra edge-case UNO coverage | Done | [`tests/calc/test_cells_uno.py`](../tests/calc/test_cells_uno.py) (S15, S25, S29 invalid day, NullDate); S30 message in [`tests/calc/test_cells.py`](../tests/calc/test_cells.py) |
+| Extra edge-case UNO coverage | Done | [`tests/calc/test_cells_uno.py`](../tests/calc/test_cells_uno.py) (S15, S25, S29 invalid day, NullDate, P1 inherit); S30 message in [`tests/calc/test_cells.py`](../tests/calc/test_cells.py) |
 | Product expansions (§5.7 deferred) | Not started | locale display forms, offsets, `=PY`, etc. |
 
 ---
@@ -124,7 +128,11 @@ When `read_cell_range` is invoked with `include_format_info=True` (enabled by de
    timestamp = NullDate + timedelta(seconds=round(serial_value * 86400))
    ```
 
-   Then sets `value` to the ISO string, `type` to the category, and `format_category`. Serial→ISO lives in [plugin/calc/inspector.py](../plugin/calc/inspector.py) (`_iso8601_from_serial`); elapsed detection, duration emit/parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../plugin/calc/datetime_wire.py).
+   Then sets `value` to the ISO string, `type` to the category, and `format_category`. For temporal categories, also attach `format_code` (UNO `FormatString`) when present. Serial→ISO lives in [plugin/calc/inspector.py](../plugin/calc/inspector.py) (`_iso8601_from_serial`); elapsed detection, duration emit/parse, the write gate, M1 preserve, and S25 coalesce helpers live in [plugin/calc/datetime_wire.py](../plugin/calc/datetime_wire.py).
+
+**Why `format_code`:** Without the display pattern (e.g. German short `TT.MM.JJ` vs full year), the model cannot tell how neighboring rows look and tends to invent a new style via detect-on-write or `set_style`. The field is for observation and inheritance checks only — models must not hardcode locale letters into `queryKey` (§6), and after S26 they have no LLM `number_format` re-apply path on `set_style`.
+
+**Sidebar vs internal:** Chat/MCP `read_cell_range` always enriches. `get_calc_context_for_chat` also uses `include_format_info=True` so the first Calc selection block is ISO/`PT…`. NumPy / DuckDB / `=PY` keep the inspector default `False` (raw floats). Do not collapse those wires.
 
 ### 3.2 Elapsed times over 24 hours (fixed)
 
@@ -150,6 +158,8 @@ Example string prepended to system instructions:
 
 The numeric stamp is the local wall clock in Calc's accepted ISO shape (no `+HH:MM` / `Z`). Weekday and timezone *name* are locale/OS-facing; the stamp itself stays copy-pasteable into `write_formula_range`.
 
+**Why a second channel (tool piggyback):** MCP treats `InitializeResult.instructions` as an optional client hint (`MAY` add to the system prompt). Some hosts never forward that field to the model, so connection-time clock alone is unreliable. The same `_format_mcp_clock_context` stamp is therefore also returned as `current_local_datetime` on [`list_open_documents`](../plugin/doc/document_research_tools.py) and on no-topic [`get_guidance()`](../plugin/doc/document_research_tools.py) — tools models already call early. No dedicated clock tool; one shared formatter everywhere. Sidebar chat separately injects a short “Today's date is …” line via [`llm_client.py`](../plugin/framework/client/llm_client.py) and does not use the MCP initialize path.
+
 **Policy (resolved):** Calc serials are timezone-less, and offset-bearing strings such as `2026-08-08T08:00:00-04:00` stay literal text. This costs nothing to enforce — Calc's own scanner rejects both `Z` and numeric offsets in every locale tested (§8). The write-tool description and MCP Calc hint still tell the model not to re-append an offset or `Z` from other sources.
 
 The previously "unresolved" alternative — accept offset-bearing input on write and discard the offset — is **rejected for v1**. It is lossy in a way the cell cannot record, and converting to a document-local time is not reliable without a document timezone and DST rules. Revisit only with a stored document timezone. The clock context itself *does* present wall-clock fields without an offset so the prompt matches the write gate.
@@ -157,13 +167,19 @@ The previously "unresolved" alternative — accept offset-bearing input on write
 ### 4.2 Tool Schema Definitions
 
 - **`ReadCellRange`** (`read_cell_range` in [plugin/calc/cells.py](../plugin/calc/cells.py)): see the LLM wire schema above.
-- **`WriteCellRange`** (`write_formula_range`): ISO guidance is **shipped** on the tool description.
+- **`WriteCellRange`** (`write_formula_range`): ISO guidance is **shipped** on the tool description, including one sentence preferring plain values/ISO for static cells and `=` only when the cell must stay live.
 
-**Shipped v1 description text** (paid for on every request; part of the contract):
+**Shipped description text** (paid for on every request; part of the contract):
 
-> Dates and times: use ISO 8601 only — `YYYY-MM-DD`, `HH:MM[:SS]`, or `YYYY-MM-DDTHH:MM[:SS]`. These become real Calc date/time values. Elapsed/stopwatch values: use `PTnHnMnS` (e.g. `PT30H`, `PT1H30M`); these become duration serials with elapsed formatting. Do not include a timezone offset or `Z`, and do not use locale forms like `08/05/2026`; those are stored as text. Prefix with an apostrophe (`'2026-08-08`) to force text.
+> Prefer plain values/ISO dates for static cells; use an `=` formula only when the cell must stay live (e.g. `TODAY()`, computed duration). Dates and times: use ISO 8601 only — `YYYY-MM-DD`, `HH:MM[:SS]`, or `YYYY-MM-DDTHH:MM[:SS]`. These become real Calc date/time values. Elapsed/stopwatch values: use `PTnHnMnS` (e.g. `PT30H`, `PT1H30M`); these become duration serials with elapsed formatting. Do not include a timezone offset or `Z`, and do not use locale forms like `08/05/2026`; those are stored as text. Prefix with an apostrophe (`'2026-08-08`) to force text.
 
 Do not broaden write parsing to locale display forms. §8 shows `08/05/2026` resolves to **2026-08-05** under `en-US` but **2026-05-08** under `fr-FR`.
+
+### 4.3 MCP `formula_or_values` schema (string \| array)
+
+**Shipped:** OpenAI/Gemini tool schemas keep `"type": "string"` on `formula_or_values` (Gemini-friendly; fill-all via a single string). MCP `tools/list` → `inputSchema` widens to `["string","array"]` with flat `items: ["string","number"]` in [`to_mcp_schema`](../plugin/framework/tool.py) **after** `_normalize_schema_for_strict_providers`. `execute` already coerces lists via `json.dumps`.
+
+**Why:** MCP hosts validate arguments against `inputSchema` before `tools/call`. A native JSON array was rejected at the host even though execute accepted lists. Putting `["string","array"]` on the source schema is not enough — normalize collapses that union to `"array"` only, which would break string fill-all. The MCP-only post-normalize override preserves both shapes on MCP while leaving chat/OpenAI on string-only.
 
 ---
 
@@ -191,7 +207,7 @@ Policy from the probes is closed under **Settled**. The M1–M3 mechanisms below
 | S11 | Tests split unit and UNO per [AGENTS.md](../AGENTS.md). |
 | S12 | Fractional seconds, leap seconds, `24:00`, calendar durations (`PnD` / Y/M/W), and locale display forms stay out of scope. Strict `PTnHnMnS` duration input is in scope. |
 | S13 | Inspect destination formats only when at least one value passed the gate. |
-| S14 | Preserve the destination `NumberFormat` when it is **category-compatible** with the gated input (style preservation); otherwise apply the detected key. Existing compatible column style wins over preserving the input wire category and over showing every ISO field. Use the matrix adopted in [M1](#m1-decision--deciding-s14-preserve). |
+| S14 | Preserve the destination `NumberFormat` when it is **category-compatible** with the gated input (style preservation); otherwise **apply** an inherited column template key if found ([P1](#p1--column-format-inheritance-on-apply)), else the detected key. Existing compatible column style wins over preserving the input wire category and over showing every ISO field. Use the matrix adopted in [M1](#m1-decision--deciding-s14-preserve). |
 | S15 | Midnight datetime into a date cell, and date into a datetime cell, preserve the existing format (compatible under S14). |
 | S16 | Time into an elapsed-time cell (`[HH]:MM` / `[HH]:MM:SS`) preserves that format. |
 | S17 | ISO string into a Text (`@`) cell: apply the detected temporal format (`@` does not block conversion). |
@@ -203,7 +219,7 @@ Policy from the probes is closed under **Settled**. The M1–M3 mechanisms below
 | S23 | Range bounds are left to `NotNumericException` and Calc's own limits. |
 | S24 | No format application for formula cells in v1. |
 | S25 | Empty cells join a coerced format block only when both adjacent non-empty coerced neighbors share the same preserve/apply decision (and the same apply key); otherwise blocks split. See [M1](#m1-decision--deciding-s14-preserve). |
-| S26 | Share the document-locale resolver and integer-key application primitives with `CellManipulator` number-format setters (scripting / internal; `number_format` is omitted from the LLM `set_style` schema); do **not** route arbitrary user-supplied format strings through the ISO value-detection helper. |
+| S26 | Share the document-locale resolver and integer-key application primitives with `CellManipulator` number-format setters. `number_format` is omitted from the LLM/MCP `set_style` schema and accepted only via `scripting_only_parameters` when `ctx.caller == "script"` (chat/MCP strip it). Scripting API applies `number_format` through `CellManipulator`, not tool-schema validation. Do **not** route arbitrary user-supplied format strings through the ISO value-detection helper. **Why:** models called `set_style` while matching a row and rewrote date/number formats; schema visibility is the affordance surface, so description-only hiding is insufficient. |
 | S27 | Use the key returned by `detectNumberFormat` as-is (including locale-preferred times such as `en-US` AM/PM). |
 | S28 | Derive the standard format key from an explicit Locale rather than an ambient formatter default. For v1 use the document `CharLocale`, as adopted in [M2](#m2-decision--locale-for-getstandardindex--detectnumberformat). |
 | S29 | On **ordinary** text fallback, restore the prior `NumberFormat` key after `setDataArray`. Apostrophe-forced literals (S18) keep `@` — do not restore. Floats never need snapshot (see [M3](#m3-decision--setdataarray-floats-vs-numberformat)). |
@@ -215,7 +231,7 @@ These are not re-opened product debates. Each is implemented as written; reopen 
 
 | ID | Situation | Decision | Basis |
 | :--- | :--- | :--- | :--- |
-| M1 | After writing a serial, keep the cell’s existing format or apply the detected one? | Use the input-kind × destination-kind matrix plus an integer-second midnight check for datetime→date ([full write-up below](#m1-decision--deciding-s14-preserve)). Reject display-string compare and `getInputString` round-trip. | Reuses the read-path category classifier, preserves user styles, and avoids extra parse/display UNO calls. |
+| M1 | After writing a serial, keep the cell’s existing format or change it? | Use the input-kind × destination-kind matrix plus an integer-second midnight check for datetime→date ([full write-up below](#m1-decision--deciding-s14-preserve)); on apply, inherit a column template when found ([P1](#p1--column-format-inheritance-on-apply)), else detect. Reject display-string compare and `getInputString` round-trip. | Reuses the read-path category classifier, preserves user styles, and avoids extra parse/display UNO calls. |
 | M2 | When converting ISO strings, which language/region should Calc use to pick the new display format? | Read document `CharLocale` once per write — intentional v1 display policy ([full write-up below](#m2-decision--locale-for-getstandardindex--detectnumberformat)). Reject UI language and fixed `en-US`; Options “Locale” and per-format `Locale` are future product alternates, not pre-implementation gates. | Matches the existing Calc style path; the strict ISO gate makes serial conversion locale-independent, leaving display preference as the only material difference. |
 | M3 | Does writing floats through `setDataArray` wipe the cell’s number format? If not, which cells still need a save/restore? | **Floats keep the format (measured).** Snapshot/restore only ordinary text leftovers (S29); not floats; not apostrophe-forced `@` (S18). ([full write-up below](#m3-decision--setdataarray-floats-vs-numberformat)) | The dedicated probe and Calc's `lcl_PutDataArray` numeric/string branches agree. |
 
@@ -237,9 +253,9 @@ So for each converted cell the code chooses one of two actions:
 | Action | Meaning |
 | :--- | :--- |
 | **preserve** (keep) | Leave the cell’s existing `NumberFormat` key alone. Only the value was written. |
-| **apply** | Set the cell’s `NumberFormat` to an inherited compatible format key from upper cells in the same column (P1), or fall back to the key returned by `detectNumberFormat` for this ISO string if no column template exists. |
+| **apply** | Set the cell’s `NumberFormat` to a column-inherited key when P1 finds a template, otherwise the key from `detectNumberFormat` (or formatindex 43 for duration into non-temporal). |
 
-M1 is how to choose between those two.
+M1 chooses preserve vs apply. When the choice is apply, [P1](#p1--column-format-inheritance-on-apply) chooses which key to set.
 
 ##### The three facts the decision uses
 
@@ -262,7 +278,7 @@ The algorithm looks at three pieces of information only — no display-string co
 
 ##### Adopted rule (plain language)
 
-**Preserve** the existing format when the destination category is a sensible home for this kind of input; **apply** the detected format otherwise.
+**Preserve** the existing format when the destination category is a sensible home for this kind of input; **apply** otherwise (inherit column template if found, else detect — [P1](#p1--column-format-inheritance-on-apply)).
 
 In practice:
 
@@ -275,7 +291,7 @@ In practice:
 
 ##### Preserve matrix
 
-Same rule as a lookup table. Rows = what the model wrote (gate match). Columns = what the destination cell already is. **keep** = preserve; **apply** = set detected key.
+Same rule as a lookup table. Rows = what the model wrote (gate match). Columns = what the destination cell already is. **keep** = preserve; **apply** = set inherited template key if found, else detected key (P1).
 
 | Input (which §5.3 gate matched) | Dest DATE | Dest DATETIME | Dest TIME (clock or elapsed) | Non-temporal (General, `@`, NUMBER, …) |
 | :--- | :---: | :---: | :---: | :---: |
@@ -285,7 +301,15 @@ Same rule as a lookup table. Rows = what the model wrote (gate match). Columns =
 | datetime, midnight | keep (S15) | keep | apply | apply |
 | datetime, not midnight | apply | keep | apply | apply |
 
-Elapsed formats (`[HH]:MM`, `[HH]:MM:SS`, …) sit in the Dest TIME column — no extra branch for S16. Duration write into non-temporal cells applies built-in formatindex 43 (`[HH]:MM:SS`).
+Elapsed formats (`[HH]:MM`, `[HH]:MM:SS`, …) sit in the Dest TIME column — no extra branch for S16. Duration write into non-temporal cells applies an inherited TIME/elapsed template when P1 finds one, else built-in formatindex 43 (`[HH]:MM:SS`).
+
+##### P1 — column format inheritance on apply
+
+**Status: Settled and shipped.** Implemented as [`_find_column_temporal_templates`](../plugin/calc/manipulator.py) with compatibility via [`is_compatible_temporal_template`](../plugin/calc/datetime_wire.py).
+
+**Why:** A new empty row is typically General. Without inheritance, M1 **apply** uses `detectNumberFormat`, which often picks a locale-preferred **full-year** date that disagrees with the short style already used in the rows above. That is a write-path structural gap (same-cell preserve cannot help empty cells), not a prompt/`set_style` problem.
+
+**Rule:** When M1 says **apply** because the destination is non-temporal (General / empty / `@` after S17), scan **nearest cell above** in the same column (bounded upward scan, production `max_scan=100`) for a `NumberFormat` key whose category is compatible with the gated input. If found → apply that key. If not → `detectNumberFormat` / formatindex 43. Temporal writes only — plain numbers into General stay General. Skip General (`key == 0`) and incompatible categories while scanning; do not sample the whole column for “mixed formats.” Still honor S17: never leave a coerced temporal serial under `@`.
 
 ##### Worked examples
 
@@ -294,6 +318,7 @@ Elapsed formats (`[HH]:MM`, `[HH]:MM:SS`, …) sit in the Dest TIME column — n
 | `2026-08-08` | `MM/DD/YYYY` (date) | keep | date → date |
 | `2026-08-08` | `YYYY-MM-DD HH:MM:SS` (datetime) | keep | date into datetime is OK (S15) |
 | `2026-08-08` | General | apply | non-temporal; need a date format for enrichment |
+| `2026-08-08` into new empty row | General; row above is `TT.MM.JJ` | apply (inherit) | P1 copies the short-date key above instead of full-year detect |
 | `08:00` | `[HH]:MM` (elapsed time) | keep | time → time (S16) |
 | `PT30H` | `[HH]:MM:SS` (elapsed) | keep | duration → time (S16) |
 | `PT30H` | General | apply | formatindex 43 so readback is `duration` |
@@ -327,7 +352,7 @@ preserve when:
   )
 ```
 
-Otherwise → **apply** `detected_key` (for duration into non-temporal: formatindex 43).
+Otherwise → **apply** inherited column template key if P1 finds one, else `detected_key` (for duration into non-temporal with no template: formatindex 43).
 
 Reuse [`_format_category_from_type`](../plugin/calc/inspector.py) (`DATE` 2 / `TIME` 4 / `DATETIME` 6, `DEFINED` masked off) for the destination side of M1 — wire `"duration"` is read-path only. Use integer-second rounding for midnight so the predicate handles negative serials and matches `_iso8601_from_serial`; do not invent a second NullDate-based check or a separate floating-point epsilon.
 
@@ -595,7 +620,7 @@ Review locked four boundaries that v1 follows:
 
 Probe measurements in §8 closed the former product-level open questions. The non-obvious settled ones, briefly:
 
-- **Category-compatible style preserve (S14–S16), not bare “same category”.** A date-formatted cell given `08:00` displays `1899-12-30` (wrong category → must apply). Bare equality also misses S15 cross-keeps (midnight datetime→date, date→datetime) and does not by itself explain S16 (elapsed shares `Type` `TIME` with clock). Column style wins over wire-category / full-field display. Use the reviewed [M1 matrix](#m1-decision--deciding-s14-preserve).
+- **Category-compatible style preserve (S14–S16), not bare “same category”.** A date-formatted cell given `08:00` displays `1899-12-30` (wrong category → must apply). Bare equality also misses S15 cross-keeps (midnight datetime→date, date→datetime) and does not by itself explain S16 (elapsed shares `Type` `TIME` with clock). Column style wins over wire-category / full-field display. Use the reviewed [M1 matrix](#m1-decision--deciding-s14-preserve). On apply into General/empty/`@`, [P1](#p1--column-format-inheritance-on-apply) prefers a nearest-above template so new rows match the sheet.
 - **`@` must get a temporal format (S17).** The Text format does not block API conversion; leaving `@` shows the raw serial.
 - **Strict padded gate (S19); offsets stay text (S20).** Unpadded `2026-8-8` is unambiguous in every locale tested, but admitting it is a one-line later change. Calc rejects `Z`/offsets everywhere. MCP clock context already prints offset-free wall ISO; the tool description still tells the model not to re-append an offset or `Z` from other sources.
 - **No date imputation for bare times (S21).** Matches the read-path wire schema (`type: "time"`).
@@ -653,10 +678,10 @@ flowchart TD
     Restore --> FormulaPass["overlay recorded formulas"]
     FormulaPass --> Existing{"for each serial: M1 preserve?"}
     Existing -->|yes| KeepFormat["keep existing key"]
-    Existing -->|no| ApplyDetected["apply detected integer key by row block"]
+    Existing -->|no| InheritOrDetect["P1 inherit column key or detect; apply by row block"]
 ```
 
-The S14 decision node uses the reviewed algorithm in [M1](#m1-decision--deciding-s14-preserve).
+The S14 decision node uses the reviewed algorithm in [M1](#m1-decision--deciding-s14-preserve); apply keys follow [P1](#p1--column-format-inheritance-on-apply).
 
 Without the gate, `08/05/2026` becomes 5 August under `en-US` and 8 May under `fr-FR`, and `30:00` silently becomes `1.25`.
 
@@ -712,7 +737,7 @@ Shipped workflow:
 3. **Convert date/time candidates** via `detectNumberFormat` / `convertStringToNumber`, recording `(value, detected_key)`. Durations already have a serial + elapsed key. On `NotNumericException`, demote to text.
 4. **Commit values** with one `setDataArray`, leaving formula cells empty. Float/`int` cells keep existing `NumberFormat` ([M3](#m3-decision--setdataarray-floats-vs-numberformat)); for ordinary text-fallback cells, snapshot the prior key before commit and restore after (S29); for apostrophe-forced cells (S18), leave `@`.
 5. **Overlay formulas** with `setFormula` per recorded cell. Never send ISO strings through `setFormulaArray`.
-6. **Apply formats** as coalesced 2D rectangles (horizontal same-decision runs, then vertical merge of identical spans), skipping cells the S14 predicate says to preserve ([M1](#m1-decision--deciding-s14-preserve)). Cache destination category per format key for the invocation. Apply the integer `detected_key` directly rather than routing it through the format-string `queryKey` path. Skip formula cells (S24); join empties only per S25 block-split rules. Pure geometry helpers live in [`datetime_wire.py`](../plugin/calc/datetime_wire.py) (`coalesce_temporal_apply_rects`).
+6. **Apply formats** as coalesced 2D rectangles (horizontal same-decision runs, then vertical merge of identical spans), skipping cells the S14 predicate says to preserve ([M1](#m1-decision--deciding-s14-preserve)). For apply cells, resolve the key via [P1](#p1--column-format-inheritance-on-apply) (nearest-above compatible template, else `detected_key` / formatindex 43). Cache destination category per format key for the invocation. Apply the integer key directly rather than routing it through the format-string `queryKey` path. Skip formula cells (S24); join empties only per S25 block-split rules. Pure geometry helpers live in [`datetime_wire.py`](../plugin/calc/datetime_wire.py) (`coalesce_temporal_apply_rects`).
 
 #### Failure modes and partial writes
 
@@ -827,13 +852,13 @@ Dates detect as ISO everywhere, but `en-US` times detect as `HH:MM:SS AM/PM`. Pe
 
 The gate and M1/elapsed helpers are pure pytest. Conversion stays in UNO tests.
 
-**Landed:** gate accept/reject matrix (including unpadded / offsets / slash forms / `2026-13-45` / shape-ok `2026-02-30`), elapsed FormatString detection, duration PT gate/parse/emit, midnight serial helper, M1 preserve matrix (including duration→time), S25/horizontal/vertical format-run coalesce helpers.
+**Landed:** gate accept/reject matrix (including unpadded / offsets / slash forms / `2026-13-45` / shape-ok `2026-02-30`), elapsed FormatString detection, duration PT gate/parse/emit, midnight serial helper, M1 preserve matrix (including duration→time), P1 template compatibility helper, S25/horizontal/vertical format-run coalesce helpers. Related non-Calc unit coverage: MCP `formula_or_values` string\|array wire shape, `set_style` omits `number_format` for chat/MCP while scripting keeps it, `format_code` on temporal enrich only, `current_local_datetime` on list/guidance.
 
 **UNO edge cases (landed in §7.2):** post-gate `NotNumericException` for `2026-02-30` with S29 restore; apostrophe end-to-end.
 
 ### 7.2 Native UNO Integration Tests (`tests/calc/test_cells_uno.py`)
 
-**Landed:** write/read ISO date+time; mixed ISO+formula commit; compatible date preserve; elapsed keep; `@` → temporal apply; apostrophe keeps `@`; ordinary text S29 restore; idempotent second write; §3.2 duration wire (`1.25` → `"PT30H"`); write/read `PT30H` / preserve elapsed; S15 midnight preserve / non-midnight apply; S25 empty-cell split; `2026-02-30` text + S29; non-default `NullDate` round trip; coercion-report wording; vertical format-run merge (homogeneous ISO column). S30 format-warning wording and merge IPC count are covered by mocked unit tests in [`tests/calc/test_cells.py`](../tests/calc/test_cells.py).
+**Landed:** write/read ISO date+time; mixed ISO+formula commit; compatible date preserve; elapsed keep; `@` → temporal apply; apostrophe keeps `@`; ordinary text S29 restore; idempotent second write; §3.2 duration wire (`1.25` → `"PT30H"`); write/read `PT30H` / preserve elapsed; S15 midnight preserve / non-midnight apply; S25 empty-cell split; `2026-02-30` text + S29; non-default `NullDate` round trip; coercion-report wording; vertical format-run merge (homogeneous ISO column); P1 column inherit (including empty gap and incompatible-template skip). S30 format-warning wording and merge IPC count are covered by mocked unit tests in [`tests/calc/test_cells.py`](../tests/calc/test_cells.py).
 
 End-to-end write and readback against the LLM wire schema:
 
@@ -933,10 +958,11 @@ Through the production `CellInspector.read_range(include_format_info=True)`:
 ## 9. Related Documents
 
 - [Calc Specialized Toolsets](calc-specialized-toolsets.md) — Tool delegation, tiers, and Calc domain status.
-- [MCP Protocol & Invariants](mcp-protocol.md) — Model Context Protocol instructions and clock context formatting.
+- [MCP Protocol & Invariants](mcp-protocol.md) — Model Context Protocol instructions and clock context formatting (`instructions` may be ignored by hosts).
 - [NumPy & Python Venv Bridge](enabling_numpy_in_libreoffice.md) — Raw numeric serialization for analytical pipelines.
 - [Calc `=PY` Data Shapes](calc-py-data-shapes.md) — Intentional non-coercion at the Python bridge.
 - [NumPy Serialization](numpy-serialization.md) — Separate datetime/string wire semantics that must not be conflated with Calc serials.
+- [Discussion #374](https://github.com/KeithCu/writeragent/discussions/374) — Field report that drove clock piggyback, MCP array widen, `format_code`, P1 inheritance, and LLM `number_format` quarantine (outcomes are documented above).
 
 ## 10. Authoritative References
 

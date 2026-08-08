@@ -205,7 +205,7 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
     input_schema = _normalize_schema_for_strict_providers(input_schema)
     # MCP hosts validate args against inputSchema before tools/call. Keep string|array for
     # write_formula_range so native JSON arrays are accepted (OpenAI/Gemini stay string-only
-    # via to_openai_schema collapse — see discussion #374 Bug 2).
+    # via to_openai_schema collapse — see docs/calc-date-time-handling.md §4.3).
     if tool.name == "write_formula_range":
         props = input_schema.get("properties")
         if isinstance(props, dict) and "formula_or_values" in props:
@@ -860,7 +860,7 @@ class ToolRegistry:
             # scripting_only_parameters (e.g. set_style number_format) are only kept
             # for scripting callers — chat/MCP models must not apply hidden parameters
             # from training memory when the property was removed from the schema
-            # (discussion #374 P3, §11.1 post-ship review).
+            # (see docs/calc-date-time-handling.md S26).
             schema = tool.get_parameters(ctx.doc_type) or {}
             props = (schema or {}).get("properties", {})
             extra_ok = (getattr(tool, "scripting_only_parameters", None) or frozenset()) if ctx.caller == "script" else frozenset()

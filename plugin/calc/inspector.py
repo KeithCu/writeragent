@@ -117,7 +117,7 @@ class CellInspector:
 
         Elapsed formats report Type TIME but use bracketed units (``[HH]``, …).
         Those enrich as ``duration`` (``PT30H``) so values >= 1.0 are not truncated.
-        ``format_code`` is observability only (discussion #374 Bug 3) — not a re-apply path.
+        ``format_code`` is observability only (see docs/calc-date-time-handling.md) — not a re-apply path.
         """
         try:
             key = int(format_key)
