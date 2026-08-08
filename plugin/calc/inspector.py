@@ -24,6 +24,7 @@ import datetime
 import logging
 import re
 
+from plugin.calc.datetime_wire import is_elapsed_format_string
 from plugin.framework.errors import ToolExecutionError
 
 try:
@@ -111,14 +112,22 @@ class CellInspector:
             return default
 
     def _format_category(self, format_key, formats, cache: dict[int, str | None]) -> str | None:
-        """Resolve one number-format key, caching across equal-format ranges."""
+        """Resolve one number-format key, caching across equal-format ranges.
+
+        Elapsed formats report Type TIME but use bracketed units (``[HH]``, …).
+        Those skip enrichment so values >= 1.0 are not truncated by ``.time()``.
+        """
         try:
             key = int(format_key)
         except (TypeError, ValueError):
             return None
         if key not in cache:
             props = formats.getByKey(key)
-            cache[key] = _format_category_from_type(props.getPropertyValue("Type"))
+            category = _format_category_from_type(props.getPropertyValue("Type"))
+            # DURATION bit never appears on elapsed formats; FormatString is the signal.
+            if category == "time" and is_elapsed_format_string(props.getPropertyValue("FormatString")):
+                category = None
+            cache[key] = category
         return cache[key]
 
     def _enrich_cell_format(self, info: dict, cell) -> None:
