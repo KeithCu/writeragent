@@ -72,6 +72,8 @@ def test_list_open_documents_execute():
             result = tool.execute(context)
 
         assert result["status"] == "ok"
+        assert "current_local_datetime" in result
+        assert "Current local date and time:" in result["current_local_datetime"]
         docs = result["documents"]
         assert len(docs) == 2
 

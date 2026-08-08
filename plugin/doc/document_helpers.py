@@ -1233,7 +1233,8 @@ def get_calc_context_for_chat(model, max_context=8000, ctx=None):
                     from plugin.calc.inspector import CellInspector
 
                     inspector = CellInspector(bridge)
-                    cells = inspector.read_range(sel_range)
+                    # LLM-facing context: enrich dates like read_cell_range (#374 Bug 3).
+                    cells = inspector.read_range(sel_range, include_format_info=True)
                     ctx_str += "Selection Content (CSV-like):\n"
                     for row in cells:
                         ctx_str += ", ".join([str(c["value"]) if c["value"] is not None else "" for c in row]) + "\n"

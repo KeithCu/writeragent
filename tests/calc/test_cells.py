@@ -113,7 +113,8 @@ def _make_range_bridge(*, data_array, formula_array, date_addresses=(), format_g
 
     formats = MagicMock()
     format_props = MagicMock()
-    format_props.getPropertyValue.return_value = format_type
+    # Type bitmask vs FormatString (observability field on temporal enrich).
+    format_props.getPropertyValue.side_effect = lambda name: format_type if name == "Type" else "YYYY-MM-DD"
     formats.getByKey.return_value = format_props
     doc = MagicMock()
     doc.getNumberFormats.return_value = formats
@@ -152,9 +153,11 @@ def test_inspector_enriches_range_once_per_unique_format_group():
     assert result[0][0]["value"] == "2026-08-03"
     assert result[0][0]["type"] == "date"
     assert result[0][0]["format_category"] == "date"
+    assert result[0][0]["format_code"] == "YYYY-MM-DD"
     assert "iso8601" not in result[0][0]
     assert result[0][1]["value"] == 42.0
     assert "format_category" not in result[0][1]
+    assert "format_code" not in result[0][1]
     formats.getByKey.assert_called_once_with(10)
     # Date constants present: skip the formula walk and go straight to format groups.
     cell_range.getUniqueCellFormatRanges.assert_called_once()

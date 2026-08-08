@@ -309,6 +309,16 @@ def generate_module(tools: list["ToolBase"]) -> str:
             all_params = ", ".join(all_params_list)
 
             all_param_names = list((tool.parameters or {}).get("properties", {}).keys())
+            # Scripting-only kwargs (e.g. set_style number_format) stay on the Python proxy
+            # even though they are omitted from the LLM/MCP schema (#374 P3).
+            scripting_only = sorted(getattr(tool, "scripting_only_parameters", None) or ())
+            for extra in scripting_only:
+                if extra not in all_param_names:
+                    all_param_names.append(extra)
+                    if "*" not in all_params_list:
+                        all_params_list.append("*")
+                    all_params_list.append(f'{extra}: str = ""')
+                    all_params = ", ".join(all_params_list)
             if all_param_names:
                 kwargs_body = ", " + ", ".join(f"{p}={p}" for p in all_param_names)
             else:

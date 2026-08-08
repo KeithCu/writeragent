@@ -88,8 +88,11 @@ class ListOpenDocuments(ToolBase):
         from plugin.doc.document_research import get_open_documents
 
         def _run() -> dict[str, Any]:
+            from plugin.mcp.mcp_protocol import _format_mcp_clock_context
+
             docs = get_open_documents(ctx.ctx, ctx.doc)
-            return {"status": "ok", "documents": docs}
+            # Piggyback clock for MCP hosts that ignore initialize.instructions (#374 Bug 1).
+            return {"status": "ok", "documents": docs, "current_local_datetime": _format_mcp_clock_context()}
 
         if on_main_thread():
             return _run()
@@ -216,10 +219,21 @@ class GetGuidance(ToolBase):
         # Guidance must match the document being worked on (a Calc session must never read Writer
         # advice). Resolve the target document the same way every other tool does; with no document
         # open, serve the neutral index / the always-available generic topics.
+        from plugin.mcp.mcp_protocol import _format_mcp_clock_context
+
         doc_type = doc_type_of(getattr(ctx, "doc", None))
         raw = (kwargs.get("topic") or "").strip()
+        clock = _format_mcp_clock_context()
         if not raw:
-            return {"status": "ok", "doc_type": doc_type, "topics": list_topics(doc_type), "index": manual_index(doc_type)}
+            # Index call is a natural early MCP step — stamp the clock for hosts that ignore
+            # initialize.instructions (#374 Bug 1).
+            return {
+                "status": "ok",
+                "doc_type": doc_type,
+                "topics": list_topics(doc_type),
+                "index": manual_index(doc_type),
+                "current_local_datetime": clock,
+            }
         section = get_section(raw, doc_type)
         if section is None:
             return {

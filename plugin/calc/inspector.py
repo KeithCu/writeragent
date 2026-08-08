@@ -112,23 +112,25 @@ class CellInspector:
             logger.debug("_safe_prop exception for %s: %s", name, e)
             return default
 
-    def _format_category(self, format_key, formats, cache: dict[int, str | None]) -> str | None:
-        """Resolve one number-format key, caching across equal-format ranges.
+    def _format_meta(self, format_key, formats, cache: dict[int, tuple[str | None, str | None]]) -> tuple[str | None, str | None]:
+        """Resolve one number-format key to (category, FormatString), caching across groups.
 
         Elapsed formats report Type TIME but use bracketed units (``[HH]``, …).
         Those enrich as ``duration`` (``PT30H``) so values >= 1.0 are not truncated.
+        ``format_code`` is observability only (discussion #374 Bug 3) — not a re-apply path.
         """
         try:
             key = int(format_key)
         except (TypeError, ValueError):
-            return None
+            return None, None
         if key not in cache:
             props = formats.getByKey(key)
+            format_code = props.getPropertyValue("FormatString")
             category = _format_category_from_type(props.getPropertyValue("Type"))
             # DURATION bit never appears on elapsed formats; FormatString is the signal.
-            if category == "time" and is_elapsed_format_string(props.getPropertyValue("FormatString")):
+            if category == "time" and is_elapsed_format_string(format_code):
                 category = "duration"
-            cache[key] = category
+            cache[key] = (category, str(format_code) if format_code is not None else None)
         return cache[key]
 
     def _enrich_cell_format(self, info: dict, cell) -> None:
@@ -142,7 +144,7 @@ class CellInspector:
             return
         doc = self.bridge.get_active_document()
         formats = doc.getNumberFormats()
-        category = self._format_category(self._safe_prop(cell, "NumberFormat"), formats, {})
+        category, format_code = self._format_meta(self._safe_prop(cell, "NumberFormat"), formats, {})
         if category is None:
             return
         if category == "duration":
@@ -152,9 +154,14 @@ class CellInspector:
             info["value"] = _iso8601_from_serial(float(value), category, null_date)
         info["type"] = category
         info["format_category"] = category
+        if format_code:
+            info["format_code"] = format_code
 
-    def _range_format_rows(self, cell_range, formula_array) -> tuple[dict[int, list[tuple[int, int, str]]], object | None]:
-        """Return date/time column spans by row, or an empty map for the common fast path."""
+    def _range_format_rows(self, cell_range, formula_array) -> tuple[dict[int, list[tuple[int, int, str, str | None]]], object | None]:
+        """Return date/time column spans by row, or an empty map for the common fast path.
+
+        Each span is ``(start_col, end_col, category, format_code)``.
+        """
         # Cheap native preflight: constant date/time values. Skip the Python formula walk
         # when these exist — getUniqueCellFormatRanges still covers date-formatted formulas.
         # queryContentCells usually returns an empty XSheetCellRanges, not None; treat any
@@ -173,8 +180,8 @@ class CellInspector:
 
         doc = self.bridge.get_active_document()
         formats = doc.getNumberFormats()
-        cache: dict[int, str | None] = {}
-        rows: dict[int, list[tuple[int, int, str]]] = {}
+        cache: dict[int, tuple[str | None, str | None]] = {}
+        rows: dict[int, list[tuple[int, int, str, str | None]]] = {}
 
         # Calc dates are numeric VALUE cells, so the normal content type loses their
         # meaning. Grouping equal formats keeps this classification out of the per-cell
@@ -185,12 +192,12 @@ class CellInspector:
             if group.getCount() == 0:
                 continue
             representative = group.getByIndex(0)
-            category = self._format_category(self._safe_prop(representative, "NumberFormat"), formats, cache)
+            category, format_code = self._format_meta(self._safe_prop(representative, "NumberFormat"), formats, cache)
             if category is None:
                 continue
             for address in group.getRangeAddresses():
                 for row in range(address.StartRow, address.EndRow + 1):
-                    rows.setdefault(row, []).append((address.StartColumn, address.EndColumn, category))
+                    rows.setdefault(row, []).append((address.StartColumn, address.EndColumn, category, format_code))
 
         if not rows:
             return {}, None
@@ -198,10 +205,21 @@ class CellInspector:
         return rows, null_date
 
     @staticmethod
-    def _category_for_position(format_rows: dict[int, list[tuple[int, int, str]]], row: int, col: int) -> str | None:
-        for start_col, end_col, category in format_rows.get(row, ()):
+    def _category_for_position(format_rows: dict[int, list[tuple]], row: int, col: int) -> str | None:
+        for span in format_rows.get(row, ()):
+            start_col, end_col, category = span[0], span[1], span[2]
             if start_col <= col <= end_col:
                 return category
+        return None
+
+    @staticmethod
+    def _format_code_for_position(format_rows: dict[int, list[tuple]], row: int, col: int) -> str | None:
+        for span in format_rows.get(row, ()):
+            if len(span) < 4:
+                continue
+            start_col, end_col, _category, format_code = span[0], span[1], span[2], span[3]
+            if start_col <= col <= end_col:
+                return format_code
         return None
 
     # ── Public API ─────────────────────────────────────────────────────
@@ -377,6 +395,9 @@ class CellInspector:
                                 cell_info["value"] = _iso8601_from_serial(float(value), category, null_date)
                             cell_info["type"] = category
                             cell_info["format_category"] = category
+                            format_code = self._format_code_for_position(format_rows, row, col)
+                            if format_code:
+                                cell_info["format_code"] = format_code
                     row_data.append(cell_info)
                 result.append(row_data)
 

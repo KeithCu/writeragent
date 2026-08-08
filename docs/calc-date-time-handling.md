@@ -10,14 +10,15 @@ For LLM tools (`read_cell_range` with format enrichment; the same strings are th
 
 ```json
 [
-  {"address": "A20", "value": "2026-08-05", "formula": null, "type": "date", "format_category": "date"},
-  {"address": "B20", "value": "08:00:00", "formula": null, "type": "time", "format_category": "time"},
-  {"address": "C20", "value": "PT30H", "formula": null, "type": "duration", "format_category": "duration"}
+  {"address": "A20", "value": "2026-08-05", "formula": null, "type": "date", "format_category": "date", "format_code": "YYYY-MM-DD"},
+  {"address": "B20", "value": "08:00:00", "formula": null, "type": "time", "format_category": "time", "format_code": "HH:MM:SS"},
+  {"address": "C20", "value": "PT30H", "formula": null, "type": "duration", "format_category": "duration", "format_code": "[HH]:MM:SS"}
 ]
 ```
 
 - `value` is the ISO 8601 string (`YYYY-MM-DD`, `HH:MM:SS`, `YYYY-MM-DDTHH:MM:SS`, or duration `PTnHnMnS`).
 - `type` and `format_category` are `date`, `time`, `datetime`, or `duration` (elapsed/`[HH]:…` formats).
+- `format_code` is the locale `FormatString` (observability; letters vary by locale — see §6). It is **not** an LLM re-apply path: `set_style` no longer advertises `number_format` to models ([discussion #374 follow-ups](calc-days-discussion-374-followups.md)).
 - There is no separate `iso8601` field.
 - Internal callers (`CellInspector.read_range(include_format_info=False)`) still receive raw Calc serial floats for NumPy / `=PY` / analysis.
 
@@ -202,7 +203,7 @@ Policy from the probes is closed under **Settled**. The M1–M3 mechanisms below
 | S23 | Range bounds are left to `NotNumericException` and Calc's own limits. |
 | S24 | No format application for formula cells in v1. |
 | S25 | Empty cells join a coerced format block only when both adjacent non-empty coerced neighbors share the same preserve/apply decision (and the same apply key); otherwise blocks split. See [M1](#m1-decision--deciding-s14-preserve). |
-| S26 | Share the document-locale resolver and integer-key application primitives with `set_style(number_format=…)`; do **not** route arbitrary user-supplied format strings through the ISO value-detection helper. |
+| S26 | Share the document-locale resolver and integer-key application primitives with `CellManipulator` number-format setters (scripting / internal; `number_format` is omitted from the LLM `set_style` schema); do **not** route arbitrary user-supplied format strings through the ISO value-detection helper. |
 | S27 | Use the key returned by `detectNumberFormat` as-is (including locale-preferred times such as `en-US` AM/PM). |
 | S28 | Derive the standard format key from an explicit Locale rather than an ambient formatter default. For v1 use the document `CharLocale`, as adopted in [M2](#m2-decision--locale-for-getstandardindex--detectnumberformat). |
 | S29 | On **ordinary** text fallback, restore the prior `NumberFormat` key after `setDataArray`. Apostrophe-forced literals (S18) keep `@` — do not restore. Floats never need snapshot (see [M3](#m3-decision--setdataarray-floats-vs-numberformat)). |

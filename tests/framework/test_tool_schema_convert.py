@@ -1,4 +1,5 @@
 import json
+from unittest.mock import MagicMock, patch
 
 from plugin.framework.tool import ToolBase, _normalize_schema_for_strict_providers, to_mcp_schema, to_openai_schema
 
@@ -208,4 +209,51 @@ def test_update_style_schema_emits_no_additional_properties_keyword():
     wire = json.dumps(schema["function"]["parameters"])
     assert "additionalProperties" not in wire
     assert "property_updates" in schema["function"]["parameters"]["properties"]
+
+
+def test_write_formula_range_mcp_widens_formula_or_values_to_string_or_array():
+    """#374 Bug 2: MCP hosts reject native arrays when schema is string-only."""
+    from plugin.calc.cells import WriteCellRange
+
+    tool = WriteCellRange()
+    openai = to_openai_schema(tool)["function"]["parameters"]["properties"]["formula_or_values"]
+    mcp = to_mcp_schema(tool)["inputSchema"]["properties"]["formula_or_values"]
+    assert openai["type"] == "string"
+    assert mcp["type"] == ["string", "array"]
+    assert mcp["items"]["type"] == ["string", "number"]
+
+
+def test_set_style_schema_omits_number_format_but_scripting_may_pass_it():
+    """#374 P3: number_format must not appear on LLM/MCP schemas."""
+    from plugin.calc.cells import SetCellStyle
+    from plugin.framework.tool import ToolRegistry
+
+    tool = SetCellStyle()
+    assert "number_format" not in tool.parameters["properties"]
+    assert "number_format" not in to_openai_schema(tool)["function"]["parameters"]["properties"]
+    assert "number_format" not in to_mcp_schema(tool)["inputSchema"]["properties"]
+
+    registry = ToolRegistry(MagicMock())
+    registry.register(tool)
+    ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.caller = "script"
+    ctx.read_only_target = False
+    ctx.uno_services_supported = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
+    with patch.object(tool, "execute_safe", return_value={"status": "ok"}) as exe, patch(
+        "plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()
+    ):
+        # Unknown LLM keys still stripped; scripting_only number_format is preserved.
+        registry.execute(
+            "set_style",
+            ctx,
+            range_name=["A1"],
+            bold=True,
+            number_format="0.00",
+            bogus_llm_key=1,
+        )
+        exe.assert_called_once()
+        kwargs = exe.call_args.kwargs
+        assert kwargs.get("number_format") == "0.00"
+        assert "bogus_llm_key" not in kwargs
 

@@ -203,6 +203,25 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
             props["domain"]["description"] = format_specialized_domains_description(special_base, agent_label=agent_label)
 
     input_schema = _normalize_schema_for_strict_providers(input_schema)
+    # MCP hosts validate args against inputSchema before tools/call. Keep string|array for
+    # write_formula_range so native JSON arrays are accepted (OpenAI/Gemini stay string-only
+    # via to_openai_schema collapse — see discussion #374 Bug 2).
+    if tool.name == "write_formula_range":
+        props = input_schema.get("properties")
+        if isinstance(props, dict) and "formula_or_values" in props:
+            fov = props["formula_or_values"]
+            if isinstance(fov, dict):
+                fov = dict(fov)
+                fov["type"] = ["string", "array"]
+                fov["items"] = {"type": ["string", "number"]}
+                desc_bits = fov.get("description") or ""
+                if "Native JSON array" not in desc_bits:
+                    fov["description"] = (
+                        (desc_bits + " " if desc_bits else "")
+                        + "Native JSON array of strings/numbers is accepted (same length as the range); "
+                        "a single string still fills the entire range."
+                    ).strip()
+                props["formula_or_values"] = fov
     return {"name": tool.name, "description": desc, "inputSchema": input_schema}
 
 
@@ -367,8 +386,9 @@ class ToolBase(ABC):
             if key not in kwargs:
                 return False, f"Missing required parameter: {key}"
         props = schema.get("properties", {})
+        extra_ok = getattr(self, "scripting_only_parameters", None) or frozenset()
         for key in kwargs:
-            if props and key not in props:
+            if props and key not in props and key not in extra_ok:
                 return False, f"Unknown parameter: {key}"
         return True, None
 
@@ -837,10 +857,13 @@ class ToolRegistry:
 
             # Restrict kwargs to this tool's schema so extra keys (e.g. image_model
             # from API/LLM) do not cause "Unknown parameter" validation errors.
+            # scripting_only_parameters stay available for in-process/scripting callers
+            # without being advertised in the LLM/MCP schema (e.g. set_style number_format).
             schema = tool.get_parameters(ctx.doc_type) or {}
             props = (schema or {}).get("properties", {})
+            extra_ok = getattr(tool, "scripting_only_parameters", None) or frozenset()
             if props:
-                kwargs = {k: v for k, v in kwargs.items() if k in props}
+                kwargs = {k: v for k, v in kwargs.items() if k in props or k in extra_ok}
 
             # Common context for all error details
             common_details = {"tool_name": tool_name}

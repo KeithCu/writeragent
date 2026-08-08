@@ -71,7 +71,7 @@ class ReadCellRange(ToolBase):
     """Read values from one or more cell ranges."""
 
     name = "read_cell_range"
-    description = "Reads values from the specified cell range(s). Date/time-formatted numeric cells return an ISO 8601 string in `value` with `type` and `format_category` of date, time, or datetime. Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with type/format_category duration. Supports lists for non-contiguous areas."
+    description = "Reads values from the specified cell range(s). Date/time-formatted numeric cells return an ISO 8601 string in `value` with `type` and `format_category` of date, time, or datetime, plus `format_code` (Calc FormatString, observability only). Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with type/format_category duration. Supports lists for non-contiguous areas."
     parameters = {"type": "object", "properties": {"range_name": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) (e.g. ["A1:D10"] or ["A1", "C2:E5"]) for one or more ranges/cells.')}}, "required": ["range_name"]}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     tier = "core"
@@ -96,7 +96,7 @@ class WriteCellRange(ToolBase):
     """Write formulas or values to a cell range."""
 
     name = "write_formula_range"
-    description = "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; JSON array must match range size exactly (one value per cell). Use an empty string or empty array to clear contents. Supports lists for non-contiguous areas. Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text."
+    description = "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; JSON array must match range size exactly (one value per cell). Use an empty string or empty array to clear contents. Supports lists for non-contiguous areas. Prefer plain values/ISO dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), computed duration). Dates and times: use ISO 8601 only — YYYY-MM-DD, HH:MM[:SS], or YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those are stored as text. Prefix with an apostrophe ('2026-08-08) to force text."
     parameters = {
         "type": "object",
         "properties": {
@@ -195,12 +195,14 @@ class SetCellStyle(ToolBase):
             "v_align": {"type": "string", "enum": ["top", "center", "bottom"], "description": "Vertical alignment"},
             "wrap_text": {"type": "boolean", "description": "Wrap text"},
             "border_color": {"type": "string", "description": ("Border color (hex or name). Draws a frame around the cell/range.")},
-            "number_format": {"type": "string", "description": "Number format (e.g. #,##0.00, 0%, dd.mm.yyyy)"},
         },
         "required": ["range_name"],
     }
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
+    # Kept for scripting API / in-process callers; omitted from LLM schema so models cannot
+    # casually rewrite NumberFormat via set_style (discussion #374 P3).
+    scripting_only_parameters = frozenset({"number_format"})
 
     def execute(self, ctx, **kwargs):
         bridge = CalcBridge(ctx.doc)
@@ -239,6 +241,11 @@ class SetCellStyle(ToolBase):
             return self._tool_error(_bc["__error__"])
         border_color: int | None = _bc
 
+        # number_format: accepted from scripting_only_parameters, not advertised to LLMs.
+        nf = kwargs.get("number_format")
+        if isinstance(nf, str) and not nf.strip():
+            nf = None
+
         style_kwargs = {
             "bold": kwargs.get("bold"),
             "italic": kwargs.get("italic"),
@@ -249,7 +256,7 @@ class SetCellStyle(ToolBase):
             "v_align": kwargs.get("v_align"),
             "wrap_text": kwargs.get("wrap_text"),
             "border_color": border_color,
-            "number_format": kwargs.get("number_format"),
+            "number_format": nf,
         }
 
         if len(rn) == 0:

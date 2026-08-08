@@ -204,6 +204,8 @@ def test_get_guidance_no_topic_returns_writer_index():
     assert res["status"] == "ok" and res["doc_type"] == "writer"
     assert set(list_topics("writer")).issubset(set(res["topics"]))
     assert "get_guidance" in res["index"]
+    assert "current_local_datetime" in res
+    assert "Current local date and time:" in res["current_local_datetime"]
 
 
 def test_get_guidance_topic_returns_section():

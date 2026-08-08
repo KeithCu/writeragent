@@ -1,6 +1,6 @@
 # Calc / MCP follow-ups from discussion #374 (design)
 
-**Status:** design only — no code yet. For human + AI review.  
+**Status:** easy fixes shipped (see §0.1); P1 column inheritance still open.  
 **Source:** [Discussion #374](https://github.com/KeithCu/writeragent/discussions/374) (bell07 + KeithCu).  
 **Related shipped doc:** [calc-date-time-handling.md](calc-date-time-handling.md).  
 **Out of scope here:** sidebar scroll / sticky thinking viewport (separate UX problem).
@@ -18,13 +18,27 @@ This document covers four remaining product bugs from the latest user report, an
 
 User confirmed: **reads and writes of dates/times work**. Remaining pain is context (clock), MCP schema friction, missing display-format visibility, and the model changing sheet style when adding a row.
 
+### 0.1 Easy fixes shipped (post-review implementation)
+
+Implemented without waiting for P1 (column format inheritance). Long feature **P1 remains open**.
+
+| Item | What landed | Primary code |
+| :--- | :--- | :--- |
+| **Bug 2** | MCP-only widen: `formula_or_values` is `["string","array"]` on MCP `inputSchema`; OpenAI/Gemini schema stays `"string"` | [`tool.py`](../plugin/framework/tool.py) `to_mcp_schema` |
+| **Bug 1** | Clock piggyback: `current_local_datetime` on `list_open_documents` and on `get_guidance()` with no topic (reuses `_format_mcp_clock_context`) | [`document_research_tools.py`](../plugin/doc/document_research_tools.py) |
+| **Bug 3** | `format_code` (UNO `FormatString`) on temporally enriched `read_cell_range` cells; sidebar Calc selection uses `include_format_info=True` | [`inspector.py`](../plugin/calc/inspector.py), [`document_helpers.py`](../plugin/doc/document_helpers.py) |
+| **P3** | `number_format` removed from `set_style` LLM/MCP schema; kept via `scripting_only_parameters` for the scripting API proxy | [`cells.py`](../plugin/calc/cells.py), [`tool.py`](../plugin/framework/tool.py), [`generate_tool_proxies.py`](../scripts/generate_tool_proxies.py) |
+| **Guidance** | One sentence: prefer plain values/ISO for static cells; `=` only when the cell must stay live | [`cells.py`](../plugin/calc/cells.py) `WriteCellRange.description`, [`prompts.py`](../plugin/framework/prompts.py) |
+
+**Still open (do separately):** P1 column / nearest-above format inheritance on write (Mechanism W for new empty rows).
+
 Wire schema today (LLM `read_cell_range`):
 
 ```json
-{"address": "A22", "value": "2026-08-06", "formula": null, "type": "date", "format_category": "date"}
+{"address": "A22", "value": "2026-08-06", "formula": null, "type": "date", "format_category": "date", "format_code": "TT.MM.JJ"}
 ```
 
-There is no separate `iso8601` field (older 0.8.54 responses had it; current contract folded ISO into `value`).
+`format_code` is **observability** only (not a re-apply path after P3). There is no separate `iso8601` field (older 0.8.54 responses had it; current contract folded ISO into `value`).
 
 ---
 
@@ -432,12 +446,12 @@ also acceptable but more mechanism than removing one dict key.
 Ordered by risk and dependency, matching the design doc's §7 but with the revised
 recommendations:
 
-1. **Bug 2** — MCP-only `formula_or_values` schema widen (Option A). Clear win, no ambiguity.
-2. **Bug 1** — Stamp clock on `list_open_documents` output and `get_guidance()` index (Option C).
+1. **Bug 2** — MCP-only `formula_or_values` schema widen (Option A). **Shipped** (§0.1).
+2. **Bug 1** — Stamp clock on `list_open_documents` output and `get_guidance()` index (Option C). **Shipped** (§0.1).
 3. **Bug 3** — Add `format_code` on temporally enriched cells (Option A); enrich sidebar Calc
-   selection context.
-4. **Bug 4** — Column format inheritance on write (P1); remove `number_format` from `set_style`
-   schema (simplified P3); one-sentence formula-vs-constant guidance on `write_formula_range`.
+   selection context. **Shipped** (§0.1).
+4. **Bug 4** — Column format inheritance on write (P1) — **still open**; remove `number_format` from `set_style`
+   schema (simplified P3) and one-sentence formula-vs-constant guidance — **shipped** (§0.1).
 
 ### 9.6 Open questions resolved
 

@@ -912,14 +912,14 @@ CELL LINKS: Reference cells with HTML only, e.g. <a href="cell://B2">B2</a> (use
 TOOLS (grouped by use):
 
 READ:
-- read_cell_range: Read values from a cell or range (e.g. A1:D10). Date/time cells return ISO in value (date/time/datetime); elapsed formats return PTnHnMnS (e.g. PT30H) as type duration.
+- read_cell_range: Read values from a cell or range (e.g. A1:D10). Date/time cells return ISO in value (date/time/datetime) plus format_code (display FormatString, observability only); elapsed formats return PTnHnMnS (e.g. PT30H) as type duration.
 - get_sheet_summary: Summary of the active sheet (size, headers, used range, charts, annotations, merges).
 
 WRITE & FORMAT:
-- write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Alternatively, provide multiline CSV data to bulk insert starting at a cell. Use empty string/array to clear contents. Use ranges for efficiency; avoid single-cell operations. Dates/times: ISO only (YYYY-MM-DD, HH:MM[:SS], YYYY-MM-DDTHH:MM[:SS]); elapsed: PTnHnMnS (e.g. PT30H). No timezone offset/Z or locale forms like 08/05/2026.
+- write_formula_range: Single string fills entire range; JSON array must match range size exactly (one value per cell). Alternatively, provide multiline CSV data to bulk insert starting at a cell. Use empty string/array to clear contents. Use ranges for efficiency; avoid single-cell operations. Prefer plain values/ISO dates for static cells; use '=' formulas only when the cell must stay live. Dates/times: ISO only (YYYY-MM-DD, HH:MM[:SS], YYYY-MM-DDTHH:MM[:SS]); elapsed: PTnHnMnS (e.g. PT30H). No timezone offset/Z or locale forms like 08/05/2026.
 - set_style: Use for one or more cells/ranges at once (same formatting applied per range). Good after bulk writes for uniform look. It only exposes a small fixed set of properties (see list below)—not mixed rich text inside a cell. For per-character formatting, links, or HTML structure in a single cell, use insert_cell_html instead.
-- set_style properties (each optional except range_name): range_name (array of addresses/ranges); bold; italic; font_size (points); bg_color; font_color (hex #RRGGBB or names: red, yellow, …); h_align (left|center|right|justify); v_align (top|center|bottom); wrap_text; border_color (outline around the range); number_format (e.g. #,##0.00, 0%, dates).
-- insert_cell_html: Paste HTML into one cell on the active sheet as rich text (bold, italic, links, line breaks—same import as Writer). Plain write_formula_range cannot do this. One cell only; no images. Does not replace set_style for whole-table borders/number formats—combine as needed.
+- set_style properties (each optional except range_name): range_name (array of addresses/ranges); bold; italic; font_size (points); bg_color; font_color (hex #RRGGBB or names: red, yellow, …); h_align (left|center|right|justify); v_align (top|center|bottom); wrap_text; border_color (outline around the range).
+- insert_cell_html: Paste HTML into one cell on the active sheet as rich text (bold, italic, links, line breaks—same import as Writer). Plain write_formula_range cannot do this. One cell only; no images. Does not replace set_style for whole-table borders—combine as needed.
 
 - merge_cells: Merge a range (e.g. headers); then write and style with write_formula_range/set_style.
 - delete_structure: Remove rows or columns at specific positions.
