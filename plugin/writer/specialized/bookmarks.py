@@ -311,6 +311,7 @@ class ResolveBookmark(ToolWriterBookmarkBase):
 
     name = "bookmark_resolve"
     intent = "navigate"
+    is_mutation = False
     description = "Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use resolve_bookmark only when you need the raw paragraph index."
     parameters = {"type": "object", "properties": {"bookmark_name": {"type": "string", "description": "Bookmark name (e.g. _mcp_a1b2c3d4)."}}, "required": ["bookmark_name"]}
     uno_services = ["com.sun.star.text.TextDocument"]

@@ -47,6 +47,7 @@ class ListSections(ToolWriterStructuralBase):
 class GotoPage(ToolWriterStructuralBase):
     name = "nav_goto_page"
     intent = "navigate"
+    is_mutation = False
     description = "Navigate the view cursor to a specific page."
     parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
     uno_services = ["com.sun.star.text.TextDocument"]

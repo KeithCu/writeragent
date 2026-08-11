@@ -22,6 +22,7 @@ from .specialized_base import ToolWriterStructuralBase
 class NavigateHeading(ToolWriterStructuralBase):
     name = "nav_heading"
     intent = "navigate"
+    is_mutation = False
     description = "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing."
     parameters = {
         "type": "object",
