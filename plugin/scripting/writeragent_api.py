@@ -86,13 +86,13 @@ DOMAIN_TOOLS = {   'analysi': [   'analyze_data',
                    'optimize_data',
                    'plot_data',
                    'query_folder_sql'],
-    'bookmark': [   'cleanup_bookmarks',
-                    'create_bookmark',
-                    'delete_bookmark',
-                    'get_bookmark',
-                    'list_bookmarks',
-                    'rename_bookmark',
-                    'resolve_bookmark'],
+    'bookmark': [   'bookmark_cleanup',
+                    'bookmark_create',
+                    'bookmark_delete',
+                    'bookmark_get',
+                    'bookmark_list',
+                    'bookmark_rename',
+                    'bookmark_resolve'],
     'brainstorming': ['brainstorm_research_web', 'save_design_spec'],
     'calc': [   'delegate_to_specialized_calc_toolset',
                 'delete_structure',
@@ -105,12 +105,12 @@ DOMAIN_TOOLS = {   'analysi': [   'analyze_data',
                 'write_formula_range'],
     'chart': ['manage_charts'],
     'comment': [   'add_cell_comment',
+                   'comment_delete',
+                   'comment_list',
+                   'comment_resolve',
+                   'comment_workflow',
                    'delete_cell_comment',
-                   'delete_comment',
-                   'list_cell_comments',
-                   'list_comments',
-                   'resolve_comment',
-                   'workflow'],
+                   'list_cell_comments'],
     'conditional_formatting': ['add_conditional_format', 'list_conditional_formats', 'remove_conditional_formats'],
     'core': [   'find_tools',
                 'get_guidance',
@@ -142,31 +142,31 @@ DOMAIN_TOOLS = {   'analysi': [   'analyze_data',
                     'footnotes_list',
                     'footnotes_settings_get',
                     'footnotes_settings_update'],
-    'forms': [   'create_form',
-                 'create_form_control',
-                 'delete_form_control',
-                 'edit_form_control',
-                 'generate_form',
-                 'list_form_controls'],
+    'forms': [   'form_create',
+                 'form_create_control',
+                 'form_delete_control',
+                 'form_edit_control',
+                 'form_generate',
+                 'form_list_controls'],
     'headers_footer': ['get_headers_footers', 'set_headers_footers'],
-    'images': [   'delete_image',
-                  'download_image',
-                  'generate_image',
-                  'get_image_info',
-                  'insert_image',
-                  'list_images',
-                  'list_nearby_image_files',
-                  'replace_image',
-                  'set_image_properties'],
+    'images': [   'image_delete',
+                  'image_download',
+                  'image_generate',
+                  'image_get_info',
+                  'image_insert',
+                  'image_list',
+                  'image_list_nearby_files',
+                  'image_replace',
+                  'image_set_properties'],
     'indexe': ['indexes_add_mark', 'indexes_create', 'indexes_list', 'indexes_update_all'],
     'math': ['insert_math'],
-    'page': [   'get_header_footer_text',
-                'get_page_columns',
-                'get_page_style_properties',
-                'insert_page_break',
-                'set_header_footer_text',
-                'set_page_columns',
-                'set_page_style_properties'],
+    'page': [   'page_get_columns',
+                'page_get_header_footer_text',
+                'page_get_style_properties',
+                'page_insert_break',
+                'page_set_columns',
+                'page_set_header_footer_text',
+                'page_set_style_properties'],
     'pivot_table': ['create_pivot_table', 'list_pivot_tables', 'refresh_pivot_table'],
     'ppt-master': [   'apply_ppt_master_native_enhance',
                       'apply_ppt_master_template_fill',
@@ -177,7 +177,7 @@ DOMAIN_TOOLS = {   'analysi': [   'analyze_data',
     'search': ['replace_in_spreadsheet', 'search_in_spreadsheet'],
     'shape': [   'delete_shape',
                  'get_draw_summary',
-                 'list_writer_images',
+                 'shape_list_images',
                  'shapes_connect',
                  'shapes_group',
                  'upsert_shape'],
@@ -193,15 +193,15 @@ DOMAIN_TOOLS = {   'analysi': [   'analyze_data',
     'slide_master': ['get_slide_master', 'list_master_slides', 'set_slide_master'],
     'slide_transition': ['get_slide_layout', 'get_slide_transition', 'set_slide_layout', 'set_slide_transition'],
     'speaker_note': ['get_speaker_notes', 'set_speaker_notes'],
-    'structural': [   'get_heading_children',
-                      'get_surroundings',
-                      'goto_page',
-                      'list_sections',
-                      'navigate_heading',
-                      'read_section'],
-    'styles': ['create_style', 'get_style_info', 'import_styles', 'list_styles', 'update_style'],
-    'table': ['get_table_cells', 'list_tables', 'manage_table_structure', 'set_table_cell'],
-    'textframe': ['get_text_frame_info', 'list_text_frames', 'set_text_frame_properties'],
+    'structural': [   'nav_goto_page',
+                      'nav_heading',
+                      'nav_heading_children',
+                      'nav_surroundings',
+                      'section_list',
+                      'section_read'],
+    'styles': ['style_create', 'style_get_info', 'style_import', 'style_list', 'style_update'],
+    'table': ['manage_table_structure', 'table_get_cells', 'table_list', 'table_set_cell'],
+    'textframe': ['frame_get_info', 'frame_list', 'frame_set_properties'],
     'tracking': [   'manage_tracked_changes',
                     'track_changes_comment_delete',
                     'track_changes_comment_insert',
@@ -261,33 +261,33 @@ analysi = _AnalysiProxy()
 class _BookmarkProxy:
     """Proxy for bookmark tools."""
 
-    def cleanup_bookmarks(self) -> dict:
+    def cleanup(self) -> dict:
         """Remove all _mcp_* bookmarks from the document."""
-        return _rpc_call("cleanup_bookmarks")
+        return _rpc_call("bookmark_cleanup")
 
-    def create_bookmark(self, name: str) -> dict:
+    def create(self, name: str) -> dict:
         """Create a new bookmark at the current cursor or selection in Writer."""
-        return _rpc_call("create_bookmark", name=name)
+        return _rpc_call("bookmark_create", name=name)
 
-    def delete_bookmark(self, name: str) -> dict:
+    def delete(self, name: str) -> dict:
         """Delete an existing bookmark by its name.."""
-        return _rpc_call("delete_bookmark", name=name)
+        return _rpc_call("bookmark_delete", name=name)
 
-    def get_bookmark(self, name: str) -> dict:
+    def get(self, name: str) -> dict:
         """Get details about a specific bookmark, including the text it spans.."""
-        return _rpc_call("get_bookmark", name=name)
+        return _rpc_call("bookmark_get", name=name)
 
-    def list_bookmarks(self) -> dict:
+    def list(self) -> dict:
         """List all bookmarks in the document with their anchor text preview."""
-        return _rpc_call("list_bookmarks")
+        return _rpc_call("bookmark_list")
 
-    def rename_bookmark(self, old_name: str, new_name: str) -> dict:
+    def rename(self, old_name: str, new_name: str) -> dict:
         """Rename an existing bookmark.."""
-        return _rpc_call("rename_bookmark", old_name=old_name, new_name=new_name)
+        return _rpc_call("bookmark_rename", old_name=old_name, new_name=new_name)
 
-    def resolve_bookmark(self, bookmark_name: str) -> dict:
+    def resolve(self, bookmark_name: str) -> dict:
         """Resolve a bookmark to its current paragraph index and text."""
-        return _rpc_call("resolve_bookmark", bookmark_name=bookmark_name)
+        return _rpc_call("bookmark_resolve", bookmark_name=bookmark_name)
 
 bookmark = _BookmarkProxy()
 
@@ -365,29 +365,29 @@ class _CommentProxy:
         """Add a comment (annotation) to a specific cell in a Calc sheet.."""
         return _rpc_call("add_cell_comment", cell=cell, text=text, sheet_name=sheet_name)
 
+    def delete(self, *, comment_name: str = "", author: str = "") -> dict:
+        """Delete comments by name or author."""
+        return _rpc_call("comment_delete", comment_name=comment_name, author=author)
+
     def delete_cell_comment(self, cell: str, *, sheet_name: str = "") -> dict:
         """Delete the comment (annotation) from a specific cell.."""
         return _rpc_call("delete_cell_comment", cell=cell, sheet_name=sheet_name)
 
-    def delete_comment(self, *, comment_name: str = "", author: str = "") -> dict:
-        """Delete comments by name or author."""
-        return _rpc_call("delete_comment", comment_name=comment_name, author=author)
+    def list(self, *, author_filter: str = "") -> dict:
+        """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview."""
+        return _rpc_call("comment_list", author_filter=author_filter)
 
     def list_cell_comments(self, *, sheet_name: str = "") -> dict:
         """List all cell comments (annotations) in a Calc sheet."""
         return _rpc_call("list_cell_comments", sheet_name=sheet_name)
 
-    def list_comments(self, *, author_filter: str = "") -> dict:
-        """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview."""
-        return _rpc_call("list_comments", author_filter=author_filter)
-
-    def resolve_comment(self, comment_name: str, *, resolution: str = "", author: str = "") -> dict:
+    def resolve(self, comment_name: str, *, resolution: str = "", author: str = "") -> dict:
         """Resolve a comment with an optional reason."""
-        return _rpc_call("resolve_comment", comment_name=comment_name, resolution=resolution, author=author)
+        return _rpc_call("comment_resolve", comment_name=comment_name, resolution=resolution, author=author)
 
     def workflow(self, action: str, *, unresolved_only: bool = True, prefix_filter: str = "", content: str = "") -> dict:
         """Workflow and task operations."""
-        return _rpc_call("workflow", action=action, unresolved_only=unresolved_only, prefix_filter=prefix_filter, content=content)
+        return _rpc_call("comment_workflow", action=action, unresolved_only=unresolved_only, prefix_filter=prefix_filter, content=content)
 
 comment = _CommentProxy()
 
@@ -613,29 +613,29 @@ footnote = _FootnoteProxy()
 class _FormsProxy:
     """Proxy for forms tools."""
 
-    def create_form(self, fields: list) -> dict:
+    def create(self, fields: list) -> dict:
         """Creates multiple form controls at once from a list of field definitions."""
-        return _rpc_call("create_form", fields=fields)
+        return _rpc_call("form_create", fields=fields)
 
-    def create_form_control(self, type: str, name: str, *, label: str = "", group_name: str = "", items: list = [], placeholder: str = "", default_value: str = "", width: int = 0, height: int = 0) -> dict:
+    def create_control(self, type: str, name: str, *, label: str = "", group_name: str = "", items: list = [], placeholder: str = "", default_value: str = "", width: int = 0, height: int = 0) -> dict:
         """Creates a single interactive form control (checkbox, text field, radio button, date field, combobox, or button)."""
-        return _rpc_call("create_form_control", type=type, label=label, name=name, group_name=group_name, items=items, placeholder=placeholder, default_value=default_value, width=width, height=height)
+        return _rpc_call("form_create_control", type=type, label=label, name=name, group_name=group_name, items=items, placeholder=placeholder, default_value=default_value, width=width, height=height)
 
-    def delete_form_control(self, shape_index: int) -> dict:
+    def delete_control(self, shape_index: int) -> dict:
         """Deletes a form control by shape index (Calc: active sheet draw page).."""
-        return _rpc_call("delete_form_control", shape_index=shape_index)
+        return _rpc_call("form_delete_control", shape_index=shape_index)
 
-    def edit_form_control(self, shape_index: int, *, name: str = "", label: str = "", text: str = "", items: list = [], x: int = 0, y: int = 0, width: int = 0, height: int = 0) -> dict:
-        """Modifies an existing form control by index (from list_form_controls)."""
-        return _rpc_call("edit_form_control", shape_index=shape_index, name=name, label=label, text=text, items=items, x=x, y=y, width=width, height=height)
+    def edit_control(self, shape_index: int, *, name: str = "", label: str = "", text: str = "", items: list = [], x: int = 0, y: int = 0, width: int = 0, height: int = 0) -> dict:
+        """Modifies an existing form control by index (from form_list_controls)."""
+        return _rpc_call("form_edit_control", shape_index=shape_index, name=name, label=label, text=text, items=items, x=x, y=y, width=width, height=height)
 
-    def generate_form(self, description: str) -> dict:
+    def generate(self, description: str) -> dict:
         """Generates a document or sheet layout with interactive form fields from a description."""
-        return _rpc_call("generate_form", description=description)
+        return _rpc_call("form_generate", description=description)
 
-    def list_form_controls(self) -> dict:
+    def list_controls(self) -> dict:
         """Lists interactive form controls (checkboxes, text fields, etc.) with indices and values."""
-        return _rpc_call("list_form_controls")
+        return _rpc_call("form_list_controls")
 
 forms = _FormsProxy()
 
@@ -657,41 +657,41 @@ headers_footer = _HeadersFooterProxy()
 class _ImagesProxy:
     """Proxy for images tools."""
 
-    def delete_image(self, image_name: str, *, remove_frame: bool = True) -> dict:
+    def delete(self, image_name: str, *, remove_frame: bool = True) -> dict:
         """Delete an image from the document.."""
-        return _rpc_call("delete_image", image_name=image_name, remove_frame=remove_frame)
+        return _rpc_call("image_delete", image_name=image_name, remove_frame=remove_frame)
 
-    def download_image(self, url: str, *, verify_ssl: bool = True, force: bool = True) -> dict:
+    def download(self, url: str, *, verify_ssl: bool = True, force: bool = True) -> dict:
         """Download an image from URL to local cache."""
-        return _rpc_call("download_image", url=url, verify_ssl=verify_ssl, force=force)
+        return _rpc_call("image_download", url=url, verify_ssl=verify_ssl, force=force)
 
-    def generate_image(self, prompt: str, *, source_image: str = "", strength: float = 0.75, aspect_ratio: str = 'square', base_size: int = 512, width: int = 0, height: int = 0, provider: str = "", image_model: str = "") -> dict:
+    def generate(self, prompt: str, *, source_image: str = "", strength: float = 0.75, aspect_ratio: str = 'square', base_size: int = 512, width: int = 0, height: int = 0, provider: str = "", image_model: str = "") -> dict:
         """Generate an image from a text prompt and insert it."""
-        return _rpc_call("generate_image", prompt=prompt, source_image=source_image, strength=strength, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, provider=provider, image_model=image_model)
+        return _rpc_call("image_generate", prompt=prompt, source_image=source_image, strength=strength, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, provider=provider, image_model=image_model)
 
-    def get_image_info(self, image_name: str) -> dict:
+    def get_info(self, image_name: str) -> dict:
         """Get detailed info about a specific image: URL, dimensions, anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index.."""
-        return _rpc_call("get_image_info", image_name=image_name)
+        return _rpc_call("image_get_info", image_name=image_name)
 
-    def insert_image(self, image_path: str, *, locator: str = "", paragraph_index: int = 0, width_mm: int = 0, height_mm: int = 0, target: str = "", style_name: str = "", auto_height: bool = True) -> dict:
+    def insert(self, image_path: str, *, locator: str = "", paragraph_index: int = 0, width_mm: int = 0, height_mm: int = 0, target: str = "", style_name: str = "", auto_height: bool = True) -> dict:
         """Insert an image from local path or URL into the document."""
-        return _rpc_call("insert_image", image_path=image_path, locator=locator, paragraph_index=paragraph_index, width_mm=width_mm, height_mm=height_mm, target=target, style_name=style_name, auto_height=auto_height)
+        return _rpc_call("image_insert", image_path=image_path, locator=locator, paragraph_index=paragraph_index, width_mm=width_mm, height_mm=height_mm, target=target, style_name=style_name, auto_height=auto_height)
 
-    def list_images(self) -> dict:
+    def list(self) -> dict:
         """List all images/graphic objects in the document with name, dimensions, title, and description.."""
-        return _rpc_call("list_images")
+        return _rpc_call("image_list")
 
-    def list_nearby_image_files(self, *, filter: str = "") -> dict:
+    def list_nearby_files(self, *, filter: str = "") -> dict:
         """List image files (.png, .jpg, .jpeg, .gif, .webp, .bmp, .svg) in the same folder as the active document (newest first)."""
-        return _rpc_call("list_nearby_image_files", filter=filter)
+        return _rpc_call("image_list_nearby_files", filter=filter)
 
-    def replace_image(self, image_name: str, new_image_path: str, *, width_mm: float = 0.0, height_mm: float = 0.0) -> dict:
+    def replace(self, image_name: str, new_image_path: str, *, width_mm: float = 0.0, height_mm: float = 0.0) -> dict:
         """Replace an image's source file keeping position and frame.."""
-        return _rpc_call("replace_image", image_name=image_name, new_image_path=new_image_path, width_mm=width_mm, height_mm=height_mm)
+        return _rpc_call("image_replace", image_name=image_name, new_image_path=new_image_path, width_mm=width_mm, height_mm=height_mm)
 
-    def set_image_properties(self, image_name: str, *, width_mm: float = 0.0, height_mm: float = 0.0, title: str = "", description: str = "", anchor_type: int = 0, hori_orient: str = "", vert_orient: str = "", crop_top_mm: float = 0.0, crop_bottom_mm: float = 0.0, crop_left_mm: float = 0.0, crop_right_mm: float = 0.0) -> dict:
+    def set_properties(self, image_name: str, *, width_mm: float = 0.0, height_mm: float = 0.0, title: str = "", description: str = "", anchor_type: int = 0, hori_orient: str = "", vert_orient: str = "", crop_top_mm: float = 0.0, crop_bottom_mm: float = 0.0, crop_left_mm: float = 0.0, crop_right_mm: float = 0.0) -> dict:
         """Resize, reposition, crop, or update caption/alt-text for an image."""
-        return _rpc_call("set_image_properties", image_name=image_name, width_mm=width_mm, height_mm=height_mm, title=title, description=description, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient, crop_top_mm=crop_top_mm, crop_bottom_mm=crop_bottom_mm, crop_left_mm=crop_left_mm, crop_right_mm=crop_right_mm)
+        return _rpc_call("image_set_properties", image_name=image_name, width_mm=width_mm, height_mm=height_mm, title=title, description=description, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient, crop_top_mm=crop_top_mm, crop_bottom_mm=crop_bottom_mm, crop_left_mm=crop_left_mm, crop_right_mm=crop_right_mm)
 
 images = _ImagesProxy()
 
@@ -731,33 +731,33 @@ math = _MathProxy()
 class _PageProxy:
     """Proxy for page tools."""
 
+    def get_columns(self, *, style_name: str = "") -> dict:
+        """Get the column layout for a page style.."""
+        return _rpc_call("page_get_columns", style_name=style_name)
+
     def get_header_footer_text(self, region: str, *, style_name: str = "") -> dict:
         """Retrieve the text content of a page style's header or footer.."""
-        return _rpc_call("get_header_footer_text", style_name=style_name, region=region)
+        return _rpc_call("page_get_header_footer_text", style_name=style_name, region=region)
 
-    def get_page_columns(self, *, style_name: str = "") -> dict:
-        """Get the column layout for a page style.."""
-        return _rpc_call("get_page_columns", style_name=style_name)
-
-    def get_page_style_properties(self, *, style_name: str = "") -> dict:
+    def get_style_properties(self, *, style_name: str = "") -> dict:
         """Get dimensions, margins, and header/footer states of a page style.."""
-        return _rpc_call("get_page_style_properties", style_name=style_name)
+        return _rpc_call("page_get_style_properties", style_name=style_name)
 
-    def insert_page_break(self, *, before_text: str = "", after_text: str = "", occurrence: int = 0, case_sensitive: bool = True) -> dict:
+    def insert_break(self, *, before_text: str = "", after_text: str = "", occurrence: int = 0, case_sensitive: bool = True) -> dict:
         """Start a new page."""
-        return _rpc_call("insert_page_break", before_text=before_text, after_text=after_text, occurrence=occurrence, case_sensitive=case_sensitive)
+        return _rpc_call("page_insert_break", before_text=before_text, after_text=after_text, occurrence=occurrence, case_sensitive=case_sensitive)
+
+    def set_columns(self, column_count: int, *, style_name: str = "", spacing_mm: float = 0.0) -> dict:
+        """Set the number of columns and spacing for a page style.."""
+        return _rpc_call("page_set_columns", style_name=style_name, column_count=column_count, spacing_mm=spacing_mm)
 
     def set_header_footer_text(self, region: str, content: str, *, style_name: str = "", auto_height: bool = True) -> dict:
         """Set the text content of a page style's header or footer."""
-        return _rpc_call("set_header_footer_text", style_name=style_name, region=region, content=content, auto_height=auto_height)
+        return _rpc_call("page_set_header_footer_text", style_name=style_name, region=region, content=content, auto_height=auto_height)
 
-    def set_page_columns(self, column_count: int, *, style_name: str = "", spacing_mm: float = 0.0) -> dict:
-        """Set the number of columns and spacing for a page style.."""
-        return _rpc_call("set_page_columns", style_name=style_name, column_count=column_count, spacing_mm=spacing_mm)
-
-    def set_page_style_properties(self, *, style_name: str = "", width_mm: float = 0.0, height_mm: float = 0.0, is_landscape: bool = True, left_margin_mm: float = 0.0, right_margin_mm: float = 0.0, top_margin_mm: float = 0.0, bottom_margin_mm: float = 0.0, gutter_margin_mm: float = 0.0, header_is_on: bool = True, footer_is_on: bool = True, header_is_shared: bool = True, footer_is_shared: bool = True, header_height_mm: float = 0.0, footer_height_mm: float = 0.0, header_body_distance_mm: float = 0.0, footer_body_distance_mm: float = 0.0, back_color: int = 0, back_transparent: bool = True, numbering_type: int = 0, footnote_height_mm: float = 0.0, register_paragraph_style: str = "", page_style_layout: int = 0) -> dict:
+    def set_style_properties(self, *, style_name: str = "", width_mm: float = 0.0, height_mm: float = 0.0, is_landscape: bool = True, left_margin_mm: float = 0.0, right_margin_mm: float = 0.0, top_margin_mm: float = 0.0, bottom_margin_mm: float = 0.0, gutter_margin_mm: float = 0.0, header_is_on: bool = True, footer_is_on: bool = True, header_is_shared: bool = True, footer_is_shared: bool = True, header_height_mm: float = 0.0, footer_height_mm: float = 0.0, header_body_distance_mm: float = 0.0, footer_body_distance_mm: float = 0.0, back_color: int = 0, back_transparent: bool = True, numbering_type: int = 0, footnote_height_mm: float = 0.0, register_paragraph_style: str = "", page_style_layout: int = 0) -> dict:
         """Modify dimensions, margins, and header/footer toggles of a page style.."""
-        return _rpc_call("set_page_style_properties", style_name=style_name, width_mm=width_mm, height_mm=height_mm, is_landscape=is_landscape, left_margin_mm=left_margin_mm, right_margin_mm=right_margin_mm, top_margin_mm=top_margin_mm, bottom_margin_mm=bottom_margin_mm, gutter_margin_mm=gutter_margin_mm, header_is_on=header_is_on, footer_is_on=footer_is_on, header_is_shared=header_is_shared, footer_is_shared=footer_is_shared, header_height_mm=header_height_mm, footer_height_mm=footer_height_mm, header_body_distance_mm=header_body_distance_mm, footer_body_distance_mm=footer_body_distance_mm, back_color=back_color, back_transparent=back_transparent, numbering_type=numbering_type, footnote_height_mm=footnote_height_mm, register_paragraph_style=register_paragraph_style, page_style_layout=page_style_layout)
+        return _rpc_call("page_set_style_properties", style_name=style_name, width_mm=width_mm, height_mm=height_mm, is_landscape=is_landscape, left_margin_mm=left_margin_mm, right_margin_mm=right_margin_mm, top_margin_mm=top_margin_mm, bottom_margin_mm=bottom_margin_mm, gutter_margin_mm=gutter_margin_mm, header_is_on=header_is_on, footer_is_on=footer_is_on, header_is_shared=header_is_shared, footer_is_shared=footer_is_shared, header_height_mm=header_height_mm, footer_height_mm=footer_height_mm, header_body_distance_mm=header_body_distance_mm, footer_body_distance_mm=footer_body_distance_mm, back_color=back_color, back_transparent=back_transparent, numbering_type=numbering_type, footnote_height_mm=footnote_height_mm, register_paragraph_style=register_paragraph_style, page_style_layout=page_style_layout)
 
 page = _PageProxy()
 
@@ -871,9 +871,9 @@ class _ShapeProxy:
         """Groups multiple shapes together on the same page.."""
         return _rpc_call("shapes_group", shape_indices=shape_indices, page_index=page_index)
 
-    def list_writer_images(self) -> dict:
+    def list_images(self) -> dict:
         """List images and graphic objects in the Writer document (names, sizes, titles)."""
-        return _rpc_call("list_writer_images")
+        return _rpc_call("shape_list_images")
 
     def upsert_shape(self, action: str, *, shape_index: int = 0, page_index: int = 0, shape_type: str = "", x: int = 0, y: int = 0, width: int = 0, height: int = 0, text: str = "", bg_color: str = "", fill_color: str = "", fill_style: str = "", line_color: str = "", line_width: int = 0, text_color: str = "", font_size: float = 0.0, font_name: str = "", rotation_angle: float = 0.0) -> dict:
         """Creates a new shape or modifies an existing shape on a page.."""
@@ -981,29 +981,29 @@ speaker_note = _SpeakerNoteProxy()
 class _StructuralProxy:
     """Proxy for structural tools."""
 
-    def get_heading_children(self, *, locator: str = "", heading_para_index: int = 0, heading_bookmark: str = "", content_strategy: str = "", depth: int = 0) -> dict:
-        """Drill into a heading's children — body paragraphs and sub-headings."""
-        return _rpc_call("get_heading_children", locator=locator, heading_para_index=heading_para_index, heading_bookmark=heading_bookmark, content_strategy=content_strategy, depth=depth)
-
-    def get_surroundings(self, locator: str, *, radius: int = 0, include: list = []) -> dict:
-        """Discover objects within a radius of paragraphs around a locator."""
-        return _rpc_call("get_surroundings", locator=locator, radius=radius, include=include)
-
-    def goto_page(self, page: int) -> dict:
+    def nav_goto_page(self, page: int) -> dict:
         """Navigate the view cursor to a specific page.."""
-        return _rpc_call("goto_page", page=page)
+        return _rpc_call("nav_goto_page", page=page)
 
-    def list_sections(self) -> dict:
-        """List all named sections in the document.."""
-        return _rpc_call("list_sections")
-
-    def navigate_heading(self, locator: str, direction: str) -> dict:
+    def nav_heading(self, locator: str, direction: str) -> dict:
         """Navigate from a locator to a related heading."""
-        return _rpc_call("navigate_heading", locator=locator, direction=direction)
+        return _rpc_call("nav_heading", locator=locator, direction=direction)
 
-    def read_section(self, section_name: str) -> dict:
+    def nav_heading_children(self, *, locator: str = "", heading_para_index: int = 0, heading_bookmark: str = "", content_strategy: str = "", depth: int = 0) -> dict:
+        """Drill into a heading's children — body paragraphs and sub-headings."""
+        return _rpc_call("nav_heading_children", locator=locator, heading_para_index=heading_para_index, heading_bookmark=heading_bookmark, content_strategy=content_strategy, depth=depth)
+
+    def nav_surroundings(self, locator: str, *, radius: int = 0, include: list = []) -> dict:
+        """Discover objects within a radius of paragraphs around a locator."""
+        return _rpc_call("nav_surroundings", locator=locator, radius=radius, include=include)
+
+    def section_list(self) -> dict:
+        """List all named sections in the document.."""
+        return _rpc_call("section_list")
+
+    def section_read(self, section_name: str) -> dict:
         """Read the text content of a named section."""
-        return _rpc_call("read_section", section_name=section_name)
+        return _rpc_call("section_read", section_name=section_name)
 
 structural = _StructuralProxy()
 
@@ -1011,25 +1011,25 @@ structural = _StructuralProxy()
 class _StylesProxy:
     """Proxy for styles tools."""
 
-    def create_style(self, style_name: str, *, family: str = "", parent_style: str = "", property_updates: dict = {}, conditional_rules: list = []) -> dict:
+    def create(self, style_name: str, *, family: str = "", parent_style: str = "", property_updates: dict = {}, conditional_rules: list = []) -> dict:
         """Create a new paragraph or character style with optional inheritance and property settings."""
-        return _rpc_call("create_style", style_name=style_name, family=family, parent_style=parent_style, property_updates=property_updates, conditional_rules=conditional_rules)
+        return _rpc_call("style_create", style_name=style_name, family=family, parent_style=parent_style, property_updates=property_updates, conditional_rules=conditional_rules)
 
-    def get_style_info(self, style_name: str, *, family: str = "") -> dict:
+    def get_info(self, style_name: str, *, family: str = "") -> dict:
         """Get detailed properties of a specific style (font, size, margins, etc.).."""
-        return _rpc_call("get_style_info", style_name=style_name, family=family)
+        return _rpc_call("style_get_info", style_name=style_name, family=family)
 
-    def import_styles(self, file_path: str, *, overwrite: bool = True, load_paragraph_styles: bool = True, load_page_styles: bool = False, load_frame_styles: bool = False, load_numbering_styles: bool = False) -> dict:
+    def import_(self, file_path: str, *, overwrite: bool = True, load_paragraph_styles: bool = True, load_page_styles: bool = False, load_frame_styles: bool = False, load_numbering_styles: bool = False) -> dict:
         """Import styles from an external document or template (.odt, .ott)."""
-        return _rpc_call("import_styles", file_path=file_path, overwrite=overwrite, load_paragraph_styles=load_paragraph_styles, load_page_styles=load_page_styles, load_frame_styles=load_frame_styles, load_numbering_styles=load_numbering_styles)
+        return _rpc_call("style_import", file_path=file_path, overwrite=overwrite, load_paragraph_styles=load_paragraph_styles, load_page_styles=load_page_styles, load_frame_styles=load_frame_styles, load_numbering_styles=load_numbering_styles)
 
-    def list_styles(self, *, family: str = "") -> dict:
+    def list(self, *, family: str = "") -> dict:
         """List available styles in the document."""
-        return _rpc_call("list_styles", family=family)
+        return _rpc_call("style_list", family=family)
 
-    def update_style(self, style_name: str, *, family: str = "", parent_style: str = "", property_updates: dict = {}) -> dict:
+    def update(self, style_name: str, *, family: str = "", parent_style: str = "", property_updates: dict = {}) -> dict:
         """Update the properties of an existing style."""
-        return _rpc_call("update_style", style_name=style_name, family=family, parent_style=parent_style, property_updates=property_updates)
+        return _rpc_call("style_update", style_name=style_name, family=family, parent_style=parent_style, property_updates=property_updates)
 
 styles = _StylesProxy()
 
@@ -1037,21 +1037,21 @@ styles = _StylesProxy()
 class _TableProxy:
     """Proxy for table tools."""
 
-    def get_table_cells(self, table_name: str) -> dict:
+    def get_cells(self, table_name: str) -> dict:
         """Return a table's cell text as a row-major matrix (matrix[row][col]) by position — not by cell name."""
-        return _rpc_call("get_table_cells", table_name=table_name)
+        return _rpc_call("table_get_cells", table_name=table_name)
 
-    def list_tables(self) -> dict:
+    def list(self) -> dict:
         """List the text tables in the document with their name and dimensions (rows x columns)."""
-        return _rpc_call("list_tables")
+        return _rpc_call("table_list")
 
     def manage_table_structure(self, action: str, axis: str, table_name: str, index: int) -> dict:
         """Insert or delete one table row or column."""
         return _rpc_call("manage_table_structure", action=action, axis=axis, table_name=table_name, index=index)
 
-    def set_table_cell(self, table_name: str, cell: str, text: str) -> dict:
+    def set_cell(self, table_name: str, cell: str, text: str) -> dict:
         """Set the plain-text content of ONE table cell, addressed A1-style (e.g."""
-        return _rpc_call("set_table_cell", table_name=table_name, cell=cell, text=text)
+        return _rpc_call("table_set_cell", table_name=table_name, cell=cell, text=text)
 
 table = _TableProxy()
 
@@ -1059,17 +1059,17 @@ table = _TableProxy()
 class _TextframeProxy:
     """Proxy for textframe tools."""
 
-    def get_text_frame_info(self, frame_name: str) -> dict:
+    def frame_get_info(self, frame_name: str) -> dict:
         """Get detailed info about a text frame.."""
-        return _rpc_call("get_text_frame_info", frame_name=frame_name)
+        return _rpc_call("frame_get_info", frame_name=frame_name)
 
-    def list_text_frames(self) -> dict:
+    def frame_list(self) -> dict:
         """List all text frames in the document.."""
-        return _rpc_call("list_text_frames")
+        return _rpc_call("frame_list")
 
-    def set_text_frame_properties(self, frame_name: str, *, width_mm: float = 0.0, height_mm: float = 0.0, anchor_type: int = 0, hori_orient: int = 0, vert_orient: int = 0) -> dict:
+    def frame_set_properties(self, frame_name: str, *, width_mm: float = 0.0, height_mm: float = 0.0, anchor_type: int = 0, hori_orient: int = 0, vert_orient: int = 0) -> dict:
         """Resize or reposition a text frame.."""
-        return _rpc_call("set_text_frame_properties", frame_name=frame_name, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient)
+        return _rpc_call("frame_set_properties", frame_name=frame_name, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type, hori_orient=hori_orient, vert_orient=vert_orient)
 
 textframe = _TextframeProxy()
 

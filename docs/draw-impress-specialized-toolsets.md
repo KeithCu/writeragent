@@ -71,12 +71,12 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | Tool | Domain | Module | Purpose | Services |
 |------|--------|--------|---------|---------|
 | `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
-| `create_form_control` | `forms` | `writer/forms.py` | Create a single form control | Drawing+Presentation+Spreadsheet+Text |
-| `create_form` | `forms` | `writer/forms.py` | Create multiple form controls | Drawing+Presentation+Spreadsheet+Text |
-| `generate_form` | `forms` | `writer/forms.py` | Generate form from description | All |
-| `list_form_controls` | `forms` | `writer/forms.py` | List form controls | Drawing+Presentation+Spreadsheet+Text |
-| `edit_form_control` | `forms` | `writer/forms.py` | Modify a form control | Drawing+Presentation+Spreadsheet+Text |
-| `delete_form_control` | `forms` | `writer/forms.py` | Remove a form control | Drawing+Presentation+Spreadsheet+Text |
+| `form_create_control` | `forms` | `writer/forms.py` | Create a single form control | Drawing+Presentation+Spreadsheet+Text |
+| `form_create` | `forms` | `writer/forms.py` | Create multiple form controls | Drawing+Presentation+Spreadsheet+Text |
+| `form_generate` | `forms` | `writer/forms.py` | Generate form from description | All |
+| `form_list_controls` | `forms` | `writer/forms.py` | List form controls | Drawing+Presentation+Spreadsheet+Text |
+| `form_edit_control` | `forms` | `writer/forms.py` | Modify a form control | Drawing+Presentation+Spreadsheet+Text |
+| `form_delete_control` | `forms` | `writer/forms.py` | Remove a form control | Drawing+Presentation+Spreadsheet+Text |
 | `get_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
 | `set_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
 | `get_speaker_notes` | `speaker_notes` | `draw/notes.py` | Read speaker notes (Impress) | Presentation |

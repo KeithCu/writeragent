@@ -44,7 +44,7 @@ Headers and footers are also controlled via the Page Style properties. Each page
 - **`HeaderIsOn`** / **`FooterIsOn`** (`bool`): Enables or disables the header/footer.
 - **`HeaderIsShared`** / **`FooterIsShared`** (`bool`): If true, the same header/footer is used for left and right pages.
 - **`HeaderText`** / **`FooterText`** (`com.sun.star.text.XText`): The text object representing the header/footer content. This is a full text object, just like the main document body.
-- **`HeaderIsDynamicHeight`** / **`FooterIsDynamicHeight`** (`bool`): When true, the region grows with its content. Needed when inserting a logo via `insert_image(target="header"|"footer")` — without it a taller image keeps the fixed header height and spills into the body. WriterAgent enables this by default for header/footer image inserts (`auto_height`, also on `set_header_footer_text`).
+- **`HeaderIsDynamicHeight`** / **`FooterIsDynamicHeight`** (`bool`): When true, the region grows with its content. Needed when inserting a logo via `insert_image(target="header"|"footer")` — without it a taller image keeps the fixed header height and spills into the body. WriterAgent enables this by default for header/footer image inserts (`auto_height`, also on `page_set_header_footer_text`).
 - **`HeaderLeftText`** / **`HeaderRightText`** / **`FooterLeftText`** / **`FooterRightText`**: Used when left and right pages have different headers/footers (i.e., when `HeaderIsShared` is False).
 
 Images in a header/footer must be anchored **`AS_CHARACTER`** (in the text flow). A floating `AT_CHARACTER` image does not contribute to line height, so even with dynamic height the region may not grow.

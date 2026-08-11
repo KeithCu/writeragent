@@ -262,7 +262,7 @@ class DelegateToSpecializedBase(ToolBase):
                 log.warning("Failed to get open documents for sub-agent: %s", e)
 
         images_hint = (
-            " Discover local image files with list_nearby_image_files before insert_image when the user refers to a photo in the folder."
+            " Discover local image files with image_list_nearby_files before image_insert when the user refers to a photo in the folder."
             if domain == "images"
             else ""
         )

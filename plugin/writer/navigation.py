@@ -14,13 +14,13 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Navigation tools: navigate_heading, get_surroundings."""
+"""Navigation tools: nav_heading, nav_surroundings."""
 
 from .specialized_base import ToolWriterStructuralBase
 
 
 class NavigateHeading(ToolWriterStructuralBase):
-    name = "navigate_heading"
+    name = "nav_heading"
     intent = "navigate"
     description = "Navigate from a locator to a related heading. Directions: next, previous, parent, first_child, next_sibling, previous_sibling. Returns the target heading with bookmark for stable addressing."
     parameters = {
@@ -45,7 +45,7 @@ class NavigateHeading(ToolWriterStructuralBase):
 
 
 class GetSurroundings(ToolWriterStructuralBase):
-    name = "get_surroundings"
+    name = "nav_surroundings"
     intent = "navigate"
     description = "Discover objects within a radius of paragraphs around a locator. Returns nearby paragraphs, heading chain, images, tables, frames, and comments."
     parameters = {

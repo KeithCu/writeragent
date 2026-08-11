@@ -7,7 +7,7 @@
 Structural table editing that the surface lacked entirely: petitions carry fee/valuation tables and
 the only prior path was rewriting the whole document. Cell text edits are PLAIN (not tracked
 changes) in this first version — table-cell redlines are a separate, harder problem. Tables are
-addressed by name (list_tables shows them); cells by A1-style name (getCellByName)."""
+addressed by name (table_list shows them); cells by A1-style name (getCellByName)."""
 import logging
 from typing import Any
 
@@ -29,7 +29,7 @@ def _get_table(doc: Any, name: str) -> Any:
     names = list(tables.getElementNames())
     if not name or not tables.hasByName(name):
         listing = ", ".join(names) if names else "none"
-        raise ValueError("No table named '%s'. Open tables (call list_tables): %s." % (name, listing))
+        raise ValueError("No table named '%s'. Open tables (call table_list): %s." % (name, listing))
     return tables.getByName(name)
 
 
@@ -42,7 +42,7 @@ def _col_letters(col_idx: int) -> str:
 
     NOTE: Writer's OWN naming diverges past column Z (it continues with lowercase a..z, not AA),
     so this is only used for the fallback read path and the <=26-column range hint. Reads prefer
-    getCellByPosition, and set_table_cell validates against the table's REAL getCellNames()."""
+    getCellByPosition, and table_set_cell validates against the table's REAL getCellNames()."""
     s = ""
     n = col_idx
     while True:
@@ -74,7 +74,7 @@ def _resolve_cell_name(table: Any, raw: str) -> str | None:
 
 
 class ListTables(ToolWriterTableBase):
-    name = "list_tables"
+    name = "table_list"
     description = "List the text tables in the document with their name and dimensions (rows x columns). Use the name to read or edit a table."
     is_mutation = False
     parameters = {"type": "object", "properties": {}, "required": []}
@@ -93,16 +93,16 @@ class ListTables(ToolWriterTableBase):
 
 
 class GetTableCells(ToolWriterTableBase):
-    name = "get_table_cells"
+    name = "table_get_cells"
     description = (
         "Return a table's cell text as a row-major matrix (matrix[row][col]) by position — not by "
-        "cell name. Use matrix indices to read values; for set_table_cell use Writer cell names from "
-        "set_table_cell error hints (columns A..Z then a..z past column 26, not spreadsheet AA)."
+        "cell name. Use matrix indices to read values; for table_set_cell use Writer cell names from "
+        "table_set_cell error hints (columns A..Z then a..z past column 26, not spreadsheet AA)."
     )
     is_mutation = False
     parameters = {
         "type": "object",
-        "properties": {"table_name": {"type": "string", "description": "Table name from list_tables."}},
+        "properties": {"table_name": {"type": "string", "description": "Table name from table_list."}},
         "required": ["table_name"],
     }
 
@@ -137,7 +137,7 @@ class GetTableCells(ToolWriterTableBase):
 
 
 class SetTableCell(ToolWriterTableBase):
-    name = "set_table_cell"
+    name = "table_set_cell"
     description = (
         "Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). Replaces the "
         "cell's text and any in-cell formatting (setString). Not a tracked change even when review mode is on."
@@ -146,7 +146,7 @@ class SetTableCell(ToolWriterTableBase):
     parameters = {
         "type": "object",
         "properties": {
-            "table_name": {"type": "string", "description": "Table name from list_tables."},
+            "table_name": {"type": "string", "description": "Table name from table_list."},
             "cell": {"type": "string", "description": "A1-style cell address, e.g. 'B2'."},
             "text": {"type": "string", "description": "New plain text for the cell."},
         },
@@ -202,7 +202,7 @@ class ManageTableStructure(ToolWriterTableBase):
                 "enum": ["row", "column"],
                 "description": "Whether to edit rows or columns.",
             },
-            "table_name": {"type": "string", "description": "Table name from list_tables."},
+            "table_name": {"type": "string", "description": "Table name from table_list."},
             "index": {
                 "type": "integer",
                 "description": "0-based row or column index (insert at count = append).",

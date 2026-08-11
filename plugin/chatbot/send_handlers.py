@@ -278,7 +278,7 @@ class SendHandlersMixin:
 
 
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
-                res = get_tools().execute("generate_image", tctx, bypass_thread_guard=False, **{"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_val, "image_model": image_model_text})
+                res = get_tools().execute("image_generate", tctx, bypass_thread_guard=False, **{"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_val, "image_model": image_model_text})
                 if isinstance(res, dict) and res.get("status") == "error":
                     log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
@@ -288,7 +288,7 @@ class SendHandlersMixin:
                 else:
                     log.error("Failed to parse generate_image result in _do_send_direct_image")
                     note = "done"
-                q.put((StreamQueueKind.CHUNK, "[generate_image: %s]\n" % note))
+                q.put((StreamQueueKind.CHUNK, "[image_generate: %s]\n" % note))
                 q.put((StreamQueueKind.STREAM_DONE, {}))
             except Exception as e:
                 doc_type = getattr(self, "cached_doc_type", None) or "unknown"

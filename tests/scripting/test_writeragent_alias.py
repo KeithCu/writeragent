@@ -99,7 +99,7 @@ def test_venv_worker_bidirectional_tool_call():
 
     code = (
         "import writeragent\n"
-        "result = writeragent.bookmark.list_bookmarks()\n"
+        "result = writeragent.bookmark.list()\n"
     )
 
     with patch("plugin.main.get_tools") as mock_get_tools, \

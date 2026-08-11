@@ -114,7 +114,7 @@ def _get_bool_prop(obj, prop_name, default=False):
 class ListStyles(ToolWriterStyleBase):
     """List available styles in a given family."""
 
-    name = "list_styles"
+    name = "style_list"
     description = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
     parameters = {"type": "object", "properties": {"family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family (ParagraphStyles or CharacterStyles). Default: ParagraphStyles.")}}, "required": []}
 
@@ -223,7 +223,7 @@ class ListStyles(ToolWriterStyleBase):
 class GetStyleInfo(ToolWriterStyleBase):
     """Get detailed properties of a named style."""
 
-    name = "get_style_info"
+    name = "style_get_info"
     description = "Get detailed properties of a specific style (font, size, margins, etc.)."
     parameters = {"type": "object", "properties": {"style_name": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles."}}, "required": ["style_name"]}
 
@@ -412,7 +412,7 @@ class ApplyStyle(FrameworkToolBase):
 class UpdateStyle(ToolWriterStyleBase):
     """Update properties of an existing paragraph or character style."""
 
-    name = "update_style"
+    name = "style_update"
     intent = "edit"
     description = (
         "Update the properties of an existing style. "
@@ -506,7 +506,7 @@ class UpdateStyle(ToolWriterStyleBase):
 class CreateStyle(ToolWriterStyleBase):
     """Create a new paragraph or character style."""
 
-    name = "create_style"
+    name = "style_create"
     intent = "edit"
     description = (
         "Create a new paragraph or character style with optional inheritance "
@@ -634,7 +634,7 @@ class CreateStyle(ToolWriterStyleBase):
 class ImportStyles(ToolWriterStyleBase):
     """Import styles from an external document or template."""
 
-    name = "import_styles"
+    name = "style_import"
     intent = "edit"
     description = (
         "Import styles from an external document or template (.odt, .ott). "

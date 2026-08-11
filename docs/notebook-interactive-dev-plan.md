@@ -86,7 +86,7 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 ### Implementation lessons (UNO / PyUNO)
 
 - **`queryInterface`** must use `uno.getTypeByName("com.sun.star.view.XControlAccess")`, not imported IDL classes (same pattern as [`pivot.py`](../plugin/calc/pivot.py)).
-- **Control lookup** — in-flow `ControlShape` models live on **`doc.getDrawPage()`**, not only as `TextPortionType == "Frame"` in body enumeration ([`form_lookup.py`](../plugin/notebook/form_lookup.py); mirrors [`list_form_controls`](../plugin/writer/specialized/forms.py)).
+- **Control lookup** — in-flow `ControlShape` models live on **`doc.getDrawPage()`**, not only as `TextPortionType == "Frame"` in body enumeration ([`form_lookup.py`](../plugin/notebook/form_lookup.py); mirrors [`form_list_controls`](../plugin/writer/specialized/forms.py)).
 - **Wire timing** — attach listeners **after** import + `processEventsToIdle()`, not per-cell during insert; batch `wire_all_notebook_run_buttons` once.
 - **Spellcheck** — set document + paragraph styles to **`zxx`** (no linguistic content) at import start ([`rich_text.py`](../plugin/chatbot/rich_text.py) uses the same locale).
 

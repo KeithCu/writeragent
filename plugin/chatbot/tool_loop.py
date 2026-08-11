@@ -611,7 +611,7 @@ class ToolCallingMixin:
             async_tools = frozenset([tool.name for tool in registry.get_tools(filter_doc_type=False, exclude_tiers=()) if getattr(tool, "is_async", lambda: False)()])
         except Exception as e:
             log.debug("Failed to get async tools list, falling back to defaults: %s", e)
-            async_tools = frozenset({"web_research", "generate_image"})
+            async_tools = frozenset({"web_research", "image_generate"})
 
         self._sm_state = ToolLoopState(round_num=0, pending_tools=[], max_rounds=max_tool_rounds, status="Thinking...", async_tools=async_tools)
 

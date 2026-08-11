@@ -128,7 +128,7 @@ flowchart TB
 
 **WriterAgent today:**
 
-- Heading tree + bookmarks: `get_document_tree`, `get_heading_children`.
+- Heading tree + bookmarks: `get_document_tree`, `nav_heading_children`.
 - **Writing Plan** sidebar mode: multi-turn planning sub-agent ([send_handlers.py](../plugin/chatbot/send_handlers.py)).
 - **Brainstorming** mode: approved HTML design specs into the doc ([brainstorming-mode.md](brainstorming-mode.md)).
 

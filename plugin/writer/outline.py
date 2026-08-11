@@ -18,7 +18,7 @@
 
 For a simple document outline (headings hierarchy only), use get_document_tree
 with content_strategy=\"heading_only\". For content under a heading by path
-(e.g. \"1.2\"), use get_heading_children with locator=\"heading:1.2\".
+(e.g. \"1.2\"), use nav_heading_children with locator=\"heading:1.2\".
 """
 
 import logging
@@ -66,7 +66,7 @@ class GetDocumentTree(ToolBase):
 
 
 class GetHeadingChildren(ToolWriterStructuralBase):
-    name = "get_heading_children"
+    name = "nav_heading_children"
     intent = "navigate"
     description = "Drill into a heading's children — body paragraphs and sub-headings. Identify the heading by locator (e.g. 'bookmark:_mcp_xxx', 'heading_text:Title'), heading_para_index, or heading_bookmark. para_index values are INTERNAL — never cite paragraph numbers to the user; refer to a place by quoting the first words of its text."
     parameters = {

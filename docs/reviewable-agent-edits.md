@@ -174,8 +174,8 @@ resolve-all returns user-facing messages when verification fails.
 
 ### Limitations
 
-* **Style changes are not reviewable.** `apply_style`, `update_style`, `create_style` and
-  `import_styles` apply directly and return `style_unreviewed: true`; the agent is prompted to tell
+* **Style changes are not reviewable.** `apply_style`, `style_update`, `style_create` and
+  `style_import` apply directly and return `style_unreviewed: true`; the agent is prompted to tell
   the user it changed a style (styles don't produce redlines).
 * **Extend selection** records only the appended continuation as a single tracked **insertion**
   (the original is never struck); it streams live with tracking off, then collapses to one redline

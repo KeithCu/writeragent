@@ -90,7 +90,7 @@ def delete_bookmark_by_name(doc, bookmark_name):
 Renaming is straightforward using the `Name` property (or `setName` method).
 
 ```python
-def rename_bookmark(doc, old_name, new_name):
+def bookmark_rename(doc, old_name, new_name):
     bookmarks = doc.getBookmarks()
 
     if bookmarks.hasByName(old_name):

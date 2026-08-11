@@ -55,7 +55,7 @@ class GetDrawSummary(DrawGetDrawSummary, ToolWriterShapeBase):
 class ListWriterImages(ToolWriterShapeBase):
     """List graphic objects anchored in the Writer document (text layer)."""
 
-    name = "list_writer_images"
+    name = "shape_list_images"
     intent = "media"
     description = "List images and graphic objects in the Writer document (names, sizes, titles). Uses the document graphic-object collection (not the full Draw page API)."
     parameters = {"type": "object", "properties": {}, "required": []}

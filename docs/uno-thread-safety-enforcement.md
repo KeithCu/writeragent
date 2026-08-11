@@ -367,7 +367,7 @@ trace," which is the bulk of the user's pain.
   (`DelegateToSpecializedBase.execute`) runs on a background worker when `is_async()`; UNO
   scaffolding (`get_tools(doc=…)`, shapes canvas, open-documents list, embeddings index wakeup)
   and sync domain tools (via `SmolToolAdapter(main_thread_sync=True)`) must marshal through
-  `execute_on_main_thread`. Async domain tools (`generate_image`, `delegate_read_document`, …)
+  `execute_on_main_thread`. Async domain tools (`image_generate`, `delegate_read_document`, …)
   must marshal UNO inside their own `execute()`. Tests:
   [`tests/doc/test_specialized_delegation_threading.py`](../tests/doc/test_specialized_delegation_threading.py).
 

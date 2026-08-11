@@ -108,7 +108,7 @@ def _plain_text_for_calc_html_fragment(html: str) -> str:
 class CreateFormControl(ToolWriterFormBase):
     """Creates a single interactive form control at the current cursor position."""
 
-    name = "create_form_control"
+    name = "form_create_control"
     uno_services = _FORM_DOC_SERVICES
     description = "Creates a single interactive form control (checkbox, text field, radio button, date field, combobox, or button). In Writer: anchored 'As Character' at the cursor. In Calc: placed on the active sheet draw page (stacked below existing shapes)."
     parameters = {
@@ -207,7 +207,7 @@ class CreateFormControl(ToolWriterFormBase):
 class CreateForm(ToolWriterFormBase):
     """Fat API: Creates multiple form controls at once."""
 
-    name = "create_form"
+    name = "form_create"
     uno_services = _FORM_DOC_SERVICES
     description = "Creates multiple form controls at once from a list of field definitions. Useful for generating a complete form section in one call."
     parameters = {
@@ -261,7 +261,7 @@ class CreateForm(ToolWriterFormBase):
 class GenerateForm(ToolWriterFormBase):
     """Thin API: Generates a form from a description using a specialized internal prompt."""
 
-    name = "generate_form"
+    name = "form_generate"
     uno_services = _FORM_DOC_SERVICES
     description = "Generates a document or sheet layout with interactive form fields from a description. Writer: HTML inserted at the cursor. Calc: plain text is inserted into the active cell area; fields go on the active sheet draw page."
     parameters = {"type": "object", "properties": {"description": {"type": "string", "description": "Description of the form to generate (e.g. 'Medical intake form')."}}, "required": ["description"]}
@@ -300,7 +300,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             return self._process_form_content(ctx, content)
 
         except Exception as e:
-            log.exception("Error in generate_form")
+            log.exception("Error in form_generate")
             return format_error_payload(ToolExecutionError(f"Form generation failed: {str(e)}"))
 
     def _process_form_content(self, ctx, content):
@@ -363,7 +363,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
 class ListFormControls(ToolWriterFormBase):
     """Lists all interactive form controls in the document."""
 
-    name = "list_form_controls"
+    name = "form_list_controls"
     uno_services = _FORM_DOC_SERVICES
     description = "Lists interactive form controls (checkboxes, text fields, etc.) with indices and values. Writer: document draw page. Calc: active sheet draw page only."
     parameters = {"type": "object", "properties": {}, "required": []}
@@ -409,13 +409,13 @@ class ListFormControls(ToolWriterFormBase):
 class EditFormControl(ToolWriterFormBase):
     """Modifies properties of an existing form control."""
 
-    name = "edit_form_control"
+    name = "form_edit_control"
     uno_services = _FORM_DOC_SERVICES
-    description = "Modifies an existing form control by index (from list_form_controls). Calc: index is on the active sheet draw page."
+    description = "Modifies an existing form control by index (from form_list_controls). Calc: index is on the active sheet draw page."
     parameters = {
         "type": "object",
         "properties": {
-            "shape_index": {"type": "integer", "description": "The index of the control shape (from list_form_controls)."},
+            "shape_index": {"type": "integer", "description": "The index of the control shape (from form_list_controls)."},
             "name": {"type": "string", "description": "New internal name."},
             "label": {"type": "string", "description": "New label text."},
             "text": {"type": "string", "description": "New text value (for text fields)."},
@@ -472,7 +472,7 @@ class EditFormControl(ToolWriterFormBase):
 class DeleteFormControl(ToolWriterFormBase):
     """Deletes a form control by its index."""
 
-    name = "delete_form_control"
+    name = "form_delete_control"
     uno_services = _FORM_DOC_SERVICES
     description = "Deletes a form control by shape index (Calc: active sheet draw page)."
     parameters = {"type": "object", "properties": {"shape_index": {"type": "integer", "description": "The index of the control shape to delete."}}, "required": ["shape_index"]}

@@ -71,7 +71,7 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx:
         return ("When creating or editing a chart in Writer or Draw/Impress, you MUST "
                 "specify both the `headers` and `rows` parameters.")
     if domain == "images":
-        return ("Discover local image files with list_nearby_image_files before insert_image "
+        return ("Discover local image files with image_list_nearby_files before image_insert "
                 "when the user refers to a photo in the folder.")
     if domain == "analysis":
         return ("For stats, cleaning, regression, clustering, or simulation on tabular data "

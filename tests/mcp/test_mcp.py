@@ -56,7 +56,7 @@ def test_navigation_workflow_lives_in_the_manual():
 
     nav = get_section("navigation")
     assert "get_document_tree" in nav
-    assert "get_heading_children" in nav
+    assert "nav_heading_children" in nav
     assert "search_in_document" in nav
     assert "heading_only" in nav
 

@@ -47,19 +47,19 @@ class TestWriterToolsSmoke(unittest.TestCase):
         self.assertNotIn("set_workflow_status", writer_tools)
         self.assertNotIn("check_stop_conditions", writer_tools)
         # Specialized tools are not in the default chat tool list
-        self.assertNotIn("navigate_heading", writer_tools)
+        self.assertNotIn("nav_heading", writer_tools)
 
     def test_structural_domain_includes_navigation_tools(self):
         registry = get_tools()
         doc = WriterDocStub()
         names = {t.name for t in registry.get_tools(doc=doc, active_domain="structural")}
         for name in (
-            "navigate_heading",
-            "get_surroundings",
-            "list_sections",
-            "goto_page",
-            "read_section",
-            "get_heading_children",
+            "nav_heading",
+            "nav_surroundings",
+            "section_list",
+            "nav_goto_page",
+            "section_read",
+            "nav_heading_children",
         ):
             self.assertIn(name, names, f"expected structural tool {name!r}")
 

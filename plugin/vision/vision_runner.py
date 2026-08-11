@@ -50,7 +50,7 @@ def resolve_vision_image_bytes(ctx: Any, doc: Any, *, image_name: str | None = N
     graphic_obj = _get_graphic_object(doc, name)
     if graphic_obj is None:
         raise ToolExecutionError(
-            _("Image '{name}' not found. Use list_images or leave image_name empty and select the graphic.").format(name=name),
+            _("Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.").format(name=name),
             code="IMAGE_NOT_FOUND",
             details={"image_name": name},
         )

@@ -85,6 +85,24 @@ def test_generate_module_output_is_valid_python():
     assert "footnote = _FootnoteProxy()" in code
     assert "DOMAIN_TOOLS =" in code
 
+
+def test_generate_module_escapes_python_keyword_method_names():
+    tools = [
+        _as_tool(
+            MockTool(
+                "style_import",
+                "Import styles from a file.",
+                {"type": "object", "properties": {"file_path": {"type": "string"}}, "required": ["file_path"]},
+                specialized_domain="styles",
+            )
+        ),
+    ]
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    assert "def import_(self, file_path: str) -> dict:" in code
+    assert 'return _rpc_call("style_import", file_path=file_path)' in code
+    assert "def import(self" not in code
+
 def test_method_names_strip_prefix_plural():
     tools = [
         _as_tool(MockTool("footnotes_insert", "desc", {}, specialized_domain="footnotes")),

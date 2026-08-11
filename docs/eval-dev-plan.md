@@ -17,12 +17,12 @@ The 50 test cases live in [`docs/archive/eval-ideas.md`](docs/archive/eval-ideas
 
 ## Hybrid Evaluation Strategy for Draw, Flowcharts & Images (New)
 
-Current string backend cannot easily handle `create_shape`, `get_draw_tree`, `generate_image`, or complex Draw state. **Screenshots are not needed**.
+Current string backend cannot easily handle `create_shape`, `get_draw_tree`, `image_generate`, or complex Draw state. **Screenshots are not needed**.
 
 **Recommended path (non-LO first)**:
 - **DrawJSONBackend** (parallel to `StringDocState`): Maintains a mutable JSON tree. Mock `get_draw_tree`, `create_shape` (flowchart-*, connectors), `edit_shape`, `shapes_connect`, `shapes_group`, `get_draw_summary`. `dispatch_string_tool` extended for Draw tools. Final state for judging = serialized tree JSON (structural diff on nodes, connections, text, geometry with tolerances) or LLM-as-Judge on tree.
 - `plugin/draw/tree.py:GetDrawTree` is the perfect "DOM" — recursive JSON with `type`, `text`, `geometry`, `connected_start`/`connected_end` (by name/text), `children` for groups. Its description explicitly says "Use this instead of requesting a screenshot to understand the layout, text, connections, and hierarchy of objects (like flowcharts or diagrams)."
-- For `generate_image` (`plugin/writer/images.py`, `plugin/writer/image_utils.py`): Mock `ImageService.generate_image` to return fixed temp path; state adds an "image" node to tree or HTML sentinel. Judge on tool result JSON (`status: "ok"`) + presence in final tree.
+- For `image_generate` (`plugin/writer/images.py`, `plugin/writer/image_utils.py`): Mock `ImageService.image_generate` to return fixed temp path; state adds an "image" node to tree or HTML sentinel. Judge on tool result JSON (`status: "ok"`) + presence in final tree.
 - Verification: Extend `eval_core.py` for tree-based `expected_contains` (node paths) or JSON-aware judge. No pixel comparison.
 
 **LO transition**: Use `--backend lo` with Draw doc (`private:factory/sdraw`) + real tools for fidelity tests (real insertion, styles, z-order, rendering). See `tests/draw/test_draw_uno.py` for patterns (`_exec_tool`, assertions on JSON + UNO counts/positions). `get_draw_context_for_chat` in `plugin/doc/document_helpers.py` provides lighter text summary.
@@ -33,7 +33,7 @@ Current string backend cannot easily handle `create_shape`, `get_draw_tree`, `ge
   - Writer: Styles, comments, track changes, TOC, headers/footers, section breaks, style mapping, bibliography (UNO-specific).
   - Calc: Formulas, conditional formatting, pivot tables, charts, multi-sheet ops (20/20 tests).
   - Draw (5/5): Z-order, grouping, precise layout/alignment, scaling — tree JSON handles most; full LO for geometry/rendering edge cases.
-  - Multimodal (5/5): Vision (OCR, captioning, spatial audit on images/diagrams) — needs `generate_image` + insertion or real image fixtures (`multimodal_vision.odt`).
+  - Multimodal (5/5): Vision (OCR, captioning, spatial audit on images/diagrams) — needs `image_generate` + insertion or real image fixtures (`multimodal_vision.odt`).
 - **Recommendation**: Start with DrawJSONBackend for Draw/flowchart tests (fast, no LO dependency, solves "how to measure flowchart without screenshots"). Use LO backend for Calc/Writer fidelity suite and as gold standard. This avoids making all evals "harder" while enabling image/tool-calling evals via metadata/tree. Aligns with AGENTS.md testing policy (unit tests for mocks, UNO tests for real document interaction).
 
 See previous analysis for architecture diagram (StringBackend → DrawJSONBackend → LOBackend; judge on final tree/HTML).
@@ -48,7 +48,7 @@ See previous analysis for architecture diagram (StringBackend → DrawJSONBacken
 - Categorize by LO requirement (see above). Update `AGENTS.md` after changes.
 
 ### B. Multimodal & Image Evaluation
-- Mock `generate_image` + tree/image node in state.
+- Mock `image_generate` + tree/image node in state.
 - Fixtures: `tests/fixtures/multimodal_vision.odt`, image assets.
 - Judge on inserted image metadata + caption accuracy.
 

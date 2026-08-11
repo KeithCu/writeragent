@@ -109,7 +109,7 @@ If the LLM needs a style outside of this injected "shortlist", it can rely on th
 
 WriterAgent also provides tools for the LLM to inspect and modify existing document styles directly.
 
-### The `create_style` Tool
+### The `style_create` Tool
 
 The LLM can create new styles from scratch, allowing for document-wide consistent formatting updates. This tool supports standard Paragraph and Character styles, as well as **Conditional Paragraph Styles**.
 
@@ -120,7 +120,7 @@ The LLM can create new styles from scratch, allowing for document-wide consisten
 * `property_updates`: Initial font, margin, and color settings.
 * `conditional_rules`: (Optional, ParagraphStyles only) Map contexts like `Table` or `Header` to other styles.
 
-### The `import_styles` Tool
+### The `style_import` Tool
 
 If the user has a preferred template file (.ott or .odt), the agent can import all its styles at once to ensure branding consistency.
 
@@ -132,7 +132,7 @@ If the user has a preferred template file (.ott or .odt), the agent can import a
 
 ### Setting Colors and Properties
 
-When updating styles, the LLM sets underlying **LibreOffice UNO API properties**. The `update_style` tool has built-in support to parse common web hex colors (like `#FF0000` or `FF0000`) into the 24-bit integers that LibreOffice expects.
+When updating styles, the LLM sets underlying **LibreOffice UNO API properties**. The `style_update` tool has built-in support to parse common web hex colors (like `#FF0000` or `FF0000`) into the 24-bit integers that LibreOffice expects.
 
 **Key Color Properties (CharacterStyles and ParagraphStyles):**
 * `CharColor`: The main text color.
@@ -152,4 +152,4 @@ When updating styles, the LLM sets underlying **LibreOffice UNO API properties**
 }
 ```
 
-By leveraging `update_style`, the LLM can act as a fully autonomous designer, adjusting typography, spacing, and brand colors without the user having to manually edit LibreOffice style templates.
+By leveraging `style_update`, the LLM can act as a fully autonomous designer, adjusting typography, spacing, and brand colors without the user having to manually edit LibreOffice style templates.

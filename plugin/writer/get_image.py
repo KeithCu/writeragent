@@ -92,7 +92,7 @@ class GetImage(ToolBase):
     tier = "core"
     description = (
         "Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name "
-        "from list_images / get_page_objects> for an embedded picture; selection=true for the image "
+        "from image_list / get_page_objects> for an embedded picture; selection=true for the image "
         "currently selected; or page=<n> to render that whole PAGE as an image (layout/what-it-looks-like). "
         "Returns the picture itself, not a description. b64 is stripped from normal reads, so use this "
         "when you actually need to look."
@@ -100,7 +100,7 @@ class GetImage(ToolBase):
     parameters = {
         "type": "object",
         "properties": {
-            "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from list_images / get_page_objects)."},
+            "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects)."},
             "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one."},
             "page": {"type": "integer", "description": "Render this 1-based page as an image (the whole page layout), instead of fetching one embedded image."},
         },
@@ -125,11 +125,11 @@ class GetImage(ToolBase):
             if want_selection or not name:
                 b64 = get_selected_image_base64(doc, ctx.ctx)
                 if not b64:
-                    return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see list_images).")
+                    return self._tool_error("No image selected. Select an image in the document, or pass image=<name> (see image_list).")
                 source = "selection"
             else:
                 if not hasattr(doc, "getGraphicObjects") or not doc.getGraphicObjects().hasByName(name):
-                    return self._tool_error(f"No embedded image named '{name}'. Call list_images to see the available names.")
+                    return self._tool_error(f"No embedded image named '{name}'. Call image_list to see the available names.")
                 obj = doc.getGraphicObjects().getByName(name)
                 raw = export_graphic_object_to_bytes(ctx.ctx, obj)
                 if not raw:

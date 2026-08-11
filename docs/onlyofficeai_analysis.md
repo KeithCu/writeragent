@@ -117,9 +117,9 @@ Tools define `name`, `description`, JSON Schema `parameters`, sometimes **`examp
 
 OnlyOffice prompts the model for **HTML** plus **`{FIELD:…}`** hooks. WriterAgent implements the same pattern in [`plugin/writer/forms.py`](plugin/writer/forms.py):
 
-- `create_form_control`, `create_form` (batch `fields`),
-- `generate_form` (`_process_form_content` → `insert_html_at_cursor` + `CreateFormControl`),
-- `list_form_controls`, `edit_form_control`, `delete_form_control`.
+- `form_create_control`, `form_create` (batch `fields`),
+- `form_generate` (`_process_form_content` → `insert_html_at_cursor` + `CreateFormControl`),
+- `form_list_controls`, `form_edit_control`, `form_delete_control`.
 
 **Not portable:** OnlyOffice `generateDocx` (binary OOXML generation) has no LibreOffice twin; export stories stay different.
 
@@ -133,7 +133,7 @@ OnlyOffice prompts the model for **HTML** plus **`{FIELD:…}`** hooks. WriterAg
 
 ### 5.4 Images
 
-OnlyOffice Word `addImage`: generate → insert/replace inside grouped actions. WriterAgent: [`generate_image`](../plugin/writer/image_utils.py) + [`plugin/writer/image_tools.py`](../plugin/writer/image_tools.py) (`insert_image`, `replace_image_in_place`, etc.).
+OnlyOffice Word `addImage`: generate → insert/replace inside grouped actions. WriterAgent: [`image_generate`](../plugin/writer/image_utils.py) + [`plugin/writer/image_tools.py`](../plugin/writer/image_tools.py) (`image_insert`, `replace_image_in_place`, etc.).
 
 ---
 
@@ -249,7 +249,7 @@ flowchart LR
 - **`addChartToSlide`:** spreadsheet `create_chart` does not cover embedded presentation charts — §2.2.
 - **`addTableToSlide`:** verify `create_shape` table path — §2.2.
 - **`addTextToPlaceholder`:** [`set_placeholder_text`](plugin/draw/placeholders.py).
-- **`addImageByDescription`:** `generate_image` + draw-page insert.
+- **`addImageByDescription`:** `image_generate` + draw-page insert.
 - **`changeSlideBackground`:** possible dedicated tool — §2.2.
 - **`generatePresentationWithTheme`:** prompt-only borrow if ever implemented.
 
@@ -261,14 +261,14 @@ Derived from `helpers.js` unique `name` values (re-verify when refreshing). “C
 
 | OnlyOffice tool | Role | WriterAgent note |
 |-----------------|------|------------------|
-| `addImage` | Text-to-image + insert/replace | `generate_image` + `image_tools` |
+| `addImage` | Text-to-image + insert/replace | `image_generate` + `image_tools` |
 | `generateForm` | LLM + field markup | **Ported** — `forms.py` |
 | `checkSpelling` | LLM fixes paragraph | Candidate — proofread/grammar tool |
 | `rewriteText` | LLM rewrite selection | Candidate — explicit tool vs Extend/Edit |
 | `commentText` | LLM + comment | Partial — comments / tracking tools |
 | `changeParagraphStyle` | Style by name | `styles_apply` / styles tools |
 | `changeTextStyle` | Char styling | Candidate if model UX is weak |
-| `insertPage` | New page | `insert_page_break` / page tools |
+| `insertPage` | New page | `page_insert_break` / page tools |
 | `writeMacro` | Run JS | **Not recommended** |
 | `addChart`, conditional, sort, pivot, … | Calc | See §7 |
 | `addChartToSlide`, `addNewSlide`, … | Impress | See §8 |

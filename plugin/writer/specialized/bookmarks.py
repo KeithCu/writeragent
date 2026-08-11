@@ -136,7 +136,7 @@ class BookmarkService(ServiceBase):
 
 
 class ListBookmarks(ToolWriterBookmarkBase):
-    name = "list_bookmarks"
+    name = "bookmark_list"
     description = "List all bookmarks in the document with their anchor text preview. Includes both user bookmarks and _mcp_ heading bookmarks."
     parameters = {"type": "object", "properties": {}, "required": []}
 
@@ -158,7 +158,7 @@ class ListBookmarks(ToolWriterBookmarkBase):
 
 
 class CleanupBookmarks(ToolWriterBookmarkBase):
-    name = "cleanup_bookmarks"
+    name = "bookmark_cleanup"
     description = "Remove all _mcp_* bookmarks from the document. Use when bookmarks become stale after major edits."
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
@@ -170,7 +170,7 @@ class CleanupBookmarks(ToolWriterBookmarkBase):
 
 
 class CreateBookmark(ToolWriterBookmarkBase):
-    name = "create_bookmark"
+    name = "bookmark_create"
     description = "Create a new bookmark at the current cursor or selection in Writer. If text is selected, the bookmark will span the selection."
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The unique name for the new bookmark."}}, "required": ["name"]}
     is_mutation = True
@@ -215,7 +215,7 @@ class CreateBookmark(ToolWriterBookmarkBase):
 
 
 class DeleteBookmark(ToolWriterBookmarkBase):
-    name = "delete_bookmark"
+    name = "bookmark_delete"
     description = "Delete an existing bookmark by its name."
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark to delete."}}, "required": ["name"]}
     is_mutation = True
@@ -246,7 +246,7 @@ class DeleteBookmark(ToolWriterBookmarkBase):
 
 
 class RenameBookmark(ToolWriterBookmarkBase):
-    name = "rename_bookmark"
+    name = "bookmark_rename"
     description = "Rename an existing bookmark."
     parameters = {"type": "object", "properties": {"old_name": {"type": "string", "description": "The current name of the bookmark."}, "new_name": {"type": "string", "description": "The new name for the bookmark."}}, "required": ["old_name", "new_name"]}
     is_mutation = True
@@ -279,7 +279,7 @@ class RenameBookmark(ToolWriterBookmarkBase):
 
 
 class GetBookmark(ToolWriterBookmarkBase):
-    name = "get_bookmark"
+    name = "bookmark_get"
     description = "Get details about a specific bookmark, including the text it spans."
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark."}}, "required": ["name"]}
 
@@ -309,7 +309,7 @@ class GetBookmark(ToolWriterBookmarkBase):
 class ResolveBookmark(ToolWriterBookmarkBase):
     """Resolve a bookmark to its paragraph index and heading text."""
 
-    name = "resolve_bookmark"
+    name = "bookmark_resolve"
     intent = "navigate"
     description = "Resolve a bookmark to its current paragraph index and text. Most tools accept 'bookmark:NAME' as locator directly -- use resolve_bookmark only when you need the raw paragraph index."
     parameters = {"type": "object", "properties": {"bookmark_name": {"type": "string", "description": "Bookmark name (e.g. _mcp_a1b2c3d4)."}}, "required": ["bookmark_name"]}

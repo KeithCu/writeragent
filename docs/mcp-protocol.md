@@ -244,7 +244,7 @@ This section is the important mental model for integrating Cursor, LM Studio, or
 - A single gateway: **`delegate_to_specialized_writer_toolset`** ([`plugin/doc/specialized_base.py`](../plugin/doc/specialized_base.py), Writer variant in [`plugin/writer/specialized_base.py`](../plugin/writer/specialized_base.py))
 - MCP helpers: `list_open_documents` (`tier="mcp"`), and `get_image` (always kept on MCP; chat may hide it for text-only models)
 
-It does **not** receive dozens of low-level UNO tools (`list_styles`, page margin APIs, chart editors, etc.) as separate MCP tools.
+It does **not** receive dozens of low-level UNO tools (`style_list`, page margin APIs, chart editors, etc.) as separate MCP tools.
 
 #### Sidebar chat core vs MCP core (Writer)
 
@@ -325,7 +325,7 @@ Implications for integrators:
 
    Expect **long-running** delegate calls (tens of seconds to minutes) and **large** tool results for research compared to most other domains.
 
-3. **Do not assume** `tools/list` is the full WriterAgent surface. If you need direct `list_styles`-style control from the host, that requires a **product change** (expose specialized tiers on MCP), not just a different client config.
+3. **Do not assume** `tools/list` is the full WriterAgent surface. If you need direct `style_list`-style control from the host, that requires a **product change** (expose specialized tiers on MCP), not just a different client config.
 
 ### Concurrency and parallel `tools/call`
 
@@ -336,7 +336,7 @@ External MCP hosts often fire several `tools/call` requests at once (e.g. resear
 | **Global semaphore** | Backpressure (non-`long_running`) tools only | At most one fast tool on the main thread; overload → HTTP 429 `BusyError` |
 | **Per-document gate** | Mutating tools on **both** backpressure and long-running paths | Same resolved document key (`document_url` / RuntimeUID) → mutating runs serialize; different docs and read-only runs stay concurrent |
 
-Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `generate_image`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
+Tools with `long_running = True` (e.g. `delegate_to_specialized_*`, `image_generate`) **skip** the global semaphore so a minutes-long job does not block every other MCP client. They still take the per-document gate when they mutate. Read-only delegations (`domain: "document_research"` or `"web_research"`) opt out via [`ToolBase.requires_document_lock()`](../plugin/framework/tool.py).
 
 **UNO:** All LibreOffice access is marshalled to the main thread. The per-document gate prevents overlapping *mutating MCP tool runs* on the same file, not raw cross-thread UNO (that is already forbidden).
 
@@ -372,7 +372,7 @@ Possible, but a deliberate fork:
 | Approach | Pros | Cons |
 |----------|------|------|
 | **Status quo (delegate only)** | Small `tools/list`; stable host prompts; inner ReAct + step limits | Host must delegate; no step visibility over MCP; two-hop workflows |
-| **Expose `tier=specialized` on MCP** | True “pure MCP”; host calls `list_styles` etc. | Huge schemas; token cost every turn; more misuse of UNO tools |
+| **Expose `tier=specialized` on MCP** | True “pure MCP”; host calls `style_list` etc. | Huge schemas; token cost every turn; more misuse of UNO tools |
 | **MCP-only in-place switching** | Host drives specialized tools round-by-round | Protocol + FSM work; differs from current `USE_SUB_AGENT` default |
 
 None of these are required for a working integration; they are release-level product choices.
@@ -453,10 +453,10 @@ Ported from `libreoffice-mcp-extension/pythonpath/uno_bridge.py` and adapted to 
 
 | Group | Tools |
 |---|---|
-| Styles | `list_styles`, `get_style_info` |
-| Comments | `list_comments`, `add_comment`, `delete_comment` |
+| Styles | `style_list`, `style_get_info` |
+| Comments | `comment_list`, `add_comment`, `comment_delete` |
 | Track changes | `track_changes_start` / `stop` / `list` / `show`, `manage_tracked_changes` |
-| Tables | `list_tables`, `get_table_cells`, `set_table_cell`, `manage_table_structure` |
+| Tables | `table_list`, `table_get_cells`, `table_set_cell`, `manage_table_structure` |
 
 ### Updated: `core/document_tools.py`
 
@@ -548,7 +548,7 @@ The bridge is a **pure-stdlib** stdio MCP server that forwards JSON-RPC to Libre
 ```
 External AI client (Claude Desktop, Cursor, etc.)
         |
-        | HTTP POST /tools/list_tables  + header X-Document-URL: file:///path/to/doc.odt
+        | HTTP POST /tools/table_list  + header X-Document-URL: file:///path/to/doc.odt
         v
   HTTPServer thread (background)
   MCPHandler.do_POST()
@@ -655,10 +655,10 @@ When the MCP server is enabled, external clients will see all tools that WriterA
 to its own embedded AI:
 
 **Writer**: `get_document_content` (`scope`, `max_chars`, `start`/`end`, `include_images` — default strips inline `data:image` base64), `apply_document_content`, `find_text`,
-`list_styles`, `get_style_info`, `list_comments`, `add_comment`, `delete_comment`,
+`style_list`, `style_get_info`, `comment_list`, `add_comment`, `comment_delete`,
 `track_changes_start` / `stop` / `list` / `show`, `manage_tracked_changes`,
-`list_tables`, `get_table_cells`, `set_table_cell`, `manage_table_structure`,
-`generate_image` (create or edit with `source_image='selection'`).
+`table_list`, `table_get_cells`, `table_set_cell`, `manage_table_structure`,
+`image_generate` (create or edit with `source_image='selection'`).
 
 **Calc / Draw**: Core-tier tools registered from `plugin/calc/` and `plugin/draw/` (same registry MCP `tools/list` uses).
 
@@ -909,12 +909,12 @@ when it's the right choice.
 
 #### 2. Explaining the "why" of a feature
 
-Their `resolve_bookmark` says "(bookmarks are stable across edits)" — this tells the AI
+Their `bookmark_resolve` says "(bookmarks are stable across edits)" — this tells the AI
 *why* it should prefer bookmarks over paragraph indices. The reason matters more than the
 mechanism.
 
 WriterAgent doesn't have the bookmark/locator system yet, but the same principle applies
-to existing descriptions. For example, `list_styles` says "they may be localized" — that's
+to existing descriptions. For example, `style_list` says "they may be localized" — that's
 good. The `find_text` description mentions "LO strips search string to plain to match" — that
 explains a gotcha that would otherwise produce confusing failures. This is the right instinct;
 do more of it.
@@ -1018,10 +1018,10 @@ additions to that section:
 REVIEW WORKFLOW: set_track_changes(enabled=true) → make edits → get_tracked_changes (to
 show user what changed) → accept_all_changes or reject_all_changes → set_track_changes(enabled=false).
 
-TABLE WORKFLOW: list_tables → get_table_cells (understand structure) → set_table_cell for
+TABLE WORKFLOW: table_list → table_get_cells (understand structure) → table_set_cell for
 targeted edits. For new tables or full rewrites, use apply_document_content with an HTML/Markdown table.
 
-STYLE WORKFLOW: list_styles (discover exact localized names) → apply a style by name in
+STYLE WORKFLOW: style_list (discover exact localized names) → apply a style by name in
 apply_document_content markup, or use set_paragraph_style (see uno_bridge) for direct style application.
 ```
 
@@ -1034,9 +1034,9 @@ In priority order:
 1. **`context` in search** — `search_in_document` now returns enclosing-paragraph `context`
    strings; offset mode remains body-only via `return_offsets`.
 
-2. **`set_paragraph_style` (direct)** — currently in WriterAgent as dead code. The `list_styles`
+2. **`set_paragraph_style` (direct)** — currently in WriterAgent as dead code. The `style_list`
    tool makes this useful: AI discovers style names, then applies them directly. Consider
-   re-exposing it now that `list_styles` exists.
+   re-exposing it now that `style_list` exists.
 
 3. **`set_document_protection`** — useful for "lock the document while I review AI edits" workflow.
 
@@ -1072,7 +1072,7 @@ current functionality.
 - **`find_text` context**: optional parameter to return N characters (or paragraphs) around
   each match so the AI can confirm it’s editing the right place.
 - **`set_paragraph_style` (direct)**: re-expose so the AI can apply a style by name after
-  `list_styles`. Other items from “What they have that WriterAgent lacks” (e.g. document
+  `style_list`. Other items from “What they have that WriterAgent lacks” (e.g. document
   protection, document properties) as needed. Index/field refresh is already
   `indexes_update_all` / `fields_update_all`.
 

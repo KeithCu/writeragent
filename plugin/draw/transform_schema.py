@@ -90,7 +90,7 @@ Text content:
 Rich text editing:
 - {"EditTextObject.N": [...]} - edit text object N with sub-commands (SelectText, SelectParagraph, InsertText, UnoCommand).
 
-WriterAgent V1 does not yet support GenerateImage.N, MarkObject, UnMarkObject, or ContentControls.* — use generate_image or atomic draw tools instead.
+WriterAgent V1 does not yet support GenerateImage.N, MarkObject, UnMarkObject, or ContentControls.* — use image_generate or atomic draw tools instead.
 
 Full DSL reference: """ + COLLABORA_TRANSFORM_DSL_URL
 

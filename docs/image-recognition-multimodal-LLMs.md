@@ -92,8 +92,8 @@ MCP vision clients receive the picture itself, not base64 pasted as text.
 
 ### Related image tooling (same PR / adjacent)
 
-- **`get_image_info`** reports `crop_mm` (mm trimmed per edge) from `GraphicCrop`.
-- **`set_image_properties`** accepts per-edge `crop_*_mm`; only passed edges change (`_resolve_crop_edges` helper, unit-tested).
+- **`image_get_info`** reports `crop_mm` (mm trimmed per edge) from `GraphicCrop`.
+- **`image_set_properties`** accepts per-edge `crop_*_mm`; only passed edges change (`_resolve_crop_edges` helper, unit-tested).
 - **Orientation** accepts friendly names (`left`/`center`/`right`, `top`/`center`/`bottom`, `centre`) mapped to live UNO constants via `uno.getConstantByName`; unknown names → clear tool error (`_resolve_orient`, unit-tested).
 
 ### Tests (present)
@@ -148,7 +148,7 @@ When `_mcp_image` is present, [`mcp_protocol.py`](../plugin/mcp/mcp_protocol.py)
 
 ### 4. Calc parity for `get_image` (medium, product decision)
 
-Specialized image tools (`list_images`, `get_image_info`, `set_image_properties`) register on Writer **and** Calc. `get_image` is Writer-only (`TextDocument`), but `get_selected_image_base64` and named-graphic export already work on Calc.
+Specialized image tools (`image_list`, `image_get_info`, `image_set_properties`) register on Writer **and** Calc. `get_image` is Writer-only (`TextDocument`), but `get_selected_image_base64` and named-graphic export already work on Calc.
 
 **Options:**
 - Extend `GetImage.uno_services` to include `SpreadsheetDocument` for `image=` and `selection=` (page render stays Writer-only), **or**
@@ -167,7 +167,7 @@ Unit tests cover `_render_page_png` error paths only ([`test_get_image_render.py
 | MCP `_mcp_image` branch | Mock `StreamResponseEffect`; assert `tools/call` content `type == "image"` |
 | `GetImage.execute` | Mock doc/graphic for three modes + param errors |
 | `get_schemas("openai")` integration | Assert `get_image` excluded when `has_native_vision` false |
-| `get_image_info` crop reporting | Mock graphic with `GraphicCrop` struct |
+| `image_get_info` crop reporting | Mock graphic with `GraphicCrop` struct |
 
 ### 7. Documentation elsewhere (low–medium)
 

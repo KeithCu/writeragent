@@ -101,7 +101,7 @@ Two practical options:
 
 Recommendation: **Option A** so that the optimized prompt is tested in the same tool-calling setting as WriterAgent.
 
-**Mock tools: full set available, subset in use.** You can implement mocks for the **full** Writer tool set (e.g. all of `WRITER_TOOLS` from [core/document_tools.py](core/document_tools.py)) so the harness is realistic, but (a) your **dataset tasks** only require a subset (e.g. get_document_content, apply_document_content, find_text, maybe list_styles). That already tests “can the model handle this subset?” (b) You can also **parameterize which tools are passed to the model** per run: e.g. pass only 3 tools, or 5, or the full set. That lets you analyze “how many is too many” (see below) without reimplementing mocks.
+**Mock tools: full set available, subset in use.** You can implement mocks for the **full** Writer tool set (e.g. all of `WRITER_TOOLS` from [core/document_tools.py](core/document_tools.py)) so the harness is realistic, but (a) your **dataset tasks** only require a subset (e.g. get_document_content, apply_document_content, find_text, maybe style_list). That already tests “can the model handle this subset?” (b) You can also **parameterize which tools are passed to the model** per run: e.g. pass only 3 tools, or 5, or the full set. That lets you analyze “how many is too many” (see below) without reimplementing mocks.
 
 ### 3. Dataset
 

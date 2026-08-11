@@ -292,7 +292,7 @@ class ToolLoopEffectInterpreter:
         host._current_tool_call_id = call_id
 
         image_model_override = host.image_model_selector.getText() if host.image_model_selector else None
-        if image_model_override and func_name == "generate_image":
+        if image_model_override and func_name == "image_generate":
             func_args["image_model"] = image_model_override
 
         def tool_status_callback(msg):

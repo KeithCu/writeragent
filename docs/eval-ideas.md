@@ -70,10 +70,10 @@ Each test is assigned a **Mode** to ensure appropriate weight distribution:
 4.  **Z-Order**: "Move the blue square behind the red circle." -> Layer management. **[DrawJSON partial (order in list); LO for full fidelity]**
 5.  **Group Scale**: "Group all objects on page 1 and double their size." -> Aggregate manipulation. **[DrawJSON-ok with group children in tree]**
 
-## 🖼️ Multimodal: Vision-to-Action (5 Tests) **[Mostly LO-required or advanced vision mock + generate_image; image insertion via tree/HTML sentinel]**
+## 🖼️ Multimodal: Vision-to-Action (5 Tests) **[Mostly LO-required or advanced vision mock + image_generate; image insertion via tree/HTML sentinel]**
 
 1.  **Chart OCR**: "Extract data from this chart image and put it into Sheet2." -> Vision + Calc tools. **[LO or vision mock]**
-2.  **Image Captioning**: "Add a caption below this image based on its content." -> Vision + Writer tools. **[generate_image + insert; mockable in DrawJSON/String]**
+2.  **Image Captioning**: "Add a caption below this image based on its content." -> Vision + Writer tools. **[image_generate + insert; mockable in DrawJSON/String]**
 3.  **UI Code-Gen**: "Translate this UI sketch into an ODF table mockup." -> Visual structural mapping. **[LO or string table]**
 4.  **Spatial Audit**: "Looking at this diagram, is the 'Database' icon correctly connected to the 'Web Server'?" -> Visual logic check. **[DrawJSON tree perfect for this (connections)]**
 5.  **Infographic Summary**: "Summarize the key takeaways from this infographic image into the document." -> High-level visual reasoning. **[LO/vision + summarization]**

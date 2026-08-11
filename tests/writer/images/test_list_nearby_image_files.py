@@ -38,6 +38,6 @@ def test_images_domain_includes_list_nearby_image_files_not_document_research_li
     tools = registry.get_tools(doc=mock_writer, active_domain="images", exclude_tiers=())
     names = {t.name for t in tools}
 
-    assert "list_nearby_image_files" in names
+    assert "image_list_nearby_files" in names
     assert "list_nearby_files" not in names
     assert "specialized_workflow_finished" in names

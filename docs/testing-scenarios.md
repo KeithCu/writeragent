@@ -31,7 +31,7 @@
 
 - [ ] Grammar checker runs asynchronously and applies fixes with format preservation
 - [ ] Math/LaTeX → native LibreOffice Math formula conversion works (including inline + display)
-- [ ] Outline navigation + heading manipulation (get_document_tree, get_heading_children)
+- [ ] Outline navigation + heading manipulation (get_document_tree, nav_heading_children)
 - [ ] Track changes / tracked deletions are respected during edits
 - [ ] Complex formatting preservation (bold, italics, highlights, fonts) after AI rewrite
 - [ ] Bookmarks, footnotes, fields, sections, tables, charts, shapes — basic read + modify

@@ -31,7 +31,7 @@ log = logging.getLogger("writeragent.writer")
 class ListComments(ToolWriterCommentBase):
     """List all comments (annotations) in the document."""
 
-    name = "list_comments"
+    name = "comment_list"
     intent = "review"
     description = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
     parameters = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
@@ -141,10 +141,10 @@ class AddComment(ToolBase):
 class DeleteComment(ToolWriterCommentBase):
     """Delete comments by name or author."""
 
-    name = "delete_comment"
+    name = "comment_delete"
     intent = "review"
     description = "Delete comments by name or author. Use comment_name to delete a specific comment and its replies. Use author to delete ALL comments by that author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW')."
-    parameters = {"type": "object", "properties": {"comment_name": {"type": "string", "description": "The 'name' field returned by list_comments."}, "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")}}, "required": []}
+    parameters = {"type": "object", "properties": {"comment_name": {"type": "string", "description": "The 'name' field returned by comment_list."}, "author": {"type": "string", "description": ("Delete ALL comments by this author (e.g. 'MCP-BATCH', 'MCP-WORKFLOW').")}}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
@@ -182,7 +182,7 @@ class DeleteComment(ToolWriterCommentBase):
             # reports a deletion that never happened.
             what = ("comment_name '%s'" % comment_name) if comment_name else ("author '%s'" % author)
             return {"status": "error", "code": "COMMENT_NOT_FOUND",
-                    "message": "No comment matched %s. Call list_comments to see the current names and authors." % what,
+                    "message": "No comment matched %s. Call comment_list to see the current names and authors." % what,
                     "deleted": 0}
 
         for field in to_delete:
@@ -194,13 +194,13 @@ class DeleteComment(ToolWriterCommentBase):
 class ResolveComment(ToolWriterCommentBase):
     """Resolve a comment with an optional reason."""
 
-    name = "resolve_comment"
+    name = "comment_resolve"
     intent = "review"
     description = "Resolve a comment with an optional reason. Adds a reply with the resolution text, then marks as resolved."
     parameters = {
         "type": "object",
         "properties": {
-            "comment_name": {"type": "string", "description": "The 'name' field returned by list_comments."},
+            "comment_name": {"type": "string", "description": "The 'name' field returned by comment_list."},
             "resolution": {"type": "string", "description": "Optional resolution text added as a reply."},
             "author": {"type": "string", "description": "Author name for the resolution reply. Default: AI."},
         },
@@ -258,7 +258,7 @@ _WORKFLOW_TASK_PREFIXES = ("TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE")
 class Workflow(ToolWriterCommentBase):
     """Single tool for workflow/task operations: scan tasks, get/set status, check stop conditions."""
 
-    name = "workflow"
+    name = "comment_workflow"
     intent = "review"
     description = "Workflow and task operations. action: scan_tasks (find TODO-AI, FIX, etc. in comments), get_status (read MCP-WORKFLOW dashboard), set_status (write key: value lines), check_stop (detect STOP/CANCEL comments or workflow stop/pause)."
     parameters = {

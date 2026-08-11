@@ -63,7 +63,7 @@ log = logging.getLogger("writeragent.writer")
 class GenerateImage(ToolWriterImageBase):
     """Generate a new image from a prompt, or edit an existing image (Img2Img)."""
 
-    name = "generate_image"
+    name = "image_generate"
     intent = "media"
     description = "Generate an image from a text prompt and insert it. To edit an existing image, pass source_image='selection' and select an image first."
     parameters = {
@@ -195,11 +195,11 @@ _IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), IMAGE_CACHE_DIR_NAME)
 class ListNearbyImageFiles(ToolWriterImageBase):
     """List image files in the active document's directory (images delegate only)."""
 
-    name = "list_nearby_image_files"
+    name = "image_list_nearby_files"
     intent = "media"
     description = (
         "List image files (.png, .jpg, .jpeg, .gif, .webp, .bmp, .svg) in the same folder as the active document "
-        "(newest first). Excludes the active file. Use returned path with insert_image or replace_image. "
+        "(newest first). Excludes the active file. Use returned path with image_insert or image_replace. "
         "Optional filter is a case-insensitive substring on the basename."
     )
     parameters = {
@@ -232,7 +232,7 @@ class ListNearbyImageFiles(ToolWriterImageBase):
 class ListImages(ToolWriterImageBase):
     """List all images/graphic objects in the document."""
 
-    name = "list_images"
+    name = "image_list"
     intent = "media"
     description = "List all images/graphic objects in the document with name, dimensions, title, and description."
     parameters = {"type": "object", "properties": {}, "required": []}
@@ -293,7 +293,7 @@ class ListImages(ToolWriterImageBase):
                     entry["page"] = page
                 images.append(entry)
             except Exception as e:
-                log.debug("list_images: skip '%s': %s", name, e)
+                log.debug("image_list: skip '%s': %s", name, e)
 
         return {"status": "ok", "images": images, "count": len(images)}
 
@@ -310,10 +310,10 @@ def _get_graphic_object(ctx, doc, image_name):
 class GetImageInfo(ToolWriterImageBase):
     """Get detailed info about a specific image."""
 
-    name = "get_image_info"
+    name = "image_get_info"
     intent = "media"
     description = "Get detailed info about a specific image: URL, dimensions, anchor type, orientation, crop (crop_mm, mm trimmed per edge), and paragraph index."
-    parameters = {"type": "object", "properties": {"image_name": {"type": "string", "description": "Name of the image (from list_images)."}}, "required": ["image_name"]}
+    parameters = {"type": "object", "properties": {"image_name": {"type": "string", "description": "Name of the image (from image_list)."}}, "required": ["image_name"]}
     uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx, **kwargs):
@@ -479,13 +479,13 @@ def _resolve_crop_edges(kwargs, current) -> tuple[int, int, int, int]:
 class SetImageProperties(ToolWriterImageBase):
     """Resize, reposition, crop, or update caption/alt-text for an image."""
 
-    name = "set_image_properties"
+    name = "image_set_properties"
     intent = "media"
     description = "Resize, reposition, crop, or update caption/alt-text for an image. Crop trims the given millimetres off each edge (crop_*_mm); only the edges you pass change."
     parameters = {
         "type": "object",
         "properties": {
-            "image_name": {"type": "string", "description": "Name of the image (from list_images)."},
+            "image_name": {"type": "string", "description": "Name of the image (from image_list)."},
             "width_mm": {"type": "number", "description": "New width in millimetres."},
             "height_mm": {"type": "number", "description": "New height in millimetres."},
             "title": {"type": "string", "description": "Image title (tooltip text)."},
@@ -596,9 +596,9 @@ class SetImageProperties(ToolWriterImageBase):
 class DownloadImage(ToolWriterImageBase):
     """Download an image from URL to local cache."""
 
-    name = "download_image"
+    name = "image_download"
     intent = "media"
-    description = "Download an image from URL to local cache. Returns local path for insert_image/replace_image."
+    description = "Download an image from URL to local cache. Returns local path for image_insert/image_replace."
     parameters = {
         "type": "object",
         "properties": {"url": {"type": "string", "description": "URL of the image to download."}, "verify_ssl": {"type": "boolean", "description": "Verify SSL certificates (default: false)."}, "force": {"type": "boolean", "description": "Force re-download even if cached (default: false)."}},
@@ -624,7 +624,7 @@ class DownloadImage(ToolWriterImageBase):
 class InsertImage(ToolWriterImageBase):
     """Insert an image from local path or URL into the document."""
 
-    name = "insert_image"
+    name = "image_insert"
     intent = "media"
     description = (
         "Insert an image from local path or URL into the document. URLs are auto-downloaded first. "
@@ -739,10 +739,10 @@ class InsertImage(ToolWriterImageBase):
 class DeleteImage(ToolWriterImageBase):
     """Delete an image from the document."""
 
-    name = "delete_image"
+    name = "image_delete"
     intent = "media"
     description = "Delete an image from the document."
-    parameters = {"type": "object", "properties": {"image_name": {"type": "string", "description": "Name of the image to delete (from list_images)."}, "remove_frame": {"type": "boolean", "description": "Also remove the containing frame (default: true)."}}, "required": ["image_name"]}
+    parameters = {"type": "object", "properties": {"image_name": {"type": "string", "description": "Name of the image to delete (from image_list)."}, "remove_frame": {"type": "boolean", "description": "Also remove the containing frame (default: true)."}}, "required": ["image_name"]}
     uno_services = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
@@ -775,13 +775,13 @@ class DeleteImage(ToolWriterImageBase):
 class ReplaceImage(ToolWriterImageBase):
     """Replace an image's source file keeping position and frame."""
 
-    name = "replace_image"
+    name = "image_replace"
     intent = "media"
     description = "Replace an image's source file keeping position and frame."
     parameters = {
         "type": "object",
         "properties": {
-            "image_name": {"type": "string", "description": "Name of the image to replace (from list_images)."},
+            "image_name": {"type": "string", "description": "Name of the image to replace (from image_list)."},
             "new_image_path": {"type": "string", "description": "Local file path or URL of the replacement image."},
             "width_mm": {"type": "number", "description": "Optionally update width in millimetres."},
             "height_mm": {"type": "number", "description": "Optionally update height in millimetres."},
@@ -848,10 +848,10 @@ def _download_image_to_cache(url, verify_ssl=False, force=False):
     local_path = os.path.join(_IMAGE_CACHE_DIR, url_hash + ext)
 
     if not force and os.path.isfile(local_path):
-        log.debug("download_image: cache hit %s -> %s", url, local_path)
+        log.debug("image_download: cache hit %s -> %s", url, local_path)
         return local_path
 
-    log.info("download_image: downloading %s -> %s", url, local_path)
+    log.info("image_download: downloading %s -> %s", url, local_path)
 
     if verify_ssl:
         context = None

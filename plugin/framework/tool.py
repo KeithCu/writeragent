@@ -225,7 +225,37 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
 _log = logging.getLogger(__name__)
 log = logging.getLogger("writeragent.tools")
 
+# verb_noun tools (legacy/core): name starts with a read verb.
 _READ_PREFIXES = ("get_", "read_", "list_", "find_", "search_", "count_")
+# domain_verb tools (specialized): a later token is a read verb (image_list, style_get_info).
+_READ_NAME_TOKENS = frozenset(
+    {
+        "list",
+        "get",
+        "read",
+        "find",
+        "search",
+        "count",
+        "info",
+        "stats",
+        "overview",
+        "summary",
+        "children",
+        "surroundings",
+        "tree",
+        "outline",
+        "recent",
+    }
+)
+
+
+def _name_looks_readonly(name: str) -> bool:
+    """True when the tool name implies a non-mutating read (prefix or domain_verb)."""
+    if name.startswith(_READ_PREFIXES):
+        return True
+    parts = name.split("_")
+    # domain_verb…: first token is the domain; any later read token => read-only.
+    return len(parts) >= 2 and any(p in _READ_NAME_TOKENS for p in parts[1:])
 
 
 class ToolContext:
@@ -341,7 +371,7 @@ class ToolBase(ABC):
         if self.is_mutation is not None:
             return self.is_mutation
         if self.name:
-            return not self.name.startswith(_READ_PREFIXES)
+            return not _name_looks_readonly(self.name)
         return True
 
     def requires_document_lock(self, arguments=None):

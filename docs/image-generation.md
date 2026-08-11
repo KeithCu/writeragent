@@ -13,14 +13,14 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 
 ### Tools and document insertion
 
-[`plugin/writer/images/images.py`](../plugin/writer/images/images.py) — `generate_image` tool (also via `delegate_to_specialized_*_toolset(domain="images")`):
+[`plugin/writer/images/images.py`](../plugin/writer/images/images.py) — `image_generate` tool (also via `delegate_to_specialized_*_toolset(domain="images")`):
 
 - Text-to-image from a prompt.
 - Img2img when `source_image='selection'` and an image is selected in the document.
 
 [`plugin/writer/images/image_tools.py`](../plugin/writer/images/image_tools.py):
 
-- **`insert_image`**: inserts into Writer/Calc; stable paths are linked, temp/cache paths are embedded.
+- **`image_insert`**: inserts into Writer/Calc; stable paths are linked, temp/cache paths are embedded.
 - **`get_selected_image_base64`**: extracts selected image for img2img.
 - **`add_image_to_gallery`**: optional Media Gallery add after generation.
 
@@ -40,7 +40,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 
 **Chat sidebar** ([`ChatPanelDialog.xdl`](../extension/WriterAgentDialogs/ChatPanelDialog.xdl)): text model and image model comboboxes; additional instructions come from config only (Settings).
 
-## Config keys used by `generate_image`
+## Config keys used by `image_generate`
 
 | Config key | Role |
 |------------|------|

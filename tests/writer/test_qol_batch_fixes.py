@@ -84,7 +84,7 @@ def test_delete_comment_not_found_is_error():
     res = DeleteComment().execute(ctx, comment_name="nope")
     assert res["status"] == "error" and res["code"] == "COMMENT_NOT_FOUND"
     assert res["deleted"] == 0
-    assert "list_comments" in res["message"]
+    assert "comment_list" in res["message"]
 
 
 # ---- 5) position='before'/'after' contract ------------------------------------

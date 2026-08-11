@@ -338,12 +338,12 @@ def test_do_send_direct_image():
                 # Verify responses
                 assert "A cute dog" in panel.responses
                 assert "AI: Creating image...\n" in panel.responses
-                assert any("generate_image: Image generated successfully" in r for r in panel.responses)
+                assert any("image_generate: Image generated successfully" in r for r in panel.responses)
 
                 # Verify tool registry was called
                 mock_registry.execute.assert_called_once()
                 args, kwargs = mock_registry.execute.call_args
-                assert args[0] == "generate_image"
+                assert args[0] == "image_generate"
                 assert kwargs["prompt"] == "A cute dog"
 
 def test_do_send_direct_image_error():
@@ -403,7 +403,7 @@ def test_do_send_direct_image_error():
                 panel._do_send_direct_image("A cute dog", model)  # type: ignore
 
                 # Verify error message is surfaced to user
-                assert "[generate_image: Failed to generate image]\n" in panel.responses
+                assert "[image_generate: Failed to generate image]\n" in panel.responses
                 mock_registry.execute.assert_called_once()
 
 def test_web_research_tool():

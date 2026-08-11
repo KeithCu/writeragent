@@ -166,14 +166,14 @@ def format_inprocess_import_policy_for_prompt() -> str:
 _MATPLOTLIB_PLOT_HINTS: dict[str, str] = {
     "calc": (
         "PLOTS: plt.plot(...) or result=fig; chart inserts on the active sheet automatically. "
-        "Do not call insert_image. Use data_range for sheet data."
+        "Do not call image_insert. Use data_range for sheet data."
     ),
     "writer": (
-        "PLOTS: plt.plot(...) or result=fig; then insert_image(image_path=<returned path>). "
+        "PLOTS: plt.plot(...) or result=fig; then image_insert(image_path=<returned path>). "
         "Use document tools for text/data."
     ),
     "draw": (
-        "PLOTS: plt.plot(...) or result=fig; then insert_image(image_path=<returned path>) on the slide/page."
+        "PLOTS: plt.plot(...) or result=fig; then image_insert(image_path=<returned path>) on the slide/page."
     ),
 }
 

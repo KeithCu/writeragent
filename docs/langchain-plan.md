@@ -71,7 +71,7 @@ Rough size: ~860 lines (`tool_loop.py`) + ~430 lines (`tool_loop_state.py`) + ~9
 | Producer-side stream batching | `BatchingStreamQueue` | Smooth sidebar typing without flooding UNO events |
 | Reasoning / thinking tokens | `StreamQueueKind.THINKING`, `reasoning_replay` | Models show `[Thinking]` before the answer |
 | Stop / cancellation | `resolve_stop_checker()`, `_send_cancellation` | Stop must reach background LLM + tool workers |
-| Async tools | `web_research`, `generate_image` in background threads | Long-running tools without freezing the sidebar |
+| Async tools | `web_research`, `image_generate` in background threads | Long-running tools without freezing the sidebar |
 | Human-in-the-loop web approval | `APPROVAL_REQUIRED` + `begin_inline_web_approval` | Inline Accept/Change/Reject before search |
 | Sub-agent streaming into sidebar | `chat_append_callback` → queue `CHUNK` | Delegate/web_research streams steps into chat |
 | Dynamic tool list per round | `_refresh_active_tools_for_session()` | In-place specialized mode swaps schemas mid-loop |

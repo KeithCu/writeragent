@@ -36,9 +36,9 @@ Both deal with heading/outline navigation. The overlap is significant:
 | outline.py | tree.py | Overlap |
 |---|---|---|
 | `get_document_outline` | `get_document_tree` | Both build the heading tree — `get_document_tree` is the richer version with bookmarks and content strategies |
-| `get_heading_content` | `get_heading_children` | Both drill into heading content — `get_heading_children` is richer with locator support |
+| `get_heading_content` | `nav_heading_children` | Both drill into heading content — `nav_heading_children` is richer with locator support |
 
-**Proposal:** Merge into [outline.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/outline.py). Keep `get_document_tree` and `get_heading_children` as the canonical tools. `get_document_outline` can become a thin wrapper or be absorbed into `get_document_tree` with a [format](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/format.py#30-43) parameter. `get_heading_content` can be absorbed into `get_heading_children`.
+**Proposal:** Merge into [outline.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/outline.py). Keep `get_document_tree` and `nav_heading_children` as the canonical tools. `get_document_outline` can become a thin wrapper or be absorbed into `get_document_tree` with a [format](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/format.py#30-43) parameter. `get_heading_content` can be absorbed into `nav_heading_children`.
 
 **Savings:** ~2 tool classes eliminated, 1 file removed (~94 lines)
 
@@ -84,7 +84,7 @@ Currently split into:
 
 ### 5. ~~MCP-AI paragraph summaries~~ (removed, do not merge)
 
-WriterAgent does not ship a separate `annotations.py`. The optional MCP-AI annotation tools (`add_ai_summary`, `get_ai_summaries`, `remove_ai_summary`) and the `ai_summary_first` heading-tree content strategy were **removed**; outline navigation uses `get_document_tree` / `get_heading_children` with `content_strategy` in `heading_only`, `first_lines`, or `full` only. Implementation: [`plugin/writer/outline.py`](../../plugin/writer/outline.py), [`plugin/writer/tree.py`](../../plugin/writer/tree.py), [`plugin/writer/comments.py`](../../plugin/writer/comments.py).
+WriterAgent does not ship a separate `annotations.py`. The optional MCP-AI annotation tools (`add_ai_summary`, `get_ai_summaries`, `remove_ai_summary`) and the `ai_summary_first` heading-tree content strategy were **removed**; outline navigation uses `get_document_tree` / `nav_heading_children` with `content_strategy` in `heading_only`, `first_lines`, or `full` only. Implementation: [`plugin/writer/outline.py`](../../plugin/writer/outline.py), [`plugin/writer/tree.py`](../../plugin/writer/tree.py), [`plugin/writer/comments.py`](../../plugin/writer/comments.py).
 
 ---
 

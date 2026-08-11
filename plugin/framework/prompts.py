@@ -193,13 +193,13 @@ WRITER_SEARCH_RULES = """SEARCH:
 
 WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill — don't dump):
 - get_document_tree(content_strategy='heading_only') gives the heading outline plus stats and stable _mcp_ bookmark ids.
-- get_heading_children (structural domain; locator='bookmark:_mcp_…' or 'heading:1.2') reads one section on demand.
+- nav_heading_children (structural domain; locator='bookmark:_mcp_…' or 'heading:1.2') reads one section on demand.
 - search_in_document jumps to specific text.
 - Reserve get_document_content(scope='full') for short documents or a deliberate full read."""
 
 WRITER_IMAGES_RULES = """IMAGES:
-- Image tools live in the 'images' domain: insert_image, delete_image, replace_image, list_images, get_image_info (includes crop_mm), download_image. OCR (extract_text_from_image) lives in the 'vision' domain.
-- set_image_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
+- Image tools live in the 'images' domain: image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm), image_download. OCR (extract_text_from_image) lives in the 'vision' domain.
+- image_set_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
 - To actually SEE an image (vision-capable models), call get_image — by graphic name, selection=true, or page=N to render that whole page. For a bulk read with pictures embedded, pass include_images=true to get_document_content."""
 
 # App-neutral minimum (Calc/Draw sidebar prompts + the generic MCP topics via agent_manual):

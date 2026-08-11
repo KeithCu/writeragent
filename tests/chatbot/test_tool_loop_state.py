@@ -29,7 +29,7 @@ def create_base_state(round_num=0, pending_tools=None, max_rounds=5, is_stopped=
         max_rounds=max_rounds,
         status="Ready",
         is_stopped=is_stopped,
-        async_tools=frozenset(["web_research", "generate_image"])
+        async_tools=frozenset(["web_research", "image_generate"])
     )
 
 def create_event(kind: EventKind, **kwargs):

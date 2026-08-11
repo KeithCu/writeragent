@@ -77,7 +77,7 @@ LibreOffice has **no filter** for “styles only.” Any `storeToURL` path (XHTM
 
 1. **Cached UNO paragraph style index** — one `text.createEnumeration()` pass per document revision: top-level block index → compact token via `ParaStyleName` + `compact_lo_style_name()`. Cache invalidated on `document:cache_invalidated` (same pattern as [`TreeService`](../plugin/writer/tree.py)). Cost: O(paragraphs) RPC, **no filter pipeline**.
 2. **Scoped HTML export** — agent uses `get_document_content(scope=range)` (existing [`_range_to_content_via_temp_doc`](../plugin/writer/format.py) already copies `ParaStyleName` into temp docs). Merge styles from the index for that para range only.
-3. **Navigation first** — `get_document_tree`, `search_in_document`, `get_heading_children` before full reads ([`docs/lo-dom-semantic-tree.md`](lo-dom-semantic-tree.md), [`docs/multi-document-dev-plan.md`](multi-document-dev-plan.md)).
+3. **Navigation first** — `get_document_tree`, `search_in_document`, `nav_heading_children` before full reads ([`docs/lo-dom-semantic-tree.md`](lo-dom-semantic-tree.md), [`docs/multi-document-dev-plan.md`](multi-document-dev-plan.md)).
 
 **Why UNO index is better than FODT sidecar for scale:** Probe B proved UNO `ParaStyleName` stays correct when XHTML export lies. The sidecar fixes the same gap via export strings (v1 purity bet); UNO is lighter and more authoritative for **paragraph names only**.
 

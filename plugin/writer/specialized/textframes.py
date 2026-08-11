@@ -30,7 +30,7 @@ log = logging.getLogger("writeragent.writer")
 class ListTextFrames(ToolWriterTextFramesBase):
     """List all text frames in the document."""
 
-    name = "list_text_frames"
+    name = "frame_list"
     description = "List all text frames in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
 
@@ -63,7 +63,7 @@ class ListTextFrames(ToolWriterTextFramesBase):
 
                 frames.append({"name": name, "width_mm": size.Width / 100.0, "height_mm": size.Height / 100.0, "width_100mm": size.Width, "height_100mm": size.Height, "content_preview": content_preview})
             except Exception as e:
-                log.debug("list_text_frames: skip '%s': %s", name, e)
+                log.debug("frame_list: skip '%s': %s", name, e)
 
         return {"status": "ok", "frames": frames, "count": len(frames)}
 
@@ -76,9 +76,9 @@ class ListTextFrames(ToolWriterTextFramesBase):
 class GetTextFrameInfo(ToolWriterTextFramesBase):
     """Get detailed info about a text frame."""
 
-    name = "get_text_frame_info"
+    name = "frame_get_info"
     description = "Get detailed info about a text frame."
-    parameters = {"type": "object", "properties": {"frame_name": {"type": "string", "description": "Name of the text frame (from list_text_frames)."}}, "required": ["frame_name"]}
+    parameters = {"type": "object", "properties": {"frame_name": {"type": "string", "description": "Name of the text frame (from frame_list)."}}, "required": ["frame_name"]}
 
     def execute(self, ctx, **kwargs):
         frame_name = kwargs.get("frame_name", "")
@@ -158,12 +158,12 @@ class GetTextFrameInfo(ToolWriterTextFramesBase):
 class SetTextFrameProperties(ToolWriterTextFramesBase):
     """Resize or reposition a text frame."""
 
-    name = "set_text_frame_properties"
+    name = "frame_set_properties"
     description = "Resize or reposition a text frame."
     parameters = {
         "type": "object",
         "properties": {
-            "frame_name": {"type": "string", "description": "Name of the text frame (from list_text_frames)."},
+            "frame_name": {"type": "string", "description": "Name of the text frame (from frame_list)."},
             "width_mm": {"type": "number", "description": "New width in millimetres."},
             "height_mm": {"type": "number", "description": "New height in millimetres."},
             "anchor_type": {"type": "integer", "description": ("Anchor type: 0=AT_PARAGRAPH, 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.")},

@@ -11,6 +11,7 @@
 Usage: python scripts/generate_tool_proxies.py > plugin/scripting/writeragent_api.py
 """
 
+import keyword
 import os
 import sys
 import pprint
@@ -298,6 +299,9 @@ def generate_module(tools: list["ToolBase"]) -> str:
         lines.append("")
 
         for short_name, tool in sorted(tool_list, key=lambda x: x[0]):
+            # domain_verb strip can yield a Python keyword (style_import -> import).
+            if keyword.iskeyword(short_name):
+                short_name = short_name + "_"
             # Generate method
             pos, kw = schema_to_signature(tool)
             # Add self

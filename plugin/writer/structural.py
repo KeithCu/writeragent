@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Structural tools: list_sections, goto_page, get_page_objects, read_section, resolve_bookmark.
+"""Structural tools: section_list, nav_goto_page, get_page_objects, section_read, bookmark_resolve.
 
 (Index refresh, field refresh, and bookmark list/cleanup live in specialized domains.)"""
 
@@ -25,7 +25,7 @@ from .specialized_base import ToolWriterStructuralBase
 
 
 class ListSections(ToolWriterStructuralBase):
-    name = "list_sections"
+    name = "section_list"
     intent = "navigate"
     description = "List all named sections in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
@@ -45,7 +45,7 @@ class ListSections(ToolWriterStructuralBase):
 
 
 class GotoPage(ToolWriterStructuralBase):
-    name = "goto_page"
+    name = "nav_goto_page"
     intent = "navigate"
     description = "Navigate the view cursor to a specific page."
     parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "Page number to navigate to"}}, "required": ["page"]}
@@ -203,7 +203,7 @@ class GetPageObjects(ToolBase):
 class ReadSection(ToolWriterStructuralBase):
     """Read the content of a named text section."""
 
-    name = "read_section"
+    name = "section_read"
     intent = "navigate"
     description = "Read the text content of a named section. Returns the full text within the section boundaries."
     parameters = {"type": "object", "properties": {"section_name": {"type": "string", "description": "Name of the section to read."}}, "required": ["section_name"]}

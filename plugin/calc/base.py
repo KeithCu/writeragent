@@ -44,7 +44,7 @@ class ToolCalcSpecialBase(ToolBase):
 class ToolCalcImageBase(ToolCalcSpecialBase):
     specialized_domain = "images"
     specialized_domain_description: ClassVar[str | None] = (
-        "Image manipulation and insertion in spreadsheets; list_nearby_image_files for folder discovery, list_images for in-sheet graphics."
+        "Image manipulation and insertion in spreadsheets; image_list_nearby_files for folder discovery, image_list for in-sheet graphics."
     )
     intent = "media"
 

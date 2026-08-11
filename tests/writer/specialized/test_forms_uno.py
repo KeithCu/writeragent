@@ -40,7 +40,7 @@ class MockCtx:
 def test_create_form_control_checkbox(ctx, doc):
     from plugin.main import get_tools
     registry = get_tools()
-    tool = registry.get("create_form_control")
+    tool = registry.get("form_create_control")
     assert tool is not None, "create_form_control tool not found"
     
     mock_ctx = MockCtx(doc)
@@ -67,7 +67,7 @@ def test_create_form_control_checkbox(ctx, doc):
 def test_create_form_fat_api(ctx, doc):
     from plugin.main import get_tools
     registry = get_tools()
-    tool = registry.get("create_form")
+    tool = registry.get("form_create")
     assert tool is not None, "create_form tool not found"
     
     mock_ctx = MockCtx(doc)
@@ -169,13 +169,13 @@ def test_list_form_controls(ctx, doc):
     registry = get_tools()
     
     # 1. Create a few controls
-    create_tool = registry.get("create_form_control")
+    create_tool = registry.get("form_create_control")
     mock_ctx = MockCtx(doc)
     create_tool.execute(mock_ctx, type="text", name="txt1", label="Label 1")
     create_tool.execute(mock_ctx, type="checkbox", name="chk1", label="Label 2")
     
     # 2. List them
-    list_tool = registry.get("list_form_controls")
+    list_tool = registry.get("form_list_controls")
     res = list_tool.execute(mock_ctx)
     
     assert res["status"] == "ok"
@@ -199,16 +199,16 @@ def test_edit_form_control(ctx, doc):
     mock_ctx = MockCtx(doc)
     
     # 1. Create a control (use checkbox which has Label)
-    create_tool = registry.get("create_form_control")
+    create_tool = registry.get("form_create_control")
     create_tool.execute(mock_ctx, type="checkbox", name="original_name", label="Original Label")
     
     # 2. Get its index
-    list_tool = registry.get("list_form_controls")
+    list_tool = registry.get("form_list_controls")
     list_res = list_tool.execute(mock_ctx)
     idx = list_res["controls"][0]["index"]
     
     # 3. Edit it
-    edit_tool = registry.get("edit_form_control")
+    edit_tool = registry.get("form_edit_control")
     edit_res = edit_tool.execute(mock_ctx, shape_index=idx, name="new_name", label="New Label")
     
     assert edit_res["status"] == "ok"
@@ -242,16 +242,16 @@ def test_delete_form_control(ctx, doc):
     mock_ctx = MockCtx(doc)
     
     # 1. Create a control
-    create_tool = registry.get("create_form_control")
+    create_tool = registry.get("form_create_control")
     create_tool.execute(mock_ctx, type="checkbox", name="to_delete")
     
     # 2. Get index
-    list_tool = registry.get("list_form_controls")
+    list_tool = registry.get("form_list_controls")
     list_res = list_tool.execute(mock_ctx)
     idx = list_res["controls"][0]["index"]
     
     # 3. Delete it
-    delete_tool = registry.get("delete_form_control")
+    delete_tool = registry.get("form_delete_control")
     del_res = delete_tool.execute(mock_ctx, shape_index=idx)
     
     assert del_res["status"] == "ok"

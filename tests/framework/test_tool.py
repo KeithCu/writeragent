@@ -104,6 +104,22 @@ def test_detects_mutation():
         def execute(self, ctx, **kwargs): pass
     assert UnnamedTool().detects_mutation() is True
 
+    class DomainListTool(ToolBase):
+        name = "image_list"
+        def execute(self, ctx, **kwargs): pass
+
+    class DomainGetInfoTool(ToolBase):
+        name = "style_get_info"
+        def execute(self, ctx, **kwargs): pass
+
+    class DomainMutateTool(ToolBase):
+        name = "image_insert"
+        def execute(self, ctx, **kwargs): pass
+
+    assert DomainListTool().detects_mutation() is False
+    assert DomainGetInfoTool().detects_mutation() is False
+    assert DomainMutateTool().detects_mutation() is True
+
 def test_requires_document_lock_default_matches_detects_mutation():
     tool1 = ValidTool()
     assert tool1.requires_document_lock() is tool1.detects_mutation()

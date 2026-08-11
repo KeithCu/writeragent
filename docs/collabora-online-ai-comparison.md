@@ -44,7 +44,7 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 
 | Collabora capability | Status | WriterAgent location | Collabora source |
 | :--- | :--- | :--- | :--- |
-| `generate_image` | **Implemented** | [`plugin/writer/images/`](../plugin/writer/images/), [image-generation.md](image-generation.md) | `AIChatSession.cpp` — terminal tool, ends loop |
+| `image_generate` | **Implemented** | [`plugin/writer/images/`](../plugin/writer/images/), [image-generation.md](image-generation.md) | `AIChatSession.cpp` — terminal tool, ends loop |
 | `extract_document_structure` | **Partial** | [`get_document_tree`](../plugin/writer/outline.py), [`plugin/draw/tree.py`](../plugin/draw/tree.py) | Kit `extractdocumentstructure`; optional `filter=` |
 | `transform_document_structure` | **Partial (V1)** | [`plugin/draw/transform.py`](../plugin/draw/transform.py), [`transform_engine.py`](../plugin/draw/transform_engine.py), [`transform_schema.py`](../plugin/draw/transform_schema.py) — Impress `SlideCommands`; DSL: [DocumentToolDescriptions.hpp](https://github.com/CollaboraOnline/online/blob/master/wsd/DocumentToolDescriptions.hpp) | `DocumentToolDescriptions.hpp`, `.uno:TransformDocumentStructure` |
 | `extract_link_targets` | **Partial** | Bookmarks / tree locators in [`plugin/writer/tree.py`](../plugin/writer/tree.py) | LOKit `extractRequest` / `extractlinktargets` |
@@ -88,7 +88,7 @@ Collabora Online has implemented several robust, structured AI interactions. Sin
 
 *   **The Feature**: Placeholders applied immediately; `GenerateImage` completions hot-swapped asynchronously.
 *   **Collabora's Path**: `processTransformImageGenerations` in `AIChatSession.cpp`.
-*   **WriterAgent Path**: Placeholder shapes + [`run_in_background`](../plugin/framework/worker_pool.py) + main-thread drain via [`async_stream`](../plugin/framework/async_stream.py) (appendix D). WriterAgent already has [`generate_image`](../plugin/writer/images/image_tools.py) for sidebar/chat.
+*   **WriterAgent Path**: Placeholder shapes + [`run_in_background`](../plugin/framework/worker_pool.py) + main-thread drain via [`async_stream`](../plugin/framework/async_stream.py) (appendix D). WriterAgent already has [`image_generate`](../plugin/writer/images/image_tools.py) for sidebar/chat.
 
 ### 5. Dynamic Link Target Mapping (`extract_link_targets`)
 
@@ -179,7 +179,7 @@ WriterAgent mapping: `ToolBase.is_mutation` + optional `requires_approval` → `
 
 ### 17. Tool-Loop Guardrails
 
-*   **Collabora**: `toolRoundsRemaining` default **5**; parallel `tool_calls` from one assistant message executed **sequentially**; `generate_image` **terminates** the loop.
+*   **Collabora**: `toolRoundsRemaining` default **5**; parallel `tool_calls` from one assistant message executed **sequentially**; `image_generate` **terminates** the loop.
 *   **WriterAgent**: `chat_max_tool_rounds` in config; review sequential vs parallel execution in [`tool_loop.py`](../plugin/chatbot/tool_loop.py).
 
 ### 18. Tool Progress Streaming (`aichatprogress`)
@@ -452,7 +452,7 @@ Prioritized for WriterAgent impact vs effort. Each item lists Collabora referenc
 | Model list HTTP | `wsd/FileServer.cpp` — `/fetch-models` | [`model_fetcher.py`](../plugin/framework/client/model_fetcher.py) |
 | Batch document HTTP | `wsd/SpecialBrokers.cpp` — extract/transform brokers | MCP / scripting RPC (optional) |
 | Calc formula UI | `FormulaErrorHelpSection.ts`, `helpfixformulaerror` | (gap — roadmap P0) |
-| Image generation | `generate_image` in `AIChatSession.cpp` | [`plugin/writer/images/`](../plugin/writer/images/) |
+| Image generation | `image_generate` in `AIChatSession.cpp` | [`plugin/writer/images/`](../plugin/writer/images/) |
 | Undo grouping | LOKit / single transform | [`WriterCompoundUndo`](../plugin/doc/document_helpers.py) |
 | Config / prompts | Inline in `AIChatSession::handleAction` | [`constants.py`](../plugin/framework/constants.py), send handlers |
 

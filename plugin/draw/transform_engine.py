@@ -97,7 +97,7 @@ class SlideCommandEngine:
     def _apply_command(self, cmd: dict[str, Any]) -> None:
         for key, value in cmd.items():
             if is_deferred_command_key(key):
-                self.warnings.append("%s is not supported in WriterAgent V1; use generate_image or atomic draw tools." % key)
+                self.warnings.append("%s is not supported in WriterAgent V1; use image_generate or atomic draw tools." % key)
                 continue
             if key == "JumpToSlide":
                 idx = _parse_slide_index(value, self.current_slide, self._page_count())

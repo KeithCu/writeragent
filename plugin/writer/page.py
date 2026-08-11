@@ -65,7 +65,7 @@ def resolve_page_style(doc, style_name: str = "Standard"):
 class GetPageStyleProperties(ToolWriterPageBase):
     """Get dimensions, margins, and header/footer states of a page style."""
 
-    name = "get_page_style_properties"
+    name = "page_get_style_properties"
     description = "Get dimensions, margins, and header/footer states of a page style."
     parameters = {"type": "object", "properties": {"style_name": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
 
@@ -126,7 +126,7 @@ class GetPageStyleProperties(ToolWriterPageBase):
 class SetPageStyleProperties(ToolWriterPageBase):
     """Modify dimensions, margins, and header/footer toggles of a page style."""
 
-    name = "set_page_style_properties"
+    name = "page_set_style_properties"
     description = "Modify dimensions, margins, and header/footer toggles of a page style."
     parameters = {
         "type": "object",
@@ -259,7 +259,7 @@ class SetPageStyleProperties(ToolWriterPageBase):
 class GetHeaderFooterText(ToolWriterPageBase):
     """Retrieve the text content of a page style's header or footer."""
 
-    name = "get_header_footer_text"
+    name = "page_get_header_footer_text"
     description = "Retrieve the text content of a page style's header or footer."
     parameters = {
         "type": "object",
@@ -320,7 +320,7 @@ class GetHeaderFooterText(ToolWriterPageBase):
 class SetHeaderFooterText(ToolWriterPageBase):
     """Set the text content of a page style's header or footer."""
 
-    name = "set_header_footer_text"
+    name = "page_set_header_footer_text"
     description = (
         "Set the text content of a page style's header or footer. "
         "Automatically enables the header/footer if not already on. "
@@ -392,7 +392,7 @@ class SetHeaderFooterText(ToolWriterPageBase):
 class GetPageColumns(ToolWriterPageBase):
     """Get the column layout for a page style."""
 
-    name = "get_page_columns"
+    name = "page_get_columns"
     description = "Get the column layout for a page style."
     parameters = {"type": "object", "properties": {"style_name": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
 
@@ -434,7 +434,7 @@ class GetPageColumns(ToolWriterPageBase):
 class SetPageColumns(ToolWriterPageBase):
     """Set the number of columns and spacing for a page style."""
 
-    name = "set_page_columns"
+    name = "page_set_columns"
     description = "Set the number of columns and spacing for a page style."
     parameters = {
         "type": "object",
@@ -500,7 +500,7 @@ class SetPageColumns(ToolWriterPageBase):
 class InsertPageBreak(ToolWriterPageBase):
     """Insert a page break at a text anchor (before_text/after_text) or at the view cursor."""
 
-    name = "insert_page_break"
+    name = "page_insert_break"
     description = (
         "Start a new page. With no anchor, breaks at the user's cursor (arbitrary over MCP). "
         "Pass before_text or after_text to break the page at a specific passage instead, so a "

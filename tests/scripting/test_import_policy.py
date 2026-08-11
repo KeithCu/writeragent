@@ -96,20 +96,20 @@ def test_tool_note_includes_sandbox_prefix():
 
 def test_matplotlib_plot_hint_calc():
     hint = format_matplotlib_plot_hint(doc_type="calc")
-    assert "Do not call insert_image" in hint
+    assert "Do not call image_insert" in hint
     assert "data_range" in hint
     assert "active sheet" in hint
 
 
 def test_matplotlib_plot_hint_writer():
     hint = format_matplotlib_plot_hint(doc_type="writer")
-    assert "insert_image" in hint
+    assert "image_insert" in hint
     assert "image_path" in hint
 
 
 def test_matplotlib_plot_hint_draw():
     hint = format_matplotlib_plot_hint(agent_label="Draw")
-    assert "insert_image" in hint
+    assert "image_insert" in hint
     assert "slide" in hint.lower() or "page" in hint.lower()
 
 
@@ -119,14 +119,14 @@ def test_matplotlib_plot_hint_unknown_empty():
 
 def test_venv_policy_has_no_cross_app_plot_branches():
     policy = format_venv_import_policy_for_prompt(compact=False)
-    assert "insert_image" not in policy
+    assert "image_insert" not in policy
     assert "PLOTS:" not in policy
 
 
 def test_python_specialized_sub_agent_calc_plot_hint():
     hint = python_specialized_sub_agent_hint("Calc")
     assert "PLOTS:" in hint
-    assert "Do not call insert_image" in hint
+    assert "Do not call image_insert" in hint
 
 
 def test_format_units_helper_hint():

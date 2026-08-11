@@ -40,7 +40,7 @@ class ExtractTextFromImage(ToolCalcVisionBase):
         "properties": {
             "image_name": {
                 "type": "string",
-                "description": "Graphic name from list_images (images domain). Empty = selected graphic(s).",
+                "description": "Graphic name from image_list (images domain). Empty = selected graphic(s).",
             },
             "insert_into_document": {
                 "type": "boolean",

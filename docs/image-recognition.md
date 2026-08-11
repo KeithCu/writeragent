@@ -91,7 +91,7 @@ Mirror [**Analysis Helpers**](calc-analysis-tools.md#1b-run-python-script--analy
 |-------|---------|
 | **Entry** | **WriterAgent → Run Python Script…** (already on menu for Writer/Calc/Draw/Impress) |
 | **Picker section** | **Vision Helpers →** e.g. `[Vision] extract_text`, `[Vision] extract_structure`, … |
-| **Templates** | [`vision_templates.py`](../plugin/vision/vision_templates.py) with `# writeragent:vision helper=… params=…` header; params include optional **`image_name`** (from `list_images`) |
+| **Templates** | [`vision_templates.py`](../plugin/vision/vision_templates.py) with `# writeragent:vision helper=… params=…` header; params include optional **`image_name`** (from `image_list`) |
 | **Input** | User **selects an embedded graphic**, or sets **`image_name`** in params; host exports PNG bytes |
 | **Run** | Fast path in `execute_and_insert_result` → `run_trusted_vision` → `vision_client.run_vision` |
 | **App scope** | **Writer + Calc** — Vision Helpers when [`supports_vision_manual`](plugin/vision/vision_runner.py); Draw/Impress in **Phase 1b.2** |
@@ -130,7 +130,7 @@ First Docling/Paddle model download uses the long trusted worker budget (Docling
 | Document | Phase | Behavior |
 |----------|-------|----------|
 | **Writer** | **1** | Insert pre-built **`html`** immediately after each selected graphic anchor. With **`vision.insert_mode=structured`**, layout HTML is built in the **venv worker** (needs css-inline there), not in LibreOffice's bundled Python |
-| **Writer** | later | Optional **`set_image_properties`** description from OCR summary |
+| **Writer** | later | Optional **`image_set_properties`** description from OCR summary |
 | **Calc** | **1b** | Default: insert **`html`** into cell below graphic anchor. **`vision.insert_mode=structured`** + **`extract_structure`**: write `tables[]` (and prose `blocks[]`) as a multi-cell grid via [`insert_vision_structure_into_calc`](../plugin/calc/vision_egress.py) |
 | **Draw / Impress** | **1b.2** | Text box near selected graphic; shape annotations later |
 
@@ -379,11 +379,11 @@ Extended [`test_vision.py`](../tests/scripting/test_vision.py), [`test_vision_ru
 |------------|-------------|
 | Export selection to PNG | [`get_selected_image_base64`](../plugin/writer/images/image_tools.py) / [`resolve_vision_image_bytes`](../plugin/vision/vision_runner.py) |
 | Export by graphic name | [`resolve_vision_image_bytes`](plugin/vision/vision_runner.py) + [`_get_graphic_object`](plugin/writer/images/images.py) |
-| List in-document graphics | [`list_images`](../plugin/writer/images/images.py) |
-| Metadata | [`get_image_info`](../plugin/writer/images/images.py) |
+| List in-document graphics | [`image_list`](../plugin/writer/images/images.py) |
+| Metadata | [`image_get_info`](../plugin/writer/images/images.py) |
 | Return a viewable image to the model | [`get_image`](../plugin/writer/get_image.py) — an embedded graphic by name, the current selection, or `page=<n>` to render a whole page as PNG (native `writer_png_Export`) |
 | Insert / replace / delete | [`image_tools.py`](../plugin/writer/images/image_tools.py) |
-| Remote **generation** | [`generate_image`](../plugin/writer/images/images.py) |
+| Remote **generation** | [`image_generate`](../plugin/writer/images/images.py) |
 
 **Phase 3 host work (shipped):** export by graphic name; structure egress on Writer + Calc.
 
@@ -698,7 +698,7 @@ User-visible strings (gettext-ready). Host may raise [`ToolExecutionError`](../p
 | Not Writer/Calc | Vision Helpers **hidden** in picker; fast path returns error if header run anyway |
 | No graphic in selection / export fails | `NO_IMAGE_SELECTED` — *Select an embedded image (or a range containing images), then Run again.* |
 | Writer selection spans multiple images | OCR each graphic separately; insert HTML after **each**; intervening text ignored; selection collapsed before insert |
-| `image_name` set but not in document | `IMAGE_NOT_FOUND` — *Image '{name}' not found. Use list_images or leave image_name empty and select the graphic.* |
+| `image_name` set but not in document | `IMAGE_NOT_FOUND` — *Image '{name}' not found. Use image_list or leave image_name empty and select the graphic.* |
 | Calc graphic not cell-anchored | `NO_OUTPUT_ANCHOR` — *Anchor the image to a cell, select it, then Run again.* |
 | Venv missing Docling / Paddle | `DOCLING_UNAVAILABLE` or `PADDLEOCR_UNAVAILABLE` — pip install + Settings → Python path |
 | OCR returns empty | `status: ok`, `full_text: ""`, `html: ""`, `warnings: ["No text detected."]` — insert fails with empty HTML error |
@@ -837,7 +837,7 @@ Checklist for implementers / QA:
 
 - [x] `make test` passes with mocked Paddle and mocked PPStructureV3 (no real models in CI)
 - [x] Script picker shows **Vision Helpers → [Vision] extract_structure** (Writer + Calc)
-- [x] `params.image_name` empty → exports selected graphic; non-empty → resolves via `list_images` names
+- [x] `params.image_name` empty → exports selected graphic; non-empty → resolves via `image_list` names
 - [x] Unknown `image_name` → `IMAGE_NOT_FOUND` before venv call
 - [x] `extract_structure` Writer: structure text inserted at cursor
 - [x] `extract_structure` Calc: tables written as multi-cell report below graphic anchor
@@ -861,7 +861,7 @@ Checklist for implementers / QA:
 
 | Argument | Role |
 |----------|------|
-| `image_name` | Optional graphic name (`list_images`); empty = **selected graphic** |
+| `image_name` | Optional graphic name (`image_list`); empty = **selected graphic** |
 | `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
 | `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
 
@@ -875,7 +875,7 @@ Checklist for implementers / QA:
 |----------|------|
 | `helper` | One of `HELPER_NAMES` |
 | `params` | Helper-specific (`roi`, `lang`, …) |
-| `source` | `selection` \| graphic from `list_images` \| path from `list_nearby_image_files` |
+| `source` | `selection` \| graphic from `image_list` \| path from `image_list_nearby_files` |
 
 Host: resolve `source` → bytes → `run_vision` → apply via **same egress** as manual path ([§2.4](#24-applying-results-host-egress)).
 
@@ -891,7 +891,7 @@ For semantics (“explain this diagram”), not raw OCR — hybrid with local OC
 - Phase 1 Calc/Draw egress (deferred to **Phase 1b**)
 - Shipping Paddle/YOLO weights in the OXT
 - Real-time video
-- Making `list_nearby_image_files` readable via `document_research`
+- Making `image_list_nearby_files` readable via `document_research`
 - Replacing LO-DOM / Draw semantic tree with screenshots for vector slides
 - README user-facing promises before Phase 1 ships
 
