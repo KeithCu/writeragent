@@ -55,6 +55,16 @@ Usual targets generate `plugin/_manifest.py` when needed. Other Makefile targets
 
 ---
 
+## Cursor Cloud specific instructions
+
+Facts that bit past Cloud Agents on the headless Ubuntu VM (not obvious from the README):
+
+- **Hot-deploy needs `rsync`.** `make deploy` fails with `rsync: command not found` if it is missing (`scripts/dev-deploy.sh` rsyncs the bundle into the LibreOffice cache). Install it: `sudo apt-get install -y rsync`.
+- **OXT zip needs mtimes ≥ 1980.** `scripts/build_oxt.py` (Python `zipfile`) refuses to add files dated before 1980; reused snapshot checkouts often carry epoch-0 mtimes. If `make build`/`make deploy` fails on old timestamps, bump them: `find /workspace -newermt '1970-01-01' ! -newermt '1980-01-02' -exec touch -d '1980-01-02' {} +` (or the equivalent `os.utime` sweep).
+- **`writeragent.json` lives at `~/.config/libreoffice/4/user/config/writeragent.json`** (LibreOffice `PathSettings.UserConfig` — the `user/config/` subdir, **not** `user/`). Writing it to `user/` is silently ignored. Seed `scripting.python_venv_path` to `/workspace/.venv` so `=PY()` uses the project venv instead of `/usr/bin/python3`.
+
+---
+
 ## HTTP / LLM (summary)
 
 Chat and tool calls go through `llm_client` (see its module doc). Persistent connections live in `ai/service`; auth headers in `auth`.
