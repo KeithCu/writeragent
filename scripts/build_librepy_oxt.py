@@ -252,7 +252,11 @@ def zip_librepy_bundle(base_dir: str, output: str) -> int:
     count = 0
     import zipfile
 
-    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    # strict_timestamps=False: freshly vendored wheels and reused Cloud Agent
+    # snapshot checkouts can carry pre-1980 (epoch-0) mtimes, which the default
+    # rejects with "ZIP does not support timestamps before 1980" and aborts the
+    # build. False clamps such entries to 1980-01-01 instead of failing.
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
         for root, dirs, filenames in os.walk(bundle_path):
             dirs[:] = [d for d in dirs if not should_exclude(d, with_tests=True)]
             for fn in filenames:
