@@ -167,6 +167,11 @@ exclude = ["plugin/contrib", "plugin/lib", "plugin/tests", "plugin/xdl_strings.p
 
 [tool.ty.rules]
 redundant-cast = "ignore"
+# Optional-dependency import guards (e.g. `import language_tool_python  # type: ignore`)
+# read as "unused" once that optional package happens to be installed in the dev venv, but
+# the ignore is required where the package is absent (LibreOffice's bundled Python). Don't
+# fail the type gate based on which optional extras a given checkout has installed.
+unused-type-ignore-comment = "ignore"
 
 
 # Pyrefly (CLI: make pyrefly) — experimental; same scope as ty/mypy/pyright; not part of make test
@@ -188,7 +193,10 @@ pythonVersion = "3.11"
 venvPath = "."
 venv = ".venv"
 include = ["plugin", "compute_service"]
-exclude = ["plugin/contrib", "plugin/lib", "plugin/tests", "tests", "plugin/scripting/venv/text_analytics.py"]
+# quant.py (like text_analytics.py) targets optional heavy deps not in the dev group; when
+# those extras are installed for QA, basedpyright type-checks against them and flags issues
+# that don't apply to the normal dev scope. Exclude it to keep the gate scope stable.
+exclude = ["plugin/contrib", "plugin/lib", "plugin/tests", "tests", "plugin/scripting/venv/text_analytics.py", "plugin/scripting/venv/quant.py"]
 reportMissingModuleSource = false
 reportMissingImports = "none"
 
