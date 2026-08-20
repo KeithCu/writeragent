@@ -105,6 +105,16 @@ def _insert_image_result_on_sheet_impl(ctx: Any, payload: dict[str, Any], code: 
             except Exception:
                 log.debug("insert_image_result_on_sheet: locate_formula_cell_in_doc failed", exc_info=True)
 
+            if sheet is None or target_cell is None:
+                # Bugfix (#385/#389): When formula code is provided (=PYTHON / =PY), failing to locate
+                # the formula cell must NOT fall back to the controller's active sheet or active selection.
+                # Falling back causes plots to be inserted on whatever sheet/cell is active (e.g. analysis!A1
+                # during Ctrl+Shift+F9 recalc).
+                log.warning(
+                    "insert_image_result_on_sheet: could not locate formula cell for formula code; aborting egress to prevent wrong-sheet placement"
+                )
+                return
+
         ctrl = doc.getCurrentController() if hasattr(doc, "getCurrentController") else None
 
         if sheet is None:

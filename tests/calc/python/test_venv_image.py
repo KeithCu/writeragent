@@ -30,6 +30,7 @@ def test_calc_image_result_inserts_on_sheet():
             side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
         ) as main_thread,
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
+        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
 
@@ -51,6 +52,7 @@ def test_writer_image_result_returns_path_only():
         patch("plugin.calc.python.venv.run_code_in_user_venv", return_value={"status": "ok", "result": _IMAGE_PAYLOAD}),
         patch("plugin.calc.python.venv.write_image_payload_to_temp", return_value="/tmp/plot.svg"),
         patch("plugin.calc.python.image_egress.insert_image_result_on_sheet") as insert,
+        patch("plugin.scripting.config_limits.configured_python_max_data_cells", return_value=10000),
     ):
         out = tool.execute(ctx, code="import matplotlib.pyplot as plt\nplt.plot([1])")
 
@@ -104,6 +106,31 @@ def test_insert_image_result_on_sheet_background_thread_marshaling():
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD)
 
     assert exec_main.call_count == 1
+
+
+def test_insert_image_result_on_sheet_aborts_when_formula_location_fails_for_code():
+    """When code is supplied and formula cell location fails, image egress aborts without inserting on active sheet."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    ctrl = MagicMock()
+    active_sheet = MagicMock()
+    draw_page = MagicMock()
+    active_sheet.DrawPage = draw_page
+    ctrl.getActiveSheet.return_value = active_sheet
+    doc.getCurrentController.return_value = ctrl
+
+    code = "import matplotlib.pyplot as plt; plt.plot([1, 2, 3])"
+
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=doc),
+        patch("plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc", return_value=None),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp") as mock_write,
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code=code)
+
+    # Must abort before writing temp file or adding shape to active sheet's DrawPage
+    mock_write.assert_not_called()
+    draw_page.add.assert_not_called()
 
 
 def test_shape_anchor_matches_by_address_not_identity():

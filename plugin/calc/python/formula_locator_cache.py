@@ -19,9 +19,9 @@ MAX_FORMULAS_PER_DOC = 4096
 DEFAULT_DOC_CACHE_TTL_SECONDS = 300.0  # 5 minutes idle TTL
 
 # Regex to extract code string literal from =PY("...") or =PYTHON("...", ...) formulas.
-# Handles Calc-escaped double-quotes ("") inside string literals.
+# Handles Calc-escaped double-quotes ("") inside string literals and supports optional add-in namespaces.
 _PY_FORMULA_CODE_REGEX = re.compile(
-    r'(?:ORG\.EXTENSION\.WRITERAGENT\.PYTHONFUNCTION\.)?(?:PY|PYTHON)\s*\(\s*"((?:[^"]|"")*)"',
+    r'(?:ORG\.EXTENSION\.[A-Z0-9_.]+\.)?(?:PY|PYTHON)\s*\(\s*"((?:[^"]|"")*)"',
     re.IGNORECASE,
 )
 
@@ -195,7 +195,14 @@ def is_matching_py_formula(formula: str, code_str: str) -> bool:
     upper = formula.upper()
     if "PYTHON" not in upper and "PY" not in upper:
         return False
-    return extract_code_from_py_formula(formula) == code_str
+    extracted = extract_code_from_py_formula(formula)
+    if extracted is None:
+        return False
+    if extracted == code_str:
+        return True
+    ext_norm = extracted.replace("\r\n", "\n").strip()
+    code_norm = code_str.replace("\r\n", "\n").strip()
+    return ext_norm == code_norm
 
 
 def search_sheet_for_formula(
@@ -316,8 +323,16 @@ def locate_formula_cell_in_doc(
             count = sheets.getCount() if hasattr(sheets, "getCount") else 0
             for i in range(count):
                 sheet = sheets.getByIndex(i)
-                if active_sheet is not None and sheet == active_sheet:
-                    continue
+                try:
+                    if (
+                        active_sheet is not None
+                        and hasattr(sheet, "getName")
+                        and hasattr(active_sheet, "getName")
+                        and sheet.getName() == active_sheet.getName()
+                    ):
+                        continue
+                except Exception:
+                    pass
                 res = search_sheet_for_formula(sheet, code_str, doc_url=doc_url, cache=active_cache)
                 if res is not None:
                     cell, r, c = res

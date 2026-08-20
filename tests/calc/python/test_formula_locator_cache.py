@@ -257,6 +257,26 @@ def test_opportunistic_batch_caching_warms_all_sheet_formulas():
     assert located_3[2] == (10, 4)
 
 
+def test_locate_formula_cell_in_doc_secondary_sheet_when_active_sheet_differs():
+    """Formula cell on secondary sheet (viz) is located even when controller active sheet is analysis."""
+    sheet_analysis = CalcSheetStub("analysis")
+    sheet_viz = CalcSheetStub("viz")
+    doc = CalcDocStub(sheets=[sheet_analysis, sheet_viz], url="file:///test_demo.ods", active_sheet="analysis")
+    ctx = _ctx_with_doc(doc)
+
+    code = "import matplotlib.pyplot as plt; plt.plot([1, 2, 3]); plt.plot([3, 2, 1])"
+    # Formula is on viz sheet at B2 (col=1, row=1)
+    sheet_viz.getCellByPosition(1, 1).setFormula(
+        f'=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PYTHON("{code}")'
+    )
+
+    located = locate_formula_cell_in_doc(ctx, doc, code)
+    assert located is not None
+    found_sheet, found_cell, (r, c) = located
+    assert found_sheet.getName() == "viz"
+    assert (r, c) == (1, 1)
+
+
 def test_untitled_docs_do_not_share_formula_cache():
     """Empty getURL() must not collide; RuntimeUID (lifecycle key) isolates unsaved books."""
     cache = FormulaLocationCache(max_formulas_per_doc=10)
