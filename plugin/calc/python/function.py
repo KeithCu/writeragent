@@ -308,7 +308,49 @@ def scalar_for_list_result(ctx: Any, code: str, result: Any, *, worker_data: Any
 # Key: (doc_url, sheet_name, formula_row, formula_col)
 # Value: list of (spilled_row, spilled_col) coordinates
 SPILL_REGISTRY: dict[tuple[str, str, int, int], list[tuple[int, int]]] = {}
+# The spill value registry tracks expected spilled values for each target coordinate.
+# Key: (doc_url, sheet_name, formula_row, formula_col)
+# Value: dict mapping (spilled_row, spilled_col) -> coerced_calc_value
+SPILL_VALUE_REGISTRY: dict[tuple[str, str, int, int], dict[tuple[int, int], Any]] = {}
 LOADED_DOCUMENTS: set[str] = set()
+
+
+def _cell_matches_spilled_value(cell: Any, expected_val: Any) -> bool:
+    """True if cell's current UNO content matches expected spilled value."""
+    try:
+        from com.sun.star.table.CellContentType import EMPTY, FORMULA, TEXT, VALUE
+    except ImportError:
+        EMPTY = cast("Any", 0)
+        VALUE = cast("Any", 1)
+        TEXT = cast("Any", 2)
+        FORMULA = cast("Any", 3)
+
+    ctype = cell.getType()
+    if ctype == EMPTY:
+        return expected_val == "" or expected_val is None
+
+    if ctype == FORMULA:
+        # User formula in a spill target cell is always a collision
+        return False
+
+    if ctype == VALUE:
+        if isinstance(expected_val, (int, float)) and not isinstance(expected_val, bool):
+            try:
+                val = cell.getValue()
+                return math.isclose(val, float(expected_val), rel_tol=1e-9, abs_tol=1e-9)
+            except Exception:
+                return False
+        return False
+
+    if ctype == TEXT:
+        if isinstance(expected_val, str):
+            try:
+                return cell.getString() == expected_val
+            except Exception:
+                return False
+        return False
+
+    return False
 
 import unohelper
 from com.sun.star.util import XModifyListener
@@ -407,6 +449,7 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
                 if to_remove:
                     for key in to_remove:
                         SPILL_REGISTRY.pop(key, None)
+                        SPILL_VALUE_REGISTRY.pop(key, None)
                     if doc is not None:
                         save_spill_registry_for_doc(doc)
         except Exception:
@@ -423,19 +466,34 @@ def load_spill_registry_for_doc(doc: Any) -> None:
         from plugin.doc.udprops import get_document_property
         import json
         raw = get_document_property(doc, "WriterAgentSpillRegistry", None)
-        if not isinstance(raw, str) or not raw.strip():
-            return
-        data = json.loads(raw)
         doc_url = getattr(doc, "getURL", lambda: "")() or ""
-        for key, value in data.items():
-            parts = key.split(":")
-            if len(parts) == 2:
-                sheet_name, coords = parts
-                row_col = coords.split(",")
-                if len(row_col) == 2:
-                    frow, fcol = int(row_col[0]), int(row_col[1])
-                    spill_coords = [(int(r), int(c)) for r, c in value]
-                    SPILL_REGISTRY[(doc_url, sheet_name, frow, fcol)] = spill_coords
+        if isinstance(raw, str) and raw.strip():
+            data = json.loads(raw)
+            for key, value in data.items():
+                parts = key.split(":")
+                if len(parts) == 2:
+                    sheet_name, coords = parts
+                    row_col = coords.split(",")
+                    if len(row_col) == 2:
+                        frow, fcol = int(row_col[0]), int(row_col[1])
+                        spill_coords = [(int(r), int(c)) for r, c in value]
+                        SPILL_REGISTRY[(doc_url, sheet_name, frow, fcol)] = spill_coords
+
+        raw_values = get_document_property(doc, "WriterAgentSpillValueRegistry", None)
+        if isinstance(raw_values, str) and raw_values.strip():
+            val_data = json.loads(raw_values)
+            for key, value in val_data.items():
+                parts = key.split(":")
+                if len(parts) == 2:
+                    sheet_name, coords = parts
+                    row_col = coords.split(",")
+                    if len(row_col) == 2:
+                        frow, fcol = int(row_col[0]), int(row_col[1])
+                        val_map = {}
+                        for rc_str, val in value.items():
+                            r_str, c_str = rc_str.split(",")
+                            val_map[(int(r_str), int(c_str))] = val
+                        SPILL_VALUE_REGISTRY[(doc_url, sheet_name, frow, fcol)] = val_map
     except Exception:
         log.exception("Failed to load spill registry from document property")
 
@@ -447,11 +505,18 @@ def save_spill_registry_for_doc(doc: Any) -> None:
         import json
         doc_url = getattr(doc, "getURL", lambda: "")() or ""
         doc_spills = {}
+        doc_spill_values = {}
         for key, value in SPILL_REGISTRY.items():
             k_url, sheet_name, frow, fcol = key
             if k_url == doc_url:
-                doc_spills[f"{sheet_name}:{frow},{fcol}"] = value
+                prop_key = f"{sheet_name}:{frow},{fcol}"
+                doc_spills[prop_key] = value
+                if key in SPILL_VALUE_REGISTRY:
+                    doc_spill_values[prop_key] = {
+                        f"{r},{c}": val for (r, c), val in SPILL_VALUE_REGISTRY[key].items()
+                    }
         set_document_property(doc, "WriterAgentSpillRegistry", json.dumps(doc_spills))
+        set_document_property(doc, "WriterAgentSpillValueRegistry", json.dumps(doc_spill_values))
     except Exception:
         log.exception("Failed to save spill registry to document property")
 
@@ -602,6 +667,7 @@ def perform_deferred_spill(
             num_cols = max(len(row) for row in grid) if num_rows > 0 else 0
             if num_rows == 0 or num_cols == 0:
                 SPILL_REGISTRY[reg_key] = []
+                SPILL_VALUE_REGISTRY[reg_key] = {}
                 save_spill_registry_for_doc(doc)
                 return
 
@@ -648,13 +714,18 @@ def perform_deferred_spill(
                 remaining_range.setDataArray(tuple(tuple(row) for row in coerced_grid[1:]))
 
             new_spills = []
+            new_spill_values = {}
             for r_offset in range(num_rows):
                 for c_offset in range(num_cols):
                     if (r_offset, c_offset) == (0, 0):
                         continue
-                    new_spills.append((formula_row + r_offset, formula_col + c_offset))
+                    r_coord = formula_row + r_offset
+                    c_coord = formula_col + c_offset
+                    new_spills.append((r_coord, c_coord))
+                    new_spill_values[(r_coord, c_coord)] = coerced_grid[r_offset][c_offset]
 
             SPILL_REGISTRY[reg_key] = new_spills
+            SPILL_VALUE_REGISTRY[reg_key] = new_spill_values
             save_spill_registry_for_doc(doc)
 
             # 5. Apply NumberFormats for any temporal cells (dates, datetimes, times, durations)
@@ -813,6 +884,7 @@ def finalize_python_return(
                         reg_key = (doc_url, sheet_name, formula_row, formula_col)
                         previous_spills = SPILL_REGISTRY.get(reg_key, [])
                         prev_spill_set = set(previous_spills)
+                        prev_spill_values = SPILL_VALUE_REGISTRY.get(reg_key, {})
 
                         log.debug("Spill: previous spills for cell %r: %r", reg_key, previous_spills)
 
@@ -833,13 +905,13 @@ def finalize_python_return(
                                     break
                                 if (target_r, target_c) == (formula_row, formula_col):
                                     continue
-                                if (target_r, target_c) in prev_spill_set:
-                                    continue
                                 cell = sheet.getCellByPosition(target_c, target_r)
                                 cell_type = cell.getType()
-                                if cell_type != EMPTY:
+                                if cell_type == EMPTY:
+                                    continue
+                                if (target_r, target_c) not in prev_spill_set:
                                     log.debug(
-                                        "Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty",
+                                        "Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty and was not previously spilled",
                                         (target_r, target_c),
                                         cell_type,
                                         cell.getValue() or cell.getString(),
@@ -847,10 +919,32 @@ def finalize_python_return(
                                     )
                                     collides = True
                                     break
+                                exp_val = prev_spill_values.get((target_r, target_c))
+                                if not _cell_matches_spilled_value(cell, exp_val):
+                                    log.debug(
+                                        "Spill: collision: cell at %r was modified from expected spilled value %r",
+                                        (target_r, target_c),
+                                        exp_val,
+                                    )
+                                    collides = True
+                                    break
                             if collides:
                                 break
 
                         if collides:
+                            # Clean up old spilled cells that were NOT modified by the user
+                            for r, c in previous_spills:
+                                if (r, c) != (formula_row, formula_col):
+                                    try:
+                                        old_cell = sheet.getCellByPosition(c, r)
+                                        exp_val = prev_spill_values.get((r, c))
+                                        if _cell_matches_spilled_value(old_cell, exp_val):
+                                            old_cell.clearContents(23)
+                                    except Exception:
+                                        pass
+                            SPILL_REGISTRY.pop(reg_key, None)
+                            SPILL_VALUE_REGISTRY.pop(reg_key, None)
+                            save_spill_registry_for_doc(doc)
                             return "#SPILL!"
 
                         from plugin.framework.queue_executor import post_to_main_thread
