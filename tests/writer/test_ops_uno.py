@@ -5,7 +5,7 @@ from plugin.doc.document_helpers import (
     find_paragraph_for_range,
     get_selection_range,
 )
-from plugin.writer.format import insert_html_fragment_at_cursor
+from plugin.writer.html_import import insert_html_fragment_at_cursor
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 

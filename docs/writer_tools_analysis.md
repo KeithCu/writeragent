@@ -13,7 +13,6 @@
 | [images.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/images.py) | ImageGenerate, EditImage | 123 | 3.6K |
 | [images_doc.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/images_doc.py) | ImageList, ImageGetInfo, ImageSetProperties, ImageDownload, ImageInsert, ImageDelete, ImageReplace | 729 | 24.1K |
 | [navigation.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/navigation.py) | NavHeading, NavSurroundings | 90 | 3.1K |
-| [ops.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/ops.py) | *(helper module, no tools)* | 125 | 3.8K |
 | [outline.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/outline.py) | GetDocumentOutline, GetHeadingContent | 181 | 5.6K |
 | [search.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/search.py) | SearchInDocument, ReplaceInDocument | 241 | 8.1K |
 | [stats.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/stats.py) | GetDocumentStats | 83 | 2.3K |
@@ -134,7 +133,7 @@ Implemented as `ManageTrackedChanges` in [tracking.py](file:///home/keithcu/Desk
 > The big content files ([content.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/content.py) at 1032 lines, [comments.py](../../plugin/writer/comments.py) at 548 lines, [images_doc.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/images_doc.py) at 729 lines) are already large. The proposed merges keep them from getting unwieldy — the largest merge adds ~160 lines to [search.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/search.py) for fulltext.
 
 > [!IMPORTANT]
-> The [format.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/format.py) and [ops.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/ops.py) helper modules (705 lines combined) are not tool files and should remain as-is. They provide shared utilities used across multiple tool files.
+> The format.py and html_import.py helper modules are not tool files and should remain as-is. They provide shared utilities used across multiple tool files.
 
 ## Not Recommended
 

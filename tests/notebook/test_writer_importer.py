@@ -379,7 +379,7 @@ def test_import_ipynb_markdown_html_uses_insert_html(tmp_path, monkeypatch):
         html_calls.append(html)
         return True
 
-    monkeypatch.setattr("plugin.writer.format.insert_html_fragment_at_cursor", fake_insert_html)
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
 
     stats = import_ipynb_to_writer(doc, str(ipynb))
 

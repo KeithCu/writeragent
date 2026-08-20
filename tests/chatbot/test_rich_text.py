@@ -581,7 +581,7 @@ class ChatThemeAndImporterTests(unittest.TestCase):
         from plugin.chatbot import rich_text
 
         cursor = MockTextCursor()
-        with patch("plugin.writer.format.insert_html_fragment_at_cursor") as mock_insert:
+        with patch("plugin.writer.html_import.insert_html_fragment_at_cursor") as mock_insert:
             rich_text._insert_html_at_cursor(MockDoc(), cursor, "<p>Hi</p>")
         mock_insert.assert_called_once_with(
             cursor,

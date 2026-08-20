@@ -12,7 +12,7 @@ from plugin.doc.visual_helpers import list_graphic_objects
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 from plugin.vision.vision_egress import prepare_vision_writer_insert
-from plugin.writer.format import insert_html_at_cursor
+from plugin.writer.html_import import insert_html_at_cursor
 from plugin.writer.images.image_tools import insert_image_at_locator
 
 _VISION_HTML_FIXTURE = "<p>Vision OCR line after image.</p>"

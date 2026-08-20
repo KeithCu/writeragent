@@ -43,7 +43,7 @@ uv pip install numpy pandas scipy scikit-learn statsmodels ydata-profiling panda
 | `numpy`, `pandas` | All helpers (coercion, tables, aggregates) |
 | `scipy` | `detect_outliers` (IQR, z-score) |
 | `scikit-learn` | `detect_outliers` (`isolation_forest`), `cluster_numeric` |
-| [ydata-profiling](https://github.com/ydataai/ydata-profiling) (`data_profiling`) | `describe_data` |
+| [ydata-profiling](https://github.com/ydataai/ydata-profiling) (`ydata_profiling`) | `describe_data` |
 | `statsmodels` | `run_regression`, [`forecast_time_series` / `decompose_time_series`](../plugin/scripting/forecast.py) |
 | [pandas-montecarlo](https://github.com/ranaroussi/pandas-montecarlo) | `monte_carlo` |
 

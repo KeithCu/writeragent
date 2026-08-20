@@ -226,7 +226,7 @@ def _tighten_list_indent(body_range):
 
 def _insert_html_at_cursor(doc, cursor, html_fragment):
     """Import an HTML fragment into *doc* at *cursor* using Writer's HTML filter."""
-    from plugin.writer.format import insert_html_fragment_at_cursor
+    from plugin.writer.html_import import insert_html_fragment_at_cursor
 
     insert_html_fragment_at_cursor(cursor, html_fragment, extra_css=_SIDEBAR_LIST_CSS)
 

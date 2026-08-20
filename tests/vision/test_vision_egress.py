@@ -108,7 +108,7 @@ def test_insert_vision_result_calc_structured(mock_structured, mock_html):
 
 
 @patch("plugin.writer.edit_review.review_recording_enabled", return_value=False)
-@patch("plugin.writer.format.insert_html_at_cursor")
+@patch("plugin.writer.html_import.insert_html_at_cursor")
 @patch("plugin.vision.vision_egress.prepare_vision_writer_insert")
 def test_insert_vision_result_into_writer_uses_prepare_and_insert(mock_prepare, mock_insert, _review):
     from plugin.vision.vision_egress import insert_vision_result_into_writer
@@ -125,7 +125,7 @@ def test_insert_vision_result_into_writer_uses_prepare_and_insert(mock_prepare, 
     mock_insert.assert_called_once_with(doc, ctx, cursor, "<p>line</p>", apply_styles=False)
 
 
-@patch("plugin.writer.format.insert_html_at_cursor")
+@patch("plugin.writer.html_import.insert_html_at_cursor")
 @patch("plugin.vision.vision_egress.prepare_vision_writer_insert")
 def test_insert_vision_result_into_writer_without_edit_review(mock_prepare, mock_insert):
     """LibrePy omits edit_review; OCR insert must still apply HTML directly."""

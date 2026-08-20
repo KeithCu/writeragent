@@ -77,7 +77,7 @@ def fetch_historical_data(params: dict[str, Any], context: dict[str, Any]) -> di
         records = data.values.tolist()
         
         return {
-            "status": "success",
+            "status": "ok",
             "helper": "fetch_historical_data",
             "table": {
                 "columns": columns,
@@ -118,7 +118,7 @@ def technical_analysis(params: dict[str, Any], data: Any, context: dict[str, Any
             df[col] = df[col].astype(str)
             
         return {
-            "status": "success",
+            "status": "ok",
             "helper": "technical_analysis",
             "table": {
                 "columns": list(df.columns),
@@ -225,7 +225,7 @@ def efficient_frontier(params: dict[str, Any], data: Any, context: dict[str, Any
         cleaned_weights = ef.clean_weights()
         
         return {
-            "status": "success",
+            "status": "ok",
             "helper": "efficient_frontier",
             "weights": cleaned_weights
         }

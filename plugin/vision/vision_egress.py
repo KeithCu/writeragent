@@ -201,7 +201,7 @@ def insert_vision_result_into_writer(
     params: dict[str, Any] | None = None,
 ) -> None:
     """Insert formatted vision HTML immediately after the selected graphic anchor."""
-    from plugin.writer.format import insert_html_at_cursor
+    from plugin.writer.html_import import insert_html_at_cursor
 
     html = vision_html_from_result(result)
     if not html.strip():

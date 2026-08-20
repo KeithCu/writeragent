@@ -344,7 +344,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             shape.setString(plain)
             return
 
-        from ..format import insert_html_fragment_at_cursor
+        from ..html_import import insert_html_fragment_at_cursor
 
         vc = doc.getCurrentController().getViewCursor()
         cursor = doc.getText().createTextCursorByRange(vc)
