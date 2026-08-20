@@ -4,11 +4,12 @@
 # Copyright (c) 2026 LibreCalc AI Assistant (Calc integration features, originally MIT)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Writer text / path helpers used by LibrePy without ``document_helpers``.
+"""Writer text / path / selection helpers used by LibrePy without ``document_helpers``.
 
-LibrePy Run Python Script, text analytics, and Excel auto-open need linebreak
-normalization, tracked-deletion reads, heading trees, and a file path. Those
-must not load ``document_helpers`` → ``SheetAnalyzer`` / chat context.
+LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
+offsets need linebreak normalization, tracked-deletion reads, heading trees, file
+paths, and selection range calculation. Those must not load ``document_helpers`` →
+``SheetAnalyzer`` / chat context.
 """
 
 from __future__ import annotations
@@ -37,6 +38,110 @@ def normalize_linebreaks(text: str | None) -> str:
     # Normalize remaining \r -> \n
     text = text.replace("\r", "\n")
     return text
+
+
+# goRight(nCount, bExpand) takes short; max 32767 per call
+_GO_RIGHT_CHUNK = 8192
+
+
+def _writer_char_count(model) -> int:
+    """Writer document character count; prefers O(1) CharacterCount over full getString()."""
+    try:
+        check_disposed(model, "Document Model")
+        count = getattr(model, "CharacterCount", None)
+        if count is not None:
+            return max(0, int(count))
+    except Exception:
+        pass
+    try:
+        text = safe_call(model.getText, "Get document text")
+        cursor = safe_call(text.createTextCursor, "Create text cursor")
+        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+        safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
+        return len(normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("_writer_char_count failed")
+        return 0
+
+
+def _char_offset_of_position(model, target_start, doc_len: int) -> int:
+    """Character offset of a UNO text position from document start (no prefix getString())."""
+    if doc_len <= 0:
+        return 0
+    try:
+        text = safe_call(model.getText, "Get document text")
+        cursor = safe_call(text.createTextCursor, "Create text cursor")
+        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+        offset = 0
+        while offset < doc_len:
+            cmp = safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart"))
+            if cmp == 0:
+                return offset
+            if cmp > 0:
+                if offset == 0:
+                    return 0
+                safe_call(cursor.goLeft, "Cursor goLeft", 1, False)
+                offset -= 1
+                continue
+            step = min(_GO_RIGHT_CHUNK, doc_len - offset)
+            if step <= 0:
+                return offset
+            safe_call(cursor.goRight, "Cursor goRight", step, False)
+            offset += step
+            cmp_after = safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart"))
+            if cmp_after >= 0:
+                while offset > 0 and safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart")) > 0:
+                    safe_call(cursor.goLeft, "Cursor goLeft", 1, False)
+                    offset -= 1
+                while safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart")) < 0 and offset < doc_len:
+                    safe_call(cursor.goRight, "Cursor goRight", 1, False)
+                    offset += 1
+                return offset
+        return doc_len
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("_char_offset_of_position failed")
+        return 0
+
+
+def _get_writer_selection_positions(model):
+    """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
+    try:
+        check_disposed(model, "Document Model")
+        controller = safe_call(model.getCurrentController, "Get current controller")
+        sel = safe_call(controller.getSelection, "Get selection")
+        sel_count = 0
+        if sel and hasattr(sel, "getCount"):
+            sel_count = safe_call(sel.getCount, "Get selection count")
+        if not sel or sel_count == 0:
+            vc = safe_call(controller.getViewCursor, "Get view cursor")
+            rng = vc
+        else:
+            rng = safe_call(sel.getByIndex, "Get selection by index", 0)
+        if not rng or not hasattr(rng, "getStart") or not hasattr(rng, "getEnd"):
+            return None
+        text = safe_call(model.getText, "Get document text")
+        return text, safe_call(rng.getStart, "Get range start"), safe_call(rng.getEnd, "Get range end")
+    except UnoObjectError:
+        return None
+
+
+@main_thread_only
+def get_selection_range(model):
+    """Return (start_offset, end_offset) character positions into the document.
+    Cursor (no selection) = same start and end. Returns (0, 0) on error or no text range."""
+    try:
+        check_disposed(model, "Document Model")
+        sel_positions = _get_writer_selection_positions(model)
+        if sel_positions is None:
+            return (0, 0)
+        _text, sel_start_pos, sel_end_pos = sel_positions
+        doc_len = _writer_char_count(model)
+        start_offset = _char_offset_of_position(model, sel_start_pos, doc_len)
+        end_offset = _char_offset_of_position(model, sel_end_pos, doc_len)
+        return (start_offset, end_offset)
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_selection_range failed")
+        return (0, 0)
 
 
 class HeadingTreeNode(TypedDict):

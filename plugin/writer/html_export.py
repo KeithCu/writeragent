@@ -207,7 +207,7 @@ def document_to_content(
 
     if scope == "selection":
         # Import via format so LibrePy (which ships html_export but not document_helpers)
-        # never sees an eager plugin.doc.document_helpers import in this file.
+        # selection path no longer names document_helpers in this file.
         start, end = format_mod._selection_range_for_export(model)
         return _done(
             _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc, include_images=include_images),

@@ -37,8 +37,8 @@ log = logging.getLogger("writeragent.writer")
 
 
 def _selection_range_for_export(model):  # pyright: ignore[reportUnusedFunction]
-    """Resolve selection range for export (lazy import so html_export never names document_helpers)."""
-    from plugin.doc.document_helpers import get_selection_range
+    """Resolve selection range for export (lazy import so html_export never names text_helpers directly or document_helpers)."""
+    from plugin.doc.text_helpers import get_selection_range
 
     return get_selection_range(model)
 

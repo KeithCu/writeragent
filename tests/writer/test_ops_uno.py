@@ -3,6 +3,8 @@ from plugin.doc.document_helpers import (
     get_paragraph_ranges,
     get_text_cursor_at_range,
     find_paragraph_for_range,
+)
+from plugin.doc.text_helpers import (
     get_selection_range,
 )
 from plugin.writer.format import insert_html_fragment_at_cursor

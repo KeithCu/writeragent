@@ -9,7 +9,7 @@
       "update available" without a workable upgrade path if the OXT is missing.
     -->
     <identifier value="org.extension.librepy" />
-    <version value="0.8.56" />
+    <version value="0.8.60" />
     <update-download>
         <src xlink:href="https://github.com/KeithCu/writeragent/releases/latest/download/LibrePy.oxt" />
     </update-download>

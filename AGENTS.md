@@ -83,7 +83,7 @@ Rules that apply in many places. Breaking them causes wrong-document bugs, froze
 
 - **Two products, one OXT at a time.** WriterAgent (`make deploy`, `plugin/main.py`) vs LibrePy (`make build-core` / `deploy-core`, `plugin/main_core.py`, `extension-core/`). `deploy-core` removes WriterAgent. Dual-install overlay is **not shipped**. File list: [`scripts/librepy_bundle_paths.py`](scripts/librepy_bundle_paths.py). Packaging: [docs/libreoffice-core-python-extension-split.md](docs/libreoffice-core-python-extension-split.md).
 
-- **LibrePy-safe document helpers.** Linebreaks, tracked-deletion reads, heading trees, and path: `plugin/doc/text_helpers.py`. Type guards: `doc_type.py`. Document properties: `udprops.py`. Do **not** import `document_helpers` from LibrePy paths (it pulls Calc analyzer / chat context). Do **not** re-export the light helpers from `document_helpers`.
+- **LibrePy-safe document helpers.** Linebreaks, tracked-deletion reads, heading trees, path, and Writer selection range / char count: `plugin/doc/text_helpers.py`. Type guards: `doc_type.py`. Document properties: `udprops.py`. Do **not** import `document_helpers` from LibrePy paths (it pulls Calc analyzer / chat context). Do **not** re-export the light helpers from `document_helpers`.
 
 - **`plugin.framework.client` package init is lazy.** HTTP / errors / provider detection load immediately; `LlmClient`, embeddings, and analysis load on attribute access. LibrePy may import `requests` / `provider_detection`. Do not import `llm_client` or embeddings from LibrePy paths.
 

@@ -662,7 +662,7 @@ def get_full_document_text(model, max_chars=CHAT_DOCUMENT_CONTEXT_MAX_CHARS):
             return text
 
         if doc_type == _doc_type.DocumentType.WRITER:
-            doc_len = _writer_char_count(model)
+            doc_len = _text_helpers._writer_char_count(model)
             take = min(doc_len, max_chars)
             excerpt = _read_writer_text_slice(model, 0, take)
             if doc_len > max_chars:
@@ -699,26 +699,6 @@ def get_document_end(model, max_chars=4000):
 _GO_RIGHT_CHUNK = 8192
 
 
-def _writer_char_count(model) -> int:
-    """Writer document character count; prefers O(1) CharacterCount over full getString()."""
-    try:
-        check_disposed(model, "Document Model")
-        count = getattr(model, "CharacterCount", None)
-        if count is not None:
-            return max(0, int(count))
-    except Exception:
-        pass
-    try:
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
-        return len(_text_helpers.normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("_writer_char_count failed")
-        return 0
-
-
 def _read_writer_text_slice(model, start_offset: int, length: int) -> str:
     """Read up to *length* characters from *start_offset* without loading the full document."""
     if length <= 0:
@@ -729,67 +709,6 @@ def _read_writer_text_slice(model, start_offset: int, length: int) -> str:
         return ""
     # cursor.getString() concatenates tracked deletions as plain text; enumerate portions instead.
     return _text_helpers.normalize_linebreaks(_text_helpers.get_string_without_tracked_deletions(cursor))
-
-
-def _char_offset_of_position(model, target_start, doc_len: int) -> int:
-    """Character offset of a UNO text position from document start (no prefix getString())."""
-    if doc_len <= 0:
-        return 0
-    try:
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        offset = 0
-        while offset < doc_len:
-            cmp = safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart"))
-            if cmp == 0:
-                return offset
-            if cmp > 0:
-                if offset == 0:
-                    return 0
-                safe_call(cursor.goLeft, "Cursor goLeft", 1, False)
-                offset -= 1
-                continue
-            step = min(_GO_RIGHT_CHUNK, doc_len - offset)
-            if step <= 0:
-                return offset
-            safe_call(cursor.goRight, "Cursor goRight", step, False)
-            offset += step
-            cmp_after = safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart"))
-            if cmp_after >= 0:
-                while offset > 0 and safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart")) > 0:
-                    safe_call(cursor.goLeft, "Cursor goLeft", 1, False)
-                    offset -= 1
-                while safe_call(text.compareRegionStarts, "compareRegionStarts", target_start, safe_call(cursor.getStart, "Cursor getStart")) < 0 and offset < doc_len:
-                    safe_call(cursor.goRight, "Cursor goRight", 1, False)
-                    offset += 1
-                return offset
-        return doc_len
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("_char_offset_of_position failed")
-        return 0
-
-
-def _get_writer_selection_positions(model):
-    """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
-    try:
-        check_disposed(model, "Document Model")
-        controller = safe_call(model.getCurrentController, "Get current controller")
-        sel = safe_call(controller.getSelection, "Get selection")
-        sel_count = 0
-        if sel and hasattr(sel, "getCount"):
-            sel_count = safe_call(sel.getCount, "Get selection count")
-        if not sel or sel_count == 0:
-            vc = safe_call(controller.getViewCursor, "Get view cursor")
-            rng = vc
-        else:
-            rng = safe_call(sel.getByIndex, "Get selection by index", 0)
-        if not rng or not hasattr(rng, "getStart") or not hasattr(rng, "getEnd"):
-            return None
-        text = safe_call(model.getText, "Get document text")
-        return text, safe_call(rng.getStart, "Get range start"), safe_call(rng.getEnd, "Get range end")
-    except UnoObjectError:
-        return None
 
 
 def _writer_excerpt_overlaps_selection(model, excerpt_start: int, excerpt_end: int, sel_start_pos, sel_end_pos) -> bool:
@@ -819,7 +738,7 @@ def get_document_length(model):
     try:
         check_disposed(model, "Document Model")
         if _doc_type.get_document_type(model) == _doc_type.DocumentType.WRITER:
-            return _writer_char_count(model)
+            return _text_helpers._writer_char_count(model)
         text = safe_call(model.getText, "Get document text")
         cursor = safe_call(text.createTextCursor, "Create text cursor")
         safe_call(cursor.gotoStart, "Cursor gotoStart", False)
@@ -865,25 +784,6 @@ def get_text_cursor_at_range(model, start_offset, end_offset):
 
 
 @main_thread_only
-def get_selection_range(model):
-    """Return (start_offset, end_offset) character positions into the document.
-    Cursor (no selection) = same start and end. Returns (0, 0) on error or no text range."""
-    try:
-        check_disposed(model, "Document Model")
-        sel_positions = _get_writer_selection_positions(model)
-        if sel_positions is None:
-            return (0, 0)
-        _text, sel_start_pos, sel_end_pos = sel_positions
-        doc_len = _writer_char_count(model)
-        start_offset = _char_offset_of_position(model, sel_start_pos, doc_len)
-        end_offset = _char_offset_of_position(model, sel_end_pos, doc_len)
-        return (start_offset, end_offset)
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("get_selection_range failed")
-        return (0, 0)
-
-
-@main_thread_only
 def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=None):
     """Build a single context string for chat. Handles Writer, Calc and Draw.
     ctx: component context (required for Calc and Draw documents)."""
@@ -900,7 +800,7 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
         if doc_type == _doc_type.DocumentType.WRITER:
             try:
                 check_disposed(model, "Document Model")
-                doc_len = _writer_char_count(model)
+                doc_len = _text_helpers._writer_char_count(model)
             except (UnoObjectError, Exception):
                 logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed, trying fallback to selection-only")
                 sel_text = get_selection_text(model)
@@ -920,9 +820,9 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
 
             start_offset, end_offset = (0, 0)
             if include_selection:
-                sel_positions = _get_writer_selection_positions(model)
+                sel_positions = _text_helpers._get_writer_selection_positions(model)
                 if sel_positions is not None and _writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
-                    start_offset, end_offset = get_selection_range(model)
+                    start_offset, end_offset = _text_helpers.get_selection_range(model)
                     start_offset = max(0, min(start_offset, doc_len))
                     end_offset = max(0, min(end_offset, doc_len))
                     if start_offset > end_offset:
