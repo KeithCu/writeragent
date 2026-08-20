@@ -100,7 +100,7 @@ def test_coerce_dedupes_header_names():
 def test_describe_data_basic():
     import importlib.util
 
-    if importlib.util.find_spec("data_profiling") is None:
+    if importlib.util.find_spec("ydata_profiling") is None:
         pytest.skip("ydata-profiling not installed")
     result = analysis.describe_data(SALES_GRID)
     assert result["status"] == "ok"
@@ -116,7 +116,7 @@ def test_describe_data_without_profiling():
     real_import = builtins.__import__
 
     def blocked_import(name, *args, **kwargs):
-        if name == "data_profiling":
+        if name == "ydata_profiling":
             raise ImportError("no profiling")
         return real_import(name, *args, **kwargs)
 
@@ -132,7 +132,7 @@ def test_describe_data_without_profiling():
 def test_describe_data_with_profiling():
     import importlib.util
 
-    if importlib.util.find_spec("data_profiling") is None:
+    if importlib.util.find_spec("ydata_profiling") is None:
         pytest.skip("ydata-profiling not installed")
     result = analysis.describe_data(SALES_GRID)
     assert result["status"] == "ok"
@@ -323,8 +323,8 @@ def test_run_analysis_monte_carlo_dispatch():
 def test_run_analysis_dispatches_helper():
     import importlib.util
 
-    if importlib.util.find_spec("data_profiling") is None:
-        pytest.skip("data_profiling not installed")
+    if importlib.util.find_spec("ydata_profiling") is None:
+        pytest.skip("ydata-profiling not installed")
     result = analysis.run_analysis("describe_data", SALES_GRID)
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
@@ -360,7 +360,7 @@ def test_table_row_cap():
             "describe_data",
             lambda: analysis.describe_data(SALES_GRID),
             ("row_count", "col_count"),
-            "data_profiling",
+            "ydata_profiling",
         ),
         (
             "detect_outliers",

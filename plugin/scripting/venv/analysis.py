@@ -176,7 +176,7 @@ def describe_data(
     profile_messages: list[Any] = []
 
     try:
-        from data_profiling import ProfileReport  # type: ignore[import-not-found, ty:unresolved-import]  # pyright: ignore[reportMissingImports]
+        from ydata_profiling import ProfileReport  # type: ignore[import-not-found, ty:unresolved-import]  # pyright: ignore[reportMissingImports]
     except ImportError:
         return _missing_package_error("describe_data", "ydata-profiling")
 

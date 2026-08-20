@@ -627,9 +627,9 @@ def test_format_self_check_success_analysis_install_hint():
 
     data = {
         "v": "3.12.0",
-        "p": {"data_profiling": None, "statsmodels": "present", "pandas_montecarlo": None},
+        "p": {"ydata_profiling": None, "statsmodels": "present", "pandas_montecarlo": None},
         "sci": [],
-        "eda": ["data_profiling", "statsmodels", "pandas_montecarlo"],
+        "eda": ["ydata_profiling", "statsmodels", "pandas_montecarlo"],
         "ui": [],
         "nlp": [],
         "audio": [],
@@ -651,12 +651,12 @@ def test_format_self_check_success_no_analysis_hint_when_complete():
     data = {
         "v": "3.12.0",
         "p": {
-            "data_profiling": "present",
+            "ydata_profiling": "present",
             "statsmodels": "present",
             "pandas_montecarlo": "present",
         },
         "sci": [],
-        "eda": ["data_profiling", "statsmodels", "pandas_montecarlo"],
+        "eda": ["ydata_profiling", "statsmodels", "pandas_montecarlo"],
         "ui": [],
         "nlp": [],
         "audio": [],
