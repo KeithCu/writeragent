@@ -32,6 +32,11 @@ def test_to_calc_compatible_finite_float_unchanged() -> None:
     assert to_calc_compatible(3.5) == 3.5
 
 
+def test_to_calc_compatible_bool_passthrough() -> None:
+    assert to_calc_compatible(True) is True
+    assert to_calc_compatible(False) is False
+
+
 def test_to_calc_compatible_nan_in_nested_matrix() -> None:
     """NaN slots in a matrix result stay as NaN (Calc error cells); only None becomes empty."""
     import math

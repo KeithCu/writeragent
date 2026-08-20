@@ -818,12 +818,12 @@ def _units_cases() -> list[DomainDemoCase]:
                 {"quantity_a": "10 m/s", "quantity_b": "5 km/h"},
                 '["compatible"]',
             ),
-            expected_scalar="True",
+            expected_scalar="1",
             script_hint="Units Helpers → [Units] check_dimensionality",
             chat_prompt=None,
             requires_package="pint",
             check_mode="grid_egress",
-            notes='Use output_style:"detailed" in params for full key-value grid',
+            notes='Use output_style:"detailed" in params for full key-value grid; Python bool returns display as numeric 1 (True) or 0 (False) in Calc cells',
         ),
     ]
 
