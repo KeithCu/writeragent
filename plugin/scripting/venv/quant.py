@@ -132,27 +132,66 @@ def technical_analysis(params: dict[str, Any], data: Any, context: dict[str, Any
 
 def portfolio_tearsheet(params: dict[str, Any], data: Any, context: dict[str, Any]) -> dict[str, Any]:
     try:
+        import pandas as pd
         import quantstats as qs  # type: ignore
     except ImportError:
         return _missing_package_error("portfolio_tearsheet", "quantstats")
-        
+
     res = _resolve_df(data)
     df = res.df
-    
-    try:
-        if df.shape[1] > 1:
-            prices = df.iloc[:, 1]
-            returns = prices.pct_change().dropna()
+
+    if df.empty:
+        return _error_result("INVALID_DATA", "Input data is empty.", helper="portfolio_tearsheet")
+
+    date_col = next((c for c in df.columns if str(c).strip().lower() in ("date", "datetime", "timestamp")), None)
+    dates = None
+    if date_col is not None:
+        dates = pd.to_datetime(df[date_col], errors="coerce")
+        df = df.drop(columns=[date_col])
+
+    numeric_df = df.apply(pd.to_numeric, errors="coerce")
+    numeric_df = numeric_df.dropna(how="all")
+
+    if numeric_df.empty or numeric_df.shape[1] == 0:
+        return _error_result("INVALID_DATA", "No numeric data columns found for portfolio tearsheet.", helper="portfolio_tearsheet")
+
+    col_param = params.get("column") if isinstance(params, dict) else None
+    if col_param and col_param in numeric_df.columns:
+        returns = numeric_df[col_param].dropna()
+        if dates is not None:
+            dates = dates.loc[returns.index]
+    else:
+        if numeric_df.shape[1] == 1:
+            returns = numeric_df.iloc[:, 0].dropna()
+            if dates is not None:
+                dates = dates.loc[returns.index]
         else:
-            returns = df.iloc[:, 0].dropna()
-            
+            returns = numeric_df.mean(axis=1).dropna()
+            if dates is not None:
+                dates = dates.loc[returns.index]
+
+    returns = pd.to_numeric(returns, errors="coerce").dropna()
+    if returns.empty:
+        return _error_result("INVALID_DATA", "No valid numeric returns found.", helper="portfolio_tearsheet")
+
+    if dates is not None and not dates.dropna().empty:
+        returns.index = dates
+    else:
+        returns.index = pd.date_range("2024-01-01", periods=len(returns), freq="D")
+
+    try:
         metrics = qs.reports.metrics(returns, display=False)
-        metrics_dict = metrics.to_dict()
-        
+        if hasattr(metrics, "iloc") and metrics.shape[1] >= 1:
+            metrics_dict = {str(k): v for k, v in metrics.iloc[:, 0].to_dict().items()}
+        elif isinstance(metrics, dict):
+            metrics_dict = metrics
+        else:
+            metrics_dict = metrics.to_dict()
+
         return {
-            "status": "success",
+            "status": "ok",
             "helper": "portfolio_tearsheet",
-            "metrics": metrics_dict
+            "metrics": metrics_dict,
         }
     except Exception as e:
         log.exception("Error in portfolio_tearsheet")

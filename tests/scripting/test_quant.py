@@ -90,3 +90,49 @@ def test_client_run_quant_worker_error(ctx):
 def test_helper_names_cover_templates():
     for helper in HELPER_NAMES:
         assert get_quant_template(helper) is not None
+
+
+def test_portfolio_tearsheet_portfolio_returns_grid():
+    grid = [
+        ["AAPL", "MSFT", "GOOG"],
+        [0.01, 0.008, 0.012],
+        [0.02, -0.01, 0.025],
+        [-0.005, 0.015, 0.01],
+        [0.012, 0.005, -0.008],
+        [0.008, 0.02, 0.015],
+        [0.015, -0.005, 0.02],
+        [-0.01, 0.012, 0.005],
+        [0.02, 0.008, 0.018],
+        [0.005, 0.015, -0.002],
+        [0.01, 0.01, 0.01],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "ok"
+    assert result["helper"] == "portfolio_tearsheet"
+    assert "metrics" in result
+    assert isinstance(result["metrics"], dict)
+    assert "Cumulative Return" in result["metrics"] or len(result["metrics"]) > 0
+
+
+def test_portfolio_tearsheet_with_date_column_and_single_column_param():
+    grid = [
+        ["Date", "AAPL", "MSFT"],
+        ["2024-01-01", 0.01, 0.02],
+        ["2024-01-02", 0.02, -0.01],
+        ["2024-01-03", -0.005, 0.015],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {"column": "MSFT"}}, data=grid)
+    assert result["status"] == "ok"
+    assert "metrics" in result
+
+
+def test_portfolio_tearsheet_invalid_data():
+    grid = [
+        ["HeaderA", "HeaderB"],
+        ["text1", "text2"],
+        ["text3", "text4"],
+    ]
+    result = venv_run_quant({"helper": "portfolio_tearsheet", "params": {}}, data=grid)
+    assert result["status"] == "error"
+    assert result["code"] == "INVALID_DATA"
+    assert result["helper"] == "portfolio_tearsheet"
