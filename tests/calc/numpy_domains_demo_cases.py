@@ -178,7 +178,7 @@ class MatplotlibDemoBlock:
 
 
 def _spec(helper: str, params: dict[str, Any]) -> str:
-    return json.dumps({"helper": helper, "params": params}, separators=(",", ":"))
+    return repr({"helper": helper, "params": params})
 
 
 def _analysis_expr(helper: str, params: dict[str, Any], access: str) -> str:
