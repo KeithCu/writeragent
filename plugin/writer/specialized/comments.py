@@ -254,6 +254,13 @@ class CommentResolve(ToolWriterCommentBase):
 
 _WORKFLOW_TASK_PREFIXES = ("TODO-AI", "FIX", "QUESTION", "VALIDATION", "NOTE")
 _COMMENT_UNO = ["com.sun.star.text.TextDocument"]
+_ANNOTATION_PROPERTIES = (
+    ("Author", "author", ""),
+    ("Content", "content", ""),
+    ("Name", "name", ""),
+    ("ParentName", "parent_name", ""),
+    ("Resolved", "resolved", False),
+)
 
 
 def _comment_scan_tasks(ctx, kwargs):
@@ -472,11 +479,10 @@ def _set_annotation_date(annotation):
 def _read_annotation(field, para_ranges, text_obj, doc_svc):
     """Extract annotation properties into a plain dict."""
     entry = {}
-    for prop, default in [("Author", ""), ("Content", ""), ("Name", ""), ("ParentName", ""), ("Resolved", False)]:
+    for prop, key, default in _ANNOTATION_PROPERTIES:
         try:
-            entry[prop.lower() if prop != "ParentName" else "parent_name"] = field.getPropertyValue(prop)
+            entry[key] = field.getPropertyValue(prop)
         except Exception:
-            key = prop.lower() if prop != "ParentName" else "parent_name"
             entry[key] = default
 
     # Date
