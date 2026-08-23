@@ -104,7 +104,7 @@ def resolve_layout_id(name_or_id: Any) -> int | None:
         return None
     if isinstance(name_or_id, int):
         return name_or_id
-    if isinstance(name_or_id, float) and name_or_id == int(name_or_id):
+    if isinstance(name_or_id, float) and name_or_id.is_integer():
         return int(name_or_id)
     if not isinstance(name_or_id, str):
         return None

@@ -27,6 +27,53 @@ def test_resolve_layout_autolayout_and_alias():
     assert resolve_layout_id(19) == 19
 
 
+def test_resolve_layout_id_comprehensive():
+    # Integers
+    assert resolve_layout_id(0) == 0
+    assert resolve_layout_id(19) == 19
+    assert resolve_layout_id(-1) == -1
+
+    # Floats with/without integer equivalence
+    assert resolve_layout_id(19.0) == 19
+    assert resolve_layout_id(0.0) == 0
+    assert resolve_layout_id(19.5) is None
+    assert resolve_layout_id(float("nan")) is None
+
+    # Booleans (should return None because bool inherits from int in Python)
+    assert resolve_layout_id(True) is None
+    assert resolve_layout_id(False) is None
+
+    # Non-string / non-numeric types
+    assert resolve_layout_id(None) is None
+    assert resolve_layout_id([]) is None
+    assert resolve_layout_id({}) is None
+
+    # Strings: empty or whitespace
+    assert resolve_layout_id("") is None
+    assert resolve_layout_id("   ") is None
+
+    # Strings: AUTOLAYOUT names (case insensitivity and whitespace handling)
+    assert resolve_layout_id("AUTOLAYOUT_TITLE") == 0
+    assert resolve_layout_id("  autolayout_title_2content  ") == 3
+    assert resolve_layout_id("autolayout_title_only") == 19
+
+    # Strings: _LAYOUTS alias names
+    assert resolve_layout_id("title") == 0
+    assert resolve_layout_id("  BLANK  ") == 11
+    assert resolve_layout_id("two_column_text") == 2
+
+    # Strings: Numeric strings
+    assert resolve_layout_id("19") == 19
+    assert resolve_layout_id("  12  ") == 12
+    assert resolve_layout_id("0") == 0
+    assert resolve_layout_id("-5") == -5
+
+    # Strings: Invalid / non-matching names or non-integer numbers
+    assert resolve_layout_id("invalid_layout_name") is None
+    assert resolve_layout_id("AUTOLAYOUT_NON_EXISTENT") is None
+    assert resolve_layout_id("12.34") is None
+
+
 def test_parse_transform_valid():
     payload = {"Transforms": {"SlideCommands": [{"JumpToSlide": 0}]}}
     obj, err = parse_transform_argument(json.dumps(payload))
