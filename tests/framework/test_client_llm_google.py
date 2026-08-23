@@ -71,14 +71,21 @@ def test_google_image_completion(mock_ctx):
     shim = client._get_shim()
     assert isinstance(shim, GoogleShim)
 
-    # 1. Test Imagen path (model name starts with imagen)
-    method, path, body, headers = shim.build_image_request("Draw a sunset", model="imagen-3.0-generate-002", width=1792, height=1024)
+    # 1. Test Imagen path default model & aspect ratio 16:9
+    method, path, body, headers = shim.build_image_request("Draw a sunset", model=None, width=1792, height=1024)
     assert method == "POST"
-    assert path == "/v1beta/models/imagen-3.0-generate-002:predict?key=test-key"
+    assert path == "/v1beta/models/imagen-4.0-generate-001:predict?key=test-key"
     data = json.loads(body.decode("utf-8"))
     assert data["parameters"]["aspectRatio"] == "16:9"
 
-    # 2. Test Multimodal path (other models)
+    # 2. Test Imagen aspect ratio 4:3 and 3:4
+    _, _, body_4_3, _ = shim.build_image_request("Draw a cat", model="imagen-4.0-generate-001", width=1024, height=768)
+    assert json.loads(body_4_3.decode("utf-8"))["parameters"]["aspectRatio"] == "4:3"
+
+    _, _, body_3_4, _ = shim.build_image_request("Draw a tower", model="imagen-4.0-generate-001", width=768, height=1024)
+    assert json.loads(body_3_4.decode("utf-8"))["parameters"]["aspectRatio"] == "3:4"
+
+    # 3. Test Multimodal path (other models)
     method, path, body, headers = shim.build_image_request("Generate an image", model="gemini-2.5-flash-image", width=1024, height=1024)
     assert method == "POST"
     assert path == "/v1beta/models/gemini-2.5-flash-image:generateContent?key=test-key"

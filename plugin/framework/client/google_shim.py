@@ -35,15 +35,21 @@ class GoogleShim(OpenAIShim):
     ) -> tuple[str, str, bytes, dict[str, str]]:
         endpoint = self.client._endpoint()
         key = self.client._resolve_auth().get("api_key", "")
-        model_name = model or "imagen-3.0-generate-002"
+        model_name = model or "imagen-4.0-generate-001"
 
         if model_name.startswith("imagen"):
             url = f"{endpoint}/v1beta/models/{model_name}:predict?key={key}"
             aspect = "1:1"
-            if width > height * 1.5:
-                aspect = "16:9"
-            elif height > width * 1.5:
-                aspect = "9:16"
+            if width and height:
+                ratio = width / height
+                if abs(ratio - (16 / 9)) < 0.15:
+                    aspect = "16:9"
+                elif abs(ratio - (4 / 3)) < 0.1:
+                    aspect = "4:3"
+                elif abs(ratio - (3 / 4)) < 0.1:
+                    aspect = "3:4"
+                elif abs(ratio - (9 / 16)) < 0.15:
+                    aspect = "9:16"
 
             data: dict[str, Any] = {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1, "aspectRatio": aspect}}
         else:
@@ -62,16 +68,21 @@ class GoogleShim(OpenAIShim):
 
         if "predictions" in response_data:
             preds = response_data.get("predictions", [])
-            for pr in preds:
-                if b64 := pr.get("bytesBase64Encoded"):
-                    out.append(b64)
+            if isinstance(preds, list):
+                for pr in preds:
+                    if isinstance(pr, dict):
+                        if b64 := pr.get("bytesBase64Encoded"):
+                            out.append(b64)
 
         candidates = response_data.get("candidates", [])
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            for p in parts:
-                inline = p.get("inlineData", {})
-                if inline and inline.get("data"):
-                    out.append(inline["data"])
+        if candidates and isinstance(candidates, list):
+            cand = candidates[0]
+            if isinstance(cand, dict):
+                parts = cand.get("content", {}).get("parts", [])
+                if isinstance(parts, list):
+                    for p in parts:
+                        if isinstance(p, dict):
+                            inline = p.get("inlineData", {})
+                            if isinstance(inline, dict) and inline.get("data"):
+                                out.append(inline["data"])
         return out
-
