@@ -51,6 +51,33 @@ On the UI thread before each librarian turn, [`plugin/chatbot/librarian.py`](plu
 Generic placeholders (`user`, `root`, `administrator`, …) are filtered out. The hint is injected as `[SUGGESTED USER NAME]` in agent instructions; the model **confirms** before calling `upsert_memory` with key `"name"`. If the user prefers another name or declines, the agent respects that.
 
 
+## Shipped behavior (2026-08): Onboarding is non-blocking
+
+**Problem** ([#346](https://github.com/KeithCu/writeragent/issues/346)): the entry gate in
+`panel._do_send` routed **every** message to the Librarian until `USER.md` existed, and the only
+exit was the model calling `switch_to_document_mode`. Weak models never called it, so users were
+trapped in an interrogation loop across sessions with no skip option.
+
+**Fix**: a deterministic pre-step, no model involvement:
+
+1. **Seeding** — `seed_user_profile_if_missing()` in [`plugin/chatbot/librarian.py`](../plugin/chatbot/librarian.py)
+   runs before the gate on each send. When no profile exists, it writes a provisional `USER.md`
+   from `get_suggested_user_name()` (LibreOffice User Data, then OS login). Document work starts
+   on message #1; the blocking path is unreachable for new installs.
+2. **Guidance prompt** — while the profile carries the auto-detected marker, the main chat receives
+   `USER_PROFILE_SEED_GUIDANCE` ([`prompts.py`](../plugin/framework/prompts.py)): the first reply
+   confirms the auto-detected name, asks once about favorite colors (they personalize document
+   formatting), saving answers with `upsert_memory`, and ends by offering a tour.
+3. **Asked exactly once** — saving key `name` clears the marker automatically, so later sessions
+   never re-ask.
+4. **On-demand tour** — messages asking for a tour (`is_tour_request()` in `librarian.py`:
+   "tour", "show me around", …) route into the original `LibrarianOnboardingTool` flow any time,
+   so the full teaching experience stays available on request.
+
+Everything else in this document — personality, goals, memory format, teaching tips — still applies
+whenever the Librarian flow runs (it remains reachable by removing `USER.md`).
+
+
 ## Reply language and localized UI
 
 ### What we learned (ship-ready behavior)
@@ -500,6 +527,6 @@ def _init_chat_session(self):
 ---
 
 **Approved**: ⬜️  **In Progress**: ⬜️  **Completed**: ⬜️
-**Last Updated**: 2026-05-09
+**Last Updated**: 2026-08-23
 **Priority**: High 🚀
 **Approach**: Agent-Driven Conversation ✨
