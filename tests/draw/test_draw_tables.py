@@ -66,9 +66,45 @@ def test_fill_table_cells():
     assert table.cells[(1, 1)]._s == "d"
 
 
-def test_parse_a1():
-    assert parse_a1("B2") == (1, 1)
+def test_parse_a1_valid():
+    # Single-letter columns
     assert parse_a1("A1") == (0, 0)
+    assert parse_a1("B2") == (1, 1)
+    assert parse_a1("Z10") == (25, 9)
+
+    # Multi-letter columns
+    assert parse_a1("AA1") == (26, 0)
+    assert parse_a1("AB5") == (27, 4)
+    assert parse_a1("ZZ1") == (701, 0)
+    assert parse_a1("AAA1") == (702, 0)
+
+    # Lowercase & mixed-case inputs
+    assert parse_a1("a1") == (0, 0)
+    assert parse_a1("b2") == (1, 1)
+    assert parse_a1("aA1") == (26, 0)
+
+    # Surrounding whitespace
+    assert parse_a1("  A1  ") == (0, 0)
+    assert parse_a1("\tB2\n") == (1, 1)
+
+
+def test_parse_a1_invalid():
+    # None, empty, whitespace
+    assert parse_a1(None) is None
+    assert parse_a1("") is None
+    assert parse_a1("   ") is None
+
+    # Invalid row numbers
+    assert parse_a1("A0") is None
+    assert parse_a1("A-1") is None
+
+    # Invalid formats
+    assert parse_a1("1A") is None
+    assert parse_a1("ABC") is None
+    assert parse_a1("123") is None
+    assert parse_a1("A 1") is None
+    assert parse_a1("A$1") is None
+    assert parse_a1("A1B") is None
     assert parse_a1("not") is None
 
 
