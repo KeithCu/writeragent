@@ -188,6 +188,8 @@ def find_system_uno(*, venv_py: tuple[int, int] | None = None):
             "/usr/lib/python3.12/site-packages",
             "/usr/lib64/python3.14/site-packages",
             "/usr/lib64/python3.13/site-packages",
+            # Snap installs ship uno.py inside the read-only snap tree (no distro site-packages).
+            "/snap/libreoffice/current/lib/libreoffice/program",
         ]
         for p in search_paths:
             if os.path.exists(os.path.join(p, "uno.py")):
@@ -212,6 +214,8 @@ def find_system_uno(*, venv_py: tuple[int, int] | None = None):
             "/usr/lib/libreoffice/program",
             "/usr/lib64/libreoffice/program",
             "/opt/libreoffice/program",
+            # Snap LibreOffice (pyuno.so lives next to uno.py in the snap tree).
+            "/snap/libreoffice/current/lib/libreoffice/program",
         ]
         for p in search_libs:
             if os.path.exists(os.path.join(p, "pyuno.so")):

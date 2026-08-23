@@ -17,6 +17,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=lo_paths.sh
 source "$SCRIPT_DIR/lo_paths.sh"
+
+# Pin unopkg to the profile LibreOffice actually reads (snap installs need this).
+PROFILE_ARGS="$(unopkg_profile_args)"
 BUILD_DIR="$PROJECT_ROOT/build"
 OXT_FILE="$BUILD_DIR/WriterAgent.oxt"
 
@@ -137,12 +140,12 @@ install_extension() {
 
     # Remove previous version
     echo "[*] Removing previous version (if any)..."
-    $unopkg remove "$EXTENSION_ID" 2>&1 || true
+    $unopkg $PROFILE_ARGS remove "$EXTENSION_ID" 2>&1 || true
     sleep 2
 
     # Install new version
     echo "[*] Installing $OXT_FILE ..."
-    if ! $unopkg add "$OXT_FILE" 2>&1; then
+    if ! $unopkg $PROFILE_ARGS add "$OXT_FILE" 2>&1; then
         echo "[X] unopkg add failed"
         echo "    Troubleshooting:"
         echo "    1. Make sure LibreOffice is fully closed"
@@ -155,7 +158,7 @@ install_extension() {
 
     sleep 2
     echo "[*] Verifying installation..."
-    if $unopkg list 2>&1 | grep -q "$EXTENSION_ID"; then
+    if $unopkg $PROFILE_ARGS list 2>&1 | grep -q "$EXTENSION_ID"; then
         echo "[OK] Extension verified: $EXTENSION_ID is registered"
     else
         echo "[!!] Could not verify via unopkg list (often OK, LO will load it on start)"
@@ -172,7 +175,7 @@ uninstall_extension() {
     ensure_lo_stopped || return 1
 
     echo "[*] Removing extension $EXTENSION_ID ..."
-    if $unopkg remove "$EXTENSION_ID" 2>&1 | grep -qiE "not deployed|no such|aucune"; then
+    if $unopkg $PROFILE_ARGS remove "$EXTENSION_ID" 2>&1 | grep -qiE "not deployed|no such|aucune"; then
         echo "    Extension was not installed"
     else
         echo "[OK] Extension removed"
@@ -183,7 +186,7 @@ uninstall_extension() {
 
 extension_registered() {
     local unopkg="$1"
-    $unopkg list 2>&1 | grep -q "$EXTENSION_ID"
+    $unopkg $PROFILE_ARGS list 2>&1 | grep -q "$EXTENSION_ID"
 }
 
 install_to_cache() {

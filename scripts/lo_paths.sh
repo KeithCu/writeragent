@@ -7,6 +7,26 @@
 [[ -n "${_LO_PATHS_LOADED:-}" ]] && return 0
 _LO_PATHS_LOADED=1
 
+# Snap installs keep the real program dir inside the read-only snap tree; the
+# /snap/bin entries are wrappers that do not include unopkg/soffice. Direct CLI
+# tools from that dir also need the snap's bundled libraries on the loader path,
+# and they must target the snap profile explicitly: without confinement HOME
+# stays $HOME, so unopkg would register into ~/.config which snap LibreOffice
+# never reads (issue: dev-deploy silently installed into a dead profile).
+_LO_SNAP_PROGRAM_DIR="/snap/libreoffice/current/lib/libreoffice/program"
+if [[ -x "$_LO_SNAP_PROGRAM_DIR/unopkg" || -x "$_LO_SNAP_PROGRAM_DIR/soffice" ]]; then
+    export LD_LIBRARY_PATH="$_LO_SNAP_PROGRAM_DIR:/snap/libreoffice/current/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
+# Extra unopkg arguments pinning it to the LibreOffice profile that is actually
+# used. Empty for deb/rpm installs (default profile discovery is correct).
+unopkg_profile_args() {
+    local snap_conf="$HOME/snap/libreoffice/current/.config/libreoffice/4"
+    if [[ -x "$_LO_SNAP_PROGRAM_DIR/unopkg" && -d "$snap_conf/user" ]]; then
+        printf -- '-env:UserInstallation=file://%s' "$snap_conf"
+    fi
+}
+
 _lo_macos_program_dir() {
     local macos_bin="/Applications/LibreOffice.app/Contents/MacOS"
     if [[ -d "$macos_bin" ]]; then
@@ -68,6 +88,7 @@ find_soffice() {
         /usr/lib64/libreoffice/program/soffice \
         /opt/libreoffice*/program/soffice \
         /snap/bin/libreoffice.soffice \
+        "$_LO_SNAP_PROGRAM_DIR/soffice" \
         /usr/local/bin/soffice; do
         for c in $candidate; do
             if [[ -x "$c" ]]; then
@@ -92,7 +113,8 @@ find_unopkg() {
         /usr/lib/libreoffice/program/unopkg \
         /usr/lib64/libreoffice/program/unopkg \
         /opt/libreoffice*/program/unopkg \
-        /snap/bin/libreoffice.unopkg; do
+        /snap/bin/libreoffice.unopkg \
+        "$_LO_SNAP_PROGRAM_DIR/unopkg"; do
         for c in $candidate; do
             if [[ -x "$c" ]]; then
                 echo "$c"
