@@ -1,5 +1,7 @@
 import os
 import logging
+import tempfile
+import threading
 from typing import Any, Mapping, cast
 
 from plugin.framework.tool import ToolBase
@@ -7,6 +9,12 @@ from plugin.framework.config import user_config_dir
 from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
+
+# Serializes read-modify-write cycles on the memory files. Models may emit several
+# upsert_memory calls in one turn (e.g. name + favorite color); without this lock
+# the concurrent writes raced: last writer clobbered sibling keys and the shorter
+# payload left torn JSON tail bytes on disk (observed 2026-08-23, USER.md 150B).
+_MEMORY_RW_LOCK = threading.Lock()
 
 
 from plugin.framework.deal_shim import deal
@@ -39,8 +47,20 @@ class MemoryStore:
     def write(self, target: str, content: str) -> bool:
         # crosshair: off
         path = self._get_path(target)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
+        # Atomic replace (same directory → same filesystem): a reader or concurrent
+        # writer can never observe a half-written file, even if this process crashes
+        # mid-write.
+        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".memory-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.replace(tmp_path, path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         return True
 
 
@@ -131,36 +151,45 @@ class MemoryTool(ToolBase):
             return self._tool_error(f"Failed to initialize memory store: {e}")
 
         target = "user"
-        try:
-            current = store.read(target)
-        except OSError as e:
-            return self._tool_error(f"Failed to read existing memory: {e}")
+        # Hold the lock across the whole read-modify-write: parallel tool calls for
+        # the same user message must merge, not race (torn JSON + lost keys).
+        with _MEMORY_RW_LOCK:
+            try:
+                current = store.read(target)
+            except OSError as e:
+                return self._tool_error(f"Failed to read existing memory: {e}")
 
-        try:
-            parsed = json.loads(current) if current.strip() else {}
-            if not isinstance(parsed, dict):
-                # Not a JSON object: start over so the librarian can rebuild memory.
+            try:
+                parsed = json.loads(current) if current.strip() else {}
+                if not isinstance(parsed, dict):
+                    # Not a JSON object: start over so the librarian can rebuild memory.
+                    parsed = {}
+            except json.JSONDecodeError:
+                # Invalid JSON (e.g. legacy YAML): start over.
                 parsed = {}
-        except json.JSONDecodeError:
-            # Invalid JSON (e.g. legacy YAML): start over.
-            parsed = {}
 
-        # Nested update
-        parts = key.split(".")
-        current_dict = parsed
-        for part in parts[:-1]:
-            if part not in current_dict or not isinstance(current_dict[part], dict):
-                current_dict[part] = {}
-            current_dict = current_dict[part]
+            # Nested update
+            parts = key.split(".")
+            current_dict = parsed
+            for part in parts[:-1]:
+                if part not in current_dict or not isinstance(current_dict[part], dict):
+                    current_dict[part] = {}
+                current_dict = current_dict[part]
 
-        current_dict[parts[-1]] = content
+            current_dict[parts[-1]] = content
 
-        new_content = json.dumps(parsed, indent=2, ensure_ascii=False)
-        if new_content == current:
-            return {"status": "ok", "message": f"Memory for '{key}' is already up to date."}
+            # Once a real name lands, the seed marker has served its purpose.
+            # Leaving it in place made the seed-guidance re-ask name/color in
+            # every future session (only-once guarantee, #346).
+            if key == "name":
+                parsed.pop("name_source", None)
 
-        try:
-            store.write(target, new_content)
-            return {"status": "ok", "message": f"Upserted key '{key}' in memory."}
-        except OSError as e:
-            return self._tool_error(f"Failed to write memory: {e}")
+            new_content = json.dumps(parsed, indent=2, ensure_ascii=False)
+            if new_content == current:
+                return {"status": "ok", "message": f"Memory for '{key}' is already up to date."}
+
+            try:
+                store.write(target, new_content)
+                return {"status": "ok", "message": f"Upserted key '{key}' in memory."}
+            except OSError as e:
+                return self._tool_error(f"Failed to write memory: {e}")

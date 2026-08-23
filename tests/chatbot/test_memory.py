@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import tempfile
@@ -161,6 +162,79 @@ class TestMemoryTool(unittest.TestCase):
         self.assertIn("editor:", content)
         self.assertIn("vim: Yes", content)
 '''
+
+class TestMemoryWriteConcurrency(unittest.TestCase):
+    """Regression: parallel upsert_memory calls raced and tore USER.md (2026-08-23).
+
+    Two calls in one model turn (name + favorite color) interleaved their
+    open/write cycles: shorter payload won the head of the file, the longer
+    write's stale tail survived, and the sibling key was lost.
+    """
+
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        self.ctx = DummyCtx(self.tmp_dir)
+        self.store = MemoryStore(self.ctx)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_parallel_upserts_merge_without_corruption(self):
+        import threading
+
+        from plugin.chatbot.memory import MemoryTool
+
+        tool = MemoryTool()
+
+        def run(key, content):
+            res = tool.execute(self.ctx, key=key, content=content)
+            assert res.get("status") == "ok", res
+
+        t1 = threading.Thread(target=run, args=("name", "Andre"))
+        t2 = threading.Thread(target=run, args=("favorite_colors", "dark blue"))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        data = json.loads(self.store.read("user"))  # must be valid JSON
+        self.assertEqual(data["name"], "Andre")
+        self.assertEqual(data["favorite_colors"], "dark blue")
+
+    def test_write_is_atomic_and_cleans_temp_files(self):
+        import os
+
+        self.store.write("user", json.dumps({"name": "Andre"}))
+        self.assertEqual(json.loads(self.store.read("user")), {"name": "Andre"})
+        leftovers = [f for f in os.listdir(self.tmp_dir) if f.startswith(".memory-")]
+        self.assertEqual(leftovers, [], "atomic-write temp files must not leak")
+
+    def test_upserting_name_clears_seed_marker(self):
+        # After the user confirms their name, the seed guidance must stop
+        # injecting — otherwise every new session re-asks name/color.
+        seeded = {
+            "name_source": "auto-detected from LibreOffice User Data or OS login; not yet confirmed by the user",
+            "favorite_colors": "",
+            "name": "andre",
+        }
+        self.store.write("user", json.dumps(seeded))
+
+        res = MemoryTool().execute(self.ctx, key="name", content="André")
+        self.assertEqual(res["status"], "ok")
+
+        data = json.loads(self.store.read("user"))
+        self.assertNotIn("name_source", data)
+        self.assertEqual(data["name"], "André")
+
+    def test_color_upsert_alone_keeps_seed_marker(self):
+        seeded = {"name_source": "auto-detected", "favorite_colors": "", "name": "andre"}
+        self.store.write("user", json.dumps(seeded))
+
+        MemoryTool().execute(self.ctx, key="favorite_colors", content="blue")
+
+        data = json.loads(self.store.read("user"))
+        self.assertIn("name_source", data)  # name still unconfirmed → keep asking once
+
 
 if __name__ == '__main__':
     unittest.main()
