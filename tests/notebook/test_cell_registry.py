@@ -10,6 +10,8 @@ from plugin.notebook.cell_registry import (
     NOTEBOOK_SOURCE_PATH_UDPROP,
     NotebookCodeCell,
     NotebookDocState,
+    cell_id_from_hex,
+    find_cell_by_hex,
     has_notebook_registry,
     insert_output_start_bookmark,
     load_registry,
@@ -138,3 +140,40 @@ def test_notebook_code_cell_from_dict():
     cell = NotebookCodeCell.from_dict(d)
     assert cell.last_run_status == "ok"
     assert cell.execution_count == 3
+
+
+def test_cell_id_from_hex():
+    assert cell_id_from_hex("12345678123412341234123456789abc") == "12345678-1234-1234-1234-123456789abc"
+    # Uppercase and leading/trailing whitespace
+    assert cell_id_from_hex("  12345678123412341234123456789ABC  ") == "12345678-1234-1234-1234-123456789abc"
+    # Invalid length
+    assert cell_id_from_hex("1234") is None
+    assert cell_id_from_hex("12345678123412341234123456789abcdef") is None
+    # Non-hex character
+    assert cell_id_from_hex("12345678123412341234123456789abg") is None
+    # Empty string or None
+    assert cell_id_from_hex("") is None
+    assert cell_id_from_hex(None) is None
+
+
+def test_find_cell_by_hex():
+    cell1 = new_code_cell_entry(0, 1, "nb_cell_0_code")
+    cell2 = new_code_cell_entry(1, 2, "nb_cell_1_code")
+    state = NotebookDocState(code_cells=[cell1, cell2])
+
+    hex1 = cell1.cell_id.replace("-", "")
+    hex2 = cell2.cell_id.replace("-", "")
+
+    # Exact match lookup
+    assert find_cell_by_hex(state, hex1) == cell1
+    assert find_cell_by_hex(state, hex2) == cell2
+
+    # Case-insensitive & whitespace tolerant lookup
+    assert find_cell_by_hex(state, f"  {hex1.upper()}  ") == cell1
+
+    # Non-existent valid hex ID
+    assert find_cell_by_hex(state, "00000000000000000000000000000000") is None
+
+    # Invalid hex string inputs
+    assert find_cell_by_hex(state, "invalid_hex") is None
+    assert find_cell_by_hex(state, "") is None
