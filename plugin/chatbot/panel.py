@@ -1020,12 +1020,36 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception:
             log.exception("_do_send: agent backend check failed")
 
+        # On-demand Librarian tour: route explicit requests into the original
+        # onboarding flow, any session (#346 follow-up). Matched deterministically
+        # so no model goodwill is required to reach Keith's tour.
+        try:
+            from plugin.chatbot.librarian import is_tour_request
+
+            if is_tour_request(query_text):
+                self._in_librarian_mode = True
+                log.info("_do_send: starting librarian tour (user requested)")
+                self._run_librarian(query_text, model)
+                return
+        except Exception:
+            log.exception("_do_send: tour request routing failed")
+
         if self._in_librarian_mode:
             log.info("_do_send: continuing librarian onboarding agent")
             self._run_librarian(query_text, model)
             return
 
-        # Check if USER.md exists for Librarian Onboarding entry
+        # Check if USER.md exists for Librarian Onboarding entry.
+        # Seed a provisional profile from OS/LO data first: a missing profile used to
+        # route every message into onboarding until the model called
+        # switch_to_document_mode, which weak models never do (#346).
+        try:
+            from plugin.chatbot.librarian import seed_user_profile_if_missing
+
+            seed_user_profile_if_missing(self.ctx)
+        except Exception:
+            log.exception("_do_send: seeding user profile failed")
+
         user_md_exists = False
         from plugin.chatbot.memory import MemoryStore
 

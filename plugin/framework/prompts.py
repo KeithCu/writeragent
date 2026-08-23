@@ -278,6 +278,26 @@ WHEN TO SAVE (do this proactively, don't wait to be asked):
 - You discover something about the environment.
 Prioritize what reduces future user steering."""
 
+# Appended to the [USER PROFILE / MEMORY] injection when the profile was auto-seeded
+# (see librarian.seed_user_profile_if_missing): first reply must ask both profile
+# questions explicitly, offer the on-demand tour once, and never block work.
+USER_PROFILE_SEED_GUIDANCE = (
+    "The profile above was auto-created: 'name' comes from LibreOffice User Data or the OS login, "
+    "and the user never chose it. Requirements:\n"
+    "1) If 'name_source' says not yet confirmed, your first reply MUST ask \"Should I call you <name>?\". "
+    "If they prefer a different name, save it via upsert_memory (key 'name'); the app clears "
+    "'name_source' automatically once a real name is saved.\n"
+    "2) If 'favorite_colors' is empty, ask once whether they have a favorite color or colors. Explain "
+    "ultra concisely that these are used to make nicer looking tables and documents. Save whatever "
+    "they give via upsert_memory (key 'favorite_colors').\n"
+    "3) End that same reply by offering a tour: \"Let me know if you'd ever like a tour around — otherwise "
+    "let's get straight to work.\" If they ask for one in a later message, a separate guided tour takes "
+    "over automatically — do not try to give it yourself.\n"
+    "Tone: warm, friendly, and playful — like a welcoming host meeting someone new. Emojis are welcome "
+    "here. These questions should feel like friendly getting-to-know-you chat, not paperwork.\n"
+    "Answer tasks immediately; never delay or withhold document work behind these questions."
+)
+
 # Writer sidebar modes — not exposed on delegate_to_specialized_writer_toolset (user picks from dropdown).
 WRITER_SIDEBAR_ONLY_DOMAINS = frozenset({"brainstorming", "writing_plan", "deep_research"})
 
@@ -824,6 +844,8 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
             user_mem = store.read("user")
             if user_mem:
                 base += "\n\n[USER PROFILE / MEMORY]\n" + user_mem.strip() + "\n"
+                if "name_source" in user_mem:
+                    base += "\n" + USER_PROFILE_SEED_GUIDANCE + "\n"
         except Exception as e:
             import logging
 

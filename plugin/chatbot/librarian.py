@@ -4,12 +4,13 @@
 # This program is free software.
 
 import getpass
+import json
 import logging
 import re
 from typing import Any, Iterable, cast
 
 from plugin.framework.tool import ToolBase
-from plugin.chatbot.memory import format_upsert_memory_chat_line_from_arguments
+from plugin.chatbot.memory import MemoryStore, format_upsert_memory_chat_line_from_arguments
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +81,76 @@ def get_os_login_name() -> str | None:
 def get_suggested_user_name(ctx: Any) -> str | None:
     """Best-effort name for librarian confirmation: LO profile first, then OS login."""
     return get_libreoffice_user_display_name(ctx) or get_os_login_name()
+
+
+def seed_user_profile_if_missing(ctx: Any) -> bool:
+    """Create a provisional USER.md from OS/LO data when no profile exists yet.
+
+    Why: the onboarding gate in panel._do_send routes EVERY message to the Librarian
+    until USER.md exists, and the only exit is the model calling switch_to_document_mode
+    / upsert_memory. Weak models often never call those tools, trapping users in an
+    endless interrogation (issue #346). Seeding here makes the profile exist
+    deterministically so document work is never blocked; the name remains a suggestion
+    the main chat can confirm or correct via upsert_memory.
+
+    Returns True when a new profile was created.
+    """
+    try:
+        store = MemoryStore(ctx)
+    except Exception as e:
+        log.debug("seed_user_profile_if_missing: MemoryStore unavailable: %s", e)
+        return False
+
+    from plugin.chatbot.memory import _MEMORY_RW_LOCK
+
+    # Same lock as MemoryTool.execute: seeding races a concurrent upsert otherwise.
+    with _MEMORY_RW_LOCK:
+        try:
+            if str(store.read("user") or "").strip():
+                return False
+        except OSError as e:
+            log.debug("seed_user_profile_if_missing: could not read existing profile: %s", e)
+            return False
+
+        suggested_name = get_suggested_user_name(ctx)
+        profile: dict[str, str] = {
+            "name_source": "auto-detected from LibreOffice User Data or OS login; not yet confirmed by the user",
+            "favorite_colors": "",
+        }
+        if suggested_name:
+            profile["name"] = suggested_name
+
+        try:
+            store.write("user", json.dumps(profile, indent=2, ensure_ascii=False))
+        except OSError as e:
+            log.debug("seed_user_profile_if_missing: could not write profile: %s", e)
+            return False
+    log.info("Seeded provisional user profile (suggested_name=%r)", suggested_name)
+    return True
+
+
+# ── On-demand Librarian tour ─────────────────────────────────────────────────
+# Requests are matched deterministically (any session, not just the first) and
+# routed to the original LibrarianOnboardingTool flow via panel._do_send.
+
+_TOUR_REQUEST_PATTERNS = tuple(
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\b(grand\s+)?tour\b",
+        r"\bshow\s?(?:me|us)\s?(?:a)?round\b",
+        r"\bshow\s?me\s?the\s?ropes\b",
+        r"\b(?:give|take)\s?me\s?(?:a|the)\s?tour\b",
+        r"\bteach\s?me\s?(?:how\s?to\s?use\s)?writeragent\b",
+        r"\bintroduce\s?me\s?to\s?writeragent\b",
+        r"\bwhat\s?(?:else\s)?can\s(?:you|writeragent)\sdo\b",
+    )
+)
+
+
+def is_tour_request(text: str) -> bool:
+    """True when the message clearly asks for the Librarian tour."""
+    normalized = str(text or "").strip().lower()
+    return any(pattern.search(normalized) for pattern in _TOUR_REQUEST_PATTERNS)
 
 
 class SwitchToDocumentModeTool(ToolBase):

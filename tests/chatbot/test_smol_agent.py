@@ -803,8 +803,11 @@ def test_do_send_enters_librarian_when_user_memory_missing():
     ), patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"), patch(
         "plugin.chatbot.memory.MemoryStore"
     ) as mock_store:
-        mock_store.return_value.read.return_value = ""
-        SendButtonListener._do_send(listener)
+        # Seed reads through librarian's own import binding too; keep it deterministic
+        # against the global config-path cache instead of a real profile directory.
+        with patch("plugin.chatbot.librarian.MemoryStore", mock_store):
+            mock_store.return_value.read.return_value = ""
+            SendButtonListener._do_send(listener)
 
     assert listener._in_librarian_mode is True
     listener._run_librarian.assert_called_once()
@@ -843,8 +846,9 @@ def test_do_send_uses_document_chat_after_librarian_flag_clears():
     ), patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"), patch(
         "plugin.chatbot.memory.MemoryStore"
     ) as mock_store:
-        mock_store.return_value.read.return_value = '{"name": "Keith"}'
-        SendButtonListener._do_send(listener)
+        with patch("plugin.chatbot.librarian.MemoryStore", mock_store):
+            mock_store.return_value.read.return_value = '{"name": "Keith"}'
+            SendButtonListener._do_send(listener)
 
     assert listener._in_librarian_mode is False
     listener._run_librarian.assert_not_called()
