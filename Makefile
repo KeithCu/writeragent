@@ -797,9 +797,7 @@ crosshair-cover:
 	"$(PYTHON)" scripts/crosshair_stream.py run cover -- -v $(CROSSHAIR_MODULE)
 
 # Every plugin file with @deal. (deal contracts only). Not part of make test.
-# Regular: 25 uninteresting iters + 5s per condition + 120s module wall.
-# Deep check-all: 200 iters + 30s per condition, no module wall.
-# Deep cover-all: 200 iters, no timeout/wall.
+# Regular: 25 uninteresting iters + 5s per condition + 120s module wall. Deep: 200 iters, no timeout/wall.
 # Regular payload_codec only: 5 / 5s (module_check_bounds / module_cover_bounds).
 crosshair-check-all:
 	"$(PYTHON)" scripts/crosshair_check_all.py

@@ -490,7 +490,6 @@ def test_resolve_cover_budget_regular_and_deep() -> None:
 def test_resolve_check_budget_regular_and_deep() -> None:
     from scripts.crosshair_check_all import (
         DEEP_MAX_UNINTERESTING,
-        DEEP_PER_CONDITION_TIMEOUT_SEC,
         REGULAR_MAX_UNINTERESTING,
         REGULAR_PER_CONDITION_TIMEOUT_SEC,
         resolve_check_budget,
@@ -504,7 +503,7 @@ def test_resolve_check_budget_regular_and_deep() -> None:
     deep = resolve_check_budget(deep=True)
     assert deep.mode == "deep"
     assert deep.max_uninteresting == DEEP_MAX_UNINTERESTING == 200
-    assert deep.per_condition_timeout == DEEP_PER_CONDITION_TIMEOUT_SEC == 30
+    assert deep.per_condition_timeout is None
 
 
 def test_module_check_bounds_tightens_payload_codec_regular_only() -> None:
@@ -518,7 +517,7 @@ def test_module_check_bounds_tightens_payload_codec_regular_only() -> None:
     deep = resolve_check_budget(deep=True)
     assert module_check_bounds(regular, PAYLOAD_CODEC_REL) == (5, 5)
     assert module_check_bounds(regular, "plugin/mcp/mcp_state.py") == (25, 5)
-    assert module_check_bounds(deep, PAYLOAD_CODEC_REL) == (200, 30)
+    assert module_check_bounds(deep, PAYLOAD_CODEC_REL) == (200, None)
 
 
 def test_check_all_list_discovers_deal_without_spawning(tmp_path, capsys, monkeypatch) -> None:
@@ -571,7 +570,7 @@ def test_check_all_list_deep_banner(tmp_path, capsys, monkeypatch) -> None:
     out = capsys.readouterr().out
     assert "CrossHair check-all [deep]: 1 module(s)" in out
     assert "max_uninteresting=200" in out
-    assert "per_condition_timeout=30s" in out
+    assert "per_condition_timeout=none" in out
     assert "module_wall=none" in out
 
 

@@ -9,15 +9,14 @@
 Runs **one file at a time** so a CrossHair engine crash in one module does not abort the rest.
 Errors are printed live and reprinted in a final ``ERRORS TO FIX`` / failed-module summary.
 
-Two presets only (no per-flag budget overrides; deep check-all uses a 30s
-per-condition slice, unlike cover-all deep which stays unbounded):
+Two presets only (same numbers as cover-all; no per-flag budget overrides):
 
 - **regular** (default): ``--max_uninteresting_iterations=25`` and
   ``--per_condition_timeout=5`` (breadth over depth), plus a hard **120s**
   per-module wall kill so no file dominates the sweep.
-- **deep** (``--deep``): ``--max_uninteresting_iterations=200`` and
-  ``--per_condition_timeout=30`` (same walk-on as regular's 5s slice, longer
-  budget). No per-module wall.
+- **deep** (``--deep``): ``--max_uninteresting_iterations=200``, no per-condition
+  timeout and no wall — hour-scale exploration (CrossHair's "hundreds" guidance).
+  Speed comes from the short ``WRITERAGENT_CROSSHAIR=1`` deal table, not timeouts.
 
 Wall timeout is exit 0 / not a sweep failure (budget exhaustion). Contract
 ``: error:`` lines and engine crashes still fail the sweep.
@@ -52,9 +51,8 @@ REGULAR_MAX_UNINTERESTING = 25
 REGULAR_PER_CONDITION_TIMEOUT_SEC = 5
 # Hard stop per module in regular mode (backstop; soft bounds aim to finish earlier).
 REGULAR_MODULE_WALL_TIMEOUT_SEC = 120
-# Deep: CrossHair "hundreds"; 30s per-condition walk-on (no module wall).
+# Deep: CrossHair "hundreds" for multi-hour runs. No per-condition timeout, no module wall.
 DEEP_MAX_UNINTERESTING = 200
-DEEP_PER_CONDITION_TIMEOUT_SEC = 30
 # Regular only: payload_codec has many contracts; same 5s slice, fewer iters.
 PAYLOAD_CODEC_REL = "plugin/scripting/payload_codec.py"
 PAYLOAD_CODEC_REGULAR_MAX_UNINTERESTING = 5
@@ -73,7 +71,7 @@ class CheckBudget:
 
     mode: str  # "regular" | "deep"
     max_uninteresting: int
-    per_condition_timeout: int | None  # None = omit the flag; deep uses 30s
+    per_condition_timeout: int | None  # None = omit flag (deep)
 
 
 def resolve_check_budget(*, deep: bool) -> CheckBudget:
@@ -82,7 +80,7 @@ def resolve_check_budget(*, deep: bool) -> CheckBudget:
         return CheckBudget(
             mode="deep",
             max_uninteresting=DEEP_MAX_UNINTERESTING,
-            per_condition_timeout=DEEP_PER_CONDITION_TIMEOUT_SEC,
+            per_condition_timeout=None,
         )
     return CheckBudget(
         mode="regular",
@@ -160,9 +158,8 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help=(
             f"Deep mode: max_uninteresting_iterations={DEEP_MAX_UNINTERESTING}, "
-            f"per_condition_timeout={DEEP_PER_CONDITION_TIMEOUT_SEC}s, no module wall "
-            f"(default regular: {REGULAR_MAX_UNINTERESTING} iters / "
-            f"{REGULAR_PER_CONDITION_TIMEOUT_SEC}s + {REGULAR_MODULE_WALL_TIMEOUT_SEC}s wall)"
+            "no per_condition_timeout (default regular: "
+            f"{REGULAR_MAX_UNINTERESTING} iters / {REGULAR_PER_CONDITION_TIMEOUT_SEC}s)"
         ),
     )
     parser.add_argument(
