@@ -305,7 +305,7 @@ def main() -> int:
     p.add_argument(
         "--no-judge",
         action="store_true",
-        help="Skip LLM judge; use expected_contains/reject_contains only.",
+        help="Skip LLM judge; use result oracles + expected/reject only.",
     )
     p.add_argument(
         "--gold-model",

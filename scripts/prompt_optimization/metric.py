@@ -37,19 +37,30 @@ def make_judge_metric(
     Return a metric callable (example, pred, trace=None) -> float for MIPROv2.
     Uses shared score_with_judge from eval_core; applies token penalty.
     """
-    from eval_core import score_with_judge
+    from eval_core import _correctness_breakdown, _should_use_judge, score_with_judge
+    from oracles import uses_llm_judge
 
     def metric(example: Any, pred: Any, trace: Optional[Any] = None) -> float:
         final_doc = getattr(pred, "final_document", None) or ""
-        score, _ = score_with_judge(
-            judge_lm,
-            document_content=getattr(example, "document_content", "") or "",
-            user_question=getattr(example, "user_question", "") or "",
-            model_answer=final_doc,
-            gold_answer=getattr(example, "gold_document", "") or "N/A",
-            rubric=getattr(example, "rubric", "") or "N/A",
-            task_category=getattr(example, "category", "structural"),
-        )
+        hard, _missing, _reject, _oracle = _correctness_breakdown(example, final_doc)
+        category = getattr(example, "category", "structural")
+        task_id = getattr(example, "task_id", "") or ""
+        if (
+            hard >= 1.0
+            and uses_llm_judge(task_id, category)
+            and _should_use_judge(example, judge_available=bool(judge_lm))
+        ):
+            score, _ = score_with_judge(
+                judge_lm,
+                document_content=getattr(example, "document_content", "") or "",
+                user_question=getattr(example, "user_question", "") or "",
+                model_answer=final_doc,
+                gold_answer=getattr(example, "gold_document", "") or "N/A",
+                rubric=getattr(example, "rubric", "") or "N/A",
+                task_category=category,
+            )
+        else:
+            score = hard
         total_tokens = _get_total_tokens(pred)
         penalty = token_penalty_lambda * (total_tokens / 1000.0)
         return max(0.0, score - penalty)

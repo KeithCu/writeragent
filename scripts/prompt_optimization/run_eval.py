@@ -34,7 +34,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from dataset import ALL_EXAMPLES, to_eval_examples
-from eval_core import run_eval_on_examples_llm, summarize_results
+from eval_core import example_passed, run_eval_on_examples_llm, summarize_results
 import tools_lo
 
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
@@ -75,7 +75,7 @@ def main():
         "--student",
         choices=("llm", "scripted"),
         default="llm",
-        help="llm (default, needs API key) or scripted (replay SCRIPTS, no key, substring only).",
+        help="llm (default, needs API key) or scripted (replay SCRIPTS, no key, result oracles).",
     )
     p.add_argument(
         "--no-judge",
@@ -111,7 +111,7 @@ def main():
     tools_lo.VERBOSE = args.verbose
     n = len(examples)
     if args.student == "scripted":
-        print(f"Running {n} example(s) with scripted student (no API, substring checks only).\n")
+        print(f"Running {n} example(s) with scripted student (no API, result oracles).\n")
     else:
         print(f"Running {n} example(s). Each can take 15–60+ seconds (multiple API calls). Total often 2–10 min.\n")
     sys.stdout.flush()
@@ -208,19 +208,16 @@ def main():
                 f"({len(results)} examples)"
             )
             if args.student == "scripted":
-                passed = sum(
-                    1
-                    for r in results
-                    if r.error is None and not r.missing_expected and not r.found_reject
-                )
+                passed = sum(1 for r in results if example_passed(r))
                 print(
-                    f"Scripted substring pass: {passed}/{len(results)} "
-                    "(error is None, missing_expected=[], found_reject=[])"
+                    f"Scripted result pass: {passed}/{len(results)} "
+                    "(error is None, missing_expected=[], found_reject=[], oracle_failures=[])"
                 )
                 for r in results:
                     print(
                         f"  {r.task_id}: error={r.error!r} "
-                        f"missing={r.missing_expected} reject={r.found_reject}"
+                        f"missing={r.missing_expected} reject={r.found_reject} "
+                        f"oracle={r.oracle_failures or []}"
                     )
         return 0
     finally:

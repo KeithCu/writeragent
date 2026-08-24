@@ -1,9 +1,11 @@
 """
 Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
 
-Includes original 8 Writer tasks (some hardened for better model differentiation) + FLOWCHART_GEN (non-LO Draw support via DrawDocState in string_eval_tools.py).
-TABLE_FROM_MESS kept as sufficiently challenging baseline. Others (bulk_cleanup, reformat_resume, etc.) updated with stricter constraints, expanded edge cases, precise rubrics referencing judge weights/gold.
-See docs/archive/eval-ideas.md (annotated with LO requirements) and docs/eval-dev-plan.md.
+ALL_EXAMPLES is 15 tasks: 12 Writer (including style_consistency, smart_summarization,
+section_refactor, comment_management) + flowchart_gen (Draw) + data_sorting / tax_column (Calc).
+Structural tasks are scored from the exported final document (oracles + honest substring
+checks). Creative tasks (resume, logical_rewriting, summarization) keep an LLM judge when
+one is configured. See docs/eval-dev-plan.md.
 """
 import sys
 from pathlib import Path
@@ -31,7 +33,7 @@ TABLE_FROM_MESS = {
     "document_content": MESSY_TABLE_INPUT,
     "user_question": "Convert this messy parts list into a clean HTML table with headings and a total price.",
     "task_id": "table_from_mess",
-    "expected_contains": ["Battle Born", "Victron", "SmartSolar", "NEMA 4"],
+    "expected_contains": ["Battle Born", "Victron", "SmartSolar", "NEMA 4", "Total"],
     "is_non_trivial": True,
     "category": "structural",
     "rubric": "Output must be an HTML table (not a list). It should have clear column headings, one row per unique item, a total entry, and preserve all prices exactly.",
@@ -66,7 +68,14 @@ REFORMAT_RESUME = {
     "document_content": PLAIN_RESUME,
     "user_question": "Reformat this plain text resume as professional HTML. Use EXACT section headings: WORK HISTORY, EDUCATION, SKILLS (no variations like 'Work Experience' or 'Summary'). Consistent hyphen bullets for all experience items, active voice in summary (<=60 words, mention Python APIs and leadership), bold job titles/roles, consistent date formatting (e.g. '2020-2023'). Fix all inconsistencies (casing, spacing, bullets, certifications).",
     "task_id": "reformat_resume",
-    "expected_contains": ["John", "WORK HISTORY", "EDUCATION", "SKILLS", "Acme Corp", "TechStart Inc", "<h2>", "<ul>", "<li>", "<strong>"],
+    "expected_contains": [
+        "John Doe",
+        "WORK HISTORY",
+        "EDUCATION",
+        "SKILLS",
+        "Acme Corp",
+        "TechStart Inc",
+    ],
     "is_non_trivial": True,
     "category": "creative",
     "rubric": "Professional resume format. Creative: 30% accuracy (exact headings, all content captured/fixed without loss), 20% formatting (valid HTML structure, consistent bullets/dates), 50% naturalness (active voice, professional tone). Matches gold_standards.json. Rejects variations in headings.",
@@ -109,8 +118,14 @@ BULK_CLEANUP = {
     "document_content": DOUBLE_SPACE_TEXT,
     "user_question": "Remove all double spaces, fix punctuation (no space before comma, no double periods, preserve URLs and quoted text), normalize line breaks to single paragraph breaks. Output as clean HTML paragraphs.",
     "task_id": "bulk_cleanup",
-    "expected_contains": [],
-    "reject_contains": ["  ", " .", "..", " ,", "<br>", "  .", ' " ', "period  ."],  # no artifacts; preserve quotes/URLs
+    # Visible-text oracles catch leftover double spaces. Do not reject a lone " "
+    # (every English sentence has one) or raw HTML indent from LO export.
+    "expected_contains": [
+        "This sentence has extra spaces",
+        "https://example.com/test",
+        "Quoted text",
+    ],
+    "reject_contains": [" .", "..", " ,", "period  ."],
     "category": "structural",
     "rubric": "Perfect normalization. Structural: 60% accuracy (no meaning loss, preserve URLs/quotes exactly), 40% formatting (clean HTML paragraphs, zero forbidden patterns). Use apply_document_content(target='full_document'). Matches gold.",
 }
@@ -125,6 +140,7 @@ LOGICAL_REWRITING = {
     "user_question": "Rewrite this paragraph to be professional and concise (≤70 words). Preserve 'WriterAgent', '2.0', 'Dual-Mode', 'G-Eval' and 'Prometheus' verbatim. Exclude all hype words like 'incredibly', 'significant leap', 'brand new'. Use active voice.",
     "task_id": "logical_rewriting",
     "expected_contains": ["WriterAgent", "2.0", "Dual-Mode", "G-Eval", "Prometheus"],
+    "reject_contains": ["LocalWriter", "incredibly", "significant leap", "brand new"],
     "is_non_trivial": True,
     "category": "creative",
     "rubric": "Professional, concise rewrite. Creative: 30% accuracy (exact terms preserved, no hype), 20% formatting, 50% naturalness (active voice, flows well). Matches gold_standards.json exactly. Forces precise instruction following.",
@@ -180,6 +196,8 @@ STYLE_APPLICATION = {
         "as normal body text, not H1."
     ),
     "task_id": "style_application",
+    # After #419 LO heading unwrap, a real H1 is "<h1>Introduction</h1>" — not
+    # a padded " Introduction " token that would match body text.
     "expected_contains": ["<h1>Introduction</h1>", "Background", "Summary"],
     "reject_contains": ["<h1>Background", "<h1>Summary"],
     "category": "structural",
@@ -235,7 +253,7 @@ Heading 2 again.
 """,
     "user_question": "Use find_text first if needed. Find all text in 'Default' style and change it to 'Quotations'. Map all 'Heading 2' to 'Heading 1' and adjust levels.",
     "task_id": "style_consistency",
-    "expected_contains": ["Quotations", "Heading 1", "HEADING 1"],
+    "expected_contains": ["Quotations", "HEADING 2 text", "Heading 2 again"],
     "is_non_trivial": True,
     "category": "structural",
     "rubric": "Consistent style mapping across document. Default -> Quotations; Heading 2 -> Heading 1. Preserve content and structure. Use targeted edits.",
@@ -251,7 +269,7 @@ The system achieved 99.9% uptime. Latency averaged 45ms under load. Error rate w
 """,
     "user_question": "Summarize the 'Finding' section into 5 bullet points and insert it into the 'Executive Summary'.",
     "task_id": "smart_summarization",
-    "expected_contains": ["99.9%", "45ms", "0.01%", "10k RPS", "40%"],
+    "expected_contains": ["Executive Summary", "99.9%", "45ms", "0.01%", "10k RPS", "40%"],
     "is_non_trivial": True,
     "category": "creative",
     "rubric": "Accurate 5-bullet summary extracted from Findings. Inserted cleanly into Executive Summary section. Professional tone.",
@@ -270,8 +288,9 @@ Main content goes here.
 """,
     "user_question": "Move the 'Conclusion' after the 'Intro' and rename it 'Goal'. Update any cross-references if present.",
     "task_id": "section_refactor",
-    "expected_contains": ["# Introduction", "# Goal", "# Body"],
-    "reject_contains": ["# Conclusion"],
+    # Headings must survive HTML apply / LO unwrap (not markdown-only "# Introduction").
+    "expected_contains": ["Introduction", "Goal", "Body"],
+    "reject_contains": ["Conclusion"],
     "is_non_trivial": True,
     "category": "structural",
     "rubric": "Structural movement of sections with rename. Conclusion becomes Goal and placed after Intro. No orphaned headings.",
@@ -301,6 +320,10 @@ ALL_EXAMPLES = [
     FORMAT_PRESERVATION,
     STYLE_APPLICATION,
     BULLET_CONSISTENCY,
+    STYLE_CONSISTENCY,
+    SMART_SUMMARIZATION,
+    SECTION_REFACTOR,
+    COMMENT_MANAGEMENT,
 ]
 
 # Flowchart Gen (from archive/eval-ideas.md Draw #3) - tests non-LO shapes via DrawDocState
@@ -319,7 +342,8 @@ DATA_SORTING = {
     "document_content": "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t950",
     "user_question": "Sort this data by Revenue descending. Use sort_range on the Revenue column.",
     "task_id": "data_sorting",
-    "expected_contains": ["Tool", "2100", "Widget", "1200"],  # top of sorted descending
+    # Names exist in the unsorted input; order is enforced by the result oracle.
+    "expected_contains": ["Tool", "2100", "Widget", "1200"],
     "is_non_trivial": True,
     "category": "structural",
     "rubric": "Correct descending sort by Revenue. Final snapshot JSON shows Tool first. Uses CalcStringState.",
@@ -330,7 +354,8 @@ TAX_COLUMN = {
     "document_content": "Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5\nTotal\t?",
     "user_question": "First use get_sheet_summary or get_document_content to verify data, then calculate exact 8% tax (round appropriately) for each Price and write to a new Tax column using write_cell_range. Add Total if appropriate. Verify final with get_sheet_summary.",
     "task_id": "tax_column",
-    "expected_contains": ["0.8", "0.4", "0.64", "1.0", "Tax", "snapshot"],
+    # "snapshot" is a harness export key, not a student-visible result.
+    "expected_contains": ["0.8", "0.4", "0.64", "1.0", "Tax"],
     "is_non_trivial": True,
     "category": "structural",
     "rubric": "Writes correct tax values (Price*0.08, e.g. 0.8/0.4/0.64/1.0). Structural: 60% accuracy (precise calcs, verification step), 40% formatting (correct JSON snapshot with Tax column). Uses CalcStringState fully (no hallucinations on Total/?).",

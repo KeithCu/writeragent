@@ -262,26 +262,70 @@ class ExampleEval:
     task_category: str | None = None
     gold_document: str | None = None
     error: str | None = None
+    oracle_failures: list[str] | None = None
 
 
-def _correctness_breakdown(example: Any, final_document: str) -> Tuple[float, list[str], list[str]]:
-    """Return (score, list of missing expected, list of bad reject found)."""
+def example_passed(result: ExampleEval) -> bool:
+    """Hard pass: no run error, no substring miss/reject, no result-oracle failure."""
+    return (
+        result.error is None
+        and not result.missing_expected
+        and not result.found_reject
+        and not (result.oracle_failures or [])
+    )
+
+
+def _should_use_judge(
+    example: Any,
+    *,
+    student: str = "llm",
+    no_judge: bool = False,
+    judge_available: bool = False,
+) -> bool:
+    """LLM-as-judge is for creative tasks only (resume, rewriting, summarization)."""
+    from oracles import uses_llm_judge
+
+    if student == "scripted" or no_judge or not judge_available:
+        return False
+    task_id = getattr(example, "task_id", "") or ""
+    category = getattr(example, "category", "structural") or "structural"
+    return uses_llm_judge(task_id, category)
+
+
+def _correctness_breakdown(
+    example: Any, final_document: str
+) -> Tuple[float, list[str], list[str], list[str]]:
+    """Return (score, missing expected, reject found, oracle failures).
+
+    Substring checks stay honest (no lone-space junk). Structural result oracles
+    inspect the exported final document and zero the score when the doc is wrong.
+    """
+    from oracles import check_oracle
+
     expected = getattr(example, "expected_contains", []) or []
     reject = getattr(example, "reject_contains", []) or []
     score = 1.0
     missing: list[str] = []
     for s in expected:
+        if not s or not str(s).strip():
+            # A lone space / empty needle matches every document.
+            continue
         if s not in (final_document or ""):
             score -= 0.2
             missing.append(s)
     found_reject: list[str] = []
     for s in reject:
+        if not s or not str(s).strip():
+            continue
         if s in (final_document or ""):
             score -= 0.3
             found_reject.append(s)
-    # Clamp to [0, 1]
+    task_id = getattr(example, "task_id", "") or ""
+    oracle_failures = check_oracle(task_id, final_document or "")
+    if oracle_failures:
+        score = 0.0
     score = max(0.0, min(1.0, score))
-    return score, missing, found_reject
+    return score, missing, found_reject, oracle_failures
 
 
 def _get_tokens_from_pred(pred: Any, debug_usage: bool = False) -> Tuple[int, int, int]:
@@ -415,21 +459,23 @@ def run_eval_on_examples(
                 pred = prog(document_content=doc, user_question=question)
                 final = getattr(pred, "final_document", "") or ""
                 
-                # Internal correctness (regex/string match)
-                correctness, missing, found_reject = _correctness_breakdown(ex, final)
-                
-                # Judge correctness
+                correctness, missing, found_reject, oracle_failures = _correctness_breakdown(
+                    ex, final
+                )
+
                 j_score = None
                 j_reasoning = None
                 j_accuracy = None
                 j_formatting = None
                 j_naturalness = None
-                
-                # Use judge only for non-trivial tasks. Gold/rubric are passed when judging but must
-                # not force an LLM call: gold_standards.json loads gold for every example and would
-                # otherwise make every task judge-scored.
-                is_non_trivial_task = getattr(ex, "is_non_trivial", False)
-                use_judge = bool(judge_lm) and is_non_trivial_task
+
+                # Judge is creative-only. Gold/rubric must not force a call on structural tasks.
+                use_judge = _should_use_judge(
+                    ex,
+                    student="llm",
+                    no_judge=False,
+                    judge_available=bool(judge_lm),
+                )
 
                 if use_judge:
                     if not quiet:
@@ -450,7 +496,8 @@ def run_eval_on_examples(
                     if not quiet:
                         print(f"  judge_score={j_score:.2f} [{category}] (Acc:{j_accuracy} Fmt:{j_formatting} Nat:{j_naturalness})")
                         print(f"  judge_reasoning: {j_reasoning}")
-                    effective_correctness = j_score
+                    # Wrong final docs stay 0; judge only ranks creative docs that already pass.
+                    effective_correctness = j_score if correctness >= 1.0 else correctness
                 else:
                     effective_correctness = correctness
 
@@ -486,6 +533,7 @@ def run_eval_on_examples(
                         task_category=category,
                         gold_document=gold,
                         error=None,
+                        oracle_failures=oracle_failures,
                     )
                 )
             except Exception as e:  # pragma: no cover - keep eval robust
@@ -504,6 +552,7 @@ def run_eval_on_examples(
                         total_tokens=0,
                         final_document="",
                         error=error,
+                        oracle_failures=[],
                     )
                 )
             if not quiet:
@@ -536,7 +585,7 @@ def run_eval_on_examples_llm(
 
     - ``backend`` ``string``: in-memory HTML via ``StringDocState`` (default, no LibreOffice).
     - ``backend`` ``lo``: headless Writer/Draw/Calc + ``tools_lo`` (start/stop LO outside this function).
-    - ``student`` ``scripted``: replay ``scripted_student.SCRIPTS`` (no LlmClient, no key, substring only).
+    - ``student`` ``scripted``: replay ``scripted_student.SCRIPTS`` (no LlmClient, no key, result oracles).
     - ``no_judge``: skip LLM judge even when ``judge_model`` is set.
     - ``judge_model``: OpenAI-compatible model id for LLM judge (preferred over ``judge_lm``).
     - ``gold_model``: model id for on-the-fly gold generation (preferred over ``gold_lm``).
@@ -624,20 +673,21 @@ def run_eval_on_examples_llm(
             if debug_usage and total_tok == 0 and not quiet:
                 print(f"  [debug] usage dict was: {usage!r}", flush=True)
 
-            correctness, missing, found_reject = _correctness_breakdown(ex, final)
+            correctness, missing, found_reject, oracle_failures = _correctness_breakdown(
+                ex, final
+            )
 
             j_score = None
             j_reasoning = None
             j_accuracy = None
             j_formatting = None
             j_naturalness = None
-            is_non_trivial_task = getattr(ex, "is_non_trivial", False)
             jm = (judge_model or "").strip()
-            use_judge = (
-                student != "scripted"
-                and not no_judge
-                and is_non_trivial_task
-                and bool(jm or judge_lm)
+            use_judge = _should_use_judge(
+                ex,
+                student=student,
+                no_judge=no_judge,
+                judge_available=bool(jm or judge_lm),
             )
 
             if use_judge:
@@ -675,7 +725,7 @@ def run_eval_on_examples_llm(
                         f"(Acc:{j_accuracy} Fmt:{j_formatting} Nat:{j_naturalness})"
                     )
                     print(f"  judge_reasoning: {j_reasoning}")
-                effective_correctness = j_score
+                effective_correctness = j_score if correctness >= 1.0 else correctness
             else:
                 effective_correctness = correctness
 
@@ -687,8 +737,11 @@ def run_eval_on_examples_llm(
                 print(
                     f"  correctness={effective_correctness:.2f}  tokens={total_tok}  score={metric_score:.3f}"
                 )
-                if missing or found_reject:
-                    print(f"  missing_expected={missing}  found_reject={found_reject}")
+                if missing or found_reject or oracle_failures:
+                    print(
+                        f"  missing_expected={missing}  found_reject={found_reject}  "
+                        f"oracle={oracle_failures}"
+                    )
                 print(f"  doc snippet: {snippet!r}")
 
             results.append(
@@ -716,6 +769,7 @@ def run_eval_on_examples_llm(
                     task_category=category,
                     gold_document=gold,
                     error=error,
+                    oracle_failures=oracle_failures,
                 )
             )
         except Exception as e:
@@ -734,6 +788,7 @@ def run_eval_on_examples_llm(
                     total_tokens=0,
                     final_document="",
                     error=error,
+                    oracle_failures=[],
                 )
             )
         if not quiet:

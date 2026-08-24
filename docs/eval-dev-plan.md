@@ -8,9 +8,10 @@ The evaluation system lives in `scripts/prompt_optimization/`:
 - `run_eval.py` / `run_eval_multi.py`: Main entrypoints (use `LlmClient` + tool loop from `llm_chat_eval.py`).
 - Default: `--backend string` (`string_eval_tools.py:StringDocState` — pure Python HTML/string mutations for `get_document_content`/`apply_document_content`/`find_text`; no LO).
 - `--backend lo`: Headless Writer via `tools_lo.py` + real `ToolRegistry`.
-- Judging: Substring checks + LLM-as-a-Judge (`eval_core.py`, `metric.py`; structural vs creative weighting; gold_standards.json from high-tier teacher; quadratic IpD = Correctness² / Cost).
-- Current dataset: 11 tasks in `dataset.py` `ALL_EXAMPLES` (8 Writer + `flowchart_gen` + `data_sorting` + `tax_column`).
-- `--student scripted` (`scripted_student.py`): no API key, no LLM judge; pass is `_correctness_breakdown` on exported state. `--backend lo` is headless UNO (`tools_lo.py`), not an in-memory mock. `-j` is threads; UNO is serialized on `_lo_thread`. Do not use `tests/eval_runner.py` for this harness.
+- Judging: Honest `expected_contains` / `reject_contains` plus **result oracles** on the exported final document (`oracles.py`). LLM-as-a-Judge is **creative-only** (resume, logical rewriting, summarization). `gold_standards.json` is hand-written from the rubrics.
+- Current dataset: 15 tasks in `dataset.py` `ALL_EXAMPLES` (12 Writer including `style_consistency`, `smart_summarization`, `section_refactor`, `comment_management`, plus `flowchart_gen` + `data_sorting` + `tax_column`).
+- `--student scripted` (`scripted_student.py`): no API key; pass is `example_passed` (substring + oracles) on exported state. `--backend lo` is headless UNO (`tools_lo.py`), not an in-memory mock. `-j` is threads; UNO is serialized on `_lo_thread`. Do not use `tests/eval_runner.py` for this harness. Do not set `WRITERAGENT_TESTING=1` for LO eval.
+- CI / pytest: `tests/scripts/test_eval_oracles.py` and `test_scripted_eval_pack.py` replay `--backend string --student scripted` (no OpenRouter). Headless `--backend lo --student scripted` is skipped unless `soffice` + real `uno` are available; local command: `python scripts/prompt_optimization/run_eval.py --backend lo --student scripted --no-bust-cache -v`.
 
 The 50 test cases live in [`docs/archive/eval-ideas.md`](docs/archive/eval-ideas.md) (20 Writer, 20 Calc, 5 Draw, 5 Multimodal; categorized by level with modes for judging).
 

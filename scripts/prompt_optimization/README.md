@@ -58,11 +58,12 @@ python run_eval.py -n 2                     # first 2 examples
 python run_eval.py -v                       # verbose: print every tool call as it runs
 python run_eval.py --compare-with optimized_writer_prompt.json   # compare current vs optimized
 python run_eval.py --no-bust-cache   # disable cache-busting (default: on)
+python run_eval.py --backend string --student scripted -v   # no API key; full pack
 python run_eval.py --backend lo --student scripted --no-bust-cache -v   # headless LO, no key
 # or from repo root: make run_eval-lo-scripted
 ```
 
-Shows for each example: task_id, expected_contains / reject_contains pass or miss, correctness, tokens, score, and a short doc snippet. Use `-v`/`--verbose` to print each tool call. Use `--compare-with` to run both the current prompt and the prompt from a DSPy JSON file, then report which scores higher. Cache-busting is enabled by default (unique suffix per example) to avoid OpenRouter prompt cache; use `--no-bust-cache` to disable.
+Shows for each example: task_id, expected/reject/oracle pass or miss, correctness, tokens, score, and a short doc snippet. Pytest covers the string pack (`tests/scripts/test_scripted_eval_pack.py`). The LO pack is skipped unless `soffice` and real `uno` are importable. Do **not** set `WRITERAGENT_TESTING=1` for LO eval. Do not use `tests/eval_runner.py`. Use `-v`/`--verbose` to print each tool call. Use `--compare-with` to run both the current prompt and the prompt from a DSPy JSON file, then report which scores higher. Cache-busting is enabled by default (unique suffix per example) to avoid OpenRouter prompt cache; use `--no-bust-cache` to disable.
 
 **Full optimization (MIPROv2):**
 
@@ -87,10 +88,10 @@ This runs MIPROv2 in **0-shot instruction-only** mode: it proposes alternative s
 
 ## Metric
 
-Optimization and multi-model eval both use the same **LLM-as-a-Judge** scoring (default **`openai/gpt-oss-120b`** via `score_with_judge` in `eval_core`).
+Optimization and multi-model eval use **result oracles** for structural tasks (`oracles.py` on the exported final document). **LLM-as-a-Judge** (default **`openai/gpt-oss-120b`**) is for creative tasks only.
 
 - **Dual-Mode Scoring**: The judge applies weighted criteria based on the task category:
-    - **Structural** (Tables, Cleanup): 60% Accuracy, 40% Formatting.
+    - **Structural** (Tables, Cleanup): result oracles + substring checks (no judge).
     - **Creative** (Editing, Resumes): 30% Accuracy, 20% Formatting, 50% **Naturalness**.
 - **Chain-of-Thought**: Judges output a `thought_process` before assigning 1-5 sub-scores for each dimension.
 - **Internal Normalization**: Sub-scores are normalized and weighted into a final 0.0–1.0 score.
@@ -98,13 +99,15 @@ Optimization and multi-model eval both use the same **LLM-as-a-Judge** scoring (
 
 ## Dataset
 
-`dataset.py` `ALL_EXAMPLES` is **11 tasks**: 8 Writer (table-from-mess, reformat-resume, table-engineering, bulk-cleanup, logical-rewriting, format-preservation, style-application, bullet-consistency) plus `flowchart_gen` (Draw), `data_sorting` and `tax_column` (Calc). Each has fixed `document_content` and `user_question` so runs are comparable. Kind is keyed by `task_id` (`task_kind()`), not question keywords.
+`dataset.py` `ALL_EXAMPLES` is **15 tasks**: 12 Writer (the original 8 plus `style_consistency`, `smart_summarization`, `section_refactor`, `comment_management`) plus `flowchart_gen` (Draw), `data_sorting` and `tax_column` (Calc). Each has fixed `document_content` and `user_question` so runs are comparable. Kind is keyed by `task_id` (`task_kind()`), not question keywords.
+
+Structural pass/fail is the **exported final document** (`oracles.py`: Writer HTML, Draw tree JSON, Calc grid). Creative tasks (`reformat_resume`, `logical_rewriting`, `smart_summarization`) keep an LLM judge when `--student llm` and a judge model are set. `gold_standards.json` is hand-written from the rubrics (no live teacher API).
 
 ## Tool subset
 
 `--backend string` (default) is an in-memory simulator (`string_eval_tools.py`). `--backend lo` is **headless UNO**: `tools_lo.py` starts `soffice --headless`, serializes all UNO onto `_lo_thread` via `LOBackend.call`, and executes production tools with `bypass_thread_guard=True`. Do not use `tests/eval_runner.py` or `make lo-start` for this path.
 
-`--student scripted` replays `scripted_student.SCRIPTS` (no `LlmClient`, no API key, substring checks only). `--student llm` (default) uses a live model and still needs a key. `--no-judge` skips the LLM judge.
+`--student scripted` replays `scripted_student.SCRIPTS` (no `LlmClient`, no API key, result oracles + honest substring checks). `--student llm` (default) uses a live model and still needs a key. `--no-judge` skips the LLM judge (judge is creative-only anyway).
 
 `-j N` in `run_eval_multi.py` is **ThreadPoolExecutor** (parallel models in one process). UNO is already serialized on `_lo_thread`. Do **not** `ProcessPoolExecutor` against one soffice. Scripted green runs use `-j 1`.
 
@@ -147,10 +150,11 @@ Use `--out path.json` or `--out path.csv` to write results (format by extension)
 
 ### Eval framework (summary)
 
-- **Dataset** (`dataset.py`): 11 fixed tasks (8 Writer + Draw flowchart + 2 Calc) with assigned `category` (structural or creative).
-- **Gold Standards** (`gold_standards.json`): Reference documents pre-generated by a high-tier "Teacher" model (**Claude Sonnet 4.6**). Use `--generate-golds` to update. **Cost:** default is **one example per run** (use `-e task_id` or `-n 1`); use `--yes-multi-gold` only if you intentionally batch several teacher calls in one command.
+- **Dataset** (`dataset.py`): 15 fixed tasks (12 Writer + Draw flowchart + 2 Calc) with assigned `category` (structural or creative).
+- **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces.
+- **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. `--generate-golds` can still merge a teacher run if you have a key.
 - **Program** (`program.py`): DSPy `WriterAssistant` (ReAct) with mock environment.
-- **Metric**: LLM-as-a-Judge weighted score (Acc/Fmt/Nat) − token penalty. Shared via `eval_core.score_with_judge()` for both `run_optimize` (MIPROv2) and `run_eval_multi`.
+- **Metric**: Result oracles for structural tasks; LLM-as-a-Judge (Acc/Fmt/Nat) for creative only, minus token penalty. Shared via `eval_core` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks models by **Corr/USD** (avg judge correctness ÷ total $).
 
 ### Benchmark results (best models, combined runs)
