@@ -17,7 +17,7 @@
 """Hermes agent backend using the shared ACPBackend base class."""
 
 import logging
-from typing import Dict, List
+from typing import Dict, Tuple
 
 from plugin.agent_backend.acp_backend import ACPBackend
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
@@ -29,7 +29,7 @@ class HermesBackend(ACPBackend):
     """ACP-based Hermes backend. Official CLI: ``hermes acp``."""
 
     backend_id = "hermes"
-    default_extra_args: List[str] = ["acp"]
+    default_extra_args: Tuple[str, ...] = ("acp",)
 
     def get_binary_name(self) -> str:
         """Primary executable for PATH lookup (``hermes acp`` is the supported install)."""

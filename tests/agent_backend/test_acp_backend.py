@@ -119,6 +119,15 @@ class TestDefaultExtraArgs(unittest.TestCase):
         self.assertEqual(backend._extra_args, [])
         self.assertEqual(backend.get_default_extra_args(), [])
 
+    def test_default_extra_args_are_immutable_tuples(self):
+        self.assertIsInstance(HermesBackend.default_extra_args, tuple)
+        self.assertIsInstance(OpenCodeBackend.default_extra_args, tuple)
+        self.assertIsInstance(GrokBackend.default_extra_args, tuple)
+        self.assertIsInstance(ACPBackend.default_extra_args, tuple)
+        copied = HermesBackend.get_default_extra_args(HermesBackend.__new__(HermesBackend))
+        copied.append("mutated")
+        self.assertEqual(HermesBackend.default_extra_args, ("acp",))
+
 
 class TestBinaryDiscovery(unittest.TestCase):
     """Config path and PATH / home-dir fallback still resolve the binary."""
@@ -211,17 +220,11 @@ class TestMergedUpdateHandler(unittest.TestCase):
             (StreamQueueKind.TOOL_RESULT, tool_result),
         ]
         self.assertEqual(self._events(self.backend._handle_acp_update, update), expected)
-        self.assertEqual(self._events(self.backend._handle_session_update, update), expected)
-        self.assertEqual(self._events(self.backend._handle_agent_update, update), expected)
 
     def test_dict_content_text(self):
         update = {"content": {"type": "text", "text": "Hi"}}
         self.assertEqual(
-            self._events(self.backend._handle_session_update, update),
-            [(StreamQueueKind.CHUNK, "Hi")],
-        )
-        self.assertEqual(
-            self._events(self.backend._handle_agent_update, update),
+            self._events(self.backend._handle_acp_update, update),
             [(StreamQueueKind.CHUNK, "Hi")],
         )
 
@@ -245,6 +248,42 @@ class TestMergedUpdateHandler(unittest.TestCase):
         self.assertEqual(self._events(self.backend._handle_acp_update, {"keys": "only"}), [])
         self.assertEqual(self._events(self.backend._handle_acp_update, {"content": "plain"}), [])
         self.assertEqual(self._events(self.backend._handle_acp_update, None), [])
+
+
+class TestPromptResultContentBlocks(unittest.TestCase):
+    """Base send() drains prompt-result contentBlocks (Vibe and any ACP agent)."""
+
+    def test_content_blocks_are_queued(self):
+        from unittest.mock import MagicMock
+
+        backend = ACPBackend.__new__(ACPBackend)
+        backend._stop_requested = False
+        backend._prompt_done = __import__("threading").Event()
+        backend._session_id = "sess-1"
+        backend._ensure_connection = MagicMock()
+        backend._ensure_session = MagicMock()
+        backend.get_display_name = MagicMock(return_value="Test")
+        tool_call = {"type": "tool_call", "name": "read"}
+        tool_result = {"type": "tool_result", "content": "ok"}
+        mock_conn = MagicMock()
+        mock_conn.send_request.return_value = {
+            "stopReason": "end_turn",
+            "contentBlocks": [
+                {"type": "text", "text": "Hello from ACP"},
+                tool_call,
+                tool_result,
+            ],
+        }
+        backend._conn = mock_conn
+        q = queue.Queue()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        events = []
+        while not q.empty():
+            events.append(q.get_nowait())
+        self.assertIn((StreamQueueKind.CHUNK, "Hello from ACP"), events)
+        self.assertIn((StreamQueueKind.TOOL_CALL, tool_call), events)
+        self.assertIn((StreamQueueKind.TOOL_RESULT, tool_result), events)
+        self.assertIn((StreamQueueKind.STREAM_DONE, None), events)
 
 
 if __name__ == "__main__":

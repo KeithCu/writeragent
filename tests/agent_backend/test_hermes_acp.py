@@ -156,13 +156,13 @@ class TestACPConnection(unittest.TestCase):
         self.assertEqual(received[0][0], "notifications/session")
 
 
-class TestHandleSessionUpdate(unittest.TestCase):
-    """Test ACPBackend session update handling (used by Hermes via ACP)."""
+class TestHandleAcpUpdate(unittest.TestCase):
+    """Test ACPBackend update handling (used by Hermes via ACP)."""
 
     def test_text_content_list_queues_chunk(self):
         backend = HermesBackend()
         q = queue.Queue()
-        backend._handle_session_update(
+        backend._handle_acp_update(
             {"content": [{"type": "text", "text": "Hello world"}]},
             q,
         )
@@ -175,7 +175,7 @@ class TestHandleSessionUpdate(unittest.TestCase):
     def test_text_content_dict_queues_chunk(self):
         backend = HermesBackend()
         q = queue.Queue()
-        backend._handle_session_update(
+        backend._handle_acp_update(
             {"content": {"type": "text", "text": "Hello"}},
             q,
         )
@@ -188,7 +188,7 @@ class TestHandleSessionUpdate(unittest.TestCase):
         backend = HermesBackend()
         q = queue.Queue()
         item = {"type": "tool_call", "name": "read_file", "id": "tc-1"}
-        backend._handle_session_update({"content": [item]}, q)
+        backend._handle_acp_update({"content": [item]}, q)
         events = []
         while not q.empty():
             events.append(q.get_nowait())
@@ -200,7 +200,7 @@ class TestHandleSessionUpdate(unittest.TestCase):
         backend = HermesBackend()
         q = queue.Queue()
         item = {"type": "tool_result", "content": "Found 3 results"}
-        backend._handle_session_update({"content": [item]}, q)
+        backend._handle_acp_update({"content": [item]}, q)
         events = []
         while not q.empty():
             events.append(q.get_nowait())

@@ -16,7 +16,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Grok Build agent backend using the shared ACPBackend base class."""
 
-from typing import List
+import os
+from typing import Tuple
 
 from plugin.agent_backend.acp_backend import ACPBackend
 
@@ -25,9 +26,7 @@ class GrokBackend(ACPBackend):
     """ACP-based xAI Grok Build backend. Official CLI: ``grok --no-auto-update agent stdio``."""
 
     backend_id = "grok"
-    default_extra_args: List[str] = ["--no-auto-update", "agent", "stdio"]
-    # Official and versioned names (grok, grok-cli, …) all take the same ACP args.
-    default_args_basename_prefix = True
+    default_extra_args: Tuple[str, ...] = ("--no-auto-update", "agent", "stdio")
 
     def get_binary_name(self) -> str:
         """Primary executable for PATH lookup (``grok agent stdio`` is the supported install)."""
@@ -40,3 +39,13 @@ class GrokBackend(ACPBackend):
     def get_agent_name(self) -> str:
         """Return ACP agent name."""
         return "grok"
+
+    def _apply_default_extra_args(self) -> None:
+        """Official and versioned names (grok, grok-cli, …) all take the same ACP args."""
+        if self._extra_args:
+            return
+        defaults = self.get_default_extra_args()
+        if not defaults or not self._binary_path:
+            return
+        if os.path.basename(self._binary_path).lower().startswith("grok"):
+            self._extra_args = list(defaults)

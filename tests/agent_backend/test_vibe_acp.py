@@ -62,11 +62,11 @@ class TestVibeEnvVars(unittest.TestCase):
         self.assertEqual(VibeBackend().get_env_vars(), {})
 
 
-class TestVibeSendOverride(unittest.TestCase):
-    """Vibe send() is kept because the prompt result can include contentBlocks."""
+class TestVibeUsesBaseSend(unittest.TestCase):
+    """contentBlocks drain lives on ACPBackend.send(); Vibe has no override."""
 
-    def test_send_is_not_the_base_method(self):
-        self.assertIsNot(VibeBackend.send, ACPBackend.send)
+    def test_send_is_the_base_method(self):
+        self.assertIs(VibeBackend.send, ACPBackend.send)
 
     def test_prompt_result_content_blocks_are_queued(self):
         backend = VibeBackend()

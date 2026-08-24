@@ -25,7 +25,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 
 from plugin.agent_backend.base import AgentBackend
 from plugin.agent_backend.acp_connection import ACPConnection
@@ -47,17 +47,16 @@ class ACPBackend(AgentBackend):
     - get_agent_name(): return ACP agent name
     - get_env_vars(): return dict of environment variables to pass
 
-    Optional class attrs for CLIs that need a default subcommand when
+    Optional class attr for CLIs that need a default subcommand when
     ``agent_backend.args`` is empty (Hermes/OpenCode ``acp``, Grok
     ``--no-auto-update agent stdio``):
-    - default_extra_args: list copied onto ``_extra_args``
-    - default_args_basename_prefix: if True, apply defaults when the
-      resolved basename *starts with* ``get_binary_name()`` (Grok).
-      Default is exact basename match.
+    - default_extra_args: immutable tuple; ``get_default_extra_args()``
+      copies it onto ``_extra_args`` when the resolved basename equals
+      ``get_binary_name()``. Grok overrides ``_apply_default_extra_args``
+      for prefix matching.
     """
 
-    default_extra_args: List[str] = []
-    default_args_basename_prefix = False
+    default_extra_args: Tuple[str, ...] = ()
 
     def __init__(self, ctx=None):
         self._ctx = ctx
@@ -90,14 +89,6 @@ class ACPBackend(AgentBackend):
         """CLI args used when settings args are empty and the binary matches this backend."""
         return list(self.default_extra_args)
 
-    def _basename_allows_default_args(self, basename: str) -> bool:
-        """Whether this executable name should receive ``get_default_extra_args()``."""
-        name = basename.lower()
-        expected = self.get_binary_name().lower()
-        if self.default_args_basename_prefix:
-            return name.startswith(expected)
-        return name == expected
-
     def _apply_default_extra_args(self) -> None:
         """Fill ``_extra_args`` from ``get_default_extra_args()`` when settings left them empty."""
         if self._extra_args:
@@ -105,7 +96,7 @@ class ACPBackend(AgentBackend):
         defaults = self.get_default_extra_args()
         if not defaults or not self._binary_path:
             return
-        if self._basename_allows_default_args(os.path.basename(self._binary_path)):
+        if os.path.basename(self._binary_path).lower() == self.get_binary_name().lower():
             self._extra_args = list(defaults)
 
     def _find_binary(self):
@@ -263,10 +254,6 @@ class ACPBackend(AgentBackend):
             elif item_type == "tool_result":
                 queue.put((StreamQueueKind.TOOL_RESULT, item))
 
-    # Same content shapes; keep names so Vibe send() and existing tests stay valid.
-    _handle_session_update = _handle_acp_update
-    _handle_agent_update = _handle_acp_update
-
     def send(self, queue, user_message, document_context, document_url, system_prompt=None, mcp_url=None, selection_text=None, stop_checker=None, **kwargs):
         """Send a message via ACP stdio."""
         self._stop_requested = False
@@ -301,11 +288,9 @@ class ACPBackend(AgentBackend):
                 tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""
                 queue.put((StreamQueueKind.APPROVAL_REQUIRED, description, tool_name, tool_call, msg_id))
             elif method in ("notifications/session", "session/update"):
-                update = params.get("update", {})
-                self._handle_session_update(update, queue)
+                self._handle_acp_update(params.get("update", {}), queue)
             elif method in ("notifications/agent", "agent/update"):
-                update = params.get("update", params)
-                self._handle_agent_update(update, queue)
+                self._handle_acp_update(params.get("update", params), queue)
 
         if self._conn:
             self._conn.set_notification_callback(on_notification)
@@ -319,6 +304,11 @@ class ACPBackend(AgentBackend):
                 if result:
                     stop_reason = result.get("stopReason", result.get("stop_reason", ""))
                     log.info(f"Prompt completed: stop_reason={stop_reason}")
+                    # Some ACP agents (Vibe) put final text in the prompt result.
+                    # Same block types as session updates; drain if present.
+                    content_blocks = result.get("contentBlocks") or []
+                    if content_blocks:
+                        self._handle_acp_update({"content": content_blocks}, queue)
 
             queue.put((StreamQueueKind.STREAM_DONE, None))
 

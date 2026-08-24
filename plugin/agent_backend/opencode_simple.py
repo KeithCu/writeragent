@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """OpenCode agent backend using the shared ACPBackend base class."""
 
-from typing import List
+from typing import Tuple
 
 from plugin.agent_backend.acp_backend import ACPBackend
 
@@ -25,7 +25,7 @@ class OpenCodeBackend(ACPBackend):
     """ACP-based OpenCode backend (``opencode acp``)."""
 
     backend_id = "opencode"
-    default_extra_args: List[str] = ["acp"]
+    default_extra_args: Tuple[str, ...] = ("acp",)
 
     def get_binary_name(self) -> str:
         """Primary executable for PATH lookup (``opencode acp`` is the supported install)."""
