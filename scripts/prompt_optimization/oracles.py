@@ -51,11 +51,15 @@ _TABLE_RE = re.compile(r"<table\b", re.IGNORECASE)
 
 def visible_text(doc: str) -> str:
     """Tag-stripped text. Used so LO XHTML indent is not scored as content."""
-    text = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", doc or "")
-    text = re.sub(r"(?is)<style[^>]*>.*?</style>", " ", text)
-    text = re.sub(r"(?s)<[^>]+>", " ", text)
-    text = html.unescape(text).replace("\xa0", " ")
-    return text
+    return text_without_tags(doc)
+
+
+def text_without_tags(doc: str) -> str:
+    """Delete tags (no substitution) so ``</p><p>`` does not become a double space."""
+    text = re.sub(r"(?is)<script[^>]*>.*?</script>", "", doc or "")
+    text = re.sub(r"(?is)<style[^>]*>.*?</style>", "", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
+    return html.unescape(text).replace("\xa0", " ")
 
 
 def _norm_ws(text: str) -> str:
@@ -159,12 +163,19 @@ def oracle_table_from_mess(doc: str) -> list[str]:
     for token in ("Battle Born", "Victron", "SmartSolar", "NEMA 4"):
         if token not in text:
             fails.append(f"missing {token!r}")
-    if not re.search(r"\bTotal\b", text, re.IGNORECASE):
+    if not _has_total_label(doc, text):
         fails.append("no Total row")
     amounts = parse_money(text)
     if not any(_near(v, _TABLE_FROM_MESS_TOTAL) for v in amounts):
         fails.append(f"Total is not {_TABLE_FROM_MESS_TOTAL}")
     return fails
+
+
+def _has_total_label(doc: str, text: str) -> bool:
+    """True when a Total row exists. Tag-stripped ``1.75Total7.75`` has no ``\\b``."""
+    if re.search(r"(?i)(?<![A-Za-z])Total(?![A-Za-z])", text or ""):
+        return True
+    return bool(re.search(r"(?i)>Total<", doc or ""))
 
 
 def oracle_table_engineering(doc: str) -> list[str]:
@@ -175,7 +186,7 @@ def oracle_table_engineering(doc: str) -> list[str]:
     for token in ("Item", "Price", "Quantity", "Kiwi", "note"):
         if token not in text:
             fails.append(f"missing {token!r}")
-    if not re.search(r"\bTotal\b", text, re.IGNORECASE):
+    if not _has_total_label(doc, text):
         fails.append("no Total row")
     amounts = parse_money(text)
     if not any(_near(v, _TABLE_ENGINEERING_PRICE_TOTAL) for v in amounts):
@@ -195,6 +206,7 @@ def oracle_bulk_cleanup(doc: str) -> list[str]:
             fails.append(f"missing {token!r}")
     # Score visible text only — raw LO XHTML indent is not a content error,
     # and a lone ASCII space is ordinary English, not a leftover artifact.
+    # Check the tag-deleted string so inter-tag joins are not counted as "  ".
     if "  " in text:
         fails.append("visible double space")
     if " ." in text or " ," in text or ".." in text:
@@ -246,11 +258,10 @@ def oracle_style_consistency(doc: str) -> list[str]:
     text = visible_text(doc)
     if "Quotations" not in (doc or "") and "Quotations" not in text:
         fails.append("Default paragraphs were not mapped to Quotations")
-    h1 = h1_texts(doc)
-    upgraded = {t.casefold() for t in h1}
-    if "heading 2 text that should be upgraded" not in upgraded:
+    h1 = " | ".join(t.casefold() for t in h1_texts(doc))
+    if "heading 2 text that should be upgraded" not in h1:
         fails.append("HEADING 2 line was not upgraded to Heading 1")
-    if "heading 2 again" not in upgraded:
+    if "heading 2 again" not in h1:
         fails.append("'Heading 2 again' was not upgraded to Heading 1")
     if "Default style paragraph one" not in text:
         fails.append("default paragraph content was lost")

@@ -81,6 +81,8 @@ def _lo_eval_available() -> str | None:
         return "WRITERAGENT_TESTING=1 uses QueueExecutor; unset it for LO eval"
     if not shutil.which("soffice"):
         return f"soffice not on PATH. Local: {_LO_CMD}"
+    if not (_REPO / "plugin" / "_manifest.py").is_file():
+        return f"plugin._manifest.py missing (make manifest). Local: {_LO_CMD}"
     probe = subprocess.run(
         [sys.executable, "-c", "import uno, unohelper"],
         cwd=_REPO,

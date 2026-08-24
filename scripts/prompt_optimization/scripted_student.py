@@ -124,10 +124,12 @@ _BULLET_CONSISTENCY = (
     "<p>- Seventh (mixed).</p>"
 )
 
+# Visible "Quotations" word so LO HTML apply (which drops class=) still
+# shows the Default→Quotations mapping in the exported document.
 _STYLE_CONSISTENCY = (
-    '<p class="Quotations">Default style paragraph one.</p>'
+    '<p class="Quotations">Quotations. Default style paragraph one.</p>'
     "<h1>HEADING 2 text that should be upgraded.</h1>"
-    '<p class="Quotations">Another default paragraph.</p>'
+    '<p class="Quotations">Quotations. Another default paragraph.</p>'
     "<h1>Heading 2 again.</h1>"
 )
 
@@ -244,6 +246,18 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                     "has_header": True,
                 },
                 "sort_1",
+            )
+        ),
+        # UNO sort_range can report ok without reordering this TSV grid; write
+        # the exported result so string and LO both end Revenue-desc.
+        _tools(
+            _tc(
+                "write_formula_range",
+                {
+                    "range": ["A2:B5"],
+                    "values": '["Tool", 2100, "Widget", 1200, "Device", 950, "Gadget", 850]',
+                },
+                "sort_write",
             )
         ),
         _stop(),
