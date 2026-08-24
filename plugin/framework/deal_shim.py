@@ -25,9 +25,12 @@ DEAL_MAX_SOURCE = 64
 # unrolls `while index > 0` forever on a giant int in deep check.
 # Same for products, exponents, and f-strings of a huge int.
 DEAL_MAX_COL_INDEX = 26 + 26**2 + 26**3 - 1  # 18277, A–ZZZ (not 26**3-1)
-DEAL_MAX_ROW_INDEX = 1_048_576 - 1  # Excel/Calc max row, 0-based
+DEAL_MAX_ROW_INDEX = 1_048_576 - 1  # Excel/Calc max row, 0-based (address round-trip)
 DEAL_MAX_PLACEHOLDER_INDEX = 1024  # Excel %Pn% deps
 DEAL_MAX_SHAPE_RANK = 4  # ndarray rank; grids are 2-D, tests use up to 4
+# cell_count product domain — not Calc's million-row grid. 256^4 still fits in a
+# machine int; CrossHair is testing our multiply loop, not LibreOffice.
+DEAL_MAX_SHAPE_DIM = 256
 DEAL_MAX_RETRY = 8  # MCP tunnel backoff exponent (production DEFAULT_MAX_RETRIES=5)
 DEAL_MAX_BACKOFF = 300.0  # seconds; Hypothesis uses up to 300
 DEAL_MAX_BACKOFF_FACTOR = 10.0

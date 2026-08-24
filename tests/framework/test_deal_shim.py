@@ -17,6 +17,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_PLACEHOLDER_INDEX,
     DEAL_MAX_RETRY,
     DEAL_MAX_ROW_INDEX,
+    DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
@@ -72,6 +73,7 @@ def test_deal_shim_constants() -> None:
     assert DEAL_MAX_ROW_INDEX == 1_048_576 - 1
     assert DEAL_MAX_PLACEHOLDER_INDEX == 1024
     assert DEAL_MAX_SHAPE_RANK == 4
+    assert DEAL_MAX_SHAPE_DIM == 256
     assert DEAL_MAX_RETRY == 8
     assert DEAL_MAX_BACKOFF == 300.0
     assert DEAL_MAX_BACKOFF_FACTOR == 10.0
