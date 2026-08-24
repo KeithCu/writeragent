@@ -35,6 +35,6 @@ Apr 2026 snapshot — slugs and prices may be stale. Current default eval models
 
 ## Scoring approach
 
-A high-tier “Teacher” model (typically Claude Sonnet 4.6) generates gold-standard answers; a Judge model (e.g. Grok 4.1 Fast) scores runs on a weighted rubric. That separates fast “Flash” models from frontier models with better taste for professional documents.
+A high-tier “Teacher” model (typically Claude Sonnet 4.6) generates gold-standard answers; a Judge model (default `openai/gpt-oss-120b`; the retired `x-ai/grok-4.1-fast` 404s) scores runs on a weighted rubric. That separates fast “Flash” models from frontier models with better taste for professional documents.
 
 **Fine-tuning direction:** the same eval signal (correct vs incorrect tool use, minimal vs verbose traces) could train a smaller specialist for this tool distribution—fewer tokens at similar correctness, better Value (C²/$).

@@ -59,7 +59,7 @@ def test_score_with_judge_llm_uses_cli_config(mock_client_cls: MagicMock) -> Non
     score, result = score_with_judge_llm(
         endpoint="https://openrouter.ai/api/v1",
         api_key="test-key",
-        judge_model="x-ai/grok-4.1-fast",
+        judge_model="openai/gpt-oss-120b",
         document_content="a",
         user_question="make table",
         model_answer="<table></table>",
@@ -71,7 +71,7 @@ def test_score_with_judge_llm_uses_cli_config(mock_client_cls: MagicMock) -> Non
     mock_client_cls.assert_called_once()
     cfg = mock_client_cls.call_args[0][0]
     assert cfg["api_key"] == "test-key"
-    assert cfg["model"] == "x-ai/grok-4.1-fast"
+    assert cfg["model"] == "openai/gpt-oss-120b"
     assert cfg["is_openrouter"] is True
     instance.request_with_tools.assert_called_once()
     call_kw = instance.request_with_tools.call_args.kwargs

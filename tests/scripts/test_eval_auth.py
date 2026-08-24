@@ -36,6 +36,10 @@ def test_resolve_api_base_defaults() -> None:
     assert "openrouter.ai" in resolve_api_base(cli_base=None)
 
 
+def test_openrouter_default_judge_is_gpt_oss_120b() -> None:
+    assert OPENROUTER_DEFAULT_JUDGE == "openai/gpt-oss-120b"
+
+
 def test_resolve_judge_openrouter_default() -> None:
     assert (
         resolve_judge_model(

@@ -14,7 +14,9 @@ import sys
 from typing import Any, Sequence
 
 DEFAULT_API_BASE = "https://openrouter.ai/api/v1"
-OPENROUTER_DEFAULT_JUDGE = "x-ai/grok-4.1-fast"
+# Retired default x-ai/grok-4.1-fast 404s on OpenRouter. gpt-oss-120b is
+# already in MODELS / get_default_models() (~$0.037 / $0.17 per 1M).
+OPENROUTER_DEFAULT_JUDGE = "openai/gpt-oss-120b"
 
 
 def is_openrouter_endpoint(endpoint: str) -> bool:

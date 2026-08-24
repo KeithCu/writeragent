@@ -39,7 +39,7 @@ Endpoint:
 
 Judge model (`run_eval_multi.py`):
 
-- `--judge` / `WRITERAGENT_JUDGE_MODEL`, then Grok on OpenRouter, else first `--models` id on other endpoints
+- `--judge` / `WRITERAGENT_JUDGE_MODEL`, then `openai/gpt-oss-120b` on OpenRouter, else first `--models` id on other endpoints
 - `--no-judge` — substring checks only
 
 Override model for optimize:
@@ -80,14 +80,14 @@ python run_optimize.py -m qwen/qwen3-coder-next -k sk-...
 
 This runs MIPROv2 in **0-shot instruction-only** mode: it proposes alternative system prompts and keeps the one that scores best on the **judge-based metric** (same LLM-as-a-Judge as `run_eval_multi`, plus token penalty). Output is saved to `optimized_writer_prompt.json`.
 
-- **`--judge`** / **`-J`**: Judge model for grading (default `x-ai/grok-4.1-fast`). Same dataset and optional `gold_standards.json` as run_eval_multi; run `run_eval_multi.py --generate-golds` once to populate gold for better judge reference.
+- **`--judge`** / **`-J`**: Judge model for grading (default `openai/gpt-oss-120b`). Same dataset and optional `gold_standards.json` as run_eval_multi; run `run_eval_multi.py --generate-golds` once to populate gold for better judge reference.
 - **`-j N`** / **`--jobs N`**: parallel evals (default 4).
 - **`--auto light|medium|heavy`**: exploration level (default `light`). Use `medium` or `heavy` for more tries when your prompt is complicated.
 - **`-t N`** / **`--trials N`**: explicit number of Bayesian optimization trials (overrides `--auto`; uses more exploration).
 
 ## Metric
 
-Optimization and multi-model eval both use the same **LLM-as-a-Judge** scoring (default **Grok 4.1 Fast** via `score_with_judge` in `eval_core`).
+Optimization and multi-model eval both use the same **LLM-as-a-Judge** scoring (default **`openai/gpt-oss-120b`** via `score_with_judge` in `eval_core`).
 
 - **Dual-Mode Scoring**: The judge applies weighted criteria based on the task category:
     - **Structural** (Tables, Cleanup): 60% Accuracy, 40% Formatting.

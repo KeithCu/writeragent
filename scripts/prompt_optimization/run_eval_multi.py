@@ -300,7 +300,7 @@ def main() -> int:
         "-J",
         metavar="ID",
         default=None,
-        help="Judge model id (default: Grok on OpenRouter; else first --models id on other endpoints).",
+        help="Judge model id (default: openai/gpt-oss-120b on OpenRouter; else first --models id on other endpoints).",
     )
     p.add_argument(
         "--no-judge",

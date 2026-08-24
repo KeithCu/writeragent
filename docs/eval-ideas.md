@@ -1,6 +1,6 @@
 # Detailed LLM Evaluation Suite for WriterAgent
 
-This document defines the test cases for the WriterAgent evaluation suite. We use an **LLM-as-a-Judge** (Grok 4.1 Fast) to evaluate submissions against high-tier **Gold Standards** (Claude Sonnet 4.6).
+This document defines the test cases for the WriterAgent evaluation suite. We use an **LLM-as-a-Judge** (`openai/gpt-oss-120b`) to evaluate submissions against high-tier **Gold Standards** (Claude Sonnet 4.6).
 
 Each test is assigned a **Mode** to ensure appropriate weight distribution:
 - **Structural Mode**: Weighs Accuracy (60%) and Formatting (40%). Used for tables, cleanup, and data-entry.
