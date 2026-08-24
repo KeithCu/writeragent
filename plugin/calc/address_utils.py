@@ -213,10 +213,7 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     return (start_col, start_row), (end_col, end_row)
 
 
-@deal.pre(lambda col, row: (
-    isinstance(col, int) and 0 <= col <= DEAL_MAX_COL_INDEX
-    and isinstance(row, int) and 0 <= row <= DEAL_MAX_ROW_INDEX
-))
+@deal.pre(lambda col, row: isinstance(col, int) and 0 <= col <= DEAL_MAX_COL_INDEX and isinstance(row, int) and 0 <= row <= DEAL_MAX_ROW_INDEX)
 @deal.post(lambda result: isinstance(result, str) and bool(re.match(r"^[A-Z]+\d+$", result)))
 @deal.ensure(lambda col, row, result: parse_address(result) == (col, row))
 def format_address(col: int, row: int) -> str:
