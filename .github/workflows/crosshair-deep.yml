@@ -55,7 +55,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --dev --extra dev
+          uv sync --dev
 
       - name: Create build directory
         run: |
