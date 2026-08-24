@@ -26,6 +26,9 @@ addopts = "--ignore=build --ignore=tests/uno --ignore=tests/scripting/test_seria
 markers = [
     "slow: excluded from default pytest; run via make slowtests",
     "integration: full subprocess worker IPC (optional, slower)",
+    "unit: pure unit test, no UNO, no live LibreOffice",
+    "lo: live LibreOffice / UNO required",
+    "eval: eval/scripted test",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning:matplotlib.*",
