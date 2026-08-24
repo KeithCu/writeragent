@@ -959,3 +959,130 @@ def test_web_research_caching_disabled_bypasses_cache(tmp_path):
         mock_exec.return_value.execute_safe.assert_called_once()
 
 
+# =============================================================================
+# DuckDuckGo search tool recency + sponsored-row handling
+# =============================================================================
+
+
+class _FakeUrlopenResponse:
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return self._body
+
+
+def test_web_search_recency_sets_df_parameter():
+    import urllib.parse
+
+    for recency, expected_df in [("day", "d"), ("week", "w"), ("month", "m"), ("year", "y")]:
+        captured = {}
+        html = b"<html><body>no results</body></html>"
+
+        def _fake_urlopen(req, timeout=None):
+            captured["params"] = dict(urllib.parse.parse_qsl(req.data.decode("utf-8")))
+            return _FakeUrlopenResponse(html)
+
+        from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
+
+        with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+            DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news", recency=recency)
+        assert captured["params"].get("df") == expected_df, f"recency={recency} should map to df={expected_df}"
+
+
+def test_web_search_recency_any_or_none_omits_df():
+    import urllib.parse
+
+    from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
+
+    for recency in [None, "any"]:
+        captured = {}
+
+        def _fake_urlopen(req, timeout=None):
+            captured["params"] = dict(urllib.parse.parse_qsl(req.data.decode("utf-8")))
+            return _FakeUrlopenResponse(b"<html><body>no results</body></html>")
+
+        with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+            DuckDuckGoSearchTool(cache_max_age_days=30).forward("AI news", recency=recency)
+        assert "df" not in captured["params"], f"recency={recency} should omit df"
+
+
+def test_web_search_cache_key_includes_recency():
+    from plugin.contrib.smolagents.default_tools import _search_cache_key
+
+    plain = _search_cache_key("AI news", None)
+    assert plain == "any|AI news"
+    assert _search_cache_key("AI news", "day") != plain
+    assert _search_cache_key("AI news", "week") != _search_cache_key("AI news", "day")
+
+
+def test_web_search_skips_sponsored_rows():
+    from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
+
+    html = (
+        "<table>"
+        # Sponsored ad row (single row, has its own result-link anchors incl. 'more info')
+        "<tr class='result-sponsored'>"
+        "<td>&nbsp;</td>"
+        "<td><a href='http://ad.example/' class='result-link'>Sponsored Ad Title</a></td>"
+        "<td>(Sponsored link - <a href='http://help/' rel='nofollow' class='result-link'>more info</a>)</td>"
+        "</tr>"
+        # Real result split across three rows (current DDG Lite layout)
+        "<tr><td valign='top'>1.&nbsp;</td>"
+        "<td><a rel='nofollow' href='http://real.example/story' class='result-link'>Real Result Title</a></td></tr>"
+        "<tr><td>&nbsp;</td><td class='result-snippet'>real result snippet</td></tr>"
+        "<tr><td>&nbsp;</td><td><span class='link-text'>real.example/story</span>"
+        "<span class='timestamp'>2026-08-24</span></td></tr>"
+        "</table>"
+    ).encode("utf-8")
+
+    def _fake_urlopen(req, timeout=None):
+        return _FakeUrlopenResponse(html)
+
+    with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+        tool = DuckDuckGoSearchTool(cache_max_age_days=30)
+        result = tool.forward("AI news")
+
+    assert "Sponsored Ad Title" not in result
+    assert "more info" not in result
+    assert "Real Result Title" in result
+    assert "https://real.example/story" in result
+    assert "real result snippet" in result
+
+
+def test_web_search_parses_split_row_layout():
+    """Current DDG Lite splits each result across title/snippet/link rows."""
+    from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
+
+    html = (
+        "<table>"
+        "<tr><td valign='top'>1.&nbsp;</td>"
+        "<td><a rel='nofollow' href='http://one.example/a' class='result-link'>First Headline</a></td></tr>"
+        "<tr><td>&nbsp;</td><td class='result-snippet'>first snippet</td></tr>"
+        "<tr><td>&nbsp;</td><td><span class='link-text'>one.example/a</span></td></tr>"
+        "<tr><td valign='top'>2.&nbsp;</td>"
+        "<td><a rel='nofollow' href='http://two.example/b' class='result-link'>Second Headline</a></td></tr>"
+        "<tr><td>&nbsp;</td><td class='result-snippet'>second snippet</td></tr>"
+        "<tr><td>&nbsp;</td><td><span class='link-text'>two.example/b</span></td></tr>"
+        "</table>"
+    ).encode("utf-8")
+
+    def _fake_urlopen(req, timeout=None):
+        return _FakeUrlopenResponse(html)
+
+    with patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+        tool = DuckDuckGoSearchTool(cache_max_age_days=30)
+        result = tool.forward("AI news")
+
+    assert "First Headline" in result
+    assert "Second Headline" in result
+    assert "one.example/a" in result
+    assert "two.example/b" in result
+
+

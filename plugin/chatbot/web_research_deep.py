@@ -334,6 +334,7 @@ def _llm_chat(llm_chat: LlmChatFn, messages: list[dict[str, str]], max_tokens: i
 
 
 def generate_search_queries(llm_chat: LlmChatFn, query: str, num_queries: int) -> list[dict[str, str]]:
+    today = datetime.now().strftime("%Y-%m-%d")
     messages = [
         {
             "role": "system",
@@ -349,6 +350,8 @@ def generate_search_queries(llm_chat: LlmChatFn, query: str, num_queries: int) -
                 "For each query, provide a research goal.\n\n"
                 'Return ONLY a JSON array of objects using this exact schema:\n'
                 '[{"query": "<search query>", "researchGoal": "<research goal>"}]\n\n'
+                f"Today's date is {today}. Prefer recent information; where the topic is fast-changing, "
+                "word the queries to surface up-to-date results.\n\n"
                 f"Prompt: {query}"
             ),
         },

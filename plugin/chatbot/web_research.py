@@ -25,6 +25,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable
 
 from plugin.framework.tool import ToolBase
@@ -291,9 +292,13 @@ def _run_web_agent(
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool, VisitWebpageTool
 
     max_steps = params.max_steps_override if params.max_steps_override else params.max_steps
+    today = datetime.now().strftime("%Y-%m-%d")
     base_intro = (
-        "You are a research assistant. Use the conversation context provided below to resolve any ambiguity in the user's query. "
-        "Avoid visiting Yelp (yelp.com) links, as Yelp blocks automated requests and returns 403 errors; rely on other sources instead."
+        f"You are a research assistant. Today's date is {today}. "
+        "Use the conversation context provided below to resolve any ambiguity in the user's query. "
+        "Avoid visiting Yelp (yelp.com) links, as Yelp blocks automated requests and returns 403 errors; rely on other sources instead. "
+        "For fast-changing topics (news, prices, model releases), prefer recent sources and pass "
+        "recency='day' or recency='week' to web_search so results are not stale."
     )
     if params.deep_sub_agent and research_goal:
         base_intro += f"\n\nResearch goal for this sub-task: {research_goal.strip()}"

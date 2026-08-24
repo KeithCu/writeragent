@@ -262,10 +262,34 @@ class UserInputTool(Tool):
         return user_input
 
 
+_RECENCY_TO_DF = {"day": "d", "week": "w", "month": "m", "year": "y"}
+
+
+def _norm_recency(value):
+    """Normalize a recency input to a cache-key token ('any' when unset)."""
+    return (value or "any").strip().lower()
+
+
+def _search_cache_key(query, recency):
+    """Search cache key includes recency so filtered results don't collide with evergreen ones."""
+    return f"{_norm_recency(recency)}|{' '.join(str(query).strip().split())}"
+
+
 class DuckDuckGoSearchTool(Tool):
     name = "web_search"
-    description = "Performs a duckduckgo web search based on your query (think a Google search) then returns the top search results."
-    inputs = {"query": {"type": "string", "description": "The search query to perform."}}
+    description = (
+        "Performs a duckduckgo web search based on your query (think a Google search) then returns the top search results. "
+        "Use the optional recency parameter for fast-changing topics (news, prices, model releases) so results are not stale."
+    )
+    inputs = {
+        "query": {"type": "string", "description": "The search query to perform."},
+        "recency": {
+            "type": "string",
+            "enum": ["any", "day", "week", "month", "year"],
+            "description": "Restrict results to this period: day, week, month, year, or any (no restriction).",
+            "nullable": True,
+        },
+    }
     output_type = "string"
 
     def __init__(self, cache_max_age_days: int, max_results: int = 10, cache_path: str | None = None, cache_max_mb: int = 50, **kwargs):
@@ -275,21 +299,25 @@ class DuckDuckGoSearchTool(Tool):
         self._cache_max_mb = max(cache_max_mb, 0)
         self._cache_max_age_days = max(cache_max_age_days, 1)
 
-    def forward(self, query: str) -> str:
-        key = " ".join(str(query).strip().split())
-        if self._cache_path and self._cache_max_mb > 0 and key:
-            cached = _web_cache_get(self._cache_path, "search", key, max_age_days=self._cache_max_age_days)
+    def forward(self, query: str, recency: str | None = None) -> str:
+        cache_key = _search_cache_key(query, recency)
+        if self._cache_path and self._cache_max_mb > 0 and cache_key:
+            cached = _web_cache_get(self._cache_path, "search", cache_key, max_age_days=self._cache_max_age_days)
             if cached is not None:
-                log.debug("web_cache: search hit: %s" % (key[:60] + "..." if len(key) > 60 else key))
+                log.debug("web_cache: search hit: %s" % (cache_key[:60] + "..." if len(cache_key) > 60 else cache_key))
                 return cached
-            log.debug("web_cache: search miss: %s" % (key[:60] + "..." if len(key) > 60 else key))
+            log.debug("web_cache: search miss: %s" % (cache_key[:60] + "..." if len(cache_key) > 60 else cache_key))
 
         import urllib.request
         import urllib.parse
         from html.parser import HTMLParser
 
         url = "https://lite.duckduckgo.com/lite/"
-        data = urllib.parse.urlencode({"q": query}).encode("utf-8")
+        params = {"q": query}
+        df = _RECENCY_TO_DF.get(_norm_recency(recency))
+        if df:
+            params["df"] = df
+        data = urllib.parse.urlencode(params).encode("utf-8")
         req = urllib.request.Request(url, data=data, headers={"User-Agent": _get_user_agent_for_url(url)})
         try:
             with urllib.request.urlopen(req, timeout=10) as response:
@@ -298,6 +326,14 @@ class DuckDuckGoSearchTool(Tool):
             return f"Error fetching search results: {str(e)}"
 
         class SimpleResultParser(HTMLParser):
+            """Parses DDG Lite result rows.
+
+            Current layout splits one result across multiple <tr> rows: a title row,
+            a snippet row, then a URL/timestamp row. So we accumulate fields across
+            rows and emit a result only when title + description + link are all
+            present (sponsored <tr class="result-sponsored"> rows are skipped).
+            """
+
             def __init__(self):
                 super().__init__()
                 self.results = []
@@ -305,10 +341,26 @@ class DuckDuckGoSearchTool(Tool):
                 self.capture_title = False
                 self.capture_description = False
                 self.capture_link = False
+                self.skip_row = False
+
+            def _flush_current(self):
+                if {"title", "description", "link"} <= set(self.current):
+                    self.current["description"] = "".join(self.current["description"])
+                    self.results.append(self.current)
+                self.current = {}
 
             def handle_starttag(self, tag, attrs):
                 attrs = dict(attrs)
+                if tag == "tr" and attrs.get("class") == "result-sponsored":
+                    self.skip_row = True
+                    self.capture_title = self.capture_description = self.capture_link = False
+                    self.current = {}
+                    return
+                if self.skip_row:
+                    return
                 if tag == "a" and attrs.get("class") == "result-link":
+                    if self.current:
+                        self._flush_current()
                     self.capture_title = True
                 elif tag == "td" and attrs.get("class") == "result-snippet":
                     self.capture_description = True
@@ -316,17 +368,16 @@ class DuckDuckGoSearchTool(Tool):
                     self.capture_link = True
 
             def handle_endtag(self, tag):
-                if tag == "a" and self.capture_title:
+                if tag == "tr":
+                    self.skip_row = False
+                elif self.skip_row:
+                    return
+                elif tag == "a" and self.capture_title:
                     self.capture_title = False
                 elif tag == "td" and self.capture_description:
                     self.capture_description = False
                 elif tag == "span" and self.capture_link:
                     self.capture_link = False
-                elif tag == "tr":
-                    if {"title", "description", "link"} <= self.current.keys():
-                        self.current["description"] = "".join(self.current["description"])
-                        self.results.append(self.current)
-                        self.current = {}
 
             def handle_data(self, data):
                 if self.capture_title:
@@ -337,8 +388,14 @@ class DuckDuckGoSearchTool(Tool):
                 elif self.capture_link:
                     self.current["link"] = "https://" + data.strip()
 
+            def close(self):
+                super().close()
+                if self.current:
+                    self._flush_current()
+
         parser = SimpleResultParser()
         parser.feed(html)
+        parser.close()
         results = parser.results[:self.max_results]
 
         if len(results) == 0:
@@ -351,11 +408,11 @@ class DuckDuckGoSearchTool(Tool):
                 postprocessed_results = [f"<div><h3><a href='{r['link']}'>{r['title']}</a></h3><p>{r['description']}</p></div>" for r in results]
                 result = "<h2>Search Results</h2>\n" + "\n".join(postprocessed_results)
 
-        if self._cache_path and self._cache_max_mb > 0 and key:
+        if self._cache_path and self._cache_max_mb > 0 and cache_key:
             _web_cache_set(
                 self._cache_path,
                 "search",
-                key,
+                cache_key,
                 result,
                 self._cache_max_mb * 1024 * 1024,
             )

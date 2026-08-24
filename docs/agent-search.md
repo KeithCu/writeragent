@@ -75,6 +75,7 @@ This is the bridge between `smolagents` and WriterAgent's `LlmClient`. It provid
 **What is Done:**
 - **Vendoring core files**: Copied `agents.py`, `models.py`, `tools.py`, `default_tools.py`, etc. to `plugin/contrib/smolagents`.
 - **Tool Adaptation**: Completely rewrote `DuckDuckGoSearchTool` and `VisitWebpageTool` in `default_tools.py` to use `urllib.request` and standard library parsers, with a realistic Firefox user agent to reduce 403s.
+- **Recency filter**: `web_search` now accepts an optional `recency` (`day`/`week`/`month`/`year`/`any`) that maps to DDG Lite's `df` time filter; research prompts inject today's date so fast-changing queries don't go stale.
 - **Model Wrapper**: Built `WriterAgentSmolModel` ([`plugin/chatbot/smol_agent.py`](../plugin/chatbot/smol_agent.py)) to connect the sub-agent directly to WriterAgent's existing `LlmClient`.
 - **Tool Registration**: Registered the `search_web` / web-research path so the ReAct loop runs via the shared smol agent construction.
 - **YAML/Jinja2 removal for ToolCallingAgent**: Replaced `populate_template()` in `ToolCallingAgent.initialize_system_prompt()` with `_render_toolcalling_system_prompt()` and prompts in `toolcalling_agent_prompts.py` using simple placeholders. The search_web path no longer depends on Jinja2.

@@ -239,3 +239,21 @@ def test_assess_research_coverage_parses_score():
     out = assess_research_coverage(llm, "topic", ["finding"], {}, quality_threshold=7)
     assert out["score"] == 8.0
     assert out["stop"] is True
+
+
+def test_generate_search_queries_includes_today():
+    from datetime import datetime
+
+    from plugin.chatbot.web_research_deep import generate_search_queries
+
+    captured: dict[str, str] = {}
+
+    def fake_llm(messages, max_tokens):
+        captured["user"] = messages[-1]["content"]
+        return '[{"query": "q1", "researchGoal": "g1"}, {"query": "q2", "researchGoal": "g2"}]'
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    out = generate_search_queries(fake_llm, "some topic", 2)
+
+    assert len(out) == 2
+    assert today in captured["user"], f"generated query prompt should include today's date ({today})"
