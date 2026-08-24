@@ -26,7 +26,7 @@ from plugin.calc.address_utils import (
     parse_address,
     parse_range_string,
 )
-from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX
+from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
 from tests.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/calc/address_utils.py"
@@ -35,7 +35,7 @@ _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 # Bound column width so Hypothesis stays fast (Excel max is wider; invariant holds generally).
 _col_letters = st.text(alphabet=st.characters(min_codepoint=ord("A"), max_codepoint=ord("Z")), min_size=1, max_size=3)
 _col_index = st.integers(min_value=0, max_value=DEAL_MAX_COL_INDEX)
-_row_index = st.integers(min_value=0, max_value=10_000)
+_row_index = st.integers(min_value=0, max_value=DEAL_MAX_ROW_INDEX)
 
 
 def _find_crosshair() -> str | None:
@@ -72,6 +72,17 @@ def test_hypothesis_column_index_round_trip(index: int) -> None:
 def test_hypothesis_format_parse_round_trip(col: int, row: int) -> None:
     addr = format_address(col, row)
     assert parse_address(addr) == (col, row)
+
+
+def test_format_address_row_overflow_pre_fails_closed() -> None:
+    import deal
+    from tests.strip_bundle import deal_pre_present
+
+    if not deal_pre_present(format_address):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        format_address(0, DEAL_MAX_ROW_INDEX + 1)
+    assert format_address(0, DEAL_MAX_ROW_INDEX) == f"A{DEAL_MAX_ROW_INDEX + 1}"
 
 
 def test_parse_address_raises_on_invalid() -> None:

@@ -25,7 +25,9 @@ DEAL_MAX_SOURCE = 64
 # unrolls `while index > 0` forever on a giant int in deep check.
 # Same for products, exponents, and f-strings of a huge int.
 DEAL_MAX_COL_INDEX = 26 + 26**2 + 26**3 - 1  # 18277, A–ZZZ (not 26**3-1)
-DEAL_MAX_ROW_INDEX = 1_048_576 - 1  # Excel/Calc max row, 0-based (address round-trip)
+# CrossHair domain only (release strips @deal). 1000 covers 1–4 digit rows;
+# Calc's million-row grid is not worth the extra SMT time.
+DEAL_MAX_ROW_INDEX = 1000
 DEAL_MAX_PLACEHOLDER_INDEX = 1024  # Excel %Pn% deps
 DEAL_MAX_SHAPE_RANK = 4  # ndarray rank; grids are 2-D, tests use up to 4
 # cell_count product domain — not Calc's million-row grid. 256^4 still fits in a

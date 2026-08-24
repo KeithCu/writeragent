@@ -70,7 +70,7 @@ def test_deal_shim_constants() -> None:
     assert DEAL_MAX_URL == 2048
     assert DEAL_MAX_PATH == 4096
     assert DEAL_MAX_SOURCE == 64
-    assert DEAL_MAX_ROW_INDEX == 1_048_576 - 1
+    assert DEAL_MAX_ROW_INDEX == 1000
     assert DEAL_MAX_PLACEHOLDER_INDEX == 1024
     assert DEAL_MAX_SHAPE_RANK == 4
     assert DEAL_MAX_SHAPE_DIM == 256
