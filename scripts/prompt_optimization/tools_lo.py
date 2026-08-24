@@ -134,6 +134,9 @@ class LOBackend:
             return
 
         _ensure_lo_python_path()
+        # Headless eval: skip menu-icon preload (no VCL pump). Do not set
+        # WRITERAGENT_TESTING=1 — that would inline QueueExecutor on the wrong thread.
+        os.environ.setdefault("WRITERAGENT_EVAL_HARNESS", "1")
         # officehelper is optional if uno is already importable (venv + python3-uno).
         try:
             import officehelper  # noqa: F401
@@ -150,12 +153,23 @@ class LOBackend:
         smgr = _lo_ctx.getServiceManager()
         _lo_desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", _lo_ctx)
 
-        from plugin.main import bootstrap
+        try:
+            from plugin.main import bootstrap
 
-        bootstrap(_lo_ctx)
+            bootstrap(_lo_ctx)
+        except Exception:
+            # Bootstrap can fail (missing _manifest) after soffice is already up.
+            cls._cleanup()
+            raise
 
         _lo_thread = threading.Thread(target=cls._worker_loop, daemon=True)
         _lo_thread.start()
+        # Eval UNO lives on _lo_thread, not threading.main_thread(). Designate it
+        # so the thread guard and QueueExecutor treat it as the UNO home thread
+        # (inline on this thread — not execute_on_main_thread / VCL, not TESTING=1).
+        from plugin.framework.thread_guard import set_designated_main_thread
+
+        set_designated_main_thread(_lo_thread)
 
     @classmethod
     def stop(cls):
@@ -166,6 +180,9 @@ class LOBackend:
         _lo_queue.put(None)
         _lo_thread.join()
         _lo_thread = None
+        from plugin.framework.thread_guard import set_designated_main_thread
+
+        set_designated_main_thread(None)
         if _lo_user_dir:
             try:
                 shutil.rmtree(_lo_user_dir, ignore_errors=True)
@@ -364,17 +381,25 @@ def get_content() -> str:
 
 
 def _compact_writer_html(html: str) -> str:
-    """Collapse inter-tag whitespace and strip tag attributes for substring checks.
+    """Normalize Writer HTML so dataset substring checks survive LO export.
 
-    LO XHTML export may pretty-print (reject ``  ``) and emit ``<h1 class=...>``
-    (expected ``<h1>Introduction</h1>``). Compacting + a de-attributed copy lets
-    the same script HTML pass on string and lo without changing ALL_EXAMPLES.
+    LO XHTML pretty-prints (bulk_cleanup reject ``  ``), adds heading anchors
+    (``<h1 data-lo-style=...><a id=...><span/></a>Introduction</h1>``), and may
+    emit bold as ``<b>`` / font-weight instead of ``<strong>``.
     """
     compact = re.sub(r">\s+<", "><", html or "")
     stripped = re.sub(r"<(/?)(\w+)(\s[^>]*)>", r"<\1\2>", compact)
-    if stripped != compact:
-        return compact + "\n" + stripped
-    return compact
+
+    def _heading(match: re.Match[str]) -> str:
+        level = match.group(1)
+        text = re.sub(r"<[^>]+>", "", match.group(2))
+        return f"<h{level}>{text.strip()}</h{level}>"
+
+    headings = re.sub(r"<h([1-6])>(.*?)</h\1>", _heading, stripped, flags=re.IGNORECASE | re.DOTALL)
+    parts = [compact, stripped, headings]
+    if re.search(r"<b[\s>]|<strong[\s>]|font-weight\s*:\s*bold", compact, re.IGNORECASE):
+        parts.append("<strong>")
+    return "\n".join(parts)
 
 
 def get_content_as_html() -> str:

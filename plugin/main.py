@@ -214,14 +214,18 @@ def bootstrap(ctx=None):
             main_thread = _services.get("main_thread")
             events_svc.subscribe("menu:update", lambda **kw: main_thread.execute(notify_menu_update) if main_thread else notify_menu_update())
 
-        if os.environ.get("WRITERAGENT_TESTING") != "1":
+        if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
             # Pre-load icons into ImageManager so first menu display has them.
+            # Eval harness is headless with no VCL pump — posting icons to "main"
+            # trips the UNO thread guard and can segfault soffice (issue #402 family).
             from plugin.framework.worker_pool import run_in_background
 
             run_in_background(_update_menu_icons)
 
-        # Register core handlers
-        _register_core_handlers()
+        # Headless eval connects via UNO pipe; menu/context-menu install
+        # calls get_desktop() in this process and can segfault soffice.
+        if os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
+            _register_core_handlers()
 
 
 def _register_core_handlers():
@@ -568,7 +572,7 @@ def notify_menu_update():
                 (lstnr, u) for (lstnr, u) in _status_listeners
                 if not any(lstnr is fl and u.Complete == fu.Complete for (fl, fu) in failed)
             ]
-    if os.environ.get("WRITERAGENT_TESTING") != "1":
+    if os.environ.get("WRITERAGENT_TESTING") != "1" and os.environ.get("WRITERAGENT_EVAL_HARNESS") != "1":
         # Update icons in a background thread (avoids blocking UI)
         from plugin.framework.worker_pool import run_in_background
 

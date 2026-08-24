@@ -21,6 +21,16 @@ for _p in (_PO, _REPO):
 import tools_lo as tl  # noqa: E402
 
 
+def test_writer_html_export_unwraps_lo_headings_and_bold() -> None:
+    raw = (
+        '<h1 data-lo-style="Heading1"><a id="a__Introduction"><span/></a>Introduction</h1>'
+        '<p><b>Developer</b></p>'
+    )
+    out = tl._compact_writer_html(raw)
+    assert "<h1>Introduction</h1>" in out
+    assert "<strong>" in out
+
+
 def test_write_cell_range_aliases_to_write_formula_range() -> None:
     name, params = tl.normalize_lo_tool(
         "write_cell_range",

@@ -13,14 +13,19 @@ import json
 import sys
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Literal
 
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
 from plugin.framework.tool import to_openai_schema
 from plugin.framework.client.llm_client import LlmClient
-from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
+
+# PyUNO: `com.sun.star` imports inside plugin.writer require uno first.
+# String/scripted eval must still run before `make ensure-uno` if uno is absent.
+try:
+    import uno as _uno  # noqa: F401
+except ImportError:
+    _uno = None
 
 _SCRIPTS_PO = Path(__file__).resolve().parent
 _REPO = _SCRIPTS_PO.parent.parent
@@ -43,13 +48,28 @@ class _EvalMockContext:
 
 BackendKind = Literal["string", "lo"]
 
-_FIND_TEXT_SCHEMA = SimpleNamespace(
-    name="find_text",
-    description=(
+class _EvalToolSchema:
+    """Minimal tool-shaped object for ``to_openai_schema`` (no UNO)."""
+
+    def __init__(self, name: str, description: str, parameters: dict[str, Any]) -> None:
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any]:
+        return self.parameters
+
+    def get_description(self, doc_type: str | None = None) -> str:
+        return self.description
+
+
+_FIND_TEXT_SCHEMA = _EvalToolSchema(
+    "find_text",
+    (
         "Find text in the document. Returns JSON with status and ranges "
         "(start, end, text) in document character offsets."
     ),
-    parameters={
+    {
         "type": "object",
         "properties": {
             "search": {"type": "string", "description": "Text to find."},
@@ -71,15 +91,53 @@ _FIND_TEXT_SCHEMA = SimpleNamespace(
 )
 
 
+def _writer_eval_schemas() -> list[dict[str, Any]]:
+    """Production Writer schemas when UNO is importable; static fallback otherwise."""
+    try:
+        from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
+
+        return [
+            to_openai_schema(GetDocumentContent()),
+            to_openai_schema(ApplyDocumentContent()),
+        ]
+    except ImportError:
+        return [
+            {
+                "name": "get_document_content",
+                "description": "Get document content. scope: full, selection, or range.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "scope": {"type": "string"},
+                        "max_chars": {"type": "integer"},
+                        "start": {"type": "integer"},
+                        "end": {"type": "integer"},
+                    },
+                },
+            },
+            {
+                "name": "apply_document_content",
+                "description": "Insert or replace document content (plain text or HTML).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target": {"type": "string"},
+                        "content": {"type": "string"},
+                        "old_content": {"type": "string"},
+                        "all_matches": {"type": "boolean"},
+                    },
+                    "required": ["content"],
+                },
+            },
+        ]
+
+
 def build_eval_tool_schemas(include_draw: bool = False, include_calc: bool = False) -> list[dict[str, Any]]:
     """OpenAI function schemas for eval tools. include_draw for shapes, include_calc for
     sorting/tax column tests (see CalcStringState in string_eval_tools.py).
     Matches production names from plugin/calc/cells.py and plugin/doc/document_helpers.py."""
-    g = GetDocumentContent()
-    a = ApplyDocumentContent()
     schemas = [
-        to_openai_schema(g),
-        to_openai_schema(a),
+        *_writer_eval_schemas(),
         to_openai_schema(_FIND_TEXT_SCHEMA),
     ]
     if include_draw:
