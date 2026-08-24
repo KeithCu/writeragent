@@ -399,7 +399,7 @@ def get_config(key):
 
 def get_config_int(key) -> int:
     """Get a config value as int. All requested keys MUST be in the schema (WriterAgentConfig or MODULES).
-    Throws ConfigError if the key is missing or invalid."""
+    Throws ConfigError if the key is missing or invalid (use get_config_int_safe to return a default instead)."""
     v = get_config(key)
     # Empty string or None from JSON/UI: use schema default (same as missing key).
     if v == "" or v is None:
@@ -426,13 +426,13 @@ def get_config_str(key) -> str:
 
 def get_config_bool(key) -> bool:
     """Get a config value as bool. ALL requested keys MUST be in the schema.
-    Throws ConfigError if key is not found."""
+    Throws ConfigError if key is not found (use get_config_bool_safe to return a default instead)."""
     v = get_config(key)
     return _config_schema.as_bool(v)
 
 
 def get_config_bool_safe(key: str) -> bool:
-    """Safely read a boolean config value, returning schema default on failure."""
+    """Safely read a boolean config value. Unlike get_config_bool, this returns the schema default (or False) rather than raising an exception if the key is missing or invalid."""
     try:
         return get_config_bool(key)
     except Exception:
@@ -443,7 +443,7 @@ def get_config_bool_safe(key: str) -> bool:
 
 
 def get_config_int_safe(key: str) -> int:
-    """Safely read an integer config value, returning schema default on failure."""
+    """Safely read an integer config value. Unlike get_config_int, this returns the schema default (or 0) rather than raising an exception if the key is missing or the value is invalid."""
     try:
         return get_config_int(key)
     except Exception:
@@ -454,7 +454,7 @@ def get_config_int_safe(key: str) -> int:
 
 
 def get_config_float_safe(key: str) -> float:
-    """Safely read a float config value, returning schema default on failure."""
+    """Safely read a float config value. Unlike get_config_float, this returns the schema default (or 0.0) rather than raising an exception if the key is missing or the value is invalid."""
     try:
         return get_config_float(key)
     except Exception:
@@ -466,7 +466,7 @@ def get_config_float_safe(key: str) -> float:
 
 def get_config_float(key) -> float:
     """Get a config value as float. ALL requested keys MUST be in the schema.
-    Throws ConfigError if key is not found."""
+    Throws ConfigError if key is not found or value is non-float (use get_config_float_safe to return a default instead)."""
     v = get_config(key)
     try:
         return _config_schema.parse_float_robust(v)

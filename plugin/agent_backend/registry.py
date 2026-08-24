@@ -25,13 +25,11 @@ from plugin.agent_backend.opencode_simple import OpenCodeBackend
 
 AGENT_BACKEND_REGISTRY = {
     "builtin": ("Built-in", BuiltinBackend),
-    # "aider": ("Aider", AiderBackend),
     "hermes": ("Hermes", HermesBackend),
     "claude": ("Claude Code (ACP)", ClaudeBackend),
     "vibe": ("Mistral Vibe (ACP)", VibeBackend),
     "grok": ("Grok Build (ACP)", GrokBackend),
     "opencode": ("OpenCode (ACP)", OpenCodeBackend),
-    # "openhands": ("OpenHands", OpenHandsBackend),
 }
 
 
