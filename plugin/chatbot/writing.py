@@ -132,7 +132,7 @@ def _run_writing_agent(ctx: ToolContext, *, query: str = "", history_text: str |
     from plugin.chatbot.sticky_reply import WRITING_PLAN_REPLY_SPEC, StickyReplyToUserTool, interpret_sticky_final_answer
 
     domain_tools = collect_writing_tools(ctx)
-    smol_tools = [SmolToolAdapter(t, ctx, safe=True, main_thread_sync=True, inputs_style="specialized") for t in domain_tools]
+    smol_tools = [SmolToolAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
     smol_tools.append(SmolToolAdapter(StickyReplyToUserTool(WRITING_PLAN_REPLY_SPEC), ctx, safe=False, inputs_style="librarian"))
 
     instructions = get_writing_sub_agent_instructions(ctx.ctx)

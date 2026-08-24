@@ -373,7 +373,7 @@ def test_smol_tool_adapter_safe_async_uses_execute_safe():
 
     tool = AsyncTool()
     tool.execute_safe = MagicMock(return_value={"status": "ok"})
-    adapter = SmolToolAdapter(tool, ctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+    adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
     adapter.forward(p="x")
     tool.execute_safe.assert_called_once()
 
@@ -471,8 +471,10 @@ def test_build_toolcalling_agent_wires_max_tokens_and_steps(
 # =============================================================================
 
 
+@patch("plugin.chatbot.smol_agent.get_config_int", side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024)
+@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 class TestLibrarianSmol(unittest.TestCase):
-    def test_tool_adapter_initialization(self):
+    def test_tool_adapter_initialization(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
 
@@ -503,7 +505,7 @@ class TestLibrarianSmol(unittest.TestCase):
         self.assertEqual(kwargs["key"], "favorite_color")
         self.assertEqual(kwargs["content"], "blue")
 
-    def test_agent_initialization_with_adapted_tools(self):
+    def test_agent_initialization_with_adapted_tools(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
         model = MagicMock()
@@ -524,7 +526,7 @@ class TestLibrarianSmol(unittest.TestCase):
         self.assertIn("reply_to_user", agent.tools)
         self.assertNotIn("switch_to_document_mode", agent.tools)
 
-    def test_switch_mode_extraction(self):
+    def test_switch_mode_extraction(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
@@ -546,7 +548,7 @@ class TestLibrarianSmol(unittest.TestCase):
             self.assertEqual(res["status"], "switch_mode")
             self.assertEqual(res["result"], "See you in document mode!")
 
-    def test_upsert_memory_calls_chat_append_callback(self):
+    def test_upsert_memory_calls_chat_append_callback(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
@@ -575,7 +577,7 @@ class TestLibrarianSmol(unittest.TestCase):
         self.assertIn("nickname", line)
         self.assertIn("Bob", line)
 
-    def test_librarian_onboarding_tool_passes_existing_memory_to_instructions(self):
+    def test_librarian_onboarding_tool_passes_existing_memory_to_instructions(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
@@ -599,7 +601,7 @@ class TestLibrarianSmol(unittest.TestCase):
             self.assertIn("[USER PROFILE / MEMORY]", kwargs["instructions"])
             self.assertIn('{"favorite_color": "blue", "name": "Alice"}', kwargs["instructions"])
 
-    def test_librarian_onboarding_includes_suggested_user_name_in_instructions(self):
+    def test_librarian_onboarding_includes_suggested_user_name_in_instructions(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False
@@ -620,7 +622,7 @@ class TestLibrarianSmol(unittest.TestCase):
             self.assertIn("called Keith", kwargs["instructions"])
             self.assertIn("clearly confirm", kwargs["instructions"])
 
-    def test_librarian_onboarding_omits_suggested_block_without_hint(self):
+    def test_librarian_onboarding_omits_suggested_block_without_hint(self, mock_get_api, mock_get_int):
         ctx = MagicMock()
         ctx.ctx = MagicMock()
         ctx.stop_checker.return_value = False

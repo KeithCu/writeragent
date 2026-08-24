@@ -137,7 +137,7 @@ def _run_brainstorming_agent(ctx: ToolContext, *, query: str = "", history_text:
     from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC, StickyReplyToUserTool, interpret_sticky_final_answer
 
     domain_tools = collect_brainstorming_tools(ctx)
-    smol_tools = [SmolToolAdapter(t, ctx, safe=True, main_thread_sync=True, inputs_style="specialized") for t in domain_tools]
+    smol_tools = [SmolToolAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
     smol_tools.append(SmolToolAdapter(StickyReplyToUserTool(BRAINSTORMING_REPLY_SPEC), ctx, safe=False, inputs_style="librarian"))
 
     instructions = get_brainstorming_sub_agent_instructions(ctx.ctx)

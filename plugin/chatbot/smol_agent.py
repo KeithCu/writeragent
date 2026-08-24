@@ -76,11 +76,10 @@ class SmolToolAdapter(SmolTool):
 
     skip_forward_signature_validation = True
 
-    def __init__(self, tool: ToolBase, tctx: ToolContext, *, safe: bool = False, main_thread_sync: bool = False, inputs_style: SmolInputsStyle = "librarian", output_type: str | None = None) -> None:
+    def __init__(self, tool: ToolBase, tctx: ToolContext, *, safe: bool = False, inputs_style: SmolInputsStyle = "librarian", output_type: str | None = None) -> None:
         self._inner_tool = tool
         self._inner_tctx = tctx
         self._safe = safe
-        self._main_thread_sync = main_thread_sync
         self.name = cast("str", tool.name or "")
         doc_type = getattr(tctx, "doc_type", None)
         if hasattr(tool, "get_description") and callable(tool.get_description):
@@ -115,17 +114,20 @@ class SmolToolAdapter(SmolTool):
 
         tool = self._inner_tool
         ctx = self._inner_tctx
-        if not self._safe:
-            return tool.execute(ctx, **kwargs)
-        if getattr(tool, "is_async", lambda: False)():
-            _spec_log.debug("Specialized agent executing async tool '%s' on worker", self.name)
-            return tool.execute_safe(ctx, **kwargs)
-        if self._main_thread_sync:
-            from plugin.framework.queue_executor import execute_on_main_thread
 
-            _spec_log.debug("Specialized agent executing sync tool '%s' on main thread", self.name)
-            return execute_on_main_thread(tool.execute_safe, ctx, **kwargs)
-        return tool.execute_safe(ctx, **kwargs)
+        is_async = getattr(tool, "is_async", lambda: False)()
+        if is_async:
+            _spec_log.debug("Specialized agent executing async tool '%s' on worker", self.name)
+            if not self._safe:
+                return tool.execute(ctx, **kwargs)
+            return tool.execute_safe(ctx, **kwargs)
+
+        from plugin.framework.queue_executor import execute_on_main_thread
+
+        _spec_log.debug("Specialized agent executing sync tool '%s' on main thread", self.name)
+        if not self._safe:
+            return execute_on_main_thread(tool.execute, ctx, **kwargs)
+        return execute_on_main_thread(tool.execute_safe, ctx, **kwargs)
 
 
 class WriterAgentSmolModel(Model):

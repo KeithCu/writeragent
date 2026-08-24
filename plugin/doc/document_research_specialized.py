@@ -75,7 +75,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     if not ordered:
         return {"status": "error", "message": "No read tools available for opened document"}
 
-    smol_tools = [SmolToolAdapter(t, inner_ctx, safe=True, main_thread_sync=True, inputs_style="specialized") for t in ordered]
+    smol_tools = [SmolToolAdapter(t, inner_ctx, safe=True, inputs_style="specialized") for t in ordered]
 
     instructions = (
         f"You are a read-only assistant for one {doc_type} file. "

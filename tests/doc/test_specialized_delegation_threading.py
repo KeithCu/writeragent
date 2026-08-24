@@ -345,7 +345,7 @@ def test_writer_smol_adapter_marshals_sync_footnotes_tool():
     tool = _DummyFootnotesList()
     tctx = MagicMock()
     tctx.doc_type = "writer"
-    adapter = SmolToolAdapter(tool, tctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+    adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
 
     with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -368,7 +368,7 @@ def test_writer_footnotes_list_runs_uno_only_on_main_thread():
 
         tool = FootnotesList()
         tctx = ToolContext(doc=doc, ctx=MagicMock(), doc_type="writer", services=MagicMock(), caller="test")
-        adapter = SmolToolAdapter(tool, tctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+        adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
         err: AssertionError | None = None
         result: dict | None = None
 
@@ -397,7 +397,7 @@ def test_calc_sync_tool_marshals_via_smol_adapter():
     tool = ListSheets()
     tctx = MagicMock()
     tctx.doc_type = "calc"
-    adapter = SmolToolAdapter(tool, tctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+    adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
 
     with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -424,7 +424,7 @@ def test_calc_list_sheets_runs_uno_only_on_main_thread():
 
         tool = ListSheets()
         tctx = ToolContext(doc=doc, ctx=MagicMock(), doc_type="calc", services=MagicMock(), caller="test")
-        adapter = SmolToolAdapter(tool, tctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+        adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
         err: AssertionError | None = None
         result: dict | None = None
 

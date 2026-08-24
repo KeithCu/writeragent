@@ -157,7 +157,7 @@ def test_analyze_data_forces_data_range_in_analysis_domain(calc_ctx):
     # SmolToolAdapter, which builds the inputs the LLM sees. Verify no data here too.
     from plugin.chatbot.smol_agent import SmolToolAdapter
 
-    adapter = SmolToolAdapter(tool, calc_ctx, safe=True, main_thread_sync=True, inputs_style="specialized")
+    adapter = SmolToolAdapter(tool, calc_ctx, safe=True, inputs_style="specialized")
     assert "data" not in adapter.inputs
     assert "data_range" in adapter.inputs
 

@@ -80,7 +80,7 @@ def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text:
         status_callback("Deep research...")
 
     domain_tools = collect_deep_research_tools(ctx)
-    smol_tools = [SmolToolAdapter(t, ctx, safe=True, main_thread_sync=True, inputs_style="specialized") for t in domain_tools]
+    smol_tools = [SmolToolAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
 
     instructions = get_deep_research_sub_agent_instructions(ctx.ctx)
     agent = build_toolcalling_agent(

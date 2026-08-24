@@ -205,7 +205,7 @@ class DelegateToSpecializedBase(ToolBase):
         if not domain_tools:
             return self._tool_error(f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered.")
 
-        smol_tools = [SmolToolAdapter(t, ctx, safe=True, main_thread_sync=True, inputs_style="specialized") for t in domain_tools]
+        smol_tools = [SmolToolAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
 
         footnotes_hint = ""
         if domain == "footnotes":
