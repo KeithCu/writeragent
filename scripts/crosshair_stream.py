@@ -30,7 +30,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, TextIO
+from typing import Any, Iterator, TextIO
 
 CHECK_LINE = re.compile(
     r"^(?P<file>.+\.py):(?P<line>\d+): (?P<level>error|info|warning): (?P<msg>.*)$"
@@ -486,7 +486,7 @@ def run_crosshair(
     raw: bool,
     quiet: bool,
     *,
-    out: TextIO | None = None,
+    out: Any = None,
     label: str | None = None,
     timeout_sec: float | None = None,
 ) -> tuple[int, StreamStats]:

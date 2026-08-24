@@ -33,20 +33,34 @@ def test_address_utils():
         col, row = parse_address(addr)
         assert format_address(col, row) == addr
 
+    import pytest
+
     try:
-        parse_address("Invalid")
-        assert False, "Expected ValueError for 'Invalid'"
-    except ValueError:
-        pass
+        import deal
+        pre_err = (ValueError, deal.PreContractError)
+    except Exception:
+        pre_err = (ValueError,)
+
+    # Valid cases
+    assert parse_address("AA100") == (26, 99)
+
+    # ASCII invalid addresses raise ValueError directly
+    for ascii_invalid in ("A0", "A00", "Invalid"):
+        with pytest.raises(ValueError):
+            parse_address(ascii_invalid)
+
+    # Non-ASCII addresses raise ValueError (or PreContractError when deal pre is active)
+    for non_ascii_invalid in ("A🯰", "Ａ１", "A١"):
+        with pytest.raises(pre_err):
+            parse_address(non_ascii_invalid)
 
     assert parse_range_string("A1:B2") == ((0, 0), (1, 1))
     assert parse_range_string("C3") == ((2, 2), (2, 2))
 
-    try:
-        parse_range_string("A1:Z")
-        assert False, "Expected ValueError for 'A1:Z'"
-    except ValueError:
-        pass
+    # Invalid range strings raise ValueError
+    for invalid_rng in ("A1:Z", "A1:B0", "A0:B1"):
+        with pytest.raises(ValueError):
+            parse_range_string(invalid_rng)
 
     # Sheet-qualified refs: split keeps sheet case; parse rejects leftover prefixes.
     assert split_sheet_prefix("Sheet1.A1:C5") == ("Sheet1", "A1:C5")

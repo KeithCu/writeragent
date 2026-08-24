@@ -108,7 +108,11 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     return name.strip(), match.group("rest").strip()
 
 
-@deal.pre(lambda address: isinstance(address, str))
+@deal.pre(
+    lambda address: isinstance(address, str)
+    and address.isascii()
+    and len(address) <= 30
+)
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and result[0] >= 0 and result[1] >= 0)
 @deal.raises(ValueError)
 def parse_address(address: str) -> tuple[int, int]:
@@ -134,12 +138,14 @@ def parse_address(address: str) -> tuple[int, int]:
             f"sheet_name, or drop the prefix."
         )
     address = address.strip().upper()
-    match = re.match(r"^([A-Z]+)(\d+)$", address)
+    match = re.match(r"^([A-Z]+)([0-9]+)$", address)
     if not match:
         raise ValueError(f"Invalid cell address: '{address}'")
 
     col_str = match.group(1)
     row_num = int(match.group(2))
+    if row_num < 1:
+        raise ValueError(f"Invalid row number in cell address: '{address}'")
 
     col_index = column_to_index(col_str)
     row_index = row_num - 1
@@ -147,7 +153,11 @@ def parse_address(address: str) -> tuple[int, int]:
     return col_index, row_index
 
 
-@deal.pre(lambda range_str: isinstance(range_str, str))
+@deal.pre(
+    lambda range_str: isinstance(range_str, str)
+    and range_str.isascii()
+    and len(range_str) <= 60
+)
 @deal.post(
     lambda result: isinstance(result, tuple)
     and len(result) == 2
@@ -178,17 +188,23 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
         )
     range_str = range_str.strip().upper()
 
-    pattern = r"^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$"
+    pattern = r"^([A-Z]+)([0-9]+)(?::([A-Z]+)([0-9]+))?$"
     match = re.match(pattern, range_str)
     if not match:
         raise ValueError(f"Invalid cell range format: '{range_str}'")
 
+    start_row_num = int(match.group(2))
+    if start_row_num < 1:
+        raise ValueError(f"Invalid row number in cell range format: '{range_str}'")
     start_col = column_to_index(match.group(1))
-    start_row = int(match.group(2)) - 1
+    start_row = start_row_num - 1
 
     if match.group(3) is not None:
+        end_row_num = int(match.group(4))
+        if end_row_num < 1:
+            raise ValueError(f"Invalid row number in cell range format: '{range_str}'")
         end_col = column_to_index(match.group(3))
-        end_row = int(match.group(4)) - 1
+        end_row = end_row_num - 1
     else:
         end_col = start_col
         end_row = start_row

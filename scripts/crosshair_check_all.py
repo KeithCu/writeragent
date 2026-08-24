@@ -49,7 +49,9 @@ REGULAR_MAX_UNINTERESTING = 25
 REGULAR_PER_CONDITION_TIMEOUT_SEC = 5
 # Hard stop per module in regular mode (backstop; soft bounds aim to finish earlier).
 REGULAR_MODULE_WALL_TIMEOUT_SEC = 120
-# Deep: CrossHair "hundreds" for multi-hour runs; iteration budget is the stop (no timeout).
+# Hard stop per module in deep mode so NOT_CONFIRMED runs cannot run forever.
+DEEP_MODULE_WALL_TIMEOUT_SEC = 1800
+# Deep: CrossHair "hundreds" for multi-hour runs.
 DEEP_MAX_UNINTERESTING = 200
 # Regular only: payload_codec has many contracts; same 5s slice, fewer iters.
 PAYLOAD_CODEC_REL = "plugin/scripting/payload_codec.py"
@@ -194,11 +196,11 @@ def main(argv: list[str] | None = None) -> int:
     timeout_desc = (
         "none" if budget.per_condition_timeout is None else f"{budget.per_condition_timeout}s"
     )
-    wall_desc = f"{REGULAR_MODULE_WALL_TIMEOUT_SEC}s" if budget.mode == "regular" else "none"
+    wall_sec = REGULAR_MODULE_WALL_TIMEOUT_SEC if budget.mode == "regular" else DEEP_MODULE_WALL_TIMEOUT_SEC
     print(
         f"CrossHair check-all [{budget.mode}]: {len(rels)} module(s), one CrossHair process per file "
         f"(max_uninteresting={budget.max_uninteresting}, "
-        f"per_condition_timeout={timeout_desc}, module_wall={wall_desc})",
+        f"per_condition_timeout={timeout_desc}, module_wall={wall_sec}s)",
         flush=True,
     )
     for rel in rels:
@@ -231,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
             if per_condition_timeout is not None:
                 ch_args.append(f"--per_condition_timeout={per_condition_timeout}")
             ch_args.extend(["--report_all", "--analysis_kind=deal", rel])
-            wall = float(REGULAR_MODULE_WALL_TIMEOUT_SEC) if budget.mode == "regular" else None
+            wall = float(REGULAR_MODULE_WALL_TIMEOUT_SEC if budget.mode == "regular" else DEEP_MODULE_WALL_TIMEOUT_SEC)
             code, stats = run_crosshair(
                 "check",
                 ch_args,

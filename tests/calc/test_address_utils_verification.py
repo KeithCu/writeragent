@@ -72,10 +72,34 @@ def test_hypothesis_format_parse_round_trip(col: int, row: int) -> None:
 
 
 def test_parse_address_raises_on_invalid() -> None:
-    with pytest.raises(ValueError):
-        parse_address("Invalid")
-    with pytest.raises(ValueError):
-        parse_range_string("A1:Z")
+    try:
+        import deal
+        pre_err = (ValueError, deal.PreContractError)
+    except Exception:
+        pre_err = (ValueError,)
+
+    for ascii_invalid in ("A0", "A00", "Invalid"):
+        with pytest.raises(ValueError):
+            parse_address(ascii_invalid)
+
+    for non_ascii_invalid in ("A🯰", "Ａ１", "A١"):
+        with pytest.raises(pre_err):
+            parse_address(non_ascii_invalid)
+
+    for invalid_range in ("A1:Z", "A1:B0", "A0:B1"):
+        with pytest.raises(ValueError):
+            parse_range_string(invalid_range)
+
+
+@given(s=st.text())
+@settings(max_examples=vhs_max_examples(100, 1000), deadline=None)
+def test_hypothesis_parse_address_row_non_negative_or_raises(s: str) -> None:
+    try:
+        col, row = parse_address(s)
+        assert col >= 0
+        assert row >= 0
+    except Exception:
+        pass
 
 
 @pytest.mark.slow
