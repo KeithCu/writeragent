@@ -10,6 +10,7 @@ _FACTORY = _REPO_ROOT / "plugin" / "chatbot" / "panel_factory.py"
 _DIALOG_VIEWS = _REPO_ROOT / "plugin" / "chatbot" / "dialog_views.py"
 _SEND_HANDLERS = _REPO_ROOT / "plugin" / "chatbot" / "send_handlers.py"
 _TOOL_LOOP = _REPO_ROOT / "plugin" / "chatbot" / "tool_loop.py"
+_TOOL_LOOP_ACTIONS = _REPO_ROOT / "plugin" / "chatbot" / "tool_loop_actions.py"
 
 
 def _imported_names(path: Path) -> set[str]:
@@ -63,7 +64,17 @@ def test_dialog_views_does_not_import_tool_loop():
 
 
 def test_send_and_tool_loop_do_not_import_panel_factory():
-    for path in (_SEND_HANDLERS, _TOOL_LOOP):
+    for path in (_SEND_HANDLERS, _TOOL_LOOP, _TOOL_LOOP_ACTIONS):
         imported = _imported_names(path)
         assert "plugin.chatbot.panel_factory" not in imported
         assert "panel_factory" not in imported
+
+
+def test_send_and_tool_loop_refresh_via_session_not_builder():
+    """Send / mid-loop refresh go through ChatSession.refresh_document_context."""
+    for path in (_SEND_HANDLERS, _TOOL_LOOP, _TOOL_LOOP_ACTIONS):
+        imported = _imported_names(path)
+        assert "get_document_context_for_chat" not in imported
+        assert "plugin.doc.document_helpers.get_document_context_for_chat" not in imported
+        src = path.read_text(encoding="utf-8")
+        assert "refresh_document_context" in src

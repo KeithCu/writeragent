@@ -29,11 +29,9 @@ from plugin.framework.errors import (
 )
 from plugin.framework.config import get_api_config, get_config, get_config_int_safe, as_bool
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.prompts import get_core_directives
 from plugin.framework.agent_manual import full_manual_for_model
 from plugin.framework.queue_executor import llm_request_lane
-from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.agent_backend import get_backend
 from plugin.agent_backend.registry import normalize_backend_id
 from plugin.chatbot.state_machine import SendHandlerState, StartEvent, StreamChunkEvent, StreamDoneEvent, ErrorEvent, StopRequestedEvent, next_state, EffectInterpreter
@@ -316,7 +314,8 @@ class SendHandlersMixin:
                 document_url = str(model.getURL() or "")
 
         try:
-            doc_context = get_document_context_for_chat(model, CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=self.ctx)
+            self.session.refresh_document_context(model, self.ctx)
+            doc_context = self.session.document_context
         except Exception as e:
             from plugin.framework.errors import is_disposed_exception
 

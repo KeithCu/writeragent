@@ -24,7 +24,6 @@ from plugin.framework.config import (
     get_api_config,
     get_config,
     get_config_int,
-    get_config_str,
     get_current_endpoint,
     validate_api_config,
 )
@@ -36,8 +35,6 @@ from plugin.framework.client.model_fetcher import (
 )
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-from plugin.framework.prompts import get_chat_system_prompt_for_document
-from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.framework.errors import format_error_payload, NetworkError
 from plugin.framework.queue_executor import llm_request_lane
 from plugin.framework.client.llm_client import LlmClient
@@ -215,9 +212,6 @@ class ToolCallingMixin:
             self._terminal_status = "Error"
             return
 
-        # base_prompt will be set after reading the document context
-        extra_instructions = get_config_str("additional_instructions")
-
         synced_model = sync_sidebar_text_model(self.ctx, self.model_selector)
         if synced_model:
             log.debug("_do_send: text model updated to %s" % synced_model)
@@ -270,12 +264,10 @@ class ToolCallingMixin:
 
         self._set_status("Reading document...")
         try:
-            doc_text = get_document_context_for_chat(model, max_context, include_end=True, include_selection=True, ctx=self.ctx)
+            self.session.refresh_document_context(model, self.ctx)
+            doc_text = self.session.document_context
             log.debug("_do_send: document context length=%d" % len(doc_text))
             agent_log("tool_loop.py:doc_context", "Document context for AI", data={"doc_length": len(doc_text), "doc_prefix_first_200": (doc_text or "")[:200], "max_context": max_context}, hypothesis_id="B")
-            
-            base_prompt = get_chat_system_prompt_for_document(model, extra_instructions, ctx=self.ctx)
-            self.session.set_system_context(base_prompt, doc_text)
         except UnoObjectError:
             log.exception("Document unavailable")
             self._append_response("\n[Document closed or unavailable.]\n")

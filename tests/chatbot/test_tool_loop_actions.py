@@ -1,5 +1,5 @@
 import queue
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock
 
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -23,6 +23,7 @@ class FakeSession:
         self.assistant_messages = []
         self.tool_results = []
         self.system_context = None
+        self.refresh_calls = []
 
     def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None):
         self.assistant_messages.append(
@@ -38,6 +39,10 @@ class FakeSession:
 
     def set_system_context(self, base_prompt, doc_text=""):
         self.system_context = (base_prompt, doc_text)
+
+    def refresh_document_context(self, model, ctx):
+        self.refresh_calls.append((model, ctx))
+        self.set_system_context("base prompt", "fresh doc")
 
 
 class FakeHost:
@@ -111,12 +116,9 @@ def test_update_document_context_effect_refreshes_session_context():
     host = FakeHost()
     interpreter = ToolLoopEffectInterpreter(host)
 
-    with patch("plugin.chatbot.tool_loop_actions.get_document_context_for_chat", return_value="fresh doc") as mock_context, patch("plugin.chatbot.tool_loop_actions.get_config_str", return_value="extra") as mock_config, patch("plugin.chatbot.tool_loop_actions.get_chat_system_prompt_for_document", return_value="base prompt") as mock_prompt:
-        interpreter.execute(UpdateDocumentContextEffect())
+    interpreter.execute(UpdateDocumentContextEffect())
 
-    mock_context.assert_called_once()
-    mock_config.assert_called_once_with("additional_instructions")
-    mock_prompt.assert_called_once_with(host.document, "extra", ctx=host.ctx)
+    assert host.session.refresh_calls == [(host.document, host.ctx)]
     assert host.session.system_context == ("base prompt", "fresh doc")
 
 

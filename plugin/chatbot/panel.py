@@ -111,10 +111,9 @@ class ChatSession:
         """Reload the Chat system prompt and ``[DOCUMENT CONTENT]`` from the live document.
 
         Why this lives on ChatSession, not panel_factory: the factory only wires
-        XDL/controls. Mode switch (Chat dropdown / switch_to_document_mode) still
-        needs a fresh snapshot so the session does not keep an earlier send's
-        excerpt. Send/tool_loop also refresh on each send — this is the other
-        owner of that same builder, not a second factory import of it.
+        XDL/controls. Mode switch, each send, and mid-loop refresh after a
+        mutating tool all need a fresh snapshot. Send/tool_loop call this
+        helper; they do not import the builder.
         """
         from plugin.doc.document_helpers import get_document_context_for_chat
         from plugin.framework.config import get_config

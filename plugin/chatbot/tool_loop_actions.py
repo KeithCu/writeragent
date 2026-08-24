@@ -30,14 +30,11 @@ from plugin.chatbot.tool_loop_state import (
 )
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.client.model_fetcher import get_text_model, set_native_audio_support
-from plugin.framework.config import get_config_bool, get_config_str, get_current_endpoint
-from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-from plugin.framework.prompts import get_chat_system_prompt_for_document
+from plugin.framework.config import get_config_bool, get_current_endpoint
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, format_error_payload
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
-from plugin.doc.document_helpers import get_document_context_for_chat
 
 log = logging.getLogger(__name__)
 
@@ -235,11 +232,7 @@ class ToolLoopEffectInterpreter:
         try:
             doc = host._get_document_model() if hasattr(host, "_get_document_model") else None
             if doc:
-                max_ctx = CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-                doc_text = get_document_context_for_chat(doc, max_ctx, include_end=True, include_selection=True, ctx=host.ctx)
-                extra_instructions = get_config_str("additional_instructions")
-                base_prompt = get_chat_system_prompt_for_document(doc, extra_instructions, ctx=host.ctx)
-                host.session.set_system_context(base_prompt, doc_text)
+                host.session.refresh_document_context(doc, host.ctx)
         except Exception:
             log.debug("Tool loop: failed to refresh document context after mutating tool", exc_info=True)
 
