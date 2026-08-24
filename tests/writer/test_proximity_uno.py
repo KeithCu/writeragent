@@ -1,11 +1,8 @@
 from types import SimpleNamespace
 
-from plugin.doc.document_helpers import (
-    get_paragraph_ranges,
-    get_document_length,
-    resolve_locator,
-    find_paragraph_for_range,
-)
+from plugin.doc.document_helpers import resolve_locator
+from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges
+from plugin.doc.text_helpers import get_document_length
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
 

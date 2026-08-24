@@ -15,634 +15,51 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Shared UNO document helpers used across Writer, Calc, and Draw/Impress.
+"""Writer chat-context assembler and ``DocumentService``.
 
-Sub-areas in this module (top to bottom):
-- Tracked-change collection and streamed edit sessions (compound undo, rewrite/append)
-- Document resolution (URL, frame, active doc)
-- Selection and cursor helpers
-- Chat document context builders (Writer / Calc / Draw)
-- Navigation (paragraphs, bookmarks, locators)
-- DocumentService (paragraph ranges, yield hooks, etc.)
-
-Linebreak / tracked-deletion reads, heading trees, and file paths live in
-``plugin.doc.text_helpers`` (LibrePy). Do not re-export those names here.
+Text/path/selection helpers live in ``plugin.doc.text_helpers`` (LibrePy-safe).
+Document resolution lives in ``plugin.framework.uno_context``. Streamed Writer
+edits live in ``plugin.writer.edit_review``. Calc chat context lives in
+``plugin.calc.analyzer``. Paragraph range helpers live in
+``plugin.doc.paragraph_search``. Do not re-export those names here — a
+re-export of ``get_calc_context_for_chat`` would pull ``SheetAnalyzer`` at
+import time and break LibrePy.
 """
 import logging
-from typing import Any
-from plugin.calc.bridge import CalcBridge
+
 from plugin.doc import doc_type as _doc_type
 from plugin.doc import text_helpers as _text_helpers
-from plugin.calc.analyzer import SheetAnalyzer
+from plugin.doc.paragraph_search import (
+    find_paragraph_for_range as _find_paragraph_for_range,
+    get_paragraph_ranges as _get_paragraph_ranges,
+)
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-from plugin.framework.uno_context import get_active_document
 from plugin.framework.errors import (
     UnoObjectError,
     check_disposed,
     safe_call,
-    suppress_disposed,
 )
-from plugin.framework.thread_guard import main_thread_only, _wrap_uno
-
-
-def is_document_disposed(doc: Any) -> bool:
-    """Safely check if a UNO document or component is disposed or invalid."""
-    if doc is None:
-        return True
-    if hasattr(doc, "getImplementationName"):
-        try:
-            _unused = doc.getImplementationName()
-            return False
-        except Exception:
-            return True
-    return False
-
-
-def collect_tracked_changes(text_range, max_per_change: int = 300, max_changes: int = 100):
-    """Walk text portions and collect tracked insertions/deletions WITH their text, so a reader can
-    see what is pending and that it awaits the user's review (rather than the default read, which
-    hides deletions and gives no hint that changes are pending).
-
-    Returns a list of ``{"type": "insertion"|"deletion", "text": str}`` in document order. Best-effort:
-    returns ``[]`` on any failure. Mirrors get_string_without_tracked_deletions' portion walk, but also
-    toggles on Insert redlines and buffers the text of each change instead of dropping deletions."""
-    out: list[dict] = []
-    if hasattr(text_range, "_mock_return_value") or type(text_range).__name__ in ("Mock", "MagicMock"):
-        return out
-    try:
-        para_enum = text_range.createEnumeration()
-    except Exception:
-        return out
-
-    in_delete = False
-    in_insert = False
-    del_buf: list[str] = []
-    ins_buf: list[str] = []
-
-    def _flush(buf, kind):
-        if buf and len(out) < max_changes:
-            out.append({"type": kind, "text": "".join(buf)[:max_per_change]})
-        buf.clear()
-
-    try:
-        while para_enum.hasMoreElements() and len(out) < max_changes:
-            para = para_enum.nextElement()
-            try:
-                portion_enum = para.createEnumeration()
-            except Exception:
-                continue
-            while portion_enum.hasMoreElements():
-                portion = portion_enum.nextElement()
-                try:
-                    try:
-                        ptype = portion.getPropertyValue("TextPortionType")
-                    except Exception:
-                        ptype = portion.TextPortionType
-                except Exception:
-                    continue
-
-                if ptype == "Redline":
-                    try:
-                        rtype = str(portion.getPropertyValue("RedlineType"))
-                    except Exception:
-                        rtype = ""
-                    if rtype == "Delete":
-                        if in_delete:
-                            _flush(del_buf, "deletion")
-                        in_delete = not in_delete
-                    elif rtype == "Insert":
-                        if in_insert:
-                            _flush(ins_buf, "insertion")
-                        in_insert = not in_insert
-                    continue
-
-                try:
-                    chunk = portion.getString()
-                except Exception:
-                    chunk = ""
-                if not chunk:
-                    continue
-                if in_delete:
-                    del_buf.append(chunk)
-                elif in_insert:
-                    ins_buf.append(chunk)
-        _flush(del_buf, "deletion")
-        _flush(ins_buf, "insertion")
-    except Exception:
-        return out
-    return out
-
-
-def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:
-    """Return a direct rewrite prompt for Writer selection edits."""
-    return f"Rewrite the following text according to the instructions below. Output only the rewritten text with no labels, headings, or explanations.\n\nInstructions: {instructions}\n\nText to rewrite:\n{original_text}"
-
-
-class WriterCompoundUndo:
-    """Wrap ``XUndoManager.enterUndoContext`` / ``leaveUndoContext`` for one Ctrl+Z step.
-
-    Call :meth:`close` when the operation finishes (success or error). Safe to call
-    multiple times.
-    """
-
-    def __init__(self, doc, title: str) -> None:
-        self._log = logging.getLogger(__name__)
-        self._title = title
-        self._undo_manager = None
-        self._open = False
-        try:
-            if not hasattr(doc, "getUndoManager"):
-                self._log.warning("WriterCompoundUndo: doc has no getUndoManager, undo grouping skipped (title=%r)", title)
-                return
-            um = doc.getUndoManager()
-            if um is None:
-                self._log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
-                return
-            # Probe undo manager state to detect prior unclosed contexts (best-effort; UNO may not expose these).
-            try:
-                is_in_ctx = um.isInContext()
-                undo_enabled = um.isUndoEnabled()
-                self._log.info("WriterCompoundUndo: pre-enter state isInContext=%s isUndoEnabled=%s (title=%r)", is_in_ctx, undo_enabled, title)
-            except Exception as probe_e:
-                self._log.debug("WriterCompoundUndo: could not probe undo manager state: %s", probe_e)
-            um.enterUndoContext(title)
-            self._undo_manager = um
-            self._open = True
-            # Log after success so we always see this when the context is live.
-            self._log.info("WriterCompoundUndo: context entered %r", title)
-        except Exception as e:
-            # Upgrade from debug to warning so failures are visible without debug logging.
-            # "Insert $1" in the undo menu means this context was never opened.
-            self._log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
-
-    def close(self) -> None:
-        """End the compound undo context if :meth:`__init__` opened one."""
-        if not self._open:
-            self._log.debug("WriterCompoundUndo.close: already closed or never opened (title=%r)", self._title)
-            return
-        self._open = False
-        um = self._undo_manager
-        self._undo_manager = None
-        if um is None:
-            return
-        try:
-            self._log.info("WriterCompoundUndo: leaving context %r", self._title)
-            um.leaveUndoContext()
-        except Exception:
-            self._log.exception("leaveUndoContext failed (title=%r)", self._title)
-
-
-class WriterStreamedRewriteSession:
-    """Manage a streamed Writer edit that collapses to one tracked change."""
-
-    _UNDO_CONTEXT_TITLE = "WriterAgent: Edit selection"
-
-    def __init__(self, doc, text_range, original_text: str, track_reviewable: bool = False):
-        self.doc = doc
-        self.text_range = text_range
-        self.original_text = original_text
-        self.generated_text = ""
-        self.was_recording = False
-        # When True (opt-in flag), the agent's edit is collapsed into one tracked
-        # change for the user to review even if they did not have Track Changes on.
-        self.track_reviewable = track_reviewable
-        self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
-
-        try:
-            self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
-        except Exception:
-            self.was_recording = False
-
-        _log = logging.getLogger(__name__)
-        _log.info("WriterStreamedRewriteSession: was_recording=%s, compound_undo open=%s", self.was_recording, self._compound_undo._open)
-        try:
-            if self.was_recording:
-                self.doc.setPropertyValue("RecordChanges", False)
-            self.text_range.setString("")
-        except Exception:
-            if self.was_recording:
-                try:
-                    self.doc.setPropertyValue("RecordChanges", True)
-                except Exception:
-                    pass
-            self._compound_undo.close()
-            raise
-
-    def append_chunk(self, chunk: str) -> None:
-        """Append streamed text to the visible range and shadow buffer."""
-        if not chunk:
-            return
-        self.generated_text += chunk
-        self.text_range.setString(self.generated_text)
-
-    def finish(self) -> str | None:
-        """Finalize the rewrite. Returns a warning message on degraded success."""
-        try:
-            if not (self.was_recording or self.track_reviewable):
-                return None
-
-            try:
-                # Review mode only (NOT when the user merely has their own Track Changes on):
-                # snapshot the redlines so the collapsed change can be tagged as an agent change
-                # afterward, and author it as the agent for the by-author coloring.
-                before_ids = None
-                before_ids_ok = False
-                prior_author = None
-                if self.track_reviewable:
-                    try:
-                        from plugin.framework.uno_context import get_ctx
-                        from plugin.writer import review_authors
-                        from plugin.writer.review_scan import snapshot_redline_ids
-
-                        before_ids, before_ids_ok = snapshot_redline_ids(self.doc)
-                        prior_author = review_authors.begin(get_ctx())
-                        # Make the markup visible so a reviewable change isn't left invisible
-                        # when the user has Track Changes display off (matches
-                        # EditReviewSession.__enter__). Review mode only -- never when the user
-                        # merely has their own Track Changes on (we respect their view setting).
-                        try:
-                            self.doc.setPropertyValue("ShowChanges", True)
-                        except Exception:
-                            logging.getLogger(__name__).debug("streamed rewrite: could not force ShowChanges", exc_info=True)
-                    except Exception:
-                        logging.getLogger(__name__).debug("streamed rewrite: review tagging setup failed", exc_info=True)
-                try:
-                    self.text_range.setString(self.original_text)
-                    self.doc.setPropertyValue("RecordChanges", True)
-                    self.text_range.setString(self.generated_text)
-                finally:
-                    if prior_author is not None:
-                        try:
-                            from plugin.framework.uno_context import get_ctx
-                            from plugin.writer import review_authors
-
-                            review_authors.end(get_ctx(), prior_author)
-                        except Exception:
-                            logging.getLogger(__name__).warning("streamed rewrite: author restore failed", exc_info=True)
-                # Restore the user's prior recording state. If they had Track Changes
-                # OFF and we only turned it ON to capture this edit as one reviewable
-                # redline (track_reviewable flag), turn it back OFF so their later
-                # manual typing is not tracked. Existing redlines persist regardless.
-                if not self.was_recording:
-                    self.doc.setPropertyValue("RecordChanges", False)
-                # Tag the collapsed redline(s) with a session token so the inline review UI
-                # (click popup / context menu) treats this streamed edit as an agent change.
-                if before_ids is not None:
-                    try:
-                        from plugin.writer.edit_review import tag_agent_redlines
-
-                        tag_agent_redlines(self.doc, before_ids, before_reliable=before_ids_ok)
-                    except Exception:
-                        logging.getLogger(__name__).debug("streamed rewrite: redline tagging failed", exc_info=True)
-                return None
-            except Exception:
-                logging.getLogger(__name__).exception("Failed to collapse streamed edit into one tracked change")
-
-                fallback_errors: list[str] = []
-                try:
-                    self.doc.setPropertyValue("RecordChanges", False)
-                except Exception as e:
-                    fallback_errors.append(f"disable tracking failed: {e}")
-                try:
-                    self.text_range.setString(self.generated_text)
-                except Exception as e:
-                    fallback_errors.append(f"restore generated text failed: {e}")
-                try:
-                    self.doc.setPropertyValue("RecordChanges", self.was_recording)
-                except Exception as e:
-                    fallback_errors.append(f"restore recording state failed: {e}")
-
-                if fallback_errors:
-                    return "Failed to finalize the tracked edit and preserve the generated text: " + "; ".join(fallback_errors)
-                return "Failed to collapse the streamed edit into a single tracked change. The generated text was kept, but it may still appear as multiple tracked changes."
-        finally:
-            self._compound_undo.close()
-
-    def abort_and_restore(self) -> None:
-        """Restore the original text and recording state after an error."""
-        try:
-            if self.was_recording:
-                try:
-                    self.doc.setPropertyValue("RecordChanges", False)
-                except Exception:
-                    pass
-            self.text_range.setString(self.original_text)
-        finally:
-            if self.was_recording:
-                try:
-                    self.doc.setPropertyValue("RecordChanges", True)
-                except Exception:
-                    pass
-            self._compound_undo.close()
-
-
-class WriterStreamedAppendSession:
-    """Manage a streamed Writer APPEND (extend-selection) that collapses to one tracked insertion.
-
-    Unlike :class:`WriterStreamedRewriteSession` (which REPLACES the range), extend-selection
-    keeps the user's original text and streams the agent's continuation AFTER it. Streaming runs
-    with tracking OFF (the user sees the text appear without a redline per chunk); ``finish()``
-    then converts ONLY the appended continuation into a single tracked INSERTION -- the original
-    is never struck through -- authored as the agent and tagged for the inline review UI.
-    """
-
-    _UNDO_CONTEXT_TITLE = "WriterAgent: Extend selection"
-
-    def __init__(self, doc, text_range, original_text: str, track_reviewable: bool = False):
-        self.doc = doc
-        self.text_range = text_range
-        self.original_text = original_text
-        self.appended_text = ""
-        self.track_reviewable = track_reviewable
-        self._compound_undo = WriterCompoundUndo(doc, self._UNDO_CONTEXT_TITLE)
-
-        try:
-            self.was_recording = bool(self.doc.getPropertyValue("RecordChanges"))
-        except Exception:
-            self.was_recording = False
-        # Stream with tracking OFF so the live continuation isn't recorded as a redline per
-        # chunk; finish() re-records the whole appended run as one tracked insertion.
-        try:
-            if self.was_recording:
-                self.doc.setPropertyValue("RecordChanges", False)
-        except Exception:
-            pass
-
-    def append_chunk(self, chunk: str) -> None:
-        """Append streamed text after the original (tracking off; one redline created at finish)."""
-        if not chunk:
-            return
-        self.appended_text += chunk
-        try:
-            self.text_range.setString(self.original_text + self.appended_text)
-        except Exception:
-            logging.getLogger(__name__).debug("streamed append: chunk apply failed", exc_info=True)
-
-    def finish(self) -> str | None:
-        """Collapse the appended continuation into one tracked insertion. Returns a warning on degraded success."""
-        try:
-            if not self.appended_text:
-                # We may have turned off the user's own Record Changes in __init__ to avoid a
-                # redline per streamed chunk. If the model produced nothing, there is no edit to
-                # collapse, but the user's prior tracking state still must be restored.
-                if self.was_recording:
-                    try:
-                        self.doc.setPropertyValue("RecordChanges", True)
-                    except Exception:
-                        pass
-                return None
-            if not (self.was_recording or self.track_reviewable):
-                return None
-
-            before_ids = None
-            before_ids_ok = False
-            prior_author = None
-            if self.track_reviewable:
-                try:
-                    from plugin.framework.uno_context import get_ctx
-                    from plugin.writer import review_authors
-                    from plugin.writer.review_scan import snapshot_redline_ids
-
-                    before_ids, before_ids_ok = snapshot_redline_ids(self.doc)
-                    prior_author = review_authors.begin(get_ctx())
-                    # Make the markup visible so a reviewable change isn't invisible when the
-                    # user has Track Changes display off (matches EditReviewSession.__enter__).
-                    try:
-                        self.doc.setPropertyValue("ShowChanges", True)
-                    except Exception:
-                        logging.getLogger(__name__).debug("streamed append: could not force ShowChanges", exc_info=True)
-                except Exception:
-                    logging.getLogger(__name__).debug("streamed append: review tagging setup failed", exc_info=True)
-            try:
-                # Drop the untracked appended run (back to just the original), then re-insert ONLY
-                # that run as a tracked insertion at the end -- so the original carries no redline.
-                self.text_range.setString(self.original_text)
-                self.doc.setPropertyValue("RecordChanges", True)
-                text = self.text_range.getText()
-                end_cursor = text.createTextCursorByRange(self.text_range.getEnd())
-                text.insertString(end_cursor, self.appended_text, False)
-            finally:
-                if prior_author is not None:
-                    try:
-                        from plugin.framework.uno_context import get_ctx
-                        from plugin.writer import review_authors
-
-                        review_authors.end(get_ctx(), prior_author)
-                    except Exception:
-                        logging.getLogger(__name__).warning("streamed append: author restore failed", exc_info=True)
-            # Restore the user's prior recording state (existing redlines persist regardless).
-            if not self.was_recording:
-                try:
-                    self.doc.setPropertyValue("RecordChanges", False)
-                except Exception:
-                    pass
-            if before_ids is not None:
-                try:
-                    from plugin.writer.edit_review import tag_agent_redlines
-
-                    tag_agent_redlines(self.doc, before_ids, before_reliable=before_ids_ok)
-                except Exception:
-                    logging.getLogger(__name__).debug("streamed append: redline tagging failed", exc_info=True)
-            return None
-        except Exception:
-            logging.getLogger(__name__).exception("Failed to collapse streamed append into one tracked change")
-            # Degrade: keep the user's continuation (untracked) rather than losing it.
-            try:
-                self.doc.setPropertyValue("RecordChanges", False)
-            except Exception:
-                pass
-            try:
-                self.text_range.setString(self.original_text + self.appended_text)
-            except Exception:
-                pass
-            try:
-                self.doc.setPropertyValue("RecordChanges", self.was_recording)
-            except Exception:
-                pass
-            return "Failed to collapse the streamed continuation into a single tracked change. The text was kept, but may not be reviewable."
-        finally:
-            self._compound_undo.close()
-
-    def abort_and_restore(self) -> None:
-        """After a streaming error, restore the recording state and close the undo group.
-
-        The partial continuation is left in place, matching the prior extend-selection behavior."""
-        try:
-            self.doc.setPropertyValue("RecordChanges", bool(self.was_recording))
-        except Exception:
-            pass
-        finally:
-            self._compound_undo.close()
-
-
-def _normalize_doc_url(url):
-    """Normalize document URL for comparison (strip, optional trailing slash)."""
-    if not url:
-        return ""
-    s = str(url).strip()
-    if s.endswith("/") and len(s) > 1:
-        s = s[:-1]
-    return s
-
-
-def get_runtime_uid(model):
-    """Stable per-session id for an open component.
-
-    Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
-    documents, so it can address a document that has no file on disk yet.
-    Returns "" if unavailable.
-
-    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
-    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
-    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
-    cannot masquerade as a real uid.
-    """
-    for accessor in (
-        lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None,
-        lambda m: getattr(m, "RuntimeUID", None),
-        lambda m: m.getPropertyValue("RuntimeUID"),
-    ):
-        try:
-            raw = accessor(model)
-            if isinstance(raw, bool):
-                continue
-            if isinstance(raw, int):
-                return str(raw)
-            if isinstance(raw, str) and raw:
-                return raw
-        except Exception:
-            continue
-    return ""
-
-
-@main_thread_only
-def resolve_document_by_url(ctx, url):
-    """Resolve an open document by URL or RuntimeUID. Must be called on the UNO main thread.
-
-    ``url`` may be a document URL or a ``RuntimeUID`` (as returned by
-    ``list_open_documents``); the RuntimeUID also matches unsaved/untitled
-    documents that have no URL yet.
-    Returns (doc, doc_type) or (None, None) if not found.
-    doc_type is one of 'writer', 'calc', 'draw'.
-    """
-    if not url or not str(url).strip():
-        return (None, None)
-    from plugin.framework.uno_context import get_desktop
-
-    target = _normalize_doc_url(url)
-    try:
-        desktop = get_desktop(ctx)
-        comps = desktop.getComponents()
-        if not comps:
-            return (None, None)
-        enum = comps.createEnumeration()
-        if not enum:
-            return (None, None)
-        while enum and enum.hasMoreElements():
-            elem = enum.nextElement()
-            try:
-                model = None
-                if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-                    model = elem
-                elif hasattr(elem, "getController") and elem.getController():
-                    model = elem.getController().getModel()
-                if model is not None:
-                    doc_url = _normalize_doc_url(model.getURL()) if hasattr(model, "getURL") else ""
-                    uid = get_runtime_uid(model)
-                    if (doc_url and doc_url == target) or (uid and uid == target):
-                        doc_type_enum = _doc_type.get_document_type(model)
-                        doc_type = "writer"
-                        if doc_type_enum == _doc_type.DocumentType.CALC:
-                            doc_type = "calc"
-                        elif doc_type_enum in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
-                            doc_type = "draw"
-                        return (_wrap_uno(model), doc_type)
-            except Exception as e:
-                logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", type(e).__name__)
-                continue
-    except Exception:
-        logging.getLogger(__name__).exception("resolve_document_by_url enumeration error")
-    return (None, None)
-
-
-@main_thread_only
-def get_document_from_frame(frame):
-    """Get the document model strictly from the frame controller.
-
-    This is the preferred path for sidebar panels to ensure we resolve
-    the document bound to the active window rather than relying on Desktop.
-    """
-    if not frame:
-        return None
-    with suppress_disposed("resolve document from frame", logger=logging.getLogger(__name__)):
-        check_disposed(frame, "Frame")
-        controller = frame.getController()
-        if not controller:
-            return None
-        check_disposed(controller, "Controller")
-        model = controller.getModel()
-        if model is not None:
-            from plugin.framework.thread_guard import guard_uno
-            return guard_uno(model)
-    return None
-
-
-@main_thread_only
-def get_selection_text(model):
-    """Return the selected text or None if selection is empty/unavailable/fails. Handles Writer, Calc, Draw."""
-    try:
-        check_disposed(model, "Document Model")
-        controller = safe_call(model.getCurrentController, "Get current controller")
-        if not controller:
-            return None
-        check_disposed(controller, "Controller")
-
-        doc_type = _doc_type.get_document_type(model)
-
-        if doc_type == _doc_type.DocumentType.WRITER:
-            sel = safe_call(controller.getSelection, "Get selection")
-            sel_count = 0
-            if sel and hasattr(sel, "getCount"):
-                sel_count = safe_call(sel.getCount, "Get selection count")
-            if not sel or sel_count == 0:
-                vc = safe_call(controller.getViewCursor, "Get view cursor")
-                if vc:
-                    check_disposed(vc, "View Cursor")
-                    return safe_call(vc.getString, "Get view cursor string")
-            else:
-                rng = safe_call(sel.getByIndex, "Get selection by index", 0)
-                if rng:
-                    check_disposed(rng, "Selection Range")
-                    return safe_call(rng.getString, "Get selection string")
-        elif doc_type == _doc_type.DocumentType.CALC:
-            selection = safe_call(controller.getSelection, "Get selection")
-            if selection:
-                if hasattr(selection, "getString"):
-                    return safe_call(selection.getString, "Get selection string")
-        elif doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
-            selection = safe_call(controller.getSelection, "Get selection")
-            if selection and hasattr(selection, "getCount"):
-                count = safe_call(selection.getCount, "Get selection count")
-                parts = []
-                for i in range(count):
-                    shape = safe_call(selection.getByIndex, "Get selection shape", i)
-                    if shape and hasattr(shape, "getString"):
-                        parts.append(safe_call(shape.getString, "Get shape string"))
-                if parts:
-                    return "\n".join(parts)
-    except Exception:
-        pass
-    return None
+from plugin.framework.service import ServiceBase
+from plugin.framework.thread_guard import main_thread_only
+from plugin.framework.uno_context import get_active_document, get_ctx, resolve_document_by_url as _resolve_document_by_url
 
 
 @main_thread_only
 def get_full_document_text(model, max_chars=CHAT_DOCUMENT_CONTEXT_MAX_CHARS):
-    """Get full document text for Writer or summary for Calc, truncated to max_chars."""
+    """Get full document text for Writer or summary for Calc, truncated to max_chars.
+
+    Stays here (not ``text_helpers``) because the Calc branch needs
+    ``SheetAnalyzer`` / ``CalcBridge``. Those are imported lazily so this
+    module's import does not load Calc.
+    """
     try:
         check_disposed(model, "Document Model")
         doc_type = _doc_type.get_document_type(model)
 
         if doc_type == _doc_type.DocumentType.CALC:
+            from plugin.calc.analyzer import SheetAnalyzer
+            from plugin.calc.bridge import CalcBridge
+
             # Calc document
             bridge = CalcBridge(model)
             analyzer = SheetAnalyzer(bridge)
@@ -655,7 +72,7 @@ def get_full_document_text(model, max_chars=CHAT_DOCUMENT_CONTEXT_MAX_CHARS):
         if doc_type == _doc_type.DocumentType.WRITER:
             doc_len = _text_helpers._writer_char_count(model)
             take = min(doc_len, max_chars)
-            excerpt = _read_writer_text_slice(model, 0, take)
+            excerpt = _text_helpers._read_writer_text_slice(model, 0, take)
             if doc_len > max_chars:
                 excerpt += "\n\n[... document truncated ...]"
             return excerpt
@@ -667,111 +84,6 @@ def get_full_document_text(model, max_chars=CHAT_DOCUMENT_CONTEXT_MAX_CHARS):
     except UnoObjectError:
         logging.getLogger(__name__).exception("get_full_document_text failed")
         return ""
-
-
-def get_document_end(model, max_chars=4000):
-    """Get the last max_chars of the document."""
-    try:
-        check_disposed(model, "Document Model")
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoEnd, "Cursor gotoEnd", False)
-        safe_call(cursor.gotoStart, "Cursor gotoStart", True)  # expand backward to select from start to end
-        full = _text_helpers.get_string_without_tracked_deletions(cursor)
-        if len(full) <= max_chars:
-            return full
-        return full[-max_chars:]
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("get_document_end failed")
-        return ""
-
-
-# goRight(nCount, bExpand) takes short; max 32767 per call
-_GO_RIGHT_CHUNK = 8192
-
-
-def _read_writer_text_slice(model, start_offset: int, length: int) -> str:
-    """Read up to *length* characters from *start_offset* without loading the full document."""
-    if length <= 0:
-        return ""
-    end_offset = start_offset + length
-    cursor = get_text_cursor_at_range(model, start_offset, end_offset)
-    if cursor is None:
-        return ""
-    # cursor.getString() concatenates tracked deletions as plain text; enumerate portions instead.
-    return _text_helpers.normalize_linebreaks(_text_helpers.get_string_without_tracked_deletions(cursor))
-
-
-def _writer_excerpt_overlaps_selection(model, excerpt_start: int, excerpt_end: int, sel_start_pos, sel_end_pos) -> bool:
-    """True when selection UNO range overlaps [excerpt_start, excerpt_end) character window."""
-    exc_cursor = get_text_cursor_at_range(model, excerpt_start, excerpt_end)
-    if exc_cursor is None:
-        return False
-    text = safe_call(model.getText, "Get document text")
-    exc_start = safe_call(exc_cursor.getStart, "Excerpt getStart")
-    exc_end = safe_call(exc_cursor.getEnd, "Excerpt getEnd")
-    if safe_call(text.compareRegionStarts, "compareRegionStarts sel_end exc_start", sel_end_pos, exc_start) > 0:
-        return False
-    if safe_call(text.compareRegionStarts, "compareRegionStarts exc_end sel_start", exc_end, sel_start_pos) > 0:
-        return False
-    return True
-
-
-def _writer_selection_overlaps_windows(model, windows: list[tuple[int, int]], sel_start_pos, sel_end_pos) -> bool:
-    for win_start, win_end in windows:
-        if _writer_excerpt_overlaps_selection(model, win_start, win_end, sel_start_pos, sel_end_pos):
-            return True
-    return False
-
-
-def get_document_length(model):
-    """Return total character length of the document. Returns 0 on error."""
-    try:
-        check_disposed(model, "Document Model")
-        if _doc_type.get_document_type(model) == _doc_type.DocumentType.WRITER:
-            return _text_helpers._writer_char_count(model)
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
-        length = len(_text_helpers.normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
-        return length
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("get_document_length failed")
-        return 0
-
-
-def get_text_cursor_at_range(model, start_offset, end_offset):
-    """Return a text cursor that selects the character range [start_offset, end_offset).
-    The cursor is positioned at start and expanded to end so caller can setString('') and insert.
-    goRight is used in chunks because UNO's goRight takes short (max 32767).
-    Returns None on error or invalid range."""
-    try:
-        check_disposed(model, "Document Model")
-        doc_len = get_document_length(model)
-        start_offset = max(0, min(start_offset, doc_len))
-        end_offset = max(0, min(end_offset, doc_len))
-        if start_offset > end_offset:
-            start_offset, end_offset = end_offset, start_offset
-        text = safe_call(model.getText, "Get document text")
-        cursor = safe_call(text.createTextCursor, "Create text cursor")
-        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
-        # Move to start_offset in chunks
-        remaining = start_offset
-        while remaining > 0:
-            n = min(remaining, _GO_RIGHT_CHUNK)
-            safe_call(cursor.goRight, "Cursor goRight", n, False)
-            remaining -= n
-        # Expand selection by (end_offset - start_offset)
-        remaining = end_offset - start_offset
-        while remaining > 0:
-            n = min(remaining, _GO_RIGHT_CHUNK)
-            safe_call(cursor.goRight, "Cursor goRight", n, True)
-            remaining -= n
-        return cursor
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("get_text_cursor_at_range failed")
-        return None
 
 
 def _writer_has_math_ole(model) -> bool:
@@ -814,6 +126,8 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
         doc_type = _doc_type.get_document_type(model)
 
         if doc_type == _doc_type.DocumentType.CALC:
+            from plugin.calc.analyzer import get_calc_context_for_chat
+
             return get_calc_context_for_chat(model, max_context, ctx)
 
         if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
@@ -827,7 +141,7 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
                 doc_len = _text_helpers._writer_char_count(model)
             except (UnoObjectError, Exception):
                 logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed, trying fallback to selection-only")
-                sel_text = get_selection_text(model)
+                sel_text = _text_helpers.get_selection_text(model)
                 if sel_text:
                     return f"[Document text reading failed. Active selection: {sel_text}]"
                 return "[Document content unavailable]"
@@ -845,7 +159,7 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
             start_offset, end_offset = (0, 0)
             if include_selection:
                 sel_positions = _text_helpers._get_writer_selection_positions(model)
-                if sel_positions is not None and _writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
+                if sel_positions is not None and _text_helpers._writer_selection_overlaps_windows(model, excerpt_windows, sel_positions[1], sel_positions[2]):
                     start_offset, end_offset = _text_helpers.get_selection_range(model)
                     start_offset = max(0, min(start_offset, doc_len))
                     end_offset = max(0, min(end_offset, doc_len))
@@ -856,8 +170,8 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
                         end_offset = start_offset + max_selection_span
 
             if include_end and doc_len > (max_context // 2):
-                start_excerpt = _read_writer_text_slice(model, 0, start_chars)
-                end_excerpt = _read_writer_text_slice(model, doc_len - end_chars, end_chars)
+                start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
+                end_excerpt = _text_helpers._read_writer_text_slice(model, doc_len - end_chars, end_chars)
                 start_excerpt = _inject_markers_into_excerpt(start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
                 end_excerpt = _inject_markers_into_excerpt(end_excerpt, doc_len - end_chars, doc_len, start_offset, end_offset, "[DOCUMENT END]\n", "\n[END DOCUMENT]")
                 middle_note = "\n\n[... middle of document omitted ...]\n\n" if doc_len > max_context else ""
@@ -867,7 +181,7 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
                 )
 
             take = min(doc_len, max_context)
-            excerpt = _read_writer_text_slice(model, 0, take)
+            excerpt = _text_helpers._read_writer_text_slice(model, 0, take)
             if doc_len > max_context:
                 excerpt += "\n\n[... document truncated ...]"
             excerpt = _inject_markers_into_excerpt(excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
@@ -880,63 +194,12 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
     except Exception:
         logging.getLogger(__name__).exception("get_document_context_for_chat unexpected failure, trying selection fallback")
         try:
-            sel_text = get_selection_text(model)
+            sel_text = _text_helpers.get_selection_text(model)
             if sel_text:
                 return f"[Document context resolution failed. Active selection: {sel_text}]"
         except Exception:
             pass
         return "[Document content unavailable]"
-
-
-
-@main_thread_only
-def get_calc_context_for_chat(model, max_context=8000, ctx=None):
-    """Get context summary for a Calc spreadsheet."""
-    if ctx is None:
-        raise ValueError("ctx is required for get_calc_context_for_chat")
-    try:
-        check_disposed(model, "Document Model")
-        bridge = CalcBridge(model)
-        analyzer = SheetAnalyzer(bridge)
-        summary = analyzer.get_sheet_summary()
-
-        ctx_str = f"Spreadsheet Document: {model.getURL() or 'Untitled'}\n"
-        sheets = model.getSheets()
-        sheet_names = list(sheets.getElementNames())
-        ctx_str += f"Sheets: {sheet_names}\n"
-        ctx_str += f"Active Sheet: {summary['sheet_name']}\n"
-        ctx_str += f"Used Range: {summary['used_range']} ({summary['row_count']} rows x {summary['col_count']} columns)\n"
-        ctx_str += f"Columns: {', '.join([str(h) for h in summary['headers'] if h])}\n"
-
-        # Add selection context if available
-        controller = safe_call(model.getCurrentController, "Get current controller")
-        selection = safe_call(controller.getSelection, "Get selection")
-        if selection:
-            if hasattr(selection, "getRangeAddress"):
-                addr = safe_call(selection.getRangeAddress, "Get range address")
-                from plugin.calc.address_utils import index_to_column
-
-                sel_range = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}:{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
-                ctx_str += f"Current Selection: {sel_range}\n"
-
-                # Check for selected values if small
-                if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
-                    from plugin.calc.inspector import CellInspector
-
-                    inspector = CellInspector(bridge)
-                    # LLM-facing context: enrich dates like read_cell_range (#374 Bug 3).
-                    cells = inspector.read_range(sel_range, include_format_info=True)
-                    ctx_str += "Selection Content (CSV-like):\n"
-                    for row in cells:
-                        ctx_str += ", ".join([str(c["value"]) if c["value"] is not None else "" for c in row]) + "\n"
-
-        return ctx_str
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("get_calc_context_for_chat error")
-        return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
-    except Exception:
-        logging.getLogger(__name__).exception("get_calc_context_for_chat exception")
-        return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
 
 
 @main_thread_only
@@ -1022,103 +285,12 @@ def _inject_markers_into_excerpt(excerpt_text, excerpt_start, excerpt_end, sel_s
     return out
 
 
-# ---------------------------------------------------------------------------
-# Navigation & Outline (Ported from extension)
-# ---------------------------------------------------------------------------
-
-import uuid
-
-
-def get_paragraph_ranges(model):
-    """Return list of top-level paragraph elements."""
-    text = model.getText()
-    enum = text.createEnumeration()
-    ranges = []
-    while enum.hasMoreElements():
-        ranges.append(enum.nextElement())
-    return ranges
-
-
-def find_paragraph_for_range(match_range, para_ranges, text_obj=None):
-    """Return the 0-based paragraph index that contains match_range."""
-    try:
-        if text_obj is None:
-            text_obj = safe_call(match_range.getText, "Get text object")
-        match_start = safe_call(match_range.getStart, "Get match start")
-        low = 0
-        high = len(para_ranges) - 1
-
-        while low <= high:
-            mid = (low + high) // 2
-            para = para_ranges[mid]
-            # compareRegionStarts: -1 if first is after second, 1 if before, 0 if equal
-            cmp_start = safe_call(text_obj.compareRegionStarts, "compareRegionStarts start", match_start, safe_call(para.getStart, "Get para start"))
-            if cmp_start > 0:
-                high = mid - 1
-            else:
-                cmp_end = safe_call(text_obj.compareRegionStarts, "compareRegionStarts end", match_start, safe_call(para.getEnd, "Get para end"))
-                if cmp_end < 0:
-                    low = mid + 1
-                else:
-                    return mid
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("find_paragraph_for_range error")
-    return 0
-
-
-def ensure_heading_bookmarks(model):
-    """Ensure every heading has an _mcp_ bookmark. Returns {para_index: bookmark_name}."""
-    try:
-        check_disposed(model, "Document Model")
-        text = safe_call(model.getText, "Get document text")
-        para_ranges = get_paragraph_ranges(model)
-
-        # 1. Map existing _mcp_ bookmarks
-        existing_map = {}
-        if hasattr(model, "getBookmarks"):
-            bookmarks = safe_call(model.getBookmarks, "Get bookmarks")
-            for name in safe_call(bookmarks.getElementNames, "Get element names"):
-                if name.startswith("_mcp_"):
-                    bm = safe_call(bookmarks.getByName, "Get bookmark by name", name)
-                    idx = find_paragraph_for_range(safe_call(bm.getAnchor, "Get bookmark anchor"), para_ranges, text)
-                    existing_map[idx] = name
-
-        # 2. Scanthe document for headings
-        enum = safe_call(text.createEnumeration, "Create enumeration")
-        para_index = 0
-        bookmark_map = {}
-        needs_bookmark = []
-
-        while safe_call(enum.hasMoreElements, "Check more elements"):
-            element = safe_call(enum.nextElement, "Get next element")
-            if safe_call(element.supportsService, "Check supportsService Paragraph", "com.sun.star.text.Paragraph"):
-                try:
-                    if safe_call(element.getPropertyValue, "Get OutlineLevel", "OutlineLevel") > 0:
-                        if para_index in existing_map:
-                            bookmark_map[para_index] = existing_map[para_index]
-                        else:
-                            needs_bookmark.append((para_index, safe_call(element.getStart, "Get element start")))
-                except UnoObjectError as e:
-                    logging.getLogger(__name__).debug("ensure_heading_bookmarks could not get OutlineLevel: %s", e)
-            para_index += 1
-
-        # 3. Add missing bookmarks
-        for idx, start_range in needs_bookmark:
-            name = f"_mcp_{uuid.uuid4().hex[:8]}"
-            bookmark = safe_call(model.createInstance, "Create bookmark instance", "com.sun.star.text.Bookmark")
-            bookmark.Name = name
-            cursor = safe_call(text.createTextCursorByRange, "Create cursor by range", start_range)
-            safe_call(text.insertTextContent, "Insert text content", cursor, bookmark, False)
-            bookmark_map[idx] = name
-
-        return bookmark_map
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("ensure_heading_bookmarks error")
-        return {}
-
-
 def resolve_locator(model, locator: str):
-    """Resolve a locator string to a paragraph index or other document position."""
+    """Resolve a locator string to a paragraph index or other document position.
+
+    Broader than bookmarks: ``paragraph:``, ``heading:``, and ``bookmark:``. Left
+    here because ``plugin.writer.specialized.bookmarks`` only owns bookmark tools.
+    """
     loc_type, sep, loc_value = locator.partition(":")
     if not sep:
         return {"para_index": 0}
@@ -1149,14 +321,10 @@ def resolve_locator(model, locator: str):
             bms = model.getBookmarks()
             if bms.hasByName(loc_value):
                 anchor = bms.getByName(loc_value).getAnchor()
-                para_ranges = get_paragraph_ranges(model)
-                return {"para_index": find_paragraph_for_range(anchor, para_ranges, model.getText())}
+                para_ranges = _get_paragraph_ranges(model)
+                return {"para_index": _find_paragraph_for_range(anchor, para_ranges, model.getText())}
 
     return {"para_index": 0}
-
-
-from plugin.framework.service import ServiceBase
-from plugin.framework.uno_context import get_ctx
 
 
 class DocumentService(ServiceBase):
@@ -1170,7 +338,7 @@ class DocumentService(ServiceBase):
 
     def resolve_document_by_url(self, url):
         """Resolve (doc, doc_type) by document URL; (None, None) if not found. Main-thread only."""
-        return resolve_document_by_url(get_ctx(), url)
+        return _resolve_document_by_url(get_ctx(), url)
 
     def detect_doc_type(self, doc):
         doc_type = _doc_type.get_document_type(doc)
@@ -1193,7 +361,7 @@ class DocumentService(ServiceBase):
         return get_full_document_text(doc, max_chars)
 
     def get_document_length(self, doc):
-        return get_document_length(doc)
+        return _text_helpers.get_document_length(doc)
 
     def get_document_context_for_chat(self, doc, max_context=CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True):
         return get_document_context_for_chat(doc, max_context, include_end, include_selection, get_ctx())
@@ -1252,11 +420,11 @@ class DocumentService(ServiceBase):
 
     def get_paragraph_ranges(self, doc):
         """Return list of top-level paragraph elements."""
-        return get_paragraph_ranges(doc)
+        return _get_paragraph_ranges(doc)
 
     def find_paragraph_for_range(self, anchor, para_ranges, text_obj=None):
         """Return the 0-based paragraph index that contains anchor."""
-        return find_paragraph_for_range(anchor, para_ranges, text_obj)
+        return _find_paragraph_for_range(anchor, para_ranges, text_obj)
 
     def resolve_locator(self, doc, locator):
         """Resolve a locator string to a paragraph index or other document position."""
@@ -1272,7 +440,7 @@ class DocumentService(ServiceBase):
 
     def find_paragraph_element(self, doc, para_index):
         """Return (paragraph_element, None) for the given index, or (None, None) if out of range."""
-        ranges = get_paragraph_ranges(doc)
+        ranges = _get_paragraph_ranges(doc)
         if 0 <= para_index < len(ranges):
             return (ranges[para_index], None)
         return (None, None)

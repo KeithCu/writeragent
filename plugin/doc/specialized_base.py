@@ -231,7 +231,7 @@ class DelegateToSpecializedBase(ToolBase):
         # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
         # worker. UNO reads stay inside _fetch_calc_context on the main thread.
         if self._agent_label == "Calc" and getattr(ctx, "doc", None) is not None:
-            from plugin.doc.document_helpers import get_calc_context_for_chat
+            from plugin.calc.analyzer import get_calc_context_for_chat
 
             def _fetch_calc_context() -> str:
                 return "\n\n[SPREADSHEET CONTEXT]\n" + get_calc_context_for_chat(ctx.doc, ctx=ctx.ctx)

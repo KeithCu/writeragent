@@ -86,7 +86,7 @@ A Blue context may transition to Red across an explicit recoloring boundary (`ex
 1. **Background threads have a single birthplace**:
    All background work in WriterAgent is spawned through [`run_in_background`](../plugin/framework/worker_pool.py) (or a strictly allowlisted set of dedicated server/reader loops: `AsyncProcess` pipes, MCP server daemon, venv worker).
 2. **UNO objects have a finite set of sources**:
-   All PyUNO objects originate from factory getters in [`plugin/framework/uno_context.py`](../plugin/framework/uno_context.py) (`get_ctx`, `get_desktop`, `get_toolkit`, `get_active_document`, `get_package_info`) and document model resolvers in [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py).
+   All PyUNO objects originate from factory getters in [`plugin/framework/uno_context.py`](../plugin/framework/uno_context.py) (`get_ctx`, `get_desktop`, `get_toolkit`, `get_active_document`, `get_package_info`, `resolve_document_by_url`, `get_document_from_frame`).
 
 By wrapping the sources and tagging the birthplaces, we achieve complete defense-in-depth across three enforcement layers:
 
@@ -224,7 +224,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Location | File Path | Guard Mechanism / Role |
 |---|---|---|
 | Primary UNO getters | `plugin/framework/uno_context.py` | Wrapped via `guard_uno()` on `get_ctx()`, `get_desktop()`, `get_active_document()`, `get_toolkit()`, `get_package_info()`. |
-| Document Model Resolver | `plugin/doc/document_helpers.py` | `resolve_document_by_url()` returns `guard_uno(doc)`. |
+| Document Model Resolver | `plugin/framework/uno_context.py` | `resolve_document_by_url()` returns `guard_uno(doc)`. |
 | Panel Frame Resolver | `plugin/chatbot/panel.py`, `panel_factory.py` | `_get_document_model()` resolves frame controller model with `guard_uno`. |
 | Hidden Document Loader | `plugin/doc/document_research.py` | `open_document_for_read()` guards hidden component model. |
 | Desktop Enumeration | `plugin/doc/document_research.py` | `_office_model_from_desktop_element()` guards enumerated desktop models. |

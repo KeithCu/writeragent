@@ -8,15 +8,14 @@ from unittest.mock import MagicMock, patch
 
 from plugin.doc.document_helpers import (
     _inject_markers_into_excerpt,
-    _read_writer_text_slice,
-    _writer_selection_overlaps_windows,
     get_document_context_for_chat,
 )
+from plugin.doc.text_helpers import _read_writer_text_slice, _writer_selection_overlaps_windows
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 
 
 @patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="visible text")
-@patch("plugin.doc.document_helpers.get_text_cursor_at_range")
+@patch("plugin.doc.text_helpers.get_text_cursor_at_range")
 def test_read_writer_text_slice_uses_deletion_filter(mock_get_cursor, mock_without_deletions):
     cursor = MagicMock()
     mock_get_cursor.return_value = cursor
@@ -40,7 +39,7 @@ def test_inject_markers_no_overlap():
     assert out == "[START]\nabcdefghij\n[END]"
 
 
-@patch("plugin.doc.document_helpers._read_writer_text_slice")
+@patch("plugin.doc.text_helpers._read_writer_text_slice")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=20000)
 @patch("plugin.doc.doc_type.get_document_type")
 def test_get_document_context_reads_slices_not_full_doc(mock_doc_type, mock_char_count, mock_read_slice):
@@ -56,7 +55,7 @@ def test_get_document_context_reads_slices_not_full_doc(mock_doc_type, mock_char
     assert mock_read_slice.call_args_list[1][0][1:] == (16000, 4000)
 
 
-@patch("plugin.doc.document_helpers._read_writer_text_slice")
+@patch("plugin.doc.text_helpers._read_writer_text_slice")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=100)
 @patch("plugin.doc.doc_type.get_document_type")
 def test_get_document_context_short_doc_single_slice(mock_doc_type, mock_char_count, mock_read_slice):
@@ -73,7 +72,7 @@ def test_get_document_context_short_doc_single_slice(mock_doc_type, mock_char_co
 
 
 @patch("plugin.doc.document_helpers._writer_has_math_ole", return_value=True)
-@patch("plugin.doc.document_helpers._read_writer_text_slice", return_value="short doc text")
+@patch("plugin.doc.text_helpers._read_writer_text_slice", return_value="short doc text")
 @patch("plugin.doc.text_helpers._writer_char_count", return_value=100)
 @patch("plugin.doc.doc_type.get_document_type")
 def test_get_document_context_hints_math_ole(mock_doc_type, mock_char_count, mock_read_slice, mock_math):
@@ -106,7 +105,7 @@ def test_writer_selection_overlaps_windows_true_when_ranges_overlap():
     exc_cursor.getEnd.return_value = "exc_end"
     text.compareRegionStarts.return_value = -1
 
-    with patch("plugin.doc.document_helpers.get_text_cursor_at_range", return_value=exc_cursor):
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range", return_value=exc_cursor):
         assert _writer_selection_overlaps_windows(model, [(0, 4000)], "sel_start", "sel_end") is True
 
 
@@ -119,5 +118,5 @@ def test_writer_selection_overlaps_windows_false_when_before_excerpt():
     exc_cursor.getEnd.return_value = "exc_end"
     text.compareRegionStarts.side_effect = lambda a, b: 1 if a == "sel_end" and b == "exc_start" else 0
 
-    with patch("plugin.doc.document_helpers.get_text_cursor_at_range", return_value=exc_cursor):
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range", return_value=exc_cursor):
         assert _writer_selection_overlaps_windows(model, [(100, 200)], "sel_start", "sel_end") is False

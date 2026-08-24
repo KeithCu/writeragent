@@ -365,7 +365,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/calc/rich_html.py`](../plugin/calc/rich_html.py) | Rich HTML cell insert (Vision Calc egress) |
 | [`plugin/main_core.py`](../plugin/main_core.py) | LibrePy bootstrap — **not** [`plugin/main.py`](../plugin/main.py) |
 
-**Refactor note:** [`plugin/doc/doc_type.py`](../plugin/doc/doc_type.py) holds `is_writer` / `is_calc` / `DocumentType` so Layer 0 (`=PY()`) and menu guards do not import `document_helpers` → `calc.analyzer`. Document properties use [`udprops.py`](../plugin/doc/udprops.py). Writer text/path helpers used by RPS and text analytics live in [`text_helpers.py`](../plugin/doc/text_helpers.py). `document_helpers.py` is WriterAgent-only (chat context / streamed edits).
+**Refactor note:** [`plugin/doc/doc_type.py`](../plugin/doc/doc_type.py) holds `is_writer` / `is_calc` / `DocumentType` so Layer 0 (`=PY()`) and menu guards do not import `document_helpers`. Document properties use [`udprops.py`](../plugin/doc/udprops.py). Writer text/path helpers used by RPS and text analytics live in [`text_helpers.py`](../plugin/doc/text_helpers.py). `document_helpers.py` is WriterAgent-only (chat context / `DocumentService`) and must not import Calc at module load.
 
 Optional gettext: filtered catalogs via `make compile-translations-core` (part of `make build-core`) — [`scripts/build_librepy_locales.py`](../scripts/build_librepy_locales.py) extracts strings from the LibrePy file closure only and bundles slim `.mo` files from `build/generated/locales/`, not the full WriterAgent `locales/` tree.
 

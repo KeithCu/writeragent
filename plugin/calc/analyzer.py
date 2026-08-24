@@ -22,7 +22,8 @@ Ported from core/calc_sheet_analyzer.py for the plugin framework.
 
 import logging
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, UnoObjectError, check_disposed, safe_call
+from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger("writeragent.calc")
 
@@ -120,3 +121,55 @@ class SheetAnalyzer:
         except Exception as e:
             log.exception("Error creating sheet summary")
             raise ToolExecutionError(str(e)) from e
+
+
+@main_thread_only
+def get_calc_context_for_chat(model, max_context=8000, ctx=None):
+    """Get context summary for a Calc spreadsheet."""
+    if ctx is None:
+        raise ValueError("ctx is required for get_calc_context_for_chat")
+    try:
+        from plugin.calc.bridge import CalcBridge
+
+        check_disposed(model, "Document Model")
+        bridge = CalcBridge(model)
+        analyzer = SheetAnalyzer(bridge)
+        summary = analyzer.get_sheet_summary()
+
+        ctx_str = f"Spreadsheet Document: {model.getURL() or 'Untitled'}\n"
+        sheets = model.getSheets()
+        sheet_names = list(sheets.getElementNames())
+        ctx_str += f"Sheets: {sheet_names}\n"
+        ctx_str += f"Active Sheet: {summary['sheet_name']}\n"
+        ctx_str += f"Used Range: {summary['used_range']} ({summary['row_count']} rows x {summary['col_count']} columns)\n"
+        ctx_str += f"Columns: {', '.join([str(h) for h in summary['headers'] if h])}\n"
+
+        # Add selection context if available
+        controller = safe_call(model.getCurrentController, "Get current controller")
+        selection = safe_call(controller.getSelection, "Get selection")
+        if selection:
+            if hasattr(selection, "getRangeAddress"):
+                addr = safe_call(selection.getRangeAddress, "Get range address")
+                from plugin.calc.address_utils import index_to_column
+
+                sel_range = f"{index_to_column(addr.StartColumn)}{addr.StartRow + 1}:{index_to_column(addr.EndColumn)}{addr.EndRow + 1}"
+                ctx_str += f"Current Selection: {sel_range}\n"
+
+                # Check for selected values if small
+                if (addr.EndRow - addr.StartRow + 1) * (addr.EndColumn - addr.StartColumn + 1) < 100:
+                    from plugin.calc.inspector import CellInspector
+
+                    inspector = CellInspector(bridge)
+                    # LLM-facing context: enrich dates like read_cell_range (#374 Bug 3).
+                    cells = inspector.read_range(sel_range, include_format_info=True)
+                    ctx_str += "Selection Content (CSV-like):\n"
+                    for row in cells:
+                        ctx_str += ", ".join([str(c["value"]) if c["value"] is not None else "" for c in row]) + "\n"
+
+        return ctx_str
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_calc_context_for_chat error")
+        return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
+    except Exception:
+        logging.getLogger(__name__).exception("get_calc_context_for_chat exception")
+        return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"

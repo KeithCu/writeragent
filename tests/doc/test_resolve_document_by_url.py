@@ -11,7 +11,7 @@ here; the live UNO path is exercised by the MCP integration run.
 from unittest.mock import MagicMock, patch
 
 from plugin.doc.doc_type import DocumentType
-from plugin.doc.document_helpers import get_runtime_uid, resolve_document_by_url
+from plugin.framework.uno_context import get_runtime_uid, resolve_document_by_url
 
 
 def _model(url, uid):

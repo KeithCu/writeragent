@@ -25,7 +25,7 @@ import time
 
 from plugin.framework.tool import ToolBase
 from plugin.framework.prompts import APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT
-from plugin.doc.document_helpers import collect_tracked_changes
+from plugin.doc.text_helpers import collect_tracked_changes
 from plugin.writer.edit_review import (
     EditReviewSession,
     edit_review_wait_seconds,

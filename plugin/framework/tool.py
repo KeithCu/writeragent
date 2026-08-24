@@ -454,7 +454,7 @@ class ToolBase(ABC):
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
                 if self.requires_document and ctx is not None and getattr(ctx, "doc", None) is not None:
-                    from plugin.doc.document_helpers import is_document_disposed
+                    from plugin.framework.errors import is_document_disposed
 
                     if is_document_disposed(ctx.doc):
                         return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED")

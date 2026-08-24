@@ -502,7 +502,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _get_document_model(self):
         """Helper to get the current document model strictly from the frame."""
-        from plugin.doc.document_helpers import get_document_from_frame
+        from plugin.framework.uno_context import get_document_from_frame
 
         return get_document_from_frame(self.xFrame)
 

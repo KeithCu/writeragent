@@ -130,7 +130,7 @@ def test_set_selection_by_char_offsets_happy_path():
     ctx, doc, controller = _selection_ctx()
     rng = MagicMock()
     rng.getString.return_value = "faixa"
-    with patch("plugin.doc.document_helpers.get_text_cursor_at_range", return_value=rng):
+    with patch("plugin.doc.text_helpers.get_text_cursor_at_range", return_value=rng):
         res = SetSelection().execute(ctx, char_start=10, char_end=15)
     assert res["status"] == "ok" and res["selected_text"] == "faixa"
     assert res["char_start"] == 10 and res["char_end"] == 15

@@ -717,7 +717,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         instead of ``Desktop.getCurrentComponent()``, which can point at the wrong
         document if focus changes.
         """
-        from plugin.doc.document_helpers import get_document_from_frame
+        from plugin.framework.uno_context import get_document_from_frame
 
         model = get_document_from_frame(self.frame)
 

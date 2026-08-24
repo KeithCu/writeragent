@@ -27,7 +27,7 @@ _docked_uids: set[str] = set()    # RuntimeUIDs whose toolbar has already been d
 
 def _runtime_uid(model: Any):
     """The document's RuntimeUID, or None if it can't be read."""
-    from plugin.doc.document_helpers import get_runtime_uid
+    from plugin.framework.uno_context import get_runtime_uid
 
     uid = get_runtime_uid(model)
     return uid if uid else None

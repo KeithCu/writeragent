@@ -8,7 +8,7 @@
 
 - [ ] Basic chat works end-to-end (send → LLM response → apply to document)
 - [ ] Document context injection works (`[DOCUMENT CONTENT]` is always present and accurate)
-- [ ] With Record Changes on, `[DOCUMENT CONTENT]` excludes tracked deletions (same `get_string_without_tracked_deletions` path as Extend/Edit selection; see `_read_writer_text_slice` in `plugin/doc/document_helpers.py`)
+- [ ] With Record Changes on, `[DOCUMENT CONTENT]` excludes tracked deletions (same `get_string_without_tracked_deletions` path as Extend/Edit selection; see `_read_writer_text_slice` in `plugin/doc/text_helpers.py`)
 - [ ] Selection / extend / rewrite shortcuts work (Ctrl+Q, Ctrl+E)
 - [ ] Undo / tracked changes handling is correct after AI edits
 - [ ] Streaming responses render properly without UI lockup

@@ -30,7 +30,7 @@ import time
 import uuid
 from contextlib import contextmanager
 
-from plugin.doc.document_helpers import _normalize_doc_url, get_runtime_uid
+from plugin.framework.uno_context import _normalize_doc_url, get_runtime_uid
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, safe_json_loads
 from plugin.mcp.cors import send_cors_headers

@@ -84,7 +84,7 @@ flowchart LR
     resolve -->|miss| load["loadComponentFromURL Hidden + ReadOnly"]
 ```
 
-- [`resolve_document_by_url`](../plugin/doc/document_helpers.py) scans **already open** components only — it does **not** open closed files.
+- [`resolve_document_by_url`](../plugin/framework/uno_context.py) scans **already open** components only — it does **not** open closed files.
 - New load props: **`Hidden=True`** and **`ReadOnly=True`** (today [`plugin/writer/format.py`](../plugin/writer/format.py) uses `Hidden` only for temp docs).
 - If a sibling is already open **editable** in another window, reuse that component via URL match; inner agent still gets a **read-only allowlist** (schema enforcement, not LO mode alone).
 
@@ -121,7 +121,7 @@ flowchart TD
     MainAgent --> WriteActive
 ```
 
-**Document resolution today:** sidebar uses `frame.getController().getModel()` ([`SendButtonListener._get_document_model`](../plugin/chatbot/panel.py)); MCP uses `X-Document-URL` + [`resolve_document_by_url`](../plugin/doc/document_helpers.py). Nearby reads add: filesystem path → file URL → match open component or `loadComponentFromURL`.
+**Document resolution today:** sidebar uses `frame.getController().getModel()` ([`SendButtonListener._get_document_model`](../plugin/chatbot/panel.py)); MCP uses `X-Document-URL` + [`resolve_document_by_url`](../plugin/framework/uno_context.py). Nearby reads add: filesystem path → file URL → match open component or `loadComponentFromURL`.
 
 See [Threading / nested delegation](#threading--nested-delegation) for UNO thread rules.
 
@@ -556,7 +556,7 @@ Use these to validate design and tests (Phase 0 targets #1–#5):
 | Area | Path |
 | ---- | ---- |
 | Config keys (Phase 1+) | [`plugin/framework/config.py`](../plugin/framework/config.py), [`manifest_registry.py`](../scripts/manifest_registry.py) |
-| Document path / URL | [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py) |
+| Document path / URL | [`plugin/framework/uno_context.py`](../plugin/framework/uno_context.py) |
 | Chat context / prompts (Phase 2) | [`plugin/chatbot/panel.py`](../plugin/chatbot/panel.py), [`plugin/framework/constants.py`](../plugin/framework/constants.py) |
 | Tool loop | [`plugin/chatbot/tool_loop.py`](../plugin/chatbot/tool_loop.py) |
 | MCP (Phase 6) | [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) |

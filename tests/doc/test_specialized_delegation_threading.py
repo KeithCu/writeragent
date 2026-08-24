@@ -79,7 +79,7 @@ class _DummyDocResearchTool(ToolBase):
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
-@patch("plugin.doc.document_helpers.get_calc_context_for_chat")
+@patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     mock_get_calc_context,
     mock_execute_on_main,
@@ -131,7 +131,7 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.doc.document_helpers.get_calc_context_for_chat")
+@patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
     mock_get_calc_context,
     _mock_llm,

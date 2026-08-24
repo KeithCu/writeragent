@@ -1,9 +1,6 @@
 
-from plugin.doc.document_helpers import (
-    get_paragraph_ranges,
-    get_text_cursor_at_range,
-    find_paragraph_for_range,
-)
+from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges
+from plugin.doc.text_helpers import get_text_cursor_at_range
 from plugin.doc.text_helpers import (
     get_selection_range,
 )

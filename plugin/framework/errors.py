@@ -514,6 +514,19 @@ def check_disposed(model, context_name="Object"):
         pass
 
 
+def is_document_disposed(doc: Any) -> bool:
+    """Safely check if a UNO document or component is disposed or invalid."""
+    if doc is None:
+        return True
+    if hasattr(doc, "getImplementationName"):
+        try:
+            _unused = doc.getImplementationName()
+            return False
+        except Exception:
+            return True
+    return False
+
+
 
 
 def safe_uno_call(default=None):
@@ -625,6 +638,7 @@ __all__ = [
     "handle_errors",
     "ignore_disposed",
     "is_disposed_exception",
+    "is_document_disposed",
     "make_tool_error",           # Central factory for all tool error dicts
     "safe_call",
     "safe_json_loads",

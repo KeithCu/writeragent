@@ -8,7 +8,7 @@ The per-document mutation gate must give the SAME key whether a document is addr
 URL or by its RuntimeUID, so two concurrent mutating MCP calls on that document serialize on one
 lock instead of racing on two.
 """
-from plugin.doc.document_helpers import _normalize_doc_url
+from plugin.framework.uno_context import _normalize_doc_url
 from plugin.mcp.mcp_protocol import _ACTIVE_DOCUMENT_SENTINEL, _resolve_mcp_doc_key
 
 

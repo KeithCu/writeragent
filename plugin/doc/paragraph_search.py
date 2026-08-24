@@ -9,8 +9,11 @@
 
 from __future__ import annotations
 
+import logging
 import re as re_mod
 from typing import Any
+
+from plugin.framework.errors import UnoObjectError, safe_call
 
 
 def build_paragraph_match(text: str, para_idx: int, ctx_paras: int, para_count: int, para_texts: list[str]) -> dict[str, Any]:
@@ -70,3 +73,40 @@ def search_paragraph_texts(
                 pos += step
 
     return matches, total_count
+
+
+def get_paragraph_ranges(model):
+    """Return list of top-level paragraph elements."""
+    text = model.getText()
+    enum = text.createEnumeration()
+    ranges = []
+    while enum.hasMoreElements():
+        ranges.append(enum.nextElement())
+    return ranges
+
+
+def find_paragraph_for_range(match_range, para_ranges, text_obj=None):
+    """Return the 0-based paragraph index that contains match_range."""
+    try:
+        if text_obj is None:
+            text_obj = safe_call(match_range.getText, "Get text object")
+        match_start = safe_call(match_range.getStart, "Get match start")
+        low = 0
+        high = len(para_ranges) - 1
+
+        while low <= high:
+            mid = (low + high) // 2
+            para = para_ranges[mid]
+            # compareRegionStarts: -1 if first is after second, 1 if before, 0 if equal
+            cmp_start = safe_call(text_obj.compareRegionStarts, "compareRegionStarts start", match_start, safe_call(para.getStart, "Get para start"))
+            if cmp_start > 0:
+                high = mid - 1
+            else:
+                cmp_end = safe_call(text_obj.compareRegionStarts, "compareRegionStarts end", match_start, safe_call(para.getEnd, "Get para end"))
+                if cmp_end < 0:
+                    low = mid + 1
+                else:
+                    return mid
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("find_paragraph_for_range error")
+    return 0

@@ -45,7 +45,7 @@ In `core/calc_tools.py`, the `execute_calc_tool` dispatcher often checks if `ran
 **Problem**: LLMs (especially when streaming or acting as a sub-agent) are inconsistent with line endings, often mixing `\n`, `\r\n`, and occasionally `\n\r` or legacy `\r`. This breaks structural operations like paragraph splitting (`split("\n\n")`) and can cause search/replace failures if the AI's response uses a different sequence than the document's internal representation.
 
 ### [Workaround] Centralized Normalization
-The `normalize_linebreaks` utility in `plugin/doc/document_helpers.py` ensures all incoming and outgoing text uses a consistent `\n` (LF) sequence.
+The `normalize_linebreaks` utility in `plugin/doc/text_helpers.py` ensures all incoming and outgoing text uses a consistent `\n` (LF) sequence.
 - **Implementation**: It performs a chain of replacements: `text.replace("\r\n", "\n").replace("\n\r", "\n").replace("\r", "\n")`.
 - **Reasoning**: This prevents "invisible character" mismatches. Since LibreOffice internally represents hard line breaks as `\n` in UNO strings, this ensures that the text we process, the text the AI sees, and the text we write back into the document are byte-compatible for string operations.
 

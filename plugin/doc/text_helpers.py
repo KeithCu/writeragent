@@ -8,8 +8,8 @@
 
 LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 offsets need linebreak normalization, tracked-deletion reads, heading trees, file
-paths, and selection range calculation. Those must not load ``document_helpers`` →
-``SheetAnalyzer`` / chat context.
+paths, selection range calculation, and Writer text-slice reads. Those must not
+load ``document_helpers`` → chat context / ``DocumentService``.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from typing import TypedDict
 
 import uno
 
+from plugin.doc import doc_type as _doc_type
 from plugin.framework.errors import UnoObjectError, check_disposed, safe_call
 from plugin.framework.thread_guard import main_thread_only
 
@@ -265,3 +266,227 @@ def build_heading_tree(model) -> HeadingTreeNode:
     except UnoObjectError:
         logging.getLogger(__name__).exception("build_heading_tree error")
         return {"level": 0, "text": "root", "para_index": -1, "children": [], "body_paragraphs": 0}
+
+
+def collect_tracked_changes(text_range, max_per_change: int = 300, max_changes: int = 100):
+    """Walk text portions and collect tracked insertions/deletions WITH their text, so a reader can
+    see what is pending and that it awaits the user's review (rather than the default read, which
+    hides deletions and gives no hint that changes are pending).
+
+    Returns a list of ``{"type": "insertion"|"deletion", "text": str}`` in document order. Best-effort:
+    returns ``[]`` on any failure. Mirrors get_string_without_tracked_deletions' portion walk, but also
+    toggles on Insert redlines and buffers the text of each change instead of dropping deletions."""
+    out: list[dict] = []
+    if hasattr(text_range, "_mock_return_value") or type(text_range).__name__ in ("Mock", "MagicMock"):
+        return out
+    try:
+        para_enum = text_range.createEnumeration()
+    except Exception:
+        return out
+
+    in_delete = False
+    in_insert = False
+    del_buf: list[str] = []
+    ins_buf: list[str] = []
+
+    def _flush(buf, kind):
+        if buf and len(out) < max_changes:
+            out.append({"type": kind, "text": "".join(buf)[:max_per_change]})
+        buf.clear()
+
+    try:
+        while para_enum.hasMoreElements() and len(out) < max_changes:
+            para = para_enum.nextElement()
+            try:
+                portion_enum = para.createEnumeration()
+            except Exception:
+                continue
+            while portion_enum.hasMoreElements():
+                portion = portion_enum.nextElement()
+                try:
+                    try:
+                        ptype = portion.getPropertyValue("TextPortionType")
+                    except Exception:
+                        ptype = portion.TextPortionType
+                except Exception:
+                    continue
+
+                if ptype == "Redline":
+                    try:
+                        rtype = str(portion.getPropertyValue("RedlineType"))
+                    except Exception:
+                        rtype = ""
+                    if rtype == "Delete":
+                        if in_delete:
+                            _flush(del_buf, "deletion")
+                        in_delete = not in_delete
+                    elif rtype == "Insert":
+                        if in_insert:
+                            _flush(ins_buf, "insertion")
+                        in_insert = not in_insert
+                    continue
+
+                try:
+                    chunk = portion.getString()
+                except Exception:
+                    chunk = ""
+                if not chunk:
+                    continue
+                if in_delete:
+                    del_buf.append(chunk)
+                elif in_insert:
+                    ins_buf.append(chunk)
+        _flush(del_buf, "deletion")
+        _flush(ins_buf, "insertion")
+    except Exception:
+        return out
+    return out
+
+
+@main_thread_only
+def get_selection_text(model):
+    """Return the selected text or None if selection is empty/unavailable/fails. Handles Writer, Calc, Draw."""
+    try:
+        check_disposed(model, "Document Model")
+        controller = safe_call(model.getCurrentController, "Get current controller")
+        if not controller:
+            return None
+        check_disposed(controller, "Controller")
+
+        doc_type = _doc_type.get_document_type(model)
+
+        if doc_type == _doc_type.DocumentType.WRITER:
+            sel = safe_call(controller.getSelection, "Get selection")
+            sel_count = 0
+            if sel and hasattr(sel, "getCount"):
+                sel_count = safe_call(sel.getCount, "Get selection count")
+            if not sel or sel_count == 0:
+                vc = safe_call(controller.getViewCursor, "Get view cursor")
+                if vc:
+                    check_disposed(vc, "View Cursor")
+                    return safe_call(vc.getString, "Get view cursor string")
+            else:
+                rng = safe_call(sel.getByIndex, "Get selection by index", 0)
+                if rng:
+                    check_disposed(rng, "Selection Range")
+                    return safe_call(rng.getString, "Get selection string")
+        elif doc_type == _doc_type.DocumentType.CALC:
+            selection = safe_call(controller.getSelection, "Get selection")
+            if selection:
+                if hasattr(selection, "getString"):
+                    return safe_call(selection.getString, "Get selection string")
+        elif doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
+            selection = safe_call(controller.getSelection, "Get selection")
+            if selection and hasattr(selection, "getCount"):
+                count = safe_call(selection.getCount, "Get selection count")
+                parts = []
+                for i in range(count):
+                    shape = safe_call(selection.getByIndex, "Get selection shape", i)
+                    if shape and hasattr(shape, "getString"):
+                        parts.append(safe_call(shape.getString, "Get shape string"))
+                if parts:
+                    return "\n".join(parts)
+    except Exception:
+        pass
+    return None
+
+
+def get_document_end(model, max_chars=4000):
+    """Get the last max_chars of the document."""
+    try:
+        check_disposed(model, "Document Model")
+        text = safe_call(model.getText, "Get document text")
+        cursor = safe_call(text.createTextCursor, "Create text cursor")
+        safe_call(cursor.gotoEnd, "Cursor gotoEnd", False)
+        safe_call(cursor.gotoStart, "Cursor gotoStart", True)  # expand backward to select from start to end
+        full = get_string_without_tracked_deletions(cursor)
+        if len(full) <= max_chars:
+            return full
+        return full[-max_chars:]
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_document_end failed")
+        return ""
+
+
+def _read_writer_text_slice(model, start_offset: int, length: int) -> str:
+    """Read up to *length* characters from *start_offset* without loading the full document."""
+    if length <= 0:
+        return ""
+    end_offset = start_offset + length
+    cursor = get_text_cursor_at_range(model, start_offset, end_offset)
+    if cursor is None:
+        return ""
+    # cursor.getString() concatenates tracked deletions as plain text; enumerate portions instead.
+    return normalize_linebreaks(get_string_without_tracked_deletions(cursor))
+
+
+def _writer_excerpt_overlaps_selection(model, excerpt_start: int, excerpt_end: int, sel_start_pos, sel_end_pos) -> bool:
+    """True when selection UNO range overlaps [excerpt_start, excerpt_end) character window."""
+    exc_cursor = get_text_cursor_at_range(model, excerpt_start, excerpt_end)
+    if exc_cursor is None:
+        return False
+    text = safe_call(model.getText, "Get document text")
+    exc_start = safe_call(exc_cursor.getStart, "Excerpt getStart")
+    exc_end = safe_call(exc_cursor.getEnd, "Excerpt getEnd")
+    if safe_call(text.compareRegionStarts, "compareRegionStarts sel_end exc_start", sel_end_pos, exc_start) > 0:
+        return False
+    if safe_call(text.compareRegionStarts, "compareRegionStarts exc_end sel_start", exc_end, sel_start_pos) > 0:
+        return False
+    return True
+
+
+def _writer_selection_overlaps_windows(model, windows: list[tuple[int, int]], sel_start_pos, sel_end_pos) -> bool:
+    for win_start, win_end in windows:
+        if _writer_excerpt_overlaps_selection(model, win_start, win_end, sel_start_pos, sel_end_pos):
+            return True
+    return False
+
+
+def get_document_length(model):
+    """Return total character length of the document. Returns 0 on error."""
+    try:
+        check_disposed(model, "Document Model")
+        if _doc_type.get_document_type(model) == _doc_type.DocumentType.WRITER:
+            return _writer_char_count(model)
+        text = safe_call(model.getText, "Get document text")
+        cursor = safe_call(text.createTextCursor, "Create text cursor")
+        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+        safe_call(cursor.gotoEnd, "Cursor gotoEnd", True)
+        length = len(normalize_linebreaks(safe_call(cursor.getString, "Cursor getString")))
+        return length
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_document_length failed")
+        return 0
+
+
+def get_text_cursor_at_range(model, start_offset, end_offset):
+    """Return a text cursor that selects the character range [start_offset, end_offset).
+    The cursor is positioned at start and expanded to end so caller can setString('') and insert.
+    goRight is used in chunks because UNO's goRight takes short (max 32767).
+    Returns None on error or invalid range."""
+    try:
+        check_disposed(model, "Document Model")
+        doc_len = get_document_length(model)
+        start_offset = max(0, min(start_offset, doc_len))
+        end_offset = max(0, min(end_offset, doc_len))
+        if start_offset > end_offset:
+            start_offset, end_offset = end_offset, start_offset
+        text = safe_call(model.getText, "Get document text")
+        cursor = safe_call(text.createTextCursor, "Create text cursor")
+        safe_call(cursor.gotoStart, "Cursor gotoStart", False)
+        # Move to start_offset in chunks
+        remaining = start_offset
+        while remaining > 0:
+            n = min(remaining, _GO_RIGHT_CHUNK)
+            safe_call(cursor.goRight, "Cursor goRight", n, False)
+            remaining -= n
+        # Expand selection by (end_offset - start_offset)
+        remaining = end_offset - start_offset
+        while remaining > 0:
+            n = min(remaining, _GO_RIGHT_CHUNK)
+            safe_call(cursor.goRight, "Cursor goRight", n, True)
+            remaining -= n
+        return cursor
+    except UnoObjectError:
+        logging.getLogger(__name__).exception("get_text_cursor_at_range failed")
+        return None

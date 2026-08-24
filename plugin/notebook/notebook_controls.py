@@ -93,7 +93,7 @@ class NotebookRunButtonListener(BaseActionListener):
 
     def _resolve_doc(self) -> Any | None:
         if self._doc_url:
-            from plugin.doc.document_helpers import resolve_document_by_url
+            from plugin.framework.uno_context import resolve_document_by_url
 
             doc, _doc_type = resolve_document_by_url(self._ctx, self._doc_url)
             if doc is not None:

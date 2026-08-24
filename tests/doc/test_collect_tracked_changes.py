@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
-from plugin.doc.document_helpers import collect_tracked_changes
+from plugin.doc.text_helpers import collect_tracked_changes
 
 
 def _enum(items):

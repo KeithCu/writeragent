@@ -266,7 +266,7 @@ Code pointer: Future work comment block above `_COMMON_ABBREVIATIONS` in [`gramm
 - **Normalization**: Uses `_normalize_for_sentence_cache` so trailing whitespace and redundant punctuation share keys. Errors are clipped to the canonical length.
 - **Incomplete-prefix compaction**: On **`cache_put_sentence`**, when the normalized text is still **incomplete**, the cache walks the sentence `OrderedDict` newest-first (bounded scan per locale) and evicts strict-prefix incomplete predecessors so incremental typing does not fill the LRU with `"The"`, `"The qu"`, … stubs. Details and regression tests: [`grammar_proofread_cache.py`](../plugin/writer/locale/grammar_proofread_cache.py), [`test_sentence_cache_incomplete_prefix_compaction`](../tests/writer/locale/test_grammar_proofread_cache.py). Document-embedded mode (`doc_id` set) skips this compaction scan but still warms the global LRU.
 - **Memory warm-up**: Persistence hits promoted to L1 via `_populate_memory_cache_only`.
-- **Document-embedded persistence**: Loads on first grammar call; saves on **`OnPrepareSave`** / **`OnSave`** / **`OnSaveAs`** / **`OnSaveTo`** via `set_document_property` in [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py). Registry cleanup on `OnUnload` / dispose.
+- **Document-embedded persistence**: Loads on first grammar call; saves on **`OnPrepareSave`** / **`OnSave`** / **`OnSaveAs`** / **`OnSaveTo`** via `set_document_property` in [`plugin/doc/udprops.py`](../plugin/doc/udprops.py). Registry cleanup on `OnUnload` / dispose.
 
 > [!NOTE]
 > <a id="document-embedded-cache-default"></a>

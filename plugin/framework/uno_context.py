@@ -311,3 +311,117 @@ def process_events_to_idle(ctx, rounds: int = 1, force: bool = False) -> bool:
         except Exception:
             log.debug("process_events_to_idle failed", exc_info=True)
     return pumped
+
+
+def _normalize_doc_url(url):
+    """Normalize document URL for comparison (strip, optional trailing slash)."""
+    if not url:
+        return ""
+    s = str(url).strip()
+    if s.endswith("/") and len(s) > 1:
+        s = s[:-1]
+    return s
+
+
+def get_runtime_uid(model):
+    """Stable per-session id for an open component.
+
+    Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
+    documents, so it can address a document that has no file on disk yet.
+    Returns "" if unavailable.
+
+    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
+    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
+    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
+    cannot masquerade as a real uid.
+    """
+    for accessor in (
+        lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None,
+        lambda m: getattr(m, "RuntimeUID", None),
+        lambda m: m.getPropertyValue("RuntimeUID"),
+    ):
+        try:
+            raw = accessor(model)
+            if isinstance(raw, bool):
+                continue
+            if isinstance(raw, int):
+                return str(raw)
+            if isinstance(raw, str) and raw:
+                return raw
+        except Exception:
+            continue
+    return ""
+
+
+@main_thread_only
+def resolve_document_by_url(ctx, url):
+    """Resolve an open document by URL or RuntimeUID. Must be called on the UNO main thread.
+
+    ``url`` may be a document URL or a ``RuntimeUID`` (as returned by
+    ``list_open_documents``); the RuntimeUID also matches unsaved/untitled
+    documents that have no URL yet.
+    Returns (doc, doc_type) or (None, None) if not found.
+    doc_type is one of 'writer', 'calc', 'draw'.
+    """
+    if not url or not str(url).strip():
+        return (None, None)
+    from plugin.doc import doc_type as _doc_type
+
+    target = _normalize_doc_url(url)
+    try:
+        desktop = get_desktop(ctx)
+        comps = desktop.getComponents()
+        if not comps:
+            return (None, None)
+        enum = comps.createEnumeration()
+        if not enum:
+            return (None, None)
+        while enum and enum.hasMoreElements():
+            elem = enum.nextElement()
+            try:
+                model = None
+                if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
+                    model = elem
+                elif hasattr(elem, "getController") and elem.getController():
+                    model = elem.getController().getModel()
+                if model is not None:
+                    doc_url = _normalize_doc_url(model.getURL()) if hasattr(model, "getURL") else ""
+                    uid = get_runtime_uid(model)
+                    if (doc_url and doc_url == target) or (uid and uid == target):
+                        doc_type_enum = _doc_type.get_document_type(model)
+                        doc_type = "writer"
+                        if doc_type_enum == _doc_type.DocumentType.CALC:
+                            doc_type = "calc"
+                        elif doc_type_enum in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
+                            doc_type = "draw"
+                        return (_wrap_uno(model), doc_type)
+            except Exception as e:
+                logging.getLogger(__name__).debug("resolve_document_by_url element error: %s", type(e).__name__)
+                continue
+    except Exception:
+        logging.getLogger(__name__).exception("resolve_document_by_url enumeration error")
+    return (None, None)
+
+
+@main_thread_only
+def get_document_from_frame(frame):
+    """Get the document model strictly from the frame controller.
+
+    This is the preferred path for sidebar panels to ensure we resolve
+    the document bound to the active window rather than relying on Desktop.
+    """
+    if not frame:
+        return None
+    from plugin.framework.errors import suppress_disposed
+    from plugin.framework.thread_guard import guard_uno
+
+    with suppress_disposed("resolve document from frame", logger=logging.getLogger(__name__)):
+        check_disposed(frame, "Frame")
+        controller = frame.getController()
+        if not controller:
+            return None
+        check_disposed(controller, "Controller")
+        model = controller.getModel()
+        if model is not None:
+            return guard_uno(model)
+    return None

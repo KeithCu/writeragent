@@ -210,7 +210,7 @@ class WriteCellRange(ToolBase):
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
-        from plugin.doc.document_helpers import WriterCompoundUndo
+        from plugin.writer.edit_review import WriterCompoundUndo
 
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)

@@ -91,3 +91,27 @@ def test_get_string_without_tracked_deletions_skips_deleted_portions():
     )
 
     assert get_string_without_tracked_deletions(text_range) == "Keep text\nNext line"
+
+
+def test_text_helpers_import_does_not_load_calc_analyzer():
+    """LibrePy-style import: text_helpers must not pull SheetAnalyzer / CalcBridge."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = str(Path(__file__).resolve().parents[2])
+    code = (
+        "import sys\n"
+        "import plugin.doc.text_helpers\n"
+        "assert 'plugin.calc.analyzer' not in sys.modules\n"
+        "assert 'plugin.calc.bridge' not in sys.modules\n"
+        "assert 'plugin.doc.document_helpers' not in sys.modules\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        env={**__import__("os").environ, "PYTHONPATH": repo_root},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

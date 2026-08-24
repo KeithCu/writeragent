@@ -207,7 +207,7 @@ with that (as in **Current scope** above).
 
 ### Streamed selection polish
 
-`WriterStreamedRewriteSession` / `WriterStreamedAppendSession` ([`document_helpers.py`](../plugin/doc/document_helpers.py))
+`WriterStreamedRewriteSession` / `WriterStreamedAppendSession` ([`edit_review.py`](../plugin/writer/edit_review.py))
 collapse to one redline but do not use `deletion_author()` on the delete half of a rewrite. Match
 the `format.py` split-author pattern so by-author coloring distinguishes insertions and deletions.
 

@@ -101,7 +101,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
 | :--- | :--- | :--- |
 | A. MCP clock context (`initialize` + tool piggyback) | Done | [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/doc/document_research_tools.py`](../plugin/doc/document_research_tools.py) |
 | B. Read enrichment + duration wire + `format_code` | Done | [`plugin/calc/inspector.py`](../plugin/calc/inspector.py), [`plugin/calc/datetime_wire.py`](../plugin/calc/datetime_wire.py) |
-| Sidebar Calc selection enrichment | Done | [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py) `get_calc_context_for_chat` |
+| Sidebar Calc selection enrichment | Done | [`plugin/calc/analyzer.py`](../plugin/calc/analyzer.py) `get_calc_context_for_chat` |
 | C. ISO + PT duration write ingestion | Done | [`plugin/calc/manipulator.py`](../plugin/calc/manipulator.py) `write_formula_range`, [`plugin/calc/datetime_wire.py`](../plugin/calc/datetime_wire.py) |
 | P1 column format inheritance on apply | Done | [`plugin/calc/manipulator.py`](../plugin/calc/manipulator.py) `_find_column_temporal_templates` |
 | MCP `values` string\|array widen | Done | [`plugin/framework/tool.py`](../plugin/framework/tool.py) `to_mcp_schema` |

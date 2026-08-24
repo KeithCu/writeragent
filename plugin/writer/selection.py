@@ -76,7 +76,7 @@ class SetSelection(ToolBase):
         elif char_start is not None or char_end is not None:
             if char_start is None or char_end is None:
                 return self._tool_error("char_start and char_end must both be provided.")
-            from plugin.doc.document_helpers import get_text_cursor_at_range
+            from plugin.doc.text_helpers import get_text_cursor_at_range
 
             target_range = get_text_cursor_at_range(doc, int(char_start), int(char_end))
             if target_range is None:

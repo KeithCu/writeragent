@@ -54,7 +54,7 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 | Formula diagnosis | **Partial** | [`detect_and_explain_errors`](../plugin/calc/errors.py), [`formula_dep_chain.py`](../plugin/calc/formula_dep_chain.py) | Browser `.uno:FormulaDepChain` + `helpfixformulaerror` |
 | `fetch_models` | **Implemented** | [`plugin/framework/client/model_fetcher.py`](../plugin/framework/client/model_fetcher.py) | `wsd/FileServer.cpp` `/fetch-models` |
 | SSRF / endpoint validation | **Implemented** | `model_fetcher.py`, [`llm_client.py`](../plugin/framework/client/llm_client.py) | `KIT_HOST_ALLOWLIST` env regex |
-| Undo grouping | **Partial** | [`WriterCompoundUndo`](../plugin/doc/document_helpers.py) on `write_formula_range`; edit-selection / transform | LOKit batch dispatches; chat/tools not fully grouped |
+| Undo grouping | **Partial** | [`WriterCompoundUndo`](../plugin/writer/edit_review.py) on `write_formula_range`; edit-selection / transform | LOKit batch dispatches; chat/tools not fully grouped |
 | Approval / HITL tiers | **Partial** | [`dialogs.py`](../plugin/chatbot/dialogs.py), [`send_handlers.py`](../plugin/chatbot/send_handlers.py) | Inspect vs mutate tool tiers in `executeToolCall` |
 | Tool-round cap | **Implemented** | `chat_max_tool_rounds` in tool loop | Default 5 rounds in `AIChatSession.hpp` |
 | Tool progress UI | **Partial** | [`StreamQueueKind`](../plugin/framework/async_stream.py) | `aichatprogress:` WebSocket frames |
@@ -235,7 +235,7 @@ IMPRESS_LAYOUTS = {
 }
 
 def apply_slide_commands(ctx, slide_commands: list[dict[str, Any]]) -> dict[str, Any]:
-    from plugin.doc.document_helpers import WriterCompoundUndo
+    from plugin.writer.edit_review import WriterCompoundUndo
     doc = ctx.doc
     pages = doc.getDrawPages()
     current = 0
@@ -304,10 +304,10 @@ def get_document_structure(ctx, filter: str | None = None) -> dict[str, Any]:
 
 ### G. Transactional Undo Context Grouping — implemented
 
-Use production **`WriterCompoundUndo`** in [`plugin/doc/document_helpers.py`](../plugin/doc/document_helpers.py):
+Use production **`WriterCompoundUndo`** in [`plugin/writer/edit_review.py`](../plugin/writer/edit_review.py):
 
 ```python
-from plugin.doc.document_helpers import WriterCompoundUndo
+from plugin.writer.edit_review import WriterCompoundUndo
 
 def run_ai_batch(ctx, title: str, fn):
     undo = WriterCompoundUndo(ctx.doc, title)
@@ -338,7 +338,7 @@ Production: host validation via `ipaddress` and URL parsing in `model_fetcher.py
 Collabora's approved commit path uses formula bar semantics:
 
 ```python
-from plugin.doc.document_helpers import WriterCompoundUndo
+from plugin.writer.edit_review import WriterCompoundUndo
 
 def apply_approved_formulas(ctx, pairs: list[tuple[str, str]]) -> None:
     """pairs: [(cell_address, formula), ...] e.g. ('Sheet1.C5', '=SUM(A1:B2')"""
@@ -453,7 +453,7 @@ Prioritized for WriterAgent impact vs effort. Each item lists Collabora referenc
 | Batch document HTTP | `wsd/SpecialBrokers.cpp` — extract/transform brokers | MCP / scripting RPC (optional) |
 | Calc formula UI | `FormulaErrorHelpSection.ts`, `helpfixformulaerror` | (gap — roadmap P0) |
 | Image generation | `image_generate` in `AIChatSession.cpp` | [`plugin/writer/images/`](../plugin/writer/images/) |
-| Undo grouping | LOKit / single transform | [`WriterCompoundUndo`](../plugin/doc/document_helpers.py) |
+| Undo grouping | LOKit / single transform | [`WriterCompoundUndo`](../plugin/writer/edit_review.py) |
 | Config / prompts | Inline in `AIChatSession::handleAction` | [`constants.py`](../plugin/framework/constants.py), send handlers |
 
 ---

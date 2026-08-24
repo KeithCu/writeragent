@@ -1,6 +1,6 @@
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
-from plugin.doc.document_helpers import get_paragraph_ranges, find_paragraph_for_range as doc_find_para
+from plugin.doc.paragraph_search import get_paragraph_ranges, find_paragraph_for_range as doc_find_para
 
 
 def _setup_paragraphs(doc, count):

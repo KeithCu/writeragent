@@ -18,7 +18,7 @@ import uno
 
 from plugin.doc.doc_type import DocumentType, doc_type_label_for_enum, get_document_type
 from plugin.doc.text_helpers import get_document_path
-from plugin.doc.document_helpers import resolve_document_by_url
+from plugin.framework.uno_context import resolve_document_by_url
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 
 if TYPE_CHECKING:
@@ -619,7 +619,7 @@ def _is_same_document(model: Any, active_model: Any) -> bool:
     instead, falling back to the URL for models without one."""
     if model is None or active_model is None:
         return False
-    from plugin.doc.document_helpers import get_runtime_uid
+    from plugin.framework.uno_context import get_runtime_uid
 
     try:
         ua, ub = get_runtime_uid(model), get_runtime_uid(active_model)
@@ -648,7 +648,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     from plugin.framework.thread_guard import assert_main_thread
     from plugin.framework.uno_context import get_desktop
     from plugin.doc.doc_type import get_document_type
-    from plugin.doc.document_helpers import get_runtime_uid
+    from plugin.framework.uno_context import get_runtime_uid
     import os
 
     assert_main_thread("document_research.get_open_documents")

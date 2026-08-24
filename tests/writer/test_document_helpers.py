@@ -3,7 +3,7 @@ from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
 from plugin.doc.udprops import get_document_property, set_document_property
-from plugin.doc.document_helpers import WriterCompoundUndo, WriterStreamedRewriteSession, build_writer_rewrite_prompt
+from plugin.writer.edit_review import WriterCompoundUndo, WriterStreamedRewriteSession, build_writer_rewrite_prompt
 
 
 class _MutableTextRange:
@@ -228,5 +228,31 @@ def test_get_document_property_returns_existing_value():
     doc = _DocWithUserDefinedProperties(props)
 
     assert get_document_property(doc, "WriterAgentGrammarCache", default=None) == '{"fp":[1]}'
+
+
+def test_document_helpers_import_does_not_load_calc_analyzer():
+    """document_helpers must not import SheetAnalyzer/CalcBridge at module load."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = str(Path(__file__).resolve().parents[2])
+    code = (
+        "import sys\n"
+        "import plugin.doc.document_helpers\n"
+        "assert 'plugin.calc.analyzer' not in sys.modules\n"
+        "assert 'plugin.calc.bridge' not in sys.modules\n"
+        "assert not hasattr(plugin.doc.document_helpers, 'get_calc_context_for_chat')\n"
+        "assert not hasattr(plugin.doc.document_helpers, 'collect_tracked_changes')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": repo_root},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 

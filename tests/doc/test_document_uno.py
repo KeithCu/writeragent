@@ -1,5 +1,6 @@
 
-from plugin.doc.document_helpers import _normalize_doc_url, _inject_markers_into_excerpt
+from plugin.doc.document_helpers import _inject_markers_into_excerpt
+from plugin.framework.uno_context import _normalize_doc_url
 
 def test_normalize_doc_url():
     assert _normalize_doc_url("file:///test/") == "file:///test"
@@ -18,7 +19,7 @@ def test_inject_markers_into_excerpt():
     assert out == "PRE0123456789SUF"
 
 def test_is_document_disposed():
-    from plugin.doc.document_helpers import is_document_disposed
+    from plugin.framework.errors import is_document_disposed
 
     assert is_document_disposed(None) is True
 

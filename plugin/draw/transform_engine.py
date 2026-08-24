@@ -13,7 +13,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.document_helpers import WriterCompoundUndo
+from plugin.writer.edit_review import WriterCompoundUndo
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.transform_schema import get_slide_commands, is_deferred_command_key, resolve_layout_id
 
