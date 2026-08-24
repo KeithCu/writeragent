@@ -14,7 +14,7 @@ import urllib.parse
 from typing import Any
 
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_URL, ascii_bounded, deal
 
 LIBREPY_DISPATCH_PROTOCOL = EXTENSION_ID_LIBREPY + ":"
 
@@ -69,7 +69,7 @@ def _zai_url_path(url):
     return (urllib.parse.urlparse(url).path or "").rstrip("/")
 
 
-@deal.pre(lambda url, is_openwebui=False: url is None or isinstance(url, str))
+@deal.pre(lambda url, is_openwebui=False: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("/"))
 def get_api_version_suffix(url, is_openwebui=False):
     """Return the API version suffix (e.g. '/v1', '/v4', '/api/paas/v4') for a given endpoint URL."""

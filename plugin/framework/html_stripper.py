@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, ascii_bounded, deal
 
 
 class StreamingHTMLStripper:
@@ -33,7 +33,7 @@ class StreamingHTMLStripper:
         self.in_tag = False
         self.tag_buffer = ""
 
-    @deal.pre(lambda self, chunk: isinstance(chunk, str))
+    @deal.pre(lambda self, chunk: ascii_bounded(chunk, DEAL_MAX_SOURCE))
     @deal.post(lambda result: isinstance(result, str))
     def feed(self, chunk: str) -> str:
         """Feed a chunk of text, return the approved cleaned string without HTML tags.
@@ -87,7 +87,7 @@ class StreamingHTMLStripper:
         return ""
 
 
-@deal.pre(lambda text: isinstance(text, str))
+@deal.pre(lambda text: ascii_bounded(text, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda text, result: "<" not in result or ">" not in result or len(result) <= len(text))
 def strip_html_tags(text: str) -> str:

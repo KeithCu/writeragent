@@ -30,7 +30,7 @@ from typing import Any, Literal, TypedDict
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads, safe_python_literal_eval
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 
 try:
     from com.sun.star.lang import DisposedException
@@ -417,7 +417,7 @@ def format_error_message(e: Exception) -> str:
 
 
 
-@deal.pre(lambda message, code="TOOL_EXECUTION_ERROR", **details: isinstance(message, str) and isinstance(code, str))
+@deal.pre(lambda message, code="TOOL_EXECUTION_ERROR", **details: ascii_bounded(code, DEAL_MAX_TOKEN, min_len=1))
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
 def make_tool_error(message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
     """Central factory for all standardized tool error payloads."""

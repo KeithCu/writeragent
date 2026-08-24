@@ -9,7 +9,7 @@ from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 
 
 class MemoryStore:
@@ -21,7 +21,7 @@ class MemoryStore:
         self.memory_dir = os.path.join(self.config_dir, "memories")
         os.makedirs(self.memory_dir, exist_ok=True)
 
-    @deal.pre(lambda self, target: isinstance(target, str))
+    @deal.pre(lambda self, target: ascii_bounded(target, DEAL_MAX_TOKEN, min_len=1))
     @deal.post(lambda result: isinstance(result, str) and (result.endswith("USER.md") or result.endswith("MEMORY.md")))
     def _get_path(self, target: str) -> str:
         # crosshair: off

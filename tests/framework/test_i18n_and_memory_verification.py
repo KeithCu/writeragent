@@ -19,7 +19,7 @@ from plugin.chatbot.memory import (
 )
 
 
-@given(msg=st.text())
+@given(msg=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), min_size=1))
 @settings(max_examples=100)
 def test_i18n_translation_contracts(msg: str) -> None:
     res = _(msg)

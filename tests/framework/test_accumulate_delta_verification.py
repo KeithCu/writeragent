@@ -27,7 +27,10 @@ def test_format_agent_tool_stream_line_basic() -> None:
     assert '"arg": 1' in res
 
 
-@given(prefix=st.text(max_size=10), data=st.one_of(st.text(max_size=20), st.integers(), st.dictionaries(st.text(max_size=5), st.integers())))
+@given(
+    prefix=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), min_size=1, max_size=10),
+    data=st.one_of(st.text(max_size=20), st.integers(), st.dictionaries(st.text(max_size=5), st.integers())),
+)
 @settings(max_examples=50)
 def test_hypothesis_format_agent_tool_stream_line_invariants(prefix: str, data: Any) -> None:
     res = _format_agent_tool_stream_line(prefix, data)

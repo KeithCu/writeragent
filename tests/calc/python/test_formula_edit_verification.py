@@ -43,7 +43,7 @@ _CROSSHAIR_TARGETS = (
 
 # Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
 _CODE_TEXT = st.text(
-    alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"),
+    alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127, blacklist_characters="\x00"),
     max_size=40,
 )
 

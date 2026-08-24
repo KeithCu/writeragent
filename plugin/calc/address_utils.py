@@ -25,7 +25,12 @@ from __future__ import annotations
 
 import re
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import (
+    DEAL_MAX_CELL_REF,
+    DEAL_MAX_COL_LETTERS,
+    ascii_bounded,
+    deal,
+)
 
 
 @deal.pre(lambda index: isinstance(index, int) and index >= 0)
@@ -50,10 +55,8 @@ def index_to_column(index: int) -> str:
 # Cap length at Excel/Calc max column width (XFD); unbounded alpha strings make CrossHair
 # chase the inverse ensure forever under deep check.
 @deal.pre(
-    lambda col_str: isinstance(col_str, str)
-    and col_str.isascii()
+    lambda col_str: ascii_bounded(col_str, DEAL_MAX_COL_LETTERS, min_len=1)
     and col_str.isalpha()
-    and 1 <= len(col_str) <= 3
 )
 @deal.post(lambda result: isinstance(result, int) and result >= 0)
 @deal.ensure(lambda col_str, result: index_to_column(result) == col_str.upper())
@@ -108,7 +111,7 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     return name.strip(), match.group("rest").strip()
 
 
-@deal.pre(lambda address: isinstance(address, str))
+@deal.pre(lambda address: ascii_bounded(address, DEAL_MAX_CELL_REF, min_len=1))
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and result[0] >= 0 and result[1] >= 0)
 @deal.raises(ValueError)
 def parse_address(address: str) -> tuple[int, int]:
@@ -134,12 +137,14 @@ def parse_address(address: str) -> tuple[int, int]:
             f"sheet_name, or drop the prefix."
         )
     address = address.strip().upper()
-    match = re.match(r"^([A-Z]+)(\d+)$", address)
+    match = re.match(r"^([A-Z]+)([0-9]+)$", address)
     if not match:
         raise ValueError(f"Invalid cell address: '{address}'")
 
     col_str = match.group(1)
     row_num = int(match.group(2))
+    if row_num < 1:
+        raise ValueError(f"Invalid row number in cell address: {row_num}")
 
     col_index = column_to_index(col_str)
     row_index = row_num - 1
@@ -147,7 +152,7 @@ def parse_address(address: str) -> tuple[int, int]:
     return col_index, row_index
 
 
-@deal.pre(lambda range_str: isinstance(range_str, str))
+@deal.pre(lambda range_str: ascii_bounded(range_str, DEAL_MAX_CELL_REF, min_len=1))
 @deal.post(
     lambda result: isinstance(result, tuple)
     and len(result) == 2
@@ -178,17 +183,23 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
         )
     range_str = range_str.strip().upper()
 
-    pattern = r"^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$"
+    pattern = r"^([A-Z]+)([0-9]+)(?::([A-Z]+)([0-9]+))?$"
     match = re.match(pattern, range_str)
     if not match:
         raise ValueError(f"Invalid cell range format: '{range_str}'")
 
     start_col = column_to_index(match.group(1))
-    start_row = int(match.group(2)) - 1
+    start_row_num = int(match.group(2))
+    if start_row_num < 1:
+        raise ValueError(f"Invalid row number in start cell address: {start_row_num}")
+    start_row = start_row_num - 1
 
     if match.group(3) is not None:
         end_col = column_to_index(match.group(3))
-        end_row = int(match.group(4)) - 1
+        end_row_num = int(match.group(4))
+        if end_row_num < 1:
+            raise ValueError(f"Invalid row number in end cell address: {end_row_num}")
+        end_row = end_row_num - 1
     else:
         end_col = start_col
         end_row = start_row

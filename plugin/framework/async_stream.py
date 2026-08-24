@@ -32,7 +32,7 @@ from enum import Enum
 from typing import Any, TypeAlias, Callable, cast
 
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.errors import format_error_payload
 from plugin.framework.queue_executor import (
     NestedDrainOwnerError,
@@ -70,7 +70,7 @@ class BlockingPumpKind(str, Enum):
     ERROR = "error"
 
 
-@deal.pre(lambda prefix, data: isinstance(prefix, str))
+@deal.pre(lambda prefix, data: ascii_bounded(prefix, DEAL_MAX_TOKEN, min_len=1))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("\n") and result.endswith("\n"))
 @deal.ensure(lambda prefix, data, result=None: result is not None and prefix in result)
 def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:

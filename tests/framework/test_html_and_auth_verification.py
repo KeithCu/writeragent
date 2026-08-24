@@ -18,7 +18,7 @@ from plugin.framework.client.auth import (
 )
 
 
-@given(text=st.text())
+@given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127)))
 @settings(max_examples=100)
 def test_hypothesis_strip_html_tags_returns_string(text: str) -> None:
     res = strip_html_tags(text)

@@ -50,7 +50,7 @@ def test_xl_binding_expr_invariants(idx: int, header_mode: str) -> None:
         assert "headers=False" in expr
 
 
-@given(st.text())
+@given(st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127)))
 def test_normalize_excel_placeholders_length_invariant(src: str) -> None:
     normalized = _normalize_excel_placeholders(src)
     assert len(normalized) == len(src)

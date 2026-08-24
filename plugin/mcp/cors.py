@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_ORIGIN, ascii_bounded, deal
 
 MCP_CORS_ORIGINS_KEY = "mcp.cors_allowed_origins"
 
@@ -96,7 +96,7 @@ def normalize_origins_list(value) -> list[str]:
     return out
 
 
-@deal.pre(lambda origin: isinstance(origin, str))
+@deal.pre(lambda origin: ascii_bounded(origin, DEAL_MAX_ORIGIN))
 @deal.post(lambda result: isinstance(result, bool))
 def is_private_browser_origin(origin: str) -> bool:
     """True when Origin is http(s) with a LAN-style hostname or private/link-local IP."""
@@ -141,7 +141,7 @@ def set_allow_private_origins(allow: bool) -> None:
     _allow_private_origins = bool(allow)
 
 
-@deal.pre(lambda origin: isinstance(origin, str))
+@deal.pre(lambda origin: ascii_bounded(origin, DEAL_MAX_ORIGIN))
 @deal.post(lambda result: isinstance(result, bool))
 def is_extra_allowed_origin(origin: str) -> bool:
     if not origin:
@@ -169,7 +169,7 @@ def reload_cors_policy_from_config(services) -> None:
     log.debug("MCP CORS allow private/local browser origins: %s", _allow_private_origins)
 
 
-@deal.pre(lambda origin: isinstance(origin, str))
+@deal.pre(lambda origin: ascii_bounded(origin, DEAL_MAX_ORIGIN))
 @deal.post(lambda result: isinstance(result, bool))
 def is_safe_origin(origin: str) -> bool:
     """True when Origin may receive Access-Control-Allow-Origin reflection."""

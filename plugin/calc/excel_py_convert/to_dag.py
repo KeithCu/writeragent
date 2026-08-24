@@ -55,7 +55,7 @@ from plugin.calc.excel_py_convert.models import (
     HeaderMode,
 )
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, ascii_bounded, deal
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 # Bare Excel placeholder in source (not anchored); same length as ``_Pn_`` sentinel.
@@ -137,7 +137,7 @@ def _skip_string(src: str, i: int) -> int:
     return n
 
 
-@deal.pre(lambda src, *_unused, **__: isinstance(src, str))
+@deal.pre(lambda src, *_unused, **__: ascii_bounded(src, DEAL_MAX_SOURCE))
 @deal.ensure(lambda *args, result="", **kwargs: len(result) == len(args[0]))
 def _normalize_excel_placeholders(src: str) -> str:
     """Rewrite bare ``%Pn%`` to equal-length ``_Pn_`` so ``ast.parse`` accepts Excel scripts.

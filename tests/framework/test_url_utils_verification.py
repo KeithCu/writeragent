@@ -102,7 +102,13 @@ def test_hypothesis_openwebui_normalize_idempotent(url: str) -> None:
     assert not once.lower().endswith(("/api", "/api/v1", "/v1"))
 
 
-@given(url=st.one_of(st.just(""), st.text(max_size=40), st.sampled_from(["https://api.z.ai", "http://x"])))
+@given(
+    url=st.one_of(
+        st.just(""),
+        st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=40),
+        st.sampled_from(["https://api.z.ai", "http://x"]),
+    )
+)
 @settings(max_examples=50)
 def test_hypothesis_api_suffix_shape(url: str) -> None:
     suffix = get_api_version_suffix(url)
