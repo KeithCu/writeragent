@@ -27,14 +27,18 @@ import re
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_CELL_REF,
+    DEAL_MAX_COL_INDEX,
     DEAL_MAX_COL_LETTERS,
+    DEAL_MAX_ROW_INDEX,
     ascii_bounded,
     deal,
 )
 
 
-@deal.pre(lambda index: isinstance(index, int) and index >= 0)
-@deal.post(lambda result: isinstance(result, str) and len(result) > 0)
+# Pre must cap the int: `index >= 0` with no max lets CrossHair feed a giant
+# value into `while index > 0: divmod(..., 26)`, and deep check never returns.
+@deal.pre(lambda index: isinstance(index, int) and 0 <= index <= DEAL_MAX_COL_INDEX)
+@deal.post(lambda result: isinstance(result, str) and 1 <= len(result) <= DEAL_MAX_COL_LETTERS)
 def index_to_column(index: int) -> str:
     """Convert 0-based column index to column letter.
 
@@ -209,7 +213,10 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     return (start_col, start_row), (end_col, end_row)
 
 
-@deal.pre(lambda col, row: isinstance(col, int) and col >= 0 and isinstance(row, int) and row >= 0)
+@deal.pre(lambda col, row: (
+    isinstance(col, int) and 0 <= col <= DEAL_MAX_COL_INDEX
+    and isinstance(row, int) and 0 <= row <= DEAL_MAX_ROW_INDEX
+))
 @deal.post(lambda result: isinstance(result, str) and bool(re.match(r"^[A-Z]+\d+$", result)))
 @deal.ensure(lambda col, row, result: parse_address(result) == (col, row))
 def format_address(col: int, row: int) -> str:

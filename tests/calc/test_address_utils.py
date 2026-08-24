@@ -20,16 +20,22 @@ def test_address_utils():
         split_sheet_prefix,
     )
 
+    from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
+
     assert column_to_index("A") == 0
     assert column_to_index("AA") == 26
+    assert column_to_index("ZZZ") == DEAL_MAX_COL_INDEX == 18277
     assert index_to_column(0) == "A"
     assert index_to_column(26) == "AA"
+    assert index_to_column(18277) == "ZZZ"
     assert parse_address("A1") == (0, 0)
     assert parse_address("B10") == (1, 9)
     assert format_address(0, 0) == "A1"
+    assert format_address(DEAL_MAX_COL_INDEX, 0) == "ZZZ1"
+    assert format_address(0, DEAL_MAX_ROW_INDEX) == "A1048576"
 
     # Round-trip
-    for addr in ("A1", "B10", "Z1", "AA100"):
+    for addr in ("A1", "B10", "Z1", "AA100", "ZZZ1"):
         col, row = parse_address(addr)
         assert format_address(col, row) == addr
 
@@ -38,8 +44,10 @@ def test_address_utils():
     try:
         import deal
         pre_err = (ValueError, deal.PreContractError)
+        deal_pre_active = True
     except Exception:
         pre_err = (ValueError,)
+        deal_pre_active = False
 
     # Valid cases
     assert parse_address("AA100") == (26, 99)
@@ -53,6 +61,16 @@ def test_address_utils():
     for non_ascii_invalid in ("A🯰", "Ａ１", "A١"):
         with pytest.raises(pre_err):
             parse_address(non_ascii_invalid)
+
+    # Int-domain caps are @deal.pre only (bodies still accept out-of-range ints
+    # under LibreOffice). When deal is installed, 18278 / row 1048576 fail the pre.
+    if deal_pre_active:
+        with pytest.raises(pre_err):
+            index_to_column(18278)
+        with pytest.raises(pre_err):
+            format_address(18278, 0)
+        with pytest.raises(pre_err):
+            format_address(0, DEAL_MAX_ROW_INDEX + 1)
 
     # Non-ASCII digits and row 0 must be rejected or raise ValueError
     try:

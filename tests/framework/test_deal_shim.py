@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_CELL_REF,
+    DEAL_MAX_COL_INDEX,
     DEAL_MAX_COL_LETTERS,
     DEAL_MAX_ORIGIN,
     DEAL_MAX_PATH,
+    DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
     DEAL_MAX_URL,
@@ -52,3 +54,5 @@ def test_deal_shim_constants() -> None:
     assert DEAL_MAX_URL == 2048
     assert DEAL_MAX_PATH == 4096
     assert DEAL_MAX_SOURCE == 4096
+    assert DEAL_MAX_COL_INDEX == 26 + 26**2 + 26**3 - 1 == 18277
+    assert DEAL_MAX_ROW_INDEX == 1_048_576 - 1

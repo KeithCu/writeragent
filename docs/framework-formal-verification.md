@@ -652,6 +652,10 @@ Same idea for any greedy tokenizer: Hypothesis neighbors must not be absorbable 
 - Prefer **FQN** `crosshair check plugin.pkg.mod.fn` in `@pytest.mark.slow` tests for new slices. Do not reintroduce module skip-list entries — mark hostile callables with a shim or `# crosshair: off` (cover-all FQN filter), or extract a pure core.
 - Avoid `time.perf_counter()` (and similar clocks) on cover entry points without a CrossHair shim — causes `NotDeterministic` / exit 2.
 
+#### E. Bound string and int domains in `@deal.pre`
+
+Use `ascii_bounded` + `DEAL_MAX_*` so CrossHair cannot wander on unbounded Unicode (see [`deal_shim.py`](../plugin/framework/deal_shim.py)). Int domains need the same caps (`DEAL_MAX_COL_INDEX` / `DEAL_MAX_ROW_INDEX` on `index_to_column` / `format_address`) or deep check unrolls `while index > 0` forever.
+
 #### F. Single-pass string stripping vs interleaved control whitespace
 
 When sanitizing formulas, range bindings, or prefixes (e.g. `format_data_binding_display`), single-pass checks (`if s.startswith(";"): s = s[1:]`) fail when input strings contain multiple leading delimiters (`;;`) or interleaved Unicode control whitespace (`,\x1c;`). In Python, `str.strip()` strips ASCII 28 (`\x1c`) control whitespace; stripping after a single-pass `lstrip` exposes the second delimiter underneath.

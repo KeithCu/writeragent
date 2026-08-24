@@ -20,6 +20,10 @@ DEAL_MAX_ORIGIN = 256
 DEAL_MAX_URL = 2048
 DEAL_MAX_PATH = 4096
 DEAL_MAX_SOURCE = 4096
+# Int domains need caps too (same reason as §8.1 E): CrossHair otherwise
+# unrolls `while index > 0` forever on a giant int in deep check.
+DEAL_MAX_COL_INDEX = 26 + 26**2 + 26**3 - 1  # 18277, A–ZZZ (not 26**3-1)
+DEAL_MAX_ROW_INDEX = 1_048_576 - 1  # Excel/Calc max row, 0-based
 
 
 def ascii_bounded(s: object, max_len: int, min_len: int = 0) -> bool:
