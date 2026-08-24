@@ -14,24 +14,32 @@ from typing import Any
 
 # Domain caps for @deal.pre only. Release OXTs strip @deal.* and LibreOffice
 # uses this shim as a no-op, so these lengths never bind shipped code.
+# CrossHair domains may be smaller than Calc / POSIX; the goal is that deep
+# check finishes. Do not grow these to match production limits.
 DEAL_MAX_COL_LETTERS = 3
 DEAL_MAX_CELL_REF = 32
 DEAL_MAX_TOKEN = 64
 DEAL_MAX_ORIGIN = 256
-DEAL_MAX_URL = 2048
-DEAL_MAX_PATH = 4096
+DEAL_MAX_URL = 256
+DEAL_MAX_PATH = 256  # filesystem paths (is_safe_workspace_path); not PATH_MAX
+# wrap_command argv, including venv ``-c`` probe scripts (~1–2k chars).
+DEAL_MAX_ARGV = 4096
+DEAL_MAX_CMD_ARGS = 32  # wrap_command list length
 DEAL_MAX_SOURCE = 64
 # Int domains need caps too (same reason as §8.1 E): CrossHair otherwise
 # unrolls `while index > 0` forever on a giant int in deep check.
 # Same for products, exponents, and f-strings of a huge int.
+# Keep A–ZZZ so parse_address("ZZZ1") does not nested-PreContractError
+# column_to_index (do not edit address_utils.py). Loop is 3 iterations.
 DEAL_MAX_COL_INDEX = 26 + 26**2 + 26**3 - 1  # 18277, A–ZZZ (not 26**3-1)
 # CrossHair domain only (release strips @deal). 1000 covers 1–4 digit rows;
 # Calc's million-row grid is not worth the extra SMT time.
 DEAL_MAX_ROW_INDEX = 1000
-DEAL_MAX_PLACEHOLDER_INDEX = 1024  # Excel %Pn% deps
+DEAL_MAX_PLACEHOLDER_INDEX = 64  # Excel %Pn% deps; f-string of the int
 DEAL_MAX_SHAPE_RANK = 4  # ndarray rank; grids are 2-D, tests use up to 4
 # cell_count product domain — not Calc's million-row grid. 256^4 still fits in a
 # machine int; CrossHair is testing our multiply loop, not LibreOffice.
+# Also the per-side cap for list grids in @deal.pre (100×100 pack tests fit).
 DEAL_MAX_SHAPE_DIM = 256
 DEAL_MAX_RETRY = 8  # MCP tunnel backoff exponent (production DEFAULT_MAX_RETRIES=5)
 DEAL_MAX_BACKOFF = 300.0  # seconds; Hypothesis uses up to 300

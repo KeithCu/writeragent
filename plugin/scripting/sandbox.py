@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     import subprocess
 
-from plugin.framework.deal_shim import DEAL_MAX_PATH, deal, str_bounded
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH, deal, str_bounded
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
@@ -268,7 +268,12 @@ def optimize_popen_pipes(proc: subprocess.Popen[Any]) -> None:
 
 
 # Hypothesis and venv-path tests pass Unicode argv/paths; ascii_bounded would reject them.
-@deal.pre(lambda cmd: isinstance(cmd, list) and all(str_bounded(x, DEAL_MAX_PATH) for x in cmd))
+# Argv uses DEAL_MAX_ARGV (venv -c probes are longer than DEAL_MAX_PATH filesystem caps).
+@deal.pre(
+    lambda cmd: isinstance(cmd, list)
+    and len(cmd) <= DEAL_MAX_CMD_ARGS
+    and all(str_bounded(x, DEAL_MAX_ARGV) for x in cmd)
+)
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 @deal.ensure(lambda cmd, result: len(result) >= len(cmd) and (result[-len(cmd):] == cmd if cmd else True))
 def wrap_command_for_sandbox(cmd: list[str]) -> list[str]:

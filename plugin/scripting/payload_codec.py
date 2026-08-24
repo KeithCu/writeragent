@@ -295,6 +295,27 @@ def _is_grid_sequence(grid: object) -> bool:
     return True
 
 
+def _deal_grid_ok(grid: object) -> bool:
+    """CrossHair domain for list grids. Production ``_is_grid_sequence`` stays uncapped.
+
+    Unbounded lists let deep check materialize huge nested grids in
+    ``is_numeric_grid`` / pack. Side length follows ``DEAL_MAX_SHAPE_DIM``
+    (100×100 pack-speed tests still fit).
+    """
+    if not _is_grid_sequence(grid):
+        return False
+    if not isinstance(grid, (list, tuple)):
+        return False
+    if len(grid) > DEAL_MAX_SHAPE_DIM:
+        return False
+    if not grid:
+        return True
+    first = grid[0]
+    if isinstance(first, (list, tuple)):
+        return all(len(row) <= DEAL_MAX_SHAPE_DIM for row in grid)
+    return True
+
+
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda envelope, result: not result
@@ -533,7 +554,7 @@ def _is_ndarray(obj: object) -> bool:
     return type(obj).__name__ == "ndarray" and type(obj).__module__ == "numpy"
 
 
-@deal.pre(lambda grid, *_unused, **__: _is_grid_sequence(grid))
+@deal.pre(lambda grid, *_unused, **__: _deal_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), list))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: all(x in ("int", "float", "bool") for x in _deal_return(*a, result=result)))
 def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[str]:
@@ -744,7 +765,7 @@ def is_numeric_coercible(value: Any) -> bool:
     return False
 
 
-@deal.pre(lambda grid: isinstance(grid, list))
+@deal.pre(lambda grid: isinstance(grid, list) and _deal_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: bool(grid) or _deal_return(*a, result=result) is True)
 def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
@@ -786,7 +807,7 @@ def wire_cell_count(data: Any) -> int:
     return len(data)
 
 
-@deal.pre(lambda grid: isinstance(grid, list))
+@deal.pre(lambda grid: isinstance(grid, list) and _deal_grid_ok(grid))
 @deal.post(lambda result: isinstance(result, list))
 def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list[list[Any]]:
     """Normalize to flat or 2D Python lists for small grids (below BINARY_MIN_CELLS) or non-split_grid results."""
@@ -938,7 +959,7 @@ def _iter_split_grid_cells(
         yield 0, idx, val
 
 
-@deal.pre(lambda grid: _is_grid_sequence(grid))
+@deal.pre(lambda grid: _deal_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and isinstance(r, tuple) and len(r) == 4 and isinstance(r[0], array.array) and isinstance(r[1], dict) and isinstance(r[2], list) and isinstance(r[3], list))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and (not grid) == (len(r[0]) == 0 and r[1] == {} and r[2] == [] and r[3] == [0]))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: all(isinstance(key, int) for key in _deal_return(*a, result=result)[1].keys()))
@@ -1074,7 +1095,7 @@ def _flatten_grid_to_components(
     return buf, strings, column_kinds, shape
 
 
-@deal.pre(lambda grid: _is_grid_sequence(grid))
+@deal.pre(lambda grid: _deal_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), dict))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result).get("__wa_payload__") == PAYLOAD_SPLIT_GRID)
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result).get("dtype") == SPLIT_GRID_WIRE_DTYPE)
@@ -1129,7 +1150,7 @@ def host_pack_split_grid(
     return envelope
 
 
-@deal.pre(lambda grid, *_unused, **__: _is_grid_sequence(grid))
+@deal.pre(lambda grid, *_unused, **__: _deal_grid_ok(grid))
 # Same force/min_cells gate as should_use_binary_envelope so CrossHair cannot call pack with invalid policy kwargs.
 @deal.pre(
     lambda grid, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
@@ -1172,7 +1193,7 @@ def host_pack_data(
         raise
 
 
-@deal.pre(lambda grids, *_unused, **__: isinstance(grids, list) and all(_is_grid_sequence(g) for g in grids))
+@deal.pre(lambda grids, *_unused, **__: isinstance(grids, list) and len(grids) <= DEAL_MAX_SHAPE_DIM and all(_deal_grid_ok(g) for g in grids))
 @deal.pre(
     lambda grids, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
     and isinstance(min_cells, int)

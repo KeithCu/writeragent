@@ -56,7 +56,12 @@ def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
     )
 
 
-@deal.pre(lambda s, start: str_bounded(s, DEAL_MAX_SOURCE) and isinstance(start, int) and start >= 0)
+# Cap start to len(s): `start >= 0` alone lets CrossHair feed a giant int.
+@deal.pre(
+    lambda s, start: str_bounded(s, DEAL_MAX_SOURCE)
+    and isinstance(start, int)
+    and 0 <= start <= len(s)
+)
 @deal.post(lambda result: result is None or (isinstance(result, tuple) and len(result) == 2))
 @deal.ensure(lambda s, start, result: _quoted_parse_result_ok(s, start, result))
 def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:

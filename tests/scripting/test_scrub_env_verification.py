@@ -17,7 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import deal
-from plugin.framework.deal_shim import DEAL_MAX_PATH
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH
 from plugin.scripting.sandbox import scrub_subprocess_env, wrap_command_for_sandbox
 from tests.strip_bundle import deal_pre_present
 from tests.vhs_budget import vhs_max_examples
@@ -65,7 +65,11 @@ def test_wrap_command_overflow_pre_fails_closed() -> None:
     if not deal_pre_present(wrap_command_for_sandbox):
         pytest.skip("@deal.pre stripped in release bundle")
     with pytest.raises(deal.PreContractError):
-        wrap_command_for_sandbox(["python3", "x" * (DEAL_MAX_PATH + 1)])
+        wrap_command_for_sandbox(["python3", "x" * (DEAL_MAX_ARGV + 1)])
+    with pytest.raises(deal.PreContractError):
+        wrap_command_for_sandbox(["x"] * (DEAL_MAX_CMD_ARGS + 1))
+    # Argv may be longer than filesystem DEAL_MAX_PATH (venv -c probes).
+    assert wrap_command_for_sandbox(["python3", "x" * (DEAL_MAX_PATH + 1)])[-1] == "x" * (DEAL_MAX_PATH + 1)
 
 
 @given(cmd=st.lists(st.text(max_size=30), max_size=10))

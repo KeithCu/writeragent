@@ -8,9 +8,11 @@
 from __future__ import annotations
 
 from plugin.framework.deal_shim import (
+    DEAL_MAX_ARGV,
     DEAL_MAX_BACKOFF,
     DEAL_MAX_BACKOFF_FACTOR,
     DEAL_MAX_CELL_REF,
+    DEAL_MAX_CMD_ARGS,
     DEAL_MAX_COL_LETTERS,
     DEAL_MAX_ORIGIN,
     DEAL_MAX_PATH,
@@ -67,11 +69,13 @@ def test_deal_shim_constants() -> None:
     assert DEAL_MAX_CELL_REF == 32
     assert DEAL_MAX_TOKEN == 64
     assert DEAL_MAX_ORIGIN == 256
-    assert DEAL_MAX_URL == 2048
-    assert DEAL_MAX_PATH == 4096
+    assert DEAL_MAX_URL == 256
+    assert DEAL_MAX_PATH == 256
+    assert DEAL_MAX_ARGV == 4096
+    assert DEAL_MAX_CMD_ARGS == 32
     assert DEAL_MAX_SOURCE == 64
     assert DEAL_MAX_ROW_INDEX == 1000
-    assert DEAL_MAX_PLACEHOLDER_INDEX == 1024
+    assert DEAL_MAX_PLACEHOLDER_INDEX == 64
     assert DEAL_MAX_SHAPE_RANK == 4
     assert DEAL_MAX_SHAPE_DIM == 256
     assert DEAL_MAX_RETRY == 8

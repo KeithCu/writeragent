@@ -103,6 +103,11 @@ def test_cell_count_overflow_pre_fails_closed() -> None:
         cell_count(tuple([1] * (DEAL_MAX_SHAPE_RANK + 1)))
     with pytest.raises(deal.PreContractError):
         should_use_binary_envelope((1,), min_cells=DEAL_MAX_SHAPE_DIM + 1)
+    with pytest.raises(deal.PreContractError):
+        is_numeric_grid([0] * (DEAL_MAX_SHAPE_DIM + 1))
+    with pytest.raises(deal.PreContractError):
+        is_numeric_grid([[0] * (DEAL_MAX_SHAPE_DIM + 1)])
+    assert is_numeric_grid([0] * DEAL_MAX_SHAPE_DIM) is True
 
 
 def test_host_pack_split_grid_empty() -> None:

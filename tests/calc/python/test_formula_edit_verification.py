@@ -125,6 +125,9 @@ def test_parse_quoted_string_rejects_negative_start() -> None:
     """
     expect_pre_or_body(lambda: _parse_quoted_string('""', -1), body_result=None)
     assert _parse_quoted_string('"x"', 0) == ("x", 3)
+    if deal_pre_present(_parse_quoted_string):
+        with pytest.raises(deal.PreContractError):
+            _parse_quoted_string('"x"', DEAL_MAX_SOURCE + 1)
 
 
 def test_find_matching_paren_rejects_negative_open_idx() -> None:
