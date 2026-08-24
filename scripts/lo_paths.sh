@@ -133,6 +133,12 @@ find_unopkg() {
 
 find_unopkg_cache_dir() {
     local candidates=()
+    # Prefer the profile unopkg actually pins to (snap), so cache deploys don't
+    # silently sync into a dead ~/.config profile that snap LibreOffice never reads.
+    local snap_conf="$HOME/snap/libreoffice/current/.config/libreoffice/4"
+    if [[ -x "$_LO_SNAP_PROGRAM_DIR/unopkg" && -d "$snap_conf/user" ]]; then
+        candidates+=("$snap_conf/user/uno_packages")
+    fi
     candidates+=("$HOME/.config/libreoffice/4/user/uno_packages")
     candidates+=("$HOME/Library/Application Support/LibreOffice/4/user/uno_packages")
 
