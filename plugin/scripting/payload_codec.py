@@ -302,9 +302,7 @@ def _deal_grid_ok(grid: object) -> bool:
     ``is_numeric_grid`` / pack. Side length follows ``DEAL_MAX_SHAPE_DIM``
     (100×100 pack-speed tests still fit).
     """
-    if not _is_grid_sequence(grid):
-        return False
-    if not isinstance(grid, (list, tuple)):
+    if not _is_grid_sequence(grid) or not isinstance(grid, (list, tuple)):
         return False
     if len(grid) > DEAL_MAX_SHAPE_DIM:
         return False
@@ -312,7 +310,9 @@ def _deal_grid_ok(grid: object) -> bool:
         return True
     first = grid[0]
     if isinstance(first, (list, tuple)):
-        return all(len(row) <= DEAL_MAX_SHAPE_DIM for row in grid)
+        for row in grid:
+            if not isinstance(row, (list, tuple)) or len(row) > DEAL_MAX_SHAPE_DIM:
+                return False
     return True
 
 
