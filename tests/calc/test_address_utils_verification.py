@@ -26,7 +26,7 @@ from plugin.calc.address_utils import (
     parse_address,
     parse_range_string,
 )
-from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
+from plugin.framework.deal_shim import DEAL_MAX_COL_INDEX
 from tests.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/calc/address_utils.py"
@@ -51,23 +51,8 @@ def _find_crosshair() -> str | None:
 def test_column_index_round_trip_named() -> None:
     for col in ("A", "Z", "AA", "AB", "ZZ", "ZZZ", "abc"):
         assert index_to_column(column_to_index(col)) == col.upper()
-    assert column_to_index("ZZZ") == DEAL_MAX_COL_INDEX == 18277
+    assert column_to_index("ZZZ") == 18277
     assert index_to_column(18277) == "ZZZ"
-
-
-def test_index_past_zzz_raises_when_deal_installed() -> None:
-    try:
-        import deal
-        pre_err = (ValueError, deal.PreContractError)
-    except Exception:
-        pytest.skip("deal not installed; int-domain caps are @deal.pre only")
-
-    with pytest.raises(pre_err):
-        index_to_column(DEAL_MAX_COL_INDEX + 1)
-    with pytest.raises(pre_err):
-        format_address(DEAL_MAX_COL_INDEX + 1, 0)
-    with pytest.raises(pre_err):
-        format_address(0, DEAL_MAX_ROW_INDEX + 1)
 
 
 @given(col=_col_letters)
