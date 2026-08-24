@@ -29,7 +29,7 @@ Manifest tables (``MODULES``, ``CONFIG_DEFAULTS``, ``CONFIG_SCHEMAS``,
 import dataclasses
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from plugin.framework.deal_shim import deal
 from plugin.framework.errors import ConfigError, ConfigValidationError
@@ -279,21 +279,23 @@ _DEFAULT_PYTHON_SCRIPTS = {
 }
 
 
-# Optional overlay from config.py (Settings combobox labels). Typed Any so
-# assigning a different function does not trip the type checker.
-_endpoint_normalize_impl: Any = None
+# Default endpoint normalizer.
+_endpoint_normalizer: Callable[[str, bool], str] = normalize_endpoint_url
+
+
+def set_endpoint_normalizer(fn: Callable[[str, bool], str]) -> None:
+    """Register a custom endpoint normalization function.
+
+    Called by ``config.py`` to parse Settings combobox labels when chatbot is present,
+    since this schema module cannot import chatbot helpers directly.
+    """
+    global _endpoint_normalizer
+    _endpoint_normalizer = fn
 
 
 def _normalize_configured_endpoint(endpoint_str: str, is_openwebui: bool) -> str:
-    """Normalize a stored endpoint URL.
-
-    ``config.py`` sets ``_endpoint_normalize_impl`` to parse Settings combobox
-    labels when chatbot is present. This default path is the LibrePy fallback.
-    """
-    impl = _endpoint_normalize_impl
-    if impl is not None:
-        return impl(endpoint_str, is_openwebui)
-    return normalize_endpoint_url(endpoint_str, is_openwebui=is_openwebui)
+    """Normalize a stored endpoint URL."""
+    return _endpoint_normalizer(endpoint_str, is_openwebui)
 
 
 @dataclasses.dataclass

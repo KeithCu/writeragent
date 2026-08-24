@@ -64,7 +64,7 @@ def _normalize_configured_endpoint_with_selector(endpoint_str: str, is_openwebui
 
 # Overlay after schema import so WriterAgentConfig.validate() keeps preset labels
 # without config_schema importing chatbot (LibrePy / one-way import).
-_config_schema._endpoint_normalize_impl = _normalize_configured_endpoint_with_selector
+_config_schema.set_endpoint_normalizer(_normalize_configured_endpoint_with_selector)
 
 # Comment header written above the JSON object. Not a config key.
 CONFIG_SCHEMA_DOC_URL = (

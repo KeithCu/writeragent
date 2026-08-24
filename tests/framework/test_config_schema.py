@@ -24,9 +24,12 @@ from plugin.framework.config_schema import (
     parse_float_robust,
     parse_int_robust,
     prune_default_values,
+    set_endpoint_normalizer,
     set_manifest_modules,
+    _normalize_configured_endpoint,
 )
 from plugin.framework.errors import ConfigValidationError
+from plugin.framework.url_utils import normalize_endpoint_url
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "plugin" / "framework" / "config_schema.py"
 _FORBIDDEN_IMPORT_ROOTS = frozenset(
@@ -169,3 +172,16 @@ def test_set_and_get_manifest_modules(restore_manifest) -> None:
     assert get_manifest_modules() is restore_manifest.MODULES
     assert restore_manifest.CONFIG_DEFAULTS["only.flag"] is False
     assert coerce_config_value("only.flag", "yes") is True
+
+
+def test_set_endpoint_normalizer() -> None:
+    try:
+        assert _normalize_configured_endpoint("localhost", False) == "localhost"
+
+        def mock_normalizer(endpoint_str: str, is_openwebui: bool) -> str:
+            return f"mock_{endpoint_str}_{is_openwebui}"
+
+        set_endpoint_normalizer(mock_normalizer)
+        assert _normalize_configured_endpoint("localhost", False) == "mock_localhost_False"
+    finally:
+        set_endpoint_normalizer(normalize_endpoint_url)
