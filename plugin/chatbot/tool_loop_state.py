@@ -41,7 +41,11 @@ def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
     return "present"
 
 
-@deal.pre(lambda round_num, response: isinstance(round_num, int) and isinstance(response, dict))
+@deal.pre(
+    lambda round_num, response: isinstance(round_num, int)
+    and 0 <= round_num <= 10_000
+    and isinstance(response, dict)
+)
 @deal.post(lambda result: isinstance(result, str) and "round=" in result)
 def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
     """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""

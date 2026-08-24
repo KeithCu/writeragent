@@ -123,6 +123,7 @@ def extract_python_code_loose(formula: str) -> str | None:
     return _parse_unquoted_code_arg(body)
 
 
+@deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result and "\u2018" not in result and "\u2019" not in result)
 def normalize_formula_string(formula: str) -> str:
@@ -141,6 +142,7 @@ def build_new_python_formula(code: str) -> str:
     return f'={CALC_PYTHON_FN}("{escaped}")'
 
 
+@deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or isinstance(result, PythonFormulaParts))
 @deal.ensure(lambda formula, result: _parts_result_ok(result))
 def parse_python_formula(formula: str) -> PythonFormulaParts | None:
@@ -315,6 +317,7 @@ def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
     return f'={CALC_PYTHON_FN}("{escaped}"{parts.data_suffix}'
 
 
+@deal.pre(lambda data_suffix: str_bounded(data_suffix, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda data_suffix, result: not result or (not result.startswith(";") and not result.startswith(",") and not result.endswith(")")))
 def format_data_binding_display(data_suffix: str) -> str:
@@ -408,7 +411,12 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_range
     return f"{sep}{sep.join(args)})"
 
 
-@deal.pre(lambda *args, **kwargs: len(args) >= 2 and isinstance(args[0], str) and isinstance(args[1], list))
+# code is Python source (Unicode-legal); ascii_bounded would reject café comments.
+@deal.pre(
+    lambda *args, **kwargs: len(args) >= 2
+    and str_bounded(args[0], DEAL_MAX_SOURCE)
+    and isinstance(args[1], list)
+)
 @deal.post(lambda result: isinstance(result, str) and result.startswith(f"={CALC_PYTHON_FN}("))
 @deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))
 def rebuild_python_formula_with_data(

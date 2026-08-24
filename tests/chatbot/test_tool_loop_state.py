@@ -130,6 +130,19 @@ def test_stream_done_no_text_includes_debug_sidebar():
     assert format_empty_model_response_debug(2, response) in debug_line
 
 
+def test_format_empty_model_response_debug_overflow_pre_fails_closed():
+    import pytest
+
+    import deal
+    from tests.strip_bundle import deal_pre_present
+
+    if not deal_pre_present(format_empty_model_response_debug):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        format_empty_model_response_debug(10_001, {})
+    assert "round=10000" in format_empty_model_response_debug(10_000, {})
+
+
 def test_format_empty_model_response_debug_content_empty_vs_none():
     none_note = format_empty_model_response_debug(0, {"content": None})
     assert "content=None" in none_note

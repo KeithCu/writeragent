@@ -86,6 +86,7 @@ def get_api_version_suffix(url, is_openwebui=False):
     return "/v1"
 
 
+@deal.pre(lambda url, is_openwebui=False: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda url, is_openwebui=False, result="": bool(isinstance(url, str) and url.strip()) or result == "")
 def normalize_endpoint_url(url, is_openwebui=False):
@@ -132,6 +133,7 @@ def normalize_endpoint_url(url, is_openwebui=False):
 
     return url
 
+@deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_hostname(url):
     """Return hostname from URL safely."""
@@ -145,6 +147,7 @@ def get_url_hostname(url):
         return ""
 
 
+@deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_domain(url):
     """Return 'example.com' from 'https://api.example.com/v1'."""
@@ -157,6 +160,7 @@ def get_url_domain(url):
     return host
 
 
+@deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path(url):
     """Return path from URL safely."""
@@ -169,6 +173,7 @@ def get_url_path(url):
         return ""
 
 
+@deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, dict))
 def get_url_query_dict(url):
     """Return query parameters as dict (values are lists)."""
@@ -181,6 +186,7 @@ def get_url_query_dict(url):
         return {}
 
 
+@deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, str))
 def get_url_path_and_query(url):
     """Return path + query string from URL."""
@@ -196,6 +202,7 @@ def get_url_path_and_query(url):
         return "/"
 
 
+@deal.pre(lambda url: url is None or ascii_bounded(url, DEAL_MAX_URL))
 @deal.post(lambda result: isinstance(result, bool))
 def is_pdf_url(url):
     """Check for .pdf in the URL path safely."""

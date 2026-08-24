@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from plugin.calc.python.formula_edit import normalize_formula_string
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
 
 def _no_unquoted_semicolon(s: str) -> bool:
@@ -29,6 +29,7 @@ def _no_unquoted_semicolon(s: str) -> bool:
     return True
 
 
+@deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result)
 @deal.ensure(lambda formula, result: _no_unquoted_semicolon(result))

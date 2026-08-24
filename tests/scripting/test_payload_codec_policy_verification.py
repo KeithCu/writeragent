@@ -16,6 +16,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+import deal
+from plugin.framework.deal_shim import DEAL_MAX_ROW_INDEX, DEAL_MAX_SHAPE_RANK
 from plugin.scripting.payload_codec import (
     PAYLOAD_CALC_RANGE,
     PAYLOAD_DATAFRAME,
@@ -31,8 +33,10 @@ from plugin.scripting.payload_codec import (
     is_numeric_coercible,
     is_numeric_grid,
     is_split_grid,
+    should_use_binary_envelope,
     wire_cell_count,
 )
+from tests.strip_bundle import deal_pre_present
 from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
@@ -87,6 +91,18 @@ def test_zero_dim_shape_cell_count() -> None:
     assert cell_count((0,)) == 0
     assert cell_count((0, 5)) == 0
     assert cell_count((5, 0)) == 0
+    assert cell_count((1, 1, 1, 1)) == 1
+
+
+def test_cell_count_overflow_pre_fails_closed() -> None:
+    if not deal_pre_present(cell_count):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        cell_count((DEAL_MAX_ROW_INDEX + 1,))
+    with pytest.raises(deal.PreContractError):
+        cell_count(tuple([1] * (DEAL_MAX_SHAPE_RANK + 1)))
+    with pytest.raises(deal.PreContractError):
+        should_use_binary_envelope((1,), min_cells=DEAL_MAX_ROW_INDEX + 1)
 
 
 def test_host_pack_split_grid_empty() -> None:

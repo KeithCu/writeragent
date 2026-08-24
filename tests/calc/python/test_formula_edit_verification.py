@@ -16,6 +16,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+import deal
 from plugin.calc.python.formula_edit import (
     _find_matching_paren,
     _parse_quoted_string,
@@ -27,10 +28,12 @@ from plugin.calc.python.formula_edit import (
     parse_data_binding_text,
     parse_python_formula,
     rebuild_python_formula,
+    rebuild_python_formula_with_data,
     sanitize_inline_py_code,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from tests.strip_bundle import expect_pre_or_body
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE
+from tests.strip_bundle import deal_pre_present, expect_pre_or_body
 from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
@@ -167,6 +170,22 @@ def test_data_binding_format_and_parse() -> None:
     assert format_data_binding_display(")") == ""
     assert parse_data_binding_text("A1, B1:C5") == ["A1", "B1:C5"]
     assert format_data_binding_text(["A1", "B1:C5"]) == "A1, B1:C5"
+
+
+def test_formula_edit_overflow_pre_fails_closed() -> None:
+    if not deal_pre_present(rebuild_python_formula_with_data):
+        pytest.skip("@deal.pre stripped in release bundle")
+    too_long = "x" * (DEAL_MAX_SOURCE + 1)
+    with pytest.raises(deal.PreContractError):
+        rebuild_python_formula_with_data(too_long, [])
+    with pytest.raises(deal.PreContractError):
+        format_data_binding_display(too_long)
+    with pytest.raises(deal.PreContractError):
+        normalize_formula_string(too_long)
+    with pytest.raises(deal.PreContractError):
+        parse_python_formula(too_long)
+    with pytest.raises(deal.PreContractError):
+        normalize_lo_formula_for_parse(too_long)
 
 
 @given(suffix=st.text(max_size=30))

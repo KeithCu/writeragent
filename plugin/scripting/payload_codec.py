@@ -26,7 +26,7 @@ import sys
 import tempfile
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_ROW_INDEX, DEAL_MAX_SHAPE_RANK, deal
 
 # CrossHair may invoke deal post/ensure as ``fn(*call_args, result=return_value, **kwargs)``.
 # Naming a positional parameter ``result`` then raises TypeError (multiple values). Keep ``result`` keyword-only.
@@ -652,7 +652,19 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     return f"{type(obj).__name__}={repr(obj)[:120]}"
 
 
-@deal.pre(lambda shape: isinstance(shape, tuple) and all(isinstance(d, int) and d >= 0 for d in shape))
+def _deal_shape_ok(shape: object) -> bool:
+    """True iff *shape* is a rank-bounded tuple of spreadsheet-scale dims.
+
+    Unbounded rank or dims let CrossHair deep multiply forever in ``cell_count``.
+    """
+    return (
+        isinstance(shape, tuple)
+        and len(shape) <= DEAL_MAX_SHAPE_RANK
+        and all(isinstance(d, int) and 0 <= d <= DEAL_MAX_ROW_INDEX for d in shape)
+    )
+
+
+@deal.pre(lambda shape: _deal_shape_ok(shape))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), int))
 @deal.ensure(lambda shape, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) >= 0)
 @deal.ensure(lambda shape, *a, result=_DEAL_RETURN, **k: len(shape) != 0 or _deal_return(*a, result=result) == 1)
@@ -663,8 +675,12 @@ def cell_count(shape: tuple[int, ...]) -> int:
     return n
 
 
-@deal.pre(lambda shape, *_unused, **__: isinstance(shape, tuple) and all(isinstance(d, int) and d >= 0 for d in shape))
-@deal.pre(lambda shape, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never") and isinstance(min_cells, int) and min_cells >= 0)
+@deal.pre(lambda shape, *_unused, **__: _deal_shape_ok(shape))
+@deal.pre(
+    lambda shape, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
+    and isinstance(min_cells, int)
+    and 0 <= min_cells <= DEAL_MAX_ROW_INDEX
+)
 # CrossHair may pass call args + result=; never bind ``result`` as a positional parameter.
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
 @deal.ensure(lambda *a, result=_DEAL_RETURN, force="auto", **k: force != "always" or _deal_return(*a, result=result) is True)
@@ -1113,7 +1129,11 @@ def host_pack_split_grid(
 
 @deal.pre(lambda grid, *_unused, **__: _is_grid_sequence(grid))
 # Same force/min_cells gate as should_use_binary_envelope so CrossHair cannot call pack with invalid policy kwargs.
-@deal.pre(lambda grid, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never") and isinstance(min_cells, int) and min_cells >= 0)
+@deal.pre(
+    lambda grid, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
+    and isinstance(min_cells, int)
+    and 0 <= min_cells <= DEAL_MAX_ROW_INDEX
+)
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result) is not None)
 @deal.raises(ValueError)
 def host_pack_data(
@@ -1151,7 +1171,11 @@ def host_pack_data(
 
 
 @deal.pre(lambda grids, *_unused, **__: isinstance(grids, list) and all(_is_grid_sequence(g) for g in grids))
-@deal.pre(lambda grids, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never") and isinstance(min_cells, int) and min_cells >= 0)
+@deal.pre(
+    lambda grids, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
+    and isinstance(min_cells, int)
+    and 0 <= min_cells <= DEAL_MAX_ROW_INDEX
+)
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: _is_multi_data_envelope(_deal_return(*a, result=result)))
 @deal.ensure(
     lambda grids, *a, result=_DEAL_RETURN, **k: len(_deal_return(*a, result=result).get("items", []))

@@ -18,10 +18,11 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 from enum import Enum, auto
 from typing import Any, List, Optional
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_BACKOFF, DEAL_MAX_BACKOFF_FACTOR, DEAL_MAX_RETRY, deal
 from plugin.framework.service import BaseState, FsmTransition
 
 DEFAULT_INITIAL_BACKOFF: float = 1.0
@@ -113,7 +114,17 @@ class NotifyUrlAcquiredEffect:
 
 @deal.pre(
     lambda retry_count, initial=DEFAULT_INITIAL_BACKOFF, factor=DEFAULT_BACKOFF_FACTOR, max_backoff=DEFAULT_MAX_BACKOFF: (
-        retry_count >= 0 and initial >= 0 and factor >= 1.0 and max_backoff >= initial
+        isinstance(retry_count, int)
+        and 0 <= retry_count <= DEAL_MAX_RETRY
+        and isinstance(initial, (int, float))
+        and math.isfinite(initial)
+        and 0 <= initial <= DEAL_MAX_BACKOFF
+        and isinstance(factor, (int, float))
+        and math.isfinite(factor)
+        and 1.0 <= factor <= DEAL_MAX_BACKOFF_FACTOR
+        and isinstance(max_backoff, (int, float))
+        and math.isfinite(max_backoff)
+        and initial <= max_backoff <= DEAL_MAX_BACKOFF
     )
 )
 @deal.post(lambda result: result >= 0)

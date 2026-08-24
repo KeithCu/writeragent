@@ -667,7 +667,7 @@ Helpers in [`deal_shim.py`](../plugin/framework/deal_shim.py):
 
 `DEAL_MAX_CELL_REF` is **32** because `parse_address` / `parse_range_string` reject sheet prefixes; the longest legal range is well under that. Do **not** put `isascii` on `_()` (msgids include `"✓ Copied!"`, `"Testing…"`), HTML strippers, or formula source.
 
-Hypothesis `st.text(..., max_codepoint=127)` in `*_verification.py` is a **fuzzer** bound, not a function contract — leave those ASCII alphabets in place.
+Hypothesis `st.text(..., max_codepoint=127)` in `*_verification.py` is a **fuzzer** bound, not a function contract — leave those ASCII alphabets in place. Int domains need the same named caps (`DEAL_MAX_*`) so deep check cannot wander on loops, products, exponents, or f-strings of a giant int.
 
 #### F. Single-pass string stripping vs interleaved control whitespace
 

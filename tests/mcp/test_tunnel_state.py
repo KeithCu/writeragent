@@ -1,8 +1,11 @@
 """Unit and contract verification tests for the MCP Tunnel pure FSM (tunnel_state.py)."""
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+import deal
+from plugin.framework.deal_shim import DEAL_MAX_RETRY
 from plugin.mcp.tunnel_state import (
     CancelRetryTimerEffect,
     NotifyUrlAcquiredEffect,
@@ -16,6 +19,7 @@ from plugin.mcp.tunnel_state import (
     compute_backoff_delay,
     next_state,
 )
+from tests.strip_bundle import deal_pre_present
 
 
 def test_compute_backoff_delay_exponential_progression():
@@ -25,7 +29,14 @@ def test_compute_backoff_delay_exponential_progression():
     assert compute_backoff_delay(3) == 8.0
     assert compute_backoff_delay(4) == 16.0
     assert compute_backoff_delay(5) == 30.0  # Capped at max_backoff (30.0)
-    assert compute_backoff_delay(10) == 30.0
+    assert compute_backoff_delay(DEAL_MAX_RETRY) == 30.0
+
+
+def test_compute_backoff_delay_overflow_pre_fails_closed():
+    if not deal_pre_present(compute_backoff_delay):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        compute_backoff_delay(DEAL_MAX_RETRY + 1)
 
 
 def test_compute_backoff_delay_custom_parameters():
@@ -219,7 +230,7 @@ def test_stop_requested_cleans_up_from_any_state():
 
 
 @given(
-    retry_count=st.integers(min_value=0, max_value=100),
+    retry_count=st.integers(min_value=0, max_value=DEAL_MAX_RETRY),
     initial=st.floats(min_value=0.1, max_value=10.0),
     factor=st.floats(min_value=1.0, max_value=5.0),
     max_backoff=st.floats(min_value=10.0, max_value=300.0),

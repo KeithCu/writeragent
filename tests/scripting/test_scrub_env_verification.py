@@ -16,7 +16,10 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+import deal
+from plugin.framework.deal_shim import DEAL_MAX_PATH
 from plugin.scripting.sandbox import scrub_subprocess_env, wrap_command_for_sandbox
+from tests.strip_bundle import deal_pre_present
 from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
@@ -56,6 +59,13 @@ def test_wrap_command_for_sandbox_basic() -> None:
     wrapped = wrap_command_for_sandbox(cmd)
     assert isinstance(wrapped, list)
     assert wrapped[-len(cmd):] == cmd
+
+
+def test_wrap_command_overflow_pre_fails_closed() -> None:
+    if not deal_pre_present(wrap_command_for_sandbox):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        wrap_command_for_sandbox(["python3", "x" * (DEAL_MAX_PATH + 1)])
 
 
 @given(cmd=st.lists(st.text(max_size=30), max_size=10))

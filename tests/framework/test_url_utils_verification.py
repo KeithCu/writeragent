@@ -32,7 +32,6 @@ _urls = st.one_of(
     st.just(""),
     st.just("   "),
     st.just(None),
-    st.just(123),
     st.from_regex(r"https://[a-z0-9.-]{1,20}\.com(/[a-z0-9]{0,8}){0,3}", fullmatch=True),
     st.sampled_from(
         [
@@ -79,7 +78,26 @@ def test_normalize_empty_and_non_str() -> None:
     assert normalize_endpoint_url("") == ""
     assert normalize_endpoint_url("  ") == ""
     assert normalize_endpoint_url(None) == ""  # type: ignore[arg-type]
-    assert normalize_endpoint_url(1) == ""  # type: ignore[arg-type]
+
+
+def test_url_helpers_overflow_pre_fails_closed() -> None:
+    from plugin.framework.deal_shim import DEAL_MAX_URL
+    from plugin.framework.url_utils import get_url_hostname, is_pdf_url
+    from tests.strip_bundle import deal_pre_present
+
+    import deal
+
+    if not deal_pre_present(normalize_endpoint_url):
+        pytest.skip("@deal.pre stripped in release bundle")
+    too_long = "https://example.com/" + ("a" * DEAL_MAX_URL)
+    with pytest.raises(deal.PreContractError):
+        normalize_endpoint_url(too_long)
+    with pytest.raises(deal.PreContractError):
+        get_url_hostname(too_long)
+    with pytest.raises(deal.PreContractError):
+        is_pdf_url(too_long)
+    with pytest.raises(deal.PreContractError):
+        normalize_endpoint_url(1)  # type: ignore[arg-type]
 
 
 @given(url=_urls)

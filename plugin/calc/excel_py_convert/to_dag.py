@@ -55,7 +55,7 @@ from plugin.calc.excel_py_convert.models import (
     HeaderMode,
 )
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 # Bare Excel placeholder in source (not anchored); same length as ``_Pn_`` sentinel.
@@ -81,15 +81,26 @@ class _XlCall:
     raw: str = ""
 
 
-@deal.pre(lambda p_num, *_unused, **__: isinstance(p_num, int) and p_num >= 2)
-@deal.post(lambda result: isinstance(result, int) and result >= 0)
+@deal.pre(
+    lambda p_num, *_unused, **__: isinstance(p_num, int)
+    and 2 <= p_num <= 2 + DEAL_MAX_PLACEHOLDER_INDEX
+)
+@deal.post(lambda result: isinstance(result, int) and 0 <= result <= DEAL_MAX_PLACEHOLDER_INDEX)
 def _placeholder_to_data_index(p_num: int) -> int:
     """Map Excel ``%Pk%`` to 0-based original dep index: ``%P2%`` → 0, ``%P3%`` → 1."""
     return p_num - 2
 
 
-@deal.pre(lambda index, *_unused, **__: isinstance(index, int) and index >= 0)
-@deal.post(lambda result: isinstance(result, str) and result.startswith("xl(") and result.endswith(")"))
+@deal.pre(
+    lambda index, *_unused, **__: isinstance(index, int) and 0 <= index <= DEAL_MAX_PLACEHOLDER_INDEX
+)
+@deal.post(
+    lambda result: isinstance(result, str)
+    and result.startswith("xl(")
+    and result.endswith(")")
+    and '"%P' in result
+    and len(result) <= DEAL_MAX_TOKEN
+)
 def _xl_binding_expr(index: int, header_mode: str) -> str:
     """Runnable DAG ``xl("%Pn%", …)`` (quoted token; MS package uses bare ``%Pn%``)."""
     tok = f'"%P{index + 2}%"'

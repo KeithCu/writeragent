@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     import subprocess
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_PATH, deal, str_bounded
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
@@ -267,7 +267,8 @@ def optimize_popen_pipes(proc: subprocess.Popen[Any]) -> None:
             pass
 
 
-@deal.pre(lambda cmd: isinstance(cmd, list) and all(isinstance(x, str) for x in cmd))
+# Hypothesis and venv-path tests pass Unicode argv/paths; ascii_bounded would reject them.
+@deal.pre(lambda cmd: isinstance(cmd, list) and all(str_bounded(x, DEAL_MAX_PATH) for x in cmd))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 @deal.ensure(lambda cmd, result: len(result) >= len(cmd) and (result[-len(cmd):] == cmd if cmd else True))
 def wrap_command_for_sandbox(cmd: list[str]) -> list[str]:
@@ -454,7 +455,7 @@ def resolve_venv_python(venv_dir: str) -> Optional[str]:
     return _first_executable_python(candidates)
 
 
-@deal.pre(lambda target_path, root_dir: isinstance(target_path, str) and isinstance(root_dir, str))
+@deal.pre(lambda target_path, root_dir: str_bounded(target_path, DEAL_MAX_PATH) and str_bounded(root_dir, DEAL_MAX_PATH))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda target_path, root_dir, result: (

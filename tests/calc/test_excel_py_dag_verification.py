@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from typing import get_args, get_origin, get_type_hints
 
+import pytest
 from hypothesis import given, strategies as st
 
+import deal
 from plugin.calc.excel_py_convert.to_dag import (
     _normalize_bindings,
     _normalize_excel_placeholders,
@@ -17,6 +19,8 @@ from plugin.calc.excel_py_convert.to_dag import (
     _xl_binding_expr,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
+from plugin.framework.deal_shim import DEAL_MAX_PLACEHOLDER_INDEX, DEAL_MAX_SOURCE
+from tests.strip_bundle import deal_pre_present
 
 
 def test_xl_binding_expr_header_mode_annotation_is_str() -> None:
@@ -30,14 +34,14 @@ def test_xl_binding_expr_header_mode_annotation_is_str() -> None:
     assert value is str
 
 
-@given(st.integers(min_value=2, max_value=10000))
+@given(st.integers(min_value=2, max_value=2 + DEAL_MAX_PLACEHOLDER_INDEX))
 def test_placeholder_to_data_index_invariant(p_num: int) -> None:
     idx = _placeholder_to_data_index(p_num)
     assert idx >= 0
     assert idx == p_num - 2
 
 
-@given(st.integers(min_value=0, max_value=10000), st.sampled_from(["true", "false", "omit"]))
+@given(st.integers(min_value=0, max_value=DEAL_MAX_PLACEHOLDER_INDEX), st.sampled_from(["true", "false", "omit"]))
 def test_xl_binding_expr_invariants(idx: int, header_mode: str) -> None:
     expr = _xl_binding_expr(idx, header_mode)
     assert expr.startswith("xl(")
@@ -50,7 +54,7 @@ def test_xl_binding_expr_invariants(idx: int, header_mode: str) -> None:
         assert "headers=False" in expr
 
 
-@given(st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127)))
+@given(st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_SOURCE))
 def test_normalize_excel_placeholders_length_invariant(src: str) -> None:
     normalized = _normalize_excel_placeholders(src)
     assert len(normalized) == len(src)
@@ -60,10 +64,21 @@ def test_normalize_excel_placeholders_length_invariant(src: str) -> None:
         assert "_P2_" in normalized
 
 
-@given(st.text())
+@given(st.text(max_size=DEAL_MAX_SOURCE))
 def test_normalize_lo_formula_for_parse_invariants(formula: str) -> None:
     result = normalize_lo_formula_for_parse(formula)
     assert isinstance(result, str)
     # Curly quotes should always be normalized away
     assert "\u201c" not in result
     assert "\u201d" not in result
+
+
+def test_placeholder_index_overflow_pre_fails_closed() -> None:
+    if not deal_pre_present(_placeholder_to_data_index):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        _placeholder_to_data_index(2 + DEAL_MAX_PLACEHOLDER_INDEX + 1)
+    with pytest.raises(deal.PreContractError):
+        _xl_binding_expr(DEAL_MAX_PLACEHOLDER_INDEX + 1, "omit")
+    assert _placeholder_to_data_index(2 + DEAL_MAX_PLACEHOLDER_INDEX) == DEAL_MAX_PLACEHOLDER_INDEX
+    assert '"%P' in _xl_binding_expr(DEAL_MAX_PLACEHOLDER_INDEX, "omit")
