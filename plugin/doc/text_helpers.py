@@ -408,8 +408,11 @@ def get_document_end(model, max_chars=4000):
         return ""
 
 
-def _read_writer_text_slice(model, start_offset: int, length: int) -> str:
-    """Read up to *length* characters from *start_offset* without loading the full document."""
+def _read_writer_text_slice(model, start_offset: int, length: int) -> str:  # pyright: ignore[reportUnusedFunction]
+    """Read up to *length* characters from *start_offset* without loading the full document.
+
+    Used by ``document_helpers.get_document_context_for_chat`` (Writer excerpts).
+    """
     if length <= 0:
         return ""
     end_offset = start_offset + length
@@ -435,7 +438,7 @@ def _writer_excerpt_overlaps_selection(model, excerpt_start: int, excerpt_end: i
     return True
 
 
-def _writer_selection_overlaps_windows(model, windows: list[tuple[int, int]], sel_start_pos, sel_end_pos) -> bool:
+def _writer_selection_overlaps_windows(model, windows: list[tuple[int, int]], sel_start_pos, sel_end_pos) -> bool:  # pyright: ignore[reportUnusedFunction]
     for win_start, win_end in windows:
         if _writer_excerpt_overlaps_selection(model, win_start, win_end, sel_start_pos, sel_end_pos):
             return True
