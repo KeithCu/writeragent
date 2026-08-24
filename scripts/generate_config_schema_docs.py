@@ -21,7 +21,7 @@ from manifest_common import write_if_changed  # noqa: E402
 
 DEFAULT_OUTPUT = os.path.join(PROJECT_ROOT, "docs", "writeragent-config-schema.md")
 SCHEMA_DOC_URL = (
-    "https://github.com/KeithCu/writeragent/blob/main/docs/writeragent-config-schema.md"
+    "https://github.com/KeithCu/writeragent/blob/master/docs/writeragent-config-schema.md"
 )
 
 _SKIP_WIDGETS = frozenset({"separator", "button", "label"})

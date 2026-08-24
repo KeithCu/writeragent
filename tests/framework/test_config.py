@@ -404,6 +404,8 @@ class TestConfigSyncFileIO(unittest.TestCase):
             text = f.read()
         self.assertTrue(text.startswith('//'))
         self.assertIn(CONFIG_SCHEMA_DOC_URL, text)
+        self.assertIn("/blob/master/", CONFIG_SCHEMA_DOC_URL)
+        self.assertNotIn("/blob/main/", CONFIG_SCHEMA_DOC_URL)
 
     def test_parse_config_json_text_strips_schema_comment(self):
         raw = CONFIG_SCHEMA_COMMENT + '{\n    "text_model": "custom-model"\n}\n'
@@ -478,7 +480,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
                 }
             }
         }]
-        with patch("plugin.framework.config.MODULES", mock_modules):
+        with patch("plugin.framework.config_schema.MODULES", mock_modules):
             self._reset_config_cache()
             # Because extend_selection_max_tokens was not written to disk, the new default is picked up automatically!
             self.assertEqual(get_config_int('extend_selection_max_tokens'), 2000)
@@ -629,7 +631,7 @@ class TestRobustNumericParsing(unittest.TestCase):
                 }
             }
         }]
-        with patch("plugin.framework.config.MODULES", mock_modules):
+        with patch("plugin.framework.config_schema.MODULES", mock_modules):
             config_with_extra = WriterAgentConfig.from_dict({
                 "mcp.mcp_port": "8765,00",  # German locale format
             })
@@ -677,8 +679,8 @@ class TestRobustNumericParsing(unittest.TestCase):
                 return "Translated Fast"
             return msg
 
-        with patch("plugin.framework.config.MODULES", mock_modules), \
-             patch("plugin.framework.config._", side_effect=fake_gettext):
+        with patch("plugin.framework.config_schema.MODULES", mock_modules), \
+             patch("plugin.framework.config_schema._", side_effect=fake_gettext):
             config.validate()
 
         self.assertEqual(config._extra_config.get("demo.mode"), "fast")

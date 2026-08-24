@@ -107,6 +107,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/chatbot/settings_fields.py",
     "plugin/framework/__init__.py",
     "plugin/framework/config.py",
+    "plugin/framework/config_schema.py",
     "plugin/framework/constants.py",
     "plugin/framework/deal_shim.py",
     "plugin/framework/errors.py",

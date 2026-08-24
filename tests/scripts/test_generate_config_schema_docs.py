@@ -40,6 +40,8 @@ class TestGenerateConfigSchemaDocs(unittest.TestCase):
         md = render_config_schema_markdown(modules, core_fields=[])
         self.assertIn("Auto-generated", md)
         self.assertIn(SCHEMA_DOC_URL, md)
+        self.assertIn("/blob/master/", SCHEMA_DOC_URL)
+        self.assertNotIn("/blob/main/", SCHEMA_DOC_URL)
         self.assertIn("| Key | Type | Default | Range | Description |", md)
         self.assertIn("| `max_tool_rounds` | `int` | `15` | `1`–`50` | Max Tool Rounds |", md)
         self.assertIn("| `log_level` |", md)

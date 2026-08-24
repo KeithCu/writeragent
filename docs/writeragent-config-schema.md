@@ -8,7 +8,7 @@ defaults below are written to the file.** Omitted keys pick up the
 current default, so changing a default in a new WriterAgent release
 applies automatically unless you already overrode that key.
 
-Canonical copy: [https://github.com/KeithCu/writeragent/blob/main/docs/writeragent-config-schema.md](https://github.com/KeithCu/writeragent/blob/main/docs/writeragent-config-schema.md)
+Canonical copy: [https://github.com/KeithCu/writeragent/blob/master/docs/writeragent-config-schema.md](https://github.com/KeithCu/writeragent/blob/master/docs/writeragent-config-schema.md)
 
 `log_level` is `DEBUG` in a source checkout (`plugin/tests/` present)
 and `WARN` in a shipped OXT even if the yaml default is `DEBUG`.
@@ -67,20 +67,14 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `agent_edit_review_mode` | `string` | `"off"` |  | Off = direct edits. Record = tracked changes you accept/reject yourself. Wait = apply_document_content blocks (on chat/MCP worker thread) until you review. Options: off (Off), record (Record (track changes)), wait (Wait for review) |
 | `edit_review_timeout` | `int` | `900` | ≥ `0` | Internal. Only used when mode is Wait. Max time apply_document_content blocks before returning with pending changes. |
 
-## Vector Search (`embeddings`)
+## Agent Communication Protocol (`agent_backend`)
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
-| `folder_search_mode` | `string` | `"none"` |  | Indexed semantic + keyword search for document_research (corpus.db). Requires embeddings venv — see Python Test. Options: none (Off), hybrid (Embeddings + FTS), llama_index (LlamaIndex), zvec (Zvec (experimental)), lancedb (LanceDB (experimental)) |
-| `embedding_model` | `string` | `"paraphrase-multilingual-MiniLM-L12-v2"` |  | HuggingFace model ID for local provider, or endpoint-specific model ID |
-| `folder_rerank_enabled` | `boolean` | `false` |  | Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and LlamaIndex). Off by default. |
-| `folder_rerank_model` | `string` | `"cross-encoder/ms-marco-MiniLM-L-6-v2"` |  | Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 is multilingual and downloads ~2.3 GB. Options: cross-encoder/ms-marco-MiniLM-L-6-v2, BAAI/bge-reranker-v2-m3 |
-
-## Calc spreadsheet tools (`calc`)
-
-| Key | Type | Default | Range | Description |
-| --- | --- | --- | --- | --- |
-| `max_rows_display` | `int` | `1000` | `100`–`100000` | Max Rows Display |
+| `backend_id` | `string` | `"builtin"` |  | Backend Options: builtin (Built-in), hermes (Hermes), claude (Claude Code (ACP)), vibe (Mistral Vibe (ACP)), grok (Grok Build (ACP)), opencode (OpenCode (ACP)) |
+| `path` | `string` | `""` |  | Internal. Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://localhost:8000 for Hermes). Empty = try default. |
+| `args` | `string` | `""` |  | Internal. Optional arguments for the selected backend (space-separated). |
+| `acp_agent_name` | `string` | `""` |  | Internal. Agent name on the ACP server (e.g. hermes). Empty = auto-discover first agent. |
 
 ## MCP (`mcp`)
 
@@ -95,6 +89,19 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `client_config_snippet` | `string` | `""` |  | Client config (copy into Claude / Hermes-Agent): |
 | `cors_allow_private_origins` | `boolean` | `true` |  | Internal |
 | `cors_allowed_origins` | `list` | `[]` |  | Internal |
+
+## Python (`scripting`)
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `python_venv_path` | `string` | `""` |  | If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path without surrounding quotes. If empty, uses this process's sys.executable (basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, paddlepaddle). |
+| `python_exec_timeout` | `int` | `10` | `1`–`600` | Wall-clock limit for Run Python Script and =PYTHON() / =PY(). |
+| `python_max_data_cells` | `int` | `250000` | `1000`–`2000000` | Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger values use more RAM and time; UNO range read still dominates. |
+| `python_session_mode` | `string` | `"isolated"` |  | Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace per workbook (variables carry between cells). Options: isolated (Isolated (default)), shared (Shared kernel) |
+| `python_auto_spill` | `bool` | `true` |  | Automatically spill multi-cell array/DataFrame results from =PYTHON() into adjacent cells. |
+| `xl_static_rewrite` | `bool` | `false` |  | On Edit Python in Cell save, lift static xl("A1:…") onto =PY data args and rewrite to data / data[i] / .to_pandas(). |
+| `force_internal_script_editor` | `bool` | `false` |  | Internal |
+| `native_run_script_modeless` | `bool` | `true` |  | Internal |
 
 ## Sidebar (`chatbot`)
 
@@ -121,22 +128,25 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `deep_research_quality_threshold` | `int` | `7` | `1`–`10` | Internal. Stop when LLM coverage score reaches this value (1-10, internal). |
 | `deep_research_sub_agent_steps` | `int` | `0` | `0`–`50` | Internal. Max ReAct steps per sub-query (0 = 150% of chatbot.max_tool_rounds, internal). |
 | `rich_text_control_sidebar` | `boolean` | `true` |  | Formatted chat via RichTextControl. Requires restart. |
+| `librarian_invoked` | `boolean` | `false` |  | Internal |
 | `humanizer_enabled` | `boolean` | `false` |  | When enabled, injects guidance into the system prompt so the model makes generated or revised document text sound more natural and human (removes AI slop patterns). Edit the rules in your LibreOffice profile under writeragent/skills/humanizer/SKILL.md (the file is auto-created on first use). A dedicated Skills tab can be added later. |
 | `audio_silence_stop_ms` | `int` | `3000` | `0`–`15000` | Pause after you stop talking, then auto-stop and send (Record). 0 = wait until you click Stop Rec. |
 | `query_history` | `string` | `"[]"` |  | Internal |
 
-## Python (`scripting`)
+## Calc spreadsheet tools (`calc`)
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
-| `python_venv_path` | `string` | `""` |  | If set, runs =PY() and Run Python Script in that venv (bin/python, Scripts/python.exe, or conda/pyenv-win env-root python.exe). Paste the path without surrounding quotes. If empty, uses this process's sys.executable (basic stdlib); use a venv for numpy/pandas and Vision Helpers (paddleocr, paddlepaddle). |
-| `python_exec_timeout` | `int` | `10` | `1`–`600` | Wall-clock limit for Run Python Script and =PYTHON() / =PY(). |
-| `python_max_data_cells` | `int` | `250000` | `1000`–`2000000` | Maximum cells in =PYTHON() data or Run Python Script data/data_range. Larger values use more RAM and time; UNO range read still dominates. |
-| `python_session_mode` | `string` | `"isolated"` |  | Isolated: each =PYTHON() cell gets a fresh namespace. Shared: one namespace per workbook (variables carry between cells). Options: isolated (Isolated (default)), shared (Shared kernel) |
-| `python_auto_spill` | `bool` | `true` |  | Automatically spill multi-cell array/DataFrame results from =PYTHON() into adjacent cells. |
-| `xl_static_rewrite` | `bool` | `false` |  | On Edit Python in Cell save, lift static xl("A1:…") onto =PY data args and rewrite to data / data[i] / .to_pandas(). |
-| `force_internal_script_editor` | `bool` | `false` |  | Internal |
-| `native_run_script_modeless` | `bool` | `true` |  | Internal |
+| `max_rows_display` | `int` | `1000` | `100`–`100000` | Max Rows Display |
+
+## Vector Search (`embeddings`)
+
+| Key | Type | Default | Range | Description |
+| --- | --- | --- | --- | --- |
+| `folder_search_mode` | `string` | `"none"` |  | Indexed semantic + keyword search for document_research (corpus.db). Requires embeddings venv — see Python Test. Options: none (Off), hybrid (Embeddings + FTS), llama_index (LlamaIndex), zvec (Zvec (experimental)), lancedb (LanceDB (experimental)) |
+| `embedding_model` | `string` | `"paraphrase-multilingual-MiniLM-L12-v2"` |  | HuggingFace model ID for local provider, or endpoint-specific model ID |
+| `folder_rerank_enabled` | `boolean` | `false` |  | Second-stage cross-encoder after hybrid retrieve (Embeddings + FTS and LlamaIndex). Off by default. |
+| `folder_rerank_model` | `string` | `"cross-encoder/ms-marco-MiniLM-L-6-v2"` |  | Used only when rerank is enabled. English MiniLM is fast; bge-reranker-v2-m3 is multilingual and downloads ~2.3 GB. Options: cross-encoder/ms-marco-MiniLM-L-6-v2, BAAI/bge-reranker-v2-m3 |
 
 ## Vision / OCR (`vision`)
 
@@ -155,12 +165,3 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `do_formula_enrichment` | `boolean` | `false` |  | Opt-in. Downloads extra VLM models on first use; slower. |
 | `do_code_enrichment` | `boolean` | `false` |  | Specialized OCR for code/terminal screenshots. |
 | `document_timeout` | `float` | `0` | `0`–`600` | Per-conversion timeout inside Docling. 0 = no limit. |
-
-## Agent Communication Protocol (`agent_backend`)
-
-| Key | Type | Default | Range | Description |
-| --- | --- | --- | --- | --- |
-| `backend_id` | `string` | `"builtin"` |  | Backend Options: builtin (Built-in), hermes (Hermes), claude (Claude Code (ACP)), vibe (Mistral Vibe (ACP)), grok (Grok Build (ACP)), opencode (OpenCode (ACP)) |
-| `path` | `string` | `""` |  | Internal. Path to backend CLI (e.g. aider) or ACP server URL (e.g. http://localhost:8000 for Hermes). Empty = try default. |
-| `args` | `string` | `""` |  | Internal. Optional arguments for the selected backend (space-separated). |
-| `acp_agent_name` | `string` | `""` |  | Internal. Agent name on the ACP server (e.g. hermes). Empty = auto-discover first agent. |

@@ -202,7 +202,8 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 
 | File | Why it ships |
 |------|----------------|
-| [`plugin/framework/config.py`](../plugin/framework/config.py) | Config read/write; `WriterAgentConfig` + `MODULES` |
+| [`plugin/framework/config.py`](../plugin/framework/config.py) | Config read/write; re-exports schema names so LibrePy keeps importing from here |
+| [`plugin/framework/config_schema.py`](../plugin/framework/config_schema.py) | `WriterAgentConfig`, `MODULES`, coerce/clamp/defaults (no disk I/O) |
 | [`plugin/framework/constants.py`](../plugin/framework/constants.py) | `get_plugin_dir`, `AUTO_IMPORTS`, worker pool ids |
 | [`plugin/framework/errors.py`](../plugin/framework/errors.py) | `format_error_payload`, `ConfigError`, `safe_call` |
 | [`plugin/framework/json_utils.py`](../plugin/framework/json_utils.py) | `safe_json_loads` (via `client/errors.py`) |
@@ -803,7 +804,7 @@ Deduplicated union of **Layers 0–6**. Counts are approximate (~100 `plugin/` p
 
 Allowlist: [`scripts/librepy_bundle_paths.py`](../scripts/librepy_bundle_paths.py) (`LIBREPY_PLUGIN_FILES` + dirs). Do not treat this summary as the build input.
 
-**Framework:** `config.py`, `constants.py`, `errors.py`, `json_utils.py`, `i18n.py`, `event_bus.py`, `service.py`, `url_utils.py`, `thread_guard.py`, `client/errors.py`, `client/requests.py`, `client/ssl_helpers.py`, `client/provider_detection.py`, **lazy** `client/__init__.py`, `framework/__init__.py`, `_manifest.py` (LibrePy: `_manifest_librepy.py` at generate time)
+**Framework:** `config.py`, `config_schema.py`, `constants.py`, `errors.py`, `json_utils.py`, `i18n.py`, `event_bus.py`, `service.py`, `url_utils.py`, `thread_guard.py`, `client/errors.py`, `client/requests.py`, `client/ssl_helpers.py`, `client/provider_detection.py`, **lazy** `client/__init__.py`, `framework/__init__.py`, `_manifest.py` (LibrePy: `_manifest_librepy.py` at generate time)
 
 **Calc:** `python/addin_librepy.py` (not WriterAgent `addin.py`), `python/function.py`, `addin_common.py`, `calc_addin_data.py`, `calc/__init__.py`
 
