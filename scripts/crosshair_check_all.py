@@ -33,6 +33,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -171,6 +172,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Also analyze CROSSHAIR_CHECK_ALL_SKIP modules (engine-crash hosts)",
     )
     args = parser.parse_args(argv)
+
+    # Child CrossHair processes import deal_shim; set this before any spawn so
+    # they bind the short @deal.pre table. Pytest / make test never set it.
+    # Must match plugin.framework.deal_shim.CROSSHAIR_ENV.
+    os.environ["WRITERAGENT_CROSSHAIR"] = "1"
 
     budget = resolve_check_budget(deep=args.deep)
 

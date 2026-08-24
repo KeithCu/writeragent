@@ -520,9 +520,14 @@ def test_module_check_bounds_tightens_payload_codec_regular_only() -> None:
     assert module_check_bounds(deep, PAYLOAD_CODEC_REL) == (200, None)
 
 
-def test_check_all_list_discovers_deal_without_spawning(tmp_path, capsys) -> None:
+def test_check_all_list_discovers_deal_without_spawning(tmp_path, capsys, monkeypatch) -> None:
     """check-all --list finds @deal. modules and exits 0 without spawning CrossHair."""
+    import os
+
+    from plugin.framework.deal_shim import CROSSHAIR_ENV
     from scripts.crosshair_check_all import main as check_all_main
+
+    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
 
     plugin = tmp_path / "plugin"
     (plugin / "scripting").mkdir(parents=True)
@@ -535,6 +540,7 @@ def test_check_all_list_discovers_deal_without_spawning(tmp_path, capsys) -> Non
 
     code = check_all_main(["--list", "--plugin-root", str(plugin)])
     assert code == 0
+    assert os.environ.get(CROSSHAIR_ENV) == "1"
     out = capsys.readouterr().out
     assert "CrossHair check-all [regular]: 1 module(s)" in out
     assert "max_uninteresting=25" in out
@@ -543,8 +549,13 @@ def test_check_all_list_discovers_deal_without_spawning(tmp_path, capsys) -> Non
     assert "no_deal.py" not in out
 
 
-def test_check_all_list_deep_banner(tmp_path, capsys) -> None:
+def test_check_all_list_deep_banner(tmp_path, capsys, monkeypatch) -> None:
+    import os
+
+    from plugin.framework.deal_shim import CROSSHAIR_ENV
     from scripts.crosshair_check_all import main as check_all_main
+
+    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
 
     plugin = tmp_path / "plugin"
     (plugin / "scripting").mkdir(parents=True)
@@ -555,6 +566,7 @@ def test_check_all_list_deep_banner(tmp_path, capsys) -> None:
 
     code = check_all_main(["--deep", "--list", "--plugin-root", str(plugin)])
     assert code == 0
+    assert os.environ.get(CROSSHAIR_ENV) == "1"
     out = capsys.readouterr().out
     assert "CrossHair check-all [deep]: 1 module(s)" in out
     assert "max_uninteresting=200" in out

@@ -8,42 +8,125 @@
 Provides actual `deal` decorators when deal is installed, or no-op stubs
 when running under standard LibreOffice Python runtime where deal is absent.
 See docs/framework-formal-verification.md §8.1 E for string contract conventions.
+
+``DEAL_MAX_*`` are finite ``@deal.pre`` domains, not production limits (release
+OXTs strip ``@deal.*``; LibreOffice uses this shim as a no-op). Pytest /
+``make test`` bind the wide, product-faithful table (ZZZ, Calc max row,
+CELL_REF=32). CrossHair binds the short table only when
+``WRITERAGENT_CROSSHAIR=1`` at import, which ``scripts/crosshair_check_all.py``
+sets before spawning CrossHair. Do not sniff ``sys.modules["crosshair"]`` or
+``is_tracing()``, and do not branch inside ``@deal.pre`` lambdas — CrossHair
+would explore both branches. Nested inverse ``@deal.ensure`` (format_address
+→ parse_address, column_to_index → index_to_column) is skipped under CrossHair
+via ``inverse_ensure``; cheap ``@deal.post`` still runs.
 """
 
-from typing import Any
+from __future__ import annotations
 
-# Domain caps for @deal.pre only. Release OXTs strip @deal.* and LibreOffice
-# uses this shim as a no-op, so these lengths never bind shipped code.
-# CrossHair domains may be smaller than Calc / POSIX; the goal is that deep
-# check finishes. Do not grow these to match production limits.
-DEAL_MAX_COL_LETTERS = 3
-DEAL_MAX_CELL_REF = 32
-DEAL_MAX_TOKEN = 64
-DEAL_MAX_ORIGIN = 256
-DEAL_MAX_URL = 256
-DEAL_MAX_PATH = 256  # filesystem paths (is_safe_workspace_path); not PATH_MAX
-# wrap_command argv, including venv ``-c`` probe scripts (~1–2k chars).
-DEAL_MAX_ARGV = 4096
-DEAL_MAX_CMD_ARGS = 32  # wrap_command list length
-DEAL_MAX_SOURCE = 64
-# Int domains need caps too (same reason as §8.1 E): CrossHair otherwise
-# unrolls `while index > 0` forever on a giant int in deep check.
-# Same for products, exponents, and f-strings of a huge int.
-# Keep A–ZZZ so parse_address("ZZZ1") does not nested-PreContractError
-# column_to_index (do not edit address_utils.py). Loop is 3 iterations.
-DEAL_MAX_COL_INDEX = 26 + 26**2 + 26**3 - 1  # 18277, A–ZZZ (not 26**3-1)
-# CrossHair domain only (release strips @deal). 1000 covers 1–4 digit rows;
-# Calc's million-row grid is not worth the extra SMT time.
-DEAL_MAX_ROW_INDEX = 1000
-DEAL_MAX_PLACEHOLDER_INDEX = 64  # Excel %Pn% deps; f-string of the int
-DEAL_MAX_SHAPE_RANK = 4  # ndarray rank; grids are 2-D, tests use up to 4
-# cell_count product domain — not Calc's million-row grid. 256^4 still fits in a
-# machine int; CrossHair is testing our multiply loop, not LibreOffice.
-# Also the per-side cap for list grids in @deal.pre (100×100 pack tests fit).
-DEAL_MAX_SHAPE_DIM = 256
-DEAL_MAX_RETRY = 8  # MCP tunnel backoff exponent (production DEFAULT_MAX_RETRIES=5)
-DEAL_MAX_BACKOFF = 300.0  # seconds; Hypothesis uses up to 300
-DEAL_MAX_BACKOFF_FACTOR = 10.0
+import os
+from typing import Any, NamedTuple
+
+# Import-time flag. Only the check-all runner sets this; pytest / make test do not.
+CROSSHAIR_ENV = "WRITERAGENT_CROSSHAIR"
+
+
+class DealMaxima(NamedTuple):
+    """Finite ``@deal.pre`` domains. Pytest is product-faithful; CrossHair is tiny."""
+
+    col_letters: int
+    col_index: int
+    cell_ref: int
+    row_index: int
+    argv: int
+    cmd_args: int
+    shape_dim: int
+    shape_rank: int
+    placeholder_index: int
+    source: int
+    path: int
+    token: int
+    origin: int
+    url: int
+    retry: int
+    backoff: float
+    backoff_factor: float
+
+
+def deal_maxima(*, crosshair: bool) -> DealMaxima:
+    """Return the pytest (wide) or CrossHair (tiny) ``DEAL_MAX_*`` table.
+
+    Import-time only. Do not call from inside ``@deal.pre`` lambdas — CrossHair
+    would explore both branches. Pair ``col_letters`` with ``col_index``
+    (3 with 18277 / A–ZZZ, 1 with 25 / A–Z).
+    """
+    # Shared: CORS / URL / MCP backoff. No test-backed reason to shrink.
+    origin = 256
+    url = 256
+    retry = 8
+    backoff = 300.0
+    backoff_factor = 10.0
+    if crosshair:
+        # Short table: CrossHair is testing our code, not Calc's grid. Speed
+        # comes from tiny domains, not from timeouts.
+        return DealMaxima(
+            col_letters=1,
+            col_index=25,  # A–Z; must pair with col_letters=1
+            cell_ref=4,
+            row_index=20,
+            argv=32,
+            cmd_args=4,
+            shape_dim=4,  # 100×100 pack tests are pytest-only
+            shape_rank=2,
+            placeholder_index=4,
+            source=16,
+            path=32,
+            token=16,
+            origin=origin,
+            url=url,
+            retry=retry,
+            backoff=backoff,
+            backoff_factor=backoff_factor,
+        )
+    return DealMaxima(
+        col_letters=3,
+        col_index=26 + 26**2 + 26**3 - 1,  # 18277, A–ZZZ (not 26**3-1)
+        cell_ref=32,
+        row_index=1_048_575,  # Calc max 0-based row (1_048_576 rows)
+        argv=4096,  # wrap_command argv, including venv ``-c`` probes (~1–2k)
+        cmd_args=32,  # wrap_command list length
+        shape_dim=256,  # 100×100 pack tests fit; CrossHair uses 4
+        shape_rank=4,  # ndarray rank; grids are 2-D, pytest uses up to 4
+        placeholder_index=64,  # Excel %Pn% deps; f-string of the int
+        source=64,
+        path=256,  # filesystem paths (is_safe_workspace_path); not PATH_MAX
+        token=64,
+        origin=origin,
+        url=url,
+        retry=retry,
+        backoff=backoff,
+        backoff_factor=backoff_factor,
+    )
+
+
+_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
+_MAXIMA = deal_maxima(crosshair=_CROSSHAIR)
+DEAL_MAX_COL_LETTERS = _MAXIMA.col_letters
+DEAL_MAX_COL_INDEX = _MAXIMA.col_index
+DEAL_MAX_CELL_REF = _MAXIMA.cell_ref
+DEAL_MAX_ROW_INDEX = _MAXIMA.row_index
+DEAL_MAX_ARGV = _MAXIMA.argv
+DEAL_MAX_CMD_ARGS = _MAXIMA.cmd_args
+DEAL_MAX_SHAPE_DIM = _MAXIMA.shape_dim
+DEAL_MAX_SHAPE_RANK = _MAXIMA.shape_rank
+DEAL_MAX_PLACEHOLDER_INDEX = _MAXIMA.placeholder_index
+DEAL_MAX_SOURCE = _MAXIMA.source
+DEAL_MAX_PATH = _MAXIMA.path
+DEAL_MAX_TOKEN = _MAXIMA.token
+DEAL_MAX_ORIGIN = _MAXIMA.origin
+DEAL_MAX_URL = _MAXIMA.url
+DEAL_MAX_RETRY = _MAXIMA.retry
+DEAL_MAX_BACKOFF = _MAXIMA.backoff
+DEAL_MAX_BACKOFF_FACTOR = _MAXIMA.backoff_factor
 
 
 def ascii_bounded(s: object, max_len: int, min_len: int = 0) -> bool:
@@ -101,3 +184,23 @@ except ImportError:
             return lambda f: f
 
     deal = _DealStub()
+
+
+def _identity_contract(*args: Any, **kwargs: Any) -> Any:
+    """No-op decorator: skip nested inverse ensures under CrossHair."""
+    return lambda f: f
+
+
+def inverse_ensure_for(*, crosshair: bool) -> Any:
+    """Nested inverse ``@deal.ensure``: live under pytest, no-op under CrossHair.
+
+    Bound at import, not inside a ``@deal.pre`` lambda — CrossHair would explore
+    both branches of an in-lambda ``if``. Cheap ``@deal.post`` still runs.
+    """
+    if crosshair:
+        return _identity_contract
+    return deal.ensure
+
+
+# format_address → parse_address and column_to_index → index_to_column.
+inverse_ensure = inverse_ensure_for(crosshair=_CROSSHAIR)

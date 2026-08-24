@@ -7,12 +7,16 @@
 
 from __future__ import annotations
 
+import os
+
 from plugin.framework.deal_shim import (
+    CROSSHAIR_ENV,
     DEAL_MAX_ARGV,
     DEAL_MAX_BACKOFF,
     DEAL_MAX_BACKOFF_FACTOR,
     DEAL_MAX_CELL_REF,
     DEAL_MAX_CMD_ARGS,
+    DEAL_MAX_COL_INDEX,
     DEAL_MAX_COL_LETTERS,
     DEAL_MAX_ORIGIN,
     DEAL_MAX_PATH,
@@ -25,6 +29,10 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_TOKEN,
     DEAL_MAX_URL,
     ascii_bounded,
+    deal,
+    deal_maxima,
+    inverse_ensure,
+    inverse_ensure_for,
     str_bounded,
 )
 
@@ -64,20 +72,61 @@ def test_str_bounded_allows_unicode() -> None:
     assert str_bounded(123, 8) is False
 
 
-def test_deal_shim_constants() -> None:
-    assert DEAL_MAX_COL_LETTERS == 3
-    assert DEAL_MAX_CELL_REF == 32
-    assert DEAL_MAX_TOKEN == 64
-    assert DEAL_MAX_ORIGIN == 256
-    assert DEAL_MAX_URL == 256
-    assert DEAL_MAX_PATH == 256
-    assert DEAL_MAX_ARGV == 4096
-    assert DEAL_MAX_CMD_ARGS == 32
-    assert DEAL_MAX_SOURCE == 64
-    assert DEAL_MAX_ROW_INDEX == 1000
-    assert DEAL_MAX_PLACEHOLDER_INDEX == 64
-    assert DEAL_MAX_SHAPE_RANK == 4
-    assert DEAL_MAX_SHAPE_DIM == 256
-    assert DEAL_MAX_RETRY == 8
-    assert DEAL_MAX_BACKOFF == 300.0
-    assert DEAL_MAX_BACKOFF_FACTOR == 10.0
+def test_deal_shim_constants_match_pytest_profile() -> None:
+    """Unset env / pytest binds the wide product-faithful table."""
+    assert os.environ.get(CROSSHAIR_ENV) != "1"
+    wide = deal_maxima(crosshair=False)
+    assert DEAL_MAX_COL_LETTERS == wide.col_letters == 3
+    assert DEAL_MAX_COL_INDEX == wide.col_index == 26 + 26**2 + 26**3 - 1 == 18277
+    assert DEAL_MAX_CELL_REF == wide.cell_ref == 32
+    assert DEAL_MAX_TOKEN == wide.token == 64
+    assert DEAL_MAX_ORIGIN == wide.origin == 256
+    assert DEAL_MAX_URL == wide.url == 256
+    assert DEAL_MAX_PATH == wide.path == 256
+    assert DEAL_MAX_ARGV == wide.argv == 4096
+    assert DEAL_MAX_CMD_ARGS == wide.cmd_args == 32
+    assert DEAL_MAX_SOURCE == wide.source == 64
+    assert DEAL_MAX_ROW_INDEX == wide.row_index == 1_048_575
+    assert DEAL_MAX_PLACEHOLDER_INDEX == wide.placeholder_index == 64
+    assert DEAL_MAX_SHAPE_RANK == wide.shape_rank == 4
+    assert DEAL_MAX_SHAPE_DIM == wide.shape_dim == 256
+    assert DEAL_MAX_RETRY == wide.retry == 8
+    assert DEAL_MAX_BACKOFF == wide.backoff == 300.0
+    assert DEAL_MAX_BACKOFF_FACTOR == wide.backoff_factor == 10.0
+    assert inverse_ensure is deal.ensure
+
+
+def test_deal_maxima_crosshair_profile_stays_tiny() -> None:
+    """Short table cannot drift; pair col_letters with col_index on both sides."""
+    short = deal_maxima(crosshair=True)
+    assert short.col_letters == 1
+    assert short.col_index == 25
+    assert short.cell_ref == 4
+    assert short.row_index == 20
+    assert short.argv == 32
+    assert short.cmd_args == 4
+    assert short.shape_dim == 4
+    assert short.shape_rank == 2
+    assert short.placeholder_index == 4
+    assert short.source == 16
+    assert short.path == 32
+    assert short.token == 16
+    # Unchanged unless a test-backed reason appears.
+    assert short.origin == 256
+    assert short.url == 256
+    assert short.retry == 8
+    assert short.backoff == 300.0
+    assert short.backoff_factor == 10.0
+
+
+def test_inverse_ensure_for_is_noop_under_crosshair() -> None:
+    def f(x: int) -> int:
+        return x + 1
+
+    wrapped = inverse_ensure_for(crosshair=True)(lambda x, result: False)(f)
+    assert wrapped is f
+    assert wrapped(3) == 4
+
+
+def test_inverse_ensure_for_is_deal_ensure_under_pytest() -> None:
+    assert inverse_ensure_for(crosshair=False) is deal.ensure

@@ -32,6 +32,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_ROW_INDEX,
     ascii_bounded,
     deal,
+    inverse_ensure,
 )
 
 
@@ -56,14 +57,15 @@ def index_to_column(index: int) -> str:
     return "".join(reversed(result))
 
 
-# Cap length at Excel/Calc max column width (XFD); unbounded alpha strings make CrossHair
-# chase the inverse ensure forever under deep check.
+# Cap letters so CrossHair cannot chase an unbounded inverse. Nested
+# index_to_column is skipped under CrossHair (import-time inverse_ensure
+# no-op); cheap @deal.post still runs so the function is analyzed.
 @deal.pre(
     lambda col_str: ascii_bounded(col_str, DEAL_MAX_COL_LETTERS, min_len=1)
     and col_str.isalpha()
 )
 @deal.post(lambda result: isinstance(result, int) and result >= 0)
-@deal.ensure(lambda col_str, result: index_to_column(result) == col_str.upper())
+@inverse_ensure(lambda col_str, result: index_to_column(result) == col_str.upper())
 def column_to_index(col_str: str) -> int:
     """Convert column letter to 0-based index.
 
@@ -211,9 +213,11 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     return (start_col, start_row), (end_col, end_row)
 
 
+# Nested parse_address is skipped under CrossHair (import-time inverse_ensure
+# no-op); cheap @deal.post still runs so the function is analyzed.
 @deal.pre(lambda col, row: isinstance(col, int) and 0 <= col <= DEAL_MAX_COL_INDEX and isinstance(row, int) and 0 <= row <= DEAL_MAX_ROW_INDEX)
 @deal.post(lambda result: isinstance(result, str) and bool(re.match(r"^[A-Z]+\d+$", result)))
-@deal.ensure(lambda col, row, result: parse_address(result) == (col, row))
+@inverse_ensure(lambda col, row, result: parse_address(result) == (col, row))
 def format_address(col: int, row: int) -> str:
     """Create cell address from column and row indices.
 

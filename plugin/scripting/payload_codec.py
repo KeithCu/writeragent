@@ -300,7 +300,7 @@ def _deal_grid_ok(grid: object) -> bool:
 
     Unbounded lists let deep check materialize huge nested grids in
     ``is_numeric_grid`` / pack. Side length follows ``DEAL_MAX_SHAPE_DIM``
-    (100×100 pack-speed tests still fit).
+    (pytest 256 still fits 100×100 pack-speed tests; CrossHair uses 4).
     """
     if not _is_grid_sequence(grid) or not isinstance(grid, (list, tuple)):
         return False
