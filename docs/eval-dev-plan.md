@@ -9,7 +9,8 @@ The evaluation system lives in `scripts/prompt_optimization/`:
 - Default: `--backend string` (`string_eval_tools.py:StringDocState` — pure Python HTML/string mutations for `get_document_content`/`apply_document_content`/`find_text`; no LO).
 - `--backend lo`: Headless Writer via `tools_lo.py` + real `ToolRegistry`.
 - Judging: Substring checks + LLM-as-a-Judge (`eval_core.py`, `metric.py`; structural vs creative weighting; gold_standards.json from high-tier teacher; quadratic IpD = Correctness² / Cost).
-- Current dataset: 8 Writer tasks in `dataset.py` (table_from_mess, reformat_resume, etc.; see `ALL_EXAMPLES`).
+- Current dataset: 11 tasks in `dataset.py` `ALL_EXAMPLES` (8 Writer + `flowchart_gen` + `data_sorting` + `tax_column`).
+- `--student scripted` (`scripted_student.py`): no API key, no LLM judge; pass is `_correctness_breakdown` on exported state. `--backend lo` is headless UNO (`tools_lo.py`), not an in-memory mock. `-j` is threads; UNO is serialized on `_lo_thread`. Do not use `tests/eval_runner.py` for this harness.
 
 The 50 test cases live in [`docs/archive/eval-ideas.md`](docs/archive/eval-ideas.md) (20 Writer, 20 Calc, 5 Draw, 5 Multimodal; categorized by level with modes for judging).
 

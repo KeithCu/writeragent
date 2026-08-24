@@ -155,7 +155,7 @@ endif
         writer calc draw impress \
         set-config vendor docker-build compile-translations compile-translations-core merge-translations refresh-pot reset-lang preview-translations check ty mypy pyright pyrefly bandit pyspector pyspector-report ty-run mypy-run pyright-run pyrefly-run \
         ruff ruff-fix ruff-for-build ruff-format-check ruff-format-grammar \
-        eval-deps run_eval run_eval-smoke schema-docs
+        eval-deps run_eval run_eval-smoke run_eval-lo-scripted schema-docs
 
 # ── Help ─────────────────────────────────────────────────────────────────────
 
@@ -220,7 +220,8 @@ help:
 	@echo "Benchmarks (prompt optimization / eval):"
 	@echo "  make eval-deps              uv pip install dspy-ai (after uv sync)"
 	@echo "  make run_eval               Run benchmark CLI (pass EVAL_ARGS=...)"
-	@echo "  make run_eval-smoke         Quick smoke: one model, one example"
+	@echo "  make run_eval-smoke         Quick smoke: one model, one example (live Qwen; needs a key)"
+	@echo "  make run_eval-lo-scripted   Headless LO + scripted student (no API key)"
 	@echo "  make test-run               pytest + LO tests (skip typecheck/bandit/pyspector; for quick reruns)"
 	@echo "  make test-durations         Same pytest filter as test-run with --durations=40 (profile hotspots)"
 	@echo "  make slowtests              Slow serialization once each: A/B fixtures, contracts/CrossHair, Hypothesis (vhs)"
@@ -816,6 +817,9 @@ run_eval:
 
 run_eval-smoke:
 	$(MAKE) run_eval EVAL_ARGS="--models qwen/qwen3-coder-next -n 1 -j 1"
+
+run_eval-lo-scripted:
+	"$(PYTHON)" scripts/prompt_optimization/run_eval.py --backend lo --student scripted --no-bust-cache -v
 
 # ── POC extension ───────────────────────────────────────────────────────────
 

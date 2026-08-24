@@ -213,7 +213,9 @@ BULLET_CONSISTENCY = {
         "- Sixth with extra space.",
         "- Seventh (mixed).",
     ],
-    "reject_contains": ["* First", "3) Third", "• Fourth", "1. Fifth", "Seventh (mixed)"],
+    # Reject the un-normalized marker, not the expected "- Seventh (mixed)." line
+    # (that expected string would otherwise always trip a "Seventh (mixed)" reject).
+    "reject_contains": ["* First", "3) Third", "• Fourth", "1. Fifth", "* Seventh"],
     "category": "structural",
     "rubric": "Perfect list normalization. Structural: 60% accuracy (all 7 items preserved exactly, no variants left), 40% formatting (consistent - bullets + period, clean HTML <ul> preferred). Zero rejects. Uses targeted apply_document_content.",
 }
@@ -338,6 +340,43 @@ ALL_EXAMPLES.append(FLOWCHART_GEN)
 ALL_EXAMPLES.append(DATA_SORTING)
 ALL_EXAMPLES.append(TAX_COLUMN)
 
+
+
+def task_kind(task_id: str) -> str:
+    """Factory kind for an eval task_id (writer / draw / calc).
+
+    Kind is keyed by task_id, not question keywords — flowchart_gen is Draw,
+    data_sorting and tax_column are Calc, everything else is Writer.
+    """
+    if task_id == "flowchart_gen":
+        return "draw"
+    if task_id in ("data_sorting", "tax_column"):
+        return "calc"
+    return "writer"
+
+
+def to_eval_examples(examples=None):
+    """Attribute-access examples without requiring dspy (scripted / LlmClient path)."""
+    from types import SimpleNamespace
+
+    if examples is None:
+        examples = ALL_EXAMPLES
+    out = []
+    for ex in examples:
+        out.append(
+            SimpleNamespace(
+                document_content=ex["document_content"],
+                user_question=ex["user_question"],
+                task_id=ex.get("task_id", ""),
+                expected_contains=ex.get("expected_contains", []),
+                reject_contains=ex.get("reject_contains", []),
+                rubric=ex.get("rubric", ""),
+                gold_document=ex.get("gold_document", ""),
+                is_non_trivial=ex.get("is_non_trivial", False),
+                category=ex.get("category", "structural"),
+            )
+        )
+    return out
 
 
 def _load_gold_standards(examples: list[dict]) -> list[dict]:

@@ -149,6 +149,8 @@ def _run_one_model(
     gold_model_id: str | None,
     backend: str,
     allow_unknown: bool,
+    student: str = "llm",
+    no_judge: bool = False,
 ) -> dict[str, Any]:
     """Run eval for one model (used in a worker process). Returns summary dict."""
     from dataset import ALL_EXAMPLES, to_dspy_examples
@@ -178,6 +180,8 @@ def _run_one_model(
         quiet=False,
         judge_model=jm,
         gold_model=gm,
+        student=student,
+        no_judge=no_judge or student == "scripted",
     )
     summary = summarize_results(results)
     total_cost = _estimate_cost_usd(results, cfg)
@@ -339,14 +343,21 @@ def main() -> int:
         default="string",
         help=(
             "Document backend: 'string' (in-memory HTML, default) or "
-            "'lo' (headless Writer)."
+            "'lo' (headless Writer/Draw/Calc)."
         ),
+    )
+    p.add_argument(
+        "--student",
+        choices=("llm", "scripted"),
+        default="llm",
+        help="llm (default, needs API key) or scripted (replay SCRIPTS, no key).",
     )
     args = p.parse_args()
 
     api_base = resolve_api_base(cli_base=args.api_base)
     api_key = resolve_api_key(cli_key=args.api_key)
-    require_api_key(api_key, api_base)
+    if args.student != "scripted":
+        require_api_key(api_key, api_base)
 
     model_summaries: list[dict[str, Any]] = []
     all_details: list[dict[str, Any]] = []
@@ -359,7 +370,7 @@ def main() -> int:
         return 1
 
     judge_model_id: str | None = None
-    if not args.no_judge:
+    if not args.no_judge and args.student != "scripted":
         judge_model_id = resolve_judge_model(
             cli_judge=args.judge,
             endpoint=api_base,
@@ -459,6 +470,8 @@ def main() -> int:
         gold_model_id=args.gold_model,
         backend=args.backend,
         allow_unknown=args.allow_unknown_model,
+        student=args.student,
+        no_judge=args.no_judge or args.student == "scripted",
     )
 
     if args.backend == "lo":

@@ -17,7 +17,7 @@ _PO = _REPO / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
-from string_eval_tools import StringDocState, dispatch_string_tool
+from string_eval_tools import CalcStringState, StringDocState, dispatch_string_tool
 
 
 def test_get_full_and_range():
@@ -82,4 +82,31 @@ def test_dispatch_tools_json():
     data = json.loads(out)
     assert data["status"] == "ok"
     assert data["ranges"]
+
+
+def test_calc_write_formula_range_and_snapshot():
+    state = CalcStringState("Item\tPrice\nApple\t10\nBanana\t5")
+    out = dispatch_string_tool(
+        state, "write_formula_range", json.dumps({"range": ["C1"], "values": "Tax"})
+    )
+    assert json.loads(out)["status"] == "ok"
+    dispatch_string_tool(
+        state,
+        "write_cell_range",
+        json.dumps({"range": ["C2:C3"], "values": "[0.8, 0.4]"}),
+    )
+    snap = state.snapshot()
+    assert snap["snapshot"] is True
+    assert "Tax" in snap["headers"]
+    assert 0.8 in snap["rows"][1] or "0.8" in json.dumps(snap)
+    dump = json.dumps(snap)
+    assert "snapshot" in dump
+    assert "Tax" in dump
+
+
+def test_calc_sort_range_integer_column():
+    state = CalcStringState("Product\tRevenue\nWidget\t1200\nTool\t2100")
+    res = state.sort_range(sort_column=1, ascending=False)
+    assert res["status"] == "ok"
+    assert state._grid[1][0] == "Tool"
 

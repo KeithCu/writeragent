@@ -28,6 +28,7 @@ for _p in (_REPO, _SCRIPTS_PO):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from dataset import task_kind
 from string_eval_tools import StringDocState, DrawDocState, CalcStringState, dispatch_string_tool
 
 
@@ -189,33 +190,7 @@ def _dispatch_lo_tool(name: str, raw_args: str, *, verbose: bool) -> str:
     args = safe_json_loads(raw_args)
     if not isinstance(args, dict):
         args = {}
-    if verbose:
-        print(f"  [Tool] {name} {args}", flush=True)
-    if name == "get_document_content":
-        ac = dict(args)
-        scope = ac.pop("scope", "full")
-        max_chars = ac.pop("max_chars", None)
-        start = ac.pop("start", None)
-        end = ac.pop("end", None)
-        out = tl.get_document_content(scope, max_chars, start, end, **ac)
-    elif name == "apply_document_content":
-        ac = dict(args)
-        content = str(ac.pop("content", "") or "")
-        old_content = str(ac.pop("old_content") or "")
-        all_matches = bool(ac.pop("all_matches", False))
-        out = tl.apply_document_content(content, old_content, all_matches, **ac)
-    elif name == "find_text":
-        out = tl.find_text(
-            str(args.get("search", "")),
-            int(args.get("start", 0)),
-            args.get("limit"),
-            bool(args.get("case_sensitive", True)),
-        )
-    else:
-        out = json.dumps({"status": "error", "message": f"Unknown tool: {name}"})
-    if verbose:
-        print(f"  [Tool->] {out[:500]!r}{'...' if len(out) > 500 else ''}", flush=True)
-    return out
+    return tl.execute_lo_tool(name, args, verbose=verbose)
 
 
 def run_llm_chat_eval(
@@ -231,24 +206,19 @@ def run_llm_chat_eval(
     max_tokens: int = 8192,
     bust_cache: bool = False,
     verbose: bool = False,
+    student: Literal["llm", "scripted"] = "llm",
+    task_id: str = "",
 ) -> tuple[str, dict[str, int], str | None]:
     """
     Run one eval example: multi-round tool loop, return (final_html, usage, error).
 
-    ``final_html`` is the document after tool calls: in-memory HTML for ``string``,
-    or Writer-exported HTML for ``lo`` (via ``get_content_as_html``).
+    ``final_html`` is the document after tool calls: in-memory HTML/JSON for ``string``,
+    or Writer HTML / Draw tree / Calc snapshot for ``lo``.
+    ``student='scripted'`` replays ``scripted_student.SCRIPTS`` (no LlmClient, no key).
     """
-    cfg = _build_api_config(
-        endpoint=endpoint,
-        api_key=api_key,
-        model=model,
-        max_tool_rounds=max_tool_rounds,
-    )
-    client = LlmClient(cfg, _EvalMockContext())
-    # Detect task type for appropriate non-LO state (Draw or Calc)
-    lower_q = (user_question or "").lower()
-    is_draw_task = any(k in lower_q for k in ["flowchart", "shape", "draw", "get_draw_tree"])
-    is_calc_task = any(k in lower_q for k in ["sort", "tax", "revenue", "column", "formula", "sort_range", "write_cell_range"])
+    kind = task_kind(task_id)
+    is_draw_task = kind == "draw"
+    is_calc_task = kind == "calc"
     tools = build_eval_tool_schemas(include_draw=is_draw_task, include_calc=is_calc_task)
 
     instruction = system_prompt
@@ -276,14 +246,27 @@ def run_llm_chat_eval(
     }
     err: str | None = None
 
+    if student == "scripted":
+        from scripted_student import ScriptedStudent
+
+        client: Any = ScriptedStudent(task_id)
+    else:
+        cfg = _build_api_config(
+            endpoint=endpoint,
+            api_key=api_key,
+            model=model,
+            max_tool_rounds=max_tool_rounds,
+        )
+        client = LlmClient(cfg, _EvalMockContext())
+
     if backend == "lo":
         import tools_lo as tl
 
-        tl.set_document(document_content)
+        tl.prepare_example(kind, document_content)
 
     rounds = max(1, int(max_tool_rounds))
     try:
-        for _round in range(rounds):
+        for round_i in range(rounds):
             resp = client.request_with_tools(
                 messages,
                 max_tokens=max_tokens,
@@ -298,7 +281,7 @@ def run_llm_chat_eval(
             if verbose:
                 n_tc = len(tool_calls) if tool_calls else 0
                 print(
-                    f"  [LlmChat] round={_round + 1} content_len={len(content)} "
+                    f"  [LlmChat] round={round_i + 1} content_len={len(content)} "
                     f"tool_calls={n_tc} usage={resp.get('usage')!r}",
                     flush=True,
                 )
@@ -349,7 +332,7 @@ def run_llm_chat_eval(
     if backend == "lo":
         import tools_lo as tl
 
-        final = tl.get_content_as_html() or ""
+        final = tl.get_eval_export(kind) or ""
     else:
         if isinstance(state, DrawDocState):
             tree_res = state.get_draw_tree()

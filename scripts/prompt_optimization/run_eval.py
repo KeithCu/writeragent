@@ -11,7 +11,7 @@ Usage:
   export OPENROUTER_API_KEY="your-key"   # or OPENAI_API_KEY
   cd scripts/prompt_optimization
   python run_eval.py                    # run all examples
-  python run_eval.py --backend lo       # use LibreOffice instead of string simulator
+  python run_eval.py --backend lo --student scripted   # headless LO, no API key
   python run_eval.py --example table_from_mess   # run one task_id
   python run_eval.py -n 2               # run first 2 examples only
   python run_eval.py -v                 # verbose: print every tool call
@@ -33,7 +33,7 @@ if str(REPO_ROOT) not in sys.path:
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from dataset import ALL_EXAMPLES, to_dspy_examples
+from dataset import ALL_EXAMPLES, to_eval_examples
 from eval_core import run_eval_on_examples_llm, summarize_results
 import tools_lo
 
@@ -68,8 +68,19 @@ def main():
         default="string",
         help=(
             "Document backend: 'string' (in-memory HTML, default, no LibreOffice) or "
-            "'lo' (headless Writer via tools_lo)."
+            "'lo' (headless Writer/Draw/Calc via tools_lo)."
         ),
+    )
+    p.add_argument(
+        "--student",
+        choices=("llm", "scripted"),
+        default="llm",
+        help="llm (default, needs API key) or scripted (replay SCRIPTS, no key, substring only).",
+    )
+    p.add_argument(
+        "--no-judge",
+        action="store_true",
+        help="Skip LLM judge; use expected_contains/reject_contains only.",
     )
     args = p.parse_args()
 
@@ -80,23 +91,29 @@ def main():
     if model.startswith("openrouter/"):
         model = model[len("openrouter/") :]
 
-    if not api_key and "openrouter" in api_base.lower():
+    if args.student != "scripted" and not api_key and "openrouter" in api_base.lower():
         print("Warning: OPENROUTER_API_KEY (or OPENAI_API_KEY) not set.", file=sys.stderr)
 
-    print(f"Model: {model} @ {api_base}  backend={args.backend}\n")
+    if args.student == "scripted":
+        print(f"Student: scripted  backend={args.backend}\n")
+    else:
+        print(f"Model: {model} @ {api_base}  backend={args.backend}\n")
 
-    examples = to_dspy_examples(ALL_EXAMPLES, with_inputs=True)
+    examples = to_eval_examples(ALL_EXAMPLES)
     if args.example:
         examples = [ex for ex in examples if getattr(ex, "task_id", "") == args.example]
         if not examples:
-            print(f"No example with task_id={args.example!r}. Valid: {[getattr(e, 'task_id', '') for e in to_dspy_examples(ALL_EXAMPLES)]}")
+            print(f"No example with task_id={args.example!r}. Valid: {[getattr(e, 'task_id', '') for e in to_eval_examples(ALL_EXAMPLES)]}")
             return 1
     if args.n is not None:
         examples = examples[: args.n]
 
     tools_lo.VERBOSE = args.verbose
     n = len(examples)
-    print(f"Running {n} example(s). Each can take 15–60+ seconds (multiple API calls). Total often 2–10 min.\n")
+    if args.student == "scripted":
+        print(f"Running {n} example(s) with scripted student (no API, substring checks only).\n")
+    else:
+        print(f"Running {n} example(s). Each can take 15–60+ seconds (multiple API calls). Total often 2–10 min.\n")
     sys.stdout.flush()
 
     if args.backend == "lo":
@@ -129,6 +146,8 @@ def main():
                 verbose=args.verbose,
                 debug_usage=args.debug_usage,
                 bust_cache=not args.no_bust_cache,
+                student=args.student,
+                no_judge=args.no_judge or args.student == "scripted",
             )
             summary_a = summarize_results(results_a)
 
@@ -145,6 +164,8 @@ def main():
                 verbose=args.verbose,
                 debug_usage=args.debug_usage,
                 bust_cache=not args.no_bust_cache,
+                student=args.student,
+                no_judge=args.no_judge or args.student == "scripted",
             )
             summary_b = summarize_results(results_b)
 
@@ -177,6 +198,8 @@ def main():
             verbose=args.verbose,
             debug_usage=args.debug_usage,
             bust_cache=not args.no_bust_cache,
+            student=args.student,
+            no_judge=args.no_judge or args.student == "scripted",
         )
         summary = summarize_results(results)
         if results:
@@ -184,6 +207,21 @@ def main():
                 f"Average score: {summary['avg_metric_score']:.3f} "
                 f"({len(results)} examples)"
             )
+            if args.student == "scripted":
+                passed = sum(
+                    1
+                    for r in results
+                    if r.error is None and not r.missing_expected and not r.found_reject
+                )
+                print(
+                    f"Scripted substring pass: {passed}/{len(results)} "
+                    "(error is None, missing_expected=[], found_reject=[])"
+                )
+                for r in results:
+                    print(
+                        f"  {r.task_id}: error={r.error!r} "
+                        f"missing={r.missing_expected} reject={r.found_reject}"
+                    )
         return 0
     finally:
         if args.backend == "lo":

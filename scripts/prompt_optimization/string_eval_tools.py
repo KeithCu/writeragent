@@ -20,6 +20,26 @@ from typing import Any
 from plugin.framework.errors import safe_json_loads
 
 
+def _a1_to_col_row(addr: str) -> tuple[int, int]:
+    """Parse A1 / C2 into 0-based (col, row)."""
+    text = (addr or "").strip()
+    if "." in text:
+        text = text.split(".")[-1]
+    letters = []
+    digits = []
+    for ch in text:
+        if ch.isalpha():
+            letters.append(ch.upper())
+        elif ch.isdigit():
+            digits.append(ch)
+    col = 0
+    for ch in letters:
+        col = col * 26 + (ord(ch) - ord("A") + 1)
+    col = max(0, col - 1)
+    row = max(0, int("".join(digits) or "1") - 1)
+    return col, row
+
+
 def _normalize_apply_content(content: Any) -> str:
     """Mirror ApplyDocumentContent list/string normalization (content.py)."""
     if isinstance(content, str):
@@ -317,12 +337,17 @@ class CalcStringState:
         """Mock for sort_range (test 1). Sorts by column index or name."""
         if not self._grid or len(self._grid) < 2:
             return {"status": "ok", "message": "Nothing to sort"}
-        col_name = kwargs.get("sort_column", "Revenue")
+        col = kwargs.get("sort_column", "Revenue")
         ascending = kwargs.get("ascending", False)
-        try:
-            col_idx = self._headers.index(col_name) if col_name in self._headers else 0
-        except ValueError:
-            col_idx = 0
+        if isinstance(col, int):
+            col_idx = col
+            col_name = self._headers[col_idx] if 0 <= col_idx < len(self._headers) else str(col)
+        else:
+            col_name = str(col)
+            try:
+                col_idx = self._headers.index(col_name) if col_name in self._headers else 0
+            except ValueError:
+                col_idx = 0
         # Skip header, sort data rows by numeric or string value
         data_rows = self._grid[1:]
         data_rows.sort(key=lambda row: float(row[col_idx]) if row and len(row) > col_idx and str(row[col_idx]).replace(".", "").replace("-", "").isdigit() else row[col_idx], reverse=not ascending)
@@ -330,26 +355,78 @@ class CalcStringState:
         return {"status": "ok", "message": f"Sorted by column {col_idx} ({col_name})", "sorted_rows": len(data_rows)}
 
     def write_cell_range(self, **kwargs: Any) -> dict[str, Any]:
-        """Mock for writing values (used for tax column in test 3). Accepts range and values list."""
+        """Write values to an A1 range (alias of production write_formula_range)."""
+        return self.write_formula_range(**kwargs)
+
+    def write_formula_range(self, **kwargs: Any) -> dict[str, Any]:
+        """Write values to an A1 range so Tax header + rates land in the snapshot."""
         values = kwargs.get("values", [])
+        if isinstance(values, str):
+            parsed = safe_json_loads(values)
+            if isinstance(parsed, list):
+                values = parsed
+            elif values:
+                values = [values]
+            else:
+                values = []
         if not isinstance(values, list):
             values = [values]
-        # Simple: append or replace last column for tax example
-        if self._grid and values:
-            for i, row in enumerate(self._grid[1:]):  # skip header
+        ranges = kwargs.get("range") or []
+        if isinstance(ranges, str):
+            ranges = [ranges]
+        written = 0
+        if ranges:
+            for rng in ranges:
+                written += self._write_a1_range(str(rng), values)
+        elif self._grid and values:
+            # Legacy: append/replace column C on data rows
+            for i, row in enumerate(self._grid[1:]):
                 if i < len(values):
                     if len(row) < 3:
                         row.extend([0] * (3 - len(row)))
-                    row[2] = values[i] if i < len(values) else 0
-        return {"status": "ok", "message": "Wrote cell range (tax column applied)", "written": len(values)}
+                    row[2] = values[i]
+                    written += 1
+            if self._headers and len(self._headers) < 3:
+                self._headers.extend([""] * (3 - len(self._headers)))
+        return {"status": "ok", "message": "Wrote cell range (tax column applied)", "written": written}
+
+    def _write_a1_range(self, rng: str, values: list[Any]) -> int:
+        start, end = (rng.split(":", 1) + [rng])[:2]
+        c0, r0 = _a1_to_col_row(start)
+        c1, r1 = _a1_to_col_row(end)
+        cells: list[tuple[int, int]] = []
+        for row_i in range(r0, r1 + 1):
+            for col_i in range(c0, c1 + 1):
+                cells.append((row_i, col_i))
+        if not cells:
+            return 0
+        if len(values) == 1 and len(cells) > 1:
+            fill = values * len(cells)
+        else:
+            fill = values
+        max_row = max(row_i for row_i, col_i in cells)
+        max_col = max(col_i for row_i, col_i in cells)
+        while len(self._grid) <= max_row:
+            self._grid.append([])
+        for row_i, col_i in cells:
+            row = self._grid[row_i]
+            while len(row) <= max_col:
+                row.append("")
+        for (row_i, col_i), val in zip(cells, fill):
+            self._grid[row_i][col_i] = val
+        if self._grid:
+            self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
+        return min(len(fill), len(cells))
 
     def snapshot(self) -> dict[str, Any]:
         """JSON representation for final judging (like Draw tree)."""
         return {
             "status": "ok",
+            "snapshot": True,
             "sheet": "Sheet1",
             "headers": self._headers,
             "rows": self._grid,
+            "grid": self._grid,
             "row_count": len(self._grid),
         }
 
@@ -370,8 +447,8 @@ def dispatch_string_tool(state: StringDocState | DrawDocState | CalcStringState,
         if isinstance(state, CalcStringState):
             if name == "sort_range":
                 res = state.sort_range(**args)
-            elif name == "write_cell_range":
-                res = state.write_cell_range(**args)
+            elif name in ("write_cell_range", "write_formula_range"):
+                res = state.write_formula_range(**args)
             elif name in ("get_sheet_summary", "read_cell_range"):
                 res = state.get_sheet_summary(**args)
             else:
@@ -408,13 +485,13 @@ def dispatch_string_tool(state: StringDocState | DrawDocState | CalcStringState,
                         res = draw_state.get_draw_tree(**args)
                     else:
                         res = draw_state.get_draw_summary(**args)
-                elif name in ("sort_range", "write_cell_range", "get_sheet_summary"):
+                elif name in ("sort_range", "write_cell_range", "write_formula_range", "get_sheet_summary"):
                     # Fallback for mixed
                     calc_state = CalcStringState()
                     if name == "sort_range":
                         res = calc_state.sort_range(**args)
-                    elif name == "write_cell_range":
-                        res = calc_state.write_cell_range(**args)
+                    elif name in ("write_cell_range", "write_formula_range"):
+                        res = calc_state.write_formula_range(**args)
                     else:
                         res = calc_state.get_sheet_summary(**args)
                 else:
