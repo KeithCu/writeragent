@@ -46,7 +46,18 @@ class ACPBackend(AgentBackend):
     - get_display_name(): return UI display name
     - get_agent_name(): return ACP agent name
     - get_env_vars(): return dict of environment variables to pass
+
+    Optional class attrs for CLIs that need a default subcommand when
+    ``agent_backend.args`` is empty (Hermes/OpenCode ``acp``, Grok
+    ``--no-auto-update agent stdio``):
+    - default_extra_args: list copied onto ``_extra_args``
+    - default_args_basename_prefix: if True, apply defaults when the
+      resolved basename *starts with* ``get_binary_name()`` (Grok).
+      Default is exact basename match.
     """
+
+    default_extra_args: List[str] = []
+    default_args_basename_prefix = False
 
     def __init__(self, ctx=None):
         self._ctx = ctx
@@ -73,6 +84,29 @@ class ACPBackend(AgentBackend):
             self._extra_args = args_str.split() if args_str else []
         except Exception:
             self._binary_path = self._find_binary()
+        self._apply_default_extra_args()
+
+    def get_default_extra_args(self) -> List[str]:
+        """CLI args used when settings args are empty and the binary matches this backend."""
+        return list(self.default_extra_args)
+
+    def _basename_allows_default_args(self, basename: str) -> bool:
+        """Whether this executable name should receive ``get_default_extra_args()``."""
+        name = basename.lower()
+        expected = self.get_binary_name().lower()
+        if self.default_args_basename_prefix:
+            return name.startswith(expected)
+        return name == expected
+
+    def _apply_default_extra_args(self) -> None:
+        """Fill ``_extra_args`` from ``get_default_extra_args()`` when settings left them empty."""
+        if self._extra_args:
+            return
+        defaults = self.get_default_extra_args()
+        if not defaults or not self._binary_path:
+            return
+        if self._basename_allows_default_args(os.path.basename(self._binary_path)):
+            self._extra_args = list(defaults)
 
     def _find_binary(self):
         """Find the binary in PATH or common locations."""
@@ -118,6 +152,7 @@ class ACPBackend(AgentBackend):
         path = shutil.which(binary_name)
         if path:
             self._binary_path = path
+            self._apply_default_extra_args()
             log.info(f"{self.get_display_name()} found via PATH: {path}")
             return True
         log.info(f"{self.get_display_name()} binary not found")
@@ -201,85 +236,36 @@ class ACPBackend(AgentBackend):
 
         return prompt_blocks
 
-    def _handle_session_update(self, update, queue):
-        """Handle ACP session update notifications."""
-        log.info(f"Session update received: {update}")  # DEBUG: Log full update
-        if isinstance(update, dict):
-            if "content" in update:
-                content = update["content"]
-                log.info(f"Found content: {content}")  # DEBUG: Log content
+    def _handle_acp_update(self, update, queue):
+        """Queue CHUNK / TOOL_CALL / TOOL_RESULT from session or agent update content.
 
-                # Handle both list format and direct dict format
-                if isinstance(content, list):
-                    # List format: [{"type": "text", "text": "..."}, ...]
-                    for item in content:
-                        if isinstance(item, dict):
-                            if item.get("type") == "text":
-                                text = item.get("text", "")
-                                log.info(f"Queueing text from session update (list): {text[:50]}...")  # DEBUG
-                                queue.put((StreamQueueKind.CHUNK, text))
-                            elif item.get("type") == "tool_call":
-                                log.info(f"Queueing tool call from session update (list): {item}")  # DEBUG
-                                queue.put((StreamQueueKind.TOOL_CALL, item))
-                            elif item.get("type") == "tool_result":
-                                log.info(f"Queueing tool result from session update (list): {item}")  # DEBUG
-                                queue.put((StreamQueueKind.TOOL_RESULT, item))
-                elif isinstance(content, dict):
-                    # Direct dict format: {"type": "text", "text": "..."}
-                    if content.get("type") == "text":
-                        text = content.get("text", "")
-                        log.info(f"Queueing text from session update (dict): {text[:50]}...")  # DEBUG
-                        queue.put((StreamQueueKind.CHUNK, text))
-                    elif content.get("type") == "tool_call":
-                        log.info(f"Queueing tool call from session update (dict): {content}")  # DEBUG
-                        queue.put((StreamQueueKind.TOOL_CALL, content))
-                    elif content.get("type") == "tool_result":
-                        log.info(f"Queueing tool result from session update (dict): {content}")  # DEBUG
-                        queue.put((StreamQueueKind.TOOL_RESULT, content))
-                else:
-                    log.warning(f"Content is neither list nor dict: {type(content)}")  # DEBUG
-            else:
-                log.info(f"Update has no 'content' field. Keys: {list(update.keys())}")  # DEBUG
+        Session and agent notifications use the same shapes: ``content`` is either
+        a list of blocks or a single block dict (``text`` / ``tool_call`` / ``tool_result``).
+        """
+        if not isinstance(update, dict) or "content" not in update:
+            return
+        content = update["content"]
+        if isinstance(content, list):
+            items = content
+        elif isinstance(content, dict):
+            items = [content]
+        else:
+            log.debug("ACP update content is neither list nor dict: %s", type(content))
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type == "text":
+                queue.put((StreamQueueKind.CHUNK, item.get("text", "")))
+            elif item_type == "tool_call":
+                queue.put((StreamQueueKind.TOOL_CALL, item))
+            elif item_type == "tool_result":
+                queue.put((StreamQueueKind.TOOL_RESULT, item))
 
-    def _handle_agent_update(self, update, queue):
-        """Handle ACP agent update notifications."""
-        log.info(f"Agent update received: {update}")  # DEBUG: Log full update
-        if isinstance(update, dict):
-            if "content" in update:
-                content = update["content"]
-                log.info(f"Found content in agent update: {content}")  # DEBUG: Log content
-
-                # Handle both list format and direct dict format
-                if isinstance(content, list):
-                    # List format: [{"type": "text", "text": "..."}, ...]
-                    for item in content:
-                        if isinstance(item, dict):
-                            if item.get("type") == "text":
-                                text = item.get("text", "")
-                                log.info(f"Queueing text from agent update (list): {text[:50]}...")  # DEBUG
-                                queue.put((StreamQueueKind.CHUNK, text))
-                            elif item.get("type") == "tool_call":
-                                log.info(f"Queueing tool call from agent update (list): {item}")  # DEBUG
-                                queue.put((StreamQueueKind.TOOL_CALL, item))
-                            elif item.get("type") == "tool_result":
-                                log.info(f"Queueing tool result from agent update (list): {item}")  # DEBUG
-                                queue.put((StreamQueueKind.TOOL_RESULT, item))
-                elif isinstance(content, dict):
-                    # Direct dict format: {"type": "text", "text": "..."}
-                    if content.get("type") == "text":
-                        text = content.get("text", "")
-                        log.info(f"Queueing text from agent update (dict): {text[:50]}...")  # DEBUG
-                        queue.put((StreamQueueKind.CHUNK, text))
-                    elif content.get("type") == "tool_call":
-                        log.info(f"Queueing tool call from agent update (dict): {content}")  # DEBUG
-                        queue.put((StreamQueueKind.TOOL_CALL, content))
-                    elif content.get("type") == "tool_result":
-                        log.info(f"Queueing tool result from agent update (dict): {content}")  # DEBUG
-                        queue.put((StreamQueueKind.TOOL_RESULT, content))
-                else:
-                    log.warning(f"Content is neither list nor dict: {type(content)}")  # DEBUG
-            else:
-                log.info(f"Agent update has no 'content' field. Keys: {list(update.keys())}")  # DEBUG
+    # Same content shapes; keep names so Vibe send() and existing tests stay valid.
+    _handle_session_update = _handle_acp_update
+    _handle_agent_update = _handle_acp_update
 
     def send(self, queue, user_message, document_context, document_url, system_prompt=None, mcp_url=None, selection_text=None, stop_checker=None, **kwargs):
         """Send a message via ACP stdio."""

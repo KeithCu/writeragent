@@ -17,9 +17,7 @@
 """Hermes agent backend using the shared ACPBackend base class."""
 
 import logging
-import os
-import shutil
-from typing import Dict
+from typing import Dict, List
 
 from plugin.agent_backend.acp_backend import ACPBackend
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
@@ -28,47 +26,14 @@ log = logging.getLogger(__name__)
 
 
 class HermesBackend(ACPBackend):
-    """ACP-based Hermes backend."""
+    """ACP-based Hermes backend. Official CLI: ``hermes acp``."""
 
     backend_id = "hermes"
-
-    def _load_config(self):
-        super()._load_config()
-        # Official CLI: `hermes acp` (subcommand appended below when args are empty).
-        if self._binary_path and os.path.basename(self._binary_path).lower() == "hermes" and not self._extra_args:
-            self._extra_args = ["acp"]
-
-    def _find_binary(self):
-        """Locate the `hermes` executable; `_load_config` adds the `acp` subcommand."""
-        binary_name = "hermes"
-        path = shutil.which(binary_name)
-        if path:
-            return path
-        home = os.path.expanduser("~")
-        for candidate in (os.path.join(home, ".local", "bin", binary_name), os.path.join(home, ".cargo", "bin", binary_name)):
-            if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-                return candidate
-        return None
+    default_extra_args: List[str] = ["acp"]
 
     def get_binary_name(self) -> str:
-        """Primary executable for PATH lookup (`hermes acp` is the supported install)."""
+        """Primary executable for PATH lookup (``hermes acp`` is the supported install)."""
         return "hermes"
-
-    def is_available(self, ctx):
-        """Like ACPBackend but PATH fallback is only `hermes` (with default `acp` subcommand)."""
-        self._load_config()
-        if self._binary_path and os.path.isfile(self._binary_path):
-            log.info("%s binary found: %s", self.get_display_name(), self._binary_path)
-            return True
-        path = shutil.which("hermes")
-        if path:
-            self._binary_path = path
-            if not self._extra_args:
-                self._extra_args = ["acp"]
-            log.info("%s found via PATH: %s", self.get_display_name(), path)
-            return True
-        log.info("%s binary not found", self.get_display_name())
-        return False
 
     def get_display_name(self) -> str:
         """Return display name for UI."""

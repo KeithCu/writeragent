@@ -59,7 +59,11 @@ class VibeBackend(ACPBackend):
         return env
 
     def send(self, queue, user_message, document_context, document_url, system_prompt=None, mcp_url=None, selection_text=None, stop_checker=None, **kwargs):
-        """Send a message via ACP stdio - Vibe-specific implementation."""
+        """Send via ACP stdio.
+
+        Kept as an override because Vibe can return final text in the prompt
+        result ``contentBlocks``; base ``send()`` only streams notification updates.
+        """
         self._stop_requested = False
         self._prompt_done.clear()
 
