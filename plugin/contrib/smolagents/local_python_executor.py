@@ -550,8 +550,11 @@ def evaluate_function_def(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Callable:
-    custom_tools[func_def.name] = create_function(func_def, state, static_tools, custom_tools, authorized_imports)
-    return custom_tools[func_def.name]
+    fn = create_function(func_def, state, static_tools, custom_tools, authorized_imports)
+    custom_tools[func_def.name] = fn
+    state[func_def.name] = fn
+    return fn
+
 
 
 def evaluate_class_def(

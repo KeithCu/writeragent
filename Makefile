@@ -148,7 +148,7 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy ensure-uno \
+        log log-tail lo-log test pytest test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck check-ext check-setup deploy ensure-uno \
         verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-deep \
         crosshair-cover-all crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
@@ -215,6 +215,7 @@ help:
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
 	@echo "  make test                   Run ty, mypy, pyright, pyspector, bandit, pytest + LO tests + excel-py-roundtrip"
+	@echo "  make pytest                 Unit pytest only (no *_uno.py / testing_runner / live soffice)"
 	@echo "  make excel-py-roundtrip     Excel↔DAG sample fidelity over PythonExcelSamples/"
 	@echo ""
 	@echo "Benchmarks (prompt optimization / eval):"
@@ -222,8 +223,8 @@ help:
 	@echo "  make run_eval               Run benchmark CLI (pass EVAL_ARGS=...)"
 	@echo "  make run_eval-smoke         Quick smoke: one model, one example (live Qwen; needs a key)"
 	@echo "  make run_eval-lo-scripted   Headless LO + scripted student (no API key)"
-	@echo "  make test-run               pytest + LO tests (skip typecheck/bandit/pyspector; for quick reruns)"
-	@echo "  make test-durations         Same pytest filter as test-run with --durations=40 (profile hotspots)"
+	@echo "  make test-run               make pytest, then serial UNO via testing_runner (no typecheck/bandit)"
+	@echo "  make test-durations         Same filters as make pytest with --durations=40 (profile hotspots)"
 	@echo "  make slowtests              Slow serialization once each: A/B fixtures, contracts/CrossHair, Hypothesis (vhs)"
 	@echo "  make vhs                    Hypothesis serialization fuzz with verbose output (Hypothesis step of slowtests)"
 	@echo "  make verify                 Pytest formal-verification suite (-k verification)"
@@ -664,13 +665,20 @@ typecheck: manifest ruff-for-build
 	@$(MAKE) basedpyright-run
 	@$(MAKE) pyspector
 
+# Unit pytest only: no *_uno.py collection, no testing_runner / live soffice.
+# Exact command: $(PYTHON) -m pytest tests -m "not slow and not integration" --ignore-glob='*_uno.py'
+PYTEST_UNIT = "$(PYTHON)" -m pytest tests -m "not slow and not integration" --ignore-glob="*_uno.py"
+
+pytest:
+	$(PYTEST_UNIT)
+
 test-run:
-	"$(PYTHON)" -m pytest tests -m "not slow and not integration"
+	@$(MAKE) pytest
 	@$(MAKE) lo-kill
 	"$(LO_PYTHON)" -m plugin.testing_runner; EXIT_CODE=$$?; $(MAKE) lo-kill; exit $$EXIT_CODE
 
 test-durations:
-	"$(PYTHON)" -m pytest tests -m "not slow and not integration" --durations=40
+	$(PYTEST_UNIT) --durations=40
 
 # Deep Hypothesis for make vhs / slowtests (serialization env kept as alias).
 _VHS_EXTENSIVE = WRITERAGENT_VHS_EXTENSIVE=1 WRITERAGENT_SERIALIZATION_EXTENSIVE=1

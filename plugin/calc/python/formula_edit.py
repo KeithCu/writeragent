@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, ascii_bounded, str_bounded, deal
 
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"
@@ -56,7 +56,7 @@ def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
     )
 
 
-@deal.pre(lambda s, start: ascii_bounded(s, DEAL_MAX_SOURCE) and isinstance(start, int) and start >= 0)
+@deal.pre(lambda s, start: str_bounded(s, DEAL_MAX_SOURCE) and isinstance(start, int) and start >= 0)
 @deal.post(lambda result: result is None or (isinstance(result, tuple) and len(result) == 2))
 @deal.ensure(lambda s, start, result: _quoted_parse_result_ok(s, start, result))
 def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
@@ -79,7 +79,7 @@ def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
     return None
 
 
-@deal.pre(lambda inner_body: ascii_bounded(inner_body, DEAL_MAX_SOURCE))
+@deal.pre(lambda inner_body: str_bounded(inner_body, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or (isinstance(result, str) and not result.startswith('"')))
 def _parse_unquoted_code_arg(inner_body: str) -> str | None:
     """Parse ``=PY(sp.prime(100))`` when Calc omits string quotes around code."""
@@ -208,7 +208,7 @@ _LEXER_COLLISION_STR_RE = re.compile(r"\bstr\s*\(")
 _LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\.text\s*\(")
 
 
-@deal.pre(lambda s, open_idx: ascii_bounded(s, DEAL_MAX_SOURCE) and isinstance(open_idx, int) and 0 <= open_idx < len(s))
+@deal.pre(lambda s, open_idx: str_bounded(s, DEAL_MAX_SOURCE) and isinstance(open_idx, int) and 0 <= open_idx < len(s))
 @deal.post(lambda result: isinstance(result, int) and result >= -1)
 @deal.ensure(
     lambda s, open_idx, result: result == -1
@@ -233,7 +233,7 @@ def _find_matching_paren(s: str, open_idx: int) -> int:
     return -1
 
 
-@deal.pre(lambda code, token, rewrite_inner: ascii_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(token, 32, min_len=1) and callable(rewrite_inner))
+@deal.pre(lambda code, token, rewrite_inner: str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(token, 32, min_len=1) and callable(rewrite_inner))
 @deal.post(lambda result: isinstance(result, str))
 def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:
     """Replace ``token(inner)`` calls; *token* must not contain regex metacharacters."""
@@ -257,7 +257,7 @@ def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], s
     return "".join(out)
 
 
-@deal.pre(lambda code: ascii_bounded(code, DEAL_MAX_SOURCE))
+@deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 def sanitize_inline_py_code(code: str) -> str:
     """Defensive rewrite of tokens that are dangerous if formula quotes are lost.
@@ -290,11 +290,10 @@ def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
     return hits
 
 
-@deal.pre(lambda code: ascii_bounded(code, DEAL_MAX_SOURCE))
+@deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda code, result: result == sanitize_inline_py_code(code or "").replace('"', '""'))
 def escape_code_for_formula(code: str) -> str:
-
     """Escape Python source for embedding in a Calc string literal.
 
     Applies defensive sanitization (``float(`` etc.) then doubles quotes.
@@ -307,7 +306,7 @@ def escape_code_for_excel_formula(code: str) -> str:
     return (code or "").replace('"', '""')
 
 
-@deal.pre(lambda parts, new_code: isinstance(parts, PythonFormulaParts) and ascii_bounded(new_code, DEAL_MAX_SOURCE))
+@deal.pre(lambda parts, new_code: isinstance(parts, PythonFormulaParts) and str_bounded(new_code, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str) and result.startswith(f'={CALC_PYTHON_FN}("'))
 @deal.ensure(lambda parts, new_code, result: parts.data_suffix in result)
 def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:

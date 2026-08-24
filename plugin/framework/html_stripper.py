@@ -17,7 +17,10 @@
 
 from __future__ import annotations
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, ascii_bounded, deal
+from plugin.framework.deal_shim import str_bounded, deal
+
+# Wider than DEAL_MAX_SOURCE (64): feed() must still reach the 256-char tag flush.
+_DEAL_MAX_HTML_CHUNK = 512
 
 
 class StreamingHTMLStripper:
@@ -33,7 +36,7 @@ class StreamingHTMLStripper:
         self.in_tag = False
         self.tag_buffer = ""
 
-    @deal.pre(lambda self, chunk: ascii_bounded(chunk, DEAL_MAX_SOURCE))
+    @deal.pre(lambda self, chunk: str_bounded(chunk, _DEAL_MAX_HTML_CHUNK))
     @deal.post(lambda result: isinstance(result, str))
     def feed(self, chunk: str) -> str:
         """Feed a chunk of text, return the approved cleaned string without HTML tags.
@@ -87,7 +90,7 @@ class StreamingHTMLStripper:
         return ""
 
 
-@deal.pre(lambda text: ascii_bounded(text, DEAL_MAX_SOURCE))
+@deal.pre(lambda text: str_bounded(text, _DEAL_MAX_HTML_CHUNK))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda text, result: "<" not in result or ">" not in result or len(result) <= len(text))
 def strip_html_tags(text: str) -> str:

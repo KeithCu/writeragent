@@ -16,6 +16,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_TOKEN,
     DEAL_MAX_URL,
     ascii_bounded,
+    str_bounded,
 )
 
 
@@ -44,6 +45,16 @@ def test_ascii_bounded_non_string_types() -> None:
     assert ascii_bounded(["A1"], 8) is False
 
 
+def test_str_bounded_allows_unicode() -> None:
+    assert str_bounded("✓ Copied!", 64) is True
+    assert str_bounded("Testing…", 64) is True
+    assert str_bounded("A🯰", 8) is True
+    assert str_bounded("", 8) is True
+    assert str_bounded("é" * 9, 8) is False
+    assert str_bounded(None, 8) is False
+    assert str_bounded(123, 8) is False
+
+
 def test_deal_shim_constants() -> None:
     assert DEAL_MAX_COL_LETTERS == 3
     assert DEAL_MAX_CELL_REF == 32
@@ -51,4 +62,4 @@ def test_deal_shim_constants() -> None:
     assert DEAL_MAX_ORIGIN == 256
     assert DEAL_MAX_URL == 2048
     assert DEAL_MAX_PATH == 4096
-    assert DEAL_MAX_SOURCE == 4096
+    assert DEAL_MAX_SOURCE == 64

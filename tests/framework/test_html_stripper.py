@@ -26,6 +26,11 @@ def test_strip_html_tags_simple():
     assert strip_html_tags(text) == "Hello World!"
 
 
+def test_strip_html_tags_unicode():
+    text = "<p>café — naïve</p>"
+    assert strip_html_tags(text) == "café — naïve"
+
+
 def test_strip_html_tags_math_comparison():
     # "3 < 5" should not be treated as HTML tag
     text = "If 3 < 5 and y > 2, then <p>success</p>."

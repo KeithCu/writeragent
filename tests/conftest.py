@@ -12,7 +12,13 @@ import pytest
 
 
 def pytest_collection_modifyitems(config, items):
-    """Filter out tests marked for the native runner so they don't clutter the skipped count."""
+    """Drop leftover @native_test items so they are not counted as skipped.
+
+    The real pytest/UNO split is ``--ignore-glob=*_uno.py`` (``make pytest`` /
+    pyproject addopts). This hook still catches mixed modules such as
+    ``test_uno_context.py`` that keep a few ``@native_test`` functions beside
+    headless unit tests.
+    """
     # This ensures that 'skipped' in pytest output only refers to actually disabled tests.
     def is_native(item):
         # 1. Check for the @native_test decorator attribute on the function
@@ -252,12 +258,15 @@ def _setup_grammar_persistence_test_env():
     # MagicMock's default __fspath__ yields a relative "MagicMock/<name>/<id>" path that
     # MemoryStore's makedirs then creates inside the repo. Seeding the module-level cache routes
     # every resolver through this per-test temp dir instead.
+    # Save the path before reset — reset_config_for_tests() clears _resolved_config_path.
     old_resolved = config_mod._resolved_config_path
+    config_mod.reset_config_for_tests()
     config_mod._resolved_config_path = os.path.join(tmp_dir, "writeragent.json")
     try:
         with patch("plugin.framework.config.user_config_dir", return_value=tmp_dir):
             yield
     finally:
+        config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = old_resolved
 
         # Restore logging state

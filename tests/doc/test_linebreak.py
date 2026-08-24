@@ -1,3 +1,4 @@
+"""Headless unit tests for HTML linebreak helpers (not a native UNO suite)."""
 import sys
 import os
 

@@ -62,19 +62,23 @@ The project already utilizes an `EvalRunner` for benchmarking LLM outputs (Corre
 
 ### 3.5 Default pytest filter and profiling
 
-`make test-run` runs:
+`make pytest` (and the pytest half of `make test-run`) runs:
 
 ```bash
-pytest tests -m "not slow and not integration"
+$(PYTHON) -m pytest tests -m "not slow and not integration" --ignore-glob='*_uno.py'
 ```
 
+Collection must stay clean of live LibreOffice: `--ignore-glob='*_uno.py'` plus pyproject `addopts` (`--ignore=tests/uno`) so this invocation does **not** collect `plugin.testing_runner` / `*_uno.py` / soffice suites. `tests/conftest.py` still drops leftover `@native_test` functions in mixed modules. Do not add `pytest -n` / xdist here; `testing_runner` stays serial.
+
 - **`slow`**: CrossHair hooks, large-file / Opengrep full scans, soffice smoke — also via `make slowtests` / `make opengrep-lint` where applicable.
-- **`integration`**: Full subprocess worker IPC / live venv self-check smokes. Run with `-m integration` when needed.
+- **`integration`**: Full subprocess worker IPC / live venv self-check smokes, plus live `--backend lo` eval. Run with `-m integration` when needed.
+
+`make test-run` is: `make pytest`, then `lo-kill`, then `$(LO_PYTHON) -m plugin.testing_runner` (serial UNO; do not parallelize).
 
 Profile hotspots without the LO native suite:
 
 ```bash
-make test-durations   # same marker filter + --durations=40
+make test-durations   # same marker + ignore-glob filter + --durations=40
 ```
 
 Suite volume (~4500 tests) is cheap; wall time is dominated by real process spawns, intentional concurrency sleeps, and a few heavy-file tests—not collection or the root autouse config isolation fixture.

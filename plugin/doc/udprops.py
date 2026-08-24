@@ -51,10 +51,15 @@ def _user_defined_property_exists(props: Any, name: str) -> bool:
 def get_document_property(model: Any, name: str, default: Any = None) -> Any:
     """Get a custom document property from the model."""
     try:
-        check_disposed(model, "Document Model")
-        if hasattr(model, "getDocumentProperties"):
-            doc_props = safe_call(model.getDocumentProperties, "Get document properties")
-            props = doc_props.UserDefinedProperties
+        from plugin.framework.thread_guard import _unwrap_uno
+
+        raw_model = _unwrap_uno(model)
+        check_disposed(raw_model, "Document Model")
+        if hasattr(raw_model, "getDocumentProperties"):
+            doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
+            if doc_props is None:
+                return default
+            props = _unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
             if props is None:
                 return default
 
@@ -64,9 +69,8 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
                 return safe_call(props.getPropertyValue, "Get property value", name)
             return default
     except UnoObjectError:
-        # WriterAgentSessionID is created on first session setup; missing until then is normal.
-        if name == "WriterAgentSessionID":
-            log.debug("get_document_property (optional property not set yet)")
+        if name in ("WriterAgentSessionID", "WriterAgentPythonSessionId"):
+            log.debug("get_document_property (optional property %s not set yet)", name)
         else:
             log.exception("get_document_property failed")
     except Exception:
@@ -77,12 +81,18 @@ def get_document_property(model: Any, name: str, default: Any = None) -> Any:
 def set_document_property(model: Any, name: str, value: Any) -> None:
     """Set a custom document property in the model."""
     try:
-        check_disposed(model, "Document Model")
-        if hasattr(model, "getDocumentProperties"):
-            doc_props = safe_call(model.getDocumentProperties, "Get document properties")
-            props = doc_props.UserDefinedProperties
+        from plugin.framework.thread_guard import _unwrap_uno
+
+        raw_model = _unwrap_uno(model)
+        check_disposed(raw_model, "Document Model")
+        if hasattr(raw_model, "getDocumentProperties"):
+            doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
+            if doc_props is None:
+                return
+            props = _unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
             if props is not None:
                 check_disposed(props, "UserDefinedProperties")
+
                 exists = _user_defined_property_exists(props, name)
 
                 if exists and hasattr(props, "setPropertyValue"):
@@ -92,6 +102,7 @@ def set_document_property(model: Any, name: str, value: Any) -> None:
                     safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
                 elif hasattr(props, "setPropertyValue"):
                     safe_call(props.setPropertyValue, "Set property value (no addProperty)", name, str(value))
+
     except UnoObjectError:
         doc_url = ""
         readonly = ""

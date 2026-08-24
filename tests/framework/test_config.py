@@ -157,6 +157,7 @@ class TestConfigSync(unittest.TestCase):
 class TestConfigSyncFileIO(unittest.TestCase):
 
     def setUp(self):
+        reset_config_for_tests()
         self.ctx = MagicMock()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.config_path = os.path.join(self.temp_dir.name, 'writeragent.json')
@@ -167,6 +168,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.path_patcher.start()
 
     def tearDown(self):
+        reset_config_for_tests()
         self.path_patcher.stop()
         self.temp_dir.cleanup()
         backup_path = self.config_path + CONFIG_BACKUP_SUFFIX
@@ -174,13 +176,6 @@ class TestConfigSyncFileIO(unittest.TestCase):
             os.remove(backup_path)
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
-
-    def _reset_config_cache(self):
-        import plugin.framework.config as cfg
-
-        cfg._cache.data = None
-        cfg._cache.mtime = 0
-        cfg._cache.mtime_last_checked = 0.0
 
     def _backup_path(self):
         return self.config_path + CONFIG_BACKUP_SUFFIX
@@ -209,7 +204,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         corrupt = '{ invalid json '
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(corrupt)
-        self._reset_config_cache()
+        reset_config_for_tests()
         self.assertEqual(get_api_key_for_endpoint('http://api.openai.com'), '')
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
             self.assertEqual(f.read(), corrupt)
@@ -224,7 +219,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         broken = '{"text_model": "gpt",}'
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(broken)
-        self._reset_config_cache()
+        reset_config_for_tests()
         self.assertEqual(get_config('text_model'), 'gpt')
         with open(self._backup_path(), 'r', encoding='utf-8') as f:
             self.assertEqual(f.read(), broken)
@@ -235,7 +230,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         corrupt = '{ invalid json '
         with open(self.config_path, 'w', encoding='utf-8') as f:
             f.write(corrupt)
-        self._reset_config_cache()
+        reset_config_for_tests()
         self.assertEqual(get_config('calc_prompt_max_tokens'), 4096)
         self.assertTrue(os.path.exists(self._backup_path()))
         with open(self.config_path, 'r', encoding='utf-8') as f:
@@ -244,7 +239,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
     def test_valid_config_no_backup_on_set(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt'}, f)
-        self._reset_config_cache()
+        reset_config_for_tests()
         set_config('text_model', 'other')
         self.assertFalse(os.path.exists(self._backup_path()))
         self.assertEqual(self._load_written()['text_model'], 'other')
@@ -283,7 +278,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
     def test_stale_calc_prompt_max_tokens_upgraded_and_persisted(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt', 'calc_prompt_max_tokens': 70}, f)
-        self._reset_config_cache()
+        reset_config_for_tests()
         self.assertEqual(get_config('calc_prompt_max_tokens'), 4096)
         data = self._load_written()
         # Default 4096 is omitted from JSON file on disk
@@ -293,7 +288,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
     def test_calc_prompt_max_tokens_at_or_above_100_preserved(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'calc_prompt_max_tokens': 150}, f)
-        self._reset_config_cache()
+        reset_config_for_tests()
         self.assertEqual(get_config('calc_prompt_max_tokens'), 150)
         data = self._load_written()
         self.assertEqual(data['calc_prompt_max_tokens'], 150)
@@ -320,7 +315,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
                 'chat_max_tokens': 16384,
                 'text_model': 'custom-model',
             }, f)
-        self._reset_config_cache()
+        reset_config_for_tests()
         set_config('request_timeout', 60)
         data = self._load_written()
         self.assertEqual(data, {
@@ -334,7 +329,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
                 'endpoint': 'http://localhost:11434',
                 'text_model': 'custom-model',
             }, f)
-        self._reset_config_cache()
+        reset_config_for_tests()
         with patch.object(global_event_bus, 'emit') as mock_emit:
             set_config('text_model', 'custom-model')
             mock_emit.assert_not_called()
@@ -343,10 +338,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(data.get('text_model'), 'custom-model')
 
     def test_set_config_skips_identical_value(self):
-        import plugin.framework.config as cfg
-        cfg._cached_config_dict = None
-        cfg._cached_config_mtime = 0
-        cfg._cached_config_mtime_last_checked = 0.0
+        reset_config_for_tests()
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'gpt'}, f)
         with patch.object(global_event_bus, 'emit') as mock_emit:
@@ -361,7 +353,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
     def test_set_config_invalid_numeric_falls_back_to_current_value(self):
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'extend_selection_max_tokens': 1200}, f)
-        self._reset_config_cache()
+        reset_config_for_tests()
 
         set_config('extend_selection_max_tokens', 'not-a-number')
 
@@ -485,7 +477,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
             }
         }]
         with patch("plugin.framework.config_schema.MODULES", mock_modules):
-            self._reset_config_cache()
+            reset_config_for_tests()
             # Because extend_selection_max_tokens was not written to disk, the new default is picked up automatically!
             self.assertEqual(get_config_int('extend_selection_max_tokens'), 2000)
 
@@ -499,7 +491,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
                 'request_timeout': 60,
                 'text_model': 'custom-model'
             }, f)
-        self._reset_config_cache()
+        reset_config_for_tests()
 
         remove_config('request_timeout')
 
@@ -520,7 +512,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
                 'scripting.ppt_master_data_path': '',
                 'scripting.python_convert_datetime': False,
             }, f)
-        self._reset_config_cache()
+        reset_config_for_tests()
         set_config('request_timeout', 60)
         data = self._load_written()
         self.assertEqual(data, {

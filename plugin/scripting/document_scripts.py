@@ -187,7 +187,15 @@ def set_calc_init_script(doc: Any, code: str) -> str | None:
     else:
         scripts.pop("INIT", None)
         scripts.pop("Init", None)
-    return set_document_scripts(doc, scripts)
+    res = set_document_scripts(doc, scripts)
+    try:
+        from plugin.scripting.session_manager import record_active_calc_session
+
+        record_active_calc_session(None, build_python_eval_init_kwargs(doc))
+    except Exception:
+        pass
+    return res
+
 
 
 def get_calc_document_from_ctx(ctx: Any) -> Any | None:

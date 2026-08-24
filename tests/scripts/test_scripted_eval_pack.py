@@ -95,6 +95,9 @@ def _lo_eval_available() -> str | None:
     return None
 
 
+# Live soffice eval. Keep off `make pytest` (`-m "not integration"`); run via
+# `-m integration` or `python scripts/prompt_optimization/run_eval.py --backend lo`.
+@pytest.mark.integration
 def test_scripted_lo_pack_all_pass() -> None:
     reason = _lo_eval_available()
     if reason:

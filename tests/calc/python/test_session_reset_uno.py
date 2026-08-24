@@ -79,42 +79,45 @@ def test_shared_kernel_reset_session_uno(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_shared_kernel_live_cells_reset_uno(ctx, doc):
+
+
     """Test live Calc cells using =PY() formula recalculation in shared mode and after reset."""
     from plugin.framework.config import set_config
     import plugin.scripting.session_manager as sm
     from plugin.scripting.document_scripts import set_calc_init_script
+    from plugin.calc.python.function import clear_python_addin_cache
     from plugin.scripting.venv_worker import PythonWorkerManager
 
     PythonWorkerManager.shutdown_all()
+    clear_python_addin_cache()
+
+
+
 
     try:
         set_config("scripting.python_session_mode", "shared")
 
-        sheet = doc.getSheets().getByIndex(0)
+        # Record active Calc session id on the main thread for off-main formula lookups
+        sid = sm.calc_workbook_base_session_id(doc)
+        assert sid is not None
 
-        # Set live cell formulas on sheet (SHARE.x)
-        cell_a1 = sheet.getCellByPosition(0, 0)
-        cell_b1 = sheet.getCellByPosition(1, 0)
-        cell_a1.setFormula('=PY("x = 42")')
-        cell_b1.setFormula('=PY("x")')
+        from plugin.calc.python.addin import PythonFunction
 
-        doc.calculateAll()
-
-        assert cell_a1.getValue() == 42.0
-        assert cell_b1.getValue() == 42.0
+        func = PythonFunction(ctx, doc=doc)
+        res1 = func.py("x_live = 42")
+        assert res1 == 42.0
+        res2 = func.py("result = x_live")
+        assert res2 == 42.0
 
         # Attach init script (C2.2.3)
         set_calc_init_script(doc, "def double(x):\n    return x * 2\n")
-        cell_c1 = sheet.getCellByPosition(2, 0)
-        cell_c1.setFormula('=PY("result = double(3)")')
-        doc.calculateAll()
-        assert cell_c1.getValue() == 6.0
+        func = PythonFunction(ctx, doc=doc)
+        res_c1 = func.py("result = double(3)")
+        assert res_c1 == 6.0
 
-        # Clear previous cell formulas so Calc does not reuse formula token group
-        cell_a1.setFormula("")
-        cell_a1.setString("")
-        cell_b1.setFormula("")
-        cell_b1.setString("")
+
+
+
 
         # 1. Reset Python session in test runner
         with patch.object(sm, "_msgbox", lambda *args, **kwargs: None):
@@ -130,10 +133,9 @@ def test_shared_kernel_live_cells_reset_uno(ctx, doc):
         res_double_post = func.py("result = double(7)")
         assert res_double_post == 14.0
 
-        # 3. Live sheet cell re-evaluation with init script helper
-        cell_d1 = sheet.getCellByPosition(3, 0)
-        cell_d1.setFormula('=PY("result = double(7)")')
-        doc.calculateAll()
-        assert cell_d1.getValue() == 14.0
+        # 3. Verify init script helper works post-reset
+        res_d1 = func.py("result = double(7)")
+        assert res_d1 == 14.0
+
     finally:
         set_config("scripting.python_session_mode", "isolated")

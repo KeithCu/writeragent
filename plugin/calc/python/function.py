@@ -51,7 +51,9 @@ log = logging.getLogger(__name__)
 
 # Calc legacy add-in bridge accepts scalar double/string returns only. List results are
 # emitted one scalar per formula evaluation (matrix block or repeated recalc).
-MATRIX_SCALAR_SESSIONS = threading.local()
+_MATRIX_SCALAR_SESSIONS_LOCK = threading.Lock()
+_MATRIX_SCALAR_SESSIONS: dict[tuple[int, tuple, str], WorkerResultSession] = {}
+
 
 # Recalc-clump timings for DEBUG ``py_timing`` lines (not asctime deltas).
 # Flip to True in this file when measuring workbook-open / recalc cost; leave False in commits.
@@ -262,12 +264,11 @@ def _get_calc_doc(ctx: Any) -> Any | None:
 
 
 def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple:
-    # Bugfix (#402): When Calc evaluates formulas during remote PyUNO calls (e.g. setFormula),
-    # =PY() runs on a UNO bridge thread (Dummy-N). Calling _get_calc_doc touches get_desktop,
-    # which violates thread-safety and triggers the Layer A thread guard.
-    # MATRIX_SCALAR_SESSIONS is threading.local(), so returning a simple key off-main is safe.
+    # Bugfix (#402, #411): Include workbook session_id in key so unsaved documents
+    # (where doc_url="") do not collide in the in-memory formula result cache.
     doc_url = ""
     sheet_name = ""
+    sid = ""
     try:
         target = doc
         if target is None:
@@ -286,9 +287,14 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple:
                 if sheet is not None:
                     name_val = getattr(sheet, "getName", lambda: "")()
                     sheet_name = name_val if isinstance(name_val, str) else ""
+            from plugin.scripting.session_manager import workbook_session_id
+
+            sid = workbook_session_id(ctx, doc=target) or ""
+
     except Exception:
         log.debug("session_key inline metadata lookup exception", exc_info=True)
-    return (doc_url, sheet_name, code)
+    return (doc_url, sheet_name, sid, code)
+
 
 
 class WorkerResultSession:
@@ -314,22 +320,21 @@ def scalar_for_list_result(
     flat: list = [to_calc_compatible(v) for v in flatten_result_values(result)]
     if not flat:
         return ""
-    key = (session_key(ctx, code, doc=doc), repr(worker_data))
-    sessions = getattr(MATRIX_SCALAR_SESSIONS, "sessions", None)
-    if sessions is None:
-        sessions = {}
-        MATRIX_SCALAR_SESSIONS.sessions = sessions
-    state = sessions.get(key)
-    if not isinstance(state, WorkerResultSession) or state.flat != tuple(flat):
-        state = WorkerResultSession(result, flat)
-        sessions[key] = state
-    idx = state.next_index
-    state.next_index = idx + 1
-    if state.next_index >= len(state.flat):
-        sessions.pop(key, None)
+    tid = threading.get_ident()
+    key = (tid, session_key(ctx, code, doc=doc), repr(worker_data))
+    with _MATRIX_SCALAR_SESSIONS_LOCK:
+        state = _MATRIX_SCALAR_SESSIONS.get(key)
+        if not isinstance(state, WorkerResultSession) or state.flat != tuple(flat):
+            state = WorkerResultSession(result, flat)
+            _MATRIX_SCALAR_SESSIONS[key] = state
+        idx = state.next_index
+        state.next_index = idx + 1
+        if state.next_index >= len(state.flat):
+            _MATRIX_SCALAR_SESSIONS.pop(key, None)
     if 0 <= idx < len(state.flat):
         return state.flat[idx]
     return state.flat[-1] if state.flat else ""
+
 
 
 # The spill registry tracks coordinates that were spilled by each formula cell.
@@ -970,7 +975,6 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
         from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_document_from_ctx
         from plugin.scripting.session_manager import get_cached_calc_init_kwargs, record_active_calc_session
 
-        # Nested ternary hid on_main_thread() from the AST thread-safety linter.
         target = doc
         if target is None:
             if on_main_thread():
@@ -978,9 +982,6 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
             else:
                 return get_cached_calc_init_kwargs()
         if target is not None:
-            # Close/reopen used to reuse the warm-worker calc:…:init cache because
-            # nothing listened for OnUnload. Register once per workbook so init
-            # runs again on the next open (listener install must not hide init kwargs).
             try:
                 from plugin.calc.python.workbook_lifecycle import (
                     ensure_calc_workbook_unload_resets_python,
@@ -990,12 +991,14 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
             except Exception:
                 log.debug("python workbook unload listener install failed", exc_info=True)
             kwargs = build_python_eval_init_kwargs(target)
-            if on_main_thread():
+            if kwargs and on_main_thread():
                 record_active_calc_session(None, kwargs)
             return kwargs
+        return get_cached_calc_init_kwargs()
     except Exception:
         log.debug("get_python_init_kwargs failed", exc_info=True)
     return {}
+
 
 
 def _py_timing_code_label(code: str) -> str:
@@ -1037,6 +1040,12 @@ def _emit_py_timing(
         pass_sum_ms,
         pass_outside_ms,
     )
+
+
+def clear_python_addin_cache() -> None:
+    """Clear formula result cache across all threads (e.g. on session reset or document reload)."""
+    with _MATRIX_SCALAR_SESSIONS_LOCK:
+        _MATRIX_SCALAR_SESSIONS.clear()
 
 
 def execute_python_addin(
@@ -1128,18 +1137,17 @@ def _execute_python_addin_impl(
 
                 target_doc = _calc_document(ctx)
 
-        sessions = getattr(MATRIX_SCALAR_SESSIONS, "sessions", None)
-        if sessions is None:
-            sessions = {}
-            MATRIX_SCALAR_SESSIONS.sessions = sessions
-        cache_key = (session_key(ctx, code, doc=target_doc), repr(worker_data))
-        cached = sessions.get(cache_key)
+        tid = threading.get_ident()
+        cache_key = (tid, session_key(ctx, code, doc=target_doc), repr(worker_data))
+        with _MATRIX_SCALAR_SESSIONS_LOCK:
+            cached = _MATRIX_SCALAR_SESSIONS.get(cache_key)
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             used_cache = True
             res = {"status": "ok", "result": cached.raw}
         else:
             session_id = workbook_session_id(ctx, doc=target_doc)
             init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
+
             from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
 
             log.debug(
@@ -1158,6 +1166,7 @@ def _execute_python_addin_impl(
                 session_id=session_id,
                 **init_kwargs,
             )
+
             if timings:
                 ipc_ms = int(round((time.perf_counter() - t_ipc) * 1000))
         log.debug("PYTHON res from worker: %r", res)

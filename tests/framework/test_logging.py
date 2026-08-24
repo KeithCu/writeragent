@@ -38,6 +38,7 @@ class TestInitLogging(unittest.TestCase):
         self._saved_hooks = logging_mod._exception_hooks_installed
         self._saved_root_handlers = list(logging.getLogger().handlers)
         self._saved_last_resort = logging.lastResort
+        config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
         logging_mod._debug_log_path = None
         logging_mod._exception_hooks_installed = False

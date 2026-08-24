@@ -157,7 +157,6 @@ def parse_address(address: str) -> tuple[int, int]:
 
 
 @deal.pre(lambda range_str: ascii_bounded(range_str, DEAL_MAX_CELL_REF, min_len=1))
-
 @deal.post(
     lambda result: isinstance(result, tuple)
     and len(result) == 2
@@ -208,7 +207,6 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
     else:
         end_col = start_col
         end_row = start_row
-
 
     return (start_col, start_row), (end_col, end_row)
 

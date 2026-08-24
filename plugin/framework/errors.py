@@ -417,7 +417,10 @@ def format_error_message(e: Exception) -> str:
 
 
 
-@deal.pre(lambda message, code="TOOL_EXECUTION_ERROR", **details: ascii_bounded(code, DEAL_MAX_TOKEN, min_len=1))
+@deal.pre(
+    lambda message, code="TOOL_EXECUTION_ERROR", **details: isinstance(message, str)
+    and ascii_bounded(code, DEAL_MAX_TOKEN, min_len=1)
+)
 @deal.post(lambda result: isinstance(result, dict) and result.get("status") == "error" and "code" in result and "message" in result)
 def make_tool_error(message: str, code: str = "TOOL_EXECUTION_ERROR", **details: Any) -> dict[str, Any]:
     """Central factory for all standardized tool error payloads."""

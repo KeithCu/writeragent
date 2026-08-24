@@ -122,7 +122,6 @@ class SmolToolAdapter(SmolTool):
                 return tool.execute(ctx, **kwargs)
             return tool.execute_safe(ctx, **kwargs)
 
-
         from plugin.framework.queue_executor import execute_on_main_thread
 
         # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool
@@ -132,7 +131,6 @@ class SmolToolAdapter(SmolTool):
         if not self._safe:
             return execute_on_main_thread(tool.execute, ctx, **kwargs)
         return execute_on_main_thread(tool.execute_safe, ctx, **kwargs)
-
 
 
 class WriterAgentSmolModel(Model):

@@ -652,6 +652,23 @@ Same idea for any greedy tokenizer: Hypothesis neighbors must not be absorbable 
 - Prefer **FQN** `crosshair check plugin.pkg.mod.fn` in `@pytest.mark.slow` tests for new slices. Do not reintroduce module skip-list entries — mark hostile callables with a shim or `# crosshair: off` (cover-all FQN filter), or extract a pure core.
 - Avoid `time.perf_counter()` (and similar clocks) on cover entry points without a CrossHair shim — causes `NotDeterministic` / exit 2.
 
+#### E. String contracts: closed alphabet vs open text
+
+CrossHair explores unbounded Unicode strings for hours. Caps belong in `@deal.pre`, but **`isascii` is not a universal cap** — unstripped pytest runs real `deal`, so a too-tight pre is a **dev-test** failure.
+
+**Length caps are not production limits.** LibreOffice uses the no-op `deal_shim`; `scripts/strip_code.py` removes `@deal.*` from release OXTs (`make release` pytest is that stripped tree). Do not grow `DEAL_MAX_*` to match real HTML/source sizes.
+
+Helpers in [`deal_shim.py`](../plugin/framework/deal_shim.py):
+
+| Helper | Use when |
+|--------|----------|
+| `ascii_bounded(s, max_len, min_len=0)` | Closed alphabet: column letters, A1 / range strings, error **codes**, CORS origins, stream prefixes, URL suffixes |
+| `str_bounded(s, max_len, min_len=0)` | Open text: gettext `_()`, HTML, `=PY()` / Excel source. Length still bounds CrossHair |
+
+`DEAL_MAX_CELL_REF` is **32** because `parse_address` / `parse_range_string` reject sheet prefixes; the longest legal range is well under that. Do **not** put `isascii` on `_()` (msgids include `"✓ Copied!"`, `"Testing…"`), HTML strippers, or formula source.
+
+Hypothesis `st.text(..., max_codepoint=127)` in `*_verification.py` is a **fuzzer** bound, not a function contract — leave those ASCII alphabets in place.
+
 #### F. Single-pass string stripping vs interleaved control whitespace
 
 When sanitizing formulas, range bindings, or prefixes (e.g. `format_data_binding_display`), single-pass checks (`if s.startswith(";"): s = s[1:]`) fail when input strings contain multiple leading delimiters (`;;`) or interleaved Unicode control whitespace (`,\x1c;`). In Python, `str.strip()` strips ASCII 28 (`\x1c`) control whitespace; stripping after a single-pass `lstrip` exposes the second delimiter underneath.

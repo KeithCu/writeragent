@@ -58,19 +58,27 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
     # returns None. Fall back to desktop.getComponents() enumeration so session reset and
     # shared-kernel workbook_session_id always resolve the document model.
     try:
-        from plugin.framework.thread_guard import guard_uno
+        from plugin.framework.errors import check_disposed
+        from plugin.framework.thread_guard import guard_uno, _unwrap_uno
 
         desktop = get_desktop(ctx)
         doc = desktop.getCurrentComponent()
         if doc is not None:
             try:
-                if predicate(doc):
-                    return guard_uno(doc)
+                check_disposed(_unwrap_uno(doc))
+                ctrl = getattr(doc, "getCurrentController", lambda: None)()
+                if ctrl is not None and getattr(ctrl, "getFrame", lambda: None)() is not None:
+                    if predicate(doc):
+                        cached_sid = get_cached_calc_session_id()
+                        if not cached_sid or calc_workbook_base_session_id(doc) == cached_sid:
+                            return guard_uno(doc)
             except Exception:
                 pass
+
         comps = desktop.getComponents()
         if comps is not None and hasattr(comps, "createEnumeration"):
             enum = comps.createEnumeration()
+            matches = []
             while enum:
                 try:
                     has_more = enum.hasMoreElements()
@@ -87,13 +95,29 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
                     model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
                 if model is not None:
                     try:
-                        if predicate(model):
-                            return guard_uno(model)
+                        check_disposed(_unwrap_uno(model))
+                        ctrl = getattr(model, "getCurrentController", lambda: None)()
+                        if ctrl is not None and predicate(model):
+                            matches.append(model)
                     except Exception:
                         pass
+
+            if matches:
+                cached_sid = get_cached_calc_session_id()
+                if cached_sid:
+                    for m in reversed(matches):
+                        try:
+                            if calc_workbook_base_session_id(m) == cached_sid:
+                                return guard_uno(m)
+                        except Exception:
+                            pass
+                return guard_uno(matches[-1])
+
+
     except Exception:
         log.debug("session_manager: document resolution failed", exc_info=True)
     return None
+
 
 
 _ACTIVE_CALC_SESSION_LOCK = threading.Lock()
@@ -107,8 +131,9 @@ def record_active_calc_session(session_id: str | None, init_kwargs: dict[str, An
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is not None:
             _LAST_ACTIVE_CALC_SESSION_ID = session_id
-        if init_kwargs is not None:
+        if init_kwargs:
             _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
+
 
 
 def get_cached_calc_session_id() -> str | None:
@@ -130,6 +155,13 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
         if session_id is None or _LAST_ACTIVE_CALC_SESSION_ID == session_id:
             _LAST_ACTIVE_CALC_SESSION_ID = None
             _LAST_ACTIVE_CALC_INIT_KWARGS = {}
+    try:
+        from plugin.calc.python.function import clear_python_addin_cache
+
+        clear_python_addin_cache()
+    except Exception:
+        pass
+
 
 
 def _calc_document(ctx: Any) -> Any | None:
@@ -270,7 +302,14 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
 
     session_id = calc_workbook_base_session_id(target)
     res = reset_python_session(ctx, session_id)
+    try:
+        from plugin.calc.python.function import clear_python_addin_cache
+
+        clear_python_addin_cache()
+    except Exception:
+        pass
     if res.get("status") != "ok":
+
         msg = res.get("message") or _("Could not reset Python session.")
         _msgbox(ctx, _("Error: {0}").format(msg))
         return

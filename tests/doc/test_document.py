@@ -1,3 +1,4 @@
+"""Headless unit tests for document URL/excerpt helpers (not a native UNO suite)."""
 
 from plugin.doc.document_helpers import _inject_markers_into_excerpt
 from plugin.framework.uno_context import _normalize_doc_url

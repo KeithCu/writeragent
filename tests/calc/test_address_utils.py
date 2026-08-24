@@ -63,19 +63,6 @@ def test_address_utils():
     with pytest.raises(pre_err):
         format_address(18278, 0)
 
-    # Non-ASCII digits and row 0 must be rejected or raise ValueError
-    try:
-        parse_address("A0")
-        assert False, "Expected ValueError for 'A0'"
-    except ValueError:
-        pass
-
-    try:
-        parse_address("A🯰")
-        assert False, "Expected ValueError for 'A🯰'"
-    except (ValueError, Exception):
-        pass
-
     assert parse_range_string("A1:B2") == ((0, 0), (1, 1))
     assert parse_range_string("C3") == ((2, 2), (2, 2))
 

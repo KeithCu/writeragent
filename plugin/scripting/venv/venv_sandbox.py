@@ -515,18 +515,15 @@ def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
 
 
 def _seed_executor_from_init(executor: LocalPythonExecutor, init_session_id: str) -> None:
-    # Bugfix: LocalPythonExecutor records `def` functions in executor.custom_tools rather
-    # than executor.state. Previously, _seed_executor_from_init only copied executor.state
-    # via send_variables, leaving custom_tools empty in cell executors and causing calls
-    # to INIT-defined helper functions (e.g. double(x)) to fail with 'Forbidden function evaluation'.
-    # Copying custom_tools from the init executor makes workbook helper functions accessible
-    # to both shared-kernel and isolated cell executors.
     bindings = _snapshot_init_bindings(init_session_id)
     if bindings:
         executor.send_variables(bindings)
     custom_tools = _snapshot_init_custom_tools(init_session_id)
     if custom_tools:
         executor.custom_tools.update(custom_tools)
+        executor.state.update(custom_tools)
+
+
 
 
 def _ensure_init_executed(
@@ -557,6 +554,7 @@ def _ensure_init_executed(
             _SESSION_EXECUTORS.pop(init_session_id, None)
             _INIT_SCRIPT_HASH.pop(init_session_id, None)
         return result
+
 
     with _SESSION_LOCK:
         _INIT_SCRIPT_HASH[init_session_id] = digest
@@ -625,6 +623,8 @@ def _run_on_executor(executor: LocalPythonExecutor, code: str) -> dict[str, Any]
     prior_result = executor.state.get("result", _RESULT_MISSING)
     try:
         code_output = executor(code)
+
+
         current = executor.state.get("result", _RESULT_MISSING)
         if current is not _RESULT_MISSING and current is not prior_result:
             result = current
@@ -724,17 +724,16 @@ def run_sandboxed_code(
     if session_id:
         executor = _get_or_create_session_executor(session_id, timeout_sec)
         if init_sid:
-            with _SESSION_LOCK:
-                digest = _INIT_SCRIPT_HASH.get(init_sid)
-                seeded = _CELL_SESSION_INIT_DIGEST.get(session_id)
-            if digest and seeded != digest:
-                _seed_executor_from_init(executor, init_sid)
-                with _SESSION_LOCK:
-                    _CELL_SESSION_INIT_DIGEST[session_id] = digest
+            _seed_executor_from_init(executor, init_sid)
     else:
         executor = _new_executor(timeout_sec)
         if init_sid:
             _seed_executor_from_init(executor, init_sid)
+
+    for k, v in list(executor.state.items()):
+        if callable(v) and k not in executor.custom_tools and not (isinstance(k, str) and k.startswith("_")):
+            executor.custom_tools[k] = v
+
 
     inject_auto_imports(executor, code)
     ranges = _inject_data(executor, data)

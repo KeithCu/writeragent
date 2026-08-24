@@ -830,6 +830,12 @@ class TestingFactory:
         if not doc:
             return
         try:
+            from plugin.scripting.session_manager import clear_active_calc_session
+
+            clear_active_calc_session()
+        except Exception:
+            pass
+        try:
             if hasattr(doc, "close"):
                 doc.close(True)
             elif hasattr(doc, "dispose"):
@@ -837,15 +843,24 @@ class TestingFactory:
         except Exception:
             pass
 
+
     @staticmethod
     @contextlib.contextmanager
     def native_doc(ctx, doc_type="writer", hidden=True):
         """Context manager for creating and automatically disposing a native LO document."""
         doc = TestingFactory.create_native_doc(ctx, doc_type=doc_type, hidden=hidden)
+        if doc_type == "calc" and doc is not None:
+            try:
+                from plugin.scripting.session_manager import calc_workbook_base_session_id
+
+                calc_workbook_base_session_id(doc)
+            except Exception:
+                pass
         try:
             yield doc
         finally:
             TestingFactory.close_doc(doc)
+
 
 
     @staticmethod

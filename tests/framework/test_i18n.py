@@ -31,6 +31,13 @@ class TestI18n(unittest.TestCase):
             with self.assertRaises((TypeError, deal.PreContractError), msg=repr(bad)):
                 _(bad)
 
+    def test_i18n_msgid_allows_unicode_and_empty(self):
+        """gettext msgids are not an ASCII-only domain (deal.pre must not use isascii)."""
+        i18n_module._translation = NullTranslations()
+        self.assertEqual(_("✓ Copied!"), "✓ Copied!")
+        self.assertEqual(_("Testing…"), "Testing…")
+        self.assertEqual(_(""), "")
+
     def test_locale_detection_uno(self):
         """Test locale detection uses LibreOffice ooLocale via UNO."""
         mock_ctx = MagicMock()
