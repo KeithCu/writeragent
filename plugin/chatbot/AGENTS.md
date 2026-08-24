@@ -13,6 +13,21 @@ the area gotchas.
 - Memory (experimental): `memory.py` — `MEMORY_GUIDANCE` is in `plugin/framework/prompts.py`
 - Librarian is a **sidebar mode** (last in the dropdown). Do **not** gate `_do_send` on missing `USER.md`. Default selection uses `chatbot.librarian_invoked` (first open only), not `USER.md`. History is a global `ChatSession` (`LIBRARIAN_HISTORY_SESSION_ID`), not per document.
 
+## File ownership (existing modules; no new panel/dialog/session files)
+
+- `panel_factory.py` — UNO `XUIElementFactory` / XDL load / control wiring / listener attach. Resolves the document from the frame (`get_document_from_frame`). Does **not** import or call `get_document_context_for_chat`.
+- `panel.py` — `ChatSession` + button listeners. `ChatSession.refresh_document_context` rebuilds system prompt + `[DOCUMENT CONTENT]` when the sidebar switches to Chat (dropdown / `switch_to_document_mode`).
+- `send_handlers.py` / `tool_loop.py` — mixins on `SendButtonListener`. Build document context on send / mid-loop refresh. Stay mixins (no `session.py` / `send.py`).
+- `dialogs.py` — shared XDL / msgbox / checkbox / translate kit. LibrePy Settings and Run Python Script import this.
+- `dialog_views.py` — WriterAgent Settings pages, provider buttons, venv probe UI. `input_box` (Edit/Extend selection) stays here; it is not a generic XDL helper.
+
+## Legal imports
+
+- factory → `panel` (session + listeners), `dialogs` (control helpers), `get_document_from_frame`
+- factory must **not** import `get_document_context_for_chat`
+- views → `dialogs` helpers; views must **not** import `tool_loop`
+- send / tool loop → `get_document_context_for_chat` (still in `document_helpers` unless that builder has moved); must **not** import `panel_factory`
+
 Topic docs: [docs/chat-sidebar-implementation.md](../../docs/chat-sidebar-implementation.md),
 [docs/chat-smol-tool-architecture.md](../../docs/chat-smol-tool-architecture.md),
 [docs/chat-llm-hacks.md](../../docs/chat-llm-hacks.md),

@@ -17,6 +17,8 @@
 # Chat with Document - Sidebar Panel implementation
 # Follows the working pattern from LibreOffice's Python ToolPanel example:
 # XUIElement wrapper creates panel in getRealInterface() via ContainerWindowProvider + XDL.
+# This module owns UNO/XDL wiring only. Chat document context is built on ChatSession
+# (mode switch) and send_handlers / tool_loop (each send) — not here.
 
 from __future__ import annotations
 
@@ -701,7 +703,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         else:
             self.session = self.doc_session
         if mode == CHAT_MODE_CHAT:
-            self._refresh_doc_session_context(model)
+            # Session owns the builder; factory only asks for a fresh snapshot.
+            session = getattr(self, "doc_session", None)
+            if session is not None and model is not None:
+                try:
+                    session.refresh_document_context(model, self.ctx)
+                except Exception:
+                    log.debug("refresh_document_context failed", exc_info=True)
         toggle_image_ui(is_image_mode(mode))
         greeting = self._greeting_for_sidebar_mode(mode, model)
         if send_listener:
@@ -711,30 +719,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         if response_ctrl:
             self._render_session_history(self.session, response_ctrl, model, greeting)
         return greeting
-
-    def _refresh_doc_session_context(self, model) -> None:
-        """Reload Chat system prompt + [DOCUMENT CONTENT] for the document session.
-
-        Why: switch_to_document_mode (and picking Chat) must not keep a stale snapshot
-        from an earlier send. Visible pane still shows Chat history; the model sees
-        the current document on the next turn because tool_loop also refreshes — this
-        keeps the session consistent immediately after the dropdown flips.
-        """
-        session = getattr(self, "doc_session", None)
-        if session is None or model is None:
-            return
-        try:
-            from plugin.doc.document_helpers import get_document_context_for_chat
-            from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
-
-            extra_instructions = str(get_config("additional_instructions") or "")
-            base_prompt = get_chat_system_prompt_for_document(model, extra_instructions, ctx=self.ctx)
-            doc_text = get_document_context_for_chat(
-                model, CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=self.ctx
-            )
-            session.set_system_context(base_prompt, doc_text)
-        except Exception:
-            log.debug("_refresh_doc_session_context failed", exc_info=True)
 
     def _wire_chat_mode_listener(self, chat_mode_selector, model, response_ctrl, send_listener, clear_listener, toggle_image_ui, mode_flags):
         from plugin.chatbot.chat_sidebar_mode import mode_from_selector_with_flags

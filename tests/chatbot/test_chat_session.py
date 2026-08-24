@@ -129,6 +129,32 @@ def test_history_load_uses_persisted_messages():
     mock_db.add_message.assert_not_called()
 
 
+def test_refresh_document_context_sets_prompt_and_excerpt():
+    session = ChatSession(system_prompt="stale")
+    session.add_user_message("prior")
+    model = MagicMock()
+    ctx = MagicMock()
+
+    with (
+        patch("plugin.doc.document_helpers.get_document_context_for_chat", return_value="DOC BODY") as mock_doc,
+        patch("plugin.framework.prompts.get_chat_system_prompt_for_document", return_value="FRESH PROMPT") as mock_prompt,
+        patch("plugin.framework.config.get_config", return_value="extra notes"),
+    ):
+        session.refresh_document_context(model, ctx)
+
+    mock_doc.assert_called_once()
+    assert mock_doc.call_args.args[0] is model
+    assert mock_doc.call_args.kwargs["include_end"] is True
+    assert mock_doc.call_args.kwargs["include_selection"] is True
+    assert mock_doc.call_args.kwargs["ctx"] is ctx
+    mock_prompt.assert_called_once_with(model, "extra notes", ctx=ctx)
+    assert session.base_system_prompt == "FRESH PROMPT"
+    assert session.document_context == "DOC BODY"
+    assert session.messages[0]["content"].startswith("FRESH PROMPT")
+    assert "[DOCUMENT CONTENT]\nDOC BODY\n[END DOCUMENT]" in session.messages[0]["content"]
+    assert session.messages[1]["role"] == "user"
+
+
 def test_history_load_failure_still_applies_system_prompt():
     with patch(
         "plugin.chatbot.panel.get_chat_history",

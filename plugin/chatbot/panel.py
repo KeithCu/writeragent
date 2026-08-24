@@ -16,10 +16,11 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Chat sidebar panel logic: session, send/tool loop, and button listeners.
 
-ChatSession holds conversation history. SendButtonListener drives the
-streaming tool-calling loop. StopButtonListener and ClearButtonListener
-are wired by panel_factory. UNO UI element factory and XDL wiring
-remain in panel_factory.py.
+ChatSession holds conversation history and refreshes ``[DOCUMENT CONTENT]``
+on Chat-mode switch. SendButtonListener drives the streaming tool-calling
+loop (via SendHandlersMixin / ToolCallingMixin). StopButtonListener and
+ClearButtonListener are wired by panel_factory. UNO UI element factory
+and XDL wiring remain in panel_factory.py.
 """
 
 from __future__ import annotations
@@ -105,6 +106,27 @@ class ChatSession:
             self.messages.insert(0, {"role": "system", "content": content})
         else:
             self.messages[0]["content"] = content
+
+    def refresh_document_context(self, model, ctx):
+        """Reload the Chat system prompt and ``[DOCUMENT CONTENT]`` from the live document.
+
+        Why this lives on ChatSession, not panel_factory: the factory only wires
+        XDL/controls. Mode switch (Chat dropdown / switch_to_document_mode) still
+        needs a fresh snapshot so the session does not keep an earlier send's
+        excerpt. Send/tool_loop also refresh on each send — this is the other
+        owner of that same builder, not a second factory import of it.
+        """
+        from plugin.doc.document_helpers import get_document_context_for_chat
+        from plugin.framework.config import get_config
+        from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
+        from plugin.framework.prompts import get_chat_system_prompt_for_document
+
+        extra_instructions = str(get_config("additional_instructions") or "")
+        base_prompt = get_chat_system_prompt_for_document(model, extra_instructions, ctx=ctx)
+        doc_text = get_document_context_for_chat(
+            model, CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=ctx
+        )
+        self.set_system_context(base_prompt, doc_text)
 
     def add_user_message(self, content):
         self.messages.append({"role": "user", "content": content})
