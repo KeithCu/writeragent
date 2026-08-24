@@ -23,7 +23,7 @@ from plugin.chatbot.dialogs import (
     translate_dialog,
 )
 from plugin.framework.uno_listeners import BaseActionListener
-from plugin.framework.config import as_bool
+from plugin.framework.config_schema import as_bool
 from plugin.framework.i18n import _
 from plugin.framework.logging import init_logging
 from plugin.scripting.venv_probe_ui import ScriptingVenvTestListener, VenvProbeProgressDialog

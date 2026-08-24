@@ -77,15 +77,21 @@ def test_config_schema_has_no_forbidden_imports() -> None:
     assert "plugin.framework.config" not in imported
 
 
-def test_config_reexports_schema_names() -> None:
+def test_config_does_not_reexport_schema_names() -> None:
     import plugin.framework.config as config
-    import plugin.framework.config_schema as schema
 
-    assert config.coerce_config_value is schema.coerce_config_value
-    assert config.WriterAgentConfig is schema.WriterAgentConfig
-    assert config.as_bool is schema.as_bool
-    assert config.clamp_schema_value is schema.clamp_schema_value
-    assert config.is_default_value is schema.is_default_value
+    for name in (
+        "as_bool",
+        "clamp_schema_value",
+        "coerce_config_value",
+        "WriterAgentConfig",
+        "is_default_value",
+        "set_manifest_modules",
+        "MODULES",
+    ):
+        assert name not in vars(config), name
+        with pytest.raises(ImportError):
+            exec(f"from plugin.framework.config import {name}")
 
 
 def test_as_bool_and_numeric_parsers() -> None:

@@ -29,8 +29,8 @@ from plugin.framework.config import (
     _write_config_file,
     _emit_config_changed_ctx,
     AI_SIMPLE_FIELDS,
-    WriterAgentConfig,
 )
+from plugin.framework.config_schema import WriterAgentConfig
 from plugin.framework.client.model_fetcher import set_image_model, set_text_model
 
 _unohelper_mod: Any

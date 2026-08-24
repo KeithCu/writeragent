@@ -16,9 +16,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Pure config schema and coercion for WriterAgent.
 
-No disk I/O, cache, event bus, ``get_ctx``, or ``init_config``. Callers keep
-importing public names from ``plugin.framework.config``, which re-exports this
-module. This file must not import ``config``, chatbot, calc, or uno_context.
+No disk I/O, cache, event bus, ``get_ctx``, or ``init_config``. Import
+schema/coercion names from this module. I/O stays on ``plugin.framework.config``.
+This file must not import ``config``, chatbot, calc, or uno_context.
 
 Manifest tables (``MODULES``, ``CONFIG_DEFAULTS``, ``CONFIG_SCHEMAS``,
 ``DOTTED_FALLBACKS``) live here because they are in-memory schema, not
@@ -279,12 +279,20 @@ _DEFAULT_PYTHON_SCRIPTS = {
 }
 
 
+# Optional overlay from config.py (Settings combobox labels). Typed Any so
+# assigning a different function does not trip the type checker.
+_endpoint_normalize_impl: Any = None
+
+
 def _normalize_configured_endpoint(endpoint_str: str, is_openwebui: bool) -> str:
     """Normalize a stored endpoint URL.
 
-    ``config.py`` replaces this with Settings combobox label parsing when
-    chatbot is present. This default path is the LibrePy fallback.
+    ``config.py`` sets ``_endpoint_normalize_impl`` to parse Settings combobox
+    labels when chatbot is present. This default path is the LibrePy fallback.
     """
+    impl = _endpoint_normalize_impl
+    if impl is not None:
+        return impl(endpoint_str, is_openwebui)
     return normalize_endpoint_url(endpoint_str, is_openwebui=is_openwebui)
 
 

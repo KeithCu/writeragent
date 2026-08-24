@@ -7,7 +7,8 @@ from plugin.framework.i18n import _, get_lo_locale
 import plugin.framework.i18n as i18n_module
 import sys
 
-from plugin.framework.config import WriterAgentConfig, _build_validated_config_export
+from plugin.framework.config import _build_validated_config_export
+from plugin.framework.config_schema import WriterAgentConfig
 from plugin.framework.constants import get_locales_dir
 
 # PO-header junk mistakenly saved into config via gettext/translation bugs (i18n + load path)

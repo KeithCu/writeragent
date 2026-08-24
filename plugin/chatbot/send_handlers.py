@@ -27,7 +27,8 @@ from plugin.framework.errors import (
     safe_json_loads,
     suppress_disposed,
 )
-from plugin.framework.config import get_api_config, get_config, get_config_int_safe, as_bool
+from plugin.framework.config import get_api_config, get_config, get_config_int_safe
+from plugin.framework.config_schema import as_bool
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.prompts import get_core_directives

@@ -22,7 +22,7 @@ from plugin.chatbot.dialogs import (
     set_control_text,
     translate_dialog,
 )
-from plugin.framework.config import as_bool
+from plugin.framework.config_schema import as_bool
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_extension_url
 

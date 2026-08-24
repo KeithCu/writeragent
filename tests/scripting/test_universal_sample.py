@@ -48,7 +48,7 @@ def test_universal_sample_writer():
         mock_apply.return_value = {}
         mock_upsert.return_value = {}
         
-        from plugin.framework.config import _DEFAULT_PYTHON_SCRIPTS
+        from plugin.framework.config_schema import _DEFAULT_PYTHON_SCRIPTS
         code = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
         exec(code, {"__name__": "__main__"})
         
@@ -73,7 +73,7 @@ def test_universal_sample_calc():
         mock_insert.return_value = {}
         mock_upsert.return_value = {}
         
-        from plugin.framework.config import _DEFAULT_PYTHON_SCRIPTS
+        from plugin.framework.config_schema import _DEFAULT_PYTHON_SCRIPTS
         code = _DEFAULT_PYTHON_SCRIPTS["Universal Sample"]
         exec(code, {"__name__": "__main__"})
         
@@ -92,7 +92,7 @@ def test_universal_sample_calc():
 
 
 def test_config_injects_universal_sample():
-    from plugin.framework.config import WriterAgentConfig
+    from plugin.framework.config_schema import WriterAgentConfig
     
     # Test that a config without "Universal Sample" gets it injected during validation
     config = WriterAgentConfig.from_dict({"saved_python_scripts": {"Hello WriterAgent": "result = 1"}})

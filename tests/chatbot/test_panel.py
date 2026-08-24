@@ -10,7 +10,7 @@
 
 import unittest
 
-from plugin.framework.config import _get_schema_default
+from plugin.framework.config_schema import _get_schema_default
 from plugin.chatbot.panel import query_enter_triggers_primary_send
 
 

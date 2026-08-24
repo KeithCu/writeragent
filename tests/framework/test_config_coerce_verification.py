@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""deal / Hypothesis verification for config coerce helpers (not full config.py)."""
+"""deal / Hypothesis verification for config_schema coerce helpers."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from plugin.framework.config import as_bool, parse_float_robust, parse_int_robust
+from plugin.framework.config_schema import as_bool, parse_float_robust, parse_int_robust
 
 
 @given(

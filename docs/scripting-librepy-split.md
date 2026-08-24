@@ -202,8 +202,8 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 
 | File | Why it ships |
 |------|----------------|
-| [`plugin/framework/config.py`](../plugin/framework/config.py) | Config read/write; re-exports schema names so LibrePy keeps importing from here |
-| [`plugin/framework/config_schema.py`](../plugin/framework/config_schema.py) | `WriterAgentConfig`, `MODULES`, coerce/clamp/defaults (no disk I/O) |
+| [`plugin/framework/config.py`](../plugin/framework/config.py) | Config path, cache, JSON I/O, typed getters |
+| [`plugin/framework/config_schema.py`](../plugin/framework/config_schema.py) | `WriterAgentConfig`, `MODULES`, coerce/clamp/defaults (no disk I/O). Import schema names from here. |
 | [`plugin/framework/constants.py`](../plugin/framework/constants.py) | `get_plugin_dir`, `AUTO_IMPORTS`, worker pool ids |
 | [`plugin/framework/errors.py`](../plugin/framework/errors.py) | `format_error_payload`, `ConfigError`, `safe_call` |
 | [`plugin/framework/json_utils.py`](../plugin/framework/json_utils.py) | `safe_json_loads` (via `client/errors.py`) |

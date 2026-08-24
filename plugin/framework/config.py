@@ -32,9 +32,8 @@ comment lines pointing at ``docs/writeragent-config-schema.md`` on GitHub.
 Those comments are stripped on read.
 
 Schema-backed coercion, option canonicalization, and min/max bounds live in
-``config_schema.py``. This module re-exports those names so existing
-``from plugin.framework.config import get_config, coerce_config_value, …``
-imports keep working. Do not import this file from ``config_schema.py``.
+``config_schema.py``. Import those names from there. This module is path,
+cache, and JSON I/O only. Do not import this file from ``config_schema.py``.
 """
 
 # crosshair: off
@@ -52,55 +51,6 @@ from plugin.framework.json_utils import repair_json
 from plugin.framework.url_utils import normalize_endpoint_url
 
 from plugin.framework import config_schema as _config_schema
-from plugin.framework.config_schema import (  # noqa: F401
-    MODULES,
-    CONFIG_DEFAULTS,
-    CONFIG_SCHEMAS,
-    DOTTED_FALLBACKS,
-    _DEFAULT_MODULES,
-    _DEFAULT_CONFIG_DEFAULTS,
-    _DEFAULT_CONFIG_SCHEMAS,
-    _DEFAULT_DOTTED_FALLBACKS,
-    _DEFAULT_PYTHON_SCRIPTS,
-    _LRU_LIST_CONFIG_KEY_PREFIXES,
-    _MISSING_VALUE,
-    WriterAgentConfig,
-    as_bool,
-    clamp_schema_value,
-    coerce_config_value,
-    get_config_schema,
-    get_manifest_modules,
-    is_default_value,
-    is_known_config_key,
-    parse_float_robust,
-    parse_int_robust,
-    prune_default_values,
-    _canonicalize_schema_option_value,
-    _dataclass_field_default,
-    _dataclass_field_type,
-    _dataclass_schema_for_key,
-    _dotted_fallback_keys,
-    _fallback_value_for_invalid,
-    _get_schema_default,
-    _is_equal_to_default,
-    _is_lru_list_config_key,
-    _module_schema_for_key,
-    _normalize_schema_type,
-    _resolve_default,
-    _schema_default_from_schema,
-)
-
-
-# Keep this module's table names in sync when tests or callers use
-# ``config.set_manifest_modules`` (schema rebinds its own globals).
-def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
-    """Set manifest modules list and rebuild fast defaults/schemas lookup dictionaries."""
-    global MODULES, CONFIG_DEFAULTS, CONFIG_SCHEMAS, DOTTED_FALLBACKS
-    _config_schema.set_manifest_modules(modules)
-    MODULES = _config_schema.MODULES
-    CONFIG_DEFAULTS = _config_schema.CONFIG_DEFAULTS
-    CONFIG_SCHEMAS = _config_schema.CONFIG_SCHEMAS
-    DOTTED_FALLBACKS = _config_schema.DOTTED_FALLBACKS
 
 
 def _normalize_configured_endpoint_with_selector(endpoint_str: str, is_openwebui: bool) -> str:
@@ -114,7 +64,7 @@ def _normalize_configured_endpoint_with_selector(endpoint_str: str, is_openwebui
 
 # Overlay after schema import so WriterAgentConfig.validate() keeps preset labels
 # without config_schema importing chatbot (LibrePy / one-way import).
-_config_schema._normalize_configured_endpoint = _normalize_configured_endpoint_with_selector
+_config_schema._endpoint_normalize_impl = _normalize_configured_endpoint_with_selector
 
 # Comment header written above the JSON object. Not a config key.
 CONFIG_SCHEMA_DOC_URL = (
@@ -407,7 +357,7 @@ _cache = ConfigCache()
 # --- Validated JSON export ---
 
 
-def _build_validated_config_export(data: Dict[str, Any], config: "WriterAgentConfig") -> Dict[str, Any]:
+def _build_validated_config_export(data: Dict[str, Any], config: _config_schema.WriterAgentConfig) -> Dict[str, Any]:
     """Merge validated WriterAgentConfig into a dict with the same keys as JSON `data`.
 
     Known dataclass fields are read from attributes; all other keys (e.g. ``agent_backend.path``)
@@ -440,11 +390,11 @@ def get_config(key):
     if key in config_data:
         return config_data[key]
 
-    for dotted in _dotted_fallback_keys(key):
+    for dotted in _config_schema._dotted_fallback_keys(key):
         if dotted in config_data:
             return config_data[dotted]
 
-    return _resolve_default(key)
+    return _config_schema._resolve_default(key)
 
 
 def get_config_int(key) -> int:
@@ -453,12 +403,12 @@ def get_config_int(key) -> int:
     v = get_config(key)
     # Empty string or None from JSON/UI: use schema default (same as missing key).
     if v == "" or v is None:
-        v = _resolve_default(key)
+        v = _config_schema._resolve_default(key)
     # _resolve_default returns "" for unknown keys that slip through without a dataclass default.
     if v == "":
         raise ConfigError(f"Missing config key {key!r}: not a WriterAgentConfig field, MODULES default, or LRU pattern.", "CONFIG_KEY_NOT_FOUND", details={"key": key})
     try:
-        return parse_int_robust(v)
+        return _config_schema.parse_int_robust(v)
     except ValueError as e:
         raise ConfigError(f"Config key {key!r} has non-integer value: {v!r}", "CONFIG_TYPE_ERROR") from e
 
@@ -478,7 +428,7 @@ def get_config_bool(key) -> bool:
     """Get a config value as bool. ALL requested keys MUST be in the schema.
     Throws ConfigError if key is not found."""
     v = get_config(key)
-    return as_bool(v)
+    return _config_schema.as_bool(v)
 
 
 def get_config_bool_safe(key: str) -> bool:
@@ -487,7 +437,7 @@ def get_config_bool_safe(key: str) -> bool:
         return get_config_bool(key)
     except Exception:
         try:
-            return as_bool(_resolve_default(key))
+            return _config_schema.as_bool(_config_schema._resolve_default(key))
         except Exception:
             return False
 
@@ -498,7 +448,7 @@ def get_config_int_safe(key: str) -> int:
         return get_config_int(key)
     except Exception:
         try:
-            return parse_int_robust(_resolve_default(key))
+            return _config_schema.parse_int_robust(_config_schema._resolve_default(key))
         except Exception:
             return 0
 
@@ -509,7 +459,7 @@ def get_config_float_safe(key: str) -> float:
         return get_config_float(key)
     except Exception:
         try:
-            return parse_float_robust(_resolve_default(key))
+            return _config_schema.parse_float_robust(_config_schema._resolve_default(key))
         except Exception:
             return 0.0
 
@@ -519,7 +469,7 @@ def get_config_float(key) -> float:
     Throws ConfigError if key is not found."""
     v = get_config(key)
     try:
-        return parse_float_robust(v)
+        return _config_schema.parse_float_robust(v)
     except ValueError as e:
         raise ConfigError(f"Config key {key!r} has non-float value: {v!r}", "CONFIG_TYPE_ERROR") from e
 
@@ -532,14 +482,14 @@ def get_config_dict():
 def _raw_config_value_for_key(config_data: dict[str, Any], key: str) -> Any:
     if key in config_data:
         return config_data[key]
-    for dotted in _dotted_fallback_keys(key):
+    for dotted in _config_schema._dotted_fallback_keys(key):
         if dotted in config_data:
             return config_data[dotted]
     if "." in key:
         field_name = key.split(".", 1)[1]
         if field_name in config_data:
             return config_data[field_name]
-    return _MISSING_VALUE
+    return _config_schema._MISSING_VALUE
 
 
 def set_config(key, value):
@@ -556,19 +506,19 @@ def set_config(key, value):
     else:
         config_data = {}
     current_value = _raw_config_value_for_key(config_data, key)
-    value = coerce_config_value(key, value, fallback_value=current_value)
+    value = _config_schema.coerce_config_value(key, value, fallback_value=current_value)
     if config_data.get(key) == value:
         return
 
     test_data = dict(config_data)
-    for dotted in _dotted_fallback_keys(key):
+    for dotted in _config_schema._dotted_fallback_keys(key):
         test_data.pop(dotted, None)
     if "." in key:
         test_data.pop(key.split(".", 1)[1], None)
     test_data[key] = value
 
     try:
-        test_config = WriterAgentConfig.from_dict(test_data)
+        test_config = _config_schema.WriterAgentConfig.from_dict(test_data)
         test_config.validate()
         config_data = test_config.to_dict()
     except ConfigValidationError as e:
@@ -609,7 +559,7 @@ def remove_config(key):
     if key in config_data:
         config_data.pop(key, None)
         removed = True
-    for dotted in list(_dotted_fallback_keys(key)):
+    for dotted in list(_config_schema._dotted_fallback_keys(key)):
         if dotted in config_data:
             config_data.pop(dotted, None)
             removed = True
@@ -622,7 +572,7 @@ def remove_config(key):
         return
 
     try:
-        test_config = WriterAgentConfig.from_dict(config_data)
+        test_config = _config_schema.WriterAgentConfig.from_dict(config_data)
         test_config.validate()
         config_data = test_config.to_dict()
     except Exception:
@@ -679,7 +629,7 @@ def _get_validated_config_dict():
             current_mtime = 0
 
         # Perform validation when config is loaded
-        config = WriterAgentConfig.from_dict(data)
+        config = _config_schema.WriterAgentConfig.from_dict(data)
         config.validate()
 
         out = _build_validated_config_export(data, config)
@@ -687,13 +637,13 @@ def _get_validated_config_dict():
         # Persist stale calc_prompt_max_tokens upgrade (old default 70 → 4096).
         raw_prompt_tokens = data.get("calc_prompt_max_tokens")
         try:
-            raw_int = parse_int_robust(raw_prompt_tokens) if raw_prompt_tokens is not None and raw_prompt_tokens != "" else None
+            raw_int = _config_schema.parse_int_robust(raw_prompt_tokens) if raw_prompt_tokens is not None and raw_prompt_tokens != "" else None
         except ValueError:
             raw_int = None
         if raw_int is not None and raw_int < 100:
             file_data = dict(data)
             file_data.pop("calc_prompt_max_tokens", None)
-            cleaned_config = WriterAgentConfig.from_dict(file_data)
+            cleaned_config = _config_schema.WriterAgentConfig.from_dict(file_data)
             cleaned_config.validate()
             cleaned_file_data = cleaned_config.to_dict()
             try:
@@ -747,7 +697,7 @@ def get_api_config():
     from plugin.framework.client.model_fetcher import get_text_model
 
     endpoint = str(get_config("endpoint") or "").rstrip("/")
-    is_openwebui = as_bool(get_config("is_openwebui")) or "open-webui" in endpoint.lower() or "openwebui" in endpoint.lower()
+    is_openwebui = _config_schema.as_bool(get_config("is_openwebui")) or "open-webui" in endpoint.lower() or "openwebui" in endpoint.lower()
 
     # Local import to avoid circular import during early UNO registration
     # (config → client/provider_detection → client/__init__ → llm_client → logging → config)
@@ -756,7 +706,7 @@ def get_api_config():
     # Use the consolidated detection helper (2026 provider heuristic cleanup)
     # so the OpenRouter decision is identical everywhere (auth, model fetcher,
     # error messages, LLM client, etc.).
-    is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=as_bool(get_config("is_openrouter")))
+    is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=_config_schema.as_bool(get_config("is_openrouter")))
     api_key = get_api_key_for_endpoint(endpoint)
 
     api_config = {
@@ -801,12 +751,4 @@ def validate_api_config(config):
     if _is_model_combobox_placeholder(model):
         return (False, _("Please select a valid model in Settings (not a placeholder)."))
     return (True, "")
-
-
-def __getattr__(name: str) -> Any:
-    """Forward missed names to ``config_schema`` so callers keep importing from here."""
-    try:
-        return getattr(_config_schema, name)
-    except AttributeError:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
 

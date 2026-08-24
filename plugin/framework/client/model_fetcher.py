@@ -20,11 +20,11 @@ from plugin.framework.errors import NetworkError
 from plugin.framework.config import (
     get_api_key_for_endpoint,
     get_config_bool_safe,
-    as_bool,
     get_config,
     get_current_endpoint,
     set_config,
 )
+from plugin.framework.config_schema import as_bool
 
 log = logging.getLogger(__name__)
 

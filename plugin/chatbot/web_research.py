@@ -610,7 +610,8 @@ class WebResearchTool(ToolBase):
 
         prompt_for_web_research = False
         try:
-            from plugin.framework.config import get_config, as_bool
+            from plugin.framework.config import get_config
+            from plugin.framework.config_schema import as_bool
 
             prompt_for_web_research = as_bool(get_config("chatbot.prompt_for_web_research"))
         except (ValueError, TypeError):

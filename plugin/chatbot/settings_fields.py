@@ -9,7 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Literal
 
-from plugin.framework.config import as_bool, get_config, set_config
+from plugin.framework.config import get_config, set_config
+from plugin.framework.config_schema import as_bool
 from plugin.framework.event_bus import global_event_bus
 from plugin.framework.i18n import _
 

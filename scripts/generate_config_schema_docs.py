@@ -152,7 +152,7 @@ def load_core_config_fields(
     """Public WriterAgentConfig fields for the schema doc (type + default)."""
     import dataclasses
 
-    from plugin.framework.config import (
+    from plugin.framework.config_schema import (
         WriterAgentConfig,
         _dataclass_field_default,
         _dataclass_field_type,

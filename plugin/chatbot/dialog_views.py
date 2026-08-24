@@ -24,7 +24,8 @@ from com.sun.star.awt import XItemListener, XTextListener
 from plugin.framework.errors import format_error_payload, UnoObjectError, ConfigValidationError
 from plugin.framework.uno_context import get_desktop, get_extension_url, menu_icon_asset_url
 from plugin.framework.i18n import _
-from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int, as_bool
+from plugin.framework.config import get_config, get_current_endpoint, set_config, get_config_str, get_config_int
+from plugin.framework.config_schema import as_bool
 from plugin.framework.client.model_fetcher import get_text_model, get_stt_model, set_text_model
 from plugin.framework.logging import init_logging
 from plugin.chatbot.config_ui_helpers import populate_combobox_with_lru

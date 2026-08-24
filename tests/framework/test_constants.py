@@ -93,7 +93,7 @@ def test_get_chat_system_prompt_allows_html_when_rich_text_control_sidebar():
 def test_get_chat_system_prompt_allows_html_by_default_fallback():
     model = MagicMock()
     model.supportsService.return_value = False
-    from plugin.framework.config import _get_schema_default, as_bool
+    from plugin.framework.config_schema import _get_schema_default, as_bool
     from plugin.framework.prompts import CHAT_RESPONSE_FORMAT, RICH_CHAT_SIDEBAR_INSTRUCTIONS
 
     rich_default = as_bool(_get_schema_default("rich_text_control_sidebar"))

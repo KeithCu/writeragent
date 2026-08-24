@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.framework.config import as_bool
+from plugin.framework.config_schema import as_bool
 from plugin.framework.tool import ToolBase
 
 

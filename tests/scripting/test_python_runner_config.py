@@ -78,7 +78,7 @@ class TestPythonRunnerConfig(unittest.TestCase):
         mock_execute.assert_not_called()
 
     def test_config_defaults(self):
-        from plugin.framework.config import WriterAgentConfig
+        from plugin.framework.config_schema import WriterAgentConfig
         config = WriterAgentConfig()
         self.assertEqual(config.last_python_script_name_writer, "Prime Numbers")
         self.assertEqual(config.last_python_script_name_calc, "Prime Numbers")

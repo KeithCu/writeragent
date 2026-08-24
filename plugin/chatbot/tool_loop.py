@@ -41,7 +41,7 @@ from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.framework.errors import format_error_payload, NetworkError
 from plugin.framework.queue_executor import llm_request_lane
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.config import as_bool
+from plugin.framework.config_schema import as_bool
 
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.uno_context import get_toolkit
