@@ -82,6 +82,8 @@ class TestInitLogging(unittest.TestCase):
 
     def test_init_logging_uses_ctx_config_dir(self):
         # Windows can keep the FileHandler lock briefly after close(); ignore cleanup then.
+        from plugin.framework.config import reset_config_for_tests
+        reset_config_for_tests()
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             config_path = os.path.join(tmp, "writeragent.json")
             with open(config_path, "w", encoding="utf-8") as fh:

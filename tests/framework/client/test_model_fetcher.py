@@ -108,10 +108,8 @@ class TestTextModelPlaceholderGuards(unittest.TestCase):
             def mock_config_path():
                 return config_path
             with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
-                import plugin.framework.config as real_config
-                real_config._cached_config_dict = None
-                real_config._cached_config_mtime = 0
-                real_config._cached_config_mtime_last_checked = 0.0
+                from plugin.framework.config import reset_config_for_tests
+                reset_config_for_tests()
                 for k in list(cfg._model_fetch_cache):
                     if ('58904' in k):
                         del cfg._model_fetch_cache[k]
@@ -139,10 +137,8 @@ class TestTextModelPlaceholderGuards(unittest.TestCase):
             def mock_config_path():
                 return config_path
             with patch('plugin.framework.config._config_path', side_effect=mock_config_path):
-                import plugin.framework.config as real_config
-                real_config._cached_config_dict = None
-                real_config._cached_config_mtime = 0
-                real_config._cached_config_mtime_last_checked = 0.0
+                from plugin.framework.config import reset_config_for_tests
+                reset_config_for_tests()
                 for k in list(cfg._model_fetch_cache):
                     if ('58905' in k):
                         del cfg._model_fetch_cache[k]

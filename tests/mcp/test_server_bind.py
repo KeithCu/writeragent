@@ -28,12 +28,18 @@ class _EmptyRoutes:
 
 
 def test_start_binds_on_free_port():
-    srv = HttpServer(route_registry=_EmptyRoutes(), port=_free_port(), host="127.0.0.1")
-    srv.start()
-    try:
-        assert srv.is_running()
-    finally:
-        srv.stop()
+    for _attempt in range(3):
+        port = _free_port()
+        srv = HttpServer(route_registry=_EmptyRoutes(), port=port, host="127.0.0.1")
+        try:
+            srv.start()
+            assert srv.is_running()
+            srv.stop()
+            break
+        except OSError:
+            pass
+    else:
+        pytest.fail("Failed to start HttpServer after 3 attempts due to port in use")
 
 
 def test_start_raises_immediately_when_port_busy(monkeypatch):

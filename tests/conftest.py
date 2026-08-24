@@ -252,12 +252,14 @@ def _setup_grammar_persistence_test_env():
     # MagicMock's default __fspath__ yields a relative "MagicMock/<name>/<id>" path that
     # MemoryStore's makedirs then creates inside the repo. Seeding the module-level cache routes
     # every resolver through this per-test temp dir instead.
+    config_mod.reset_config_for_tests()
     old_resolved = config_mod._resolved_config_path
     config_mod._resolved_config_path = os.path.join(tmp_dir, "writeragent.json")
     try:
         with patch("plugin.framework.config.user_config_dir", return_value=tmp_dir):
             yield
     finally:
+        config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = old_resolved
 
         # Restore logging state

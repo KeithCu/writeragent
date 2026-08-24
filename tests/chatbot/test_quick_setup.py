@@ -48,16 +48,23 @@ def test_local_server_probes_structure():
 
 def test_check_port_open_real_listener():
     """Test _check_port_open with an active socket."""
-    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.bind(("127.0.0.1", 0))
-    srv.listen(1)
-    port = srv.getsockname()[1]
-    try:
-        assert _check_port_open("127.0.0.1", port, timeout_sec=0.5) is True
-    finally:
-        srv.close()
+    for _attempt in range(3):
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        port = srv.getsockname()[1]
+        try:
+            assert _check_port_open("127.0.0.1", port, timeout_sec=0.5) is True
+        finally:
+            srv.close()
 
-    assert _check_port_open("127.0.0.1", port, timeout_sec=0.1) is False
+        # If another process bound the port immediately after srv.close(),
+        # _check_port_open might still return True. Retry in that case.
+        if _check_port_open("127.0.0.1", port, timeout_sec=0.1) is False:
+            break
+    else:
+        import pytest
+        pytest.fail("Failed to verify closed port after 3 attempts due to port snatching")
 
 
 @patch("plugin.chatbot.quick_setup._check_port_open")
