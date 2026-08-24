@@ -18,6 +18,10 @@
 
 import logging
 
+from plugin.doc import text_helpers as _text_helpers
+from plugin.framework.errors import UnoObjectError, check_disposed, safe_call
+from plugin.framework.thread_guard import main_thread_only
+
 log = logging.getLogger(__name__)
 
 
@@ -214,3 +218,65 @@ class DrawBridge:
         except Exception:
             log.debug("get_active_page_index failed", exc_info=True)
         return 0
+
+
+@main_thread_only
+def get_draw_context_for_chat(model, max_context=8000, ctx=None):
+    """Get context summary for a Draw/Impress document. ctx: unused, kept for signature compat."""
+    try:
+        check_disposed(model, "Document Model")
+        bridge = DrawBridge(model)
+        pages = bridge.get_pages()
+        active_page = bridge.get_active_page()
+
+        is_impress = safe_call(model.supportsService, "Check supportsService", "com.sun.star.presentation.PresentationDocument")
+        doc_type = "Impress Presentation" if is_impress else "Draw Document"
+
+        ctx_str = "%s: %s\n" % (doc_type, safe_call(model.getURL, "Get document URL") or "Untitled")
+        ctx_str += "Total %s: %d\n" % ("Slides" if is_impress else "Pages", safe_call(pages.getCount, "Get page count"))
+
+        # Get index of active page
+        active_page_idx = -1
+        for i in range(safe_call(pages.getCount, "Get page count")):
+            if safe_call(pages.getByIndex, "Get page by index", i) == active_page:
+                active_page_idx = i
+                break
+
+        ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress else "Page", active_page_idx)
+
+        # Summarize shapes on active page
+        if active_page:
+            shapes = bridge.get_shapes(active_page)
+            ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
+            for i, s in enumerate(shapes):
+                type_name = safe_call(s.getShapeType, "Get shape type").split(".")[-1]
+                pos = safe_call(s.getPosition, "Get position")
+                size = safe_call(s.getSize, "Get size")
+                ctx_str += "- [%d] %s: pos(%d, %d) size(%dx%d)" % (i, type_name, pos.X, pos.Y, size.Width, size.Height)
+                if hasattr(s, "getString"):
+                    text = _text_helpers.normalize_linebreaks(safe_call(s.getString, "Get string"))
+                    if text:
+                        ctx_str += ' text: "%s"' % text[:200]
+                ctx_str += "\n"
+
+            # Impress-specific: Speaker Notes
+            if is_impress and hasattr(active_page, "getNotesPage"):
+                try:
+                    notes_page = safe_call(active_page.getNotesPage, "Get notes page")
+                    notes_text = ""
+                    for i in range(safe_call(notes_page.getCount, "Get notes page count")):
+                        shape = safe_call(notes_page.getByIndex, "Get notes shape by index", i)
+                        if safe_call(shape.getShapeType, "Get notes shape type") == "com.sun.star.presentation.NotesShape":
+                            notes_text += safe_call(shape.getString, "Get notes shape string") + "\n"
+                    if notes_text.strip():
+                        ctx_str += "\nSpeaker Notes:\n%s\n" % notes_text.strip()
+                except UnoObjectError:
+                    pass
+
+        return ctx_str
+    except UnoObjectError:
+        log.exception("get_draw_context_for_chat error")
+        return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"
+    except Exception:
+        log.exception("get_draw_context_for_chat exception")
+        return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"

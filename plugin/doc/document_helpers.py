@@ -20,7 +20,8 @@
 Text/path/selection helpers live in ``plugin.doc.text_helpers`` (LibrePy-safe).
 Document resolution lives in ``plugin.framework.uno_context``. Streamed Writer
 edits live in ``plugin.writer.edit_review``. Calc chat context lives in
-``plugin.calc.analyzer``. Paragraph range helpers live in
+``plugin.calc.analyzer``. Draw/Impress chat context lives in
+``plugin.draw.bridge``. Paragraph range helpers live in
 ``plugin.doc.paragraph_search``. Do not re-export those names here — a
 re-export of ``get_calc_context_for_chat`` would pull ``SheetAnalyzer`` at
 import time and break LibrePy.
@@ -46,38 +47,27 @@ from plugin.framework.uno_context import get_active_document, get_ctx, resolve_d
 
 @main_thread_only
 def get_full_document_text(model, max_chars=CHAT_DOCUMENT_CONTEXT_MAX_CHARS):
-    """Get full document text for Writer or summary for Calc, truncated to max_chars.
+    """Dispatch full-text / summary by document type.
 
-    Stays here (not ``text_helpers``) because the Calc branch needs
-    ``SheetAnalyzer`` / ``CalcBridge``. Those are imported lazily so this
-    module's import does not load Calc.
+    Writer slices live in ``text_helpers``. Draw/Impress summaries live on
+    ``plugin.draw.bridge``. Calc is lazy so this module does not load
+    ``SheetAnalyzer`` at import time.
     """
     try:
         check_disposed(model, "Document Model")
         doc_type = _doc_type.get_document_type(model)
 
         if doc_type == _doc_type.DocumentType.CALC:
-            from plugin.calc.analyzer import SheetAnalyzer
-            from plugin.calc.bridge import CalcBridge
+            from plugin.calc.analyzer import get_full_calc_text
 
-            # Calc document
-            bridge = CalcBridge(model)
-            analyzer = SheetAnalyzer(bridge)
-            summary = analyzer.get_sheet_summary()
-            text = f"Sheet: {summary['sheet_name']}\nUsed Range: {summary['used_range']}\n"
-            text += f"Columns: {', '.join(filter(None, summary['headers']))}\n"
-            # Maybe add some preview rows?
-            return text
+            return get_full_calc_text(model, max_chars)
 
         if doc_type == _doc_type.DocumentType.WRITER:
-            doc_len = _text_helpers._writer_char_count(model)
-            take = min(doc_len, max_chars)
-            excerpt = _text_helpers._read_writer_text_slice(model, 0, take)
-            if doc_len > max_chars:
-                excerpt += "\n\n[... document truncated ...]"
-            return excerpt
+            return _text_helpers.get_full_writer_text(model, max_chars)
 
         if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
+            from plugin.draw.bridge import get_draw_context_for_chat
+
             return get_draw_context_for_chat(model, max_chars)
 
         return ""
@@ -131,6 +121,8 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
             return get_calc_context_for_chat(model, max_context, ctx)
 
         if doc_type in (_doc_type.DocumentType.DRAW, _doc_type.DocumentType.IMPRESS):
+            from plugin.draw.bridge import get_draw_context_for_chat
+
             return get_draw_context_for_chat(model, max_context, ctx)
 
         # Writer: plain-text start/end slices (hides tracked deletions). Math OLE is not
@@ -200,70 +192,6 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
         except Exception:
             pass
         return "[Document content unavailable]"
-
-
-@main_thread_only
-def get_draw_context_for_chat(model, max_context=8000, ctx=None):
-    """Get context summary for a Draw/Impress document. ctx: component context (unused, kept for signature compat)."""
-    try:
-        check_disposed(model, "Document Model")
-        from plugin.draw.bridge import DrawBridge
-
-        bridge = DrawBridge(model)
-        pages = bridge.get_pages()
-        active_page = bridge.get_active_page()
-
-        is_impress = safe_call(model.supportsService, "Check supportsService", "com.sun.star.presentation.PresentationDocument")
-        doc_type = "Impress Presentation" if is_impress else "Draw Document"
-
-        ctx_str = "%s: %s\n" % (doc_type, safe_call(model.getURL, "Get document URL") or "Untitled")
-        ctx_str += "Total %s: %d\n" % ("Slides" if is_impress else "Pages", safe_call(pages.getCount, "Get page count"))
-
-        # Get index of active page
-        active_page_idx = -1
-        for i in range(safe_call(pages.getCount, "Get page count")):
-            if safe_call(pages.getByIndex, "Get page by index", i) == active_page:
-                active_page_idx = i
-                break
-
-        ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress else "Page", active_page_idx)
-
-        # Summarize shapes on active page
-        if active_page:
-            shapes = bridge.get_shapes(active_page)
-            ctx_str += "\nShapes on %s %d:\n" % ("Slide" if is_impress else "Page", active_page_idx)
-            for i, s in enumerate(shapes):
-                type_name = safe_call(s.getShapeType, "Get shape type").split(".")[-1]
-                pos = safe_call(s.getPosition, "Get position")
-                size = safe_call(s.getSize, "Get size")
-                ctx_str += "- [%d] %s: pos(%d, %d) size(%dx%d)" % (i, type_name, pos.X, pos.Y, size.Width, size.Height)
-                if hasattr(s, "getString"):
-                    text = _text_helpers.normalize_linebreaks(safe_call(s.getString, "Get string"))
-                    if text:
-                        ctx_str += ' text: "%s"' % text[:200]
-                ctx_str += "\n"
-
-            # Impress-specific: Speaker Notes
-            if is_impress and hasattr(active_page, "getNotesPage"):
-                try:
-                    notes_page = safe_call(active_page.getNotesPage, "Get notes page")
-                    notes_text = ""
-                    for i in range(safe_call(notes_page.getCount, "Get notes page count")):
-                        shape = safe_call(notes_page.getByIndex, "Get notes shape by index", i)
-                        if safe_call(shape.getShapeType, "Get notes shape type") == "com.sun.star.presentation.NotesShape":
-                            notes_text += safe_call(shape.getString, "Get notes shape string") + "\n"
-                    if notes_text.strip():
-                        ctx_str += "\nSpeaker Notes:\n%s\n" % notes_text.strip()
-                except UnoObjectError:
-                    pass
-
-        return ctx_str
-    except UnoObjectError:
-        logging.getLogger(__name__).exception("get_draw_context_for_chat error")
-        return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"
-    except Exception:
-        logging.getLogger(__name__).exception("get_draw_context_for_chat exception")
-        return "[Unable to read Draw/Impress context. The document may be locked or initializing.]"
 
 
 def _inject_markers_into_excerpt(excerpt_text, excerpt_start, excerpt_end, sel_start, sel_end, prefix, suffix):

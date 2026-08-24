@@ -173,3 +173,20 @@ def get_calc_context_for_chat(model, max_context=8000, ctx=None):
     except Exception:
         logging.getLogger(__name__).exception("get_calc_context_for_chat exception")
         return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
+
+
+def get_full_calc_text(model, max_chars=8000):
+    """Short active-sheet summary for ``get_full_document_text`` (not the chat excerpt).
+
+    Kept next to ``get_calc_context_for_chat`` so ``document_helpers`` can lazy-import
+    this module instead of constructing ``SheetAnalyzer`` itself. ``max_chars`` is
+    unused; the summary is already a few lines.
+    """
+    from plugin.calc.bridge import CalcBridge
+
+    bridge = CalcBridge(model)
+    analyzer = SheetAnalyzer(bridge)
+    summary = analyzer.get_sheet_summary()
+    text = f"Sheet: {summary['sheet_name']}\nUsed Range: {summary['used_range']}\n"
+    text += f"Columns: {', '.join(filter(None, summary['headers']))}\n"
+    return text

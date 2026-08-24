@@ -423,6 +423,16 @@ def _read_writer_text_slice(model, start_offset: int, length: int) -> str:  # py
     return normalize_linebreaks(get_string_without_tracked_deletions(cursor))
 
 
+def get_full_writer_text(model, max_chars):
+    """Prefix of Writer body text, truncated. Hides tracked deletions."""
+    doc_len = _writer_char_count(model)
+    take = min(doc_len, max_chars)
+    excerpt = _read_writer_text_slice(model, 0, take)
+    if doc_len > max_chars:
+        excerpt += "\n\n[... document truncated ...]"
+    return excerpt
+
+
 def _writer_excerpt_overlaps_selection(model, excerpt_start: int, excerpt_end: int, sel_start_pos, sel_end_pos) -> bool:
     """True when selection UNO range overlaps [excerpt_start, excerpt_end) character window."""
     exc_cursor = get_text_cursor_at_range(model, excerpt_start, excerpt_end)
