@@ -4,7 +4,8 @@ from __future__ import annotations
 Model definitions for multi-model DSPy/OpenRouter benchmarking.
 
 Each model is identified by its **openrouter_id** (e.g. openai/gpt-oss-120b).
-Prices are in USD per 1M tokens.
+Prices are in USD per 1M tokens (OpenRouter ``pricing.prompt`` /
+``pricing.completion`` × 1e6). Context windows are ``context_length``.
 """
 
 from dataclasses import dataclass
@@ -32,141 +33,65 @@ class ModelConfig:
     notes: Optional[str] = None
 
 
+# Prices and context_length from OpenRouter GET /api/v1/models (2026-08-24).
+# Default sweep is US/small-leaning plus China pack; gold-only is excluded
+# from get_default_models() but stays in MODELS for --gold-model.
 MODELS: list[ModelConfig] = [
     ModelConfig(
         openrouter_id="openai/gpt-oss-120b",
         display_name="OpenAI: gpt-oss-120b",
-        context_window_tokens=131_000,
-        input_cost_per_million=0.039,
-        output_cost_per_million=0.19,
-        notes=(
-            "117B-parameter MoE; 5.1B activated per forward; MXFP4; "
-            "high-reasoning, agentic, and general-purpose; native tools."
-        ),
+        context_window_tokens=131_072,
+        input_cost_per_million=0.037,
+        output_cost_per_million=0.17,
+        notes="OpenAI open-weight 117B MoE (5.1B active); high-reasoning agentic default.",
     ),
     ModelConfig(
-        openrouter_id="google/gemini-3-flash-preview",
-        display_name="Google: Gemini 3 Flash",
+        openrouter_id="openai/gpt-oss-20b",
+        display_name="OpenAI: gpt-oss-20b",
+        context_window_tokens=131_072,
+        input_cost_per_million=0.03,
+        output_cost_per_million=0.13,
+        notes="OpenAI open-weight 21B MoE (3.6B active); cheap small sibling of 120B.",
+    ),
+    ModelConfig(
+        openrouter_id="openai/gpt-5.6-luna",
+        display_name="OpenAI: GPT-5.6 Luna",
         context_window_tokens=1_050_000,
-        input_cost_per_million=0.10,
-        output_cost_per_million=0.40,
-        notes=(
-            "Latest Gemini Flash; fast multimodal with strong coding and "
-            "function-calling."
-        ),
+        input_cost_per_million=0.2,
+        output_cost_per_million=1.2,
+        notes="OpenAI GPT-5.6 fast/cheap tier for latency-sensitive agent work.",
     ),
     ModelConfig(
-        openrouter_id="z-ai/glm-5.1",
-        display_name="Z.ai: GLM 5.1",
-        context_window_tokens=203_000,
-        input_cost_per_million=0.95,
-        output_cost_per_million=3.15,
-        notes=(
-            "Latest flagship GLM with enhanced programming capabilities and "
-            "more stable multi-step reasoning / agent execution."
-        ),
+        openrouter_id="google/gemini-3.7-flash",
+        display_name="Google: Gemini 3.7 Flash",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.375,
+        output_cost_per_million=1.875,
+        notes="Google Flash for fast agentic/coding work; replaces Gemini 3 Flash Preview.",
     ),
     ModelConfig(
-        openrouter_id="minimax/minimax-m2.7",
-        display_name="MiniMax: MiniMax M2.7",
-        context_window_tokens=197_000,
-        input_cost_per_million=0.30,
-        output_cost_per_million=1.20,
-        notes=(
-            "Released Mar 18, 2026; 2.12T tokens; flagship model optimized for "
-            "office workflows (Word, Excel, PPT); scores 80.2% on SWE-Bench "
-            "Verified; strong planning and agentic capabilities."
-        ),
-    ),
-    ModelConfig(
-        openrouter_id="x-ai/grok-4.1-fast",
-        display_name="xAI: Grok 4.1 Fast",
-        context_window_tokens=2_000_000,
-        input_cost_per_million=0.20,
-        output_cost_per_million=0.50,
-        notes=(
-            "Grok 4.1 Fast; 2M-token context; $0.20/M input, $0.50/M output."
-        ),
-    ),
-    ModelConfig(
-        openrouter_id="qwen/qwen3.5-35b-a3b",
-        display_name="Qwen: Qwen3.5-35B-A3B",
-        context_window_tokens=262_000,
-        input_cost_per_million=0.25,
-        output_cost_per_million=2.00,
-        notes="Vision-language MoE; linear attention; comparable to Qwen3.5-27B.",
-    ),
-    ModelConfig(
-        openrouter_id="qwen/qwen3.5-27b",
-        display_name="Qwen: Qwen3.5-27B",
-        context_window_tokens=262_000,
-        input_cost_per_million=0.30,
-        output_cost_per_million=2.40,
-        notes="Dense VLM with linear attention; comparable to Qwen3.5-122B-A10B.",
-    ),
-    ModelConfig(
-        openrouter_id="qwen/qwen3.5-122b-a10b",
-        display_name="Qwen: Qwen3.5-122B-A10B",
-        context_window_tokens=262_000,
-        input_cost_per_million=0.40,
-        output_cost_per_million=3.20,
-        notes="VLM MoE; second to Qwen3.5-397B-A17B; strong text and visual.",
-    ),
-    ModelConfig(
-        openrouter_id="qwen/qwen3.5-9b",
-        display_name="Qwen: Qwen3.5-9B",
-        context_window_tokens=262_000,
-        input_cost_per_million=0.10,
-        output_cost_per_million=0.15,
-        notes=(
-            "Released Mar 10, 2026; 9B-parameter multimodal foundation model "
-            "from the Qwen3.5 family; strong reasoning, coding, and visual "
-            "understanding via early fusion of multimodal tokens."
-        ),
-    ),
-    ModelConfig(
-        openrouter_id="allenai/olmo-3.1-32b-instruct",
-        display_name="AllenAI: Olmo 3.1 32B Instruct",
-        context_window_tokens=65_536,
-        input_cost_per_million=0.20,
-        output_cost_per_million=0.60,
-        notes="Released Jan 6, 2026; 65K context.",
+        openrouter_id="google/gemini-3.5-flash-lite",
+        display_name="Google: Gemini 3.5 Flash Lite",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.3,
+        output_cost_per_million=2.5,
+        notes="Google lite Flash for cheap focused subagent tasks.",
     ),
     ModelConfig(
         openrouter_id="nvidia/nemotron-3-nano-30b-a3b",
         display_name="NVIDIA: Nemotron 3 Nano 30B A3B",
-        context_window_tokens=262_000,
-        input_cost_per_million=0.05,
-        output_cost_per_million=0.20,
-        notes="Small MoE; open-weights; agentic AI; high compute efficiency.",
-    ),
-    ModelConfig(
-        openrouter_id="nvidia/nemotron-3-super-120b-a12b:free",
-        display_name="NVIDIA: Nemotron 3 Super 120B A12B (Free Tier)",
-        context_window_tokens=262_000,
-        input_cost_per_million=0.20,
-        output_cost_per_million=0.80,
-        notes=(
-            "Large Nemotron 3 Super 120B variant on OpenRouter; "
-            "configured here with approximate list pricing so it can "
-            "participate in intelligence-per-dollar benchmarking."
-        ),
-    ),
-    ModelConfig(
-        openrouter_id="mistralai/devstral-2512",
-        display_name="Mistral: Devstral 2 2512",
         context_window_tokens=262_144,
-        input_cost_per_million=0.40,
-        output_cost_per_million=2.00,
-        notes="Released Dec 9, 2025; 262K context.",
+        input_cost_per_million=0.05,
+        output_cost_per_million=0.2,
+        notes="NVIDIA small MoE; paid (not :free) high-efficiency agentic.",
     ),
     ModelConfig(
-        openrouter_id="deepseek/deepseek-v3.2",
-        display_name="DeepSeek V3.2",
-        context_window_tokens=131_072,
-        input_cost_per_million=0.26,
-        output_cost_per_million=0.38,
-        notes="Released Dec 8, 2025; 131K context.",
+        openrouter_id="nvidia/nemotron-3.5-lightning",
+        display_name="NVIDIA: Nemotron 3.5 Lightning",
+        context_window_tokens=262_144,
+        input_cost_per_million=0.08,
+        output_cost_per_million=0.2,
+        notes="NVIDIA 30B/3B-active MoE; paid replacement for the Super :free slot.",
     ),
     ModelConfig(
         openrouter_id="inception/mercury-2",
@@ -174,16 +99,84 @@ MODELS: list[ModelConfig] = [
         context_window_tokens=128_000,
         input_cost_per_million=0.25,
         output_cost_per_million=0.75,
-        notes=(
-            "Released Mar 4, 2026; 9.15B tokens; first reasoning diffusion LLM "
-            "(dLLM); >1,000 tokens/sec; supports tunable reasoning levels, "
-            "native tool use, and schema-aligned JSON output."
-        ),
+        notes="Inception reasoning diffusion LLM; native tools, very high throughput.",
+    ),
+    ModelConfig(
+        openrouter_id="x-ai/grok-4.6",
+        display_name="SpaceXAI: Grok 4.6",
+        context_window_tokens=500_000,
+        input_cost_per_million=2.0,
+        output_cost_per_million=6.0,
+        notes="SpaceXAI Grok 4.6; replaces retired grok-4.1-fast (4.6 only).",
+    ),
+    ModelConfig(
+        openrouter_id="meta/muse-glimmer-30b",
+        display_name="Meta: Muse Glimmer 30B",
+        context_window_tokens=131_072,
+        input_cost_per_million=0.35,
+        output_cost_per_million=1.5,
+        notes="Meta dense 30B multimodal; distilled Spark for consumer-hardware agents.",
+    ),
+    ModelConfig(
+        openrouter_id="meta/muse-spark-1.2-contributor",
+        display_name="Meta: Muse Spark 1.2 Contributor",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.1,
+        output_cost_per_million=0.2,
+        notes="Meta Spark 1.2 contributor tier; cheap 1M-context reasoning.",
+    ),
+    ModelConfig(
+        openrouter_id="poolside/laguna-s-2.1",
+        display_name="Poolside: Laguna S 2.1",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.09,
+        output_cost_per_million=0.18,
+        notes="Poolside 118B/8B-active coding agent; paid (not :free).",
+    ),
+    ModelConfig(
+        openrouter_id="qwen/qwen3.8-27b",
+        display_name="Qwen: Qwen3.8 27B",
+        context_window_tokens=1_000_000,
+        input_cost_per_million=0.4,
+        output_cost_per_million=3.0,
+        notes="Qwen 3.8 dense 27B VLM; the default-set Qwen (replaces the 3.5 family).",
+    ),
+    ModelConfig(
+        openrouter_id="z-ai/glm-5.3",
+        display_name="Z.ai: GLM 5.3",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=1.4,
+        output_cost_per_million=4.4,
+        notes="Z.ai flagship GLM for long-horizon software/agent work; replaces 5.1.",
+    ),
+    ModelConfig(
+        openrouter_id="minimax/minimax-m3",
+        display_name="MiniMax: MiniMax M3",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.3,
+        output_cost_per_million=1.2,
+        notes="MiniMax multimodal 1M-context agent/coding model; replaces M2.7.",
+    ),
+    ModelConfig(
+        openrouter_id="deepseek/deepseek-v4-flash-0731",
+        display_name="DeepSeek: DeepSeek V4 Flash 0731",
+        context_window_tokens=1_310_720,
+        input_cost_per_million=0.14,
+        output_cost_per_million=0.28,
+        notes="DeepSeek 284B/13B-active MoE Flash; replaces V3.2.",
+    ),
+    ModelConfig(
+        openrouter_id="qwen/qwen3.7-flash",
+        display_name="Qwen: Qwen3.7 Flash",
+        context_window_tokens=1_000_000,
+        input_cost_per_million=0.03,
+        output_cost_per_million=0.13,
+        notes="Qwen cheap Flash VLM; extra small China Qwen besides 27B.",
     ),
     ModelConfig(
         openrouter_id="anthropic/claude-sonnet-4.6",
         display_name="Anthropic: Claude Sonnet 4.6",
-        context_window_tokens=200_000,
+        context_window_tokens=1_000_000,
         input_cost_per_million=3.0,
         output_cost_per_million=15.0,
         notes=(
@@ -209,4 +202,3 @@ def get_default_models() -> Sequence[ModelConfig]:
     golds; that model is in MODEL_BY_ID but not in this list.
     """
     return [m for m in MODELS if m.openrouter_id not in GOLD_ONLY_MODEL_IDS]
-

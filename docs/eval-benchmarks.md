@@ -6,6 +6,8 @@ How to run evals from the repo: [scripts/prompt_optimization/README.md](../scrip
 
 ## Snapshot ranking (Apr 2026)
 
+Apr 2026 snapshot — slugs and prices may be stale. Current default eval models live in [`scripts/prompt_optimization/model_configs.py`](../scripts/prompt_optimization/model_configs.py).
+
 | Rank | Model | Avg correctness | Avg score | Avg tokens | Avg cost ($) | Value (C²/$) |
 | ---- | -------------------------------------- | --------------- | --------- | ---------- | ------------ | ------------ |
 | 1 | openai/gpt-oss-120b | 0.980 | 0.942 | 3767.1 | 0.00025 | 3827.240 |

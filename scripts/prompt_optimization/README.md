@@ -147,6 +147,8 @@ Use `--out path.json` or `--out path.csv` to write results (format by extension)
 
 ### Benchmark results (best models, combined runs)
 
+Apr 2026 snapshot — slugs and prices may be stale. Current default eval models live in `model_configs.py`.
+
 From multi-model runs on the default 8-evaluation Writer set, ranked by **Corr/USD** (avg correctness ÷ total cost; higher = better value) and/or **correctness**:
 
 - **openai/gpt-oss-120b** — Top value in run 1 (346.8 Corr/USD, 1.0 correctness, ~$0.003 total).

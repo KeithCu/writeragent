@@ -105,6 +105,8 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 An in-LibreOffice **LLM Evaluation Suite** benchmarks models on real Writer, Calc, and Draw tasks and ranks them by **Value (C²/$)** — average correctness squared ÷ average dollars per run, using live OpenRouter pricing.
 
+Apr 2026 snapshot — slugs and prices may be stale. Current default eval models live in [`scripts/prompt_optimization/model_configs.py`](scripts/prompt_optimization/model_configs.py).
+
 | Rank | Model                                  | Avg correctness | Avg score | Avg tokens | Avg cost ($) | Value (C²/$) |
 | ---- | -------------------------------------- | --------------- | --------- | ---------- | ------------ | ------------ |
 | 1    | openai/gpt-oss-120b                    | 0.980           | 0.942     | 3767.1     | 0.00025      | 3827.240     |
