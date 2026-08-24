@@ -1118,3 +1118,66 @@ class TestRunSubagentTool(unittest.TestCase):
         self.assertIn("Deep research failed: bad input", result.get("message", ""))
         self.assertEqual(result.get("details"), {"query": None})
 
+
+class TestSmolToolMarshaling(unittest.TestCase):
+    @patch("plugin.framework.queue_executor.execute_on_main_thread")
+    @patch("plugin.chatbot.memory.user_config_dir")
+    def test_memory_tool_marshalled_to_main_thread(self, mock_user_config_dir, mock_execute_on_main_thread):
+        """Verify MemoryTool executes via main thread marshalling despite not using UNO directly."""
+        import tempfile
+        import os
+        from plugin.chatbot.memory import MemoryTool, user_profile_exists
+        from plugin.chatbot.smol_agent import SmolToolAdapter
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_user_config_dir.return_value = tmpdir
+
+            # Use side_effect to actually call the target function so it executes
+            def fake_execute_on_main_thread(func, *args, **kwargs):
+                return func(*args, **kwargs)
+            mock_execute_on_main_thread.side_effect = fake_execute_on_main_thread
+
+            ctx = MagicMock()
+            tool = SmolToolAdapter(MemoryTool(), ctx, safe=False)
+
+            # Write to memory
+            res_write = tool.forward(key="user_memory", content="User likes Python")
+
+            self.assertEqual(res_write.get("status"), "ok")
+            self.assertEqual(mock_execute_on_main_thread.call_count, 1)
+
+            # Verify the file was created and contains our data
+            import json
+            memory_file = os.path.join(tmpdir, "memories", "USER.md")
+            self.assertTrue(os.path.exists(memory_file))
+            with open(memory_file, "r") as f:
+                data = json.load(f)
+                self.assertEqual(data.get("user_memory"), "User likes Python")
+
+    @patch("plugin.framework.queue_executor.execute_on_main_thread")
+    def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_execute_on_main_thread):
+        """Verify StickyReplyToUserTool executes via main thread marshalling and returns expected payload."""
+        from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool
+        from plugin.chatbot.smol_agent import SmolToolAdapter
+        from unittest.mock import MagicMock
+
+        # Use side_effect to actually call the target function so it executes
+        def fake_execute_on_main_thread(func, *args, **kwargs):
+            return func(*args, **kwargs)
+        mock_execute_on_main_thread.side_effect = fake_execute_on_main_thread
+
+        ctx = MagicMock()
+        tool = SmolToolAdapter(StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC), ctx, safe=False)
+
+        # Call it with the leave flag (switch_to_document_mode=True)
+        res = tool.forward(answer="All done", switch_to_document_mode=True)
+
+        self.assertEqual(res.get("status"), LIBRARIAN_REPLY_SPEC.leave_status)
+        self.assertEqual(res.get("result"), "All done")
+        self.assertEqual(res.get("message"), "All done")
+        self.assertEqual(mock_execute_on_main_thread.call_count, 1)
+
+        # Call it without the leave flag
+        res2 = tool.forward(answer="Hello")
+        self.assertEqual(res2, "Hello")
+        self.assertEqual(mock_execute_on_main_thread.call_count, 2)
