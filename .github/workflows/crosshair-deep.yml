@@ -13,7 +13,7 @@ on:
           - 'check-all'
           - 'cover-all'
       deep:
-        description: 'Run in deep mode (200 iters, no per-condition wall)'
+        description: 'Run in deep mode (check-all: 200 iters / 30s per condition, no module wall)'
         required: true
         default: true
         type: boolean

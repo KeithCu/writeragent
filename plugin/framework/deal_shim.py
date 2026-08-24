@@ -50,6 +50,7 @@ class DealMaxima(NamedTuple):
     retry: int
     backoff: float
     backoff_factor: float
+    html_chunk: int
 
 
 def deal_maxima(*, crosshair: bool) -> DealMaxima:
@@ -86,6 +87,7 @@ def deal_maxima(*, crosshair: bool) -> DealMaxima:
             retry=retry,
             backoff=backoff,
             backoff_factor=backoff_factor,
+            html_chunk=64,
         )
     return DealMaxima(
         col_letters=3,
@@ -105,6 +107,7 @@ def deal_maxima(*, crosshair: bool) -> DealMaxima:
         retry=retry,
         backoff=backoff,
         backoff_factor=backoff_factor,
+        html_chunk=512,  # wider than 256 so pytest still hits the tag-flush path
     )
 
 
@@ -127,6 +130,7 @@ DEAL_MAX_URL = _MAXIMA.url
 DEAL_MAX_RETRY = _MAXIMA.retry
 DEAL_MAX_BACKOFF = _MAXIMA.backoff
 DEAL_MAX_BACKOFF_FACTOR = _MAXIMA.backoff_factor
+DEAL_MAX_HTML_CHUNK = _MAXIMA.html_chunk
 
 
 def ascii_bounded(s: object, max_len: int, min_len: int = 0) -> bool:

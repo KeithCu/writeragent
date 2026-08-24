@@ -18,6 +18,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_COL_INDEX,
     DEAL_MAX_COL_LETTERS,
+    DEAL_MAX_HTML_CHUNK,
     DEAL_MAX_ORIGIN,
     DEAL_MAX_PATH,
     DEAL_MAX_PLACEHOLDER_INDEX,
@@ -93,6 +94,7 @@ def test_deal_shim_constants_match_pytest_profile() -> None:
     assert DEAL_MAX_RETRY == wide.retry == 8
     assert DEAL_MAX_BACKOFF == wide.backoff == 300.0
     assert DEAL_MAX_BACKOFF_FACTOR == wide.backoff_factor == 10.0
+    assert DEAL_MAX_HTML_CHUNK == wide.html_chunk == 512
     assert inverse_ensure is deal.ensure
 
 
@@ -111,6 +113,7 @@ def test_deal_maxima_crosshair_profile_stays_tiny() -> None:
     assert short.source == 16
     assert short.path == 32
     assert short.token == 16
+    assert short.html_chunk == 64
     # Unchanged unless a test-backed reason appears.
     assert short.origin == 256
     assert short.url == 256

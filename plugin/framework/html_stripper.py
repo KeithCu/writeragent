@@ -17,10 +17,11 @@
 
 from __future__ import annotations
 
-from plugin.framework.deal_shim import str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK, str_bounded, deal
 
 # Wider than DEAL_MAX_SOURCE (64): feed() must still reach the 256-char tag flush.
-_DEAL_MAX_HTML_CHUNK = 512
+# Pytest binds DEAL_MAX_HTML_CHUNK=512 so that path stays live; CrossHair uses 64.
+_DEAL_MAX_HTML_CHUNK = DEAL_MAX_HTML_CHUNK
 
 
 class StreamingHTMLStripper:
