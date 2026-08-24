@@ -12,7 +12,13 @@ import pytest
 
 
 def pytest_collection_modifyitems(config, items):
-    """Filter out tests marked for the native runner so they don't clutter the skipped count."""
+    """Drop leftover @native_test items so they are not counted as skipped.
+
+    The real pytest/UNO split is ``--ignore-glob=*_uno.py`` (``make pytest`` /
+    pyproject addopts). This hook still catches mixed modules such as
+    ``test_uno_context.py`` that keep a few ``@native_test`` functions beside
+    headless unit tests.
+    """
     # This ensures that 'skipped' in pytest output only refers to actually disabled tests.
     def is_native(item):
         # 1. Check for the @native_test decorator attribute on the function
