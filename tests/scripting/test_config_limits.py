@@ -83,6 +83,14 @@ def test_max_data_cells_schema_limits_from_manifest():
     assert python_max_data_cells_max() == 2_000_000
 
 
+def test_get_config_python_max_data_cells_uses_schema_default():
+    """get_config must resolve module.yaml default without writeragent.json."""
+    from plugin.framework.config import get_config, reset_config_for_tests
+
+    reset_config_for_tests()
+    assert get_config("scripting.python_max_data_cells") == 250_000
+
+
 @patch("plugin.framework.config.get_config_int", return_value=250_000)
 def test_configured_python_max_data_cells(mock_get):
     ctx = MagicMock()

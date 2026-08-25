@@ -22,7 +22,8 @@ This file must not import ``config``, chatbot, calc, or uno_context.
 
 Manifest tables (``MODULES``, ``CONFIG_DEFAULTS``, ``CONFIG_SCHEMAS``,
 ``DOTTED_FALLBACKS``) live here because they are in-memory schema, not
-``writeragent.json`` I/O. ``set_manifest_modules`` rebuilds those tables.
+``writeragent.json`` I/O. ``MODULES`` from ``plugin._manifest`` is the source
+of truth; ``set_manifest_modules`` rebuilds the derived tables at import.
 """
 
 # crosshair: off
@@ -42,23 +43,21 @@ log = logging.getLogger(__name__)
 # log_level DEBUG-vs-WARN default when a source checkout has plugin/tests.
 _PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Import MODULES only. Generated ``_manifest.py`` always has MODULES (and
+# VERSION); CONFIG_DEFAULTS / CONFIG_SCHEMAS / DOTTED_FALLBACKS may be absent.
+# Importing those names together was an all-or-nothing trap: one missing
+# name raised ImportError, MODULES stayed [], and module.yaml keys never
+# reached ``_get_schema_default`` / ``get_config``. Empty fallback is only
+# for LibrePy-style trees that omit ``_manifest`` itself.
 try:
-    from plugin._manifest import (
-        MODULES as _DEFAULT_MODULES,
-        CONFIG_DEFAULTS as _DEFAULT_CONFIG_DEFAULTS,
-        CONFIG_SCHEMAS as _DEFAULT_CONFIG_SCHEMAS,
-        DOTTED_FALLBACKS as _DEFAULT_DOTTED_FALLBACKS,
-    )
+    from plugin._manifest import MODULES as _DEFAULT_MODULES
 except ImportError:
     _DEFAULT_MODULES = []
-    _DEFAULT_CONFIG_DEFAULTS = {}
-    _DEFAULT_CONFIG_SCHEMAS = {}
-    _DEFAULT_DOTTED_FALLBACKS = {}
 
 MODULES: list[dict[str, Any]] = _DEFAULT_MODULES  # type: ignore[assignment]
-CONFIG_DEFAULTS: dict[str, Any] = _DEFAULT_CONFIG_DEFAULTS
-CONFIG_SCHEMAS: dict[str, Any] = _DEFAULT_CONFIG_SCHEMAS
-DOTTED_FALLBACKS: dict[str, list[str]] = _DEFAULT_DOTTED_FALLBACKS
+CONFIG_DEFAULTS: dict[str, Any] = {}
+CONFIG_SCHEMAS: dict[str, Any] = {}
+DOTTED_FALLBACKS: dict[str, list[str]] = {}
 
 
 def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
@@ -91,6 +90,12 @@ def set_manifest_modules(modules: list[dict[str, Any]]) -> None:
 def get_manifest_modules() -> list[dict[str, Any]]:
     """Return active manifest modules list."""
     return MODULES
+
+
+# Bind derived tables from MODULES at import so callers do not need
+# ``set_manifest_modules`` (almost nobody called it). Identity
+# ``MODULES is _DEFAULT_MODULES`` stays true for the generated list.
+set_manifest_modules(_DEFAULT_MODULES)
 
 
 # Keys used by populate_combobox_with_lru / update_lru_history (including endpoint-scoped "name@url").

@@ -26,6 +26,7 @@ from plugin.framework.config_schema import (
     prune_default_values,
     set_endpoint_normalizer,
     set_manifest_modules,
+    _get_schema_default,
     _normalize_configured_endpoint,
 )
 from plugin.framework.errors import ConfigValidationError
@@ -70,6 +71,31 @@ def restore_manifest():
     )
     yield schema
     schema.MODULES, schema.CONFIG_DEFAULTS, schema.CONFIG_SCHEMAS, schema.DOTTED_FALLBACKS = orig
+
+
+def test_config_schema_imports_only_modules_from_manifest() -> None:
+    """Do not require derived _manifest dicts; ImportError on those emptied MODULES."""
+    source = _SCHEMA_PATH.read_text(encoding="utf-8")
+    imported_from_manifest: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module == "plugin._manifest":
+            imported_from_manifest.update(alias.name for alias in node.names)
+    assert imported_from_manifest == {"MODULES"}
+    assert "set_manifest_modules(_DEFAULT_MODULES)" in source
+
+
+def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
+    """module.yaml keys resolve from MODULES; no writeragent.json required."""
+    from plugin.framework import config_schema as schema
+
+    assert schema.MODULES, "empty MODULES; run make manifest"
+    assert _get_schema_default("scripting.python_max_data_cells") == 250000
+    assert _get_schema_default("scripting.python_venv_path") == ""
+    assert _get_schema_default("scripting.python_auto_spill") is True
+    assert _get_schema_default("doc.agent_edit_review_mode") == "off"
+    assert _get_schema_default("chatbot.max_tool_rounds") == 15
+    assert schema.CONFIG_DEFAULTS["scripting.python_max_data_cells"] == 250000
+    assert schema.MODULES is schema._DEFAULT_MODULES
 
 
 def test_config_schema_has_no_forbidden_imports() -> None:

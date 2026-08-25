@@ -203,7 +203,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | File | Why it ships |
 |------|----------------|
 | [`plugin/framework/config.py`](../plugin/framework/config.py) | Config path, cache, JSON I/O, typed getters |
-| [`plugin/framework/config_schema.py`](../plugin/framework/config_schema.py) | `WriterAgentConfig`, `MODULES`, coerce/clamp/defaults (no disk I/O). Import schema names from here. |
+| [`plugin/framework/config_schema.py`](../plugin/framework/config_schema.py) | `WriterAgentConfig`, `MODULES`, coerce/clamp/defaults (no disk I/O). Imports `MODULES` from `_manifest` and binds `CONFIG_DEFAULTS` via `set_manifest_modules` at import. Import schema names from here. |
 | [`plugin/framework/constants.py`](../plugin/framework/constants.py) | `get_plugin_dir`, `AUTO_IMPORTS`, worker pool ids |
 | [`plugin/framework/errors.py`](../plugin/framework/errors.py) | `format_error_payload`, `ConfigError`, `safe_call` |
 | [`plugin/framework/json_utils.py`](../plugin/framework/json_utils.py) | `safe_json_loads` (via `client/errors.py`) |
@@ -215,7 +215,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/framework/client/errors.py`](../plugin/framework/client/errors.py) | Bundled for other LibrePy callers (update check / Settings). **Not** used by the `=PY()` add-in. |
 | [`plugin/framework/client/__init__.py`](../plugin/framework/client/__init__.py) | Package — **lazy** LLM/embeddings (PEP 562). LibrePy may import `requests` / `provider_detection` without loading `llm_client`. |
 | [`plugin/framework/__init__.py`](../plugin/framework/__init__.py) | Package |
-| [`plugin/_manifest.py`](../plugin/_manifest.py) | **Generated** (`make manifest`). `config_limits.py` reads `MODULES` for schema defaults |
+| [`plugin/_manifest.py`](../plugin/_manifest.py) | **Generated** (`make manifest`). `MODULES` is the source of truth for module.yaml defaults (`config_schema` binds derived tables; `config_limits.py` also reads `MODULES`) |
 
 **Not required for Layer 0** unless a higher layer pulls them in: `llm_client.py`, `async_stream.py`, `tool.py`, `default_models.py`, `uno_context.py`, `worker_pool.py`, `appearance.py`, …
 
