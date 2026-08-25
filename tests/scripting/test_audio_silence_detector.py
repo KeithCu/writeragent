@@ -37,6 +37,26 @@ def test_pcm_energy_tone_is_above_threshold():
     assert peak > 0.2
 
 
+def test_pcm_energy_uses_full_pcm_not_truncated():
+    """A later loud sample must count; CrossHair used to slice to 8 bytes."""
+    pcm = _pcm_silence(8) + _pcm_tone(1, amplitude=32000)
+    rms, peak = pcm_energy_int16(pcm)
+    assert peak > 0.9
+    assert rms > 0.0
+
+
+def test_pcm_energy_int16_dropped_from_check_all_fqns():
+    """Deep check-all run 32877875221 hung on the RMS/peak float post at [42/56]."""
+    from pathlib import Path
+
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    fqns = cover_fqns_for_module(
+        Path("plugin/scripting/audio_silence_detector.py"), require_deal=True
+    )
+    assert not any(f.endswith(".pcm_energy_int16") for f in fqns)
+
+
 def test_silence_detector_requires_min_speech_before_auto_stop():
     config = SilenceDetectorConfig(silence_stop_ms=100)
     detector = SilenceDetector(config, sample_rate=16000)

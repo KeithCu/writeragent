@@ -52,10 +52,9 @@ class SilenceDetectorResult:
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and 0.0 <= result[0] <= 1.0 and 0.0 <= result[1] <= 1.0)
 def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
     """Return (RMS, peak) of 16-bit little-endian PCM, each normalized to 0.0–1.0."""
-    import sys
-
-    if "crosshair" in sys.modules and len(pcm) > 8:
-        pcm = pcm[:8]
+    # Live check-all deep run 32877875221 hung on the RMS post at [42/56].
+    # Same pattern as PR #450.
+    # crosshair: off
     sample_count = len(pcm) // 2
     if sample_count == 0:
         return 0.0, 0.0
