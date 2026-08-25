@@ -12,6 +12,7 @@ import ast
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from plugin.contrib.smolagents.local_python_executor import ALLOWED_DUNDER_ATTRIBUTES
 from plugin.scripting.sandbox_cache import validate_sandbox_ast, get_hot_entry
 
 
@@ -47,9 +48,11 @@ def test_validate_sandbox_ast_dunder_attribute_security(attr: str) -> None:
     except SyntaxError:
         return
     error = validate_sandbox_ast(module, ["math"])
-    if attr.startswith("__") and attr.endswith("__"):
+    if attr.startswith("__") and attr.endswith("__") and attr not in ALLOWED_DUNDER_ATTRIBUTES:
         assert error is not None
         assert "Forbidden access to dunder attribute" in error
+    elif attr in ALLOWED_DUNDER_ATTRIBUTES:
+        assert error is None
 
 
 def test_get_hot_entry_caching() -> None:

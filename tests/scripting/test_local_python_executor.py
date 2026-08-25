@@ -10,6 +10,7 @@ import ast
 
 from plugin.contrib.smolagents.local_python_executor import (
     BASE_BUILTIN_MODULES,
+    InterpreterError,
     LocalPythonExecutor,
     evaluate_generatorexp,
 )
@@ -52,6 +53,40 @@ def test_single_generatorexp_still_works():
     executor.send_tools({})
     executor("result = sum(x for x in (1, 2, 3))")
     assert executor.state["result"] == 6
+
+
+def _executor_with_dummy_version():
+    class _Dummy:
+        __version__ = "1.2.3"
+
+    executor = LocalPythonExecutor(additional_authorized_imports=[])
+    executor.send_tools({})
+    executor.send_variables({"np": _Dummy()})
+    return executor
+
+
+def test_executor_allows_version_attribute():
+    """Scientific notebooks print np.__version__; the blanket dunder deny blocked that."""
+    executor = _executor_with_dummy_version()
+    executor("result = np.__version__")
+    assert executor.state["result"] == "1.2.3"
+
+
+def test_executor_allows_version_via_getattr():
+    executor = _executor_with_dummy_version()
+    executor('result = getattr(np, "__version__")')
+    assert executor.state["result"] == "1.2.3"
+
+
+def test_executor_still_forbids_class_dunder():
+    executor = _executor_with_dummy_version()
+    try:
+        executor("result = np.__class__")
+    except InterpreterError as err:
+        assert "Forbidden access to dunder attribute" in str(err)
+        assert "__class__" in str(err)
+    else:
+        raise AssertionError("np.__class__ must remain forbidden")
 
 
 def test_local_python_executor_does_not_import_tools():

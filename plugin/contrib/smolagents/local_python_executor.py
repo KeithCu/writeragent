@@ -57,14 +57,22 @@ MAX_OPERATIONS = 10000000
 MAX_WHILE_ITERATIONS = 1000000
 MAX_EXECUTION_TIME_SECONDS = 30
 ALLOWED_DUNDER_METHODS = ["__init__", "__str__", "__repr__"]
+# Blanket dunder-attribute deny treated np.__version__ (and pd/sp/…) like
+# __class__/__globals__. Allow the read-only version string only; do not fold
+# it into METHODS (call vs attribute checks).
+ALLOWED_DUNDER_ATTRIBUTES = ["__version__"]
 
 
 def custom_print(*args):
     return None
 
 
+def is_forbidden_dunder_attribute(name: str) -> bool:
+    return name.startswith("__") and name.endswith("__") and name not in ALLOWED_DUNDER_ATTRIBUTES
+
+
 def nodunder_getattr(obj, name, default=None):
-    if name.startswith("__") and name.endswith("__"):
+    if is_forbidden_dunder_attribute(name):
         raise InterpreterError(f"Forbidden access to dunder attribute: {name}")
     return getattr(obj, name, default)
 
@@ -404,7 +412,7 @@ def evaluate_attribute(
     custom_tools: dict[str, Callable],
     authorized_imports: list[str],
 ) -> Any:
-    if expression.attr.startswith("__") and expression.attr.endswith("__"):
+    if is_forbidden_dunder_attribute(expression.attr):
         raise InterpreterError(f"Forbidden access to dunder attribute: {expression.attr}")
     value = evaluate_ast(expression.value, state, static_tools, custom_tools, authorized_imports)
     return getattr(value, expression.attr)

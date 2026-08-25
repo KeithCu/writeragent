@@ -15,7 +15,10 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from plugin.contrib.smolagents.local_python_executor import check_import_authorized
+from plugin.contrib.smolagents.local_python_executor import (
+    check_import_authorized,
+    is_forbidden_dunder_attribute,
+)
 from plugin.framework.deal_shim import deal
 
 # Statement/expression forms the interpreter refuses outright (see evaluate_ast else branch).
@@ -58,7 +61,7 @@ def validate_sandbox_ast(module: ast.Module, authorized_imports: list[str]) -> s
                     f"Authorized imports are: {str(authorized_imports)}"
                 )
         elif isinstance(node, ast.Attribute):
-            if node.attr.startswith("__") and node.attr.endswith("__"):
+            if is_forbidden_dunder_attribute(node.attr):
                 return f"Forbidden access to dunder attribute: {node.attr}"
     return None
 
