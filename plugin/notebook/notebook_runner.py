@@ -308,9 +308,14 @@ _CELL_CHROME_RE = re.compile(r"^Cell \d+: (Markdown|Raw|Code)\b")
 
 
 def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: str | None) -> bool:
-    if notebook_in_resolved and para_style == notebook_in_resolved:
-        return True
     stripped = (content or "").strip()
+    # The importer puts ▶ / the code field in their own paragraph after the
+    # ``[In [n]]`` gutter, still styled WriterAgent Notebook In but empty.
+    # Treating that empty row as a cell boundary made ``_find_cell_output_heading_end``
+    # return None before the Output heading, so re-anchor failed and the bookmark
+    # died on the next clear.
+    if notebook_in_resolved and para_style == notebook_in_resolved and stripped:
+        return True
     if stripped.startswith("[In [") and ": Code" in stripped:
         return True
     # Stopping only at the next code gutter ate markdown cells between code cells
@@ -441,14 +446,6 @@ def _apply_para_style(cursor: Any, style: str | None) -> None:
         log.debug("notebook run: ParaStyleName %r not applied", style)
 
 
-def _stdout_shares_cell_chrome(cursor: Any, notebook_in: str | None) -> bool:
-    following = _paragraph_string(cursor)
-    style = _para_style_name(cursor)
-    return _is_next_cell_boundary(style, following, notebook_in) or bool(
-        _CELL_CHROME_RE.match((following or "").strip())
-    )
-
-
 def _split_if_stdout_mashed_onto_chrome(
     doc: Any,
     text: Any,
@@ -457,21 +454,37 @@ def _split_if_stdout_mashed_onto_chrome(
     output_style: str | None,
     notebook_in: str | None,
 ) -> None:
-    """If insertString landed in the next cell heading, split stdout off (PR 461)."""
-    if not _stdout_shares_cell_chrome(cursor, notebook_in):
-        _apply_para_style(cursor, output_style)
-        return
+    """If insertString prepended onto the next cell heading, split after stdout (PR 461).
+
+    Detect mash by looking at the **rest** of the paragraph after *display*.
+    Checking the whole paragraph fails because mashed text starts with stdout
+    (``WA_NB_SENTINELCell 3: Markdown``) and no longer matches ``^Cell \\d+:``.
+    Do **not** insert a trailing break when the rest is empty — that was the
+    extra blank under Output.
+    """
     try:
         cursor.gotoStartOfParagraph(False)
         n = min(len(display.encode("utf-16-le")) // 2, 32767)
+        rest = text.createTextCursorByRange(cursor)
+        if n:
+            rest.goRight(n, False)
+        rest.gotoEndOfParagraph(True)
+        leftover = _plain_text(rest.getString() or "")
+        if not leftover.strip():
+            _apply_para_style(cursor, output_style)
+            return
         if n:
             cursor.goRight(n, False)
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
     except Exception:
         log.debug("notebook run: trailing split after stdout failed", exc_info=True)
+        _apply_para_style(cursor, output_style)
         return
     try:
-        if _stdout_shares_cell_chrome(cursor, notebook_in):
+        following = _paragraph_string(cursor)
+        if _is_next_cell_boundary(_para_style_name(cursor), following, notebook_in) or _CELL_CHROME_RE.match(
+            (following or "").strip()
+        ):
             heading = _resolve_para_style(doc, _STYLE_CELL_HEADING)
             _apply_para_style(cursor, heading)
         if output_style:

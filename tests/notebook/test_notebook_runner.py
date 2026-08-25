@@ -206,6 +206,7 @@ def test_is_next_cell_boundary_markdown_and_code():
     assert _is_next_cell_boundary("Heading 3", "Cell 5: Raw", None) is True
     assert _is_next_cell_boundary("Preformatted Text", "old stdout", None) is False
     assert _is_next_cell_boundary("WriterAgent Notebook In", "[In [1]]\tCell 2: Code", "WriterAgent Notebook In") is True
+    assert _is_next_cell_boundary("WriterAgent Notebook In", "", "WriterAgent Notebook In") is False
 
 
 def test_paragraph_string_uses_selection_when_nonempty():
@@ -413,6 +414,8 @@ def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
     text = MagicMock()
     nxt = MagicMock()
     nxt.gotoNextParagraph.return_value = False
+    nxt.getString.return_value = "Cell 3: Markdown"
+    nxt.ParaStyleName = "Heading 3"
     text.createTextCursorByRange.return_value = nxt
     doc = MagicMock()
     doc.getText.return_value = text

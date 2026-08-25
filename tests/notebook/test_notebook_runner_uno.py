@@ -321,6 +321,12 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
         import_ipynb_to_writer(doc, str(_SMALL_IPYNB), ctx=ctx)
         flush_ui_idle(ctx)
 
+        from plugin.notebook.notebook_runner import execute_code
+
+        # Cold venv worker can exceed the 32s read timeout on the first real cell.
+        execute_code(ctx, doc, "1")
+        flush_ui_idle(ctx)
+
         state = load_registry(doc)
         assert state is not None and len(state.code_cells) == 3
         assert state.next_execution_count == 1, (
