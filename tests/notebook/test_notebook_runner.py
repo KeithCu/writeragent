@@ -391,7 +391,7 @@ def test_apply_run_result_replaces_via_clear_then_insert():
         apply_run_result(doc, cell, {"status": "ok", "stdout": "first\n", "result": None})
         apply_run_result(doc, cell, {"status": "ok", "stdout": "second\n", "result": None})
 
-    assert [call.args[0] for call in cursor.setString.call_args_list] == ["first", "second"]
+    assert [call.args[1] for call in text.insertString.call_args_list] == ["first", "second"]
     text.deleteContents.assert_not_called()
     cursor.gotoEnd.assert_not_called()
     from plugin.notebook.writer_importer import _PARAGRAPH_BREAK
@@ -409,17 +409,20 @@ def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
     cursor = MagicMock()
     cursor.ParaStyleName = "Heading 3"
     cursor.goRight.return_value = True
-    cursor.getString.side_effect = ["Cell 3: Markdown", ""]
+    cursor.getString.return_value = "Cell 3: Markdown"
     text = MagicMock()
     doc = MagicMock()
     doc.getText.return_value = text
 
     _insert_stdout_paragraph(doc, cursor, "hello", "Preformatted Text", "WriterAgent Notebook In")
 
-    assert text.insertControlCharacter.call_count >= 2
-    assert all(call.args[1] == _PARAGRAPH_BREAK for call in text.insertControlCharacter.call_args_list)
-    cursor.collapseToStart.assert_called()
-    cursor.setString.assert_called_once_with("hello")
+    assert [call.args[1] for call in text.insertControlCharacter.call_args_list] == [
+        _PARAGRAPH_BREAK,
+        _PARAGRAPH_BREAK,
+    ]
+    text.insertString.assert_called_once_with(cursor, "hello", False)
+    cursor.setString.assert_not_called()
+    cursor.goRight.assert_called()
 
 
 def test_gutter_text_cursor_stops_before_frame_portion():

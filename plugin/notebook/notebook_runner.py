@@ -27,6 +27,7 @@ from plugin.notebook.cell_registry import (
 )
 from plugin.notebook.writer_importer import (
     _PARAGRAPH_BREAK,
+    _STYLE_CELL_HEADING,
     _STYLE_NOTEBOOK_IN,
     _STYLE_OUTPUT,
     _append_body_text_block,
@@ -266,51 +267,53 @@ def _insert_stdout_paragraph(
     output_style: str | None,
     notebook_in: str | None,
 ) -> None:
-    """Insert *display* as its own paragraph under Output; do not prepend onto the next cell.
+    """Insert *display* as its own paragraph under Output; do not eat the next cell.
 
-    Writer leaves the cursor **before** a just-inserted PARAGRAPH_BREAK. After the
-    output bookmark that often means ``gotoNextParagraph`` lands on ``Cell N: Markdown``.
-    ``insertString`` would then mash stdout onto that heading. Same pattern as
-    ``html_export._range_to_content_via_temp_doc``: enter the next para, and if it is
-    already cell chrome, split a blank paragraph in front and ``setString`` that blank.
+    Writer leaves the cursor **before** a just-inserted PARAGRAPH_BREAK
+    (``html_export._range_to_content_via_temp_doc``). After the output bookmark that
+    often means we are at the start of ``Cell N: Markdown``. ``insertString`` then
+    prepends stdout onto that heading. Move to the end of the inserted stdout and
+    split; apply Preformatted Text only to the stdout paragraph so chrome keeps
+    Heading 3.
     """
     text = doc.getText()
     text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
     _enter_paragraph_after_break(cursor)
     try:
         cursor.gotoStartOfParagraph(False)
-        cursor.gotoEndOfParagraph(True)
     except Exception:
-        log.debug("notebook run: could not select paragraph after break", exc_info=True)
-    existing = _paragraph_string(cursor)
-    style = ""
+        log.debug("notebook run: gotoStartOfParagraph after break failed", exc_info=True)
+    text.insertString(cursor, display, False)
     try:
-        style = str(cursor.ParaStyleName or "")
+        cursor.gotoStartOfParagraph(False)
+        n = min(len(display.encode("utf-16-le")) // 2, 32767)
+        if n:
+            cursor.goRight(n, False)
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
     except Exception:
+        log.debug("notebook run: trailing split after stdout failed", exc_info=True)
+    # After the trailing break the cursor is in the following paragraph (cell chrome).
+    # Style that as Heading 3; style the previous paragraph (stdout) as Preformatted Text.
+    try:
+        following = _paragraph_string(cursor)
         style = ""
-    if existing.strip() and _is_next_cell_boundary(style, existing, notebook_in):
-        # Landed on the following cell. Split an empty paragraph in front of it.
         try:
-            cursor.collapseToStart()
+            style = str(cursor.ParaStyleName or "")
         except Exception:
-            pass
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-        try:
-            cursor.gotoStartOfParagraph(False)
-            cursor.gotoEndOfParagraph(True)
-        except Exception:
-            pass
-    if output_style:
-        try:
-            cursor.setPropertyValue("ParaStyleName", output_style)
-        except Exception:
-            log.debug("notebook run: ParaStyleName %r not applied", output_style)
-    try:
-        cursor.setString(display)
+            style = ""
+        if _is_next_cell_boundary(style, following, notebook_in) or _CELL_CHROME_RE.match(
+            (following or "").strip()
+        ):
+            heading = _resolve_para_style(doc, _STYLE_CELL_HEADING)
+            if heading:
+                cursor.setPropertyValue("ParaStyleName", heading)
+        if output_style:
+            prev = text.createTextCursorByRange(cursor)
+            if prev.gotoPreviousParagraph(False):
+                prev.gotoStartOfParagraph(False)
+                prev.setPropertyValue("ParaStyleName", output_style)
     except Exception:
-        log.debug("notebook run: setString stdout failed; insertString fallback", exc_info=True)
-        text.insertString(cursor, display, False)
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        log.debug("notebook run: stdout/chrome style restore failed", exc_info=True)
 
 
 def _leading_text_cursor(text: Any, para: Any) -> Any | None:

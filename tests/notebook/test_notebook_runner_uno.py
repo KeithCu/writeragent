@@ -95,7 +95,7 @@ def _assert_stdout_not_mashed(doc) -> list[tuple[str, str]]:
         assert "Cell 3: Markdown" not in text, f"stdout mashed onto next heading: {text!r}"
         assert _AFTER_HEADING not in text, f"stdout mashed onto following markdown: {text!r}"
     chrome = [t for _s, t in paras if "Cell 3: Markdown" in t]
-    assert chrome, "Cell 3: Markdown heading missing after run"
+    assert chrome, f"Cell 3: Markdown heading missing after run: {paras!r}"
     for text in chrome:
         assert _SENTINEL not in text, f"next-cell chrome contains stdout: {text!r}"
     return paras
@@ -177,7 +177,7 @@ def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
             patch("plugin.notebook.notebook_runner.execute_code", return_value=fake_result),
         ):
             how = _fire_run_button_via_get_control(ctx, doc, hex_id)
-        print(f"notebook ▶ delivered via {how}; msgboxes={boxes!r}", flush=True)
+        print(f"notebook ▶ delivered via {how}; msgboxes={boxes!r} paras={_paragraphs(doc)!r}", flush=True)
         flush_ui_idle(ctx)
 
         _assert_controls_present(doc, cell)
