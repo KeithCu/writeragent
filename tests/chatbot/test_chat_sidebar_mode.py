@@ -142,3 +142,14 @@ def test_set_selector_mode_librarian_is_last_index():
     labels = get_mode_labels(include_brainstorming=True, include_writing_plan=True)
     set_selector_mode(ctrl, CHAT_MODE_LIBRARIAN, include_brainstorming=True, include_writing_plan=True)
     ctrl.selectItemPos.assert_called_once_with(len(labels) - 1, True)
+
+
+def test_mode_from_label_dropped_from_check_all_fqns():
+    """Deep check-all run 32840960268: Prev 10:13 on gettext labels."""
+    from pathlib import Path
+
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    fqns = cover_fqns_for_module(Path("plugin/chatbot/chat_sidebar_mode.py"), require_deal=True)
+    assert not any(f.endswith(".mode_from_label") for f in fqns)
+    assert any(f.endswith(".get_mode_labels") for f in fqns)

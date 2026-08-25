@@ -235,5 +235,15 @@ class TestMemoryWriteConcurrency(unittest.TestCase):
         self.assertIn("name_source", data)  # name still unconfirmed → keep asking once
 
 
+def test_format_upsert_memory_chat_line_dropped_from_check_all_fqns():
+    """Deep check-all run 32840960268: Prev 20:53."""
+    from pathlib import Path
+
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    fqns = cover_fqns_for_module(Path("plugin/chatbot/memory.py"), require_deal=True)
+    assert not any(f.endswith(".format_upsert_memory_chat_line") for f in fqns)
+
+
 if __name__ == '__main__':
     unittest.main()

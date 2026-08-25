@@ -13,6 +13,8 @@ from plugin.calc.python.formula_edit import (
     escape_code_for_formula,
     format_data_binding_display,
     format_data_binding_text,
+    format_excel_data_range,
+    format_py_data_range,
     normalize_formula_string,
     parse_data_binding_text,
     parse_python_formula,
@@ -143,6 +145,22 @@ def test_build_data_suffix():
     assert build_data_suffix([]) == ")"
     assert build_data_suffix(["A1:B10"]) == ";A1:B10)"
     assert build_data_suffix(["A1:B10", "C1:C5"]) == ";A1:B10;C1:C5)"
+
+
+def test_format_py_and_excel_data_range_real_sheets():
+    """Product ranges must still format after the no-regex rewrite (run 32840960268)."""
+    assert format_py_data_range("Sheet.A1") == "Sheet.A1"
+    assert format_py_data_range("'My Sheet'.A1") == "'My Sheet'.A1"
+    assert format_py_data_range("My Sheet.A1") == "'My Sheet'.A1"
+    assert format_py_data_range("Sheet!A1") == "Sheet.A1"
+    assert format_excel_data_range("Sheet!A1") == "Sheet!A1"
+    assert format_excel_data_range("Sheet.A1") == "Sheet!A1"
+    assert format_excel_data_range("'My Sheet'.A1") == "'My Sheet'!A1"
+    assert format_excel_data_range("My Sheet.A1") == "'My Sheet'!A1"
+    assert build_data_suffix(["Sheet.A1"]) == ";Sheet.A1)"
+    assert build_data_suffix(["'My Sheet'.A1"]) == ";'My Sheet'.A1)"
+    assert build_data_suffix(["Sheet!A1"], separator=",", excel_ranges=True) == ",Sheet!A1)"
+    assert build_data_suffix(["My Sheet.A1"], separator=",") == ",'My Sheet'!A1)"
 
 
 def test_rebuild_python_formula_with_data():

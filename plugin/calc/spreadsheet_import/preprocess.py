@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from plugin.calc.python.formula_edit import normalize_formula_string
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal, inverse_ensure
 
 
 def _no_unquoted_semicolon(s: str) -> bool:
@@ -29,10 +29,13 @@ def _no_unquoted_semicolon(s: str) -> bool:
     return True
 
 
+# Deep check-all run 32840960268: two nested ensures (curly-quote scan +
+# _no_unquoted_semicolon) cost ~7+7+6 min. Skip under CrossHair; cheap str post
+# and the implementation loop stay.
 @deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
-@deal.ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result)
-@deal.ensure(lambda formula, result: _no_unquoted_semicolon(result))
+@inverse_ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result)
+@inverse_ensure(lambda formula, result: _no_unquoted_semicolon(result))
 def normalize_lo_formula_for_parse(formula: str) -> str:
     """Map LO ``;`` argument separators to ``,`` for parse-only backends.
 

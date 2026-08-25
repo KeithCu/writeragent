@@ -78,6 +78,9 @@ def resolve_openrouter_catalog_id(model_id: str, catalog_ids: Iterable[str] | No
 @deal.post(lambda result: isinstance(result, bool))
 def openrouter_model_ids_equivalent(a: str, b: str, catalog_ids: Iterable[str] | None = None) -> bool:
     """True if two OpenRouter ids refer to the same underlying catalog model."""
+    # Deep check-all run 32840960268: Prev 11:29. Leave _split_suffix and
+    # resolve_openrouter_catalog_id on (they finished in ~2 min).
+    # crosshair: off
     sa, sb = str(a or "").strip(), str(b or "").strip()
     if not sa or not sb:
         return sa == sb

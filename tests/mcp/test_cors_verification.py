@@ -27,6 +27,7 @@ from plugin.mcp.cors import (
 from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
 from tests.strip_bundle import deal_pre_present
 from tests.vhs_budget import vhs_max_examples
+from scripts.crosshair_stream import cover_fqns_for_module
 
 CROSSHAIR_MODULE = "plugin/mcp/cors.py"
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
@@ -125,6 +126,12 @@ def test_localhost_safe_origin() -> None:
     assert is_safe_origin("http://localhost:3000")
     assert is_safe_origin("http://127.0.0.1")
     assert is_safe_origin("http://[::1]")
+
+
+def test_normalize_origins_list_stays_on_check_all() -> None:
+    """Nested unique-length ensure is inverse_ensure; the FQN itself stays analyzed."""
+    fqns = cover_fqns_for_module(Path("plugin/mcp/cors.py"), require_deal=True)
+    assert any(f.endswith(".normalize_origins_list") for f in fqns)
 
 
 def test_cors_origin_overflow_pre_fails_closed() -> None:

@@ -495,3 +495,14 @@ def test_is_replaced_zero_result():
     assert is_replaced_zero_result({}, "Replaced 0 occurrences") is True
     assert is_replaced_zero_result({"replaced_count": 2}, "ok") is False
     assert is_replaced_zero_result({}, 42) is False
+
+
+def test_empty_and_delegate_formatters_dropped_from_check_all_fqns():
+    """Deep check-all run 32840960268: engine traceback after 1:53 / Prev 56:34."""
+    from pathlib import Path
+
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    fqns = cover_fqns_for_module(Path("plugin/chatbot/tool_loop_state.py"), require_deal=True)
+    assert not any(f.endswith(".format_empty_model_response_debug") for f in fqns)
+    assert not any(f.endswith(".format_delegate_running_chat_line") for f in fqns)

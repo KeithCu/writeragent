@@ -25,7 +25,14 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_ORIGIN, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import (
+    DEAL_MAX_CMD_ARGS,
+    DEAL_MAX_ORIGIN,
+    ascii_bounded,
+    str_bounded,
+    deal,
+    inverse_ensure,
+)
 
 MCP_CORS_ORIGINS_KEY = "mcp.cors_allowed_origins"
 
@@ -76,6 +83,9 @@ def normalize_cors_origin(value: str | None) -> str | None:
     return origin
 
 
+# Deep check-all run 32840960268 hung here at the 360-minute job wall (Prev 9:51
+# on the unique-length post, then the runner was still on this FQN at cancel).
+# Nested unique-length ensure is skipped under CrossHair; cheap list/str posts stay.
 @deal.pre(
     lambda value: value is None
     or (isinstance(value, str) and str_bounded(value, DEAL_MAX_ORIGIN))
@@ -87,7 +97,7 @@ def normalize_cors_origin(value: str | None) -> str | None:
     or not isinstance(value, (str, list))
 )
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
-@deal.ensure(lambda value, result: len(result) == len(set(result)))
+@inverse_ensure(lambda value, result: len(result) == len(set(result)))
 def normalize_origins_list(value) -> list[str]:
     """Coerce config value to a deduped list of normalized origin strings."""
     if value is None:

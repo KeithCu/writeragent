@@ -50,6 +50,8 @@ def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
 @deal.post(lambda result: isinstance(result, str) and "round=" in result)
 def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
     """Compact API summary for sidebar when STREAM_DONE has no content and no tools."""
+    # Deep check-all run 32840960268: CHECK ERROR (CrossHair engine traceback) after 1:53.
+    # crosshair: off
     parts = [
         f"round={round_num}",
         f"finish_reason={response.get('finish_reason')!r}",
@@ -99,7 +101,8 @@ def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) ->
 @deal.post(lambda result: isinstance(result, str) and result.startswith("[Running delegate") and result.endswith("\n"))
 def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when a delegate gateway tool starts."""
-
+    # Deep check-all run 32840960268: Prev 56:34, 493k lines.
+    # crosshair: off
     domain = domain_from_delegate_args(func_args)
     raw_task = func_args.get("task")
     if raw_task is None:

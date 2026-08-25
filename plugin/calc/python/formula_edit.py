@@ -420,6 +420,10 @@ def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
 @deal.ensure(lambda data_suffix, result: not result or (not result.startswith(";") and not result.startswith(",") and not result.endswith(")")))
 def format_data_binding_display(data_suffix: str) -> str:
     """Human-readable range/index args from ``data_suffix`` (e.g. ``;A1:B10)`` → ``A1:B10``)."""
+    # Deep check-all run 32840960268: Prev 95:09, 2.26M lines on this while
+    # strip/lstrip(';,').rstrip(')') fixed-point. ascii_bounded still allows
+    # control ASCII; the engine kept exploding.
+    # crosshair: off
     s = data_suffix or ""
     while True:
         prev = s
@@ -434,12 +438,15 @@ def format_data_binding_display(data_suffix: str) -> str:
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) and '"' not in x for x in result))
 def parse_data_binding_text(text: str) -> list[str]:
     """Parse editor textbox content into formula data arguments."""
+    # Deep check-all run 32840960268: Prev 15:20 on re.split of the textbox.
+    # Split is now replace+str.split; still off — dropping regex alone is not proven.
+    # crosshair: off
     raw = (text or "").strip()
     if not raw:
         return []
     if raw.startswith("[") and raw.endswith("]"):
         raw = raw[1:-1].strip()
-    parts = [p.strip() for p in re.split(r"[,;]", raw) if p.strip()]
+    parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
     return [p for p in parts if '"' not in p]
 
 
@@ -451,49 +458,118 @@ def format_data_binding_text(data_args: list[str]) -> str:
     return ", ".join(cleaned)
 
 
-@deal.pre(lambda range_addr: ascii_bounded(range_addr, DEAL_MAX_SOURCE))
-@deal.post(lambda result: isinstance(result, str))
-def format_py_data_range(range_addr: str) -> str:
-    """Format a range for ``=PY()`` data args (quote sheet names with spaces/special chars)."""
+def _is_ascii_letter(c: str) -> bool:
+    return "A" <= c <= "Z" or "a" <= c <= "z"
+
+
+def _is_a1_cell_prefix(s: str) -> bool:
+    """Optional ``$`` + letters + optional ``$`` + a digit.
+
+    Replaces ``re.match(r'^\\$?[A-Z]+\\$?\\d', s, re.I)``. CrossHair's relib
+    raises ``TypeError: ord() expected a character, but string of length 0``
+    on NUL/control ASCII in that pattern (check-all run 32840960268).
+    """
+    i = 0
+    n = len(s)
+    if i < n and s[i] == "$":
+        i += 1
+    letters = 0
+    while i < n and _is_ascii_letter(s[i]):
+        letters += 1
+        i += 1
+    if letters == 0:
+        return False
+    if i < n and s[i] == "$":
+        i += 1
+    return i < n and "0" <= s[i] <= "9"
+
+
+def _is_sheet_identifier(s: str) -> bool:
+    """``[A-Za-z_][A-Za-z0-9_]*`` without regex."""
+    if not s:
+        return False
+    first = s[0]
+    if not (first == "_" or _is_ascii_letter(first)):
+        return False
+    for c in s[1:]:
+        if not (c == "_" or "0" <= c <= "9" or _is_ascii_letter(c)):
+            return False
+    return True
+
+
+def _has_whitespace(s: str) -> bool:
+    return any(c.isspace() for c in s)
+
+
+def _sheet_needs_excel_quotes(s: str) -> bool:
+    """True when *s* has a non-``[A-Za-z0-9_]`` char or starts with a digit.
+
+    Replaces ``re.search(r'[^\\w]', s)`` plus a leading-digit check.
+    """
+    if s[:1].isdigit():
+        return True
+    return any(not (c == "_" or "0" <= c <= "9" or _is_ascii_letter(c)) for c in s)
+
+
+def _quote_py_sheet(sheet: str, rest: str) -> str:
+    if _has_whitespace(sheet) or not _is_sheet_identifier(sheet):
+        return f"'{sheet}'.{rest}"
+    return f"{sheet}.{rest}"
+
+
+def _format_py_data_range_body(range_addr: str) -> str:
+    """Calc-style range quoting. No regex — relib TypeError on NUL in ``re.match``."""
     addr = str(range_addr).strip().replace("$", "")
     if "!" in addr:
         sheet, _unused, rest = addr.partition("!")
         sheet = sheet.strip("'\"")
         rest = rest.replace("$", "")
-        if re.search(r"\s", sheet) or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", sheet):
-            return f"'{sheet}'.{rest}"
-        return f"{sheet}.{rest}"
+        return _quote_py_sheet(sheet, rest)
     if "." not in addr:
         return addr
     sheet, _unused, rest = addr.partition(".")
     if not sheet or not rest:
         return addr
-    if re.match(r"^\$?[A-Z]+\$?\d", sheet, re.IGNORECASE):
+    if _is_a1_cell_prefix(sheet):
         return addr
-    if re.search(r"\s", sheet) or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", sheet):
+    if _has_whitespace(sheet) or not _is_sheet_identifier(sheet):
         quoted = sheet if sheet.startswith("'") else f"'{sheet}'"
         return f"{quoted}.{rest}"
     return f"{sheet}.{rest}"
 
 
-@deal.pre(lambda range_addr: ascii_bounded(range_addr, DEAL_MAX_SOURCE))
-@deal.post(lambda result: isinstance(result, str))
-def format_excel_data_range(range_addr: str) -> str:
-    """Format a range for Excel OOXML ``=PY()`` data args (``Sheet!A1`` style)."""
+def _format_excel_data_range_body(range_addr: str) -> str:
+    """Excel ``Sheet!A1`` quoting. No regex — same relib TypeError class as PY format."""
     addr = str(range_addr).strip().replace("$", "")
     # Calc-style Sheet.A1 → Sheet!A1
     if "!" not in addr and "." in addr:
         sheet, _unused, rest = addr.partition(".")
-        if sheet and rest and not re.match(r"^\$?[A-Z]+\$?\d", sheet, re.IGNORECASE):
+        if sheet and rest and not _is_a1_cell_prefix(sheet):
             addr = f"{sheet}!{rest}"
     if "!" in addr:
         sheet, _unused, rest = addr.partition("!")
         sheet = sheet.strip("'\"")
         rest = rest.replace("$", "")
-        if re.search(r"[^\w]", sheet) or (sheet[:1].isdigit() if sheet else False):
+        if _sheet_needs_excel_quotes(sheet):
             return f"'{sheet}'!{rest}"
         return f"{sheet}!{rest}"
     return addr
+
+
+# Printable: ascii_bounded uses str.isascii(), which allows NUL. CrossHair relib
+# TypeError on format_*('\x00.\x00') via re.match (run 32840960268).
+@deal.pre(lambda range_addr: ascii_bounded(range_addr, DEAL_MAX_SOURCE) and range_addr.isprintable())
+@deal.post(lambda result: isinstance(result, str))
+def format_py_data_range(range_addr: str) -> str:
+    """Format a range for ``=PY()`` data args (quote sheet names with spaces/special chars)."""
+    return _format_py_data_range_body(range_addr)
+
+
+@deal.pre(lambda range_addr: ascii_bounded(range_addr, DEAL_MAX_SOURCE) and range_addr.isprintable())
+@deal.post(lambda result: isinstance(result, str))
+def format_excel_data_range(range_addr: str) -> str:
+    """Format a range for Excel OOXML ``=PY()`` data args (``Sheet!A1`` style)."""
+    return _format_excel_data_range_body(range_addr)
 
 
 # Defaulted kwargs: deal only forwards provided args + result= (see framework-formal-verification.md §8.1 A).
@@ -505,8 +581,12 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_range
 
     *separator* is ``;`` for Calc formulas and ``,`` for Excel OOXML formulas.
     """
+    # Call unwrapped bodies: formatter @deal.pre now requires isprintable(),
+    # but _deal_data_args_ok stays ascii_bounded-only (NUL still in that domain).
+    # Nested PreconditionFailed is a CrossHair CHECK ERROR (same class as #449
+    # dtype=float growth). Bodies have no regex, so control ASCII cannot TypeError.
     sep = separator if separator in (";", ",") else ";"
-    fmt = format_excel_data_range if excel_ranges or sep == "," else format_py_data_range
+    fmt = _format_excel_data_range_body if excel_ranges or sep == "," else _format_py_data_range_body
     args = [fmt(a.strip()) for a in data_args if a.strip()]
     if not args:
         return ")"

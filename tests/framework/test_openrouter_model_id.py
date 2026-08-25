@@ -49,3 +49,15 @@ def test_equivalent_nitro_and_base() -> None:
 
 def test_free_not_equivalent_to_base() -> None:
     assert not openrouter_model_ids_equivalent("openai/gpt-oss-120b:free", "openai/gpt-oss-120b", _CATALOG)
+
+
+def test_openrouter_equivalent_dropped_from_check_all_fqns() -> None:
+    """Deep check-all run 32840960268: Prev 11:29. Split/resolve stay on (~2 min)."""
+    from pathlib import Path
+
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    fqns = cover_fqns_for_module(Path("plugin/framework/openrouter_model_id.py"), require_deal=True)
+    assert not any(f.endswith(".openrouter_model_ids_equivalent") for f in fqns)
+    assert any(f.endswith("._split_suffix") for f in fqns)
+    assert any(f.endswith(".resolve_openrouter_catalog_id") for f in fqns)

@@ -135,6 +135,8 @@ def get_mode_labels(*, include_brainstorming: bool = False, include_writing_plan
 @deal.post(lambda result: result in _VALID_MODES)
 def mode_from_label(label: str, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> str:
     """Map a combobox display label to a mode constant."""
+    # Deep check-all run 32840960268: Prev 10:13 (gettext labels).
+    # crosshair: off
     flags = SidebarModeFlags(
         include_brainstorming=include_brainstorming,
         include_writing_plan=include_writing_plan,

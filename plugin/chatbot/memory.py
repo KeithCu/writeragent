@@ -107,6 +107,8 @@ def memory_key_from_tool_arguments(arguments: object) -> str | None:
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when upsert_memory starts (main chat tool loop)."""
+    # Deep check-all run 32840960268: Prev 20:53.
+    # crosshair: off
     key = func_args.get("key")
     if not isinstance(key, str):
         return "[Running tool: upsert_memory...]\n"

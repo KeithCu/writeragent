@@ -44,7 +44,9 @@ from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 # Rewrite wrappers (sanitize/escape/rebuild) are ``# crosshair: off`` — check-all
-# drops those FQNs. Keep parse/normalize: nested ensures are inverse_ensure-skipped.
+# drops those FQNs. Data-binding display/parse are also off (run 32840960268).
+# Keep parse/normalize: nested ensures are inverse_ensure-skipped. Range
+# formatters stay on (no regex; printable ascii_bounded pre).
 _CROSSHAIR_TARGETS = (
     "plugin.calc.python.formula_edit._parse_quoted_string",
     "plugin.calc.python.formula_edit.normalize_formula_string",
@@ -57,6 +59,8 @@ _REWRITE_WRAPPERS_OFF = (
     "rebuild_python_formula",
     "rebuild_python_formula_with_data",
     "_rewrite_token_calls",
+    "format_data_binding_display",
+    "parse_data_binding_text",
 )
 
 # Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
@@ -250,7 +254,12 @@ def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
 
 
 def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
-    """Sanitize/escape/rebuild stay ``# crosshair: off``; parse/normalize stay on."""
+    """Sanitize/escape/rebuild stay ``# crosshair: off``; parse/normalize stay on.
+
+    format_data_binding_display / parse_data_binding_text are also off
+    (deep check-all run 32840960268: Prev 95:09 / 15:20). Range formatters
+    stay on — they no longer use regex.
+    """
     from scripts.crosshair_stream import cover_fqns_for_module
 
     fqns = cover_fqns_for_module(
@@ -260,6 +269,12 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
         assert not any(f.endswith(f".{name}") for f in fqns), name
     assert any(f.endswith(".parse_python_formula") for f in fqns)
     assert any(f.endswith(".normalize_formula_string") for f in fqns)
+    assert any(f.endswith(".format_py_data_range") for f in fqns)
+    assert any(f.endswith(".format_excel_data_range") for f in fqns)
+    preprocess = cover_fqns_for_module(
+        Path("plugin/calc/spreadsheet_import/preprocess.py"), require_deal=True
+    )
+    assert any(f.endswith(".normalize_lo_formula_for_parse") for f in preprocess)
 
 
 def test_rewrite_token_calls_rejects_nonalpha_token() -> None:
