@@ -20,9 +20,9 @@ log = logging.getLogger("writeragent.notebook")
 # com.sun.star.form.FormButtonType.PUSH — URL buttons open TargetURL via desktop, not our handler.
 _FORM_BUTTON_PUSH = 0
 
-# Keep listeners alive (UNO holds weak refs). Key: (doc_id, hex_id).
+# Keep listeners alive (UNO holds weak refs). Key: (doc_key, hex_id).
 _listener_refs: list[Any] = []
-_wired_keys: set[tuple[int, str]] = set()
+_wired_keys: set[tuple[str, str]] = set()
 
 
 def form_button_push_type() -> int:
@@ -44,14 +44,33 @@ def _query_interface(obj: Any, typename: str) -> Any:
     return obj.queryInterface(uno.getTypeByName(typename))
 
 
-def _doc_key(doc: Any) -> int:
+def _doc_key(doc: Any) -> str:
+    """Stable id for listener de-dupe across Python wrappers of the same document.
+
+    Untitled Writer docs have an empty URL, so ``id(doc)`` was used. Import wires
+    once, ``import_dialog`` wires again, and bootstrap
+    ``install_notebook_run_button_wiring`` wires a third time — each with a
+    different PyUNO wrapper — so one ▶ click ran the cell three times
+    (``[In [4]]`` jumped to ``[In [7]]``). ``RuntimeUID`` is the same object
+    for every wrapper of that document.
+    """
+    from plugin.framework.uno_context import get_runtime_uid
+
+    uid = get_runtime_uid(doc)
+    if uid:
+        return f"uid:{uid}"
     try:
         url = doc.getURL()
-        if url:
-            return hash(url)
     except Exception:
-        pass
-    return id(doc)
+        url = None
+    if isinstance(url, str) and url:
+        return f"url:{url}"
+    return f"id:{id(doc)}"
+
+
+def wired_run_listener_count(hex_id: str) -> int:
+    """How many live ▶ listeners are registered for *hex_id* (any document)."""
+    return sum(1 for lis in _listener_refs if getattr(lis, "_hex_id", None) == hex_id)
 
 
 def get_control_view_for_model(doc: Any, model: Any) -> Any | None:
