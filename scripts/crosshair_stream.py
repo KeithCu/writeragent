@@ -32,6 +32,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, TextIO
 
+# Must match plugin.framework.deal_shim.CROSSHAIR_ENV. Do not import deal_shim
+# here — that would bind DEAL_MAX_* before WRITERAGENT_CROSSHAIR is set.
+CROSSHAIR_DEAL_ENV = "WRITERAGENT_CROSSHAIR"
+
+
+def enable_crosshair_deal_table() -> None:
+    """Set ``WRITERAGENT_CROSSHAIR=1`` before CrossHair / pool workers import deal_shim.
+
+    Import-time only: deal_shim binds ``DEAL_MAX_*`` from this env when the module
+    loads. Pytest / make test never call this — they keep the wide table.
+    Check-all and cover-all (including ProcessPoolExecutor workers) call this
+    so fork/spawn both see the short table. ``run_crosshair`` also injects the
+    same key on the CrossHair child env dict (``make crosshair-check`` / cover).
+    """
+    os.environ[CROSSHAIR_DEAL_ENV] = "1"
+
+
 CHECK_LINE = re.compile(
     r"^(?P<file>.+\.py):(?P<line>\d+): (?P<level>error|info|warning): (?P<msg>.*)$"
 )
@@ -515,8 +532,11 @@ def run_crosshair(
     dest.write(f"[{start_tag:<22}] {target}\n")
     dest.flush()
     # Piped CrossHair otherwise block-buffers debug(); last flushed line is stale.
+    # Inject on the child env dict (do not require the caller to have set
+    # os.environ). Same short @deal.pre table as check-all / cover-all.
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    env[CROSSHAIR_DEAL_ENV] = "1"
     # New session so timeout can killpg CrossHair + solver children together.
     proc = subprocess.Popen(
         [crosshair_path, command, *crosshair_args],

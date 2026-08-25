@@ -19,6 +19,7 @@ Two presets only (no per-flag budget overrides):
   per-module wall kill so no file dominates the sweep.
 - **deep** (``--deep``): ``--max_uninteresting_iterations=200``, no per-condition
   timeout and no wall — hour-scale exploration (CrossHair's "hundreds" guidance).
+  Speed comes from the short ``WRITERAGENT_CROSSHAIR=1`` deal table, not timeouts.
 
 Failures are engine fatals / process crashes only — wall timeout and few examples
 do not fail the sweep.
@@ -66,6 +67,7 @@ from scripts.crosshair_stream import (
     _TeeTextIO,
     cover_fqns_for_module,
     discover_deal_plugin_files,
+    enable_crosshair_deal_table,
     run_crosshair,
 )
 
@@ -121,6 +123,21 @@ COVER_ALL_SCHEDULE_ORDER: tuple[str, ...] = (
     "plugin/chatbot/research_cache_fluff.py",  # 0.5s
 )
 _COVER_ALL_SCHEDULE_RANK: dict[str, int] = {rel: i for i, rel in enumerate(COVER_ALL_SCHEDULE_ORDER)}
+
+
+def worker_deal_maxima() -> tuple[int, int, int]:
+    """Enable the CrossHair env, then return deal_shim's import-time col/row/cell maxima.
+
+    Picklable pool-worker entry. Spawn workers re-import this module without
+    inheriting pytest's already-bound wide table; the env must be set *before*
+    ``import plugin.framework.deal_shim``. Production cover workers call
+    ``enable_crosshair_deal_table`` the same way and leave deal_shim to the
+    CrossHair child process.
+    """
+    enable_crosshair_deal_table()
+    from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX
+
+    return DEAL_MAX_COL_INDEX, DEAL_MAX_ROW_INDEX, DEAL_MAX_CELL_REF
 
 
 @dataclass(frozen=True)
@@ -243,6 +260,9 @@ def _cover_one_module(
     wall_timeout_sec: float | None = None,
 ) -> CoverModuleResult:
     """Run CrossHair cover for one module; buffer all formatted output (pool worker entry)."""
+    # Spawn/forkserver workers re-import this module; set the env before any
+    # plugin import / CrossHair spawn. Must match check-all (CROSSHAIR_ENV).
+    enable_crosshair_deal_table()
     buf = io.StringIO()
     # Discovery index stays on CoverModuleResult; printed [n/total] is stamped on emit.
     section = f"######## {PROGRESS_SENTINEL} {rel} ########"
@@ -456,6 +476,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Child CrossHair processes (and pool workers) import deal_shim; set this
+    # before ProcessPoolExecutor so fork *and* spawn inherit the short @deal.pre
+    # table. Pytest / make test never set it. Same helper as check-all.
+    enable_crosshair_deal_table()
+
     budget = resolve_cover_budget(deep=args.deep)
 
     explicit = bool(args.targets)
@@ -530,7 +555,10 @@ def main(argv: list[str] | None = None) -> int:
     wall_started = time.perf_counter()
     with args.log.open("w", encoding="utf-8") as log_fp:
         tee = _TeeTextIO(sys.stdout, log_fp)
-        with ProcessPoolExecutor(max_workers=jobs) as executor:
+        with ProcessPoolExecutor(
+            max_workers=jobs,
+            initializer=enable_crosshair_deal_table,
+        ) as executor:
             futures: dict[Future[CoverModuleResult], str] = {}
             for index, path in enumerate(files, start=1):
                 rel = _posix_rel(path)

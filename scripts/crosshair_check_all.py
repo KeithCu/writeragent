@@ -35,7 +35,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
 from dataclasses import dataclass
@@ -49,6 +48,7 @@ from scripts.crosshair_stream import (
     _TeeTextIO,
     cover_fqns_for_module,
     discover_deal_plugin_files,
+    enable_crosshair_deal_table,
     run_crosshair,
 )
 
@@ -183,8 +183,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Child CrossHair processes import deal_shim; set this before any spawn so
     # they bind the short @deal.pre table. Pytest / make test never set it.
-    # Must match plugin.framework.deal_shim.CROSSHAIR_ENV.
-    os.environ["WRITERAGENT_CROSSHAIR"] = "1"
+    enable_crosshair_deal_table()
 
     budget = resolve_check_budget(deep=args.deep)
 

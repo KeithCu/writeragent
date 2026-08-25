@@ -305,9 +305,14 @@ def test_filter_check_all_targets_skip_list() -> None:
     assert none_skipped == []
 
 
-def test_cover_all_list_discovers_deal_without_spawning(tmp_path, capsys) -> None:
+def test_cover_all_list_discovers_deal_without_spawning(tmp_path, capsys, monkeypatch) -> None:
     """cover-all --list finds @deal. modules and exits 0 without spawning CrossHair."""
+    import os
+
+    from plugin.framework.deal_shim import CROSSHAIR_ENV
     from scripts.crosshair_cover_all import main as cover_all_main
+
+    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
 
     plugin = tmp_path / "plugin"
     (plugin / "scripting").mkdir(parents=True)
@@ -320,6 +325,7 @@ def test_cover_all_list_discovers_deal_without_spawning(tmp_path, capsys) -> Non
 
     code = cover_all_main(["--list", "--plugin-root", str(plugin)])
     assert code == 0
+    assert os.environ.get(CROSSHAIR_ENV) == "1"
     out = capsys.readouterr().out
     assert "CrossHair cover-all [regular]: 1 module(s)" in out
     assert "worker(s)" in out
@@ -669,9 +675,14 @@ def test_order_cover_targets_unknowns_alpha_among_themselves() -> None:
     ]
 
 
-def test_cover_all_list_uses_schedule_order(tmp_path, capsys) -> None:
+def test_cover_all_list_uses_schedule_order(tmp_path, capsys, monkeypatch) -> None:
     """--list prints longest-first even when discovery is alphabetical."""
+    import os
+
+    from plugin.framework.deal_shim import CROSSHAIR_ENV
     from scripts.crosshair_cover_all import main as cover_all_main
+
+    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
 
     deal_src = "import deal\n@deal.post(lambda result, *_, **__: True)\ndef f():\n    return 1\n"
     plugin = tmp_path / "plugin"
@@ -686,6 +697,7 @@ def test_cover_all_list_uses_schedule_order(tmp_path, capsys) -> None:
 
     code = cover_all_main(["--list", "--plugin-root", str(plugin)])
     assert code == 0
+    assert os.environ.get(CROSSHAIR_ENV) == "1"
     out = capsys.readouterr().out
     # Schedule ranks mcp_state before payload_codec (longer measured run).
     assert out.index("mcp_state.py") < out.index("payload_codec.py")
@@ -794,3 +806,29 @@ def test_run_crosshair_timeout_check_mode_tag(monkeypatch) -> None:
     assert "[COVER TIMEOUT" not in text
     assert "=== CrossHair CHECK DONE (exit 0) ===" in text
     assert stats.failure_count == 0
+
+
+def test_run_crosshair_child_env_sets_short_deal_table(monkeypatch) -> None:
+    """make crosshair-check/cover spawn CrossHair with WRITERAGENT_CROSSHAIR=1."""
+    from plugin.framework.deal_shim import CROSSHAIR_ENV
+    import scripts.crosshair_stream as stream_mod
+
+    captured: dict[str, str] = {}
+
+    class FakeProc:
+        stdout = iter(())
+
+        def wait(self) -> int:
+            return 0
+
+    def fake_popen(*_args, **kwargs):
+        captured.update(kwargs["env"])
+        return FakeProc()
+
+    monkeypatch.setattr(stream_mod, "find_crosshair", lambda: "crosshair")
+    monkeypatch.setattr(stream_mod.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(stream_mod, "stream_lines", lambda *_a, **_k: stream_mod.StreamStats())
+    out = StringIO()
+    stream_mod.run_crosshair("cover", ["plugin.foo.bar"], "cover", False, False, out=out)
+    assert captured.get(CROSSHAIR_ENV) == captured.get(stream_mod.CROSSHAIR_DEAL_ENV) == "1"
+    assert captured.get("PYTHONUNBUFFERED") == "1"

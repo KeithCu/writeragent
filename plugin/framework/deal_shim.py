@@ -13,8 +13,9 @@ See docs/framework-formal-verification.md §8.1 E for string contract convention
 OXTs strip ``@deal.*``; LibreOffice uses this shim as a no-op). Pytest /
 ``make test`` bind the wide, product-faithful table (ZZZ, Calc max row,
 CELL_REF=32). CrossHair binds the short table only when
-``WRITERAGENT_CROSSHAIR=1`` at import, which ``scripts/crosshair_check_all.py``
-sets before spawning CrossHair. Do not sniff ``sys.modules["crosshair"]`` or
+``WRITERAGENT_CROSSHAIR=1`` at import, which check-all, cover-all (including
+process-pool workers), and ``scripts/crosshair_stream.py run`` set before
+spawning CrossHair. Do not sniff ``sys.modules["crosshair"]`` or
 ``is_tracing()``, and do not branch inside ``@deal.pre`` lambdas — CrossHair
 would explore both branches. Nested inverse ``@deal.ensure`` (format_address
 → parse_address, column_to_index → index_to_column) is skipped under CrossHair
@@ -26,7 +27,7 @@ from __future__ import annotations
 import os
 from typing import Any, NamedTuple
 
-# Import-time flag. Only the check-all runner sets this; pytest / make test do not.
+# Import-time flag. CrossHair runners set this; pytest / make test do not.
 CROSSHAIR_ENV = "WRITERAGENT_CROSSHAIR"
 
 

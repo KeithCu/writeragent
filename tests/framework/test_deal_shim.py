@@ -139,3 +139,60 @@ def test_inverse_ensure_for_is_noop_under_crosshair() -> None:
 
 def test_inverse_ensure_for_is_deal_ensure_under_pytest() -> None:
     assert inverse_ensure_for(crosshair=False) is deal.ensure
+
+
+def test_cover_all_and_check_all_main_set_crosshair_env(tmp_path, monkeypatch) -> None:
+    """Both sweep mains set CROSSHAIR_ENV before any CrossHair spawn (--list is enough)."""
+    from scripts.crosshair_check_all import main as check_all_main
+    from scripts.crosshair_cover_all import main as cover_all_main
+
+    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    (plugin / "m.py").write_text(
+        "import deal\n@deal.post(lambda result: True)\ndef f():\n    return 1\n",
+        encoding="utf-8",
+    )
+    assert cover_all_main(["--list", "--plugin-root", str(plugin)]) == 0
+    assert os.environ.get(CROSSHAIR_ENV) == "1"
+    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
+    assert check_all_main(["--list", "--plugin-root", str(plugin)]) == 0
+    assert os.environ.get(CROSSHAIR_ENV) == "1"
+
+
+def test_cover_all_workers_bind_short_deal_table() -> None:
+    """Cover-all pool workers must see deal_maxima(crosshair=True), not pytest's wide table.
+
+    Spawn (not fork): pytest has already imported deal_shim with the wide bind;
+    fork would copy that. Cover-all's initializer + worker_deal_maxima set
+    WRITERAGENT_CROSSHAIR=1 before the worker imports deal_shim.
+    """
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    from scripts.crosshair_cover_all import enable_crosshair_deal_table, worker_deal_maxima
+    from scripts.crosshair_stream import CROSSHAIR_DEAL_ENV
+
+    assert CROSSHAIR_DEAL_ENV == CROSSHAIR_ENV == "WRITERAGENT_CROSSHAIR"
+    assert os.environ.get(CROSSHAIR_ENV) != "1"
+    wide = deal_maxima(crosshair=False)
+    short = deal_maxima(crosshair=True)
+    assert DEAL_MAX_COL_INDEX == wide.col_index == 18277
+    assert DEAL_MAX_ROW_INDEX == wide.row_index == 1_048_575
+    assert DEAL_MAX_CELL_REF == wide.cell_ref == 32
+    assert (short.col_index, short.row_index, short.cell_ref) == (25, 20, 4)
+
+    ctx = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=ctx,
+        initializer=enable_crosshair_deal_table,
+    ) as executor:
+        col_index, row_index, cell_ref = executor.submit(worker_deal_maxima).result(timeout=30)
+
+    assert (col_index, row_index, cell_ref) == (25, 20, 4)
+    # Parent pytest process must keep the wide table.
+    assert os.environ.get(CROSSHAIR_ENV) != "1"
+    assert DEAL_MAX_COL_INDEX == 18277
+    assert DEAL_MAX_ROW_INDEX == 1_048_575
+    assert DEAL_MAX_CELL_REF == 32
