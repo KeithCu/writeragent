@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.framework import bug_report as br
+from plugin.chatbot import bug_report as br
 from plugin.framework.errors import ConfigError
 from plugin.framework.constants import EXTENSION_ID_LIBREPY, EXTENSION_ID_WRITERAGENT
 
@@ -151,8 +151,8 @@ def test_open_url_in_browser_returns_false_when_both_fail():
             assert br.open_url_in_browser(ctx, "https://example.com/issue") is False
 
 
-@patch("plugin.framework.bug_report.open_url_in_browser", return_value=True)
-@patch("plugin.framework.bug_report.build_github_issue_url", return_value="https://github.com/issue")
+@patch("plugin.chatbot.bug_report.open_url_in_browser", return_value=True)
+@patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="https://github.com/issue")
 def test_open_bug_report_in_browser(mock_build, mock_open):
     ctx = MagicMock()
     assert br.open_bug_report_in_browser(ctx, title="t", extra_body="e") is True
@@ -170,7 +170,7 @@ def test_msgbox_with_report_falls_back_without_dialog(mock_msgbox, mock_load):
     mock_msgbox.assert_called_once()
 
 
-@patch("plugin.framework.bug_report.open_bug_report_in_browser")
+@patch("plugin.chatbot.bug_report.open_bug_report_in_browser")
 @patch("plugin.chatbot.dialogs.load_writeragent_dialog")
 @patch("plugin.chatbot.dialogs.copy_to_clipboard", return_value=True)
 def test_msgbox_with_report_report_button(mock_copy, mock_load, mock_open_report):
@@ -202,7 +202,7 @@ def test_msgbox_with_report_report_button(mock_copy, mock_load, mock_open_report
     mock_open_report.assert_called_once_with(ctx, title="Err", extra_body="details\n\ntrace")
 
 
-@patch("plugin.framework.bug_report.build_github_issue_url", return_value="https://github.com/issue")
+@patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="https://github.com/issue")
 @patch("plugin.chatbot.dialogs.load_writeragent_dialog")
 @patch("plugin.chatbot.dialogs.copy_to_clipboard", return_value=True)
 def test_msgbox_with_report_includes_message_when_no_report_extra(mock_copy, mock_load, mock_build_url):
@@ -218,7 +218,7 @@ def test_msgbox_with_report_includes_message_when_no_report_extra(mock_copy, moc
     mock_build_url.assert_called_once_with(title="Err", extra_body="visible error text", ctx=ctx)
 
 
-@patch("plugin.framework.bug_report.build_github_issue_url", return_value="https://github.com/issue")
+@patch("plugin.chatbot.bug_report.build_github_issue_url", return_value="https://github.com/issue")
 @patch("plugin.chatbot.dialogs.load_writeragent_dialog")
 @patch("plugin.chatbot.dialogs.copy_to_clipboard", return_value=True)
 def test_msgbox_with_report_dedupes_identical_message_and_extra(mock_copy, mock_load, mock_build_url):

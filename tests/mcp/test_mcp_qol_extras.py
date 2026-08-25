@@ -49,7 +49,7 @@ def test_attach_document_echo_shape_and_absence():
 
 
 def test_multidoc_guidance_reaches_mcp_topic():
-    from plugin.framework.agent_manual import get_section, normalize_topic
+    from plugin.chatbot.agent_manual import get_section, normalize_topic
 
     sec = get_section("concurrency", "writer")
     assert "document_url" in sec and "list_open_documents" in sec

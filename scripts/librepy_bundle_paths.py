@@ -101,6 +101,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/writer/math/html_math_segment.py",
     "plugin/writer/images/__init__.py",
     "plugin/writer/images/image_tools.py",  # graphic insert; image_utils.py is LLM gen (WriterAgent only)
+    "plugin/chatbot/bug_report.py",
     "plugin/chatbot/dialogs.py",
     "plugin/chatbot/extension_update_check.py",
     "plugin/chatbot/module_config_dialog.py",
@@ -111,7 +112,6 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/constants.py",
     "plugin/framework/deal_shim.py",
     "plugin/framework/errors.py",
-    "plugin/framework/bug_report.py",
     "plugin/framework/json_utils.py",
     "plugin/framework/i18n.py",
     "plugin/framework/event_bus.py",

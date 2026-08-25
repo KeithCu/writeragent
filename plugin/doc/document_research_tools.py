@@ -126,7 +126,7 @@ class GetGuidance(ToolBase):
     }
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.agent_manual import doc_type_of, get_section, list_topics, manual_index, normalize_topic
+        from plugin.chatbot.agent_manual import doc_type_of, get_section, list_topics, manual_index, normalize_topic
 
         # Guidance must match the document being worked on (a Calc session must never read Writer
         # advice). Resolve the target document the same way every other tool does; with no document

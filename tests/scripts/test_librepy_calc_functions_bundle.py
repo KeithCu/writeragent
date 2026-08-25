@@ -32,7 +32,7 @@ def test_librepy_bundle_includes_calc_functions_common():
 
 def test_librepy_bundle_includes_bug_report():
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
-    assert "plugin/framework/bug_report.py" in paths
+    assert "plugin/chatbot/bug_report.py" in paths
 
 
 def test_librepy_bundle_includes_udprops():

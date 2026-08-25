@@ -52,7 +52,7 @@ def test_initialize_instructions_lean_pointer_in_every_mode():
 def test_navigation_workflow_lives_in_the_manual():
     """R5's map-first workflow (outline -> drill -> search) is delivered via the manual now —
     get_guidance('navigation') for MCP clients and the sidebar; full_manual() for the agent-backend path."""
-    from plugin.framework.agent_manual import get_section
+    from plugin.chatbot.agent_manual import get_section
 
     nav = get_section("navigation")
     assert "get_document_tree" in nav
@@ -161,8 +161,8 @@ def test_mcp_initialize_instructions_are_lean_and_point_to_the_manual(mcp_server
     """T4/G2 contract: initialize.instructions is LEAN (major clients drop or truncate it — Claude
     Desktop doesn't read it, Claude Code truncates ~2KB) and points to get_guidance(topic), where
     the full behavior manual lives (single source: the shared prompt pieces in constants.py,
-    mapped per topic by plugin/framework/agent_manual.py, pinned in
-    tests/framework/test_agent_manual.py). Only the invariants ride along."""
+    mapped per topic by plugin/chatbot/agent_manual.py, pinned in
+    tests/chatbot/test_agent_manual.py). Only the invariants ride along."""
     url = f"{mcp_server}/mcp"
     payload = {"jsonrpc": "2.0", "id": 7, "method": "initialize", "params": {}}
     data_bytes = json.dumps(payload).encode("utf-8")

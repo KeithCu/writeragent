@@ -26,7 +26,9 @@ When creating dialogs or multi-step wizards in LibreOffice Python (PyUNO):
 | :--- | :--- |
 | [`extension/Dialogs/*.xdl`](../extension/Dialogs/) | XDL XML layout definitions for dialogs and panels |
 | [`plugin/chatbot/dialogs.py`](../plugin/chatbot/dialogs.py) | Core dialog helpers: XDL loader, safe getters/setters, message boxes, clipboard |
-| [`plugin/chatbot/dialog_views.py`](../plugin/chatbot/dialog_views.py) | High-level dialog view implementations (`SettingsDialog`, `EvalDashboard`, `input_box`) |
+| [`plugin/chatbot/dialog_views.py`](../plugin/chatbot/dialog_views.py) | High-level dialog view implementations (`SettingsDialog`, `input_box`); re-exports eval dashboard |
+| [`plugin/chatbot/eval_dashboard_ui.py`](../plugin/chatbot/eval_dashboard_ui.py) | Eval dashboard XDL (`EvalDashboard`, `show_eval_dashboard`) |
+| [`plugin/chatbot/bug_report.py`](../plugin/chatbot/bug_report.py) | GitHub issue URL builder and browser launcher |
 | [`plugin/chatbot/config_ui_helpers.py`](../plugin/chatbot/config_ui_helpers.py) | Combobox / Listbox loaders, LRU history, endpoint selectors |
 | [`plugin/framework/uno_listeners.py`](../plugin/framework/uno_listeners.py) | Safe base listener classes (`BaseActionListener`, `BaseItemListener`, `BaseTextListener`, etc.) |
 | [`plugin/framework/uno_context.py`](../plugin/framework/uno_context.py) | Context resolution (`get_ctx`, `get_desktop`, `get_toolkit`, `get_extension_url`) |

@@ -231,7 +231,7 @@ def bootstrap(ctx=None):
 def _register_core_handlers():
     """Register core application handlers during bootstrap."""
     from plugin.chatbot.dialog_views import settings_box
-    from plugin.framework.eval_dashboard_ui import show_eval_dashboard
+    from plugin.chatbot.eval_dashboard_ui import show_eval_dashboard
     from plugin.doc.doc_type import is_writer, is_calc, is_draw
     import importlib
 

@@ -31,7 +31,7 @@ from plugin.framework.config import get_api_config, get_config, get_config_int_s
 from plugin.framework.config_schema import as_bool
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.prompts import get_core_directives
-from plugin.framework.agent_manual import full_manual_for_model
+from plugin.chatbot.agent_manual import full_manual_for_model
 from plugin.framework.queue_executor import llm_request_lane
 from plugin.agent_backend import get_backend
 from plugin.agent_backend.registry import normalize_backend_id

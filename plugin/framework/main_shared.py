@@ -69,7 +69,7 @@ def register_common_handlers() -> None:
     from plugin.framework.uno_context import get_ctx
 
     def _report_bug() -> None:
-        from plugin.framework.bug_report import open_bug_report_in_browser
+        from plugin.chatbot.bug_report import open_bug_report_in_browser
         open_bug_report_in_browser(get_ctx(), title="Bug report")
 
     register_action_handler("main", "report_bug", _report_bug)

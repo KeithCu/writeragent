@@ -894,7 +894,7 @@ class DownloadAudioListener(BaseActionListener):
 
 # ── Evaluation Dashboard ─────────────────────────────────────────────
 
-from plugin.framework.eval_dashboard_ui import (
+from plugin.chatbot.eval_dashboard_ui import (
     EvalDashboard,
     EvalRunListener,
     SimpleCloseListener,

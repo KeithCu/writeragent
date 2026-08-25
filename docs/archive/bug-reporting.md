@@ -29,7 +29,7 @@ Debug builds (UNO thread guard) also offer report on thread-violation popups.
 
 ## Browser open behavior
 
-Implementation: [`plugin/framework/bug_report.py`](../plugin/framework/bug_report.py)
+Implementation: [`plugin/chatbot/bug_report.py`](../plugin/chatbot/bug_report.py)
 
 1. UNO `com.sun.star.system.SystemShellExecute` with `URIS_ONLY`
 2. Fallback: Python `webbrowser.open()` (`xdg-open`, `open`, or Windows default handler)

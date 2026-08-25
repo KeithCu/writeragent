@@ -10,6 +10,7 @@ the area gotchas.
 - Tool loop / chat FSM: `tool_loop.py`, `tool_loop_state.py`
 - Smol / librarian ReAct (separate runtime; shares `LlmClient`): `smol_agent.py`
 - Dialogs / settings: `dialogs.py`, `dialog_views.py`, `settings_dialog.py`
+- Product UI owned here (not framework): `eval_dashboard_ui.py`, `bug_report.py`, `agent_manual.py`
 - Memory (experimental): `memory.py` — `MEMORY_GUIDANCE` is in `plugin/framework/prompts.py`
 - Librarian is a **sidebar mode** (last in the dropdown). Do **not** gate `_do_send` on missing `USER.md`. Default selection uses `chatbot.librarian_invoked` (first open only), not `USER.md`. History is a global `ChatSession` (`LIBRARIAN_HISTORY_SESSION_ID`), not per document.
 
@@ -20,6 +21,9 @@ the area gotchas.
 - `send_handlers.py` / `tool_loop.py` — mixins on `SendButtonListener`. Route send / mid-loop refresh through `ChatSession.refresh_document_context`. Stay mixins (no `session.py` / `send.py`).
 - `dialogs.py` — shared XDL / msgbox / checkbox / translate kit. LibrePy Settings and Run Python Script import this.
 - `dialog_views.py` — WriterAgent Settings pages, provider buttons, venv probe UI. `input_box` (Edit/Extend selection) stays here; it is not a generic XDL helper.
+- `eval_dashboard_ui.py` — prompt-optimization eval dashboard XDL (`show_eval_dashboard`).
+- `bug_report.py` — GitHub issue URL builder / browser launcher (`msgbox_with_report`, Report bug menu). LibrePy bundles this.
+- `agent_manual.py` — `get_guidance` topic map + `full_manual_for_model` (sidebar hybrid prompt and MCP).
 
 ## Legal imports
 

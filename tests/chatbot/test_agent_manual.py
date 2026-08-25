@@ -12,7 +12,7 @@ sections are per document type so a Calc session never reads Writer advice. No L
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
-from plugin.framework.agent_manual import (
+from plugin.chatbot.agent_manual import (
     MANUAL_SECTIONS,
     doc_type_of,
     full_manual,

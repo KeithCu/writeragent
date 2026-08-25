@@ -455,7 +455,7 @@ def msgbox_with_report(ctx, title, message, *, reportable=False, report_title=""
         log.info("MSGBOX_REPORT (no ctx) - %s: %s", title, message)
         return
     try:
-        from plugin.framework.bug_report import build_github_issue_url, open_bug_report_in_browser
+        from plugin.chatbot.bug_report import build_github_issue_url, open_bug_report_in_browser
 
         dlg = load_writeragent_dialog("ErrorReportDialog", ctx)
         if dlg is None:
