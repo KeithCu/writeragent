@@ -242,7 +242,7 @@ def test_find_output_heading_skips_earlier_markdown_chrome():
         found = _find_cell_output_heading_end(doc, cell)
     assert found is heading_cursor
     text.createTextCursorByRange.assert_called_with(output_para.getStart())
-    heading_cursor.goRight.assert_called_once_with(1, False)
+    heading_cursor.goRight.assert_called_once_with(6, False)
 
 
 def test_is_next_cell_boundary_markdown_and_code():

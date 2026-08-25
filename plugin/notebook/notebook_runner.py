@@ -211,11 +211,14 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
             continue
         if content.strip() == "Output":
             try:
-                # Stay *inside* the heading. para.getEnd() / gotoEndOfParagraph
-                # is the paragraph break; a bookmark there is the start of the
-                # next para, so setString of the following range deletes nb_out_*.
+                # After the last character of "Output", still in this paragraph.
+                # para.getEnd() / a mid-heading goRight(1) are wrong: the former
+                # is the break (setString of the next range deletes nb_out_*),
+                # the latter splits the heading when we insert PARAGRAPH_BREAK
+                # ("O" / stdout / "utput").
                 cursor = text.createTextCursorByRange(para.getStart())
-                if not cursor.goRight(1, False):
+                n = min(len("Output"), 32767)
+                if not cursor.goRight(n, False):
                     cursor.gotoEndOfParagraph(False)
             except Exception:
                 continue
@@ -564,6 +567,17 @@ def _insert_stdout_paragraph(
     def _finish() -> None:
         _reanchor_output_bookmark(doc, cell)
         _collapse_leading_empty_paragraphs(doc, cell, notebook_in)
+
+    # Bookmark/find cursor may sit inside "Output". A PARAGRAPH_BREAK there
+    # splits the heading into "O" + "utput". Snap to after the last character.
+    if _paragraph_string(cursor).strip() == "Output":
+        try:
+            cursor.gotoStartOfParagraph(False)
+            n = min(len("Output"), 32767)
+            if not cursor.goRight(n, False):
+                cursor.gotoEndOfParagraph(False)
+        except Exception:
+            log.debug("notebook run: snap to end of Output heading failed", exc_info=True)
 
     if _paragraph_is_empty(cursor):
         _fill(cursor)

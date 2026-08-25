@@ -98,6 +98,7 @@ def _assert_stdout_not_mashed(doc) -> list[tuple[str, str]]:
     assert chrome, f"Cell 3: Markdown heading missing after run: {paras!r}"
     for text in chrome:
         assert _SENTINEL not in text, f"next-cell chrome contains stdout: {text!r}"
+    assert any(t.strip() == "Output" for _s, t in paras), f"Output heading split or missing: {paras!r}"
     return paras
 
 
@@ -363,6 +364,9 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
             )
             assert "Cell 3: Markdown" in body
             assert "1. Creating Arrays" in body
+            assert any(t.strip() == "Output" for _s, t in _paragraphs(doc)), (
+                f"Output heading split or missing: {_paragraphs(doc)!r}"
+            )
             _assert_controls_present(doc, cell)
             needle = "NumPy Version"
             assert needle in out1, f"expected in-cell stdout, got {out1!r}"
