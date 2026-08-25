@@ -62,8 +62,8 @@ After `make deploy`, **restart LibreOffice** so the extension and menu handlers 
 |--------|-----|
 | **Run one cell** | Click the in-flow **▶** push button immediately before the code `TextField`. |
 | **Shared variables** | All code cells in the same Writer document share one `notebook:…` Python namespace (like a Jupyter kernel). Run cell 0 (`x = 1`), then cell 1 (`print(x)`) → `1`. |
-| **Execution count** | After a successful run, the gutter updates to `[In [n]]` (text portions only — in-flow ▶ / code field stay). |
-| **Reset kernel** | **WriterAgent → Reset Python Session** when the document has an imported notebook registry. Clears variables; re-run cells from the top if needed. |
+| **Execution count** | New kernel (import or **Reset Python Session**) starts at 1 — saved ipynb counts are historical until a live run. Each run of any cell, including failures and re-clicks, increments by 1 (Jupyter `In [n]`). Gutter style stays `[In [n]]`. |
+| **Reset kernel** | **WriterAgent → Reset Python Session** when the document has an imported notebook registry. Clears variables and the kernel In count (next run is `[In [1]]`). Re-run cells from the top if needed. |
 | **Errors** | Tracebacks and stdout appear under the cell’s **Output** section (Preformatted Text, own paragraph — not concatenated onto the next cell heading). Empty code shows a msgbox. |
 | **Sandbox** | Code runs in your configured user venv ([`venv_worker.py`](../plugin/scripting/venv_worker.py)), subject to the same AST safety rules as other WriterAgent scripting (e.g. dunder methods may be blocked by design). |
 
@@ -87,7 +87,7 @@ For each cell in order, the importer appends to the **document body**:
 
 **Code fields (in-flow):** `TextField` inside `ControlShape`, **`AS_CHARACTER`**, `insertTextContent` at document end — same pattern as [`FormCreateControl`](../plugin/writer/specialized/forms.py). Models are also registered on the document **draw page** (used to find controls for ▶ wiring and for `read_code_from_field`). A paragraph break after the `[In [n]]` gutter keeps those shapes out of the title paragraph.
 
-**Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from outputs use **Preformatted Text** (one paragraph per block). Live run inserts a paragraph break *after* stdout as well, so the next cell heading cannot share that line.
+**Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from outputs use **Preformatted Text** (one paragraph per block). Live run writes stdout directly under the Output heading (at most one blank line). Re-run **replaces** that in-cell block; it does not append at the document end. The `nb_out_*` bookmark stays on the Output heading. If stdout would otherwise share a line with the next cell heading, a split restores Heading 3 chrome (PR 461).
 
 **Spellcheck:** At import start, document and paragraph styles used by the notebook are set to locale **`zxx`** (no linguistic content) so code and markdown are not spell-checked. Form field contents may still show squiggles depending on LO version.
 

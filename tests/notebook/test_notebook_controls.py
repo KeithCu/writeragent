@@ -53,6 +53,29 @@ def test_wire_run_button_listener_attaches_to_xbutton():
     control.addActionListener.assert_called_once()
 
 
+def test_wire_run_button_listener_idempotent_for_same_runtime_uid():
+    """Untitled docs share RuntimeUID across PyUNO wrappers; one click must be one run."""
+    ctx = MagicMock()
+    doc1 = MagicMock()
+    doc2 = MagicMock()
+    doc1.getURL.return_value = ""
+    doc2.getURL.return_value = ""
+    doc1.getRuntimeUID.return_value = "uid-nb-same"
+    doc2.getRuntimeUID.return_value = "uid-nb-same"
+    model = MagicMock()
+    control = MagicMock()
+    control.queryInterface.return_value = control
+    hex_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    with patch(
+        "plugin.notebook.notebook_controls.get_control_view_for_model",
+        return_value=control,
+    ):
+        assert wire_run_button_listener(ctx, doc1, model, hex_id) is True
+        assert wire_run_button_listener(ctx, doc2, model, hex_id) is True
+    control.addActionListener.assert_called_once()
+
+
 def test_notebook_run_button_listener_calls_runner():
     ctx = MagicMock()
     doc = MagicMock()

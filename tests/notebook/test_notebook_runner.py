@@ -84,7 +84,7 @@ def test_init_registry_execution_counter():
     c1 = new_code_cell_entry(1, None, "nb_cell_1_code")
     state = NotebookDocState(code_cells=[c0, c1])
     init_registry_execution_counter(state)
-    assert state.next_execution_count == 4
+    assert state.next_execution_count == 1
 
 
 def test_execute_code_uses_blocking_pump():
@@ -245,11 +245,12 @@ def test_clear_cell_output_uses_set_string_not_delete_contents():
     walker.gotoNextParagraph.side_effect = goto_next
     walker.getStart.return_value = "end-pos"
 
+    range_start = MagicMock(name="range_start")
     sel = MagicMock(name="sel")
     sel.getString.return_value = "old stdout\n"
 
     text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, sel]
+    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
     doc = MagicMock()
     doc.getText.return_value = text
 
@@ -282,11 +283,12 @@ def test_clear_cell_output_stops_at_markdown_cell_heading():
     walker.gotoNextParagraph.side_effect = goto_next
     walker.getStart.return_value = "md-start"
 
+    range_start = MagicMock(name="range_start")
     sel = MagicMock(name="sel")
     sel.getString.return_value = "Array: [10 20 30]\n"
 
     text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, sel]
+    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
     doc = MagicMock()
     doc.getText.return_value = text
 
@@ -323,11 +325,12 @@ def test_clear_cell_output_collapsed_cursor_stops_at_markdown():
     walker.gotoNextParagraph.side_effect = goto_next
     walker.getStart.return_value = "md-start"
 
+    range_start = MagicMock(name="range_start")
     sel = MagicMock(name="sel")
     sel.getString.return_value = "old stdout\n"
 
     text = MagicMock()
-    text.createTextCursorByRange.side_effect = [walker, sel]
+    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
     doc = MagicMock()
     doc.getText.return_value = text
 
@@ -386,7 +389,7 @@ def test_apply_run_result_replaces_via_clear_then_insert():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=cursor),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="Preformatted Text"),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", side_effect=lambda _doc, name: name),
     ):
         apply_run_result(doc, cell, {"status": "ok", "stdout": "first\n", "result": None})
         apply_run_result(doc, cell, {"status": "ok", "stdout": "second\n", "result": None})
@@ -394,11 +397,7 @@ def test_apply_run_result_replaces_via_clear_then_insert():
     assert [call.args[1] for call in text.insertString.call_args_list] == ["first", "second"]
     text.deleteContents.assert_not_called()
     cursor.gotoEnd.assert_not_called()
-    from plugin.notebook.writer_importer import _PARAGRAPH_BREAK
-
-    breaks = [call.args[1] for call in text.insertControlCharacter.call_args_list]
-    assert breaks.count(_PARAGRAPH_BREAK) >= 2
-    cursor.goRight.assert_called()
+    text.insertControlCharacter.assert_not_called()
 
 
 def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
@@ -406,15 +405,20 @@ def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
     from plugin.notebook.notebook_runner import _insert_stdout_paragraph
     from plugin.notebook.writer_importer import _PARAGRAPH_BREAK
 
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     cursor = MagicMock()
     cursor.ParaStyleName = "Heading 3"
     cursor.goRight.return_value = True
     cursor.getString.return_value = "Cell 3: Markdown"
     text = MagicMock()
+    nxt = MagicMock()
+    nxt.gotoNextParagraph.return_value = False
+    text.createTextCursorByRange.return_value = nxt
     doc = MagicMock()
     doc.getText.return_value = text
 
-    _insert_stdout_paragraph(doc, cursor, "hello", "Preformatted Text", "WriterAgent Notebook In")
+    with patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=cursor):
+        _insert_stdout_paragraph(doc, cell, cursor, "hello", "Preformatted Text", "WriterAgent Notebook In")
 
     assert [call.args[1] for call in text.insertControlCharacter.call_args_list] == [
         _PARAGRAPH_BREAK,
@@ -485,3 +489,74 @@ def test_update_in_prompt_source_never_setstrings_para_end():
     src = inspect.getsource(update_in_prompt)
     assert "para.getEnd()" not in src
     assert "_gutter_text_cursor" in src
+
+
+def test_run_cell_error_still_increments_execution_count():
+    """Failed runs consume a kernel count, matching Jupyter In [n]."""
+    ctx = MagicMock()
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    doc = MagicMock()
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", return_value="raise ValueError(1)"),
+        patch(
+            "plugin.notebook.notebook_runner.execute_code",
+            return_value={"status": "error", "message": "ValueError", "stdout": ""},
+        ),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result"),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
+    ):
+        result = run_cell(ctx, doc, cell.cell_id)
+
+    assert result.status == "error"
+    assert result.execution_count == 1
+    assert cell.execution_count == 1
+    assert state.next_execution_count == 2
+
+
+def test_insert_stdout_paragraph_no_break_when_para_empty():
+    from plugin.notebook.notebook_runner import _insert_stdout_paragraph
+
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    cursor = MagicMock()
+    cursor.getString.return_value = ""
+    cursor.ParaStyleName = "Preformatted Text"
+    text = MagicMock()
+    nxt = MagicMock()
+    nxt.gotoNextParagraph.return_value = False
+    text.createTextCursorByRange.return_value = nxt
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=cursor):
+        _insert_stdout_paragraph(
+            doc, cell, cursor, "NumPy Version: 2.5.2", "Preformatted Text", "WriterAgent Notebook In"
+        )
+
+    text.insertControlCharacter.assert_not_called()
+    text.insertString.assert_called_once_with(cursor, "NumPy Version: 2.5.2", False)
+
+
+def test_apply_run_result_missing_bookmark_does_not_append_at_end():
+    src = inspect.getsource(apply_run_result)
+    assert "_append_body_text_block" not in src
+
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    doc = MagicMock()
+    text = MagicMock()
+    doc.getText.return_value = text
+    with (
+        patch("plugin.notebook.notebook_runner._reanchor_output_bookmark", return_value=None),
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=None),
+        patch("plugin.notebook.notebook_runner._find_cell_output_heading_end", return_value=None),
+        patch("plugin.notebook.notebook_runner._insert_stdout_paragraph") as insert,
+    ):
+        apply_run_result(doc, cell, {"status": "ok", "stdout": "dumped\n", "result": None})
+    insert.assert_not_called()
+    text.insertString.assert_not_called()
+    text.insertControlCharacter.assert_not_called()
