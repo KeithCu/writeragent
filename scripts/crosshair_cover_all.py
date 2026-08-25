@@ -40,6 +40,7 @@ Usage::
     python scripts/crosshair_cover_all.py
     python scripts/crosshair_cover_all.py --deep
     python scripts/crosshair_cover_all.py --list
+    python scripts/crosshair_cover_all.py --start-at 42
     python scripts/crosshair_cover_all.py --jobs 4
     python scripts/crosshair_cover_all.py plugin/scripting/payload_codec.py
 """
@@ -62,7 +63,11 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from scripts.crosshair_check_all import CROSSHAIR_CHECK_ALL_SKIP
+from scripts.crosshair_check_all import (
+    CROSSHAIR_CHECK_ALL_SKIP,
+    apply_start_at,
+    start_at_status_line,
+)
 from scripts.crosshair_stream import (
     _TeeTextIO,
     cover_fqns_for_module,
@@ -446,6 +451,13 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Write per-module durations here (default: {DEFAULT_TIMINGS_JSON})",
     )
     parser.add_argument("--list", action="store_true", help="Print discovered files and exit")
+    parser.add_argument(
+        "--start-at",
+        type=int,
+        default=1,
+        metavar="N",
+        help="1-based module index in cover submit order; skip files before N (default 1)",
+    )
     parser.add_argument("-q", "--quiet", action="store_true", help="Only errors/fatals and final banner")
     parser.add_argument("--raw", action="store_true", help="Also print suppressed CrossHair -v spam")
     parser.add_argument(
@@ -506,6 +518,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     rels = [_posix_rel(p) for p in files]
+    full_count = len(files)
     timeout_desc = (
         "none" if budget.per_condition_timeout is None else f"{budget.per_condition_timeout}s"
     )
@@ -515,25 +528,34 @@ def main(argv: list[str] | None = None) -> int:
         else "none"
     )
     print(
-        f"CrossHair cover-all [{budget.mode}]: {len(rels)} module(s), {jobs} worker(s) "
+        f"CrossHair cover-all [{budget.mode}]: {full_count} module(s), {jobs} worker(s) "
         f"(process pool; max_uninteresting={budget.max_uninteresting}, "
         f"per_condition_timeout={timeout_desc}, module_wall={wall_desc})",
         flush=True,
     )
     if args.list:
-        for rel in rels:
+        # --list is the directory of 1-based submit-order indices; ignore --start-at.
+        for index, rel in enumerate(rels, start=1):
             fqns = cover_fqns_for_module(Path(rel))
             if not fqns:
-                print(f"  (all callables off) {rel}", flush=True)
+                print(f"  {index}  (all callables off) {rel}", flush=True)
             else:
-                print(f"  ({len(fqns)} cover FQNs) {rel}", flush=True)
+                print(f"  {index}  ({len(fqns)} cover FQNs) {rel}", flush=True)
         if skipped:
             print(f"Skipped (module skip list): {len(skipped)}", flush=True)
             for rel in skipped:
                 print(f"  SKIP {rel}", flush=True)
         return 0
-    for rel in rels:
-        print(f"  {rel}", flush=True)
+
+    try:
+        files = apply_start_at(files, args.start_at)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    if args.start_at > 1:
+        print(start_at_status_line(args.start_at, full_count), flush=True)
+    for path in files:
+        print(f"  {_posix_rel(path)}", flush=True)
     if skipped:
         print(f"Skipped (module skip list; pass path or --include-skipped to force): {len(skipped)}", flush=True)
         for rel in skipped:
@@ -549,6 +571,8 @@ def main(argv: list[str] | None = None) -> int:
     results: list[CoverModuleResult] = []
     total_examples = 0
     total_explore = 0
+    # Finish-order banners use remaining submitted count; CoverModuleResult.index
+    # keeps the original 1-based submit index (42/N after --start-at 42).
     total = len(files)
     # One CrossHair per module still; pool only parallelizes which modules run.
     # Buffer per worker, emit whole blocks on completion so stdout/log never interleave.
@@ -560,7 +584,7 @@ def main(argv: list[str] | None = None) -> int:
             initializer=enable_crosshair_deal_table,
         ) as executor:
             futures: dict[Future[CoverModuleResult], str] = {}
-            for index, path in enumerate(files, start=1):
+            for index, path in enumerate(files, start=args.start_at):
                 rel = _posix_rel(path)
                 max_uninteresting, per_condition_timeout = module_cover_bounds(
                     budget, _schedule_key(path)

@@ -231,9 +231,9 @@ help:
 	@echo "  make crosshair-check        CrossHair check on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-cover        CrossHair cover on payload_codec.py (long; not in make test)"
 	@echo "  make crosshair-check-all    CrossHair check every @deal. plugin module (regular: 25 iters / 5s + 120s wall; log: build/crosshair-check-all.log)"
-	@echo "  make crosshair-check-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall)"
+	@echo "  make crosshair-check-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall). START_AT=42 resumes from module 42"
 	@echo "  make crosshair-cover-all    CrossHair cover every @deal. plugin module (regular: 25 iters / 5s + 120s wall; process pool; log: build/crosshair-cover-all.log)"
-	@echo "  make crosshair-cover-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall)"
+	@echo "  make crosshair-cover-all-deep  Same sweep, deep mode (200 iters, no per-condition timeout / wall). START_AT=42 resumes from module 42"
 	@echo "  make test-visible           Run LO chart + grep UNO tests visibly (GUI) for processEventsToIdle / OLE queue"
 	@echo "  make lo-test-threadguard    Run full in-LO suite with WRITERAGENT_UNO_THREAD_GUARD=1 (Layer B)"
 	@echo "  make opengrep-lint          Opengrep UNO + security rules (ERROR; part of make test)"
@@ -813,18 +813,22 @@ crosshair-cover:
 # Every plugin file with @deal. (deal contracts only). Not part of make test.
 # Regular: 25 uninteresting iters + 5s per condition + 120s module wall. Deep: 200 iters, no timeout/wall.
 # Regular payload_codec only: 5 / 5s (module_check_bounds / module_cover_bounds).
+# START_AT=N (optional, 1-based) resumes from module N: make crosshair-check-all-deep START_AT=42
+START_AT ?=
+START_AT_FLAG := $(if $(START_AT),--start-at $(START_AT),)
+
 crosshair-check-all:
-	"$(PYTHON)" scripts/crosshair_check_all.py
+	"$(PYTHON)" scripts/crosshair_check_all.py $(START_AT_FLAG)
 
 crosshair-check-all-deep:
-	"$(PYTHON)" scripts/crosshair_check_all.py --deep
+	"$(PYTHON)" scripts/crosshair_check_all.py --deep $(START_AT_FLAG)
 
 # Cover (example synthesis) on the same @deal. set / skip list. Not part of make test.
 crosshair-cover-all:
-	"$(PYTHON)" scripts/crosshair_cover_all.py
+	"$(PYTHON)" scripts/crosshair_cover_all.py $(START_AT_FLAG)
 
 crosshair-cover-all-deep:
-	"$(PYTHON)" scripts/crosshair_cover_all.py --deep
+	"$(PYTHON)" scripts/crosshair_cover_all.py --deep $(START_AT_FLAG)
 
 # ── Benchmarks (scripts/prompt_optimization) ─────────────────────────────────
 

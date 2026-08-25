@@ -32,6 +32,7 @@ Usage::
     python scripts/crosshair_check_all.py
     python scripts/crosshair_check_all.py --deep
     python scripts/crosshair_check_all.py --list
+    python scripts/crosshair_check_all.py --start-at 42
     python scripts/crosshair_check_all.py plugin/scripting/payload_codec.py
 """
 
@@ -143,6 +144,28 @@ def filter_check_all_targets(files: list[Path], *, apply_skip: bool) -> tuple[li
     return to_run, skipped
 
 
+def apply_start_at(files: list[Path], start_at: int) -> list[Path]:
+    """Return ``files[start_at - 1:]`` (1-based). Does not reindex.
+
+    ``start_at == 1`` is identity (including an empty list). Raises
+    ``ValueError`` when *start_at* is < 1 or greater than ``len(files)``.
+    Callers keep original indices so a restart at 42 still prints ``[42/56]``.
+    """
+    if start_at < 1:
+        raise ValueError(f"--start-at must be >= 1 (got {start_at})")
+    n = len(files)
+    if start_at == 1:
+        return files
+    if start_at > n:
+        raise ValueError(f"--start-at {start_at} is past the last module ({n})")
+    return files[start_at - 1 :]
+
+
+def start_at_status_line(start_at: int, total: int) -> str:
+    """One-liner after a non-default ``--start-at`` (e.g. ``starting at module 42/56 (skipped 41)``)."""
+    return f"starting at module {start_at}/{total} (skipped {start_at - 1})"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="CrossHair check all deal-instrumented plugin modules")
     parser.add_argument(
@@ -163,6 +186,13 @@ def main(argv: list[str] | None = None) -> int:
         help=f"Tee formatted output here (default: {DEFAULT_LOG})",
     )
     parser.add_argument("--list", action="store_true", help="Print discovered files and exit")
+    parser.add_argument(
+        "--start-at",
+        type=int,
+        default=1,
+        metavar="N",
+        help="1-based module index; skip files before N (default 1)",
+    )
     parser.add_argument("-q", "--quiet", action="store_true", help="Only errors/fatals and final banner")
     parser.add_argument("--raw", action="store_true", help="Also print suppressed CrossHair -v spam")
     parser.add_argument(
@@ -209,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     rels = [_posix_rel(p) for p in files]
+    full_count = len(files)
     timeout_desc = (
         "none" if budget.per_condition_timeout is None else f"{budget.per_condition_timeout}s"
     )
@@ -218,19 +249,35 @@ def main(argv: list[str] | None = None) -> int:
         else "none"
     )
     print(
-        f"CrossHair check-all [{budget.mode}]: {len(rels)} module(s), one CrossHair process per FQN "
+        f"CrossHair check-all [{budget.mode}]: {full_count} module(s), one CrossHair process per FQN "
         f"(max_uninteresting={budget.max_uninteresting}, "
         f"per_condition_timeout={timeout_desc}, module_wall={wall_desc})",
         flush=True,
     )
-    for rel in rels:
-        print(f"  {rel}", flush=True)
+    if args.list:
+        # --list is the directory of 1-based indices; ignore --start-at so a resume
+        # lookup still shows 1..N rather than a suffix.
+        for index, rel in enumerate(rels, start=1):
+            print(f"  {index}  {rel}", flush=True)
+        if skipped:
+            print(f"Skipped (engine-hostile; pass path or --include-skipped to force): {len(skipped)}", flush=True)
+            for rel in skipped:
+                print(f"  SKIP {rel}", flush=True)
+        return 0
+
+    try:
+        files = apply_start_at(files, args.start_at)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    if args.start_at > 1:
+        print(start_at_status_line(args.start_at, full_count), flush=True)
+    for path in files:
+        print(f"  {_posix_rel(path)}", flush=True)
     if skipped:
         print(f"Skipped (engine-hostile; pass path or --include-skipped to force): {len(skipped)}", flush=True)
         for rel in skipped:
             print(f"  SKIP {rel}", flush=True)
-    if args.list:
-        return 0
     if not files:
         print("Nothing to analyze after skip filter.", file=sys.stderr)
         return 0
@@ -242,9 +289,10 @@ def main(argv: list[str] | None = None) -> int:
     prev_clock = PrevLineClock()
     with args.log.open("w", encoding="utf-8") as log_fp:
         tee = _TeeTextIO(sys.stdout, log_fp)
-        for index, path in enumerate(files, start=1):
+        # start=start_at keeps [42/56] after a suffix slice (do not reindex to [1/15]).
+        for index, path in enumerate(files, start=args.start_at):
             rel = str(path)
-            tee.write(f"\n######## [{index}/{len(files)}] {rel} ########\n")
+            tee.write(f"\n######## [{index}/{full_count}] {rel} ########\n")
             tee.flush()
             fqns = cover_fqns_for_module(path, require_deal=True)
             if not fqns:
@@ -308,7 +356,7 @@ def main(argv: list[str] | None = None) -> int:
                     break
 
         tee.write("\n=== check-all summary ===\n")
-        tee.write(f"  modules: {len(files)}\n")
+        tee.write(f"  modules: {full_count}\n")
         tee.write(f"  skipped: {len(skipped)}\n")
         tee.write(f"  failed:  {len(failed)}\n")
         if skipped:

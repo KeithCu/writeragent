@@ -31,6 +31,11 @@ on:
         required: false
         default: ''
         type: string
+      start_at:
+        description: 'Start at module number (1-based, same as [42/56] in check-all logs). 1 = from the beginning. Applies to the selected target (check-all, cover-all, or both).'
+        required: false
+        default: '1'
+        type: string
 
 jobs:
   crosshair:
@@ -63,19 +68,41 @@ jobs:
 
       - name: Run CrossHair check-all
         if: inputs.target == 'both' || inputs.target == 'check-all'
+        shell: bash
+        env:
+          START_AT_INPUT: ${{ inputs.start_at }}
         run: |
           DEEP_FLAG="${{ inputs.deep == true && '--deep' || '' }}"
-          uv run python scripts/crosshair_check_all.py $DEEP_FLAG
+          START_AT="${START_AT_INPUT:-1}"
+          case "$START_AT" in
+            *[!0-9]*)
+              echo "start_at must be digits only (got ${START_AT})" >&2
+              exit 2
+              ;;
+          esac
+          START_AT_FLAG="--start-at ${START_AT}"
+          uv run python scripts/crosshair_check_all.py $DEEP_FLAG $START_AT_FLAG
 
       - name: Run CrossHair cover-all
         if: inputs.target == 'both' || inputs.target == 'cover-all'
+        shell: bash
+        env:
+          START_AT_INPUT: ${{ inputs.start_at }}
         run: |
           DEEP_FLAG="${{ inputs.deep == true && '--deep' || '' }}"
+          START_AT="${START_AT_INPUT:-1}"
+          case "$START_AT" in
+            *[!0-9]*)
+              echo "start_at must be digits only (got ${START_AT})" >&2
+              exit 2
+              ;;
+          esac
+          START_AT_FLAG="--start-at ${START_AT}"
           JOBS_FLAG=""
           if [ -n "${{ inputs.jobs }}" ]; then
             JOBS_FLAG="--jobs ${{ inputs.jobs }}"
           fi
-          uv run python scripts/crosshair_cover_all.py $DEEP_FLAG $JOBS_FLAG
+          uv run python scripts/crosshair_cover_all.py $DEEP_FLAG $JOBS_FLAG $START_AT_FLAG
 
       - name: Generate summary report
         if: always()
