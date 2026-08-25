@@ -494,9 +494,9 @@
           "rebuild_python_formula_with_data"
         ],
         "crosshair_target": "plugin.calc.python.formula_edit.parse_python_formula",
-        "crosshair_last_run": "2026-08-06",
+        "crosshair_last_run": "2026-08-25",
         "crosshair_result": "no_counterexamples",
-        "notes": "CrossHair found IndexError on _parse_quoted_string('', -1); fixed with start < 0 guard",
+        "notes": "PatternError on normalize/parse('PY') fixed by alias startswith scan; nested PreconditionFailed on dtype=float+NUL/SOH fixed by calling rewrite body; data-binding/range helpers ascii_bounded; _rewrite_token_calls still off (Callable+regex loop)",
         "ci_integration": false
       }
     },

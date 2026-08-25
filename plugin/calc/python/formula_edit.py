@@ -19,11 +19,46 @@ from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, asci
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"
 CALC_PYTHON_FN_ALIASES = ("PY", "PYTHON")
-_CALC_PYTHON_FN_PATTERN = "|".join(CALC_PYTHON_FN_ALIASES)
-_PYTHON_HEAD_RE = re.compile(rf"^=\s*(?:{_CALC_PYTHON_FN_PATTERN})\s*\(", re.IGNORECASE)
-_PYTHON_NO_EQUALS_RE = re.compile(rf"^(?:{_CALC_PYTHON_FN_PATTERN})\s*\(", re.IGNORECASE)
+# Longest first so PYTHON is not parsed as PY + "THON".
+_CALC_PYTHON_FN_ALIASES_BY_LEN = tuple(sorted(CALC_PYTHON_FN_ALIASES, key=len, reverse=True))
+_MAX_PYTHON_ALIAS_LEN = max(len(a) for a in CALC_PYTHON_FN_ALIASES)
 # Curly/smart quotes Calc sometimes stores in localized formulas.
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
+
+
+def _py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
+    """Return index after the opening ``(`` of a PY/PYTHON call, or None.
+
+    CrossHair check of ``normalize_formula_string('PY')`` raised
+    ``PatternError: missing ), unterminated subpattern at position 0`` at
+    ``_PYTHON_NO_EQUALS_RE.match``. CPython does not: the compiled
+    ``^(?:PY|PYTHON)\\s*\\(`` is a valid pattern. CrossHair's relib
+    re-parses ``Pattern.pattern`` on every symbolic match and blows up on
+    that alternation (same crash on ``parse_python_formula('PY')`` via
+    normalize). Scan aliases with ``startswith`` instead of regex.
+    """
+    i = 0
+    n = len(raw)
+    if require_equals:
+        if i >= n or raw[i] != "=":
+            return None
+        i += 1
+        while i < n and raw[i].isspace():
+            i += 1
+    head = raw[i : i + _MAX_PYTHON_ALIAS_LEN].upper()
+    matched = 0
+    for alias in _CALC_PYTHON_FN_ALIASES_BY_LEN:
+        if head.startswith(alias):
+            matched = len(alias)
+            break
+    if not matched:
+        return None
+    i += matched
+    while i < n and raw[i].isspace():
+        i += 1
+    if i < n and raw[i] == "(":
+        return i + 1
+    return None
 
 
 @dataclass(frozen=True)
@@ -43,11 +78,14 @@ def _quoted_parse_result_ok(s: str, start: int, result: tuple[str, int] | None) 
 
 
 def _deal_data_args_ok(data_args: object) -> bool:
-    """CrossHair domain for =PY() data-arg lists (pytest still allows DEAL_MAX_SHAPE_DIM)."""
+    """CrossHair domain for =PY() data-arg lists (pytest still allows DEAL_MAX_SHAPE_DIM).
+
+    Items are A1 / range tokens (closed alphabet), not formula source.
+    """
     return (
         isinstance(data_args, list)
         and len(data_args) <= DEAL_MAX_SHAPE_DIM
-        and all(str_bounded(x, DEAL_MAX_SOURCE) for x in data_args)
+        and all(ascii_bounded(x, DEAL_MAX_SOURCE) for x in data_args)
     )
 
 
@@ -58,7 +96,7 @@ def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
         isinstance(result, PythonFormulaParts)
         and isinstance(result.prefix, str)
         and bool(result.prefix)
-        and _PYTHON_HEAD_RE.match(result.prefix) is not None
+        and _py_call_open_end(result.prefix, require_equals=True) == len(result.prefix)
         and isinstance(result.code, str)
         and isinstance(result.data_suffix, str)
         and result.data_suffix.endswith(")")
@@ -124,10 +162,10 @@ def extract_python_code_loose(formula: str) -> str | None:
     if parts is not None:
         return parts.code
     raw = normalize_formula_string(formula)
-    m = _PYTHON_HEAD_RE.match(raw)
-    if not m:
+    inner_start = _py_call_open_end(raw, require_equals=True)
+    if inner_start is None:
         return None
-    inner = raw[m.end() :]
+    inner = raw[inner_start:]
     if not inner.endswith(")"):
         return None
     body = inner[:-1].strip()
@@ -145,7 +183,7 @@ def normalize_formula_string(formula: str) -> str:
     raw = (formula or "").strip().translate(_QUOTE_NORMALIZE)
     if raw.startswith("{") and raw.endswith("}"):
         raw = raw[1:-1].strip()
-    if raw and not raw.startswith("=") and _PYTHON_NO_EQUALS_RE.match(raw):
+    if raw and not raw.startswith("=") and _py_call_open_end(raw, require_equals=False) is not None:
         raw = "=" + raw
     return raw
 
@@ -166,10 +204,9 @@ def parse_python_formula(formula: str) -> PythonFormulaParts | None:
     raw = normalize_formula_string(formula)
     if not raw:
         return None
-    m = _PYTHON_HEAD_RE.match(raw)
-    if not m:
+    inner_start = _py_call_open_end(raw, require_equals=True)
+    if inner_start is None:
         return None
-    inner_start = m.end()
     if inner_start >= len(raw) or raw[inner_start - 1] != "(":
         return None
     inner = raw[inner_start:]
@@ -250,12 +287,13 @@ def _find_matching_paren(s: str, open_idx: int) -> int:
 
 
 # Deep check hangs synthesizing rewrite_inner (Callable) + regex loop; sanitize/escape stay on.
-@deal.pre(lambda code, token, rewrite_inner: str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(token, 32, min_len=1) and callable(rewrite_inner))
-@deal.post(lambda result: isinstance(result, str))
-def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:
-    """Replace ``token(inner)`` calls; *token* must not contain regex metacharacters."""
+# Callers pass hardcoded float/int/str; ``re.escape`` so a metacharacter token cannot
+# PatternError. Body is separate so sanitize can call it after ``dtype=float`` grows
+# past DEAL_MAX_SOURCE (CrossHair 16) without a nested PreconditionFailed.
+def _rewrite_token_calls_body(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:
+    """Replace ``token(inner)`` calls. *token* is escaped before compile."""
     # crosshair: off
-    pattern = re.compile(rf"\b{token}\s*\(")
+    pattern = re.compile(rf"\b{re.escape(token)}\s*\(")
     out: list[str] = []
     pos = 0
     while True:
@@ -275,6 +313,19 @@ def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], s
     return "".join(out)
 
 
+@deal.pre(
+    lambda code, token, rewrite_inner: str_bounded(code, DEAL_MAX_SOURCE)
+    and ascii_bounded(token, 32, min_len=1)
+    and token.isalpha()
+    and callable(rewrite_inner)
+)
+@deal.post(lambda result: isinstance(result, str))
+def _rewrite_token_calls(code: str, token: str, rewrite_inner: Callable[[str], str]) -> str:
+    """Replace ``token(inner)`` calls; *token* must be alphabetic (not regex metacharacters)."""
+    # crosshair: off
+    return _rewrite_token_calls_body(code, token, rewrite_inner)
+
+
 @deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 def sanitize_inline_py_code(code: str) -> str:
@@ -288,9 +339,12 @@ def sanitize_inline_py_code(code: str) -> str:
         return code
     sanitized = code.replace("dtype=float", "dtype=np.float64")
     sanitized = _LEXER_COLLISION_XL_TEXT_RE.sub(".fmt(", sanitized)
-    sanitized = _rewrite_token_calls(sanitized, "float", lambda inner: f"({inner})+0.0")
-    sanitized = _rewrite_token_calls(sanitized, "int", lambda inner: f"(({inner})//1)")
-    sanitized = _rewrite_token_calls(sanitized, "str", lambda inner: f"calc.py_str({inner})")
+    # Body, not the deal-wrapped helper: ``dtype=float`` → ``dtype=np.float64``
+    # grows +5, so a DEAL_MAX_SOURCE=16 input like ``dtype=float\\x00`` is still
+    # a legal caller string but fails the nested ``str_bounded`` pre.
+    sanitized = _rewrite_token_calls_body(sanitized, "float", lambda inner: f"({inner})+0.0")
+    sanitized = _rewrite_token_calls_body(sanitized, "int", lambda inner: f"(({inner})//1)")
+    sanitized = _rewrite_token_calls_body(sanitized, "str", lambda inner: f"calc.py_str({inner})")
     return sanitized
 
 
@@ -333,7 +387,9 @@ def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
     return f'={CALC_PYTHON_FN}("{escaped}"{parts.data_suffix}'
 
 
-@deal.pre(lambda data_suffix: str_bounded(data_suffix, DEAL_MAX_SOURCE))
+# A1 / range display: closed alphabet (``\\x1c`` control whitespace is ASCII).
+# Unicode strip+lstrip fixed-point under str_bounded read 1.36M CrossHair lines.
+@deal.pre(lambda data_suffix: ascii_bounded(data_suffix, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 @deal.ensure(lambda data_suffix, result: not result or (not result.startswith(";") and not result.startswith(",") and not result.endswith(")")))
 def format_data_binding_display(data_suffix: str) -> str:
@@ -347,7 +403,8 @@ def format_data_binding_display(data_suffix: str) -> str:
     return s
 
 
-@deal.pre(lambda text: str_bounded(text, DEAL_MAX_SOURCE))
+# Editor textbox of A1 / range tokens; re.split on unbounded Unicode hung deep check.
+@deal.pre(lambda text: ascii_bounded(text, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) and '"' not in x for x in result))
 def parse_data_binding_text(text: str) -> list[str]:
     """Parse editor textbox content into formula data arguments."""
@@ -368,7 +425,7 @@ def format_data_binding_text(data_args: list[str]) -> str:
     return ", ".join(cleaned)
 
 
-@deal.pre(lambda range_addr: str_bounded(range_addr, DEAL_MAX_SOURCE))
+@deal.pre(lambda range_addr: ascii_bounded(range_addr, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 def format_py_data_range(range_addr: str) -> str:
     """Format a range for ``=PY()`` data args (quote sheet names with spaces/special chars)."""
@@ -393,7 +450,7 @@ def format_py_data_range(range_addr: str) -> str:
     return f"{sheet}.{rest}"
 
 
-@deal.pre(lambda range_addr: str_bounded(range_addr, DEAL_MAX_SOURCE))
+@deal.pre(lambda range_addr: ascii_bounded(range_addr, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 def format_excel_data_range(range_addr: str) -> str:
     """Format a range for Excel OOXML ``=PY()`` data args (``Sheet!A1`` style)."""

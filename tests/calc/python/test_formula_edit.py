@@ -198,3 +198,34 @@ def test_normalize_curly_quotes_around_code_string():
     assert parts is not None
     assert parts.code == "result = 1"
 
+
+def test_normalize_and_parse_bare_py_token():
+    """CrossHair check raised PatternError on normalize/parse of ``'PY'``.
+
+    Relib re-parses the PY|PYTHON head regex; a startswith scan must not throw.
+    """
+    assert normalize_formula_string("PY") == "PY"
+    assert parse_python_formula("PY") is None
+    assert normalize_formula_string("PY(") == "=PY("
+    assert parse_python_formula("py(") is None  # still not a complete call
+    assert parse_python_formula('=py("x")') is not None
+    assert parse_python_formula('PYTHON("x")') is not None
+
+
+def test_sanitize_dtype_float_with_control_chars():
+    """``dtype=float`` + NUL/SOH grew past nested ``_rewrite_token_calls`` pre.
+
+    Public callers must still rewrite. Control bytes stay in the str_bounded
+    source domain; they are not the derived token (token stays ``float``).
+    """
+    nul = "dtype=float\x00"
+    soh = ".dtype=float\x01"
+    assert sanitize_inline_py_code(nul) == "dtype=np.float64\x00"
+    assert escape_code_for_formula(nul) == "dtype=np.float64\x00"
+    assert "dtype=np.float64\x01" in escape_code_for_formula(soh)
+    parts = parse_python_formula('=PY("x")')
+    assert parts is not None
+    rebuilt = rebuild_python_formula(parts, soh)
+    assert "dtype=np.float64" in rebuilt
+    assert "\x01" in rebuilt
+

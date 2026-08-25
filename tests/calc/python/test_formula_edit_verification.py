@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ from plugin.calc.python.formula_edit import (
     _find_matching_paren,
     _parse_quoted_string,
     _parse_unquoted_code_arg,
+    _rewrite_token_calls,
     escape_code_for_formula,
     format_data_binding_display,
     format_data_binding_text,
@@ -33,6 +35,7 @@ from plugin.calc.python.formula_edit import (
     format_excel_data_range,
     format_py_data_range,
     build_data_suffix,
+    PythonFormulaParts,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE
@@ -42,6 +45,7 @@ from tests.vhs_budget import vhs_max_examples
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 _CROSSHAIR_TARGETS = (
     "plugin.calc.python.formula_edit._parse_quoted_string",
+    "plugin.calc.python.formula_edit.normalize_formula_string",
     "plugin.calc.python.formula_edit.parse_python_formula",
     "plugin.calc.python.formula_edit.escape_code_for_formula",
     "plugin.calc.spreadsheet_import.preprocess.normalize_lo_formula_for_parse",
@@ -51,6 +55,11 @@ _CROSSHAIR_TARGETS = (
 _CODE_TEXT = st.text(
     alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127, blacklist_characters="\x00"),
     max_size=40,
+)
+# Data-binding helpers are ascii_bounded (A1 / range tokens, including ``\x1c``).
+_ASCII_BINDING = st.text(
+    alphabet=st.characters(min_codepoint=0, max_codepoint=127),
+    max_size=30,
 )
 
 
@@ -195,6 +204,10 @@ def test_formula_edit_overflow_pre_fails_closed() -> None:
     with pytest.raises(deal.PreContractError):
         parse_data_binding_text(too_long)
     with pytest.raises(deal.PreContractError):
+        format_data_binding_display("A1\u00a0")
+    with pytest.raises(deal.PreContractError):
+        parse_data_binding_text("A1\u00a0")
+    with pytest.raises(deal.PreContractError):
         format_py_data_range(too_long)
     with pytest.raises(deal.PreContractError):
         format_excel_data_range(too_long)
@@ -205,13 +218,36 @@ def test_formula_edit_overflow_pre_fails_closed() -> None:
         build_data_suffix(too_many)
 
 
-@given(suffix=st.text(max_size=30))
+@given(suffix=_ASCII_BINDING)
 @settings(max_examples=vhs_max_examples(50, 500), deadline=None)
 def test_hypothesis_format_data_binding_display_invariants(suffix: str) -> None:
     res = format_data_binding_display(suffix)
     assert isinstance(res, str)
     if res:
         assert not res.startswith(";") and not res.startswith(",") and not res.endswith(")")
+
+
+def test_normalize_py_token_is_not_pattern_error() -> None:
+    """Cluster A: CrossHair ``normalize_formula_string('PY')`` PatternError."""
+    assert normalize_formula_string("PY") == "PY"
+    assert parse_python_formula("PY") is None
+
+
+def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
+    """Cluster B: ``dtype=float`` + NUL/SOH grew past nested rewrite pre."""
+    assert sanitize_inline_py_code("dtype=float\x00") == "dtype=np.float64\x00"
+    assert escape_code_for_formula("dtype=float\x00") == "dtype=np.float64\x00"
+    rebuilt = rebuild_python_formula(PythonFormulaParts("=PY(", "x", ")"), ".dtype=float\x01")
+    assert "dtype=np.float64" in rebuilt
+
+
+def test_rewrite_token_calls_rejects_nonalpha_token() -> None:
+    """Metacharacter tokens used to compile an unterminated regex; pre rejects them."""
+    if not deal_pre_present(_rewrite_token_calls):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        _rewrite_token_calls("float(1)", "(", lambda inner: inner)
+    assert _rewrite_token_calls("float(1)", "float", lambda inner: f"({inner})+0.0") == "(1)+0.0"
 
 
 
@@ -226,6 +262,7 @@ def test_crosshair_formula_edit_fqn_if_available(target: str) -> None:
         capture_output=True,
         text=True,
         timeout=300,
+        env={**os.environ, "WRITERAGENT_CROSSHAIR": "1"},
     )
     combined = f"{result.stdout}\n{result.stderr}".strip()
     print(f"CrossHair output ({target}):\n{combined}")
