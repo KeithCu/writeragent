@@ -52,8 +52,8 @@ from scripts.crosshair_stream import (
     _TeeTextIO,
     cover_fqns_for_module,
     discover_deal_plugin_files,
-    emit_tagged_line,
     enable_crosshair_deal_table,
+    emit_tagged_line,
     run_crosshair,
 )
 
