@@ -72,7 +72,7 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 
 ### Tests
 
-[`tests/notebook/`](../tests/notebook/): `test_cell_registry.py`, `test_session_manager_notebook.py`, `test_writer_importer.py`, `test_form_lookup.py`, `test_notebook_controls.py`, `test_notebook_runner.py`. Live Writer (Debug-menu import + run): [`tests/notebook/test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py) via `python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py`.
+[`tests/notebook/`](../tests/notebook/): `test_cell_registry.py`, `test_session_manager_notebook.py`, `test_writer_importer.py`, `test_form_lookup.py`, `test_notebook_controls.py`, `test_notebook_runner.py`. Live Writer (Debug-menu import + run): [`tests/notebook/test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py) via `python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py`. That smoke **runs** the three code cells; a `__version__` dunder forbid is a hard assert (missing-numpy in the worker venv is still allowed).
 
 ### Known gaps / bugs (Phase 1 follow-up)
 

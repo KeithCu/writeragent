@@ -129,6 +129,12 @@ def test_run_cell_updates_registry_and_execution_count():
     save_reg.assert_called_once_with(doc, state)
 
 
+def test_run_cell_logs_status_after_execute():
+    src = inspect.getsource(run_cell)
+    assert "status=%s" in src
+    assert src.find("execute_code(") < src.find("status=%s")
+
+
 def test_run_cell_empty_code():
     ctx = MagicMock()
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")

@@ -134,7 +134,7 @@ tail -f ~/.config/libreoffice/4/user/writeragent_debug.log
 | `notebook controls: indexed N form control model(s)` | Draw-page control index built |
 | `notebook controls: wired M/K run button(s)` | ▶ listeners attached (`M` should equal code cell count) |
 | `wired 0/K … missing_model=… no_view=…` | Wiring failed — redeploy extension and re-import |
-| `notebook run cell index=… field=nb_cell_…` | ▶ click ran a cell |
+| `notebook run cell index=… field=nb_cell_… status=…` | ▶ click ran a cell (`ok` / `error`) |
 | `failed to clear output for cell` | `setString("")` on the output range failed (should be rare) |
 | `run_venv_code` / `Task … completed` | Python worker finished |
 
@@ -145,6 +145,8 @@ Live Writer smoke (same Debug-menu action, FilePicker driven to the small fixtur
 ```bash
 python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py
 ```
+
+The live smoke imports the small NumPy fixture and **runs** the three code cells. A sandbox `Forbidden access to dunder attribute` / `__version__` deny is a **hard failure** (not a “clean error”). A real missing-numpy `ModuleNotFoundError` is allowed when the worker venv has no NumPy.
 
 Optional remaining manual: after `make deploy writer`, **WriterAgent → Debug → Import Jupyter Notebook…**, pick `tests/fixtures/introduction-to-numpy-small.ipynb`, confirm the completion msgbox, click the three ▶ buttons in order.
 

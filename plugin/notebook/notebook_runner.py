@@ -288,8 +288,14 @@ def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
     if not (code or "").strip():
         return RunResult("error", None, "Code cell is empty.")
 
-    log.info("notebook run cell index=%d field=%s", cell.index, cell.code_field_name)
     result = execute_code(ctx, doc, code)
+    # After execute so live smoke can tell ok from a sandbox dunder deny.
+    log.info(
+        "notebook run cell index=%d field=%s status=%s",
+        cell.index,
+        cell.code_field_name,
+        result.get("status"),
+    )
     execution_count: int | None = None
     if result.get("status") == "ok":
         cell.last_run_status = "ok"

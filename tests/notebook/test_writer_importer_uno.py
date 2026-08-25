@@ -10,6 +10,10 @@ Entry point is the same action the menubar uses
 click a modal FilePicker, so the test drives that picker to the fixture path
 while still executing ``import_dialog._pick_ipynb_path`` / ``run_import_ipynb_dialog``.
 It does **not** call ``import_ipynb_to_writer`` itself.
+
+A sandbox ``Forbidden access to dunder attribute`` / ``__version__`` deny is a
+hard failure (PR 453 treated that as a clean error). A worker
+``ModuleNotFoundError`` for numpy is allowed when the venv has no NumPy.
 """
 
 from __future__ import annotations
@@ -174,6 +178,31 @@ def _tail_text(doc, n_chars: int = 400) -> str:
     return (doc.getText().getString() or "")[-n_chars:]
 
 
+def _run_blob(result, output: str) -> str:
+    return "\n".join(part for part in (result.status, result.message, output) if part)
+
+
+def _is_dunder_version_forbid(blob: str) -> bool:
+    """True when the sandbox still denies ``np.__version__`` (PR 453 hid this as a clean error)."""
+    text = blob or ""
+    if "Forbidden access to dunder attribute" in text:
+        return True
+    # InterpreterError text is ``Forbidden access to dunder attribute: __version__``.
+    return "Forbidden" in text and "__version__" in text
+
+
+def _is_missing_numpy(blob: str) -> bool:
+    """Worker venv has no NumPy — environment issue, not a dunder-jail regression."""
+    text = blob or ""
+    if "numpy" not in text.lower():
+        return False
+    return (
+        "ModuleNotFoundError" in text
+        or "No module named" in text
+        or "ImportError" in text
+    )
+
+
 @native_test
 def test_debug_menu_import_ipynb_action_registered(ctx):
     from plugin.framework.main_shared import get_action_handler
@@ -314,9 +343,15 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
     for cell in state.code_cells:
         results.append(run_cell(ctx, doc, cell.cell_id))
         out = _output_text_for_cell(doc, cell)
-        assert out.strip() or results[-1].status == "error", (
+        result = results[-1]
+        print(
+            f"notebook run cell index={cell.index} field={cell.code_field_name} "
+            f"status={result.status} message={result.message!r} output={out!r}",
+            flush=True,
+        )
+        assert out.strip() or result.status == "error", (
             f"cell {cell.index} produced no output under its bookmark "
-            f"status={results[-1].status!r} message={results[-1].message!r} "
+            f"status={result.status!r} message={result.message!r} "
             f"bookmarks={list(doc.getBookmarks().getElementNames())}"
         )
 
@@ -325,14 +360,47 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
     out1 = _output_text_for_cell(doc, state.code_cells[0])
     out3 = _output_text_for_cell(doc, state.code_cells[1])
     out5 = _output_text_for_cell(doc, state.code_cells[2])
+    outputs = (out1, out3, out5)
     tail = _tail_text(doc)
 
-    if all(r.status == "ok" for r in results):
+    # PR 453 treated a sandbox dunder deny as a clean error. That must fail this job.
+    numpy_missing = False
+    for cell, result, out in zip(state.code_cells, results, outputs):
+        blob = _run_blob(result, out)
+        assert not _is_dunder_version_forbid(blob), (
+            f"cell {cell.index} still denied __version__ (must not be the outcome): "
+            f"status={result.status!r} message={result.message!r} output={out!r}"
+        )
+        if result.status == "error" and "__version__" in (result.message or ""):
+            raise AssertionError(
+                f"cell {cell.index} error message still mentions __version__: {result.message!r}"
+            )
+        if result.status == "error" and _is_missing_numpy(blob):
+            numpy_missing = True
+            print(
+                f"NOTE: worker venv has no numpy (environment issue, not a dunder deny): "
+                f"cell {cell.index} {result.message}",
+                flush=True,
+            )
+            continue
+        if numpy_missing:
+            print(
+                f"NOTE: notebook run cell {cell.index} skipped strict ok "
+                f"(numpy missing earlier): {result.message}",
+                flush=True,
+            )
+            continue
+        assert result.status == "ok", (
+            f"cell {cell.index} expected ok (numpy is present); "
+            f"status={result.status!r} message={result.message!r} output={out!r}"
+        )
+
+    if not numpy_missing:
         assert "NumPy Version" in out1 or any(ch.isdigit() for ch in out1), (
             f"cell 1 stdout missing version: {out1!r}"
         )
         assert "10" in out3 and "20" in out3 and "30" in out3, f"cell 3 array missing: {out3!r}"
-        assert "20" in out5 or "40" in out5 or "60" in out5, f"cell 5 multiplied values missing: {out5!r}"
+        assert "20" in out5 and "40" in out5 and "60" in out5, f"cell 5 multiplied values missing: {out5!r}"
         later = doc.getText().getString() or ""
         ver_at = later.find("NumPy Version")
         arr_at = later.find("1. Creating Arrays")
@@ -341,12 +409,6 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
         assert "NumPy Version" not in tail or "Multiplied" in tail, (
             f"cell 1 output looks dumped at document end: {tail!r}"
         )
-    else:
-        for idx, result in enumerate(results):
-            assert result.status in ("ok", "error"), f"unexpected status {result.status!r}"
-            if result.status == "error":
-                assert (result.message or "").strip(), f"cell {idx} error with empty message"
-                print(f"NOTE: notebook run cell {state.code_cells[idx].index} error: {result.message}", flush=True)
 
     # Re-run cell 1 via the button/protocol path; output must replace, not append.
     cell0 = state.code_cells[0]
@@ -362,6 +424,12 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
         assert after.count(snippet) <= 1 or after == before or len(after) < len(before) * 2, (
             f"re-run looks like append: before={before!r} after={after!r}"
         )
+
+    # clear_cell_output paragraph-expand: markdown between code cells must survive re-run.
+    body_after = doc.getText().getString() or ""
+    assert "A Small Introduction to NumPy" in body_after
+    assert "1. Creating Arrays" in body_after
+    assert "2. Array Operations" in body_after
 
     import plugin.scripting.session_manager as sm
 
