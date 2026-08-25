@@ -43,12 +43,20 @@ from tests.strip_bundle import deal_pre_present, expect_pre_or_body
 from tests.vhs_budget import vhs_max_examples
 
 _CROSSHAIR_ERROR_RE = re.compile(r": error:")
+# Rewrite wrappers (sanitize/escape/rebuild) are ``# crosshair: off`` — check-all
+# drops those FQNs. Keep parse/normalize: nested ensures are inverse_ensure-skipped.
 _CROSSHAIR_TARGETS = (
     "plugin.calc.python.formula_edit._parse_quoted_string",
     "plugin.calc.python.formula_edit.normalize_formula_string",
     "plugin.calc.python.formula_edit.parse_python_formula",
-    "plugin.calc.python.formula_edit.escape_code_for_formula",
     "plugin.calc.spreadsheet_import.preprocess.normalize_lo_formula_for_parse",
+)
+_REWRITE_WRAPPERS_OFF = (
+    "sanitize_inline_py_code",
+    "escape_code_for_formula",
+    "rebuild_python_formula",
+    "rebuild_python_formula_with_data",
+    "_rewrite_token_calls",
 )
 
 # Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
@@ -239,6 +247,19 @@ def test_sanitize_dtype_float_control_char_is_not_nested_pre() -> None:
     assert escape_code_for_formula("dtype=float\x00") == "dtype=np.float64\x00"
     rebuilt = rebuild_python_formula(PythonFormulaParts("=PY(", "x", ")"), ".dtype=float\x01")
     assert "dtype=np.float64" in rebuilt
+
+
+def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
+    """Sanitize/escape/rebuild stay ``# crosshair: off``; parse/normalize stay on."""
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    fqns = cover_fqns_for_module(
+        Path("plugin/calc/python/formula_edit.py"), require_deal=True
+    )
+    for name in _REWRITE_WRAPPERS_OFF:
+        assert not any(f.endswith(f".{name}") for f in fqns), name
+    assert any(f.endswith(".parse_python_formula") for f in fqns)
+    assert any(f.endswith(".normalize_formula_string") for f in fqns)
 
 
 def test_rewrite_token_calls_rejects_nonalpha_token() -> None:

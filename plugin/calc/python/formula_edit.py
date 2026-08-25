@@ -14,7 +14,14 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import (
+    DEAL_MAX_SHAPE_DIM,
+    DEAL_MAX_SOURCE,
+    ascii_bounded,
+    deal,
+    inverse_ensure,
+    str_bounded,
+)
 
 # Preferred display name for newly built formulas; PYTHON remains a backward-compatible alias.
 CALC_PYTHON_FN = "PY"
@@ -104,13 +111,14 @@ def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
 
 
 # Cap start to len(s): `start >= 0` alone lets CrossHair feed a giant int.
+# Nested end-bounds ensure (~2m deep) is skipped under CrossHair; cheap post stays.
 @deal.pre(
     lambda s, start: str_bounded(s, DEAL_MAX_SOURCE)
     and isinstance(start, int)
     and 0 <= start <= len(s)
 )
 @deal.post(lambda result: result is None or (isinstance(result, tuple) and len(result) == 2))
-@deal.ensure(lambda s, start, result: _quoted_parse_result_ok(s, start, result))
+@inverse_ensure(lambda s, start, result: _quoted_parse_result_ok(s, start, result))
 def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
     """Parse a Calc double-quoted string starting at *start* (must point to ``"``)."""
     # Reject negatives too: `start >= len(s)` alone misses start=-1 (CrossHair counterexample).
@@ -175,9 +183,16 @@ def extract_python_code_loose(formula: str) -> str | None:
     return _parse_unquoted_code_arg(body)
 
 
+# Nested curly-quote membership hung deep check (~17m, 105k lines). Skip under
+# CrossHair (import-time inverse_ensure no-op); cheap @deal.post still runs.
 @deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
-@deal.ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result and "\u2018" not in result and "\u2019" not in result)
+@inverse_ensure(
+    lambda formula, result: "\u201c" not in result
+    and "\u201d" not in result
+    and "\u2018" not in result
+    and "\u2019" not in result
+)
 def normalize_formula_string(formula: str) -> str:
     """Normalize LibreOffice ``getFormula()`` / ``FormulaLocal`` variants for parsing."""
     raw = (formula or "").strip().translate(_QUOTE_NORMALIZE)
@@ -194,9 +209,11 @@ def build_new_python_formula(code: str) -> str:
     return f'={CALC_PYTHON_FN}("{escaped}")'
 
 
+# Nested _parts_result_ok (_py_call_open_end on prefix) hung deep check
+# (~45m, 232k lines). Skip under CrossHair; cheap @deal.post still runs.
 @deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or isinstance(result, PythonFormulaParts))
-@deal.ensure(lambda formula, result: _parts_result_ok(result))
+@inverse_ensure(lambda formula, result: _parts_result_ok(result))
 def parse_python_formula(formula: str) -> PythonFormulaParts | None:
     """Return code and data suffix if *formula* is a ``=PY()`` or ``=PYTHON()`` call."""
     if not formula:
@@ -286,7 +303,10 @@ def _find_matching_paren(s: str, open_idx: int) -> int:
     return -1
 
 
-# Deep check hangs synthesizing rewrite_inner (Callable) + regex loop; sanitize/escape stay on.
+# Deep check hangs synthesizing rewrite_inner (Callable) + regex loop.
+# Public wrappers that call this body (sanitize / escape / rebuild) are also
+# CrossHair-off: cheap isinstance(result, str) post still wandered hours at
+# DEAL_MAX_SOURCE=16 (parse_address-class). ``@deal`` stays for pytest.
 # Callers pass hardcoded float/int/str; ``re.escape`` so a metacharacter token cannot
 # PatternError. Body is separate so sanitize can call it after ``dtype=float`` grows
 # past DEAL_MAX_SOURCE (CrossHair 16) without a nested PreconditionFailed.
@@ -335,6 +355,8 @@ def sanitize_inline_py_code(code: str) -> str:
     (strings are opaque). Kept when *emitting* Calc formulas until LibreOffice
     raises ``MAXSTRLEN`` / curly-quote handling — see module comment above.
     """
+    # Regex rewrite hang even at DEAL_MAX_SOURCE=16 (~3h13m on cheap str post).
+    # crosshair: off
     if not code:
         return code
     sanitized = code.replace("dtype=float", "dtype=np.float64")
@@ -370,6 +392,8 @@ def escape_code_for_formula(code: str) -> str:
 
     Applies defensive sanitization (``float(`` etc.) then doubles quotes.
     """
+    # Same rewrite path as sanitize; deep check died here after ~1h35m.
+    # crosshair: off
     return sanitize_inline_py_code(code).replace('"', '""')
 
 
@@ -383,6 +407,8 @@ def escape_code_for_excel_formula(code: str) -> str:
 @deal.ensure(lambda parts, new_code, result: parts.data_suffix in result)
 def rebuild_python_formula(parts: PythonFormulaParts, new_code: str) -> str:
     """Rebuild a formula from parsed parts and new inline code (preserves ``data_suffix``)."""
+    # Calls escape → sanitize → rewrite loop; same class as sanitize hang.
+    # crosshair: off
     escaped = escape_code_for_formula(new_code)
     return f'={CALC_PYTHON_FN}("{escaped}"{parts.data_suffix}'
 
@@ -509,6 +535,8 @@ def rebuild_python_formula_with_data(
     formulas so Excel/LibreOffice do not see Calc ``;`` separators or Calc-only
     source sanitization.
     """
+    # Non-excel path calls escape → sanitize → rewrite loop.
+    # crosshair: off
     escaped = escape_code_for_excel_formula(code) if excel_escape else escape_code_for_formula(code)
     prefix = f"={CALC_PYTHON_FN}("
     return f'{prefix}"{escaped}"{build_data_suffix(data_args, separator=separator, excel_ranges=excel_escape or separator == ",")}'
