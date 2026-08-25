@@ -217,7 +217,14 @@ def _is_output_bookmark_home(cursor: Any) -> bool:
         return True
     if _paragraph_has_frame(cursor):
         return True
-    if not content and not _style_is_preformatted(_para_style_name(cursor)):
+    # Empty ▶+field row is Text Body (getString omits frames). Empty Heading 1/2
+    # leftovers from a mash-split are not home.
+    style = _para_style_name(cursor)
+    if (
+        not content
+        and not _style_is_preformatted(style)
+        and not _style_is_heading12(style)
+    ):
         return True
     return False
 
@@ -309,9 +316,12 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
     paragraph so re-anchor can restore a deleted bookmark.
     """
     cur = _cursor_after_bookmark(doc, cell.output_start_bookmark)
-    if cur is not None:
+    if cur is not None and _is_output_bookmark_home(cur):
         return cur
-    return _code_field_paragraph_end(doc, cell)
+    field_end = _code_field_paragraph_end(doc, cell)
+    if field_end is not None:
+        return field_end
+    return cur
 
 
 def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
@@ -332,16 +342,35 @@ def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
     if not name:
         return None
     current = _cursor_after_bookmark(doc, name)
-    if current is not None:
+    if current is not None and _is_output_bookmark_home(current):
+        return current
+    # Bookmark at the paragraph break reports as the *next* cell (markdown /
+    # In [n]:). Insert then mashed stdout onto that heading. Move it back
+    # inside the ▶+field (or In-prompt) paragraph. Capture the insert point
+    # before removeTextContent — a cursor taken from the removed bookmark is stale.
+    insert_at = _code_field_paragraph_end(doc, cell)
+    if insert_at is None and current is not None:
+        notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
+        if _is_next_cell_boundary(
+            _para_style_name(current), _paragraph_string(current), notebook_in
+        ):
+            try:
+                prev = doc.getText().createTextCursorByRange(current)
+                if prev.gotoPreviousParagraph(False):
+                    prev.gotoEndOfParagraph(False)
+                    insert_at = prev
+            except Exception:
+                insert_at = None
+    if insert_at is None:
         return current
     try:
         text = doc.getText()
-        heading_end = _code_field_paragraph_end(doc, cell)
-        if heading_end is None:
-            return None
+        bookmarks = doc.getBookmarks()
+        if bookmarks.hasByName(name):
+            text.removeTextContent(bookmarks.getByName(name))
         bookmark = doc.createInstance("com.sun.star.text.Bookmark")
         bookmark.Name = name
-        text.insertTextContent(heading_end, bookmark, False)
+        text.insertTextContent(insert_at, bookmark, False)
         return _cursor_after_bookmark(doc, name)
     except Exception:
         log.exception("notebook run: failed to reanchor bookmark %r", name)
@@ -610,21 +639,24 @@ def _split_if_stdout_mashed_onto_chrome(
             rest.goRight(n, False)
         rest.gotoEndOfParagraph(True)
         leftover = _plain_text(rest.getString() or "")
-        if not leftover.strip():
+        leftover_text = leftover.strip()
+        if not leftover_text:
             _apply_para_style(cursor, output_style)
             return
         if n:
             cursor.goRight(n, False)
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        _enter_paragraph_after_break(cursor)
     except Exception:
         log.debug("notebook run: trailing split after stdout failed", exc_info=True)
         _apply_para_style(cursor, output_style)
         return
     try:
-        following = _paragraph_string(cursor)
-        if _is_next_cell_boundary(_para_style_name(cursor), following, notebook_in) or _CELL_CHROME_RE.match(
-            (following or "").strip()
-        ):
+        # Leftover inherits Preformatted from fill, so _is_next_cell_boundary
+        # would skip (stdout style). Restore markdown/gutter from the text.
+        if _IN_PROMPT_RE.match(leftover_text) or leftover_text.startswith("[In ["):
+            _apply_para_style(cursor, notebook_in)
+        else:
             heading = _resolve_para_style(doc, _STYLE_MD_H2) or _resolve_para_style(doc, _STYLE_MD_H1)
             _apply_para_style(cursor, heading)
         if output_style:
@@ -674,6 +706,23 @@ def _insert_stdout_paragraph(
         _enter_paragraph_after_break(cursor)
         _fill(cursor)
         _finish()
+
+    # Bookmark on the paragraph break reports as the following markdown. Snap
+    # back so PARAGRAPH_BREAK does not split that heading and prepend stdout.
+    field_end = _code_field_paragraph_end(doc, cell)
+    if field_end is not None:
+        try:
+            cursor.gotoRange(field_end, False)
+        except Exception:
+            log.debug("notebook run: snap insert cursor to code field failed", exc_info=True)
+    elif _is_next_cell_boundary(_para_style_name(cursor), _paragraph_string(cursor), notebook_in):
+        try:
+            prev = text.createTextCursorByRange(cursor)
+            if prev.gotoPreviousParagraph(False):
+                prev.gotoEndOfParagraph(False)
+                cursor.gotoRange(prev, False)
+        except Exception:
+            log.debug("notebook run: snap insert cursor to previous para failed", exc_info=True)
 
     if _is_output_bookmark_home(cursor):
         try:

@@ -457,6 +457,30 @@ def test_clear_cell_output_skips_control_row_then_clears_stdout():
     sel.setString.assert_called_once_with("")
 
 
+def test_is_output_bookmark_home_empty_text_body_not_heading():
+    from plugin.notebook.notebook_runner import _is_output_bookmark_home
+
+    control = MagicMock()
+    control.ParaStyleName = "Text Body"
+    control.getString.return_value = ""
+    assert _is_output_bookmark_home(control) is True
+
+    heading = MagicMock()
+    heading.ParaStyleName = "Heading 2"
+    heading.getString.return_value = ""
+    assert _is_output_bookmark_home(heading) is False
+
+    stdout = MagicMock()
+    stdout.ParaStyleName = "Preformatted Text"
+    stdout.getString.return_value = ""
+    assert _is_output_bookmark_home(stdout) is False
+
+    prompt = MagicMock()
+    prompt.ParaStyleName = "WriterAgent Notebook In"
+    prompt.getString.return_value = "In [1]:"
+    assert _is_output_bookmark_home(prompt) is True
+
+
 def test_run_cell_rerun_clears_then_applies():
     ctx = MagicMock()
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
