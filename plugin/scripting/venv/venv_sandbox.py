@@ -614,6 +614,11 @@ def _inject_bindings(executor: LocalPythonExecutor, bindings: dict[str, Any] | N
 
 
 _RESULT_MISSING = object()
+# Intentional check-then-set with no lock: LibrePy/WriterAgent venv workers are
+# one thread per process (execution is serialized; ``_SESSION_LOCK`` is for
+# session state, not this). ``matplotlib.use("Agg")`` twice is harmless. Do not
+# add a threading.Lock here unless the worker becomes multi-threaded; then this
+# flag needs a lock (or to move under ``_SESSION_LOCK``).
 _MPL_AGG_SET = False
 
 

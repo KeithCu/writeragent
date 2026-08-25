@@ -128,6 +128,7 @@ def dispatch_sql(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]
         data.get("flat_files"),
     )
 
+
 def dispatch_languagetool(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
     _ = heartbeat_fn
     from plugin.writer.locale.languagetool import run_languagetool_check

@@ -30,6 +30,8 @@ from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.venv.venv_sandbox import reset_sandbox_session, run_sandboxed_code, serialize_result
 
 
+# Test-facing alias of ``run_sandboxed_code``; do not inline it away without
+# retargeting tests that import this name.
 def _execute_request(
     code: str,
     data: Any | None,

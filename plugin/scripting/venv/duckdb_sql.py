@@ -40,6 +40,12 @@ def _scoped_cwd(path: str):
 
 
 def _looks_like_write_or_escape(sql: str) -> bool:
+    # Crude substring scan (tokens in strings/CTEs/comments can false-positive).
+    # Real threats it covers are path escape (``..``, absolute paths, COPY TO),
+    # which tests/scripting/test_duckdb_sql.py already pins. Writes to registered
+    # tables never hit disk. Do not replace this with ``duckdb.connect(read_only=True)``
+    # — see the connect site. Engine-side alternative: ``allowed_directories=[scoped_dir]``
+    # plus ``lock_configuration`` at connect, then re-prove those folder tests.
     s = " " + sql.upper() + " "
     write_tokens = (
         " COPY ",
@@ -129,6 +135,12 @@ def query_folder_sql(
         else:
             validated = _validate_files(scoped_dir, files) if files and scoped_dir else []
 
+        # In-memory catalog (``duckdb.connect()`` with no file). DuckDB refuses
+        # ``read_only=True`` on ``:memory:`` ("Cannot launch in-memory database in
+        # read-only mode"); ``read_only`` is for a database file shared across
+        # processes. This helper must read folder files: tests use ``FROM 'sales.csv'``
+        # after chdir; the modern path calls ``con.read_csv`` / ``read_parquet``.
+        # ``enable_external_access=false`` would break those reads.
         con = duckdb.connect()
         try:
             # Register any preloaded tables (e.g. from sibling .xlsx/.ods or live ranges)
