@@ -211,8 +211,11 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
             continue
         if content.strip() == "Output":
             try:
-                cursor = text.createTextCursorByRange(para.getEnd())
-                cursor.collapseToEnd()
+                # Stay *inside* the heading. para.getEnd() is the paragraph
+                # break; a bookmark there is the start of the next para, so
+                # setString of the following range deletes nb_out_*.
+                cursor = text.createTextCursorByRange(para.getStart())
+                cursor.gotoEndOfParagraph(False)
             except Exception:
                 continue
             if first_output_end is None:
@@ -239,7 +242,8 @@ def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
 
     Find the heading **after** removing the old bookmark. A cursor captured
     before ``removeTextContent`` is stale and insert then fails, leaving no
-    bookmark for the next run.
+    bookmark for the next run. Re-insert with ``gotoEndOfParagraph`` (inside
+    the heading), not ``para.getEnd()`` (the paragraph break).
     """
     name = cell.output_start_bookmark
     if not name:
@@ -302,6 +306,14 @@ def _collapse_leading_empty_paragraphs(
         start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
         if start is None:
             return
+        # Bookmark at the paragraph break reports as the *next* para (often a
+        # leftover blank). Snap to the Output heading so we delete that blank
+        # instead of treating it as the bookmark's home.
+        if _paragraph_string(start).strip() != "Output":
+            heading = _find_cell_output_heading_end(doc, cell)
+            if heading is None:
+                return
+            start = heading
         nxt = doc.getText().createTextCursorByRange(start)
         if not nxt.gotoNextParagraph(False):
             return
@@ -349,18 +361,26 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     paragraphs do not accumulate under Output.
     """
     _reanchor_output_bookmark(doc, cell)
-    start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
-    if start is None:
-        return
     text = doc.getText()
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
-    end = text.createTextCursorByRange(start)
-    # Live cursor sits at the end of the Output heading after re-anchor. Skip that
-    # paragraph so setString cannot absorb the bookmark. Unit mocks that already
-    # place the cursor on stdout keep the old loop (content is not "Output").
-    if _paragraph_string(start).strip() == "Output":
+    # Prefer the Output heading over the bookmark cursor. After a first run the
+    # bookmark often sits on the paragraph break, so collapseToEnd is already
+    # in the next para — setString then deletes nb_out_*. Unit mocks have no
+    # heading enumeration, so they still clear from the bookmark cursor.
+    heading = _find_cell_output_heading_end(doc, cell)
+    if heading is not None:
+        start = heading
+        end = text.createTextCursorByRange(start)
         if not end.gotoNextParagraph(False):
             return
+    else:
+        start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
+        if start is None:
+            return
+        end = text.createTextCursorByRange(start)
+        if _paragraph_string(start).strip() == "Output":
+            if not end.gotoNextParagraph(False):
+                return
     if _is_next_cell_boundary(_para_style_name(end), _paragraph_string(end), notebook_in):
         return
     range_start = text.createTextCursorByRange(end)
@@ -426,9 +446,12 @@ def apply_run_result(
     """Write stdout/errors/result and optional image after the output bookmark."""
     out_text = format_run_output_text(result)
     _reanchor_output_bookmark(doc, cell)
-    cursor = _cursor_after_bookmark(doc, cell.output_start_bookmark)
+    # Insert from the Output heading, not the bookmark cursor. After collapseToEnd
+    # a break-anchored bookmark is already in the next paragraph; filling that
+    # range can absorb nb_out_* on the next clear.
+    cursor = _find_cell_output_heading_end(doc, cell)
     if cursor is None:
-        cursor = _find_cell_output_heading_end(doc, cell)
+        cursor = _cursor_after_bookmark(doc, cell.output_start_bookmark)
     output_style = _resolve_para_style(doc, _STYLE_OUTPUT)
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
     if out_text.strip():

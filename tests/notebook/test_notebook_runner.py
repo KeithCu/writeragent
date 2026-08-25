@@ -9,6 +9,7 @@ import pytest
 
 from plugin.notebook.cell_registry import NotebookDocState, cell_id_to_hex, new_code_cell_entry
 from plugin.notebook.notebook_runner import (
+    _find_cell_output_heading_end,
     _gutter_text_cursor,
     _is_next_cell_boundary,
     _paragraph_string,
@@ -199,6 +200,14 @@ def test_clear_cell_output_source_has_no_delete_contents():
     src = inspect.getsource(clear_cell_output)
     assert ".deleteContents(" not in src
     assert "setString" in src
+
+
+def test_find_output_heading_stays_inside_paragraph():
+    """para.getEnd() is the paragraph break; a bookmark there is deleted by setString."""
+    src = inspect.getsource(_find_cell_output_heading_end)
+    assert "para.getEnd()" not in src
+    assert "gotoEndOfParagraph" in src
+    assert "para.getStart()" in src
 
 
 def test_is_next_cell_boundary_markdown_and_code():

@@ -93,7 +93,7 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 - **Spellcheck** — set document + paragraph styles to **`zxx`** (no linguistic content) at import start ([`rich_text.py`](../plugin/chatbot/rich_text.py) uses the same locale).
 - **In-flow controls vs `setString`** — `XTextRange.setString` on a paragraph that contains `AS_CHARACTER` ControlShapes deletes those shapes. Rewrite Text portions only (`update_in_prompt` / `_gutter_text_cursor`).
 - **`PARAGRAPH_BREAK` cursor** — After `insertControlCharacter(..., PARAGRAPH_BREAK)`, the cursor stays **before** the break ([`html_export.py`](../plugin/writer/html_export.py)). Move with `goRight(1)` / `gotoNextParagraph` before inserting stdout.
-- **Point bookmarks vs `setString`** — A range that starts at a point bookmark deletes it. Keep `nb_out_*` on the Output heading and clear from the next paragraph.
+- **Point bookmarks vs `setString`** — A range that starts at a point bookmark deletes it. Keep `nb_out_*` *inside* the Output heading (`gotoEndOfParagraph`, not `para.getEnd()` / the paragraph break) and clear from the next paragraph.
 - **Listener de-dupe** — Key ▶ wiring on `RuntimeUID`, not `id(doc)`. Untitled documents get a new PyUNO wrapper from `get_active_document` / import / bootstrap.
 
 ---

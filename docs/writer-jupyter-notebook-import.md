@@ -87,7 +87,7 @@ For each cell in order, the importer appends to the **document body**:
 
 **Code fields (in-flow):** `TextField` inside `ControlShape`, **`AS_CHARACTER`**, `insertTextContent` at document end — same pattern as [`FormCreateControl`](../plugin/writer/specialized/forms.py). Models are also registered on the document **draw page** (used to find controls for ▶ wiring and for `read_code_from_field`). A paragraph break after the `[In [n]]` gutter keeps those shapes out of the title paragraph.
 
-**Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from outputs use **Preformatted Text** (one paragraph per block). Live run writes stdout directly under the Output heading (at most one blank line). Re-run **replaces** that in-cell block; it does not append at the document end. The `nb_out_*` bookmark stays on the Output heading. If stdout would otherwise share a line with the next cell heading, a split restores Heading 3 chrome (PR 461).
+**Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from outputs use **Preformatted Text** (one paragraph per block). Live run writes stdout directly under the Output heading (at most one blank line). Re-run **replaces** that in-cell block; it does not append at the document end. The `nb_out_*` bookmark stays *inside* the Output heading (before the paragraph break) so `setString` of the following range cannot delete it. If stdout would otherwise share a line with the next cell heading, a split restores Heading 3 chrome (PR 461).
 
 **Spellcheck:** At import start, document and paragraph styles used by the notebook are set to locale **`zxx`** (no linguistic content) so code and markdown are not spell-checked. Form field contents may still show squiggles depending on LO version.
 
