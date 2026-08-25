@@ -75,6 +75,8 @@ class BlockingPumpKind(str, Enum):
 @deal.ensure(lambda prefix, data, result=None: result is not None and prefix in result)
 def _format_agent_tool_stream_line(prefix: str, data: Any) -> str:
     """Serialize ACP tool_call / tool_result payloads for chat display."""
+    # data: Any (json.dumps / str) is an unbounded payload; prefix is already capped.
+    # crosshair: off
     try:
         import sys
 
@@ -770,6 +772,9 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
     assistant message from SSE chunks. Content and tool_calls (with partial
     function.arguments) are merged by index; strings are concatenated.
     """
+    # Recursive merge of unbounded nested dicts/strings hangs deep check even with
+    # a top-level len cap. Pytest still runs @deal; check-all skips this entry.
+    # crosshair: off
     if type(acc) is not dict or type(delta) is not dict:
         raise TypeError("accumulate_delta requires plain dict acc and delta")
     for key, delta_value in delta.items():

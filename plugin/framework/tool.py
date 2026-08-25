@@ -147,6 +147,8 @@ def to_openai_schema(tool, *, doc_type: str | None = None):
             }
         }
     """
+    # Host Tool + deepcopy of nested JSON Schema; pytest still checks @deal.
+    # crosshair: off
     params = copy.deepcopy(tool.get_parameters(doc_type) or {})
     if "type" not in params:
         params["type"] = "object"
@@ -170,6 +172,8 @@ def to_mcp_schema(tool, *, doc_type: str | None = None):
             "inputSchema": { ... JSON Schema ... }
         }
     """
+    # Host Tool + deepcopy of nested JSON Schema; pytest still checks @deal.
+    # crosshair: off
     input_schema = copy.deepcopy(tool.get_parameters(doc_type) or {})
     if "type" not in input_schema:
         input_schema["type"] = "object"

@@ -77,7 +77,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
     )
 
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
 
 @deal.post(lambda result: isinstance(result, dict) and "query_folder_sql" in result and "query_sheet_sql" in result)
@@ -89,7 +89,10 @@ def get_sql_script_templates() -> dict[str, str]:
 SqlScriptMeta = HelperScriptMeta
 
 
+@deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or isinstance(result, SqlScriptMeta))
 def parse_sql_script_header(code: str) -> SqlScriptMeta | None:
     """Parse machine header from SQL script template."""
+    # Header regex ``params=({.*})`` hangs deep check even via this thin wrapper.
+    # crosshair: off
     return parse_helper_script_header(code, tag="sql", helper_names=SQL_HELPER_NAMES)

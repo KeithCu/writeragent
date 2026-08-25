@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.errors import UnoObjectError
 
 _FILTER_OPERATOR2_CODE_NAMES: tuple[str, ...] = (
@@ -94,6 +94,12 @@ def resolve_filter_operator_code(operator: str) -> int:
     raise UnoObjectError(f"Unknown filter operator: {operator!r}")
 
 
+@deal.pre(
+    lambda raw, is_first: isinstance(raw, dict)
+    and len(raw) <= DEAL_MAX_CMD_ARGS
+    and (not isinstance(raw.get("operator"), str) or ascii_bounded(raw.get("operator"), DEAL_MAX_TOKEN))
+    and (not isinstance(raw.get("connection"), str) or ascii_bounded(raw.get("connection"), DEAL_MAX_TOKEN))
+)
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 6)
 @deal.raises(UnoObjectError)
 def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[int, int, int, bool, float, str]:

@@ -130,6 +130,8 @@ def get_monaco_theme_info(doc: Any = None, style_window: Any = None, ctx: Any = 
     We keep the decision in one place with the chat sidebar.
     Richer palette (hex colors etc.) can be added later without protocol break.
     """
+    # UNO StyleSettings host; Any args have no finite domain.
+    # crosshair: off
     win = get_style_window(doc=doc, style_window=style_window, ctx=ctx)
     is_dark = False
     bg = _FALLBACK_BG

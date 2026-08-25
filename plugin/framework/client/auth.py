@@ -28,7 +28,7 @@ from plugin.framework.client.provider_detection import (
     is_openrouter_endpoint,
 )
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 
 
 class AuthError(ConfigError):
@@ -114,6 +114,7 @@ def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> 
     return "custom"
 
 
+@deal.pre(lambda provider_id: provider_id is None or str_bounded(provider_id, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, bool))
 def provider_requires_api_key(provider_id: str | None) -> bool:
     """True when a known provider expects an API key (Bearer / x-api-key), not local/anonymous."""
@@ -125,6 +126,7 @@ def provider_requires_api_key(provider_id: str | None) -> bool:
     return provider_cfg.header_style != "none"
 
 
+@deal.pre(lambda provider_id: provider_id is None or str_bounded(provider_id, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, bool))
 def provider_requires_slug_model_id(provider_id: str | None) -> bool:
     """True when combobox / LRU entries must use org/model slugs (OpenRouter, Together)."""

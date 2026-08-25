@@ -38,6 +38,8 @@ _DEFAULT_MAX_ENTRIES = 256
 @deal.post(lambda result: result is None or isinstance(result, str))
 def validate_sandbox_ast(module: ast.Module, authorized_imports: list[str]) -> str | None:
     """Return an error message if *module* violates sandbox policy, else ``None``."""
+    # AST walk on a symbolic module hangs deep check.
+    # crosshair: off
     for node in ast.walk(module):
         if isinstance(node, _FORBIDDEN_NODE_TYPES):
             return f"{node.__class__.__name__} is not supported."

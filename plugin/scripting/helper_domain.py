@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
 from plugin.framework.i18n import _
 
 if TYPE_CHECKING:
@@ -34,6 +34,7 @@ class HelperScriptMeta:
     params: dict[str, Any]
 
 
+@deal.pre(lambda tag: str_bounded(tag, DEAL_MAX_TOKEN, min_len=1))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("# writeragent:"))
 def header_prefix(tag: str) -> str:
     """Return ``# writeragent:<tag>`` (no trailing space)."""
@@ -117,6 +118,10 @@ def _literal_value(node: ast.AST) -> Any:
     return None
 
 
+@deal.pre(
+    lambda code, run_name="": str_bounded(code, DEAL_MAX_SOURCE)
+    and ascii_bounded(run_name, DEAL_MAX_TOKEN)
+)
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the ``params`` dict from ``run_name({"helper": ..., "params": {...}}, ...)`` when literal."""
@@ -127,6 +132,10 @@ def parse_run_import_call_params(code: str, *, run_name: str) -> dict[str, Any] 
     return params if isinstance(params, dict) else None
 
 
+@deal.pre(
+    lambda code, run_name="": str_bounded(code, DEAL_MAX_SOURCE)
+    and ascii_bounded(run_name, DEAL_MAX_TOKEN)
+)
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
     """Return the first positional spec dict from ``run_name({...}, ...)`` or direct helper call when literal."""

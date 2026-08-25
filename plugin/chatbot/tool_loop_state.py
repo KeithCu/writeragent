@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Mapping, Optional, NamedTuple, cast
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.chatbot.memory import format_upsert_memory_chat_line
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
 
 # Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
 DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
@@ -45,6 +45,7 @@ def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
     lambda round_num, response: isinstance(round_num, int)
     and 0 <= round_num <= 10_000
     and isinstance(response, dict)
+    and len(response) <= DEAL_MAX_CMD_ARGS
 )
 @deal.post(lambda result: isinstance(result, str) and "round=" in result)
 def format_empty_model_response_debug(round_num: int, response: Mapping[str, Any]) -> str:
@@ -89,7 +90,12 @@ def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) ->
     return one_line[: max_len - 3] + "..."
 
 
-@deal.pre(lambda func_args: isinstance(func_args, dict))
+@deal.pre(
+    lambda func_args: isinstance(func_args, dict)
+    and len(func_args) <= DEAL_MAX_CMD_ARGS
+    and all(not isinstance(k, str) or str_bounded(k, DEAL_MAX_TOKEN) for k in func_args)
+    and all(not isinstance(v, str) or str_bounded(v, DEAL_MAX_SOURCE) for v in func_args.values())
+)
 @deal.post(lambda result: isinstance(result, str) and result.startswith("[Running delegate") and result.endswith("\n"))
 def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when a delegate gateway tool starts."""

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import List, Any, Optional, NamedTuple, Literal
 
 from plugin.framework.client.errors import format_error_for_display
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.service import BaseState, FsmTransition
 
 # Send-handler FSM status and kind
@@ -183,6 +183,10 @@ def stop_effects_exclude_spawns(effects: object) -> bool:
     return True
 
 
+@deal.pre(
+    lambda handler_type, err_msg: str_bounded(handler_type, DEAL_MAX_TOKEN)
+    and str_bounded(err_msg, DEAL_MAX_SOURCE)
+)
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and type(result[0]) is str and type(result[1]) is str and result[0] == "Error" and result[1].endswith("\n"))
 def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> tuple[str, str]:
     """Status + append chat lines for a send-handler error (string message, not Exception)."""
@@ -199,6 +203,15 @@ def ui_lines_for_handler_error(handler_type: str, err_msg: str) -> tuple[str, st
     return "Error", append
 
 
+@deal.pre(
+    lambda handler_type, query_text, model, doc_type_str, wav_path=None, stt_model=None: (
+        str_bounded(handler_type, DEAL_MAX_TOKEN)
+        and str_bounded(query_text, DEAL_MAX_SOURCE)
+        and str_bounded(doc_type_str, DEAL_MAX_TOKEN)
+        and (wav_path is None or str_bounded(wav_path, DEAL_MAX_SOURCE))
+        and (stt_model is None or str_bounded(stt_model, DEAL_MAX_TOKEN))
+    )
+)
 @deal.post(lambda result: isinstance(result, list))
 def spawn_effects_for_start(
     handler_type: str,

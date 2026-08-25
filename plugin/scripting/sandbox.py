@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     import subprocess
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH, deal, str_bounded
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH, DEAL_MAX_TOKEN, deal, str_bounded
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
@@ -183,6 +183,20 @@ _cached_sandbox: str | None = _NOT_SET  # type: ignore[assignment]  # sentinel
 _PIPE_BUF_TARGET = 1024 * 1024
 
 
+@deal.pre(
+    lambda base: base is None
+    or (
+        isinstance(base, dict)
+        and len(base) <= DEAL_MAX_ARGV
+        and all(
+            isinstance(k, str)
+            and str_bounded(k, DEAL_MAX_TOKEN)
+            and isinstance(v, str)
+            and str_bounded(v, DEAL_MAX_ARGV)
+            for k, v in base.items()
+        )
+    )
+)
 @deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
 @deal.ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
 @deal.ensure(lambda base, result: all(not any(s in k.upper() for s in _BLOCKED_ENV_SUBSTR) for k in result))

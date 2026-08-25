@@ -89,3 +89,20 @@ def test_is_name_call_expr_expr_without_value() -> None:
     del node.value
     assert is_name_call_expr(node, frozenset({"xl"})) is False
     assert is_name_call_expr(ast.Expr(value=ast.Constant(1)), frozenset({"xl"})) is False
+
+
+def test_is_name_call_expr_overflow_pre_fails_closed() -> None:
+    import deal
+    import pytest
+
+    from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN
+    from tests.strip_bundle import deal_pre_present
+
+    if not deal_pre_present(is_name_call_expr):
+        pytest.skip("@deal.pre stripped in release bundle")
+    node = ast.Expr(value=ast.Call(func=ast.Name(id="xl", ctx=ast.Load()), args=[], keywords=[]))
+    with pytest.raises(deal.PreContractError):
+        is_name_call_expr(node, frozenset(f"n{i}" for i in range(DEAL_MAX_CMD_ARGS + 1)))
+    with pytest.raises(deal.PreContractError):
+        is_name_call_expr(node, frozenset({"x" * (DEAL_MAX_TOKEN + 1)}))
+    assert is_name_call_expr(node, frozenset({"xl"})) is True

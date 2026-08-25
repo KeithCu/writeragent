@@ -107,6 +107,8 @@ def _get_send_label(state: SendButtonState) -> str:
 )
 def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendButtonState]:
     """Pure state transition for the Send button."""
+    # event.data is an unbounded dict; Hypothesis covers transitions.
+    # crosshair: off
 
     effects: List[SendEffects] = []
 

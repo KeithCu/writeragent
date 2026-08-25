@@ -47,6 +47,8 @@ from plugin.framework.deal_shim import deal
 @deal.post(lambda result: isinstance(result, str))
 def decode_lo_css_class_suffix(suffix):
     """Reverse ODF URL-style encoding in a CSS class suffix (``Heading_20_1`` -> ``Heading 1``)."""
+    # re.sub on unbounded suffix hangs deep check.
+    # crosshair: off
     # Plain str only — CrossHair LazyIntSymbolicStr is isinstance(str) but breaks re.sub.
     if type(suffix) is not str:
         return ""
@@ -74,6 +76,8 @@ def extract_autostyle_parents_from_fodt(fodt):
     XHTML ``paragraph-Pn`` class suffix — a reliable, order-independent join. Parent values may
     still be ODF-encoded (``Text_20_body``); decode at use via ``decode_lo_css_class_suffix``.
     """
+    # FODT regex finditer on unbounded XML hangs deep check.
+    # crosshair: off
     out = {}
     text = fodt if type(fodt) is str else ""
     for m in _FODT_STYLE_RE.finditer(text):
@@ -108,6 +112,8 @@ def parse_style_block(xhtml):
     ``raw_map[class] = "decl; decl"`` (order preserved) is used to inline char overrides;
     ``norm_map[class] = "decl;decl"`` (sorted) is used to fingerprint autostyles.
     """
+    # Style-block regex on unbounded XHTML hangs deep check.
+    # crosshair: off
     raw_map = {}
     norm_map = {}
     text = xhtml if type(xhtml) is str else ""

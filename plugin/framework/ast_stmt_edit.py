@@ -30,9 +30,14 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
 
 
+@deal.pre(
+    lambda node, names: isinstance(names, frozenset)
+    and len(names) <= DEAL_MAX_CMD_ARGS
+    and all(ascii_bounded(n, DEAL_MAX_TOKEN) for n in names)
+)
 @deal.post(lambda result: isinstance(result, bool))
 def is_name_call_expr(node: ast.Expr, names: frozenset[str]) -> bool:
     """True if *node* is an expression-statement call to one of *names*."""
@@ -138,6 +143,8 @@ def remove_expr_statements(
     Dry-run callers use ``iter``; edit callers use this. One matching path.
     Returns ``(new_source, removed_count)``.
     """
+    # Callable + ast.parse hangs deep check (same class as _rewrite_token_calls).
+    # crosshair: off
     src = source or ""
     tree, nodes_to_remove = _discover_expr_statements(
         src,

@@ -104,7 +104,7 @@ def _schema_int(field_name: str, name: str, *, fallback: int | None = None, requ
 # --- python_exec_timeout ---
 
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_TOKEN, str_bounded, deal
 
 
 def python_exec_timeout_default() -> int:
@@ -119,6 +119,11 @@ def python_exec_timeout_max() -> int:
     return _schema_int("python_exec_timeout", "max", fallback=_TIMEOUT_FALLBACK_MAX)
 
 
+@deal.pre(
+    lambda value: isinstance(value, bool) is False
+    and isinstance(value, int)
+    and abs(value) <= DEAL_MAX_ARGV
+)
 @deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def _clamp_timeout(value: int) -> int:
     lo = python_exec_timeout_min()
@@ -126,6 +131,12 @@ def _clamp_timeout(value: int) -> int:
     return max(lo, min(hi, value))
 
 
+@deal.pre(
+    lambda timeout_sec, configured=None: timeout_sec is None
+    or (isinstance(timeout_sec, bool) is False and isinstance(timeout_sec, int) and abs(timeout_sec) <= DEAL_MAX_ARGV)
+    or (isinstance(timeout_sec, float) and abs(timeout_sec) <= DEAL_MAX_ARGV)
+    or (isinstance(timeout_sec, str) and str_bounded(timeout_sec, DEAL_MAX_TOKEN))
+)
 @deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def resolve_python_exec_timeout(
     timeout_sec: int | float | str | None,

@@ -10,6 +10,7 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN
 from plugin.chatbot.chat_sidebar_mode import (
     SidebarModeFlags,
     sidebar_mode_flags_for_doc_type,
@@ -43,7 +44,7 @@ def test_sidebar_mode_flags_contracts(doc_type: str) -> None:
         assert flags.include_ppt_master is True
 
 
-@given(label=st.text())
+@given(label=st.text(max_size=DEAL_MAX_TOKEN))
 def test_mode_from_label_contracts(label: str) -> None:
     mode = mode_from_label(label)
     assert mode in _VALID_MODES

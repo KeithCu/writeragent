@@ -19,8 +19,9 @@ from __future__ import annotations
 
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK, str_bounded, deal
 
-# Wider than DEAL_MAX_SOURCE (64): feed() must still reach the 256-char tag flush.
-# Pytest binds DEAL_MAX_HTML_CHUNK=512 so that path stays live; CrossHair uses 64.
+# Wider than DEAL_MAX_SOURCE (16 under CrossHair): feed() must still reach the
+# 256-char tag flush under pytest. Pytest binds DEAL_MAX_HTML_CHUNK=512 so that
+# path stays live; CrossHair uses 16.
 _DEAL_MAX_HTML_CHUNK = DEAL_MAX_HTML_CHUNK
 
 

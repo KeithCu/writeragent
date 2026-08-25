@@ -62,9 +62,7 @@ def deal_maxima(*, crosshair: bool) -> DealMaxima:
     would explore both branches. Pair ``col_letters`` with ``col_index``
     (3 with 18277 / A–ZZZ, 1 with 25 / A–Z).
     """
-    # Shared: CORS / URL / MCP backoff. No test-backed reason to shrink.
-    origin = 256
-    url = 256
+    # Shared: MCP backoff. No test-backed reason to shrink those.
     retry = 8
     backoff = 300.0
     backoff_factor = 10.0
@@ -82,16 +80,16 @@ def deal_maxima(*, crosshair: bool) -> DealMaxima:
             shape_rank=2,
             placeholder_index=4,
             source=16,
-            msgid=1024,  # real UI _() strings run at import; do not shrink
+            msgid=1024,  # import-time _() UI strings; do not shrink — off _() instead
             path=32,
             token=16,
             xl_expr=32,  # xl("%Pn%",headers=False) is 24; TOKEN=16 is too small
-            origin=origin,
-            url=url,
+            origin=32,  # CORS Origin; pytest keeps 256
+            url=32,  # endpoint URLs; pytest keeps 256 (url_utils is module-off)
             retry=retry,
             backoff=backoff,
             backoff_factor=backoff_factor,
-            html_chunk=64,
+            html_chunk=16,  # char-by-char stripper; pytest keeps 512 for the 256-flush path
         )
     return DealMaxima(
         col_letters=3,
@@ -108,8 +106,8 @@ def deal_maxima(*, crosshair: bool) -> DealMaxima:
         path=256,  # filesystem paths (is_safe_workspace_path); not PATH_MAX
         token=64,
         xl_expr=64,  # DAG xl("%Pn%",headers=False); CrossHair uses 32
-        origin=origin,
-        url=url,
+        origin=256,  # CORS Origin; CrossHair uses 32
+        url=256,  # endpoint URLs; CrossHair uses 32
         retry=retry,
         backoff=backoff,
         backoff_factor=backoff_factor,

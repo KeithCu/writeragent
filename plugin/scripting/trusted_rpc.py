@@ -13,13 +13,19 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.constants import EMBEDDINGS_HEARTBEAT_GRACE_S, WORKER_POOL_DEFAULT
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.venv_worker import run_code_in_user_venv
 
 log = logging.getLogger(__name__)
 
 
+@deal.pre(
+    lambda response, error_code="", error_label="": isinstance(response, dict)
+    and len(response) <= DEAL_MAX_SHAPE_DIM
+    and str_bounded(error_code, DEAL_MAX_TOKEN)
+    and str_bounded(error_label, DEAL_MAX_TOKEN)
+)
 @deal.post(lambda result: isinstance(result, dict))
 @deal.raises(ToolExecutionError)
 def parse_worker_dict_result(

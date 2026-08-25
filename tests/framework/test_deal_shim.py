@@ -8,6 +8,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import textwrap
+
+import pytest
 
 from plugin.framework.deal_shim import (
     CROSSHAIR_ENV,
@@ -119,13 +124,145 @@ def test_deal_maxima_crosshair_profile_stays_tiny() -> None:
     assert short.path == 32
     assert short.token == 16
     assert short.xl_expr == 32
-    assert short.html_chunk == 64
-    # Unchanged unless a test-backed reason appears.
-    assert short.origin == 256
-    assert short.url == 256
+    assert short.html_chunk == 16
+    assert short.origin == 32
+    assert short.url == 32
     assert short.retry == 8
     assert short.backoff == 300.0
     assert short.backoff_factor == 10.0
+
+
+def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
+    """WRITERAGENT_CROSSHAIR=1 rebinds DEAL_MAX_* at import; pytest width must still work here."""
+    from plugin.framework.html_stripper import strip_html_tags
+    from plugin.framework.i18n import _
+    from plugin.mcp.cors import is_safe_origin, normalize_cors_origin
+    from tests.strip_bundle import deal_pre_present
+
+    # Pytest (no env): product-faithful widths stay live.
+    assert os.environ.get(CROSSHAIR_ENV) != "1"
+    assert is_safe_origin("http://localhost:3000") is True
+    assert normalize_cors_origin("https://localai.local/") == "https://localai.local"
+    assert strip_html_tags("<b>ok</b>") == "ok"
+    assert _("✓ Copied!") == "✓ Copied!"
+    product_origin = "http://" + ("a" * 200)
+    if deal_pre_present(is_safe_origin):
+        assert len(product_origin) <= DEAL_MAX_ORIGIN
+        is_safe_origin(product_origin)
+        with pytest.raises(deal.PreContractError):
+            is_safe_origin("h" * (DEAL_MAX_ORIGIN + 1))
+        with pytest.raises(deal.PreContractError):
+            strip_html_tags("x" * (DEAL_MAX_HTML_CHUNK + 1))
+        strip_html_tags("x" * 256)
+
+    script = textwrap.dedent(
+        """
+        import os
+        os.environ["WRITERAGENT_CROSSHAIR"] = "1"
+        from plugin.framework.deal_shim import (
+            DEAL_MAX_HTML_CHUNK,
+            DEAL_MAX_MSGID,
+            DEAL_MAX_ORIGIN,
+            DEAL_MAX_URL,
+        )
+        assert DEAL_MAX_MSGID == 1024, DEAL_MAX_MSGID
+        assert DEAL_MAX_ORIGIN == 32, DEAL_MAX_ORIGIN
+        assert DEAL_MAX_URL == 32, DEAL_MAX_URL
+        assert DEAL_MAX_HTML_CHUNK == 16, DEAL_MAX_HTML_CHUNK
+        import deal
+        from plugin.framework.html_stripper import strip_html_tags
+        from plugin.framework.i18n import _
+        from plugin.mcp.cors import is_safe_origin
+        try:
+            is_safe_origin("h" * 33)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("origin 33 must fail under CrossHair table")
+        strip_html_tags("x" * 16)
+        try:
+            strip_html_tags("x" * 17)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("html 17 must fail under CrossHair table")
+        _("x" * 1024)
+        try:
+            _("x" * 1025)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("msgid 1025 must still fail")
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=os.getcwd(),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "WRITERAGENT_CROSSHAIR": "1"},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_crosshair_env_rejects_pytest_collection_width() -> None:
+    """SHAPE_DIM / CMD_ARGS stay product-wide here; CrossHair table rejects the same inputs."""
+    import ast
+
+    from plugin.framework.ast_stmt_edit import is_name_call_expr
+    from plugin.scripting.payload_codec import is_image_payload
+    from tests.strip_bundle import deal_pre_present
+
+    assert os.environ.get(CROSSHAIR_ENV) != "1"
+    five_keys = {f"k{i}": i for i in range(5)}
+    five_names = frozenset(f"n{i}" for i in range(5))
+    node = ast.Expr(value=ast.Call(func=ast.Name(id="x", ctx=ast.Load()), args=[], keywords=[]))
+    assert is_image_payload(five_keys) is False
+    assert is_name_call_expr(node, five_names) is False
+    if deal_pre_present(is_image_payload):
+        with pytest.raises(deal.PreContractError):
+            is_image_payload({f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)})
+        with pytest.raises(deal.PreContractError):
+            is_name_call_expr(node, frozenset(f"n{i}" for i in range(DEAL_MAX_CMD_ARGS + 1)))
+        is_name_call_expr(node, frozenset({"xl"}))
+
+    script = textwrap.dedent(
+        """
+        import ast
+        import os
+        os.environ["WRITERAGENT_CROSSHAIR"] = "1"
+        from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SHAPE_DIM
+        assert DEAL_MAX_SHAPE_DIM == 4, DEAL_MAX_SHAPE_DIM
+        assert DEAL_MAX_CMD_ARGS == 4, DEAL_MAX_CMD_ARGS
+        import deal
+        from plugin.framework.ast_stmt_edit import is_name_call_expr
+        from plugin.scripting.payload_codec import is_image_payload
+        five_keys = {f"k{i}": i for i in range(5)}
+        try:
+            is_image_payload(five_keys)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("5-key dict must fail under CrossHair SHAPE_DIM=4")
+        node = ast.Expr(value=ast.Call(func=ast.Name(id="x", ctx=ast.Load()), args=[], keywords=[]))
+        five_names = frozenset(f"n{i}" for i in range(5))
+        try:
+            is_name_call_expr(node, five_names)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("5 names must fail under CrossHair CMD_ARGS=4")
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=os.getcwd(),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "WRITERAGENT_CROSSHAIR": "1"},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
 
 
 def test_inverse_ensure_for_is_noop_under_crosshair() -> None:

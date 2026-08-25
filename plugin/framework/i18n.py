@@ -113,10 +113,14 @@ def init_i18n(ctx=None) -> None:
 
 
 # Msgids must be <= DEAL_MAX_MSGID (wide in both profiles; SOURCE is 8192/16).
+# CrossHair-on with msgid=1024 wanders for hours. Shrinking DEAL_MAX_MSGID would
+# reject real UI _() strings at import under WRITERAGENT_CROSSHAIR=1. Pytest
+# still checks the contract; check-all skips this wrapper.
 @deal.pre(lambda message: str_bounded(message, DEAL_MAX_MSGID))
 @deal.post(lambda result: isinstance(result, str))
 def _(message: str) -> str:
     """Translate English msgid *message* via gettext. Must be :class:`str`."""
+    # crosshair: off
     if not isinstance(message, str):
         raise TypeError("gettext msgid must be str")
 

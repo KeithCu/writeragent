@@ -213,6 +213,17 @@ def test_envelope_detectors_reject_malformed() -> None:
     assert is_calc_range_payload({"__wa_payload__": PAYLOAD_CALC_RANGE, "shape": [1, 1]}) is False
 
 
+def test_envelope_detector_overflow_pre_fails_closed() -> None:
+    if not deal_pre_present(is_image_payload):
+        pytest.skip("@deal.pre stripped in release bundle")
+    too_many = {f"k{i}": i for i in range(DEAL_MAX_SHAPE_DIM + 1)}
+    with pytest.raises(deal.PreContractError):
+        is_image_payload(too_many)
+    with pytest.raises(deal.PreContractError):
+        is_split_grid(too_many)
+    assert is_image_payload({"a": 1}) is False
+
+
 @given(
     value=st.one_of(
         st.none(),

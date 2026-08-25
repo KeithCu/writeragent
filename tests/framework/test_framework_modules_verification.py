@@ -11,6 +11,7 @@ import datetime as dt
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN
 from plugin.framework.openrouter_model_id import (
     _split_suffix,
     resolve_openrouter_catalog_id,
@@ -30,7 +31,7 @@ from plugin.framework.constants import (
 )
 
 
-@given(model_id=st.text())
+@given(model_id=st.text(max_size=DEAL_MAX_TOKEN))
 @settings(max_examples=100)
 def test_openrouter_model_id_contracts(model_id: str) -> None:
     base, suff = _split_suffix(model_id)
@@ -44,7 +45,7 @@ def test_openrouter_model_id_contracts(model_id: str) -> None:
     assert openrouter_model_ids_equivalent(model_id, model_id) is True
 
 
-@given(id_a=st.text(), id_b=st.text())
+@given(id_a=st.text(max_size=DEAL_MAX_TOKEN), id_b=st.text(max_size=DEAL_MAX_TOKEN))
 def test_openrouter_model_ids_equivalent_symmetric(id_a: str, id_b: str) -> None:
     eq1 = openrouter_model_ids_equivalent(id_a, id_b)
     eq2 = openrouter_model_ids_equivalent(id_b, id_a)

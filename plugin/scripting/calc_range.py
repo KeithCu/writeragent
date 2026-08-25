@@ -18,7 +18,7 @@ import math
 import operator
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, str_bounded, deal
 
 PAYLOAD_CALC_RANGE = "calc_range"
 
@@ -98,6 +98,11 @@ def pack_calc_range_envelope(
     return envelope
 
 
+@deal.pre(
+    lambda names: isinstance(names, list)
+    and len(names) <= DEAL_MAX_SHAPE_DIM
+    and all(str_bounded(x, DEAL_MAX_TOKEN) for x in names)
+)
 @deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
 def _dedupe_column_names(names: list[str]) -> list[str]:
     seen: dict[str, int] = {}

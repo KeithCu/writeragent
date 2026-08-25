@@ -12,7 +12,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import deal
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN
 from tests.strip_bundle import deal_pre_present
 
 from plugin.scripting.import_policy import (
@@ -26,6 +26,7 @@ from plugin.scripting.config_limits import (
     python_exec_timeout_min,
     python_exec_timeout_max,
     resolve_python_exec_timeout,
+    _clamp_timeout,
 )
 from plugin.scripting.calc_range import (
     column_vector_as_2d,
@@ -72,12 +73,27 @@ def test_import_policy_contracts() -> None:
     assert prompt.startswith(PYTHON_VENV_SANDBOX_CONTEXT_PREFIX)
 
 
-@given(val=st.one_of(st.integers(), st.floats(), st.text(), st.none()))
+@given(
+    val=st.one_of(
+        st.integers(min_value=-DEAL_MAX_ARGV, max_value=DEAL_MAX_ARGV),
+        st.floats(min_value=-float(DEAL_MAX_ARGV), max_value=float(DEAL_MAX_ARGV), allow_nan=False, allow_infinity=False),
+        st.text(max_size=DEAL_MAX_TOKEN),
+        st.none(),
+    )
+)
 @settings(max_examples=100)
 def test_resolve_python_exec_timeout_clamping(val: float | int | str | None) -> None:
     timeout = resolve_python_exec_timeout(val)
     assert isinstance(timeout, int)
     assert python_exec_timeout_min() <= timeout <= python_exec_timeout_max()
+
+
+def test_clamp_timeout_overflow_pre_fails_closed() -> None:
+    if not deal_pre_present(_clamp_timeout):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        _clamp_timeout(DEAL_MAX_ARGV + 1)
+    assert python_exec_timeout_min() <= _clamp_timeout(1) <= python_exec_timeout_max()
 
 
 @given(grid=st.one_of(
@@ -97,7 +113,7 @@ def test_ensure_rectangular_2d_invariants(grid) -> None:
             assert len(row) == first_len
 
 
-@given(names=st.lists(st.text()))
+@given(names=st.lists(st.text(max_size=DEAL_MAX_TOKEN), max_size=DEAL_MAX_SHAPE_DIM))
 def test_dedupe_column_names_uniqueness(names: list[str]) -> None:
     deduped = _dedupe_column_names(names)
     assert isinstance(deduped, list)

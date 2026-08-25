@@ -23,7 +23,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Any, cast
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
 
 # Aligned with upstream python-sdk LATEST_PROTOCOL_VERSION.
 MCP_PROTOCOL_VERSION = "2025-11-25"
@@ -59,6 +59,10 @@ class JsonRpcParseError:
     code: int = INVALID_REQUEST
 
 
+@deal.pre(
+    lambda msg: not isinstance(msg, dict)
+    or len(msg) <= DEAL_MAX_CMD_ARGS
+)
 @deal.post(lambda result: isinstance(result, (ParsedJsonRpcRequest, JsonRpcParseError)))
 def parse_jsonrpc_request(msg: object) -> ParsedJsonRpcRequest | JsonRpcParseError:
     """Parse and validate a single JSON-RPC request object.
@@ -101,11 +105,13 @@ def is_jsonrpc_notification(msg: object) -> bool:
     return "id" not in raw or raw.get("id") is None
 
 
+@deal.pre(lambda req_id, result: isinstance(result, dict) and len(result) <= DEAL_MAX_CMD_ARGS)
 @deal.post(lambda result: isinstance(result, dict) and result.get("jsonrpc") == "2.0" and "result" in result)
 def jsonrpc_success(req_id: RequestId, result: dict[str, Any]) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": req_id, "result": result}
 
 
+@deal.pre(lambda req_id, code, message, data=None: str_bounded(message, DEAL_MAX_SOURCE) and isinstance(code, int))
 @deal.post(lambda result: isinstance(result, dict) and result.get("jsonrpc") == "2.0" and "error" in result)
 def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None = None) -> dict[str, Any]:
     err: dict[str, Any] = {"code": code, "message": message}
@@ -132,6 +138,18 @@ class InitializeResult:
         return out
 
 
+@deal.pre(
+    lambda protocol_version, server_version, instructions, client_protocol_version=None: (
+        (not isinstance(protocol_version, str) or str_bounded(protocol_version, DEAL_MAX_TOKEN))
+        and str_bounded(server_version, DEAL_MAX_TOKEN)
+        and str_bounded(instructions, DEAL_MAX_SOURCE)
+        and (
+            client_protocol_version is None
+            or not isinstance(client_protocol_version, str)
+            or str_bounded(client_protocol_version, DEAL_MAX_TOKEN)
+        )
+    )
+)
 @deal.post(lambda result: isinstance(result, dict) and "protocolVersion" in result and "capabilities" in result)
 def initialize_result(
     *,
@@ -209,6 +227,10 @@ def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
     return out
 
 
+@deal.pre(
+    lambda data_b64, mime_type="image/png", is_error=False: str_bounded(data_b64, DEAL_MAX_SOURCE)
+    and ascii_bounded(mime_type, DEAL_MAX_TOKEN, min_len=1)
+)
 @deal.post(lambda result: isinstance(result, dict) and "content" in result)
 def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_error: bool = False) -> dict[str, Any]:
     """Tool result carrying an IMAGE content block (MCP image type) instead of text.

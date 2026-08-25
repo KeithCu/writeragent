@@ -9,7 +9,7 @@ from plugin.framework.errors import ConfigError
 
 log = logging.getLogger(__name__)
 
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
 
 
 class MemoryStore:
@@ -70,6 +70,7 @@ def user_profile_exists(ctx: Any) -> bool:
 UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 
 
+@deal.pre(lambda arguments: not isinstance(arguments, str) or str_bounded(arguments, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     """Normalize smolagents ToolCall.arguments (dict or JSON string) to a dict."""
@@ -87,6 +88,7 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     return None
 
 
+@deal.pre(lambda arguments: not isinstance(arguments, str) or str_bounded(arguments, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or isinstance(result, str))
 def memory_key_from_tool_arguments(arguments: object) -> str | None:
     """Extract memory key from smolagents ToolCall.arguments (dict or JSON string)."""
@@ -97,6 +99,11 @@ def memory_key_from_tool_arguments(arguments: object) -> str | None:
     return k if isinstance(k, str) else None
 
 
+@deal.pre(
+    lambda func_args: hasattr(func_args, "get")
+    and (not isinstance(func_args.get("key"), str) or str_bounded(func_args.get("key"), DEAL_MAX_TOKEN))
+    and (not isinstance(func_args.get("content"), str) or str_bounded(func_args.get("content"), DEAL_MAX_SOURCE))
+)
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     """One-line chat preview when upsert_memory starts (main chat tool loop)."""
@@ -116,6 +123,7 @@ def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     return f"[Memory update: key {key!r} value {one_line!r}]\n"
 
 
+@deal.pre(lambda arguments: not isinstance(arguments, str) or str_bounded(arguments, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
     """Chat preview for librarian ToolCall.arguments (dict or JSON string)."""

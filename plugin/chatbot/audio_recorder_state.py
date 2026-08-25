@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from plugin.framework.service import BaseState, FsmTransition
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
 _VALID_AUDIO_STATUSES = ("idle", "initializing", "recording", "stopping", "error")
 
@@ -63,7 +63,13 @@ AudioRecorderEffect = InitializeDeviceEffect | StartRecordingEffect | StopRecord
 # --- Pure Transition Function ---
 
 
-@deal.pre(lambda state, event: state.status in _VALID_AUDIO_STATUSES)
+@deal.pre(
+    lambda state, event: state.status in _VALID_AUDIO_STATUSES
+    and (
+        not isinstance(event, ErrorOccurredEvent)
+        or str_bounded(event.error_message, DEAL_MAX_SOURCE)
+    )
+)
 @deal.post(lambda result: result.state.status in _VALID_AUDIO_STATUSES)
 @deal.ensure(
     lambda state, event, result: not isinstance(event, ErrorOccurredEvent) or result.state.status == "error"

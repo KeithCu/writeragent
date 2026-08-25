@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
 
-from plugin.framework.deal_shim import DEAL_MAX_ORIGIN, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_ORIGIN, ascii_bounded, str_bounded, deal
 
 MCP_CORS_ORIGINS_KEY = "mcp.cors_allowed_origins"
 
@@ -52,6 +52,7 @@ _ORIGIN_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$")
 PREFLIGHT_MAX_AGE = "86400"
 
 
+@deal.pre(lambda value: value is None or str_bounded(value, DEAL_MAX_ORIGIN))
 @deal.post(
     lambda result: result is None
     or (
@@ -75,6 +76,16 @@ def normalize_cors_origin(value: str | None) -> str | None:
     return origin
 
 
+@deal.pre(
+    lambda value: value is None
+    or (isinstance(value, str) and str_bounded(value, DEAL_MAX_ORIGIN))
+    or (
+        isinstance(value, list)
+        and len(value) <= DEAL_MAX_CMD_ARGS
+        and all(not isinstance(item, str) or str_bounded(item, DEAL_MAX_ORIGIN) for item in value)
+    )
+    or not isinstance(value, (str, list))
+)
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 @deal.ensure(lambda value, result: len(result) == len(set(result)))
 def normalize_origins_list(value) -> list[str]:
@@ -184,6 +195,10 @@ def is_safe_origin(origin: str) -> bool:
     return False
 
 
+@deal.pre(
+    lambda access_control_request_headers: access_control_request_headers is None
+    or str_bounded(access_control_request_headers, DEAL_MAX_ORIGIN)
+)
 @deal.post(lambda result: isinstance(result, str) and "Content-Type" in result)
 def merge_allow_headers(access_control_request_headers: str | None) -> str:
     """Build Access-Control-Allow-Headers: base list union preflight request list."""

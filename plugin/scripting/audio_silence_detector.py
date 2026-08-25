@@ -10,7 +10,7 @@ import logging
 import struct
 from dataclasses import dataclass
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, deal
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +48,7 @@ class SilenceDetectorResult:
     heard_speech: bool
 
 
+@deal.pre(lambda pcm: isinstance(pcm, (bytes, bytearray)) and len(pcm) <= DEAL_MAX_ARGV)
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and 0.0 <= result[0] <= 1.0 and 0.0 <= result[1] <= 1.0)
 def pcm_energy_int16(pcm: bytes) -> tuple[float, float]:
     """Return (RMS, peak) of 16-bit little-endian PCM, each normalized to 0.0–1.0."""

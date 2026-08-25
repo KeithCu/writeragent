@@ -18,11 +18,14 @@ from hypothesis import strategies as st
 
 from plugin.mcp.cors import (
     is_safe_origin,
+    merge_allow_headers,
     normalize_cors_origin,
     normalize_origins_list,
     set_allow_private_origins,
     set_extra_allowed_origins,
 )
+from plugin.framework.deal_shim import DEAL_MAX_ORIGIN
+from tests.strip_bundle import deal_pre_present
 from tests.vhs_budget import vhs_max_examples
 
 CROSSHAIR_MODULE = "plugin/mcp/cors.py"
@@ -122,6 +125,22 @@ def test_localhost_safe_origin() -> None:
     assert is_safe_origin("http://localhost:3000")
     assert is_safe_origin("http://127.0.0.1")
     assert is_safe_origin("http://[::1]")
+
+
+def test_cors_origin_overflow_pre_fails_closed() -> None:
+    import deal
+
+    if not deal_pre_present(is_safe_origin):
+        pytest.skip("@deal.pre stripped in release bundle")
+    too_long = "h" * (DEAL_MAX_ORIGIN + 1)
+    with pytest.raises(deal.PreContractError):
+        is_safe_origin(too_long)
+    with pytest.raises(deal.PreContractError):
+        normalize_cors_origin(too_long)
+    with pytest.raises(deal.PreContractError):
+        merge_allow_headers(too_long)
+    # Pytest keeps the 256-char product domain.
+    assert is_safe_origin("http://localhost:3000") is True
 
 
 @pytest.mark.slow

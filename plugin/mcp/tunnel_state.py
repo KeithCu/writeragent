@@ -195,6 +195,8 @@ def _event_int(data: dict[str, Any], key: str, fallback: int) -> int:
 )
 def next_state(state: TunnelState, event: TunnelEvent) -> FsmTransition[TunnelState]:
     """Pure transition function for the MCP tunnel lifecycle and reconnection."""
+    # event.data is dict[str, Any] (tokens, URLs); Hypothesis covers transitions.
+    # crosshair: off
     effects: List[Any] = []
 
     if event.kind == TunnelEventKind.START_REQUESTED:

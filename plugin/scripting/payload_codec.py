@@ -316,6 +316,15 @@ def _deal_grid_ok(grid: object) -> bool:
     return True
 
 
+def _deal_dict_ok(obj: object) -> bool:
+    """Finite dict domain for envelope detectors. Non-dicts stay allowed (return False).
+
+    Unbounded dicts let deep check wander on Any envelopes. Pytest 256 keys fits
+    real wire envelopes; CrossHair uses 4.
+    """
+    return not isinstance(obj, dict) or len(obj) <= DEAL_MAX_SHAPE_DIM
+
+
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda envelope, result: not result
@@ -339,6 +348,7 @@ def _is_multi_data_envelope(envelope: object) -> bool:
     return all(isinstance(item, (list, dict)) for item in items)
 
 
+@deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda obj, result: not result
@@ -352,6 +362,7 @@ def is_multi_data(obj: Any) -> bool:
     return _is_multi_data_envelope(obj)
 
 
+@deal.pre(lambda envelope: _deal_dict_ok(envelope))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda envelope, result: not result
@@ -373,6 +384,7 @@ def _is_image_payload_envelope(envelope: object) -> bool:
     )
 
 
+@deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda obj, result: not result
@@ -419,6 +431,7 @@ def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
 
 
 
+@deal.pre(lambda envelope: _deal_dict_ok(envelope))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda envelope, result: not result
@@ -447,6 +460,7 @@ def _is_dataframe_envelope(envelope: object) -> bool:
     return isinstance(data, (list, tuple, dict)) or data is None or _is_ndarray(data)
 
 
+@deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda obj, result: not result
@@ -461,6 +475,7 @@ def is_dataframe_payload(obj: Any) -> bool:
     return _is_dataframe_envelope(obj)
 
 
+@deal.pre(lambda envelope: _deal_dict_ok(envelope))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda envelope, result: not result
@@ -487,6 +502,7 @@ def _is_calc_range_envelope(envelope: object) -> bool:
     return "data" in env_dict
 
 
+@deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda obj, result: not result
@@ -504,6 +520,7 @@ def is_calc_range_payload(obj: Any) -> bool:
     return _is_calc_range_envelope(obj)
 
 
+@deal.pre(lambda envelope: _deal_dict_ok(envelope))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda envelope, result: not result
@@ -533,6 +550,7 @@ def _is_split_grid_envelope(envelope: object) -> bool:
     return isinstance(env_dict.get("buffer"), bytes) or isinstance(env_dict.get("b64"), str)
 
 
+@deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda obj, result: not result
@@ -1336,6 +1354,7 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
     return wire
 
 
+@deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @deal.ensure(
     lambda obj, result: not result

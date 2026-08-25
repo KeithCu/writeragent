@@ -10,15 +10,20 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+import deal
+import pytest
+
+from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
 from plugin.framework.client.auth import (
     build_auth_headers,
     provider_requires_api_key,
     provider_requires_slug_model_id,
 )
+from tests.strip_bundle import deal_pre_present
 
 
-@given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127)))
+@given(text=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=DEAL_MAX_HTML_CHUNK))
 @settings(max_examples=100)
 def test_hypothesis_strip_html_tags_returns_string(text: str) -> None:
     res = strip_html_tags(text)
@@ -41,6 +46,15 @@ def test_strip_html_tags_streaming_equivalence() -> None:
     
     assert s1 == s2
     assert "Hello World! 3 < 5" in s1
+
+
+def test_strip_html_tags_overflow_pre_fails_closed() -> None:
+    if not deal_pre_present(strip_html_tags):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        strip_html_tags("x" * (DEAL_MAX_HTML_CHUNK + 1))
+    # Pytest 512 still reaches the 256-char tag-flush path.
+    assert "<" in strip_html_tags("<" + ("a" * 256))
 
 
 @given(provider=st.one_of(st.sampled_from(["openrouter", "openai", "anthropic", "ollama", "custom", "unknown"]), st.none()))

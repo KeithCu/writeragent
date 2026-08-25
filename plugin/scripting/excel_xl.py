@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 
@@ -22,6 +22,10 @@ _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 _HEADERS_OMIT = object()
 
 
+@deal.pre(
+    lambda ranges: ranges is None
+    or (isinstance(ranges, (list, tuple)) and len(ranges) <= DEAL_MAX_SHAPE_DIM)
+)
 @deal.post(lambda result: callable(result))
 def make_xl(ranges: tuple[Any, ...] | list[Any] | None) -> Any:
     """Return an Excel-shaped ``xl(ref, headers=…)`` closed over *ranges*."""

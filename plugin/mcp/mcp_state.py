@@ -100,6 +100,9 @@ class SendErrorEffect:
 @deal.ensure(lambda state, event, result: event.kind != EventKind.REQUEST_ERROR or result.state.is_error)
 def next_state(state: MCPState, event: MCPEvent) -> FsmTransition[MCPState]:
     """Pure transition function for the MCP tool-calling loop."""
+    # event.data is Dict[str, Any] (nested tool arguments); same class as
+    # state_machine.next_state. Hypothesis covers transitions; check-all skips.
+    # crosshair: off
     effects: List[Any] = []
 
     if event.kind == EventKind.REQUEST_RECEIVED:

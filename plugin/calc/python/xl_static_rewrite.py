@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 
 from plugin.calc.excel_py_convert.to_dag import ast_source_offset
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, str_bounded, deal
 
 # Cell / range with optional $; optional sheet via Calc ``Sheet.`` or Excel ``Sheet!``.
 # Quoted sheet names: 'My Sheet'.A1:B2
@@ -64,6 +64,7 @@ def _header_mode_from_call(node: ast.Call) -> str:
     return "omit"
 
 
+@deal.pre(lambda addr: str_bounded(addr, DEAL_MAX_SOURCE))
 @deal.post(lambda result: isinstance(result, str))
 def normalize_range_address(addr: str) -> str:
     """Normalize an address for dedup (strip ``$``, collapse sheet punctuation)."""
@@ -77,6 +78,8 @@ def normalize_range_address(addr: str) -> str:
 @deal.post(lambda result: isinstance(result, bool))
 def is_static_a1_literal(ref: str) -> bool:
     """True when *ref* looks like a formula-static cell/range address."""
+    # Sheet-prefix + A1 regex hang under deep check (same class as parse_address).
+    # crosshair: off
     s = (ref or "").strip()
     if not s or _P_TOKEN_RE.match(s):
         return False
@@ -203,6 +206,17 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
     return calls, issues
 
 
+@deal.pre(
+    lambda code, existing_data_args=None: str_bounded(code, DEAL_MAX_SOURCE)
+    and (
+        existing_data_args is None
+        or (
+            isinstance(existing_data_args, list)
+            and len(existing_data_args) <= DEAL_MAX_SHAPE_DIM
+            and all(str_bounded(x, DEAL_MAX_SOURCE) for x in existing_data_args)
+        )
+    )
+)
 @deal.post(
     lambda result: isinstance(result, XlStaticRewriteResult)
     and isinstance(result.code, str)
@@ -218,6 +232,8 @@ def apply_xl_static_rewrite(
     Duplicate addresses share one binding. On any issue, *changed* is False and code is
     unchanged (caller should fail the save).
     """
+    # ast.parse + A1 regex hang under deep check even at DEAL_MAX_SOURCE.
+    # crosshair: off
     existing = [a.strip() for a in (existing_data_args or []) if a and str(a).strip()]
     calls, issues = _find_static_xl_literals(code)
     if issues:

@@ -70,6 +70,9 @@ def _truncate_reasoning_string(value: str) -> str:
 )
 def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], delta: Mapping[str, Any]) -> None:
     """Append thinking text as each SSE delta arrives; meta records replay shape (set once)."""
+    # delta string fields are product-sized (up to PRESERVE_REASONING_MAX_CHARS);
+    # cannot shrink without a new DEAL_MAX split. Pytest still runs @deal.
+    # crosshair: off
     # Plain dict only — CrossHair AttrDict is isinstance(dict) but field access can crash.
     if type(meta) is not dict:
         return
@@ -117,6 +120,8 @@ def accumulate_streaming_thinking(text_parts: list[str], meta: dict[str, Any], d
 )
 def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     """Merge streaming fragments (same type + index) for sync/non-stream replay."""
+    # deepcopy of dict fragments with unbounded string fields.
+    # crosshair: off
     if not entries:
         return []
     merged: dict[tuple[Any, Any], dict[str, Any]] = {}
@@ -153,6 +158,8 @@ def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
     and set(result.keys()) <= {"reasoning", "reasoning_content", "reasoning_details"}
 )
 def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
+    # Unbounded reasoning text plus 32k truncate; pytest covers replay shape.
+    # crosshair: off
     text = _truncate_reasoning_string(text)
     encrypted_raw = meta.get("encrypted_fragments")
     encrypted_fragments: list[Any] = encrypted_raw if isinstance(encrypted_raw, list) else []
@@ -259,6 +266,8 @@ def _normalize_stream_delta(chunk_or_delta: object) -> dict[str, Any]:
 @deal.post(lambda result: isinstance(result, str))
 def _thinking_text_from_delta(delta: dict[str, Any]) -> str:
     """Extract thinking from a normalized delta (no choices wrapper)."""
+    # Nested reasoning_details + unbounded reasoning strings (32k product).
+    # crosshair: off
     # Ollama /v1 often uses "reasoning", not "reasoning_content" (Qwen-Agent #789, ollama#12628).
     for field in _THINKING_STRING_FIELDS:
         thinking = delta.get(field)
@@ -327,7 +336,14 @@ def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
     return True
 
 
-@deal.pre(lambda delta: type(delta) is dict)
+@deal.pre(
+    lambda delta: type(delta) is dict
+    and len(delta) <= DEAL_MAX_SHAPE_DIM
+    and (
+        not isinstance(delta.get("tool_calls"), list)
+        or len(delta["tool_calls"]) <= DEAL_MAX_SHAPE_DIM
+    )
+)
 @deal.ensure(lambda delta, result: "role" not in delta or delta.get("role") is not None)
 @deal.ensure(lambda delta, result: _normalize_delta_tool_calls_ok(delta))
 def _normalize_delta(delta: dict[str, Any]) -> None:  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
@@ -443,6 +459,8 @@ _THINK_UNCLOSED_RE = re.compile(r"<think>(.*)", re.DOTALL)
 @deal.ensure(lambda text, result: _THINK_TAG_BLOCK_RE.search(result[0]) is None)
 def strip_think_tags(text: str | None) -> tuple[str, str | None]:
     """Strip <think>...</think> tags from text, returning (clean_content, extracted_thinking)."""
+    # DOTALL greedy <think> regex hangs deep check even on short ASCII.
+    # crosshair: off
     if not text:
         return "", None
     thoughts: list[str] = []

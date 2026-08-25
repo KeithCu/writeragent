@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
@@ -55,6 +55,7 @@ class SidebarModeFlags:
     include_ppt_master: bool = False
 
 
+@deal.pre(lambda doc_type_label: str_bounded(doc_type_label, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, SidebarModeFlags))
 def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
     """Writer: brainstorming + writing plan. Draw/Impress: PPT-Master. Calc: writing plan only."""
@@ -130,6 +131,7 @@ def get_mode_labels(*, include_brainstorming: bool = False, include_writing_plan
     return tuple(labels)
 
 
+@deal.pre(lambda label, include_brainstorming=False, include_writing_plan=True, include_ppt_master=False: str_bounded(label, DEAL_MAX_TOKEN))
 @deal.post(lambda result: result in _VALID_MODES)
 def mode_from_label(label: str, *, include_brainstorming: bool = False, include_writing_plan: bool = True, include_ppt_master: bool = False) -> str:
     """Map a combobox display label to a mode constant."""
