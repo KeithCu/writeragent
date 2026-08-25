@@ -189,6 +189,8 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
     except Exception:
         return None
     seen_code = False
+    first_output_end: Any | None = None
+    matched_output_end: Any | None = None
     steps = 0
     while steps < _ENUM_SAFETY_CAP:
         more = enum.hasMoreElements()
@@ -204,20 +206,26 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
             style = str(para.getPropertyValue("ParaStyleName") or "")
         except Exception:
             continue
-        if not seen_code:
-            if marker in content:
-                seen_code = True
+        if marker in content:
+            seen_code = True
             continue
-        if _is_next_cell_boundary(style, content, notebook_in):
-            return None
         if content.strip() == "Output":
             try:
                 cursor = text.createTextCursorByRange(para.getEnd())
                 cursor.collapseToEnd()
-                return cursor
             except Exception:
-                return None
-    return None
+                continue
+            if first_output_end is None:
+                first_output_end = cursor
+            if seen_code:
+                matched_output_end = cursor
+            continue
+        if _is_next_cell_boundary(style, content, notebook_in):
+            if seen_code:
+                return matched_output_end
+            # Synthetic docs (Output heading + next-cell chrome, no ``Cell N: Code``).
+            return first_output_end
+    return matched_output_end or first_output_end
 
 
 def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
@@ -523,9 +531,13 @@ def _insert_stdout_paragraph(
         text.insertString(target, display, False)
         _split_if_stdout_mashed_onto_chrome(doc, text, target, display, output_style, notebook_in)
 
+    def _finish() -> None:
+        _reanchor_output_bookmark(doc, cell)
+        _collapse_leading_empty_paragraphs(doc, cell, notebook_in)
+
     if _paragraph_is_empty(cursor):
         _fill(cursor)
-        _collapse_leading_empty_paragraphs(doc, cell, notebook_in)
+        _finish()
         return
 
     nxt = text.createTextCursorByRange(cursor)
@@ -535,13 +547,13 @@ def _insert_stdout_paragraph(
             _para_style_name(nxt), nxt_text, notebook_in
         ):
             _fill(nxt)
-            _collapse_leading_empty_paragraphs(doc, cell, notebook_in)
+            _finish()
             return
 
     text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
     _enter_paragraph_after_break(cursor)
     _fill(cursor)
-    _collapse_leading_empty_paragraphs(doc, cell, notebook_in)
+    _finish()
 
 
 def _leading_text_cursor(text: Any, para: Any) -> Any | None:

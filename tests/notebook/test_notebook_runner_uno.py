@@ -321,12 +321,6 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
         import_ipynb_to_writer(doc, str(_SMALL_IPYNB), ctx=ctx)
         flush_ui_idle(ctx)
 
-        from plugin.notebook.notebook_runner import execute_code
-
-        # Cold venv worker can exceed the 32s read timeout on the first real cell.
-        execute_code(ctx, doc, "1")
-        flush_ui_idle(ctx)
-
         state = load_registry(doc)
         assert state is not None and len(state.code_cells) == 3
         assert state.next_execution_count == 1, (
@@ -345,76 +339,74 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
         )
         _assert_controls_present(doc, cell)
 
-        _fire_run_button_via_get_control(ctx, doc, hex_id)
-        flush_ui_idle(ctx)
-        state = load_registry(doc)
-        assert state is not None
-        cell = state.code_cells[0]
-        assert cell.execution_count == 1, f"first live run must be In [1], got {cell.execution_count}"
-        assert state.next_execution_count == 2
-        assert "[In [1]]" in _gutter_line_for_cell(doc, cell.index)
-        assert doc.getBookmarks().hasByName(bm_name), "bookmark vanished after first run"
-        out1 = _output_text_for_cell(doc, cell)
-        body = doc.getText().getString() or ""
-        print(
-            f"first ▶ status_out={out1!r} gap={_empty_paras_between_output_and_content(doc)} "
-            f"paras={_paragraphs(doc)!r} boxes={boxes!r}",
-            flush=True,
-        )
-        assert out1.strip(), f"first ▶ produced no in-cell output: {out1!r} boxes={boxes!r}"
-        assert _empty_paras_between_output_and_content(doc) <= 1, (
-            f"extra blank paras under Output: {_paragraphs(doc)!r}"
-        )
-        assert "Cell 3: Markdown" in body
-        assert "1. Creating Arrays" in body
-        _assert_controls_present(doc, cell)
-        tail = body[-400:]
-        needle = "NumPy Version"
-        if needle in out1:
-            assert body.count(needle) == out1.count(needle), (
-                f"stdout also dumped outside the cell: out={out1!r} tail={tail!r}"
+        fake_result = {"status": "ok", "stdout": "NumPy Version: 2.5.2\n", "result": None}
+        with patch("plugin.notebook.notebook_runner.execute_code", return_value=fake_result):
+            _fire_run_button_via_get_control(ctx, doc, hex_id)
+            flush_ui_idle(ctx)
+            state = load_registry(doc)
+            assert state is not None
+            cell = state.code_cells[0]
+            assert cell.execution_count == 1, f"first live run must be In [1], got {cell.execution_count}"
+            assert state.next_execution_count == 2
+            assert "[In [1]]" in _gutter_line_for_cell(doc, cell.index)
+            assert doc.getBookmarks().hasByName(bm_name), "bookmark vanished after first run"
+            out1 = _output_text_for_cell(doc, cell)
+            body = doc.getText().getString() or ""
+            print(
+                f"first ▶ status_out={out1!r} gap={_empty_paras_between_output_and_content(doc)} "
+                f"paras={_paragraphs(doc)!r} boxes={boxes!r}",
+                flush=True,
             )
-            assert needle not in tail or "Multiplied" in tail or "Creating Arrays" in tail
+            assert out1.strip(), f"first ▶ produced no in-cell output: {out1!r} boxes={boxes!r}"
+            assert _empty_paras_between_output_and_content(doc) <= 1, (
+                f"extra blank paras under Output: {_paragraphs(doc)!r}"
+            )
+            assert "Cell 3: Markdown" in body
+            assert "1. Creating Arrays" in body
+            _assert_controls_present(doc, cell)
+            needle = "NumPy Version"
+            assert needle in out1, f"expected in-cell stdout, got {out1!r}"
+            assert body.count(needle) == 1, f"stdout dumped outside the cell: tail={body[-400:]!r}"
 
-        _fire_run_button_via_get_control(ctx, doc, hex_id)
-        flush_ui_idle(ctx)
-        state = load_registry(doc)
-        assert state is not None
-        cell = state.code_cells[0]
-        assert cell.execution_count == 2, f"re-click must increment by 1, got {cell.execution_count}"
-        assert state.next_execution_count == 3
-        assert "[In [2]]" in _gutter_line_for_cell(doc, cell.index)
-        assert doc.getBookmarks().hasByName(bm_name), "bookmark vanished after re-click"
-        out2 = _output_text_for_cell(doc, cell)
-        body2 = doc.getText().getString() or ""
-        print(f"second ▶ out={out2!r} tail={body2[-400:]!r} paras={_paragraphs(doc)!r}", flush=True)
-        assert out2.strip(), f"re-click lost in-cell output (dumped at end?): tail={body2[-400:]!r}"
-        if needle in out1:
+            _fire_run_button_via_get_control(ctx, doc, hex_id)
+            flush_ui_idle(ctx)
+            state = load_registry(doc)
+            assert state is not None
+            cell = state.code_cells[0]
+            assert cell.execution_count == 2, f"re-click must increment by 1, got {cell.execution_count}"
+            assert state.next_execution_count == 3
+            assert "[In [2]]" in _gutter_line_for_cell(doc, cell.index)
+            assert doc.getBookmarks().hasByName(bm_name), "bookmark vanished after re-click"
+            out2 = _output_text_for_cell(doc, cell)
+            body2 = doc.getText().getString() or ""
+            print(f"second ▶ out={out2!r} tail={body2[-400:]!r} paras={_paragraphs(doc)!r}", flush=True)
             assert out2.count(needle) == 1, f"re-click duplicated in-cell stdout: {out2!r}"
             assert body2.count(needle) == 1, f"re-click appended at document end: {body2[-400:]!r}"
-        assert "Cell 3: Markdown" in body2
-        assert "1. Creating Arrays" in body2
-        _assert_controls_present(doc, cell)
-        assert _empty_paras_between_output_and_content(doc) <= 1
+            assert "Cell 3: Markdown" in body2
+            assert "1. Creating Arrays" in body2
+            _assert_controls_present(doc, cell)
+            assert _empty_paras_between_output_and_content(doc) <= 1
 
-        _fire_run_button_via_get_control(ctx, doc, hex_id)
-        flush_ui_idle(ctx)
-        state = load_registry(doc)
-        assert state is not None
-        cell = state.code_cells[0]
-        assert cell.execution_count == 3, f"third click must be 3, got {cell.execution_count}"
-        assert "[In [3]]" in _gutter_line_for_cell(doc, cell.index)
-        assert doc.getBookmarks().hasByName(bm_name)
-        out3 = _output_text_for_cell(doc, cell)
-        body3 = doc.getText().getString() or ""
-        if needle in out1:
+            _fire_run_button_via_get_control(ctx, doc, hex_id)
+            flush_ui_idle(ctx)
+            state = load_registry(doc)
+            assert state is not None
+            cell = state.code_cells[0]
+            assert cell.execution_count == 3, f"third click must be 3, got {cell.execution_count}"
+            assert "[In [3]]" in _gutter_line_for_cell(doc, cell.index)
+            assert doc.getBookmarks().hasByName(bm_name)
+            out3 = _output_text_for_cell(doc, cell)
+            body3 = doc.getText().getString() or ""
             assert out3.count(needle) == 1
             assert body3.count(needle) == 1, f"third click dumped extra copies at end: {body3[-400:]!r}"
-        _assert_controls_present(doc, cell)
+            _assert_controls_present(doc, cell)
 
     import plugin.scripting.session_manager as sm
 
-    with patch.object(sm, "_msgbox", lambda *args, **kwargs: None):
+    with (
+        patch.object(sm, "_msgbox", lambda *args, **kwargs: None),
+        patch.object(sm, "reset_python_session", return_value={"status": "ok"}),
+    ):
         sm.reset_workbook_python_session(ctx, doc)
     state = load_registry(doc)
     assert state is not None

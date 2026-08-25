@@ -80,6 +80,25 @@ def test_reset_notebook_python_session_resets_execution_counter():
     save.assert_called_once_with(doc, state)
 
 
+def test_reset_notebook_python_session_resets_count_when_worker_fails():
+    ctx = MagicMock()
+    doc = _writer_doc()
+    state = MagicMock()
+    state.next_execution_count = 9
+    with (
+        patch("plugin.scripting.session_manager._writer_document", return_value=doc),
+        patch("plugin.scripting.session_manager._has_notebook_registry", return_value=True),
+        patch("plugin.scripting.session_manager.notebook_session_id", return_value="notebook:file:///tmp/nb.odt"),
+        patch("plugin.scripting.session_manager.reset_python_session", return_value={"status": "error"}),
+        patch("plugin.scripting.session_manager._msgbox"),
+        patch("plugin.notebook.cell_registry.load_registry", return_value=state),
+        patch("plugin.notebook.cell_registry.save_registry") as save,
+    ):
+        reset_notebook_python_session(ctx)
+    assert state.next_execution_count == 1
+    save.assert_called_once_with(doc, state)
+
+
 def test_reset_workbook_python_session_dispatches_to_notebook():
     ctx = MagicMock()
     doc = _writer_doc()
