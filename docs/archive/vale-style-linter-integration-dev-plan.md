@@ -35,11 +35,11 @@ Vale needs:
 1. **`.vale.ini`** under the WriterAgent user config dir (`user_config_dir()`).
 2. **Style packages** under `vale_styles/`, fetched by `vale sync`.
 
-First run (when `.vale.ini` is missing): [`vale.py`](plugin/scripting/venv/vale.py) writes the ini, then runs `vale sync` via the venv binary.
+First run (when `.vale.ini` is missing): [`vale.py`](plugin/writer/locale/vale.py) writes the ini, then runs `vale sync` via the venv binary.
 
 ---
 
-## 3. Worker-Side Vale Helper (`plugin/scripting/venv/vale.py`)
+## 3. Worker-Side Vale Helper (`plugin/writer/locale/vale.py`)
 
 Vale lints **files**, not raw strings. The helper:
 
@@ -49,7 +49,7 @@ Vale lints **files**, not raw strings. The helper:
 4. Runs `vale --config … --output JSON <file>`.
 5. Maps JSON alerts to grammar-queue error dicts (including `Action` → `correct` / `suggestions` when `Name == "replace"`).
 
-Primary implementation: [`plugin/scripting/venv/vale.py`](plugin/scripting/venv/vale.py).
+Primary implementation: [`plugin/writer/locale/vale.py`](plugin/writer/locale/vale.py).
 
 Host RPC: [`plugin/scripting/client.py`](plugin/scripting/client.py) (`run_vale_check` via `_run_trusted_helper`, session `writeragent:vale`).
 
@@ -112,7 +112,7 @@ Follow the venv `langdetect` pin in [`langdetect_rpc.py`](../plugin/embeddings/v
 Shipped:
 
 - Vale as grammar provider `"vale"` in Settings → Doc.
-- [`vale.py`](plugin/scripting/venv/vale.py): binary resolution, first-run ini + sync, temp file lint, JSON mapping, `Action.replace` suggestions.
+- [`vale.py`](plugin/writer/locale/vale.py): binary resolution, first-run ini + sync, temp file lint, JSON mapping, `Action.replace` suggestions.
 - Host worker RPC and queue branch with `worker_style_done` observability.
 - Routing test: [`tests/writer/locale/test_grammar_work_queue.py`](../tests/writer/locale/test_grammar_work_queue.py) (`test_grammar_check_routes_to_vale`).
 

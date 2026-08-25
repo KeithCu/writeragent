@@ -485,7 +485,7 @@ Additional files: `plugin/calc/base.py`, `plugin/calc/inspector.py`, `plugin/fra
 | DuckDB | `plugin/scripting/duckdb_sql.py`, SQL picker origin |
 | Jupyter | `plugin/notebook/`, `import_ipynb` |
 | Spreadsheet import | `calc.convert_spreadsheet_to_python` |
-| Grammar | `languagetool`, `vale`, `harper` venv modules |
+| Grammar | LanguageTool / Vale / Harper under [`plugin/writer/locale/`](../plugin/writer/locale/) |
 | MCP / grammar UI | `plugin/mcp/`, `plugin/writer/locale/` |
 | Analysis Sub-Agent | [calc-analysis-sub-agent.md](calc-analysis-sub-agent.md) |
 | Sidebar audio mic | [`plugin/chatbot/audio_recorder.py`](../plugin/chatbot/audio_recorder.py) — Settings may probe `sounddevice`; capture UI is chat |

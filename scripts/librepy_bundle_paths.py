@@ -26,8 +26,6 @@ LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
         *LIBREPY_CALC_FUNCTIONS_EXCLUDES,
         "duckdb_sql.py",
         "venv/duckdb_sql.py",
-        "venv/languagetool.py",
-        "venv/vale.py",
         "venv/audio_recorder.py",
         "venv/audio_record_main.py",
         "audio_silence_detector.py",

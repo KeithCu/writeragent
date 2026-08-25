@@ -140,7 +140,7 @@ def dispatch_languagetool(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[
 
 def dispatch_vale(data: dict[str, Any], *, heartbeat_fn: Callable[[dict[str, Any]], None] | None = None) -> Any:
     del heartbeat_fn
-    from plugin.scripting.venv.vale import run_vale_check
+    from plugin.writer.locale.vale import run_vale_check
 
     return run_vale_check(
         _require_str(data.get("text"), "text"),

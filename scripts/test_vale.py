@@ -34,7 +34,7 @@ except Exception as e:
 user_config_dir = "/tmp/writeragent_vale_test"
 print(f"\n--- Step 2: Initializing config directory at '{user_config_dir}' ---")
 try:
-    from plugin.scripting.venv.vale import run_vale_check
+    from plugin.writer.locale.vale import run_vale_check
     
     # We run a check with sample text, which will trigger first-run setup (.vale.ini and vale sync)
     text = "We should utilize active voice to collaborate together, which is very unique. The button was clicked by the user at 12 pm noon because we are looking to achieve a synergistic reaction. Obviously, there are some weasel words here, but we are executing checks on this sentence. Do not make assumptions, as this is a simple opportunity. Hopefully it works now."

@@ -76,6 +76,15 @@ def test_librepy_bundle_excludes_llm_image_gen_and_llm_client():
     assert "plugin/calc/analyzer.py" in paths
 
 
+def test_librepy_bundle_excludes_writeragent_grammar_engines():
+    """Vale and LanguageTool live under writer.locale and are WriterAgent-only."""
+    paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
+    assert "plugin/writer/locale/vale.py" not in paths
+    assert "plugin/writer/locale/languagetool.py" not in paths
+    assert "plugin/scripting/venv/vale.py" not in paths
+    assert "plugin/scripting/venv/languagetool.py" not in paths
+
+
 def test_librepy_bundle_includes_xl_static_rewrite():
     paths = collect_librepy_plugin_paths(str(_REPO_ROOT))
     assert "plugin/calc/python/xl_static_rewrite.py" in paths
