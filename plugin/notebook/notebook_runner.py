@@ -236,21 +236,25 @@ def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
     vanished; ``apply_run_result`` then got ``cursor is None`` and appended at
     the document end. Re-attach to the Output heading before clear/insert so
     re-runs replace in-cell stdout like Jupyter.
+
+    Find the heading **after** removing the old bookmark. A cursor captured
+    before ``removeTextContent`` is stale and insert then fails, leaving no
+    bookmark for the next run.
     """
     name = cell.output_start_bookmark
     if not name:
         return None
-    heading_end = _find_cell_output_heading_end(doc, cell)
     current = _cursor_after_bookmark(doc, name)
     if current is not None and _paragraph_string(current).strip() == "Output":
-        return current
-    if heading_end is None:
         return current
     try:
         text = doc.getText()
         bookmarks = doc.getBookmarks()
         if bookmarks.hasByName(name):
             text.removeTextContent(bookmarks.getByName(name))
+        heading_end = _find_cell_output_heading_end(doc, cell)
+        if heading_end is None:
+            return _cursor_after_bookmark(doc, name)
         bookmark = doc.createInstance("com.sun.star.text.Bookmark")
         bookmark.Name = name
         text.insertTextContent(heading_end, bookmark, False)
