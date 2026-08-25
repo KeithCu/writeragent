@@ -341,7 +341,7 @@ def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):
     doc, body_text, body_cursor = _writer_doc_mock()
     para_styles = MagicMock()
     para_styles.hasByName.return_value = False
-    para_styles.getElementNames.return_value = ["Text Body", _STYLE_NOTEBOOK_IN, "Heading 2", "Heading 3"]
+    para_styles.getElementNames.return_value = ["Text Body", _STYLE_NOTEBOOK_IN, "Heading 1", "Heading 2", "Heading 3"]
     families = MagicMock()
     families.getByName.return_value = para_styles
     doc.getStyleFamilies.return_value = families

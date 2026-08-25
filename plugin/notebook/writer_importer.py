@@ -702,6 +702,8 @@ def _inline_backticks_to_html(text: str) -> str:
 
 def _inline_markdown_to_html(text: str) -> str:
     """Escape *text* and wrap ``code``, **bold**, and *italic* as HTML."""
+    if not _BOLD_RE.search(text or "") and not _ITALIC_RE.search(text or "") and not _MD_IMAGE_RE.search(text or ""):
+        return _inline_backticks_to_html(text)
     placeholders: list[str] = []
 
     def hold(html: str) -> str:
@@ -1110,14 +1112,6 @@ def _style_control_paragraph(doc: Any) -> None:
         log.debug("notebook import control paragraph style failed", exc_info=True)
 
 
-def _append_cell_heading(doc: Any, title: str, *, lead_break: bool) -> None:
-    _append_body_paragraph(doc, title, _STYLE_CELL_HEADING, lead_break=lead_break)
-
-
-def _append_section_heading(doc: Any, title: str) -> None:
-    _append_body_paragraph(doc, title, _STYLE_SECTION_HEADING, lead_break=True)
-
-
 def _insert_run_button_in_flow(
     doc: Any,
     *,
@@ -1334,7 +1328,7 @@ def _import_cells(
         if cell_type == "code":
             if lead:
                 _keep_previous_paragraph_with_next(doc)
-            title = _format_in_prompt(ec)
+            title = _cell_heading(idx, cell_type, ec)
             _append_body_paragraph(doc, title, notebook_in, lead_break=lead, keep_with_next=True)
             # ▶ and the code TextField must not share the gutter paragraph.
             # update_in_prompt used to setString that whole range, which deletes

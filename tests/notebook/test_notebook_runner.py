@@ -219,12 +219,11 @@ def test_clear_cell_output_source_has_no_delete_contents():
 def test_find_output_heading_stays_inside_paragraph():
     """Bookmark insert uses gotoEndOfParagraph, not para.getEnd() (the break)."""
     src = inspect.getsource(_find_cell_output_heading_end)
-    assert "para.getEnd()" not in src
-    src_re = inspect.getsource
+    assert "createTextCursorByRange(para.getEnd())" not in src
     from plugin.notebook.notebook_runner import _reanchor_output_bookmark, _code_field_paragraph_end
 
-    assert "para.getEnd()" not in src_re(_reanchor_output_bookmark)
-    assert "gotoEndOfParagraph" in src_re(_code_field_paragraph_end)
+    assert "createTextCursorByRange(para.getEnd())" not in inspect.getsource(_reanchor_output_bookmark)
+    assert "gotoEndOfParagraph" in inspect.getsource(_code_field_paragraph_end)
 
 
 def test_find_output_uses_bookmark_not_output_heading():
