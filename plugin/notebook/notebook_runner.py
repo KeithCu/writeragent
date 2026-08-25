@@ -203,17 +203,53 @@ def _style_is_preformatted(para_style: str) -> bool:
     return _style_compact(para_style) in ("preformattedtext", "preformatted")
 
 
-def _is_output_bookmark_home(cursor: Any) -> bool:
-    """True when *cursor* is in the ▶+field row (or leftover ``Output`` heading).
+def _same_paragraph(a: Any, b: Any) -> bool:
+    """True when *a* and *b* are in the same Writer paragraph."""
+    try:
+        text = a.getText()
+        ca = text.createTextCursorByRange(a)
+        cb = text.createTextCursorByRange(b)
+        ca.gotoStartOfParagraph(False)
+        cb.gotoStartOfParagraph(False)
+        return int(text.compareRegionStarts(ca, cb)) == 0
+    except Exception:
+        return False
 
-    Writer ``getString()`` omits ControlShapes, so that paragraph looks empty.
-    A collapsed cursor *in stdout* also returns ``""`` until the walker expands
-    it — skipping those rows left old stdout in place and aborted at the next
-    markdown cell. Empty **Preformatted** is leftover stdout (clear/fill it).
-    Empty non-Preformatted is the control row when frame detection fails.
+
+def _is_this_cell_field_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any) -> bool:
+    end = _code_field_paragraph_end(doc, cell)
+    if end is None:
+        return False
+    return _same_paragraph(cursor, end)
+
+
+def _is_foreign_control_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any) -> bool:
+    """True when *cursor* is in another cell's ▶+field paragraph."""
+    if not _paragraph_has_frame(cursor):
+        return False
+    return not _is_this_cell_field_paragraph(doc, cell, cursor)
+
+
+def _is_output_bookmark_home(
+    cursor: Any, doc: Any | None = None, cell: NotebookCodeCell | None = None
+) -> bool:
+    """True when *cursor* is in *this* cell's ▶+field row (or leftover Output).
+
+    Any ``In [n]:`` used to count as home. Consecutive code cells (medium In[2]
+    then In[3]) drift the bookmark onto the *next* gutter; clear then skipped
+    that label and ``setString`` ate In[3]'s ▶ and TextField.
     """
     content = _paragraph_string(cursor).strip()
-    if content == "Output" or _IN_PROMPT_RE.match(content):
+    if content == "Output":
+        return True
+    if doc is not None and cell is not None:
+        if _is_this_cell_field_paragraph(doc, cell, cursor):
+            return True
+        # No code field (UNO tests that only insert a bookmark): In [n]: is home.
+        if _IN_PROMPT_RE.match(content) and _code_field_paragraph_end(doc, cell) is None:
+            return True
+        return False
+    if _IN_PROMPT_RE.match(content):
         return True
     if _paragraph_has_frame(cursor):
         return True
@@ -322,7 +358,7 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
     paragraph so re-anchor can restore a deleted bookmark.
     """
     cur = _cursor_after_bookmark(doc, cell.output_start_bookmark)
-    if cur is not None and _is_output_bookmark_home(cur):
+    if cur is not None and _is_output_bookmark_home(cur, doc, cell):
         return cur
     field_end = _code_field_paragraph_end(doc, cell)
     if field_end is not None:
@@ -348,7 +384,7 @@ def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
     if not name:
         return None
     current = _cursor_after_bookmark(doc, name)
-    if current is not None and _is_output_bookmark_home(current):
+    if current is not None and _is_output_bookmark_home(current, doc, cell):
         return current
     # Bookmark at the paragraph break reports as the *next* cell (markdown /
     # In [n]:). Insert then mashed stdout onto that heading. Move it back
@@ -424,7 +460,7 @@ def _collapse_leading_empty_paragraphs(
         # Bookmark at the paragraph break reports as the *next* para (often a
         # leftover blank). Snap to the ▶+field bookmark paragraph so we delete
         # that blank instead of treating it as the bookmark's home.
-        at_home = _is_output_bookmark_home(start)
+        at_home = _is_output_bookmark_home(start, doc, cell)
         if not at_home:
             heading = _find_cell_output_heading_end(doc, cell)
             if heading is None:
@@ -436,7 +472,11 @@ def _collapse_leading_empty_paragraphs(
         content = _paragraph_string(nxt)
         if _is_next_cell_boundary(_para_style_name(nxt), content, notebook_in):
             return
+        if _is_foreign_control_paragraph(doc, cell, nxt):
+            return
         if content.strip():
+            return
+        if _paragraph_has_frame(nxt):
             return
         if not _delete_paragraph_at(nxt):
             return
@@ -487,25 +527,35 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     _reanchor_output_bookmark(doc, cell)
     text = doc.getText()
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
-    start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
+    # Always start from *this* cell's field paragraph. A drifted bookmark on the
+    # next In [n]: used to skip that gutter and setString the next ▶+field.
+    start = _code_field_paragraph_end(doc, cell)
     if start is None:
-        start = _code_field_paragraph_end(doc, cell)
+        start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
     if start is None:
         return
     end = text.createTextCursorByRange(start)
     # Bookmark lives in the ▶+field paragraph (getString is empty because frames
     # do not appear). Starting setString there deleted ▶, the TextField, and the
-    # bookmark — live UNO runs then logged "output bookmark missing". Do not
-    # treat a collapsed stdout cursor as home just because getString is "".
-    if _is_output_bookmark_home(start) or _is_leftover_empty_paragraph(start):
+    # bookmark — live UNO runs then logged "output bookmark missing".
+    skip_home = _is_output_bookmark_home(start, doc, cell) or (
+        _is_leftover_empty_paragraph(start) and not _paragraph_has_frame(start)
+    )
+    if skip_home:
         if not end.gotoNextParagraph(False):
             return
     if _is_next_cell_boundary(_para_style_name(end), _paragraph_string(end), notebook_in):
+        return
+    if _is_foreign_control_paragraph(doc, cell, end):
         return
     range_start = text.createTextCursorByRange(end)
     found_boundary = False
     while end.gotoNextParagraph(False):
         if _is_next_cell_boundary(_para_style_name(end), _paragraph_string(end), notebook_in):
+            end.gotoStartOfParagraph(False)
+            found_boundary = True
+            break
+        if _is_foreign_control_paragraph(doc, cell, end):
             end.gotoStartOfParagraph(False)
             found_boundary = True
             break
@@ -730,7 +780,7 @@ def _insert_stdout_paragraph(
         except Exception:
             log.debug("notebook run: snap insert cursor to previous para failed", exc_info=True)
 
-    if _is_output_bookmark_home(cursor):
+    if _is_output_bookmark_home(cursor, doc, cell):
         try:
             cursor.gotoEndOfParagraph(False)
         except Exception:
@@ -742,6 +792,7 @@ def _insert_stdout_paragraph(
                 not nxt_text.strip()
                 and not _style_is_heading12(_para_style_name(nxt))
                 and not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in)
+                and not _paragraph_has_frame(nxt)
             ):
                 # Import lead_break leaves an empty para after ▶+field. Fill it
                 # rather than inserting another break (field | blank | stdout).
@@ -753,7 +804,14 @@ def _insert_stdout_paragraph(
 
     if _paragraph_is_empty(cursor) and not _style_is_heading12(_para_style_name(cursor)):
         # Leftover empty gap (Text Body) or empty Preformatted: fill in place.
-        # Breaking here left field | blank | stdout (live UNO gap=2).
+        # Never write into a ▶+field paragraph (this cell or the next).
+        if _paragraph_has_frame(cursor):
+            try:
+                cursor.gotoEndOfParagraph(False)
+            except Exception:
+                log.debug("notebook run: snap to end of framed paragraph failed", exc_info=True)
+            _break_then_fill()
+            return
         _fill(cursor)
         _finish()
         return
@@ -763,7 +821,7 @@ def _insert_stdout_paragraph(
         nxt_text = _paragraph_string(nxt)
         if not nxt_text.strip() and not _is_next_cell_boundary(
             _para_style_name(nxt), nxt_text, notebook_in
-        ):
+        ) and not _paragraph_has_frame(nxt):
             _fill(nxt)
             _finish()
             return

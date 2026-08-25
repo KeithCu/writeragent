@@ -45,11 +45,13 @@ log = logging.getLogger("writeragent.notebook")
 
 # 1/100 mm — code field width falls back when page style is unavailable.
 _DEFAULT_WIDTH = 14000
-_MIN_FIELD_HEIGHT = 450
-_LINE_HEIGHT = 380
-# AS_CHARACTER fields cannot split across pages; a 20 cm box forced a new page
-# and left the previous page half empty (medium NumPy fixture).
-_MAX_FIELD_HEIGHT = 9000
+_MIN_FIELD_HEIGHT = 500
+_LINE_HEIGHT = 500
+# Hairline border + descenders. 380 HMM/line clipped the last source line (In[2]/In[4]).
+_FIELD_HEIGHT_PAD = 320
+# AS_CHARACTER cannot split; cap near one page body so a huge cell page-breaks as a
+# unit. Do not use a 9 cm cap — that sliced 15-line cells.
+_MAX_FIELD_HEIGHT = 24000
 _STACK_MARGIN_X = 5000
 _STACK_GAP = 400
 _STACK_INITIAL_BOTTOM = 800
@@ -154,9 +156,12 @@ def _coerce_notebook_text(value: Any) -> str:
     return str(value)
 
 
-def _height_for_text(text: str) -> int:
+def _height_for_text(text: str, doc: Any | None = None) -> int:
+    """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
     lines = max(1, (text or "").count("\n") + 1)
-    return min(_MAX_FIELD_HEIGHT, max(_MIN_FIELD_HEIGHT, lines * _LINE_HEIGHT))
+    raw = lines * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
+    cap = _max_field_height_units(doc)
+    return max(_MIN_FIELD_HEIGHT, min(cap, raw))
 
 
 def _prepare_display_text(text: str) -> tuple[str, bool]:
@@ -301,6 +306,37 @@ def _text_area_width_units(doc: Any | None) -> int:
     except Exception:
         log.debug("notebook import could not read page text-area width", exc_info=True)
         return _DEFAULT_WIDTH
+
+
+def _max_field_height_units(doc: Any | None) -> int:
+    """Cap AS_CHARACTER code fields at roughly the page body height."""
+    if doc is None:
+        return _MAX_FIELD_HEIGHT
+    try:
+        families = doc.getStyleFamilies().getByName("PageStyles")
+        name = ""
+        try:
+            name = str(doc.getPropertyValue("PageDescName") or "")
+        except Exception:
+            name = ""
+        style = None
+        if name and families.hasByName(name):
+            style = families.getByName(name)
+        else:
+            for candidate in ("Standard", "Default", "Default Page Style"):
+                if families.hasByName(candidate):
+                    style = families.getByName(candidate)
+                    break
+        if style is None:
+            return _MAX_FIELD_HEIGHT
+        page_h = int(style.getPropertyValue("Height"))
+        top = int(style.getPropertyValue("TopMargin"))
+        bottom = int(style.getPropertyValue("BottomMargin"))
+        # Leave room for the In [n]: gutter on the same page when possible.
+        return max(_MIN_FIELD_HEIGHT, page_h - top - bottom - 1500)
+    except Exception:
+        log.debug("notebook import could not read page text-area height", exc_info=True)
+        return _MAX_FIELD_HEIGHT
 
 
 def _display_size_units(raw: bytes, mime: str, *, max_width_mm: float | None = None) -> tuple[int, int]:
@@ -840,26 +876,6 @@ def _append_paragraph_break_at_end(doc: Any) -> None:
     text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
 
 
-def _keep_previous_paragraph_with_next(doc: Any) -> None:
-    """Keep the paragraph before the one we are about to add with the next block.
-
-    Stops a markdown heading from staying on page N while its code cell is
-    forced onto page N+1 by an AS_CHARACTER field.
-    """
-    try:
-        text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
-        cursor.gotoStartOfParagraph(False)
-        for prop, val in (("ParaKeepTogether", True), ("ParaKeepWithNext", True)):
-            try:
-                cursor.setPropertyValue(prop, val)
-            except Exception:
-                log.debug("notebook import keep-with-next on previous para failed", exc_info=True)
-    except Exception:
-        log.debug("notebook import could not mark previous paragraph keep-with-next", exc_info=True)
-
-
 def _split_markdown_image_src(raw: str) -> str:
     src = (raw or "").strip()
     if not src:
@@ -1082,6 +1098,8 @@ def _style_code_field_model(model: Any) -> None:
     # UnoControlEditModel: 0 none, 1 3D, 2 simple — simple + gray is a hairline.
     _set_model_prop(model, "Border", 2)
     _set_model_prop(model, "BorderColor", _CODE_FIELD_BORDER)
+    _set_model_prop(model, "VScroll", False)
+    _set_model_prop(model, "AutoVScroll", False)
 
 
 def _style_run_button_model(model: Any) -> None:
@@ -1105,9 +1123,11 @@ def _style_control_paragraph(doc: Any) -> None:
         cursor.setPropertyValue("ParaFirstLineIndent", -_RUN_BUTTON_SIZE)
         cursor.setPropertyValue("ParaLeftMargin", 0)
         cursor.setPropertyValue("ParaTopMargin", 0)
-        cursor.setPropertyValue("ParaBottomMargin", 80)
+        cursor.setPropertyValue("ParaBottomMargin", 150)
         cursor.setPropertyValue("ParaKeepTogether", True)
-        cursor.setPropertyValue("ParaKeepWithNext", True)
+        # Do not KeepWithNext: gluing the tall AS_CHARACTER field to following
+        # markdown pulled both onto the next page and left a half-empty page.
+        cursor.setPropertyValue("ParaKeepWithNext", False)
     except Exception:
         log.debug("notebook import control paragraph style failed", exc_info=True)
 
@@ -1187,7 +1207,7 @@ def _insert_code_input_in_flow(
     model.Text = display
     text_ms = _mono_ms(t_text)
 
-    h = _height_for_text(display)
+    h = _height_for_text(display, doc)
     field_w = _text_area_width_units(doc)
     t_shape = time.monotonic()
     shape = doc.createInstance("com.sun.star.drawing.ControlShape")
@@ -1326,8 +1346,6 @@ def _import_cells(
         first_cell = False
 
         if cell_type == "code":
-            if lead:
-                _keep_previous_paragraph_with_next(doc)
             title = _cell_heading(idx, cell_type, ec)
             _append_body_paragraph(doc, title, notebook_in, lead_break=lead, keep_with_next=True)
             # ▶ and the code TextField must not share the gutter paragraph.

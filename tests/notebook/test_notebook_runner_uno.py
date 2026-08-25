@@ -46,6 +46,35 @@ def _tiny_ipynb_path() -> Path:
     return Path(handle.name)
 
 
+def _consecutive_code_cells_ipynb_path() -> Path:
+    """Two code cells back-to-back (medium In[2]/In[3] layout)."""
+    payload = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": "print('first')\nprint('still first')\n",
+            },
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": "print('second cell source')\n",
+            },
+        ],
+    }
+    handle = tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False, mode="w", encoding="utf-8")
+    with handle as fh:
+        json.dump(payload, fh)
+    return Path(handle.name)
+
+
 def _paragraphs(doc) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     enum = doc.getText().createEnumeration()
@@ -206,6 +235,55 @@ def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
             f"re-click appended stdout paras: before={before_count} after={after_count} "
             f"paras={_paragraphs(doc)!r}"
         )
+    finally:
+        try:
+            ipynb.unlink()
+        except OSError:
+            pass
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_run_first_of_consecutive_code_cells_keeps_next_controls(ctx, doc):
+    """Running cell N must not delete cell N+1's ▶, TextField, or source (medium In[2]/In[3])."""
+    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
+    from plugin.notebook.notebook_controls import (
+        ensure_form_design_mode_off,
+        wire_all_notebook_run_buttons,
+    )
+    from plugin.notebook.notebook_runner import read_code_from_field
+    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+
+    ipynb = _consecutive_code_cells_ipynb_path()
+    try:
+        import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
+        flush_ui_idle(ctx)
+        state = load_registry(doc)
+        assert state is not None and len(state.code_cells) == 2
+        first, second = state.code_cells
+        assert "second cell source" in read_code_from_field(doc, second.code_field_name)
+        _assert_controls_present(doc, first)
+        _assert_controls_present(doc, second)
+
+        ensure_form_design_mode_off(doc)
+        assert wire_all_notebook_run_buttons(ctx, doc) == 2
+
+        fake = {"status": "ok", "stdout": "first\nstill first\n", "result": None}
+        with (
+            patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
+            patch("plugin.notebook.notebook_runner.execute_code", return_value=fake),
+        ):
+            _fire_run_button_via_get_control(ctx, doc, cell_id_to_hex(first.cell_id))
+        flush_ui_idle(ctx)
+
+        names = _draw_control_names(doc)
+        print(f"after run first cell draw={names!r} paras={_paragraphs(doc)!r}", flush=True)
+        _assert_controls_present(doc, first)
+        _assert_controls_present(doc, second)
+        src2 = read_code_from_field(doc, second.code_field_name)
+        assert "second cell source" in src2, f"next cell source eaten: {src2!r} names={names!r}"
+        body = doc.getText().getString() or ""
+        assert "In [2]:" in body or "In [ ]:" in body
     finally:
         try:
             ipynb.unlink()

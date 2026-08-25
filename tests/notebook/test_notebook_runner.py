@@ -483,6 +483,16 @@ def test_is_output_bookmark_home_empty_text_body_not_heading():
     prompt.getString.return_value = "In [1]:"
     assert _is_output_bookmark_home(prompt) is True
 
+    cell = new_code_cell_entry(2, 2, "nb_cell_2_code")
+    nxt = MagicMock()
+    nxt.ParaStyleName = "WriterAgent Notebook In"
+    nxt.getString.return_value = "In [3]:"
+    with (
+        patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=MagicMock()),
+        patch("plugin.notebook.notebook_runner._same_paragraph", return_value=False),
+    ):
+        assert _is_output_bookmark_home(nxt, MagicMock(), cell) is False
+
 
 def test_run_cell_rerun_clears_then_applies():
     ctx = MagicMock()

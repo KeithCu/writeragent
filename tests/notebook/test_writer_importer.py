@@ -27,6 +27,7 @@ from plugin.notebook.writer_importer import (
     _decode_notebook_image,
     _ensure_notebook_import_styles,
     _format_in_prompt,
+    _height_for_text,
     _inline_backticks_to_html,
     _iter_markdown_blocks,
     _looks_like_html,
@@ -194,6 +195,14 @@ def test_wrap_html_fragment_adds_body():
 def test_format_in_prompt_executed_and_unexecuted():
     assert _format_in_prompt(1) == "In [1]:"
     assert _format_in_prompt(None) == "In [ ]:"
+
+
+def test_height_for_text_fits_last_line():
+    """15-line In[2] source must be taller than the old 380 HMM/line clip height."""
+    src = "\n".join(f"line{i}" for i in range(15))
+    h = _height_for_text(src)
+    assert h >= 15 * 450
+    assert h > 15 * 380
 
 
 def test_cell_heading_is_in_prompt_only():

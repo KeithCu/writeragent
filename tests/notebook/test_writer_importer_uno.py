@@ -523,9 +523,89 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     for cell in state.code_cells:
         assert cell.code_field_name in names, f"{cell.code_field_name} missing: {names}"
 
+    from plugin.notebook.notebook_runner import _find_control_shape_by_name, read_code_from_field
+    from plugin.notebook.writer_importer import _height_for_text
+
+    # Multi-line In[2] field must be tall enough that the last line is not clipped.
+    cell_in2 = state.code_cells[1]
+    src_in2 = read_code_from_field(doc, cell_in2.code_field_name)
+    lines_in2 = max(1, src_in2.count("\n") + 1)
+    shape_in2 = _find_control_shape_by_name(doc, cell_in2.code_field_name)
+    assert shape_in2 is not None
+    h_in2 = int(shape_in2.getSize().Height)
+    want_h = _height_for_text(src_in2, doc)
+    print(f"medium In[2] lines={lines_in2} shape_h={h_in2} want_h={want_h}", flush=True)
+    assert lines_in2 >= 10, f"fixture In[2] should be multi-line, got {lines_in2}"
+    assert h_in2 >= want_h or h_in2 >= lines_in2 * 450, (
+        f"In[2] field clips source: height={h_in2} lines={lines_in2} want={want_h}"
+    )
+
+    why_page = _page_of_text(doc, "Why NumPy?")
+    dt_page = _page_of_text(doc, "1. DataTypes and attributes")
+    in2_page = _page_of_text(doc, "In [2]:")
+    print(
+        f"medium pages why={why_page} datatypes={dt_page} in2={in2_page} "
+        f"shape_y={int(shape_in2.getPosition().Y)}",
+        flush=True,
+    )
+    # Unglue markdown from the tall field so DataTypes is not pulled onto the next
+    # page, leaving page 1 half empty.
+    if why_page is not None and dt_page is not None:
+        assert dt_page == why_page, (
+            f"DataTypes heading skipped to page {dt_page} away from Why NumPy on {why_page}"
+        )
+    first_ys = _first_code_field_y_by_page(doc)
+    print(f"medium first field Y by page={first_ys!r}", flush=True)
+    for page, y in first_ys.items():
+        assert y < 5000, f"page {page} starts with a {y} HMM hole before the first code field"
+
     pages = _writer_page_count(doc)
-    # Pre-polish medium was 5 pages with half-empty sheets from AS_CHARACTER height.
     assert pages is None or pages <= 4, f"medium import still paginating too loosely: {pages} pages"
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_medium_run_in2_keeps_in3_controls(ctx, doc):
+    """Keith repro: ▶ on medium In[2] must not eat In[3]'s play button and field."""
+    assert _MEDIUM_IPYNB.is_file(), f"missing fixture {_MEDIUM_IPYNB}"
+
+    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
+    from plugin.notebook.notebook_controls import (
+        ensure_form_design_mode_off,
+        wire_all_notebook_run_buttons,
+    )
+    from plugin.notebook.notebook_runner import read_code_from_field
+    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+
+    import_ipynb_to_writer(doc, str(_MEDIUM_IPYNB), ctx=ctx)
+    flush_ui_idle(ctx)
+    state = load_registry(doc)
+    assert state is not None and len(state.code_cells) >= 3
+    first_of_pair, second_of_pair = state.code_cells[1], state.code_cells[2]
+    src_before = read_code_from_field(doc, second_of_pair.code_field_name)
+    assert "a1.shape" in src_before or "shape/ndim" in src_before
+
+    ensure_form_design_mode_off(doc)
+    wire_all_notebook_run_buttons(ctx, doc)
+    fake = {"status": "ok", "stdout": "a1: [1 2 3]\n", "result": None}
+    with (
+        patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
+        patch("plugin.notebook.notebook_runner.execute_code", return_value=fake),
+    ):
+        from plugin.notebook.notebook_runner import run_cell
+
+        result = run_cell(ctx, doc, first_of_pair.cell_id)
+    flush_ui_idle(ctx)
+    print(
+        f"medium run In[2] status={result.status} draw={_draw_control_names(doc)!r}",
+        flush=True,
+    )
+    names = _draw_control_names(doc)
+    assert second_of_pair.code_field_name in names, f"In[3] field eaten: {names!r}"
+    run_name = f"nb_run_{cell_id_to_hex(second_of_pair.cell_id)}"
+    assert run_name in names, f"In[3] ▶ eaten: {names!r}"
+    src_after = read_code_from_field(doc, second_of_pair.code_field_name)
+    assert src_after.strip() == src_before.strip(), f"In[3] source changed: {src_after!r}"
 
 
 def _writer_page_count(doc) -> int | None:
@@ -535,3 +615,46 @@ def _writer_page_count(doc) -> int | None:
         return int(vc.getPage())
     except Exception:
         return None
+
+
+def _page_of_text(doc, needle: str) -> int | None:
+    try:
+        vc = doc.getCurrentController().getViewCursor()
+        enum = doc.getText().createEnumeration()
+        while enum.hasMoreElements():
+            el = enum.nextElement()
+            try:
+                text = str(el.getString() or "")
+            except Exception:
+                continue
+            if needle in text:
+                vc.gotoRange(el.getStart(), False)
+                return int(vc.getPage())
+    except Exception:
+        return None
+    return None
+
+
+def _first_code_field_y_by_page(doc) -> dict[int, int]:
+    """Page → Y of the first nb_cell_* field on that page (1/100 mm)."""
+    from plugin.notebook.notebook_runner import _find_control_shape_by_name
+    from plugin.notebook.cell_registry import load_registry
+
+    state = load_registry(doc)
+    if state is None:
+        return {}
+    vc = doc.getCurrentController().getViewCursor()
+    first: dict[int, int] = {}
+    for cell in state.code_cells:
+        shape = _find_control_shape_by_name(doc, cell.code_field_name)
+        if shape is None:
+            continue
+        try:
+            vc.gotoRange(shape.getAnchor(), False)
+            page = int(vc.getPage())
+            y = int(shape.getPosition().Y)
+        except Exception:
+            continue
+        if page not in first or y < first[page]:
+            first[page] = y
+    return first
