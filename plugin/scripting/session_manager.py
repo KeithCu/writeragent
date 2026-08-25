@@ -279,6 +279,16 @@ def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
 
     res = reset_python_session(ctx, session_id)
     if res.get("status") == "ok":
+        # Jupyter Restart Kernel: the next execution is In [1], not max(saved)+1.
+        try:
+            from plugin.notebook.cell_registry import load_registry, save_registry
+
+            state = load_registry(target)
+            if state is not None:
+                state.next_execution_count = 1
+                save_registry(target, state)
+        except Exception:
+            log.debug("notebook reset: could not reset execution counter", exc_info=True)
         _msgbox(ctx, _("Notebook Python session reset for this document."))
         return
 
