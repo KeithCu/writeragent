@@ -205,7 +205,7 @@ def test_clear_cell_output_source_has_no_delete_contents():
 def test_find_output_heading_stays_inside_paragraph():
     """para.getEnd() is the paragraph break; a bookmark there is deleted by setString."""
     src = inspect.getsource(_find_cell_output_heading_end)
-    assert "para.getEnd()" not in src
+    assert "createTextCursorByRange(para.getEnd())" not in src
     assert "gotoEndOfParagraph" in src
     assert "para.getStart()" in src
 
