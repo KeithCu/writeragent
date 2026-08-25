@@ -843,8 +843,8 @@ def test_format_prev_mmss() -> None:
 
 
 def test_format_check_bracket_no_prev_pads_to_22() -> None:
-    assert format_check_bracket("CHECK START", None) == "[CHECK START          ]"
-    assert format_check_bracket("CHECK PROGRESS", None) == "[CHECK PROGRESS       ]"
+    assert format_check_bracket("CHECK START", None) == "[CHECK START           ]"
+    assert format_check_bracket("CHECK PROGRESS", None) == "[CHECK PROGRESS        ]"
 
 
 def test_format_check_bracket_prev_progress() -> None:
@@ -875,7 +875,7 @@ def test_stream_lines_stamps_prev_between_emitted_check_lines(monkeypatch) -> No
     text = buf.getvalue()
     progress_lines = [ln for ln in text.splitlines() if ln.startswith("[CHECK PROGRESS")]
     assert len(progress_lines) == 2
-    assert progress_lines[0] == "[CHECK PROGRESS       ] analyzing host_pack_split_grid"
+    assert progress_lines[0] == "[CHECK PROGRESS        ] analyzing host_pack_split_grid"
     assert progress_lines[1].startswith("[CHECK PROGRESS | Prev 1:22] post:")
     assert "len(result) == len(args[0])" in progress_lines[1]
 
