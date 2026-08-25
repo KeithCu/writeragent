@@ -50,11 +50,12 @@ _PLUGIN_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # reached ``_get_schema_default`` / ``get_config``. Empty fallback is only
 # for LibrePy-style trees that omit ``_manifest`` itself.
 try:
-    from plugin._manifest import MODULES as _DEFAULT_MODULES
+    from plugin._manifest import MODULES as _imported_modules
 except ImportError:
-    _DEFAULT_MODULES = []
+    _imported_modules = []
 
-MODULES: list[dict[str, Any]] = _DEFAULT_MODULES  # type: ignore[assignment]
+_DEFAULT_MODULES: list[dict[str, Any]] = _imported_modules  # type: ignore[assignment]
+MODULES: list[dict[str, Any]] = _DEFAULT_MODULES
 CONFIG_DEFAULTS: dict[str, Any] = {}
 CONFIG_SCHEMAS: dict[str, Any] = {}
 DOTTED_FALLBACKS: dict[str, list[str]] = {}
