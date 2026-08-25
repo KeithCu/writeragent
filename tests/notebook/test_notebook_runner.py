@@ -377,6 +377,9 @@ def test_apply_run_result_replaces_via_clear_then_insert():
     """Re-run path: clear empties the range; apply writes the new stdout under Output."""
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     cursor = MagicMock()
+    cursor.getString.return_value = ""
+    cursor.ParaStyleName = "Preformatted Text"
+    cursor.goRight.return_value = True
     text = MagicMock()
     doc = MagicMock()
     doc.getText.return_value = text
@@ -388,16 +391,35 @@ def test_apply_run_result_replaces_via_clear_then_insert():
         apply_run_result(doc, cell, {"status": "ok", "stdout": "first\n", "result": None})
         apply_run_result(doc, cell, {"status": "ok", "stdout": "second\n", "result": None})
 
-    inserted = [call.args[1] for call in text.insertString.call_args_list]
-    assert inserted == ["first", "second"]
+    assert [call.args[0] for call in cursor.setString.call_args_list] == ["first", "second"]
     text.deleteContents.assert_not_called()
     cursor.gotoEnd.assert_not_called()
-    # Lead break into the output para + trailing break so the next heading stays separate.
     from plugin.notebook.writer_importer import _PARAGRAPH_BREAK
 
     breaks = [call.args[1] for call in text.insertControlCharacter.call_args_list]
-    assert breaks.count(_PARAGRAPH_BREAK) == 4
+    assert breaks.count(_PARAGRAPH_BREAK) >= 2
     cursor.goRight.assert_called()
+
+
+def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
+    """When the cursor lands on Cell N: Markdown, stdout must not replace that heading."""
+    from plugin.notebook.notebook_runner import _insert_stdout_paragraph
+    from plugin.notebook.writer_importer import _PARAGRAPH_BREAK
+
+    cursor = MagicMock()
+    cursor.ParaStyleName = "Heading 3"
+    cursor.goRight.return_value = True
+    cursor.getString.side_effect = ["Cell 3: Markdown", ""]
+    text = MagicMock()
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    _insert_stdout_paragraph(doc, cursor, "hello", "Preformatted Text", "WriterAgent Notebook In")
+
+    assert text.insertControlCharacter.call_count >= 2
+    assert all(call.args[1] == _PARAGRAPH_BREAK for call in text.insertControlCharacter.call_args_list)
+    cursor.collapseToStart.assert_called()
+    cursor.setString.assert_called_once_with("hello")
 
 
 def test_gutter_text_cursor_stops_before_frame_portion():

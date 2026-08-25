@@ -244,25 +244,12 @@ def apply_run_result(
     out_text = format_run_output_text(result)
     cursor = _cursor_after_bookmark(doc, cell.output_start_bookmark)
     output_style = _resolve_para_style(doc, _STYLE_OUTPUT)
+    notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
     if out_text.strip():
         display, _unused = _prepare_display_text(out_text)
         if display.strip():
             if cursor is not None:
-                text = doc.getText()
-                # New paragraph under the Output heading. Do not gotoEnd() — that is
-                # the document end and would drop later cells' output at the bottom.
-                text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-                _enter_paragraph_after_break(cursor)
-                if output_style:
-                    try:
-                        cursor.setPropertyValue("ParaStyleName", output_style)
-                    except Exception:
-                        log.debug("notebook run: ParaStyleName %r not applied", output_style)
-                text.insertString(cursor, display, False)
-                # If the cursor had been at the start of the next cell heading,
-                # insertString prepended stdout onto that chrome. A trailing break
-                # splits ``NumPy Version: …Cell 3: Markdown`` back into two paras.
-                text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+                _insert_stdout_paragraph(doc, cursor, display, output_style, notebook_in)
             else:
                 _append_body_text_block(doc, display, _STYLE_OUTPUT, lead_break=True)
     if result.get("status") == "ok":
@@ -270,6 +257,60 @@ def apply_run_result(
         images = find_image_payloads(wire)
         for img in images:
             _insert_run_image(doc, img, ctx=ctx, images_before=0)
+
+
+def _insert_stdout_paragraph(
+    doc: Any,
+    cursor: Any,
+    display: str,
+    output_style: str | None,
+    notebook_in: str | None,
+) -> None:
+    """Insert *display* as its own paragraph under Output; do not prepend onto the next cell.
+
+    Writer leaves the cursor **before** a just-inserted PARAGRAPH_BREAK. After the
+    output bookmark that often means ``gotoNextParagraph`` lands on ``Cell N: Markdown``.
+    ``insertString`` would then mash stdout onto that heading. Same pattern as
+    ``html_export._range_to_content_via_temp_doc``: enter the next para, and if it is
+    already cell chrome, split a blank paragraph in front and ``setString`` that blank.
+    """
+    text = doc.getText()
+    text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    _enter_paragraph_after_break(cursor)
+    try:
+        cursor.gotoStartOfParagraph(False)
+        cursor.gotoEndOfParagraph(True)
+    except Exception:
+        log.debug("notebook run: could not select paragraph after break", exc_info=True)
+    existing = _paragraph_string(cursor)
+    style = ""
+    try:
+        style = str(cursor.ParaStyleName or "")
+    except Exception:
+        style = ""
+    if existing.strip() and _is_next_cell_boundary(style, existing, notebook_in):
+        # Landed on the following cell. Split an empty paragraph in front of it.
+        try:
+            cursor.collapseToStart()
+        except Exception:
+            pass
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        try:
+            cursor.gotoStartOfParagraph(False)
+            cursor.gotoEndOfParagraph(True)
+        except Exception:
+            pass
+    if output_style:
+        try:
+            cursor.setPropertyValue("ParaStyleName", output_style)
+        except Exception:
+            log.debug("notebook run: ParaStyleName %r not applied", output_style)
+    try:
+        cursor.setString(display)
+    except Exception:
+        log.debug("notebook run: setString stdout failed; insertString fallback", exc_info=True)
+        text.insertString(cursor, display, False)
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
 
 
 def _leading_text_cursor(text: Any, para: Any) -> Any | None:

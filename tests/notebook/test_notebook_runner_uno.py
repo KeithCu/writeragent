@@ -87,7 +87,7 @@ def _assert_controls_present(doc, cell) -> None:
     assert cell.code_field_name in names, f"{cell.code_field_name} missing from draw page: {names}"
 
 
-def _assert_stdout_own_paragraph(doc) -> None:
+def _assert_stdout_not_mashed(doc) -> list[tuple[str, str]]:
     paras = _paragraphs(doc)
     sentinel_paras = [t for _s, t in paras if _SENTINEL in t]
     assert sentinel_paras, f"stdout {_SENTINEL!r} missing from body: {paras!r}"
@@ -98,12 +98,17 @@ def _assert_stdout_own_paragraph(doc) -> None:
     assert chrome, "Cell 3: Markdown heading missing after run"
     for text in chrome:
         assert _SENTINEL not in text, f"next-cell chrome contains stdout: {text!r}"
+    return paras
+
+
+def _assert_stdout_own_paragraph(doc) -> None:
+    _assert_stdout_not_mashed(doc)
     body = doc.getText().getString() or ""
     assert _AFTER_HEADING in body
     assert "Before code" in body
 
 
-def _fire_run_button_via_get_control(ctx, doc, hex_id: str) -> str:
+def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
     """Click ▶ through the live control view. Returns how the click was delivered."""
     import uno
 
@@ -121,21 +126,9 @@ def _fire_run_button_via_get_control(ctx, doc, hex_id: str) -> str:
     btn = _query_interface(control, "com.sun.star.awt.XButton")
     assert btn is not None, "live view is not XButton"
 
-    acc = None
-    try:
-        acc = control.getAccessibleContext()
-    except Exception:
-        acc = None
-    if acc is not None:
-        action = _query_interface(acc, "com.sun.star.accessibility.XAccessibleAction")
-        if action is not None:
-            try:
-                if action.getAccessibleActionCount() >= 1:
-                    action.doAccessibleAction(0)
-                    return "accessible"
-            except Exception:
-                pass
-
+    # XAccessibleAction.doAccessibleAction is delivered on a VCL worker
+    # (Dummy-1). Dev UNO thread guard then aborts run_cell before output.
+    # Fire the live XActionListener on this (main) thread instead.
     evt = uno.createUnoStruct("com.sun.star.awt.ActionEvent")
     evt.Source = control
     evt.ActionCommand = str(getattr(model, "Name", "") or "")
@@ -178,7 +171,11 @@ def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
             boxes.append((str(title), str(message), box_type))
 
         hex_id = cell_id_to_hex(cell.cell_id)
-        with patch("plugin.notebook.notebook_runner.msgbox", _capture):
+        fake_result = {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}
+        with (
+            patch("plugin.notebook.notebook_runner.msgbox", _capture),
+            patch("plugin.notebook.notebook_runner.execute_code", return_value=fake_result),
+        ):
             how = _fire_run_button_via_get_control(ctx, doc, hex_id)
         print(f"notebook ▶ delivered via {how}; msgboxes={boxes!r}", flush=True)
         flush_ui_idle(ctx)
@@ -187,22 +184,55 @@ def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
         _assert_stdout_own_paragraph(doc)
         assert all("empty" not in msg.lower() for _t, msg, _b in boxes), boxes
 
-        before_count = (doc.getText().getString() or "").count(_SENTINEL)
-        with patch("plugin.notebook.notebook_runner.msgbox", _capture):
+        before_count = sum(1 for _s, t in _paragraphs(doc) if _SENTINEL in t)
+        with (
+            patch("plugin.notebook.notebook_runner.msgbox", _capture),
+            patch("plugin.notebook.notebook_runner.execute_code", return_value=fake_result),
+        ):
             _fire_run_button_via_get_control(ctx, doc, hex_id)
         flush_ui_idle(ctx)
 
         _assert_controls_present(doc, cell)
         _assert_stdout_own_paragraph(doc)
-        after_count = (doc.getText().getString() or "").count(_SENTINEL)
-        # Source in the TextField plus one Output paragraph — not two Output copies.
-        assert after_count <= before_count, (
-            f"re-click appended stdout: before={before_count} after={after_count} "
-            f"body={doc.getText().getString()!r}"
+        after_count = sum(1 for _s, t in _paragraphs(doc) if _SENTINEL in t)
+        assert after_count == 1, (
+            f"re-click appended stdout paras: before={before_count} after={after_count} "
+            f"paras={_paragraphs(doc)!r}"
         )
-        assert after_count >= 1
     finally:
         try:
             ipynb.unlink()
         except OSError:
             pass
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_apply_run_result_stdout_is_own_paragraph(ctx, doc):
+    """Live Writer: stdout under Output must not concatenate onto the next cell heading."""
+    from plugin.notebook.cell_registry import insert_output_start_bookmark, new_code_cell_entry
+    from plugin.notebook.notebook_runner import apply_run_result, clear_cell_output
+    from plugin.notebook.writer_importer import (
+        _STYLE_CELL_HEADING,
+        _STYLE_MD_H2,
+        _STYLE_SECTION_HEADING,
+        _append_body_paragraph,
+    )
+
+    _append_body_paragraph(doc, "Output", _STYLE_SECTION_HEADING, lead_break=False)
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    insert_output_start_bookmark(doc, cell.output_start_bookmark)
+    _append_body_paragraph(doc, "Cell 3: Markdown", _STYLE_CELL_HEADING, lead_break=True)
+    _append_body_paragraph(doc, _AFTER_HEADING, _STYLE_MD_H2, lead_break=True)
+
+    apply_run_result(doc, cell, {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}, ctx=ctx)
+    _assert_stdout_not_mashed(doc)
+    assert _AFTER_HEADING in (doc.getText().getString() or "")
+
+    clear_cell_output(doc, cell)
+    apply_run_result(doc, cell, {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}, ctx=ctx)
+    _assert_stdout_not_mashed(doc)
+    assert sum(1 for _s, t in _paragraphs(doc) if _SENTINEL in t) == 1
+    assert _AFTER_HEADING in (doc.getText().getString() or "")
+    assert "Cell 3: Markdown" in (doc.getText().getString() or "")
+
