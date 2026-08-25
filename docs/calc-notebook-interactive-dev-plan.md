@@ -76,7 +76,7 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 
 ### Known gaps / bugs (Phase 1 follow-up)
 
-1. **`clear_cell_output`** — **fixed**: uses `cursor.setString("")` (Writer `XText` has no `deleteContents`). Re-run replaces stdout; boundary includes markdown/raw cell chrome so the small NumPy fixture does not lose cells between code runs.
+1. **`clear_cell_output`** — **fixed**: uses `cursor.setString("")` (Writer `XText` has no `deleteContents`). Collapsed `XTextCursor.getString()` is the selection (often `""`); expand to the enclosing paragraph so markdown chrome (`Cell N: Markdown`) is a real boundary. Re-run replaces stdout and does not eat markdown cells between code cells.
 2. **Re-import** — replaces registry; no merge UX (Phase 3).
 3. **Form URL buttons** — rejected; `TargetURL` / protocol handler does not fire for in-flow form buttons. Use **PUSH** + `XActionListener` only.
 4. **Untitled documents** — `doc.getURL()` empty; listener keeps strong ref to `doc` (PyUNO objects cannot use `weakref`).

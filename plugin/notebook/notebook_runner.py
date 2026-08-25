@@ -106,6 +106,33 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     return run_blocking_in_thread(ctx, _run)
 
 
+def _paragraph_string(cursor: Any) -> str:
+    """Text of the paragraph containing *cursor*.
+
+    Writer ``XTextCursor.getString()`` is the **selection**, so a collapsed
+    cursor (the kind ``gotoNextParagraph`` leaves) returns ``""``. The markdown
+    chrome check then never matched ``Cell N: Markdown``, and ``clear_cell_output``
+    walked until the next code gutter — deleting the markdown cells between
+    code cells on the small NumPy fixture. Expand to the enclosing paragraph
+    when the selection is empty. Mocks that already return paragraph text from
+    ``getString()`` keep working.
+    """
+    selected = ""
+    try:
+        selected = cursor.getString() or ""
+    except Exception:
+        selected = ""
+    if selected.strip():
+        return selected
+    try:
+        probe = cursor.getText().createTextCursorByRange(cursor)
+        probe.gotoStartOfParagraph(False)
+        probe.gotoEndOfParagraph(True)
+        return probe.getString() or ""
+    except Exception:
+        return selected
+
+
 def _cursor_after_bookmark(doc: Any, bookmark_name: str) -> Any | None:
     if not bookmark_name or not hasattr(doc, "getBookmarks"):
         return None
@@ -153,11 +180,11 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     text = doc.getText()
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
     end = text.createTextCursorByRange(start)
-    if _is_next_cell_boundary(end.ParaStyleName, end.getString(), notebook_in):
+    if _is_next_cell_boundary(end.ParaStyleName, _paragraph_string(end), notebook_in):
         return
     found_boundary = False
     while end.gotoNextParagraph(False):
-        if _is_next_cell_boundary(end.ParaStyleName, end.getString(), notebook_in):
+        if _is_next_cell_boundary(end.ParaStyleName, _paragraph_string(end), notebook_in):
             end.gotoStartOfParagraph(False)
             found_boundary = True
             break

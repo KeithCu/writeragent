@@ -144,7 +144,11 @@ def _draw_control_names(doc) -> list[str]:
 
 
 def _output_text_for_cell(doc, cell) -> str:
-    from plugin.notebook.notebook_runner import _cursor_after_bookmark, _is_next_cell_boundary
+    from plugin.notebook.notebook_runner import (
+        _cursor_after_bookmark,
+        _is_next_cell_boundary,
+        _paragraph_string,
+    )
     from plugin.notebook.writer_importer import _STYLE_NOTEBOOK_IN, _resolve_para_style
 
     start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
@@ -154,7 +158,7 @@ def _output_text_for_cell(doc, cell) -> str:
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
     end = text.createTextCursorByRange(start)
     while end.gotoNextParagraph(False):
-        if _is_next_cell_boundary(end.ParaStyleName, end.getString(), notebook_in):
+        if _is_next_cell_boundary(end.ParaStyleName, _paragraph_string(end), notebook_in):
             end.gotoStartOfParagraph(False)
             break
     else:
@@ -293,7 +297,9 @@ def test_debug_menu_import_and_run_small_numpy_notebook(ctx, doc):
         results.append(run_cell(ctx, doc, cell.cell_id))
         out = _output_text_for_cell(doc, cell)
         assert out.strip() or results[-1].status == "error", (
-            f"cell {cell.index} produced no output under its bookmark"
+            f"cell {cell.index} produced no output under its bookmark "
+            f"status={results[-1].status!r} message={results[-1].message!r} "
+            f"bookmarks={list(doc.getBookmarks().getElementNames())}"
         )
 
     state = load_registry(doc)

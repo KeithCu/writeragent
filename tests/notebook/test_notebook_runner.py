@@ -10,6 +10,7 @@ import pytest
 from plugin.notebook.cell_registry import NotebookDocState, cell_id_to_hex, new_code_cell_entry
 from plugin.notebook.notebook_runner import (
     _is_next_cell_boundary,
+    _paragraph_string,
     apply_run_result,
     clear_cell_output,
     execute_code,
@@ -199,6 +200,25 @@ def test_is_next_cell_boundary_markdown_and_code():
     assert _is_next_cell_boundary("WriterAgent Notebook In", "[In [1]]\tCell 2: Code", "WriterAgent Notebook In") is True
 
 
+def test_paragraph_string_uses_selection_when_nonempty():
+    cursor = MagicMock()
+    cursor.getString.return_value = "Cell 3: Markdown"
+    assert _paragraph_string(cursor) == "Cell 3: Markdown"
+    cursor.getText.assert_not_called()
+
+
+def test_paragraph_string_expands_collapsed_cursor():
+    # Live Writer: collapsed XTextCursor.getString() is "" (selection, not paragraph).
+    cursor = MagicMock()
+    cursor.getString.return_value = ""
+    probe = MagicMock()
+    probe.getString.return_value = "Cell 3: Markdown"
+    cursor.getText.return_value.createTextCursorByRange.return_value = probe
+    assert _paragraph_string(cursor) == "Cell 3: Markdown"
+    probe.gotoStartOfParagraph.assert_called_once_with(False)
+    probe.gotoEndOfParagraph.assert_called_once_with(True)
+
+
 def test_clear_cell_output_uses_set_string_not_delete_contents():
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     start = MagicMock(name="start")
@@ -256,6 +276,47 @@ def test_clear_cell_output_stops_at_markdown_cell_heading():
 
     sel = MagicMock(name="sel")
     sel.getString.return_value = "Array: [10 20 30]\n"
+
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = [walker, sel]
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+    ):
+        clear_cell_output(doc, cell)
+
+    sel.setString.assert_called_once_with("")
+    walker.gotoStartOfParagraph.assert_called_once()
+
+
+def test_clear_cell_output_collapsed_cursor_stops_at_markdown():
+    """Live Writer collapsed cursors return empty getString(); expand to find chrome."""
+    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
+    start = MagicMock(name="start")
+    start.ParaStyleName = "Preformatted Text"
+    start.getString.return_value = ""
+
+    walker = MagicMock(name="walker")
+    walker.ParaStyleName = "Preformatted Text"
+    walker.getString.return_value = ""
+    para_text = {"v": "old stdout"}
+    probe = MagicMock()
+    probe.getString.side_effect = lambda: para_text["v"]
+    walker.getText.return_value.createTextCursorByRange.return_value = probe
+
+    def goto_next(_expand):
+        walker.ParaStyleName = "Heading 3"
+        para_text["v"] = "Cell 3: Markdown"
+        return True
+
+    walker.gotoNextParagraph.side_effect = goto_next
+    walker.getStart.return_value = "md-start"
+
+    sel = MagicMock(name="sel")
+    sel.getString.return_value = "old stdout\n"
 
     text = MagicMock()
     text.createTextCursorByRange.side_effect = [walker, sel]
