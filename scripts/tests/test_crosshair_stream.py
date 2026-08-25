@@ -12,6 +12,8 @@ from scripts.crosshair_stream import (
     StreamStats,
     classify_line,
     discover_deal_plugin_files,
+    format_check_bracket,
+    format_prev_mmss,
     print_banner,
     print_error_summary,
     stream_lines,
@@ -832,3 +834,90 @@ def test_run_crosshair_child_env_sets_short_deal_table(monkeypatch) -> None:
     stream_mod.run_crosshair("cover", ["plugin.foo.bar"], "cover", False, False, out=out)
     assert captured.get(CROSSHAIR_ENV) == captured.get(stream_mod.CROSSHAIR_DEAL_ENV) == "1"
     assert captured.get("PYTHONUNBUFFERED") == "1"
+
+
+def test_format_prev_mmss() -> None:
+    assert format_prev_mmss(7) == "0:07"
+    assert format_prev_mmss(18 * 60 + 4) == "18:04"
+    assert format_prev_mmss(75 * 60 + 2) == "75:02"
+
+
+def test_format_check_bracket_no_prev_pads_to_22() -> None:
+    assert format_check_bracket("CHECK START", None) == "[CHECK START          ]"
+    assert format_check_bracket("CHECK PROGRESS", None) == "[CHECK PROGRESS       ]"
+
+
+def test_format_check_bracket_prev_progress() -> None:
+    assert format_check_bracket("CHECK PROGRESS", 82) == "[CHECK PROGRESS | Prev 1:22]"
+    assert format_check_bracket("CHECK START", 18 * 60 + 4) == "[CHECK START | Prev 18:04]"
+
+
+def test_stream_lines_stamps_prev_between_emitted_check_lines(monkeypatch) -> None:
+    """Prev is wall time since the previous emitted tagged line, not FQN start."""
+    from scripts.crosshair_stream import PrevLineClock
+
+    times = iter([1000.0, 1082.0])
+    monkeypatch.setattr("scripts.crosshair_stream.time.perf_counter", lambda: next(times))
+    buf = StringIO()
+    stream_lines(
+        iter(
+            [
+                "23222.229|    |analyze_function() Analyzing  host_pack_split_grid\n",
+                '23222.251|    |analyze() Analyzing postcondition: " len(result) == len(args[0]) "\n',
+            ]
+        ),
+        mode="check",
+        out=buf,
+        raw=False,
+        quiet=False,
+        prev_clock=PrevLineClock(),
+    )
+    text = buf.getvalue()
+    progress_lines = [ln for ln in text.splitlines() if ln.startswith("[CHECK PROGRESS")]
+    assert len(progress_lines) == 2
+    assert progress_lines[0] == "[CHECK PROGRESS       ] analyzing host_pack_split_grid"
+    assert progress_lines[1].startswith("[CHECK PROGRESS | Prev 1:22] post:")
+    assert "len(result) == len(args[0])" in progress_lines[1]
+
+
+def test_stream_lines_cover_does_not_stamp_prev(monkeypatch) -> None:
+    from scripts.crosshair_stream import PrevLineClock
+
+    monkeypatch.setattr("scripts.crosshair_stream.time.perf_counter", lambda: 1.0)
+    buf = StringIO()
+    stream_lines(
+        iter(["host_pack_split_grid([])\n", "host_pack_split_grid([1])\n"]),
+        mode="cover",
+        out=buf,
+        raw=False,
+        quiet=False,
+        prev_clock=PrevLineClock(),
+    )
+    assert "| Prev" not in buf.getvalue()
+
+
+def test_stream_lines_quiet_stamps_prev_on_errors(monkeypatch) -> None:
+    """Quiet still emits ERROR lines, so those still get | Prev."""
+    from scripts.crosshair_stream import PrevLineClock
+
+    times = iter([10.0, 17.0])
+    monkeypatch.setattr("scripts.crosshair_stream.time.perf_counter", lambda: next(times))
+    buf = StringIO()
+    stream_lines(
+        iter(
+            [
+                "23222.229|    |analyze_function() Analyzing  foo\n",
+                "plugin/scripting/payload_codec.py:500: error: TypeError: boom\n",
+                "plugin/scripting/payload_codec.py:501: error: ValueError: nope\n",
+            ]
+        ),
+        mode="check",
+        out=buf,
+        raw=False,
+        quiet=True,
+        prev_clock=PrevLineClock(),
+    )
+    text = buf.getvalue()
+    assert "analyzing foo" not in text
+    assert "[CHECK ERROR           ]" in text
+    assert "[CHECK ERROR | Prev 0:07]" in text

@@ -28,6 +28,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, TextIO
@@ -48,6 +49,10 @@ def enable_crosshair_deal_table() -> None:
     """
     os.environ[CROSSHAIR_DEAL_ENV] = "1"
 
+
+# Bracket inner width for ``[CHECK PROGRESS       ]`` (no Prev). With Prev the
+# inner text is ``CHECK PROGRESS | Prev M:SS`` and is not padded.
+CHECK_TAG_WIDTH = 22
 
 CHECK_LINE = re.compile(
     r"^(?P<file>.+\.py):(?P<line>\d+): (?P<level>error|info|warning): (?P<msg>.*)$"
@@ -271,9 +276,66 @@ def effective_mode(tag: str, default_mode: str) -> str:
     return default_mode
 
 
-def format_event(classified: ClassifiedLine, stats: StreamStats, mode: str) -> str:
-    width = 22
-    head = f"[{classified.tag:<{width}}] {classified.detail}"
+def format_prev_mmss(seconds: float) -> str:
+    """Format elapsed seconds as ``M:SS`` (unpadded minutes, zero-padded seconds).
+
+    GitHub Actions logs are append-only, so check-all cannot rewrite a live START
+    line with that FQN's duration. ``| Prev M:SS`` on the *next* emitted line is
+    the hang signal instead. Minutes are total minutes (``75:02``, not ``1:15:02``).
+    """
+    total = int(round(seconds))
+    if total < 0:
+        total = 0
+    minutes, secs = divmod(total, 60)
+    return f"{minutes}:{secs:02d}"
+
+
+def format_check_bracket(tag: str, prev_sec: float | None) -> str:
+    """``[CHECK START          ]`` or ``[CHECK START | Prev 18:04]``."""
+    if prev_sec is None:
+        return f"[{tag:<{CHECK_TAG_WIDTH}}]"
+    return f"[{tag} | Prev {format_prev_mmss(prev_sec)}]"
+
+
+@dataclass
+class PrevLineClock:
+    """Wall time between consecutive emitted check-all ``[CHECK …]`` lines.
+
+    First ``take()`` of the sweep returns ``None`` (no Prev). Cover-all must not
+    pass this clock: ``mode == "cover"`` never grows ``| Prev``.
+    """
+
+    last_emit: float | None = None
+
+    def take(self) -> float | None:
+        now = time.perf_counter()
+        prev = None if self.last_emit is None else now - self.last_emit
+        self.last_emit = now
+        return prev
+
+
+def emit_tagged_line(
+    out: Any,
+    tag: str,
+    detail: str,
+    *,
+    prev_clock: PrevLineClock | None = None,
+) -> None:
+    """Write one ``[TAG] detail`` line, optionally stamping ``| Prev M:SS``."""
+    prev_sec = prev_clock.take() if prev_clock is not None else None
+    out.write(f"{format_check_bracket(tag, prev_sec)} {detail}\n")
+    out.flush()
+
+
+def format_event(
+    classified: ClassifiedLine,
+    stats: StreamStats,
+    mode: str,
+    *,
+    prev_clock: PrevLineClock | None = None,
+) -> str:
+    prev_sec = prev_clock.take() if prev_clock is not None else None
+    head = f"{format_check_bracket(classified.tag, prev_sec)} {classified.detail}"
     if not classified.show_stats:
         return head
     emode = effective_mode(classified.tag, mode)
@@ -287,9 +349,12 @@ def stream_lines(
     out: TextIO,
     raw: bool,
     quiet: bool,
+    prev_clock: PrevLineClock | None = None,
 ) -> StreamStats:
     stats = StreamStats()
     seen_progress: set[str] = set()
+    # Cover-all already has per-module ``[COVER TIMING]``; never stamp ``| Prev``.
+    clock = prev_clock if mode == "check" else None
     for line in lines:
         stats.lines += 1
         classified = classify_line(line, mode)
@@ -306,11 +371,13 @@ def stream_lines(
             seen_progress.add(classified.detail)
         update_stats(stats, classified)
         if quiet:
+            # Quiet still prints ERROR/FATAL; stamp those so a hang before the
+            # error is visible. Skipped PROGRESS/CONFIRMED lines do not tick.
             if classified.tag.endswith("ERROR") or classified.tag == "COVER FATAL":
-                out.write(format_event(classified, stats, mode) + "\n")
+                out.write(format_event(classified, stats, mode, prev_clock=clock) + "\n")
                 out.flush()
             continue
-        out.write(format_event(classified, stats, mode) + "\n")
+        out.write(format_event(classified, stats, mode, prev_clock=clock) + "\n")
         out.flush()
     return stats
 
@@ -516,12 +583,17 @@ def run_crosshair(
     out: Any = None,
     label: str | None = None,
     timeout_sec: float | None = None,
+    prev_clock: PrevLineClock | None = None,
 ) -> tuple[int, StreamStats]:
     """Spawn CrossHair and stream output. Returns ``(exit_code, stats)``.
 
     When ``timeout_sec`` is set, kill the process group at the deadline and treat
     the run as a successful budget exhaustion (exit 0) unless stream failures
     were already recorded — cover-all uses this as a per-module wall.
+
+    ``prev_clock`` is check-all only: each emitted ``[CHECK …]`` line after the
+    first of the sweep includes ``| Prev M:SS`` (wall time since the previous
+    emitted tagged line). Cover mode ignores it.
     """
     crosshair_path = find_crosshair()
     dest = out if out is not None else sys.stdout
@@ -529,8 +601,8 @@ def run_crosshair(
     # condition finishes, so a hang otherwise looks like the previous post.
     target = label or (crosshair_args[-1] if crosshair_args else command)
     start_tag = "COVER START" if mode == "cover" else "CHECK START"
-    dest.write(f"[{start_tag:<22}] {target}\n")
-    dest.flush()
+    clock = prev_clock if mode == "check" else None
+    emit_tagged_line(dest, start_tag, target, prev_clock=clock)
     # Piped CrossHair otherwise block-buffers debug(); last flushed line is stale.
     # Inject on the child env dict (do not require the caller to have set
     # os.environ). Same short @deal.pre table as check-all / cover-all.
@@ -564,7 +636,9 @@ def run_crosshair(
         timer.daemon = True
         timer.start()
     try:
-        stats = stream_lines(proc.stdout, mode=mode, out=dest, raw=raw, quiet=quiet)
+        stats = stream_lines(
+            proc.stdout, mode=mode, out=dest, raw=raw, quiet=quiet, prev_clock=clock
+        )
         proc_code = proc.wait()
     finally:
         if timer is not None:
@@ -573,8 +647,9 @@ def run_crosshair(
     if timed_out:
         target = label or " ".join(crosshair_args[-1:]) or command
         tag = "COVER TIMEOUT" if mode == "cover" else "CHECK TIMEOUT"
-        dest.write(f"[{tag:<22}] wall {timeout_sec:g}s exceeded for {target}\n")
-        dest.flush()
+        emit_tagged_line(
+            dest, tag, f"wall {timeout_sec:g}s exceeded for {target}", prev_clock=clock
+        )
         # Prefer stream failure_count if CrossHair already emitted a hard error.
         exit_code = 1 if stats.failure_count > 0 else 0
         print_banner(stats, mode, exit_code, dest, label=label)
@@ -588,8 +663,7 @@ def run_crosshair(
             f"CrossHair process exited {proc_code} without classified contract errors "
             f"(engine crash or unexpected failure; re-run with --raw)"
         )
-        dest.write(f"[CHECK ERROR           ] {detail}\n")
-        dest.flush()
+        emit_tagged_line(dest, "CHECK ERROR", detail, prev_clock=clock)
         stats.check_errors += 1
         stats.record_error(detail)
         exit_code = 1 if proc_code == 1 else proc_code

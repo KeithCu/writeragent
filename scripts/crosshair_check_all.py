@@ -8,6 +8,9 @@
 
 Runs **one FQN at a time** (same crash isolation as cover-all) and prints
 ``[CHECK START]`` *before* each spawn so a hang shows the current callable.
+After the first tagged line of the sweep, each ``[CHECK …]`` line includes
+``| Prev M:SS`` (wall time since the previous emitted tagged line) so
+append-only CI logs show which post/pre is stuck. Cover-all does not stamp Prev.
 Errors are printed live and reprinted in a final ``ERRORS TO FIX`` / failed-module summary.
 
 Two presets only (same numbers as cover-all; no per-flag budget overrides):
@@ -45,9 +48,11 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts.crosshair_stream import (
+    PrevLineClock,
     _TeeTextIO,
     cover_fqns_for_module,
     discover_deal_plugin_files,
+    emit_tagged_line,
     enable_crosshair_deal_table,
     run_crosshair,
 )
@@ -234,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Logging to {args.log}", flush=True)
 
     failed: list[tuple[str, list[str]]] = []
+    prev_clock = PrevLineClock()
     with args.log.open("w", encoding="utf-8") as log_fp:
         tee = _TeeTextIO(sys.stdout, log_fp)
         for index, path in enumerate(files, start=1):
@@ -242,8 +248,9 @@ def main(argv: list[str] | None = None) -> int:
             tee.flush()
             fqns = cover_fqns_for_module(path, require_deal=True)
             if not fqns:
-                tee.write(f"[CHECK SKIP            ] all callables off: {rel}\n")
-                tee.flush()
+                emit_tagged_line(
+                    tee, "CHECK SKIP", f"all callables off: {rel}", prev_clock=prev_clock
+                )
                 continue
             max_uninteresting, per_condition_timeout = module_check_bounds(budget, rel)
             wall = (
@@ -260,8 +267,12 @@ def main(argv: list[str] | None = None) -> int:
                 if deadline is not None:
                     remaining = deadline - time.perf_counter()
                     if remaining <= 0:
-                        tee.write(f"[CHECK TIMEOUT         ] wall {wall:g}s exceeded for {rel}\n")
-                        tee.flush()
+                        emit_tagged_line(
+                            tee,
+                            "CHECK TIMEOUT",
+                            f"wall {wall:g}s exceeded for {rel}",
+                            prev_clock=prev_clock,
+                        )
                         break
                 ch_args = [
                     "-v",
@@ -279,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
                     out=tee,
                     label=f"{rel} :: {fqn}",
                     timeout_sec=remaining,
+                    prev_clock=prev_clock,
                 )
                 if stats.error_details:
                     details.extend(stats.error_details)
@@ -286,8 +298,12 @@ def main(argv: list[str] | None = None) -> int:
                     code = fqn_code
             if code != 0:
                 failed.append((rel, details))
-                tee.write(f"[CHECK ERROR           ] module failed: {rel} (exit {code})\n")
-                tee.flush()
+                emit_tagged_line(
+                    tee,
+                    "CHECK ERROR",
+                    f"module failed: {rel} (exit {code})",
+                    prev_clock=prev_clock,
+                )
                 if args.fail_fast:
                     break
 
