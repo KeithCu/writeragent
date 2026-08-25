@@ -456,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=1,
         metavar="N",
-        help="1-based module index in cover submit order; skip files before N (default 1)",
+        help="1-based module index; skip files before N (default 1)",
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="Only errors/fatals and final banner")
     parser.add_argument("--raw", action="store_true", help="Also print suppressed CrossHair -v spam")
