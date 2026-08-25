@@ -211,11 +211,12 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
             continue
         if content.strip() == "Output":
             try:
-                # Stay *inside* the heading. para.getEnd() is the paragraph
-                # break; a bookmark there is the start of the next para, so
-                # setString of the following range deletes nb_out_*.
+                # Stay *inside* the heading. para.getEnd() / gotoEndOfParagraph
+                # is the paragraph break; a bookmark there is the start of the
+                # next para, so setString of the following range deletes nb_out_*.
                 cursor = text.createTextCursorByRange(para.getStart())
-                cursor.gotoEndOfParagraph(False)
+                if not cursor.goRight(1, False):
+                    cursor.gotoEndOfParagraph(False)
             except Exception:
                 continue
             if first_output_end is None:
@@ -226,9 +227,11 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
         if _is_next_cell_boundary(style, content, notebook_in):
             if seen_code:
                 return matched_output_end
-            # Synthetic docs (Output heading + next-cell chrome, no ``Cell N: Code``).
-            return first_output_end
-    return matched_output_end or first_output_end
+            # Earlier chrome (``Cell 1: Markdown`` before this code cell) is not
+            # this cell's Output. Keep scanning. Synthetic docs with no
+            # ``Cell N: Code`` fall through to first_output_end at EOF.
+            continue
+    return matched_output_end if seen_code else first_output_end
 
 
 def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:

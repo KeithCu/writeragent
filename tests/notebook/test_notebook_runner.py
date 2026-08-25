@@ -206,8 +206,43 @@ def test_find_output_heading_stays_inside_paragraph():
     """para.getEnd() is the paragraph break; a bookmark there is deleted by setString."""
     src = inspect.getsource(_find_cell_output_heading_end)
     assert "createTextCursorByRange(para.getEnd())" not in src
-    assert "gotoEndOfParagraph" in src
     assert "para.getStart()" in src
+    assert "goRight" in src
+
+
+def test_find_output_heading_skips_earlier_markdown_chrome():
+    """``Cell 1: Markdown`` is a boundary but must not abort before this cell's Output."""
+
+    def _para(text: str, style: str = "Heading 3") -> MagicMock:
+        para = MagicMock()
+        para.getString.return_value = text
+        para.getPropertyValue.return_value = style
+        para.supportsService.return_value = True
+        para.getStart.return_value = f"start:{text}"
+        return para
+
+    output_para = _para("Output", "Heading 4")
+    paras = [
+        _para("Cell 1: Markdown"),
+        _para("Before code", "Heading 1"),
+        _para("[In [1]]\tCell 2: Code", "WriterAgent Notebook In"),
+        _para("", "WriterAgent Notebook In"),
+        output_para,
+        _para("Cell 3: Markdown"),
+    ]
+    heading_cursor = MagicMock(name="inside-output")
+    heading_cursor.goRight.return_value = True
+    text = MagicMock()
+    text.createEnumeration.return_value = _enum_of(paras)
+    text.createTextCursorByRange.return_value = heading_cursor
+    doc = MagicMock()
+    doc.getText.return_value = text
+    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
+    with patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"):
+        found = _find_cell_output_heading_end(doc, cell)
+    assert found is heading_cursor
+    text.createTextCursorByRange.assert_called_with(output_para.getStart())
+    heading_cursor.goRight.assert_called_once_with(1, False)
 
 
 def test_is_next_cell_boundary_markdown_and_code():
