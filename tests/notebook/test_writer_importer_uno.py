@@ -29,6 +29,9 @@ from plugin.tests.testing_utils import with_native_doc
 _SMALL_IPYNB = (
     Path(__file__).resolve().parents[1] / "fixtures" / "introduction-to-numpy-small.ipynb"
 )
+_MEDIUM_IPYNB = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "introduction-to-numpy-medium.ipynb"
+)
 _IMPORT_ACTION = "scripting.import_ipynb"
 _HEADINGS = (
     ("A Small Introduction to NumPy", 1),
@@ -475,3 +478,60 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
 
     with patch.object(sm, "_msgbox", lambda *args, **kwargs: None):
         sm.reset_workbook_python_session(ctx, doc)
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_medium_numpy_import_layout_no_run(ctx, doc):
+    """Visual fixture: Jupyter-like layout, no Run All, no 184-cell notebook."""
+    assert _MEDIUM_IPYNB.is_file(), f"missing fixture {_MEDIUM_IPYNB}"
+
+    import re as _re
+
+    from plugin.notebook.cell_registry import load_registry
+    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+
+    stats = import_ipynb_to_writer(doc, str(_MEDIUM_IPYNB), ctx=ctx)
+    flush_ui_idle(ctx)
+
+    assert stats["cells"] == 25
+    assert stats["code"] == 11
+    assert stats["markdown"] == 14
+    assert stats["shapes"] == 22, f"expected 11 ▶ + 11 fields, got shapes={stats['shapes']}"
+
+    body = doc.getText().getString() or ""
+    paras = _paragraphs(doc)
+    print(
+        f"medium import pages={_writer_page_count(doc)} paras={len(paras)} "
+        f"shapes={stats['shapes']} in_prompts={sum(1 for _s, t in paras if t.strip().startswith('In ['))} "
+        f"numbering={sum(1 for s, _t in paras if 'numbering' in (s or '').lower())}",
+        flush=True,
+    )
+    assert _re.search(r"Cell \d+: Markdown", body) is None, (
+        f"Cell N: Markdown chrome after medium import: {body[:800]!r}"
+    )
+    assert _re.search(r"Cell \d+: Code", body) is None
+    assert not any(t.strip() == "Output" for _s, t in paras), f"visible Output heading: {paras!r}"
+    assert any(t.strip().startswith("In [") for _s, t in paras), f"In [n]: gutter missing: {paras!r}"
+    assert "A Medium Introduction to NumPy" in body
+    assert "* **Array**" not in body, f"literal markdown list/bold survived: {body[body.find('Array')-40:body.find('Array')+80]!r}"
+    assert "Array" in body
+
+    state = load_registry(doc)
+    assert state is not None and len(state.code_cells) == 11
+    names = _draw_control_names(doc)
+    for cell in state.code_cells:
+        assert cell.code_field_name in names, f"{cell.code_field_name} missing: {names}"
+
+    pages = _writer_page_count(doc)
+    # Pre-polish medium was 5 pages with half-empty sheets from AS_CHARACTER height.
+    assert pages is None or pages <= 4, f"medium import still paginating too loosely: {pages} pages"
+
+
+def _writer_page_count(doc) -> int | None:
+    try:
+        vc = doc.getCurrentController().getViewCursor()
+        vc.jumpToLastPage()
+        return int(vc.getPage())
+    except Exception:
+        return None
