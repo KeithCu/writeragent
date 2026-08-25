@@ -62,9 +62,9 @@ After `make deploy`, **restart LibreOffice** so the extension and menu handlers 
 |--------|-----|
 | **Run one cell** | Click the in-flow **▶** push button immediately before the code `TextField`. |
 | **Shared variables** | All code cells in the same Writer document share one `notebook:…` Python namespace (like a Jupyter kernel). Run cell 0 (`x = 1`), then cell 1 (`print(x)`) → `1`. |
-| **Execution count** | After a successful run, the gutter updates to `[In [n]]` (and the cell heading line when present). |
+| **Execution count** | After a successful run, the gutter updates to `[In [n]]` (text portions only — in-flow ▶ / code field stay). |
 | **Reset kernel** | **WriterAgent → Reset Python Session** when the document has an imported notebook registry. Clears variables; re-run cells from the top if needed. |
-| **Errors** | Tracebacks and stdout appear under the cell’s **Output** section (Preformatted Text). Empty code shows a msgbox. |
+| **Errors** | Tracebacks and stdout appear under the cell’s **Output** section (Preformatted Text, own paragraph — not concatenated onto the next cell heading). Empty code shows a msgbox. |
 | **Sandbox** | Code runs in your configured user venv ([`venv_worker.py`](../plugin/scripting/venv_worker.py)), subject to the same AST safety rules as other WriterAgent scripting (e.g. dunder methods may be blocked by design). |
 
 **Not supported yet:** Run All, Stop mid-batch, export to `.ipynb`, add/delete cells in the UI.
@@ -82,14 +82,14 @@ For each cell in order, the importer appends to the **document body**:
 | **All cells** | Cell chrome: markdown/raw **Heading 3** (`Cell N: Markdown`); code **`WriterAgent Notebook In`** (`[In [n]]` + `Cell N: Code`) |
 | **code (gutter)** | **`WriterAgent Notebook In`** — `[In [k]]` or `[In [ ]]` (updates after ▶ run) |
 | **markdown** | HTML-tagged source → [`insert_html_fragment_at_cursor`](../plugin/writer/html_import.py); CommonMark **ATX `#` → Heading 1**, **`##+` → Heading 2** (not cell chrome Heading 3); inline `` `code` `` → `<code>` via HTML; other lines **Text Body** |
-| **code (body)** | Gutter line + title → in-flow **▶** (`nb_run_{cell_id hex}`) → **TextField** (`nb_cell_{index}_code`) → **Heading 4** “Output” (bookmark `nb_out_{hex}`) → **Preformatted Text** / images |
+| **code (body)** | Gutter line + title → **new paragraph** → in-flow **▶** (`nb_run_{cell_id hex}`) + **TextField** (`nb_cell_{index}_code`) → **Heading 4** “Output” (bookmark `nb_out_{hex}`) → **Preformatted Text** / images. ▶ / the code field must **not** share the `[In [n]]` paragraph: `setString` on that whole range deletes in-flow `ControlShape`s. |
 | **raw** | **Text Body** — raw cell source |
 
-**Code fields (in-flow):** `TextField` inside `ControlShape`, **`AS_CHARACTER`**, `insertTextContent` at document end — same pattern as [`FormCreateControl`](../plugin/writer/specialized/forms.py). Models are also registered on the document **draw page** (used to find controls for ▶ wiring and for `read_code_from_field`).
+**Code fields (in-flow):** `TextField` inside `ControlShape`, **`AS_CHARACTER`**, `insertTextContent` at document end — same pattern as [`FormCreateControl`](../plugin/writer/specialized/forms.py). Models are also registered on the document **draw page** (used to find controls for ▶ wiring and for `read_code_from_field`). A paragraph break after the `[In [n]]` gutter keeps those shapes out of the title paragraph.
+
+**Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from outputs use **Preformatted Text** (one paragraph per block). Live run inserts a paragraph break *after* stdout as well, so the next cell heading cannot share that line.
 
 **Spellcheck:** At import start, document and paragraph styles used by the notebook are set to locale **`zxx`** (no linguistic content) so code and markdown are not spell-checked. Form field contents may still show squiggles depending on LO version.
-
-**Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from outputs use **Preformatted Text** (one paragraph per block).
 
 **Paragraph styles:** Built-in names are resolved case-insensitively. **`WriterAgent Notebook In`** is auto-created for the `[In [n]]` gutter.
 
@@ -146,7 +146,13 @@ Live Writer smoke (same Debug-menu action, FilePicker driven to the small fixtur
 python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py
 ```
 
-The live smoke imports the small NumPy fixture and **runs** the three code cells. A sandbox `Forbidden access to dunder attribute` / `__version__` deny is a **hard failure** (not a “clean error”). A real missing-numpy `ModuleNotFoundError` is allowed when the worker venv has no NumPy.
+The live smoke imports the small NumPy fixture and **runs** the three code cells. A sandbox `Forbidden access to dunder attribute` / `__version__` deny is a **hard failure** (not a “clean error”). A real missing-numpy `ModuleNotFoundError` is allowed when the worker venv has no NumPy. After run, ▶ / code fields must still be on the draw page and stdout must not share a paragraph with the next cell heading.
+
+Live ▶ click (``getControl`` / ``XButton``, not ``run_cell()`` alone):
+
+```bash
+python -m plugin.testing_runner tests/notebook/test_notebook_runner_uno.py
+```
 
 Optional remaining manual: after `make deploy writer`, **WriterAgent → Debug → Import Jupyter Notebook…**, pick `tests/fixtures/introduction-to-numpy-small.ipynb`, confirm the completion msgbox, click the three ▶ buttons in order.
 
@@ -207,7 +213,7 @@ Vendored nbformat: [`plugin/contrib/nbformat/README.md`](../plugin/contrib/nbfor
 | **Writer `.ipynb` import** | [`writer_importer.py`](../plugin/notebook/writer_importer.py), [`import_dialog.py`](../plugin/notebook/import_dialog.py) |
 | **Notebook registry (Phase 0)** | [`cell_registry.py`](../plugin/notebook/cell_registry.py); `notebook:…` session; **Reset Python Session** |
 | **Run single cell (Phase 1)** | [`notebook_runner.py`](../plugin/notebook/notebook_runner.py), [`notebook_controls.py`](../plugin/notebook/notebook_controls.py), [`form_lookup.py`](../plugin/notebook/form_lookup.py) |
-| Tests | [`tests/notebook/`](../tests/notebook/) (registry, importer, form lookup, controls, runner, session) + live [`test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py) |
+| Tests | [`tests/notebook/`](../tests/notebook/) (registry, importer, form lookup, controls, runner, session) + live [`test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py), [`test_notebook_runner_uno.py`](../tests/notebook/test_notebook_runner_uno.py) |
 
 ### Not shipped
 

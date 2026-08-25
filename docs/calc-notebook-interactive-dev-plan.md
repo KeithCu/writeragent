@@ -72,16 +72,17 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 
 ### Tests
 
-[`tests/notebook/`](../tests/notebook/): `test_cell_registry.py`, `test_session_manager_notebook.py`, `test_writer_importer.py`, `test_form_lookup.py`, `test_notebook_controls.py`, `test_notebook_runner.py`. Live Writer (Debug-menu import + run): [`tests/notebook/test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py) via `python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py`. That smoke **runs** the three code cells; a `__version__` dunder forbid is a hard assert (missing-numpy in the worker venv is still allowed).
+[`tests/notebook/`](../tests/notebook/): `test_cell_registry.py`, `test_session_manager_notebook.py`, `test_writer_importer.py`, `test_form_lookup.py`, `test_notebook_controls.py`, `test_notebook_runner.py`. Live Writer (Debug-menu import + run): [`tests/notebook/test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py) via `python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py`. That smoke **runs** the three code cells; a `__version__` dunder forbid is a hard assert (missing-numpy in the worker venv is still allowed). Live ▶ via `getControl` / `XButton`: [`tests/notebook/test_notebook_runner_uno.py`](../tests/notebook/test_notebook_runner_uno.py).
 
 ### Known gaps / bugs (Phase 1 follow-up)
 
 1. **`clear_cell_output`** — **fixed**: uses `cursor.setString("")` (Writer `XText` has no `deleteContents`). Collapsed `XTextCursor.getString()` is the selection (often `""`); expand to the enclosing paragraph so markdown chrome (`Cell N: Markdown`) is a real boundary. Re-run replaces stdout and does not eat markdown cells between code cells.
-2. **Re-import** — replaces registry; no merge UX (Phase 3).
-3. **Form URL buttons** — rejected; `TargetURL` / protocol handler does not fire for in-flow form buttons. Use **PUSH** + `XActionListener` only.
-4. **Untitled documents** — `doc.getURL()` empty; listener keeps strong ref to `doc` (PyUNO objects cannot use `weakref`).
-5. **Config keys** — `notebook.enable_interactive` / `notebook.run_on_import` not added yet; Run is always on when registry exists.
-6. **Large imports** — still main-thread synchronous; 100+ cells pause UI (performance backlog unchanged).
+2. **▶ / code field vanished after run** — **fixed**: `update_in_prompt` used to `setString` the whole gutter paragraph, which deleted in-flow `ControlShape`s. It now replaces leading Text portions only. The importer also paragraph-breaks after the gutter so ▶ / the code field are not in that paragraph. `apply_run_result` enters the new paragraph after `PARAGRAPH_BREAK` (Writer leaves the cursor before the break) and inserts a trailing break so stdout cannot mash onto the next heading.
+3. **Re-import** — replaces registry; no merge UX (Phase 3).
+4. **Form URL buttons** — rejected; `TargetURL` / protocol handler does not fire for in-flow form buttons. Use **PUSH** + `XActionListener` only.
+5. **Untitled documents** — `doc.getURL()` empty; listener keeps strong ref to `doc` (PyUNO objects cannot use `weakref`).
+6. **Config keys** — `notebook.enable_interactive` / `notebook.run_on_import` not added yet; Run is always on when registry exists.
+7. **Large imports** — still main-thread synchronous; 100+ cells pause UI (performance backlog unchanged).
 
 ### Implementation lessons (UNO / PyUNO)
 
@@ -89,6 +90,8 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 - **Control lookup** — in-flow `ControlShape` models live on **`doc.getDrawPage()`**, not only as `TextPortionType == "Frame"` in body enumeration ([`form_lookup.py`](../plugin/notebook/form_lookup.py); mirrors [`form_list_controls`](../plugin/writer/specialized/forms.py)).
 - **Wire timing** — attach listeners **after** import + `processEventsToIdle()`, not per-cell during insert; batch `wire_all_notebook_run_buttons` once.
 - **Spellcheck** — set document + paragraph styles to **`zxx`** (no linguistic content) at import start ([`rich_text.py`](../plugin/chatbot/rich_text.py) uses the same locale).
+- **In-flow controls vs `setString`** — `XTextRange.setString` on a paragraph that contains `AS_CHARACTER` ControlShapes deletes those shapes. Rewrite Text portions only (`update_in_prompt` / `_gutter_text_cursor`).
+- **`PARAGRAPH_BREAK` cursor** — After `insertControlCharacter(..., PARAGRAPH_BREAK)`, the cursor stays **before** the break ([`html_export.py`](../plugin/writer/html_export.py)). Move with `goRight(1)` / `gotoNextParagraph` before inserting stdout.
 
 ---
 
@@ -114,7 +117,7 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 
 3. **Session id** — `notebook:{workbook_key}` from [`notebook_session_id`](../plugin/scripting/session_manager.py). Not gated on `python_session_mode` (Calc-only).
 
-4. **Output refresh** — On run: clear output region (bookmark → next cell boundary), then `apply_run_result`. **Clear step currently broken** — see known gaps.
+4. **Output refresh** — On run: clear output region (bookmark → next cell boundary), then `apply_run_result`. Stdout is its own paragraph; a trailing `PARAGRAPH_BREAK` keeps the next cell heading from sharing that line.
 
 5. **LLM stays out** — Notebook kernel variables are not visible to chat tools.
 

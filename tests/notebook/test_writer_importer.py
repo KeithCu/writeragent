@@ -13,11 +13,13 @@ from plugin.notebook.writer_importer import (
     _ImportStackCursor,
     _MAX_IMAGE_DECODE_BYTES,
     _MAX_IMPORT_TEXT_CHARS,
+    _PARAGRAPH_BREAK,
     _STYLE_MD_H1,
     _STYLE_MD_H2,
     _STYLE_NOTEBOOK_IN,
     _append_body_text_block,
     _append_body_paragraph,
+    _append_paragraph_break_at_end,
     _apply_no_spellcheck_for_import,
     _cell_heading,
     _coerce_notebook_text,
@@ -454,6 +456,24 @@ def test_import_code_cell_without_outputs_still_adds_output_heading(tmp_path, mo
 
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
     assert "Output" in inserted
+    # Gutter/control split + Output heading lead_break (first cell has no lead_break).
+    breaks = [call.args[1] for call in body_text.insertControlCharacter.call_args_list]
+    assert breaks.count(_PARAGRAPH_BREAK) >= 2
+
+
+def test_import_cells_breaks_before_in_flow_controls():
+    from plugin.notebook import writer_importer as wi
+
+    cell_src = inspect.getsource(wi._import_cells)
+    assert "_append_paragraph_break_at_end" in cell_src
+
+
+def test_append_paragraph_break_at_end_inserts_break():
+    doc, body_text, body_cursor = _writer_doc_mock()
+    _append_paragraph_break_at_end(doc)
+    body_text.insertControlCharacter.assert_called_once_with(
+        body_cursor, _PARAGRAPH_BREAK, False
+    )
 
 
 def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):

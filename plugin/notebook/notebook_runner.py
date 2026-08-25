@@ -214,6 +214,25 @@ def _insert_run_image(doc: Any, payload: dict[str, Any], *, ctx: Any, images_bef
     return _insert_image_in_flow(doc, raw=bytes(raw), mime=mime, images_before=images_before, ctx=ctx)
 
 
+def _enter_paragraph_after_break(cursor: Any) -> None:
+    """Move *cursor* past a just-inserted PARAGRAPH_BREAK.
+
+    Writer leaves the cursor **before** the break (``html_export._range_to_content_via_temp_doc``:
+    insertControlCharacter then ``gotoNextParagraph``). ``vision_egress`` / math insert use
+    ``goRight(1)``. Without this move, ``insertString`` writes into the Output heading or
+    prepends onto the next cell's chrome (``NumPy Version: …Cell 3: Markdown``).
+    """
+    try:
+        if cursor.goRight(1, False):
+            return
+    except Exception:
+        log.debug("notebook run: goRight after PARAGRAPH_BREAK failed", exc_info=True)
+    try:
+        cursor.gotoNextParagraph(False)
+    except Exception:
+        log.debug("notebook run: gotoNextParagraph after PARAGRAPH_BREAK failed", exc_info=True)
+
+
 def apply_run_result(
     doc: Any,
     cell: NotebookCodeCell,
@@ -233,12 +252,17 @@ def apply_run_result(
                 # New paragraph under the Output heading. Do not gotoEnd() — that is
                 # the document end and would drop later cells' output at the bottom.
                 text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+                _enter_paragraph_after_break(cursor)
                 if output_style:
                     try:
                         cursor.setPropertyValue("ParaStyleName", output_style)
                     except Exception:
                         log.debug("notebook run: ParaStyleName %r not applied", output_style)
                 text.insertString(cursor, display, False)
+                # If the cursor had been at the start of the next cell heading,
+                # insertString prepended stdout onto that chrome. A trailing break
+                # splits ``NumPy Version: …Cell 3: Markdown`` back into two paras.
+                text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
             else:
                 _append_body_text_block(doc, display, _STYLE_OUTPUT, lead_break=True)
     if result.get("status") == "ok":
@@ -246,6 +270,63 @@ def apply_run_result(
         images = find_image_payloads(wire)
         for img in images:
             _insert_run_image(doc, img, ctx=ctx, images_before=0)
+
+
+def _leading_text_cursor(text: Any, para: Any) -> Any | None:
+    """Cursor over leading Text portions of *para*, stopping before in-flow shapes.
+
+    Importer used to put AS_CHARACTER ▶ / code ``TextField`` in the same paragraph as
+    ``[In [n]]\\tCell N: Code``. ``setString`` on ``para.getStart()``–``getEnd()`` then
+    deleted those ``ControlShape``s (TextPortionType ``Frame``). Replace text only.
+    """
+    try:
+        enum = para.createEnumeration()
+    except Exception:
+        return None
+    first = None
+    last = None
+    while enum.hasMoreElements():
+        portion = enum.nextElement()
+        try:
+            ptype = str(portion.getPropertyValue("TextPortionType") or "")
+        except Exception:
+            ptype = str(getattr(portion, "TextPortionType", "") or "")
+        if ptype == "Frame":
+            break
+        if ptype != "Text":
+            continue
+        if first is None:
+            first = portion
+        last = portion
+    if first is None:
+        return None
+    try:
+        cursor = text.createTextCursorByRange(first)
+        if last is not None:
+            cursor.gotoRange(last, True)
+        return cursor
+    except Exception:
+        log.debug("notebook run: could not build leading text cursor", exc_info=True)
+        return None
+
+
+def _gutter_text_cursor(text: Any, para: Any) -> Any | None:
+    """Range to rewrite for ``[In [n]]`` — never a range that contains ControlShapes."""
+    cursor = _leading_text_cursor(text, para)
+    if cursor is not None:
+        return cursor
+    # Fallback when portion enumeration is unavailable (unit mocks): expand only
+    # as far as getString() so we do not cover AS_CHARACTER positions it omits.
+    try:
+        content = para.getString() or ""
+        cursor = text.createTextCursorByRange(para.getStart())
+        n = min(len(content), 32767)
+        if n:
+            cursor.goRight(n, True)
+        return cursor
+    except Exception:
+        log.debug("notebook run: gutter text cursor fallback failed", exc_info=True)
+        return None
 
 
 def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | None) -> None:
@@ -267,8 +348,9 @@ def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | No
         if marker not in content:
             continue
         try:
-            cursor = text.createTextCursorByRange(para.getStart())
-            cursor.gotoRange(para.getEnd(), True)
+            cursor = _gutter_text_cursor(text, para)
+            if cursor is None:
+                return
             cursor.setString(new_line)
         except Exception:
             log.exception("notebook run: failed to update in prompt for cell %d", cell.index)

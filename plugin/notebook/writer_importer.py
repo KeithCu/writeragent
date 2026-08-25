@@ -654,6 +654,14 @@ def _doc_body_nonempty(doc: Any) -> bool:
         return True
 
 
+def _append_paragraph_break_at_end(doc: Any) -> None:
+    """Insert a paragraph break at body end so following in-flow shapes are not in the previous para."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+
+
 def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, lead_break: bool) -> None:
     """Append one paragraph to the Writer body (end of document)."""
     if not content and not para_style:
@@ -954,6 +962,10 @@ def _import_cells(
         if cell_type == "code":
             title = _cell_heading(idx, cell_type, ec)
             _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
+            # ▶ and the code TextField must not share the gutter paragraph.
+            # update_in_prompt used to setString that whole range, which deletes
+            # in-flow ControlShapes (the ▶ vanished after a successful run).
+            _append_paragraph_break_at_end(doc)
         else:
             _append_cell_heading(doc, _cell_heading(idx, cell_type), lead_break=lead)
 

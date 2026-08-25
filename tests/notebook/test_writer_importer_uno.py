@@ -409,6 +409,15 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
         assert "NumPy Version" not in tail or "Multiplied" in tail, (
             f"cell 1 output looks dumped at document end: {tail!r}"
         )
+        mashed = [t for _s, t in _paragraphs(doc) if "NumPy Version" in t and "Cell 3: Markdown" in t]
+        assert not mashed, f"stdout concatenated onto next heading: {mashed!r}"
+
+    draw_after_run = _draw_control_names(doc)
+    for field in field_names:
+        assert field in draw_after_run, f"{field} vanished from draw page after run: {draw_after_run}"
+    for cell in state.code_cells:
+        run_name = f"nb_run_{cell_id_to_hex(cell.cell_id)}"
+        assert run_name in draw_after_run, f"{run_name} vanished from draw page after run: {draw_after_run}"
 
     # Re-run cell 1 via the button/protocol path; output must replace, not append.
     cell0 = state.code_cells[0]
@@ -430,6 +439,14 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
     assert "A Small Introduction to NumPy" in body_after
     assert "1. Creating Arrays" in body_after
     assert "2. Array Operations" in body_after
+    draw_after_rerun = _draw_control_names(doc)
+    for field in field_names:
+        assert field in draw_after_rerun, f"{field} vanished after re-run: {draw_after_rerun}"
+    for cell in state.code_cells:
+        run_name = f"nb_run_{cell_id_to_hex(cell.cell_id)}"
+        assert run_name in draw_after_rerun, f"{run_name} vanished after re-run: {draw_after_rerun}"
+    mashed_after = [t for _s, t in _paragraphs(doc) if "NumPy Version" in t and "Cell 3: Markdown" in t]
+    assert not mashed_after, f"re-run mashed stdout onto next heading: {mashed_after!r}"
 
     import plugin.scripting.session_manager as sm
 

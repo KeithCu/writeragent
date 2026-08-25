@@ -9,6 +9,7 @@ import pytest
 
 from plugin.notebook.cell_registry import NotebookDocState, cell_id_to_hex, new_code_cell_entry
 from plugin.notebook.notebook_runner import (
+    _gutter_text_cursor,
     _is_next_cell_boundary,
     _paragraph_string,
     apply_run_result,
@@ -18,6 +19,7 @@ from plugin.notebook.notebook_runner import (
     init_registry_execution_counter,
     read_code_from_field,
     run_cell,
+    update_in_prompt,
     run_cell_target_url,
 )
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -390,3 +392,71 @@ def test_apply_run_result_replaces_via_clear_then_insert():
     assert inserted == ["first", "second"]
     text.deleteContents.assert_not_called()
     cursor.gotoEnd.assert_not_called()
+    # Lead break into the output para + trailing break so the next heading stays separate.
+    from plugin.notebook.writer_importer import _PARAGRAPH_BREAK
+
+    breaks = [call.args[1] for call in text.insertControlCharacter.call_args_list]
+    assert breaks.count(_PARAGRAPH_BREAK) == 4
+    cursor.goRight.assert_called()
+
+
+def test_gutter_text_cursor_stops_before_frame_portion():
+    """setString must not cover AS_CHARACTER ControlShapes (▶ / code field)."""
+    text_portion = MagicMock(name="text_portion")
+    text_portion.getPropertyValue.return_value = "Text"
+    frame_portion = MagicMock(name="frame_portion")
+    frame_portion.getPropertyValue.return_value = "Frame"
+
+    para = MagicMock()
+    para.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
+
+    text_cursor = MagicMock(name="text_cursor")
+    text = MagicMock()
+    text.createTextCursorByRange.return_value = text_cursor
+
+    cursor = _gutter_text_cursor(text, para)
+    assert cursor is text_cursor
+    text.createTextCursorByRange.assert_called_once_with(text_portion)
+    text_cursor.gotoRange.assert_called_once_with(text_portion, True)
+    assert all(call.args[0] is not frame_portion for call in text.createTextCursorByRange.call_args_list)
+
+
+def test_update_in_prompt_does_not_setstring_whole_paragraph():
+    """Whole-para setString deletes in-flow ▶ and code fields that share the gutter line."""
+    text_portion = MagicMock(name="text_portion")
+    text_portion.getPropertyValue.return_value = "Text"
+    frame_portion = MagicMock(name="frame_portion")
+    frame_portion.getPropertyValue.return_value = "Frame"
+
+    para = MagicMock()
+    para.getString.return_value = "[In [1]]\tCell 2: Code"
+    para.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
+    para.getStart.return_value = "para-start"
+    para.getEnd.return_value = "para-end"
+
+    text_cursor = MagicMock(name="text_cursor")
+    whole_para = MagicMock(name="whole_para")
+    text = MagicMock()
+    text.createEnumeration.return_value = _enum_of([para])
+
+    def _cursor_for(rng):
+        if rng is text_portion:
+            return text_cursor
+        return whole_para
+
+    text.createTextCursorByRange.side_effect = _cursor_for
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    cell = new_code_cell_entry(1, 1, "nb_cell_1_code")
+    update_in_prompt(doc, cell, 4)
+
+    text_cursor.setString.assert_called_once_with("[In [4]]\tCell 2: Code")
+    whole_para.setString.assert_not_called()
+    whole_para.gotoRange.assert_not_called()
+
+
+def test_update_in_prompt_source_never_setstrings_para_end():
+    src = inspect.getsource(update_in_prompt)
+    assert "para.getEnd()" not in src
+    assert "_gutter_text_cursor" in src
