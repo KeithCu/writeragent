@@ -155,12 +155,14 @@ def test_cover_all_and_check_all_main_set_crosshair_env(tmp_path, monkeypatch) -
     )
     assert cover_all_main(["--list", "--plugin-root", str(plugin)]) == 0
     assert os.environ.get(CROSSHAIR_ENV) == "1"
-    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
+    # Pop without a second monkeypatch.delenv — that would snapshot "1" as the
+    # restore value and leak the env into later pytest cases.
+    os.environ.pop(CROSSHAIR_ENV, None)
     assert check_all_main(["--list", "--plugin-root", str(plugin)]) == 0
     assert os.environ.get(CROSSHAIR_ENV) == "1"
 
 
-def test_cover_all_workers_bind_short_deal_table() -> None:
+def test_cover_all_workers_bind_short_deal_table(monkeypatch) -> None:
     """Cover-all pool workers must see deal_maxima(crosshair=True), not pytest's wide table.
 
     Spawn (not fork): pytest has already imported deal_shim with the wide bind;
@@ -173,6 +175,7 @@ def test_cover_all_workers_bind_short_deal_table() -> None:
     from scripts.crosshair_cover_all import enable_crosshair_deal_table, worker_deal_maxima
     from scripts.crosshair_stream import CROSSHAIR_DEAL_ENV
 
+    monkeypatch.delenv(CROSSHAIR_ENV, raising=False)
     assert CROSSHAIR_DEAL_ENV == CROSSHAIR_ENV == "WRITERAGENT_CROSSHAIR"
     assert os.environ.get(CROSSHAIR_ENV) != "1"
     wide = deal_maxima(crosshair=False)
