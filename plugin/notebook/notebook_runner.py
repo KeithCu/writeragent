@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,6 +26,7 @@ from plugin.notebook.cell_registry import (
     save_registry,
 )
 from plugin.notebook.writer_importer import (
+    _PARAGRAPH_BREAK,
     _STYLE_NOTEBOOK_IN,
     _STYLE_OUTPUT,
     _append_body_text_block,
@@ -122,38 +124,51 @@ def _cursor_after_bookmark(doc: Any, bookmark_name: str) -> Any | None:
         return None
 
 
+# Markdown/raw chrome is ``Cell N: Markdown`` (Heading 3). Code gutters use
+# ``WriterAgent Notebook In`` and/or ``[In [n]]\tCell N: Code``.
+_CELL_CHROME_RE = re.compile(r"^Cell \d+: (Markdown|Raw|Code)\b")
+
+
 def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: str | None) -> bool:
     if notebook_in_resolved and para_style == notebook_in_resolved:
         return True
     stripped = (content or "").strip()
-    return stripped.startswith("[In [") and ": Code" in stripped
+    if stripped.startswith("[In [") and ": Code" in stripped:
+        return True
+    # Stopping only at the next code gutter ate markdown cells between code cells
+    # (the small NumPy fixture is markdown/code/markdown/…).
+    return bool(_CELL_CHROME_RE.match(stripped))
 
 
 def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
-    """Remove body content after the output bookmark through the next cell boundary."""
+    """Remove body content after the output bookmark through the next cell boundary.
+
+    Writer ``XText`` has no ``deleteContents`` (PyUNO raises AttributeError, logged as
+    ``failed to clear output for cell`` so re-runs appended stdout). House pattern is
+    ``cursor.setString("")`` on the selected range (same as ``html_import`` / ``edit_review``).
+    """
     start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
     if start is None:
         return
     text = doc.getText()
-    if not start.gotoNextParagraph(False):
-        return
-    start.gotoStartOfParagraph(False)
     notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
-    end = text.createTextCursorByRange(start.getStart())
-    end.gotoStartOfParagraph(False)
+    end = text.createTextCursorByRange(start)
+    if _is_next_cell_boundary(end.ParaStyleName, end.getString(), notebook_in):
+        return
+    found_boundary = False
     while end.gotoNextParagraph(False):
         if _is_next_cell_boundary(end.ParaStyleName, end.getString(), notebook_in):
             end.gotoStartOfParagraph(False)
+            found_boundary = True
             break
-    else:
+    if not found_boundary:
         end.gotoEnd(False)
-    sel = text.createTextCursor()
-    sel.gotoRange(start.getStart(), False)
+    sel = text.createTextCursorByRange(start)
     sel.gotoRange(end.getStart(), True)
     if not (sel.getString() or "").strip():
         return
     try:
-        text.deleteContents(sel, False)
+        sel.setString("")
     except Exception:
         log.exception("notebook run: failed to clear output for cell %d", cell.index)
 
@@ -188,13 +203,15 @@ def apply_run_result(
         if display.strip():
             if cursor is not None:
                 text = doc.getText()
+                # New paragraph under the Output heading. Do not gotoEnd() — that is
+                # the document end and would drop later cells' output at the bottom.
+                text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
                 if output_style:
                     try:
                         cursor.setPropertyValue("ParaStyleName", output_style)
                     except Exception:
                         log.debug("notebook run: ParaStyleName %r not applied", output_style)
                 text.insertString(cursor, display, False)
-                cursor.gotoEnd(False)
             else:
                 _append_body_text_block(doc, display, _STYLE_OUTPUT, lead_break=True)
     if result.get("status") == "ok":
@@ -278,7 +295,7 @@ def run_cell_for_doc_hex(ctx: Any, doc: Any, hex_id: str) -> None:
         msgbox(
             ctx,
             "WriterAgent",
-            _("This document has no imported notebook. Use Tools → Import Jupyter Notebook… first."),
+            _("This document has no imported notebook. Use WriterAgent → Debug → Import Jupyter Notebook… first."),
         )
         return
     cell = find_cell_by_hex(state, hex_id)

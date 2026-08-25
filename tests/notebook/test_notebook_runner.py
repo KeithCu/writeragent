@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import inspect
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from plugin.notebook.cell_registry import NotebookDocState, cell_id_to_hex, new_code_cell_entry
 from plugin.notebook.notebook_runner import (
+    _is_next_cell_boundary,
+    apply_run_result,
+    clear_cell_output,
     execute_code,
     format_run_output_text,
     init_registry_execution_counter,
@@ -180,3 +184,142 @@ def test_cell_id_hex_round_trip(hex_id, expected_ok):
         return
     assert restored is not None
     assert cell_id_to_hex(restored) == hex_id
+
+
+def test_clear_cell_output_source_has_no_delete_contents():
+    src = inspect.getsource(clear_cell_output)
+    assert ".deleteContents(" not in src
+    assert "setString" in src
+
+
+def test_is_next_cell_boundary_markdown_and_code():
+    assert _is_next_cell_boundary("Heading 3", "Cell 3: Markdown", None) is True
+    assert _is_next_cell_boundary("Heading 3", "Cell 5: Raw", None) is True
+    assert _is_next_cell_boundary("Preformatted Text", "old stdout", None) is False
+    assert _is_next_cell_boundary("WriterAgent Notebook In", "[In [1]]\tCell 2: Code", "WriterAgent Notebook In") is True
+
+
+def test_clear_cell_output_uses_set_string_not_delete_contents():
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    start = MagicMock(name="start")
+    start.ParaStyleName = "Preformatted Text"
+    start.getString.return_value = "old stdout"
+
+    walker = MagicMock(name="walker")
+    walker.ParaStyleName = "Preformatted Text"
+    walker.getString.return_value = "old stdout"
+
+    def goto_next(_expand):
+        walker.ParaStyleName = "WriterAgent Notebook In"
+        walker.getString.return_value = "[In [ ]]\tCell 2: Code"
+        return True
+
+    walker.gotoNextParagraph.side_effect = goto_next
+    walker.getStart.return_value = "end-pos"
+
+    sel = MagicMock(name="sel")
+    sel.getString.return_value = "old stdout\n"
+
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = [walker, sel]
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+    ):
+        clear_cell_output(doc, cell)
+
+    text.deleteContents.assert_not_called()
+    sel.gotoRange.assert_called_once_with("end-pos", True)
+    sel.setString.assert_called_once_with("")
+
+
+def test_clear_cell_output_stops_at_markdown_cell_heading():
+    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
+    start = MagicMock(name="start")
+    start.ParaStyleName = "Preformatted Text"
+    start.getString.return_value = "Array: [10 20 30]"
+
+    walker = MagicMock(name="walker")
+    walker.ParaStyleName = "Preformatted Text"
+    walker.getString.return_value = "Array: [10 20 30]"
+
+    def goto_next(_expand):
+        walker.ParaStyleName = "Heading 3"
+        walker.getString.return_value = "Cell 3: Markdown"
+        return True
+
+    walker.gotoNextParagraph.side_effect = goto_next
+    walker.getStart.return_value = "md-start"
+
+    sel = MagicMock(name="sel")
+    sel.getString.return_value = "Array: [10 20 30]\n"
+
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = [walker, sel]
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+    ):
+        clear_cell_output(doc, cell)
+
+    sel.setString.assert_called_once_with("")
+    walker.gotoStartOfParagraph.assert_called_once()
+
+
+def test_run_cell_rerun_clears_then_applies():
+    ctx = MagicMock()
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    doc = MagicMock()
+    order: list[str] = []
+
+    def rec_clear(*_a, **_k):
+        order.append("clear")
+
+    def rec_apply(*_a, **_k):
+        order.append("apply")
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", return_value="print(1)"),
+        patch(
+            "plugin.notebook.notebook_runner.execute_code",
+            return_value={"status": "ok", "result": None, "stdout": "1\n"},
+        ),
+        patch("plugin.notebook.notebook_runner.clear_cell_output", side_effect=rec_clear),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=rec_apply),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
+    ):
+        assert run_cell(ctx, doc, cell.cell_id).status == "ok"
+        assert run_cell(ctx, doc, cell.cell_id).status == "ok"
+
+    assert order == ["clear", "apply", "clear", "apply"]
+
+
+def test_apply_run_result_replaces_via_clear_then_insert():
+    """Re-run path: clear empties the range; apply writes the new stdout under Output."""
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    cursor = MagicMock()
+    text = MagicMock()
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=cursor),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="Preformatted Text"),
+    ):
+        apply_run_result(doc, cell, {"status": "ok", "stdout": "first\n", "result": None})
+        apply_run_result(doc, cell, {"status": "ok", "stdout": "second\n", "result": None})
+
+    inserted = [call.args[1] for call in text.insertString.call_args_list]
+    assert inserted == ["first", "second"]
+    text.deleteContents.assert_not_called()
+    cursor.gotoEnd.assert_not_called()

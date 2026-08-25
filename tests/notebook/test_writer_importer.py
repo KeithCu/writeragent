@@ -13,6 +13,8 @@ from plugin.notebook.writer_importer import (
     _ImportStackCursor,
     _MAX_IMAGE_DECODE_BYTES,
     _MAX_IMPORT_TEXT_CHARS,
+    _STYLE_MD_H1,
+    _STYLE_MD_H2,
     _STYLE_NOTEBOOK_IN,
     _append_body_text_block,
     _append_body_paragraph,
@@ -23,6 +25,8 @@ from plugin.notebook.writer_importer import (
     _decode_notebook_image,
     _ensure_notebook_import_styles,
     _format_in_prompt,
+    _inline_backticks_to_html,
+    _iter_markdown_blocks,
     _looks_like_html,
     _notebook_image_payload,
     _png_pixel_size,
@@ -491,3 +495,102 @@ def test_import_ipynb_saves_registry_with_two_code_cells(tmp_path, monkeypatch):
     assert state.code_cells[0].execution_count == 1
     assert state.code_cells[1].execution_count == 2
     assert state.code_cells[0].output_start_bookmark.startswith("nb_out_")
+
+
+def test_iter_markdown_blocks_atx_and_paragraphs():
+    blocks = _iter_markdown_blocks(
+        "# A Small Introduction to NumPy\n\n"
+        "This is a compact version.\n\n"
+        "## 1. Creating Arrays\n\n"
+        "The primary data structure is the `ndarray`.\n"
+    )
+    assert blocks[0] == ("h1", "A Small Introduction to NumPy")
+    assert blocks[1] == ("p", "This is a compact version.")
+    assert blocks[2] == ("h2", "1. Creating Arrays")
+    assert blocks[3] == ("p", "The primary data structure is the `ndarray`.")
+    assert not any(kind.startswith("#") or text.lstrip().startswith("#") for kind, text in blocks)
+
+
+def test_iter_markdown_blocks_deeper_atx_maps_to_h2():
+    blocks = _iter_markdown_blocks("### Deep\n\nbody")
+    assert blocks[0] == ("h2", "Deep")
+
+
+def test_inline_backticks_to_html_wraps_code():
+    html = _inline_backticks_to_html("The primary data structure in NumPy is the `ndarray`.")
+    assert "<code>ndarray</code>" in html
+    assert "`ndarray`" not in html
+    assert "NumPy" in html
+
+
+class FakeSize:
+    def __init__(self, w, h):
+        self.Width = w
+        self.Height = h
+
+
+def test_import_small_numpy_notebook_fixture(monkeypatch):
+    ipynb = Path(__file__).resolve().parents[1] / "fixtures" / "introduction-to-numpy-small.ipynb"
+    assert ipynb.is_file()
+
+    doc, body_text, body_cursor = _writer_doc_mock(with_bookmarks=True)
+    para_styles = MagicMock()
+    para_styles.hasByName.return_value = False
+    para_styles.getElementNames.return_value = [
+        "Text Body",
+        "Heading 1",
+        "Heading 2",
+        "Heading 3",
+        "Heading 4",
+        "Preformatted Text",
+        _STYLE_NOTEBOOK_IN,
+    ]
+    families = MagicMock()
+    families.getByName.return_value = para_styles
+    doc.getStyleFamilies.return_value = families
+
+    text_fields: list[Any] = []
+    style_instance = MagicMock()
+
+    def create_instance(service):
+        if service == "com.sun.star.style.ParagraphStyle":
+            return style_instance
+        model = MagicMock()
+        if service == "com.sun.star.form.component.TextField":
+            text_fields.append(model)
+        return model
+
+    doc.createInstance.side_effect = create_instance
+    monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
+    monkeypatch.setattr("plugin.notebook.cell_registry.insert_output_start_bookmark", lambda _d, _n: True)
+
+    html_calls: list[str] = []
+
+    def fake_insert_html(cursor, html, **kwargs):
+        html_calls.append(html)
+        return True
+
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
+
+    stats = import_ipynb_to_writer(doc, str(ipynb))
+
+    assert stats["cells"] == 6
+    assert stats["markdown"] == 3
+    assert stats["code"] == 3
+    assert stats["shapes"] == 6
+    assert [f.Name for f in text_fields] == ["nb_cell_1_code", "nb_cell_3_code", "nb_cell_5_code"]
+
+    inserted = [call.args[1] for call in body_text.insertString.call_args_list]
+    assert "A Small Introduction to NumPy" in inserted
+    assert "1. Creating Arrays" in inserted
+    assert "2. Array Operations" in inserted
+    assert not any(str(t).lstrip().startswith("#") for t in inserted)
+
+    style_names = [
+        call.args[1] for call in body_cursor.setPropertyValue.call_args_list if call.args[0] == "ParaStyleName"
+    ]
+    assert _STYLE_MD_H1 in style_names
+    assert _STYLE_MD_H2 in style_names
+
+    assert any("<code>ndarray</code>" in h for h in html_calls)
+    assert not any("# A Small" in h or "## 1." in h for h in html_calls)

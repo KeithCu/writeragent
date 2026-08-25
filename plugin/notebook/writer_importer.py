@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import base64
+import html as html_lib
 import logging
 import os
 import re
@@ -62,6 +63,10 @@ _DEFAULT_IMAGE_HEIGHT_MM = 80
 _IMAGE_MIME_SUFFIX = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/svg+xml": ".svg"}
 
 # Writer paragraph styles (document locale usually provides these English names).
+# Markdown ATX uses Heading 1/2 so it does not collide with cell chrome (Heading 3)
+# or the Output label (Heading 4).
+_STYLE_MD_H1 = "Heading 1"
+_STYLE_MD_H2 = "Heading 2"
 _STYLE_CELL_HEADING = "Heading 3"
 _STYLE_SECTION_HEADING = "Heading 4"
 _STYLE_OUTPUT = "Preformatted Text"
@@ -75,6 +80,9 @@ _NOTEBOOK_IN_MARGIN_BOTTOM = 40
 
 _PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
 _HTML_TAG_RE = re.compile(r"<\s*[a-zA-Z]", re.DOTALL)
+# CommonMark ATX: 1–6 hashes, space, title, optional closing hashes.
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
+_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 
 
 def _mono_ms(t0: float) -> int:
@@ -477,6 +485,8 @@ def _apply_no_spellcheck_for_import(doc: Any) -> None:
     for style_name in (
         "Standard",
         _STYLE_BODY,
+        _STYLE_MD_H1,
+        _STYLE_MD_H2,
         _STYLE_CELL_HEADING,
         _STYLE_SECTION_HEADING,
         _STYLE_OUTPUT,
@@ -581,6 +591,51 @@ def _looks_like_html(text: str) -> bool:
     return bool(_HTML_TAG_RE.search((text or "").strip()))
 
 
+def _inline_backticks_to_html(text: str) -> str:
+    """Escape *text* and wrap `` `code` `` spans in ``<code>``."""
+    parts: list[str] = []
+    last = 0
+    for match in _INLINE_CODE_RE.finditer(text):
+        parts.append(html_lib.escape(text[last : match.start()]))
+        parts.append(f"<code>{html_lib.escape(match.group(1))}</code>")
+        last = match.end()
+    parts.append(html_lib.escape(text[last:]))
+    return "".join(parts)
+
+
+def _iter_markdown_blocks(source: str) -> list[tuple[str, str]]:
+    """Split CommonMark source into ATX headings and paragraphs.
+
+    Not a full CommonMark parser: lists, tables, and images stay as body text.
+    ``#`` → h1, ``##`` and deeper → h2 so markdown does not reuse Heading 3/4
+    (cell titles / Output).
+    """
+    blocks: list[tuple[str, str]] = []
+    para: list[str] = []
+
+    def flush_para() -> None:
+        if para:
+            blocks.append(("p", "\n".join(para)))
+            para.clear()
+
+    for raw_line in (source or "").splitlines():
+        line = raw_line.rstrip()
+        match = _ATX_HEADING_RE.match(line)
+        if match:
+            flush_para()
+            title = (match.group(2) or "").strip()
+            if title:
+                kind = "h1" if len(match.group(1)) <= 1 else "h2"
+                blocks.append((kind, title))
+            continue
+        if not line.strip():
+            flush_para()
+            continue
+        para.append(line)
+    flush_para()
+    return blocks
+
+
 def _wrap_html_fragment(html: str) -> str:
     body = (html or "").strip()
     if re.search(r"(?is)<\s*html\b", body):
@@ -632,27 +687,51 @@ def _append_body_text_block(
     _append_body_paragraph(doc, display, para_style, lead_break=lead_break)
 
 
+def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool) -> bool:
+    """Insert an HTML fragment at the document end. Returns False on failure."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    if lead_break and _doc_body_nonempty(doc):
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        cursor.gotoEnd(False)
+    from plugin.writer.html_import import insert_html_fragment_at_cursor
+
+    try:
+        insert_html_fragment_at_cursor(cursor, _wrap_html_fragment(html), wrap=False)
+        return True
+    except Exception:
+        log.exception("notebook import HTML insert failed; falling back to plain text")
+        return False
+
+
 def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool) -> None:
-    """Markdown cell: HTML fragments via StarWriter filter; else plain text body."""
+    """Markdown cell: HTML as-is; CommonMark ATX headings + inline ``code``; else body text.
+
+    Jupyter cells are CommonMark, not HTML. The old path only ran the StarWriter HTML
+    filter when ``_looks_like_html`` matched, so ``# Heading`` stayed literal Text Body.
+    """
     display, _unused = _prepare_display_text(source)
     if not display:
         return
     if _looks_like_html(display):
-        text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
-        if lead_break and _doc_body_nonempty(doc):
-            text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
-            cursor.gotoEnd(False)
-        from plugin.writer.html_import import insert_html_fragment_at_cursor
-
-        try:
-            insert_html_fragment_at_cursor(cursor, _wrap_html_fragment(display), wrap=False)
-        except Exception:
-            log.exception("notebook import HTML insert failed; falling back to plain text")
+        if not _insert_html_at_body_end(doc, display, lead_break=lead_break):
             _append_body_paragraph(doc, display, _STYLE_BODY, lead_break=False)
-    else:
-        _append_body_text_block(doc, display, _STYLE_BODY, lead_break=lead_break)
+        return
+    first = True
+    for kind, text in _iter_markdown_blocks(display):
+        block_lead = lead_break if first else True
+        first = False
+        if kind == "h1":
+            _append_body_paragraph(doc, text, _STYLE_MD_H1, lead_break=block_lead)
+        elif kind == "h2":
+            _append_body_paragraph(doc, text, _STYLE_MD_H2, lead_break=block_lead)
+        elif "`" in text:
+            html = f"<p>{_inline_backticks_to_html(text)}</p>"
+            if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
+                _append_body_paragraph(doc, text, _STYLE_BODY, lead_break=False)
+        else:
+            _append_body_paragraph(doc, text, _STYLE_BODY, lead_break=block_lead)
 
 
 def _append_cell_heading(doc: Any, title: str, *, lead_break: bool) -> None:
