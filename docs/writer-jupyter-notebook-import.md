@@ -36,7 +36,7 @@ For the full interactive roadmap (Run All, Stop, export, …), see [calc-noteboo
 | Control lookup — [`form_lookup.py`](../plugin/notebook/form_lookup.py) indexes `ControlShape` models on the document draw page (required for wiring ▶ buttons) | Batched background image decode |
 | **Reset Python Session** — clears `notebook:…` kernel for Writer docs with a registry ([`session_manager.py`](../plugin/scripting/session_manager.py)) | `notebook.enable_interactive` / Settings UI keys |
 | Output images: `image/png`, `image/jpeg` in `display_data` / `execute_result` | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
-| Tests: [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py), [`tests/notebook/`](../tests/notebook/) | UNO smoke test for run cell (optional) |
+| Tests: [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py), [`tests/notebook/`](../tests/notebook/) (pytest) plus live Writer smoke [`tests/notebook/test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py) | Pixel-click FilePicker (optional manual) |
 
 **Why vendored nbformat, not PyPI:** Same pattern as [`local_python_executor.py`](../plugin/contrib/smolagents/local_python_executor.py) — no extra deps in the OXT. Do not `pip install nbformat` into LibreOffice.
 
@@ -140,6 +140,14 @@ tail -f ~/.config/libreoffice/4/user/writeragent_debug.log
 
 [`flush_ui_idle`](../plugin/notebook/writer_importer.py) calls `processEventsToIdle()` after import, after wiring, and after each run.
 
+Live Writer smoke (same Debug-menu action, FilePicker driven to the small fixture — not a pixel-click):
+
+```bash
+python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py
+```
+
+Optional remaining manual: after `make deploy writer`, **WriterAgent → Debug → Import Jupyter Notebook…**, pick `tests/fixtures/introduction-to-numpy-small.ipynb`, confirm the completion msgbox, click the three ▶ buttons in order.
+
 ---
 
 ### Image loading and UI threading
@@ -197,7 +205,7 @@ Vendored nbformat: [`plugin/contrib/nbformat/README.md`](../plugin/contrib/nbfor
 | **Writer `.ipynb` import** | [`writer_importer.py`](../plugin/notebook/writer_importer.py), [`import_dialog.py`](../plugin/notebook/import_dialog.py) |
 | **Notebook registry (Phase 0)** | [`cell_registry.py`](../plugin/notebook/cell_registry.py); `notebook:…` session; **Reset Python Session** |
 | **Run single cell (Phase 1)** | [`notebook_runner.py`](../plugin/notebook/notebook_runner.py), [`notebook_controls.py`](../plugin/notebook/notebook_controls.py), [`form_lookup.py`](../plugin/notebook/form_lookup.py) |
-| Tests | [`tests/notebook/`](../tests/notebook/) (registry, importer, form lookup, controls, runner, session) |
+| Tests | [`tests/notebook/`](../tests/notebook/) (registry, importer, form lookup, controls, runner, session) + live [`test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py) |
 
 ### Not shipped
 
