@@ -56,7 +56,13 @@ def test_format_stream_output():
         name = "stdout"
         text = "hello\n"
 
-    assert format_output_text(Out()) == "[stdout]\nhello\n"
+    assert format_output_text(Out()) == "hello\n"
+
+
+def test_format_execute_result_gets_out_prompt():
+    out = {"output_type": "execute_result", "data": {"text/plain": "42"}}
+    assert format_output_text(out, execution_count=3) == "Out [3]: 42"
+    assert format_output_text(out) == "42"
 
 
 def test_format_error_strips_ansi():
@@ -98,6 +104,14 @@ def test_png_pixel_size_1x1():
         b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
     )
     assert _png_pixel_size(raw) == (1, 1)
+
+
+def test_jpeg_pixel_size_reads_sof():
+    from plugin.notebook.writer_importer import _jpeg_pixel_size
+
+    # Minimal SOF0: FF C0, length, bits, height=10, width=20
+    raw = b"\xff\xd8\xff\xc0\x00\x0b\x08\x00\x0a\x00\x14\x03\x01\x22\x00"
+    assert _jpeg_pixel_size(raw) == (20, 10)
 
 
 def test_decode_notebook_image_rejects_oversize():
@@ -178,13 +192,14 @@ def test_wrap_html_fragment_adds_body():
 
 
 def test_format_in_prompt_executed_and_unexecuted():
-    assert _format_in_prompt(1) == "[In [1]]"
-    assert _format_in_prompt(None) == "[In [ ]]"
+    assert _format_in_prompt(1) == "In [1]:"
+    assert _format_in_prompt(None) == "In [ ]:"
 
 
-def test_cell_heading_includes_in_prompt():
-    assert _cell_heading(1, "code") == "[In [ ]]\tCell 2: Code"
-    assert "[In" not in _cell_heading(0, "markdown")
+def test_cell_heading_is_in_prompt_only():
+    assert _cell_heading(1, "code") == "In [ ]:"
+    assert _cell_heading(0, "markdown") == ""
+    assert "Cell" not in _cell_heading(0, "code", 2)
 
 
 def test_create_import_para_style_skips_existing():
@@ -353,11 +368,13 @@ def test_import_ipynb_code_cells_use_insert_text_content(tmp_path, monkeypatch):
     assert stats["shapes"] == 4
     assert body_text.insertTextContent.call_count == 4
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
-    assert "[In [1]]\tCell 2: Code" in inserted
-    assert "[In [2]]\tCell 4: Code" in inserted
+    assert "In [1]:" in inserted
+    assert "In [2]:" in inserted
+    assert not any("Cell " in str(t) and ": Code" in str(t) for t in inserted)
+    assert not any(str(t).strip() == "Output" for t in inserted)
     style_names = [call.args[1] for call in body_cursor.setPropertyValue.call_args_list if call.args[0] == "ParaStyleName"]
     assert _STYLE_NOTEBOOK_IN in style_names
-    assert "Heading 3" in style_names
+    assert "Heading 1" in style_names
 
 
 def test_import_ipynb_markdown_html_uses_insert_html(tmp_path, monkeypatch):
@@ -433,7 +450,7 @@ def test_import_ipynb_inserts_image_output(tmp_path, monkeypatch):
     assert len(insert_calls) == 2  # run button + code field; image via insert_image_at_locator
 
 
-def test_import_code_cell_without_outputs_still_adds_output_heading(tmp_path, monkeypatch):
+def test_import_code_cell_without_outputs_has_no_output_heading(tmp_path, monkeypatch):
     ipynb = tmp_path / "code_only.ipynb"
     ipynb.write_text(
         '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
@@ -455,10 +472,12 @@ def test_import_code_cell_without_outputs_still_adds_output_heading(tmp_path, mo
     import_ipynb_to_writer(doc, str(ipynb))
 
     inserted = [call.args[1] for call in body_text.insertString.call_args_list]
-    assert "Output" in inserted
-    # Gutter/control split + Output heading lead_break (first cell has no lead_break).
+    assert "Output" not in inserted
+    assert "In [ ]:" in inserted
+    assert not any("Cell " in str(t) for t in inserted)
+    # Gutter/control split (first cell has no extra Output heading break).
     breaks = [call.args[1] for call in body_text.insertControlCharacter.call_args_list]
-    assert breaks.count(_PARAGRAPH_BREAK) >= 2
+    assert breaks.count(_PARAGRAPH_BREAK) >= 1
 
 
 def test_import_cells_breaks_before_in_flow_controls():
@@ -614,3 +633,65 @@ def test_import_small_numpy_notebook_fixture(monkeypatch):
 
     assert any("<code>ndarray</code>" in h for h in html_calls)
     assert not any("# A Small" in h or "## 1." in h for h in html_calls)
+    assert not any("Cell " in str(t) and "Markdown" in str(t) for t in inserted)
+    assert not any(str(t).strip() == "Output" for t in inserted)
+    assert "In [1]:" in inserted
+    assert "In [2]:" in inserted
+    assert "In [3]:" in inserted
+
+
+def test_iter_markdown_blocks_lists():
+    from plugin.notebook.writer_importer import _iter_markdown_blocks
+
+    blocks = _iter_markdown_blocks(
+        "Key terms:\n"
+        "* **Array** - A list of numbers.\n"
+        "* **Scalar** - A single number.\n"
+        "\n"
+        "* `np.array()`\n"
+        "* `np.ones()`\n"
+    )
+    assert blocks[0] == ("p", "Key terms:")
+    assert blocks[1][0] == "ul"
+    assert blocks[1][1][0].startswith("**Array**")
+    assert blocks[2][0] == "ul"
+    assert blocks[2][1] == ["`np.array()`", "`np.ones()`"]
+
+
+def test_inline_markdown_bold_italic_code():
+    from plugin.notebook.writer_importer import _inline_markdown_to_html, _paragraph_needs_html
+
+    html = _inline_markdown_to_html("**Array** - A list of `ndarray`s and *italic*.")
+    assert "<strong>Array</strong>" in html
+    assert "<code>ndarray</code>" in html
+    assert "<em>italic</em>" in html
+    assert "**" not in html
+    assert _paragraph_needs_html("use **bold** here") is True
+    assert _paragraph_needs_html("plain text") is False
+
+
+def test_import_markdown_lists_and_bold_use_html(tmp_path, monkeypatch):
+    ipynb = tmp_path / "lists.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"markdown","metadata":{},"source":'
+        '"Key terms:\\n* **Array** - A list.\\n* `np.array()`"}'
+        "]}",
+        encoding="utf-8",
+    )
+    doc, body_text, _ = _writer_doc_mock()
+    html_calls: list[str] = []
+
+    def fake_insert_html(cursor, html, **kwargs):
+        html_calls.append(html)
+        return True
+
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
+    stats = import_ipynb_to_writer(doc, str(ipynb))
+    assert stats["markdown"] == 1
+    joined = "\n".join(html_calls)
+    assert "<ul>" in joined and "<li>" in joined
+    assert "<strong>Array</strong>" in joined
+    assert "<code>np.array()</code>" in joined
+    inserted = [call.args[1] for call in body_text.insertString.call_args_list]
+    assert not any("Cell " in str(t) for t in inserted)

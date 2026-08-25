@@ -29,9 +29,17 @@ setup_uno_mocks()
 
 
 def test_format_run_output_text_stdout_and_result():
-    text = format_run_output_text({"status": "ok", "stdout": "hi\n", "result": 42})
+    text = format_run_output_text({"status": "ok", "stdout": "hi\n", "result": 42}, execution_count=1)
     assert "hi" in text
     assert "42" in text
+    assert "Out [1]:" in text
+    assert text.index("hi") < text.index("Out [1]:")
+
+
+def test_format_run_output_text_stdout_has_no_out_prompt():
+    text = format_run_output_text({"status": "ok", "stdout": "printed\n", "result": None})
+    assert text == "printed"
+    assert "Out [" not in text
 
 
 def test_format_run_output_text_error_traceback():
@@ -138,6 +146,12 @@ def test_run_cell_logs_status_after_execute():
     assert src.find("execute_code(") < src.find("status=%s")
 
 
+def test_run_cell_restores_view_to_cell():
+    src = inspect.getsource(run_cell)
+    assert "_restore_view_to_cell" in src
+    assert src.find("apply_run_result") < src.find("_restore_view_to_cell")
+
+
 def test_run_cell_empty_code():
     ctx = MagicMock()
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
@@ -203,54 +217,32 @@ def test_clear_cell_output_source_has_no_delete_contents():
 
 
 def test_find_output_heading_stays_inside_paragraph():
-    """para.getEnd() is the paragraph break; a bookmark there is deleted by setString."""
+    """Bookmark insert uses gotoEndOfParagraph, not para.getEnd() (the break)."""
     src = inspect.getsource(_find_cell_output_heading_end)
-    assert "createTextCursorByRange(para.getEnd())" not in src
-    assert "para.getStart()" in src
-    assert "goRight" in src
+    assert "para.getEnd()" not in src
+    src_re = inspect.getsource
+    from plugin.notebook.notebook_runner import _reanchor_output_bookmark, _code_field_paragraph_end
+
+    assert "para.getEnd()" not in src_re(_reanchor_output_bookmark)
+    assert "gotoEndOfParagraph" in src_re(_code_field_paragraph_end)
 
 
-def test_find_output_heading_skips_earlier_markdown_chrome():
-    """``Cell 1: Markdown`` is a boundary but must not abort before this cell's Output."""
-
-    def _para(text: str, style: str = "Heading 3") -> MagicMock:
-        para = MagicMock()
-        para.getString.return_value = text
-        para.getPropertyValue.return_value = style
-        para.supportsService.return_value = True
-        para.getStart.return_value = f"start:{text}"
-        return para
-
-    output_para = _para("Output", "Heading 4")
-    paras = [
-        _para("Cell 1: Markdown"),
-        _para("Before code", "Heading 1"),
-        _para("[In [1]]\tCell 2: Code", "WriterAgent Notebook In"),
-        _para("", "WriterAgent Notebook In"),
-        output_para,
-        _para("Cell 3: Markdown"),
-    ]
-    heading_cursor = MagicMock(name="inside-output")
-    heading_cursor.goRight.return_value = True
-    text = MagicMock()
-    text.createEnumeration.return_value = _enum_of(paras)
-    text.createTextCursorByRange.return_value = heading_cursor
-    doc = MagicMock()
-    doc.getText.return_value = text
-    cell = new_code_cell_entry(1, None, "nb_cell_1_code")
-    with patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"):
-        found = _find_cell_output_heading_end(doc, cell)
-    assert found is heading_cursor
-    text.createTextCursorByRange.assert_called_with(output_para.getStart())
-    heading_cursor.goRight.assert_called_once_with(6, False)
+def test_find_output_uses_bookmark_not_output_heading():
+    """Output chrome is gone; the insert cursor is the nb_out_* bookmark."""
+    src = inspect.getsource(_find_cell_output_heading_end)
+    assert "_cursor_after_bookmark" in src
+    assert 'content.strip() == "Output"' not in src
 
 
 def test_is_next_cell_boundary_markdown_and_code():
     assert _is_next_cell_boundary("Heading 3", "Cell 3: Markdown", None) is True
     assert _is_next_cell_boundary("Heading 3", "Cell 5: Raw", None) is True
     assert _is_next_cell_boundary("Preformatted Text", "old stdout", None) is False
-    assert _is_next_cell_boundary("WriterAgent Notebook In", "[In [1]]\tCell 2: Code", "WriterAgent Notebook In") is True
+    assert _is_next_cell_boundary("WriterAgent Notebook In", "In [1]:", "WriterAgent Notebook In") is True
     assert _is_next_cell_boundary("WriterAgent Notebook In", "", "WriterAgent Notebook In") is False
+    assert _is_next_cell_boundary("Heading 2", "1. Creating Arrays", None) is True
+    assert _is_next_cell_boundary("Text Body", "A transpose swaps axes.", None) is True
+    assert _is_next_cell_boundary("Preformatted Text", "Out [1]: 42", None) is False
 
 
 def test_paragraph_string_uses_selection_when_nonempty():
@@ -505,7 +497,7 @@ def test_update_in_prompt_does_not_setstring_whole_paragraph():
     frame_portion.getPropertyValue.return_value = "Frame"
 
     para = MagicMock()
-    para.getString.return_value = "[In [1]]\tCell 2: Code"
+    para.getString.return_value = "In [1]:"
     para.createEnumeration.return_value = _enum_of([text_portion, frame_portion])
     para.getStart.return_value = "para-start"
     para.getEnd.return_value = "para-end"
@@ -527,7 +519,7 @@ def test_update_in_prompt_does_not_setstring_whole_paragraph():
     cell = new_code_cell_entry(1, 1, "nb_cell_1_code")
     update_in_prompt(doc, cell, 4)
 
-    text_cursor.setString.assert_called_once_with("[In [4]]\tCell 2: Code")
+    text_cursor.setString.assert_called_once_with("In [4]:")
     whole_para.setString.assert_not_called()
     whole_para.gotoRange.assert_not_called()
 

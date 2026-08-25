@@ -29,9 +29,9 @@ For the full interactive roadmap (Run All, Stop, export, …), see [calc-noteboo
 | Shipped (2026-08) | Deferred |
 |-------------------|----------|
 | Vendored **nbformat v4** read — [`plugin/contrib/nbformat/`](../plugin/contrib/nbformat/): `read_ipynb(path)`, `reads(json_string)` → `NotebookNode` with `rejoin_lines` | **nbformat v3** upgrade |
-| Menu: **WriterAgent → Debug → Import Jupyter Notebook…** — [`import_dialog.py`](../plugin/notebook/import_dialog.py) | Full CommonMark/GFM (lists, tables, images-in-markdown) |
-| Import engine — [`writer_importer.py`](../plugin/notebook/writer_importer.py): **ATX `#`/`##` headings** (Heading 1/2), inline `` `code` ``, HTML-tagged cells, in-flow code fields, images; **`zxx` locale** at import start | Run All / Stop ([dev plan](calc-notebook-interactive-dev-plan.md) Phase 2) |
-| **Notebook registry (Phase 0)** — [`cell_registry.py`](../plugin/notebook/cell_registry.py): `WriterAgentNotebookJson`, stable `cell_id`, output bookmarks `nb_out_*`, `WriterAgentNotebookSourcePath` | Export back to `.ipynb` (Phase 5) |
+| Menu: **WriterAgent → Debug → Import Jupyter Notebook…** — [`import_dialog.py`](../plugin/notebook/import_dialog.py) | Run All / Stop ([dev plan](calc-notebook-interactive-dev-plan.md) Phase 2) |
+| Import engine — [`writer_importer.py`](../plugin/notebook/writer_importer.py): **ATX `#`/`##` headings** (Heading 1/2), **`* `/`- ` lists** as Writer bullets, **`**bold**` / `*italic*`**, inline `` `code` ``, HTML-tagged cells, in-flow code fields, output + markdown images; **`zxx` locale** at import start | GFM tables, hover-only play, collapsible cells |
+| **Notebook registry (Phase 0)** — [`cell_registry.py`](../plugin/notebook/cell_registry.py): `WriterAgentNotebookJson`, stable `cell_id`, **invisible** output bookmarks `nb_out_*`, `WriterAgentNotebookSourcePath` | Export back to `.ipynb` (Phase 5) |
 | **Run code cell (Phase 1)** — in-flow ▶ **push** button + [`notebook_controls.py`](../plugin/notebook/notebook_controls.py) + [`notebook_runner.py`](../plugin/notebook/notebook_runner.py); shared `notebook:…` kernel; re-run **replaces** output (`setString("")`); UI drain on every run | Cell CRUD, sidebar (Phases 3–4) |
 | Control lookup — [`form_lookup.py`](../plugin/notebook/form_lookup.py) indexes `ControlShape` models on the document draw page (required for wiring ▶ buttons) | Batched background image decode |
 | **Reset Python Session** — clears `notebook:…` kernel for Writer docs with a registry ([`session_manager.py`](../plugin/scripting/session_manager.py)) | `notebook.enable_interactive` / Settings UI keys |
@@ -62,9 +62,9 @@ After `make deploy`, **restart LibreOffice** so the extension and menu handlers 
 |--------|-----|
 | **Run one cell** | Click the in-flow **▶** push button immediately before the code `TextField`. |
 | **Shared variables** | All code cells in the same Writer document share one `notebook:…` Python namespace (like a Jupyter kernel). Run cell 0 (`x = 1`), then cell 1 (`print(x)`) → `1`. |
-| **Execution count** | New kernel (import or **Reset Python Session**) starts at 1 — saved ipynb counts are historical until a live run. Each run of any cell, including failures and re-clicks, increments by 1 (Jupyter `In [n]`). Gutter style stays `[In [n]]`. |
-| **Reset kernel** | **WriterAgent → Reset Python Session** when the document has an imported notebook registry. Clears variables and the kernel In count (next run is `[In [1]]`). Re-run cells from the top if needed. |
-| **Errors** | Tracebacks and stdout appear under the cell’s **Output** section (Preformatted Text, own paragraph — not concatenated onto the next cell heading). Empty code shows a msgbox. |
+| **Execution count** | New kernel (import or **Reset Python Session**) starts at 1 — saved ipynb counts are historical until a live run. Each run of any cell, including failures and re-clicks, increments by 1 (Jupyter `In [n]`). Gutter style stays `In [n]:`. |
+| **Reset kernel** | **WriterAgent → Reset Python Session** when the document has an imported notebook registry. Clears variables and the kernel In count (next run is `In [1]:`). Re-run cells from the top if needed. |
+| **Errors** | Tracebacks and stdout appear directly under the code field (Preformatted Text, own paragraph — not concatenated onto the next markdown). Empty code shows a msgbox. After ▶, the view stays on the cell that ran. |
 | **Sandbox** | Code runs in your configured user venv ([`venv_worker.py`](../plugin/scripting/venv_worker.py)), subject to the same AST safety rules as other WriterAgent scripting (e.g. dunder methods may be blocked by design). |
 
 **Not supported yet:** Run All, Stop mid-batch, export to `.ipynb`, add/delete cells in the UI.
@@ -75,25 +75,26 @@ After `make deploy`, **restart LibreOffice** so the extension and menu handlers 
 
 ### Document layout (per notebook cell)
 
+Imported notebooks are meant to look as much like Jupyter as Writer form controls allow. There is **no** `Cell N: Markdown` / `Cell N: Code` chrome and **no** visible **Output** heading.
+
 For each cell in order, the importer appends to the **document body**:
 
 | Cell type | Structure in Writer |
 |-----------|-------------------|
-| **All cells** | Cell chrome: markdown/raw **Heading 3** (`Cell N: Markdown`); code **`WriterAgent Notebook In`** (`[In [n]]` + `Cell N: Code`) |
-| **code (gutter)** | **`WriterAgent Notebook In`** — `[In [k]]` or `[In [ ]]` (updates after ▶ run) |
-| **markdown** | HTML-tagged source → [`insert_html_fragment_at_cursor`](../plugin/writer/html_import.py); CommonMark **ATX `#` → Heading 1**, **`##+` → Heading 2** (not cell chrome Heading 3); inline `` `code` `` → `<code>` via HTML; other lines **Text Body** |
-| **code (body)** | Gutter line + title → **new paragraph** → in-flow **▶** (`nb_run_{cell_id hex}`) + **TextField** (`nb_cell_{index}_code`) → **Heading 4** “Output” (bookmark `nb_out_{hex}`) → **Preformatted Text** / images. ▶ / the code field must **not** share the `[In [n]]` paragraph: `setString` on that whole range deletes in-flow `ControlShape`s. |
+| **markdown** | Rendered CommonMark only: **ATX `#` → Heading 1**, **`##+` → Heading 2**; `* `/`- ` (and numbered) lists as real Writer bullets; `**bold**` / `*italic*`; inline `` `code` `` → `<code>` via HTML; `![](...)` images when the path/URL is reachable; other lines **Text Body**. Modest gap between cells (`ParaKeepWithNext` into the following code cell). |
+| **code (gutter)** | **`WriterAgent Notebook In`** (Text Body parent, 9 pt, not Heading 3) — `In [k]:` or `In [ ]:` on its own paragraph. **▶ and the code field must not share this paragraph**: `setString` on that whole range deletes in-flow `ControlShape`s. |
+| **code (body)** | New paragraph → small gutter **▶** (`nb_run_{cell_id hex}`, no 3D square) + **TextField** (`nb_cell_{index}_code`, Liberation Mono, light gray fill, hairline border, text-area width) → invisible bookmark `nb_out_{hex}` at the end of that paragraph (not a Heading 4 “Output” label — a bookmark inside “Output” leaked as `/`). Stdout/images go directly under the field. `Out [n]:` only for `execute_result` / last-line values, not print streams. Never-run cells have **no** empty Output block. |
 | **raw** | **Text Body** — raw cell source |
 
-**Code fields (in-flow):** `TextField` inside `ControlShape`, **`AS_CHARACTER`**, `insertTextContent` at document end — same pattern as [`FormCreateControl`](../plugin/writer/specialized/forms.py). Models are also registered on the document **draw page** (used to find controls for ▶ wiring and for `read_code_from_field`). A paragraph break after the `[In [n]]` gutter keeps those shapes out of the title paragraph.
+**Code fields (in-flow):** `TextField` inside `ControlShape`, **`AS_CHARACTER`**, `insertTextContent` at document end — same pattern as [`FormCreateControl`](../plugin/writer/specialized/forms.py). Height is capped so oversized AS_CHARACTER boxes do not force a page break and leave the previous page half empty. Models are also registered on the document **draw page** (used to find controls for ▶ wiring and for `read_code_from_field`). The completion dialog’s “fields” count is ▶ + TextField together (one pair per code cell, not duplicates).
 
-**Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from outputs use **Preformatted Text** (one paragraph per block). Live run writes stdout directly under the Output heading (at most one blank line). Re-run **replaces** that in-cell block; it does not append at the document end. The `nb_out_*` bookmark stays *inside* the Output heading (before the paragraph break) so `setString` of the following range cannot delete it. If stdout would otherwise share a line with the next cell heading, a split restores Heading 3 chrome (PR 461).
+**Text outputs:** Stream, error tracebacks (ANSI stripped), and `text/plain` from outputs use **Preformatted Text** (one paragraph per block). Live run writes stdout directly under the code field (at most one blank line). Re-run **replaces** that in-cell block; it does not append at the document end. The `nb_out_*` bookmark stays *inside* the ▶+field paragraph so `setString` of the following range cannot delete it. If stdout would otherwise share a line with the next markdown, a split restores that heading (PR 461). After ▶, the view cursor is restored to the cell that ran.
 
 **Spellcheck:** At import start, document and paragraph styles used by the notebook are set to locale **`zxx`** (no linguistic content) so code and markdown are not spell-checked. Form field contents may still show squiggles depending on LO version.
 
-**Paragraph styles:** Built-in names are resolved case-insensitively. **`WriterAgent Notebook In`** is auto-created for the `[In [n]]` gutter.
+**Paragraph styles:** Built-in names are resolved case-insensitively. **`WriterAgent Notebook In`** is auto-created for the `In [n]:` gutter (parent **Text Body**, not Heading 3).
 
-**Images:** `image/png` and `image/jpeg` in outputs are embedded via [`insert_image_at_locator`](../plugin/writer/images/image_tools.py) in the Output section.
+**Images:** `image/png` and `image/jpeg` in outputs (import or live matplotlib) are embedded via [`insert_image_at_locator`](../plugin/writer/images/image_tools.py) under the cell, width capped to the text area, aspect ratio kept, no wrap, no extra blank paragraphs. Markdown `![](...)` uses the same path when the file or URL is reachable.
 
 ---
 
@@ -146,7 +147,7 @@ Live Writer smoke (same Debug-menu action, FilePicker driven to the small fixtur
 python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py
 ```
 
-The live smoke imports the small NumPy fixture and **runs** the three code cells. A sandbox `Forbidden access to dunder attribute` / `__version__` deny is a **hard failure** (not a “clean error”). A real missing-numpy `ModuleNotFoundError` is allowed when the worker venv has no NumPy. After run, ▶ / code fields must still be on the draw page and stdout must not share a paragraph with the next cell heading.
+The live smoke imports the small NumPy fixture and **runs** the three code cells. A sandbox `Forbidden access to dunder attribute` / `__version__` deny is a **hard failure** (not a “clean error”). A real missing-numpy `ModuleNotFoundError` is allowed when the worker venv has no NumPy. After run, ▶ / code fields must still be on the draw page, stdout must not share a paragraph with the next markdown, and the document must not contain `Cell N: Markdown` chrome.
 
 Live ▶ click (``getControl`` / ``XButton``, not ``run_cell()`` alone):
 
@@ -199,7 +200,7 @@ Vendored nbformat: [`plugin/contrib/nbformat/README.md`](../plugin/contrib/nbfor
 | Notebook sidebar (cell list, clear outputs) | 4 |
 | Export `.ipynb` | 5 |
 | In-kernel UNO via host tool proxy | 6 (deferred) |
-| nbformat v3, lists/tables/images-in-markdown, background import | Backlog |
+| nbformat v3, GFM tables, hover-only play, collapsible cells, background import | Backlog |
 
 ---
 
@@ -217,4 +218,4 @@ Vendored nbformat: [`plugin/contrib/nbformat/README.md`](../plugin/contrib/nbfor
 
 ### Not shipped
 
-Run All, Stop, cell CRUD, sidebar, export `.ipynb`, nbformat v3, full CommonMark (lists/tables/images), background image import, optional `notebook.*` config keys.
+Run All, Stop, cell CRUD, sidebar, export `.ipynb`, nbformat v3, GFM tables, hover-only play, collapsible cells, background image import, optional `notebook.*` config keys.

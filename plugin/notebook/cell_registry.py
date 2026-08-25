@@ -186,9 +186,10 @@ def save_notebook_source_path(doc: Any, path: str) -> None:
 
 
 def insert_output_start_bookmark(doc: Any, bookmark_name: str) -> bool:
-    """Insert a point bookmark at the document end (after the Output heading was appended).
+    """Insert a point bookmark at the document end (after the ▶+code field were appended).
 
     Must run on the LO main thread. Returns False when bookmarks are unsupported or insert fails.
+    The bookmark is invisible (no ``Output`` heading) so a field mark cannot leak as ``/``.
     """
     if not bookmark_name:
         return False

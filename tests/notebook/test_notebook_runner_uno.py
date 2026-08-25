@@ -94,11 +94,12 @@ def _assert_stdout_not_mashed(doc) -> list[tuple[str, str]]:
     for text in sentinel_paras:
         assert "Cell 3: Markdown" not in text, f"stdout mashed onto next heading: {text!r}"
         assert _AFTER_HEADING not in text, f"stdout mashed onto following markdown: {text!r}"
-    chrome = [t for _s, t in paras if "Cell 3: Markdown" in t]
-    assert chrome, f"Cell 3: Markdown heading missing after run: {paras!r}"
-    for text in chrome:
-        assert _SENTINEL not in text, f"next-cell chrome contains stdout: {text!r}"
-    assert any(t.strip() == "Output" for _s, t in paras), f"Output heading split or missing: {paras!r}"
+    assert any(_AFTER_HEADING in t for _s, t in paras), f"following markdown missing after run: {paras!r}"
+    assert not any(t.strip() == "Output" for _s, t in paras), f"visible Output heading: {paras!r}"
+    import re as _re
+
+    body = "\n".join(t for _s, t in paras)
+    assert _re.search(r"Cell \d+: Markdown", body) is None
     return paras
 
 
@@ -215,20 +216,20 @@ def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
 @native_test
 @with_native_doc("writer", hidden=not show_window)
 def test_apply_run_result_stdout_is_own_paragraph(ctx, doc):
-    """Live Writer: stdout under Output must not concatenate onto the next cell heading."""
+    """Live Writer: stdout under the code cell must not concatenate onto the next heading."""
     from plugin.notebook.cell_registry import insert_output_start_bookmark, new_code_cell_entry
     from plugin.notebook.notebook_runner import apply_run_result, clear_cell_output
     from plugin.notebook.writer_importer import (
-        _STYLE_CELL_HEADING,
         _STYLE_MD_H2,
-        _STYLE_SECTION_HEADING,
+        _STYLE_NOTEBOOK_IN,
         _append_body_paragraph,
+        _ensure_notebook_import_styles,
     )
 
-    _append_body_paragraph(doc, "Output", _STYLE_SECTION_HEADING, lead_break=False)
+    _ensure_notebook_import_styles(doc)
+    _append_body_paragraph(doc, "In [ ]:", _STYLE_NOTEBOOK_IN, lead_break=False)
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     insert_output_start_bookmark(doc, cell.output_start_bookmark)
-    _append_body_paragraph(doc, "Cell 3: Markdown", _STYLE_CELL_HEADING, lead_break=True)
     _append_body_paragraph(doc, _AFTER_HEADING, _STYLE_MD_H2, lead_break=True)
 
     apply_run_result(doc, cell, {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}, ctx=ctx)
@@ -240,7 +241,7 @@ def test_apply_run_result_stdout_is_own_paragraph(ctx, doc):
     _assert_stdout_not_mashed(doc)
     assert sum(1 for _s, t in _paragraphs(doc) if _SENTINEL in t) == 1
     assert _AFTER_HEADING in (doc.getText().getString() or "")
-    assert "Cell 3: Markdown" in (doc.getText().getString() or "")
+    assert "Cell 3: Markdown" not in (doc.getText().getString() or "")
     assert _empty_paras_between_output_and_content(doc) <= 1
 
 
@@ -248,22 +249,42 @@ _SMALL_IPYNB = Path(__file__).resolve().parents[1] / "fixtures" / "introduction-
 
 
 def _empty_paras_between_output_and_content(doc) -> int:
-    """Blank paragraphs after the first Output heading before stdout or the next cell."""
-    seen_output = False
+    """Blank paragraphs after the first code gutter before stdout or the next cell."""
+    seen_gutter = False
     empties = 0
     for _style, text in _paragraphs(doc):
-        if not seen_output:
-            if text.strip() == "Output":
-                seen_output = True
-            continue
         stripped = text.strip()
-        if stripped.startswith("Cell ") or stripped.startswith("[In ["):
+        if not seen_gutter:
+            if stripped.startswith("In [") or stripped.startswith("[In [") or stripped == "Output":
+                seen_gutter = True
+            continue
+        if stripped.startswith("In [") or stripped.startswith("[In [") or stripped.startswith("Cell "):
             break
         if not stripped:
             empties += 1
             continue
         break
     return empties
+
+
+def _gutter_line_for_cell(doc, cell) -> str:
+    from plugin.notebook.notebook_runner import _find_control_shape_by_name
+
+    shape = _find_control_shape_by_name(doc, cell.code_field_name)
+    if shape is not None:
+        try:
+            text = doc.getText()
+            cursor = text.createTextCursorByRange(shape.getAnchor())
+            if cursor.gotoPreviousParagraph(False):
+                cursor.gotoStartOfParagraph(False)
+                cursor.gotoEndOfParagraph(True)
+                return str(cursor.getString() or "")
+        except Exception:
+            pass
+    for _style, text in _paragraphs(doc):
+        if text.strip().startswith("In [") or f"Cell {cell.index + 1}: Code" in text:
+            return text
+    return ""
 
 
 def _output_text_for_cell(doc, cell) -> str:
@@ -289,14 +310,6 @@ def _output_text_for_cell(doc, cell) -> str:
     sel = text.createTextCursorByRange(start)
     sel.gotoRange(end.getStart(), True)
     return str(sel.getString() or "")
-
-
-def _gutter_line_for_cell(doc, cell_index: int) -> str:
-    marker = f"Cell {cell_index + 1}: Code"
-    for _style, text in _paragraphs(doc):
-        if marker in text:
-            return text
-    return ""
 
 
 @native_test
@@ -349,7 +362,7 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
             cell = state.code_cells[0]
             assert cell.execution_count == 1, f"first live run must be In [1], got {cell.execution_count}"
             assert state.next_execution_count == 2
-            assert "[In [1]]" in _gutter_line_for_cell(doc, cell.index)
+            assert "In [1]:" in _gutter_line_for_cell(doc, cell)
             assert doc.getBookmarks().hasByName(bm_name), "bookmark vanished after first run"
             out1 = _output_text_for_cell(doc, cell)
             body = doc.getText().getString() or ""
@@ -360,12 +373,12 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
             )
             assert out1.strip(), f"first ▶ produced no in-cell output: {out1!r} boxes={boxes!r}"
             assert _empty_paras_between_output_and_content(doc) <= 1, (
-                f"extra blank paras under Output: {_paragraphs(doc)!r}"
+                f"extra blank paras under cell: {_paragraphs(doc)!r}"
             )
-            assert "Cell 3: Markdown" in body
+            assert "Cell 3: Markdown" not in body
             assert "1. Creating Arrays" in body
-            assert any(t.strip() == "Output" for _s, t in _paragraphs(doc)), (
-                f"Output heading split or missing: {_paragraphs(doc)!r}"
+            assert not any(t.strip() == "Output" for _s, t in _paragraphs(doc)), (
+                f"visible Output heading after run: {_paragraphs(doc)!r}"
             )
             _assert_controls_present(doc, cell)
             needle = "NumPy Version"
@@ -379,14 +392,14 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
             cell = state.code_cells[0]
             assert cell.execution_count == 2, f"re-click must increment by 1, got {cell.execution_count}"
             assert state.next_execution_count == 3
-            assert "[In [2]]" in _gutter_line_for_cell(doc, cell.index)
+            assert "In [2]:" in _gutter_line_for_cell(doc, cell)
             assert doc.getBookmarks().hasByName(bm_name), "bookmark vanished after re-click"
             out2 = _output_text_for_cell(doc, cell)
             body2 = doc.getText().getString() or ""
             print(f"second ▶ out={out2!r} tail={body2[-400:]!r} paras={_paragraphs(doc)!r}", flush=True)
             assert out2.count(needle) == 1, f"re-click duplicated in-cell stdout: {out2!r}"
             assert body2.count(needle) == 1, f"re-click appended at document end: {body2[-400:]!r}"
-            assert "Cell 3: Markdown" in body2
+            assert "Cell 3: Markdown" not in body2
             assert "1. Creating Arrays" in body2
             _assert_controls_present(doc, cell)
             assert _empty_paras_between_output_and_content(doc) <= 1
@@ -397,7 +410,7 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
             assert state is not None
             cell = state.code_cells[0]
             assert cell.execution_count == 3, f"third click must be 3, got {cell.execution_count}"
-            assert "[In [3]]" in _gutter_line_for_cell(doc, cell.index)
+            assert "In [3]:" in _gutter_line_for_cell(doc, cell)
             assert doc.getBookmarks().hasByName(bm_name)
             out3 = _output_text_for_cell(doc, cell)
             body3 = doc.getText().getString() or ""

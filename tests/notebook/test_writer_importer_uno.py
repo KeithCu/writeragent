@@ -310,6 +310,19 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
     else:
         assert "ndarray" in body
 
+    import re as _re
+
+    assert _re.search(r"Cell \d+: Markdown", body) is None, (
+        f"Cell N: Markdown chrome still present after import: {body[:800]!r}"
+    )
+    assert _re.search(r"Cell \d+: Code", body) is None, (
+        f"Cell N: Code chrome still present after import: {body[:800]!r}"
+    )
+    assert not any(t.strip() == "Output" for _s, t in paras), (
+        f"visible Output heading after import: {paras!r}"
+    )
+    assert any(t.strip().startswith("In [") for _s, t in paras), f"In [n]: gutter missing: {paras!r}"
+
     state = load_registry(doc)
     assert state is not None, "notebook registry missing after Debug-menu import"
     assert len(state.code_cells) == 3
@@ -411,6 +424,11 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
         )
         mashed = [t for _s, t in _paragraphs(doc) if "NumPy Version" in t and "Cell 3: Markdown" in t]
         assert not mashed, f"stdout concatenated onto next heading: {mashed!r}"
+        import re as _re
+
+        assert _re.search(r"Cell \d+: Markdown", later) is None, (
+            f"Cell N: Markdown chrome still in document after import/run: {later[:500]!r}"
+        )
 
     draw_after_run = _draw_control_names(doc)
     for field in field_names:
@@ -447,6 +465,11 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
         assert run_name in draw_after_rerun, f"{run_name} vanished after re-run: {draw_after_rerun}"
     mashed_after = [t for _s, t in _paragraphs(doc) if "NumPy Version" in t and "Cell 3: Markdown" in t]
     assert not mashed_after, f"re-run mashed stdout onto next heading: {mashed_after!r}"
+    import re as _re
+
+    assert _re.search(r"Cell \d+: Markdown", body_after) is None, (
+        f"Cell N: Markdown chrome present after re-run: {body_after[:500]!r}"
+    )
 
     import plugin.scripting.session_manager as sm
 

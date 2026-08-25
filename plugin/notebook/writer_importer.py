@@ -43,28 +43,37 @@ from plugin.writer.images.image_tools import (
 
 log = logging.getLogger("writeragent.notebook")
 
-# 1/100 mm — draw-page code field width
+# 1/100 mm — code field width falls back when page style is unavailable.
 _DEFAULT_WIDTH = 14000
-_MIN_FIELD_HEIGHT = 600
+_MIN_FIELD_HEIGHT = 450
 _LINE_HEIGHT = 380
-_MAX_FIELD_HEIGHT = 20000
+# AS_CHARACTER fields cannot split across pages; a 20 cm box forced a new page
+# and left the previous page half empty (medium NumPy fixture).
+_MAX_FIELD_HEIGHT = 9000
 _STACK_MARGIN_X = 5000
 _STACK_GAP = 400
 _STACK_INITIAL_BOTTOM = 800
-_RUN_BUTTON_SIZE = 600
+# Small gutter ▶ — a 6 mm bordered square sat inside the first code line.
+_RUN_BUTTON_SIZE = 320
 _PROGRESS_EVERY_N_CELLS = 10
 _SLOW_ADD_MS = 2000
 _MAX_IMPORT_TEXT_CHARS = 50_000
 _TRUNCATION_SUFFIX = "\n\n[… truncated for import …]"
 _MAX_OUTPUTS_PER_CELL = 200
 _MAX_IMAGE_DECODE_BYTES = 8 * 1024 * 1024
-_MAX_IMAGE_DISPLAY_WIDTH_MM = 140
+_MAX_IMAGE_DISPLAY_WIDTH_MM = 170
 _DEFAULT_IMAGE_HEIGHT_MM = 80
 _IMAGE_MIME_SUFFIX = {"image/png": ".png", "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/svg+xml": ".svg"}
+_CODE_FONT_NAME = "Liberation Mono"
+_CODE_FONT_HEIGHT = 10
+_CODE_FIELD_BG = 0xF7F7F7
+_CODE_FIELD_BORDER = 0xD0D0D0
+_NOTEBOOK_IN_CHAR_COLOR = 0x307FC1
+_HTTP_IMAGE_TIMEOUT_SEC = 2
 
 # Writer paragraph styles (document locale usually provides these English names).
-# Markdown ATX uses Heading 1/2 so it does not collide with cell chrome (Heading 3)
-# or the Output label (Heading 4).
+# Markdown ATX uses Heading 1/2. Cell chrome (Heading 3 "Cell N: …" / Heading 4
+# "Output") is no longer written — Jupyter has neither.
 _STYLE_MD_H1 = "Heading 1"
 _STYLE_MD_H2 = "Heading 2"
 _STYLE_CELL_HEADING = "Heading 3"
@@ -72,10 +81,10 @@ _STYLE_SECTION_HEADING = "Heading 4"
 _STYLE_OUTPUT = "Preformatted Text"
 _STYLE_BODY = "Text Body"
 
-# Auto-created on import for Jupyter-like [In [n]] gutter (1/100 mm margins).
+# Auto-created on import for Jupyter-like In [n]: gutter (1/100 mm margins).
 _STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
 _NOTEBOOK_IN_CHAR_HEIGHT = 9
-_NOTEBOOK_IN_MARGIN_TOP = 0
+_NOTEBOOK_IN_MARGIN_TOP = 200
 _NOTEBOOK_IN_MARGIN_BOTTOM = 40
 
 _PARAGRAPH_BREAK = 0  # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
@@ -83,6 +92,13 @@ _HTML_TAG_RE = re.compile(r"<\s*[a-zA-Z]", re.DOTALL)
 # CommonMark ATX: 1–6 hashes, space, title, optional closing hashes.
 _ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
 _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
+_ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)|(?<!_)_(?!_)(.+?)(?<!_)_(?!_)")
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_MD_UL_RE = re.compile(r"^[*+-][ \t]+(.*)$")
+_MD_OL_RE = re.compile(r"^\d+[.)][ \t]+(.*)$")
+_MD_IMAGE_LINE_RE = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$")
+_IN_PROMPT_RE = re.compile(r"^In \[[0-9 ]*\]:")
 
 
 def _mono_ms(t0: float) -> int:
@@ -164,13 +180,16 @@ def _mime_plain(data: Any) -> str:
     return ""
 
 
-def format_output_text(output: Any) -> str:
-    """Turn one nbformat output object into plain text for the document body."""
+def format_output_text(output: Any, execution_count: Any | None = None) -> str:
+    """Turn one nbformat output object into plain text for the document body.
+
+    Stream/print text has no ``Out [n]:`` prefix (Jupyter puts that only on
+    ``execute_result`` / last-line values).
+    """
     output_type = getattr(output, "output_type", None) or output.get("output_type", "")
     if output_type == "stream":
-        name = getattr(output, "name", None) or output.get("name", "stdout")
         text = _coerce_notebook_text(getattr(output, "text", None) or output.get("text", ""))
-        return f"[{name}]\n{text}"
+        return text
     if output_type == "error":
         tb = getattr(output, "traceback", None) or output.get("traceback", "")
         if isinstance(tb, list):
@@ -183,6 +202,8 @@ def format_output_text(output: Any) -> str:
                 return ""
             plain = _mime_plain(data)
             if plain:
+                if output_type == "execute_result" and execution_count is not None:
+                    return f"Out [{execution_count}]: {plain}"
                 return plain
             mime_types = ", ".join(sorted(data.keys()))
             return f"[non-text output: {mime_types}]"
@@ -194,7 +215,7 @@ def format_all_outputs(outputs: list[Any]) -> str:
     return "\n\n".join(p for p in parts if p.strip())
 
 
-def _format_outputs_for_body(outputs: list[Any], cell_index: int) -> str:
+def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_count: Any | None = None) -> str:
     out_list = outputs or []
     if len(out_list) > _MAX_OUTPUTS_PER_CELL:
         log.warning(
@@ -206,7 +227,7 @@ def _format_outputs_for_body(outputs: list[Any], cell_index: int) -> str:
         out_list = out_list[:_MAX_OUTPUTS_PER_CELL]
     parts: list[str] = []
     for output in out_list:
-        text = format_output_text(output)
+        text = format_output_text(output, execution_count)
         if text.strip():
             parts.append(text)
     return "\n\n".join(parts)
@@ -231,9 +252,65 @@ def _png_pixel_size(raw: bytes) -> tuple[int, int] | None:
     return w, h
 
 
-def _display_size_units(raw: bytes, mime: str) -> tuple[int, int]:
-    """Map decoded image bytes to Writer size in 1/100 mm (capped width)."""
-    px_size = _png_pixel_size(raw) if mime == "image/png" else None
+def _jpeg_pixel_size(raw: bytes) -> tuple[int, int] | None:
+    """Read SOF width/height so JPEG plots keep aspect ratio when capped."""
+    if len(raw) < 4 or raw[:2] != b"\xff\xd8":
+        return None
+    i = 2
+    while i < len(raw) - 8:
+        if raw[i] != 0xFF:
+            return None
+        marker = raw[i + 1]
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3):
+            h, w = struct.unpack(">HH", raw[i + 5 : i + 9])
+            if w >= 1 and h >= 1:
+                return w, h
+            return None
+        if marker == 0xD9 or marker == 0xDA:
+            return None
+        length = struct.unpack(">H", raw[i + 2 : i + 4])[0]
+        i += 2 + length
+    return None
+
+
+def _text_area_width_units(doc: Any | None) -> int:
+    """Page width minus left/right margins (1/100 mm), for code fields and images."""
+    if doc is None:
+        return _DEFAULT_WIDTH
+    try:
+        families = doc.getStyleFamilies().getByName("PageStyles")
+        name = ""
+        try:
+            name = str(doc.getPropertyValue("PageDescName") or "")
+        except Exception:
+            name = ""
+        style = None
+        if name and families.hasByName(name):
+            style = families.getByName(name)
+        else:
+            for candidate in ("Standard", "Default", "Default Page Style"):
+                if families.hasByName(candidate):
+                    style = families.getByName(candidate)
+                    break
+        if style is None:
+            return _DEFAULT_WIDTH
+        page_w = int(style.getPropertyValue("Width"))
+        left = int(style.getPropertyValue("LeftMargin"))
+        right = int(style.getPropertyValue("RightMargin"))
+        return max(6000, page_w - left - right)
+    except Exception:
+        log.debug("notebook import could not read page text-area width", exc_info=True)
+        return _DEFAULT_WIDTH
+
+
+def _display_size_units(raw: bytes, mime: str, *, max_width_mm: float | None = None) -> tuple[int, int]:
+    """Map decoded image bytes to Writer size in 1/100 mm (capped width, keep aspect)."""
+    cap_mm = float(max_width_mm) if max_width_mm and max_width_mm > 0 else float(_MAX_IMAGE_DISPLAY_WIDTH_MM)
+    px_size = None
+    if mime == "image/png":
+        px_size = _png_pixel_size(raw)
+    elif mime in ("image/jpeg", "image/jpg"):
+        px_size = _jpeg_pixel_size(raw)
     if px_size is not None:
         px_w, px_h = px_size
     else:
@@ -241,12 +318,12 @@ def _display_size_units(raw: bytes, mime: str) -> tuple[int, int]:
     if px_w and px_h:
         w_mm = px_w * 25.4 / 96
         h_mm = px_h * 25.4 / 96
-        if w_mm > _MAX_IMAGE_DISPLAY_WIDTH_MM:
-            scale = _MAX_IMAGE_DISPLAY_WIDTH_MM / w_mm
-            w_mm = _MAX_IMAGE_DISPLAY_WIDTH_MM
+        if w_mm > cap_mm:
+            scale = cap_mm / w_mm
+            w_mm = cap_mm
             h_mm = h_mm * scale
         return _mm_to_units(w_mm, h_mm)
-    return _mm_to_units(_MAX_IMAGE_DISPLAY_WIDTH_MM, _DEFAULT_IMAGE_HEIGHT_MM)
+    return _mm_to_units(cap_mm, _DEFAULT_IMAGE_HEIGHT_MM)
 
 
 def _decode_notebook_image(b64_data: str) -> bytes | None:
@@ -265,6 +342,15 @@ def _decode_notebook_image(b64_data: str) -> bytes | None:
         return None
 
 
+def _apply_notebook_image_flow(graphic: Any) -> None:
+    """AS_CHARACTER already in-flow; pin wrap off so plots do not float beside text."""
+    for name, val in (("TextWrap", 0), ("SurroundContour", False)):
+        try:
+            graphic.setPropertyValue(name, val)
+        except Exception:
+            log.debug("notebook image wrap property %s not applied", name, exc_info=True)
+
+
 def _insert_image_in_flow(
     doc: Any,
     *,
@@ -272,8 +358,13 @@ def _insert_image_in_flow(
     mime: str,
     images_before: int,
     ctx: Any | None = None,
+    text_cursor: Any | None = None,
 ) -> bool:
-    """Embed notebook image output in document flow at body end (TextGraphicObject)."""
+    """Embed notebook image output in document flow (TextGraphicObject).
+
+    Import appends at body end. Live ▶ must pass *text_cursor* under the cell —
+    ``gotoEnd`` was dumping matplotlib plots at the document end and jumping the view.
+    """
     suffix = _IMAGE_MIME_SUFFIX.get(mime, ".png")
     tmp_path = None
     t0 = time.monotonic()
@@ -281,13 +372,18 @@ def _insert_image_in_flow(
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(raw)
             tmp_path = tmp.name
-        w_units, h_units = _display_size_units(raw, mime)
+        max_w_mm = _text_area_width_units(doc) / 100.0
+        w_units, h_units = _display_size_units(raw, mime, max_width_mm=max_w_mm)
         w_mm = w_units / 100.0
         h_mm = h_units / 100.0
         text = doc.getText()
-        cursor = text.createTextCursor()
-        cursor.gotoEnd(False)
+        if text_cursor is not None:
+            cursor = text_cursor
+        else:
+            cursor = text.createTextCursor()
+            cursor.gotoEnd(False)
         t_add = time.monotonic()
+        graphic = None
         if ctx is not None:
             graphic = insert_image_at_locator(
                 ctx,
@@ -313,6 +409,9 @@ def _insert_image_in_flow(
                 inside="writer",
             )
             text.insertTextContent(cursor, image, False)
+            graphic = image
+        if graphic is not None:
+            _apply_notebook_image_flow(graphic)
         add_ms = _mono_ms(t_add)
         _log_shape_add(
             step="image",
@@ -542,40 +641,38 @@ def _create_import_para_style(
 
 
 def _ensure_notebook_import_styles(doc: Any) -> str | None:
-    """Create notebook [In [n]] gutter style once per document; return resolved name."""
+    """Create notebook In [n]: gutter style once per document; return resolved name.
+
+    Parent is Text Body, not Heading 3. Heading 3 as parent inherited 14 pt and
+    large before/after spacing, which made gutters look like report headings and
+    opened half-empty pages between cells.
+    """
     para_styles = _get_para_styles(doc)
     if para_styles is None:
         return None
-    parent_heading = _resolve_para_style(doc, _STYLE_CELL_HEADING) or "Heading 3"
-    
+    parent_body = _resolve_para_style(doc, _STYLE_BODY) or "Text Body"
+
     no_lang = _no_spellcheck_locale()
     property_updates: dict[str, Any] = {
         "ParaAdjust": 0,
         "ParaLeftMargin": -1270,  # Out-dented by 1/2 inch (12.7 mm)
         "ParaTopMargin": _NOTEBOOK_IN_MARGIN_TOP,
         "ParaBottomMargin": _NOTEBOOK_IN_MARGIN_BOTTOM,
+        "ParaKeepTogether": True,
+        "ParaKeepWithNext": True,
+        "CharHeight": _NOTEBOOK_IN_CHAR_HEIGHT,
+        "CharWeight": 150,
+        "CharColor": _NOTEBOOK_IN_CHAR_COLOR,
         "CharLocale": no_lang,
         "CharLocaleAsian": no_lang,
         "CharLocaleComplex": no_lang,
     }
-    
-    try:
-        import uno
-        from typing import cast
-        ts = cast("Any", uno.createUnoStruct("com.sun.star.style.TabStop"))
-        ts.Position = 1270  # Shift text after tab to start exactly at the normal page margin (0 cm relative)
-        ts.Alignment = uno.getConstantByName("com.sun.star.style.TabAlign.LEFT")
-        ts.DecimalChar = 46
-        ts.FillChar = 32
-        property_updates["ParaTabStops"] = (ts,)
-    except Exception as e:
-        log.debug("notebook import could not create TabStop struct: %s", e)
 
     _create_import_para_style(
         doc,
         para_styles,
         _STYLE_NOTEBOOK_IN,
-        parent_style=parent_heading,
+        parent_style=parent_body,
         property_updates=property_updates,
     )
     return _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
@@ -583,8 +680,8 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
 
 def _format_in_prompt(execution_count: Any | None) -> str:
     if execution_count is None:
-        return "[In [ ]]"
-    return f"[In [{execution_count}]]"
+        return "In [ ]:"
+    return f"In [{execution_count}]:"
 
 
 def _looks_like_html(text: str) -> bool:
@@ -603,36 +700,115 @@ def _inline_backticks_to_html(text: str) -> str:
     return "".join(parts)
 
 
-def _iter_markdown_blocks(source: str) -> list[tuple[str, str]]:
-    """Split CommonMark source into ATX headings and paragraphs.
+def _inline_markdown_to_html(text: str) -> str:
+    """Escape *text* and wrap ``code``, **bold**, and *italic* as HTML."""
+    placeholders: list[str] = []
 
-    Not a full CommonMark parser: lists, tables, and images stay as body text.
-    ``#`` → h1, ``##`` and deeper → h2 so markdown does not reuse Heading 3/4
-    (cell titles / Output).
+    def hold(html: str) -> str:
+        placeholders.append(html)
+        return f"\x00H{len(placeholders) - 1}\x00"
+
+    work = text or ""
+    work = _MD_IMAGE_RE.sub("", work)
+
+    def stash_code(match: re.Match[str]) -> str:
+        return hold(f"<code>{html_lib.escape(match.group(1))}</code>")
+
+    def stash_bold(match: re.Match[str]) -> str:
+        inner = match.group(1) if match.group(1) is not None else match.group(2)
+        return hold(f"<strong>{html_lib.escape(inner or '')}</strong>")
+
+    def stash_italic(match: re.Match[str]) -> str:
+        inner = match.group(1) if match.group(1) is not None else match.group(2)
+        return hold(f"<em>{html_lib.escape(inner or '')}</em>")
+
+    work = _INLINE_CODE_RE.sub(stash_code, work)
+    work = _BOLD_RE.sub(stash_bold, work)
+    work = _ITALIC_RE.sub(stash_italic, work)
+    escaped = html_lib.escape(work)
+
+    def restore(match: re.Match[str]) -> str:
+        return placeholders[int(match.group(1))]
+
+    return re.sub(r"\x00H(\d+)\x00", restore, escaped)
+
+
+def _paragraph_needs_html(text: str) -> bool:
+    if "`" in (text or ""):
+        return True
+    if "**" in text or "__" in text:
+        return True
+    if _MD_IMAGE_RE.search(text):
+        return True
+    if _ITALIC_RE.search(text):
+        return True
+    return False
+
+
+def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
+    """Split CommonMark source into ATX headings, lists, images, and paragraphs.
+
+    Not a full CommonMark parser: GFM tables stay as body text. ``#`` → h1,
+    ``##`` and deeper → h2.
     """
-    blocks: list[tuple[str, str]] = []
+    blocks: list[tuple[str, Any]] = []
     para: list[str] = []
+    list_kind: str | None = None
+    list_items: list[str] = []
 
     def flush_para() -> None:
         if para:
             blocks.append(("p", "\n".join(para)))
             para.clear()
 
+    def flush_list() -> None:
+        nonlocal list_kind
+        if list_kind and list_items:
+            blocks.append((list_kind, list(list_items)))
+        list_items.clear()
+        list_kind = None
+
     for raw_line in (source or "").splitlines():
         line = raw_line.rstrip()
         match = _ATX_HEADING_RE.match(line)
         if match:
             flush_para()
+            flush_list()
             title = (match.group(2) or "").strip()
             if title:
                 kind = "h1" if len(match.group(1)) <= 1 else "h2"
                 blocks.append((kind, title))
             continue
+        img_line = _MD_IMAGE_LINE_RE.match(line.strip())
+        if img_line:
+            flush_para()
+            flush_list()
+            blocks.append(("img", (img_line.group(1) or "", img_line.group(2).strip())))
+            continue
+        ul_match = _MD_UL_RE.match(line)
+        if ul_match:
+            flush_para()
+            if list_kind != "ul":
+                flush_list()
+                list_kind = "ul"
+            list_items.append(ul_match.group(1))
+            continue
+        ol_match = _MD_OL_RE.match(line)
+        if ol_match:
+            flush_para()
+            if list_kind != "ol":
+                flush_list()
+                list_kind = "ol"
+            list_items.append(ol_match.group(1))
+            continue
         if not line.strip():
             flush_para()
+            flush_list()
             continue
+        flush_list()
         para.append(line)
     flush_para()
+    flush_list()
     return blocks
 
 
@@ -662,7 +838,121 @@ def _append_paragraph_break_at_end(doc: Any) -> None:
     text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
 
 
-def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, lead_break: bool) -> None:
+def _keep_previous_paragraph_with_next(doc: Any) -> None:
+    """Keep the paragraph before the one we are about to add with the next block.
+
+    Stops a markdown heading from staying on page N while its code cell is
+    forced onto page N+1 by an AS_CHARACTER field.
+    """
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        cursor.gotoStartOfParagraph(False)
+        for prop, val in (("ParaKeepTogether", True), ("ParaKeepWithNext", True)):
+            try:
+                cursor.setPropertyValue(prop, val)
+            except Exception:
+                log.debug("notebook import keep-with-next on previous para failed", exc_info=True)
+    except Exception:
+        log.debug("notebook import could not mark previous paragraph keep-with-next", exc_info=True)
+
+
+def _split_markdown_image_src(raw: str) -> str:
+    src = (raw or "").strip()
+    if not src:
+        return ""
+    if src[0] in "\"'":
+        return src
+    return src.split()[0].strip("<>")
+
+
+def _fetch_remote_image(url: str) -> str | None:
+    """Download a reachable http(s) image to a temp file; None when not reachable."""
+    try:
+        from urllib.request import Request, urlopen
+
+        req = Request(url, headers={"User-Agent": "WriterAgent-notebook-import"})
+        with urlopen(req, timeout=_HTTP_IMAGE_TIMEOUT_SEC) as resp:
+            data = resp.read(_MAX_IMAGE_DECODE_BYTES + 1)
+        if not data or len(data) > _MAX_IMAGE_DECODE_BYTES:
+            return None
+        suffix = ".png"
+        lower = url.lower().split("?", 1)[0]
+        for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+            if lower.endswith(ext):
+                suffix = ".jpg" if ext == ".jpeg" else ext
+                break
+        tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+        try:
+            tmp.write(data)
+        finally:
+            tmp.close()
+        return tmp.name
+    except Exception:
+        log.debug("notebook markdown image URL not reachable: %s", url, exc_info=True)
+        return None
+
+
+def _resolve_markdown_image_path(src: str, notebook_dir: str | None) -> str | None:
+    """Return a local filesystem path when *src* is a reachable image."""
+    src = _split_markdown_image_src(src)
+    if not src:
+        return None
+    if src.startswith("file:"):
+        try:
+            import uno
+
+            src = str(uno.fileUrlToSystemPath(src))
+        except Exception:
+            src = src.replace("file://", "", 1)
+    if src.startswith("http://") or src.startswith("https://"):
+        return _fetch_remote_image(src)
+    if os.path.isfile(src):
+        return src
+    if notebook_dir:
+        joined = os.path.normpath(os.path.join(notebook_dir, src))
+        if os.path.isfile(joined):
+            return joined
+    return None
+
+
+def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, ctx: Any | None = None) -> bool:
+    path = _resolve_markdown_image_path(src, notebook_dir)
+    if not path:
+        return False
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read(_MAX_IMAGE_DECODE_BYTES + 1)
+        if not raw or len(raw) > _MAX_IMAGE_DECODE_BYTES:
+            return False
+        mime = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+        if raw[:8] == b"\x89PNG\r\n\x1a\n":
+            mime = "image/png"
+        elif raw[:2] == b"\xff\xd8":
+            mime = "image/jpeg"
+        _append_paragraph_break_at_end(doc) if _doc_body_nonempty(doc) else None
+        return _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=0, ctx=ctx)
+    except Exception:
+        log.debug("notebook markdown image embed failed path=%s", path, exc_info=True)
+        return False
+    finally:
+        if src.startswith("http://") or src.startswith("https://"):
+            try:
+                if path and path.startswith(tempfile.gettempdir()) and os.path.exists(path):
+                    os.unlink(path)
+            except OSError:
+                pass
+
+
+def _append_body_paragraph(
+    doc: Any,
+    content: str,
+    para_style: str | None,
+    *,
+    lead_break: bool,
+    keep_with_next: bool = False,
+) -> None:
     """Append one paragraph to the Writer body (end of document)."""
     if not content and not para_style:
         return
@@ -678,6 +968,12 @@ def _append_body_paragraph(doc: Any, content: str, para_style: str | None, *, le
             cursor.setPropertyValue("ParaStyleName", resolved)
         except Exception:
             log.debug("notebook import ParaStyleName %r not applied", resolved)
+    if keep_with_next:
+        for prop, val in (("ParaKeepTogether", True), ("ParaKeepWithNext", True)):
+            try:
+                cursor.setPropertyValue(prop, val)
+            except Exception:
+                log.debug("notebook import %s not applied", prop, exc_info=True)
     text.insertString(cursor, content, False)
 
 
@@ -713,11 +1009,17 @@ def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool) -> bool:
         return False
 
 
-def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool) -> None:
-    """Markdown cell: HTML as-is; CommonMark ATX headings + inline ``code``; else body text.
+def _append_markdown_cell(
+    doc: Any,
+    source: str,
+    *,
+    lead_break: bool,
+    notebook_dir: str | None = None,
+    ctx: Any | None = None,
+) -> None:
+    """Markdown cell: HTML as-is; ATX headings, lists, bold/italic, inline code, images.
 
-    Jupyter cells are CommonMark, not HTML. The old path only ran the StarWriter HTML
-    filter when ``_looks_like_html`` matched, so ``# Heading`` stayed literal Text Body.
+    Jupyter cells are CommonMark, not HTML. No ``Cell N: Markdown`` chrome.
     """
     display, _unused = _prepare_display_text(source)
     if not display:
@@ -727,19 +1029,85 @@ def _append_markdown_cell(doc: Any, source: str, *, lead_break: bool) -> None:
             _append_body_paragraph(doc, display, _STYLE_BODY, lead_break=False)
         return
     first = True
-    for kind, text in _iter_markdown_blocks(display):
+    for kind, payload in _iter_markdown_blocks(display):
         block_lead = lead_break if first else True
         first = False
         if kind == "h1":
-            _append_body_paragraph(doc, text, _STYLE_MD_H1, lead_break=block_lead)
+            _append_body_paragraph(doc, str(payload), _STYLE_MD_H1, lead_break=block_lead)
         elif kind == "h2":
-            _append_body_paragraph(doc, text, _STYLE_MD_H2, lead_break=block_lead)
-        elif "`" in text:
-            html = f"<p>{_inline_backticks_to_html(text)}</p>"
+            _append_body_paragraph(doc, str(payload), _STYLE_MD_H2, lead_break=block_lead)
+        elif kind in ("ul", "ol"):
+            items = payload if isinstance(payload, list) else [str(payload)]
+            lis = "".join(f"<li>{_inline_markdown_to_html(str(item))}</li>" for item in items)
+            html = f"<{kind}>{lis}</{kind}>"
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
-                _append_body_paragraph(doc, text, _STYLE_BODY, lead_break=False)
+                for i, item in enumerate(items):
+                    prefix = "• " if kind == "ul" else f"{i + 1}. "
+                    _append_body_paragraph(
+                        doc, prefix + str(item), _STYLE_BODY, lead_break=block_lead if i == 0 else True
+                    )
+        elif kind == "img":
+            alt, src = payload if isinstance(payload, tuple) else ("", str(payload))
+            if not _embed_markdown_image(doc, str(src), notebook_dir, ctx=ctx):
+                fallback = alt or src
+                _append_body_paragraph(doc, str(fallback), _STYLE_BODY, lead_break=block_lead)
+        elif _paragraph_needs_html(str(payload)):
+            html = f"<p>{_inline_markdown_to_html(str(payload))}</p>"
+            if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
+                _append_body_paragraph(doc, str(payload), _STYLE_BODY, lead_break=False)
         else:
-            _append_body_paragraph(doc, text, _STYLE_BODY, lead_break=block_lead)
+            _append_body_paragraph(doc, str(payload), _STYLE_BODY, lead_break=block_lead)
+
+
+def _set_model_prop(model: Any, name: str, value: Any) -> None:
+    try:
+        model.setPropertyValue(name, value)
+        return
+    except Exception:
+        pass
+    try:
+        setattr(model, name, value)
+    except Exception:
+        log.debug("notebook import could not set model %s", name, exc_info=True)
+
+
+def _style_code_field_model(model: Any) -> None:
+    """Jupyter-like code box: light gray fill, hairline border, Liberation Mono."""
+    _set_model_prop(model, "MultiLine", True)
+    _set_model_prop(model, "FontName", _CODE_FONT_NAME)
+    _set_model_prop(model, "FontHeight", _CODE_FONT_HEIGHT)
+    _set_model_prop(model, "BackgroundColor", _CODE_FIELD_BG)
+    # UnoControlEditModel: 0 none, 1 3D, 2 simple — simple + gray is a hairline.
+    _set_model_prop(model, "Border", 2)
+    _set_model_prop(model, "BorderColor", _CODE_FIELD_BORDER)
+
+
+def _style_run_button_model(model: Any) -> None:
+    """Small ▶ without a fat 3D square around it."""
+    _set_model_prop(model, "Border", 0)
+    _set_model_prop(model, "BackgroundColor", 0xFFFFFF)
+    _set_model_prop(model, "FontHeight", 8)
+    _set_model_prop(model, "FocusOnClick", False)
+    _set_model_prop(model, "DefaultControl", "com.sun.star.form.control.CommandButton")
+
+
+def _style_control_paragraph(doc: Any) -> None:
+    """Put ▶ in the left gutter (negative first-line indent); field stays in the text area."""
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        body = _resolve_para_style(doc, _STYLE_BODY)
+        if body:
+            cursor.setPropertyValue("ParaStyleName", body)
+        cursor.setPropertyValue("ParaFirstLineIndent", -_RUN_BUTTON_SIZE)
+        cursor.setPropertyValue("ParaLeftMargin", 0)
+        cursor.setPropertyValue("ParaTopMargin", 0)
+        cursor.setPropertyValue("ParaBottomMargin", 80)
+        cursor.setPropertyValue("ParaKeepTogether", True)
+        cursor.setPropertyValue("ParaKeepWithNext", True)
+    except Exception:
+        log.debug("notebook import control paragraph style failed", exc_info=True)
 
 
 def _append_cell_heading(doc: Any, title: str, *, lead_break: bool) -> None:
@@ -771,6 +1139,7 @@ def _insert_run_button_in_flow(
         model.HelpText = _("Run code cell")
     # URL-type buttons open TargetURL via desktop and do not reach our ProtocolHandler.
     model.ButtonType = form_button_push_type()
+    _style_run_button_model(model)
 
     shape = doc.createInstance("com.sun.star.drawing.ControlShape")
     if shape is None:
@@ -817,8 +1186,7 @@ def _insert_code_input_in_flow(
     model.Name = name
     if hasattr(model, "Label"):
         model.Label = "Code"
-    if hasattr(model, "MultiLine"):
-        model.MultiLine = True
+    _style_code_field_model(model)
     create_ms = _mono_ms(t0)
 
     t_text = time.monotonic()
@@ -826,11 +1194,12 @@ def _insert_code_input_in_flow(
     text_ms = _mono_ms(t_text)
 
     h = _height_for_text(display)
+    field_w = _text_area_width_units(doc)
     t_shape = time.monotonic()
     shape = doc.createInstance("com.sun.star.drawing.ControlShape")
     if shape is None:
         raise RuntimeError("Failed to create ControlShape")
-    shape.setSize(Size(_DEFAULT_WIDTH, h))
+    shape.setSize(Size(field_w, h))
     shape.Control = model
     shape.setPropertyValue("AnchorType", AS_CHARACTER)
     create_ms += _mono_ms(t_shape)
@@ -855,9 +1224,10 @@ def _insert_code_input_in_flow(
 
 
 def _cell_heading(idx: int, cell_type: str, execution_count: Any | None = None) -> str:
+    """Code-cell gutter prompt only. Markdown/raw have no Cell N chrome."""
     if cell_type == "code":
-        return f"{_format_in_prompt(execution_count)}\tCell {idx + 1}: Code"
-    return f"Cell {idx + 1}: {cell_type.capitalize()}"
+        return _format_in_prompt(execution_count)
+    return ""
 
 
 def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[str, Any]:
@@ -900,6 +1270,7 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         ctx=ctx,
         notebook_in=notebook_in,
         registry_state=registry_state,
+        notebook_dir=os.path.dirname(os.path.abspath(path)) if path else None,
     )
     if registry_state.code_cells:
         from plugin.notebook.notebook_controls import ensure_form_design_mode_off, wire_all_notebook_run_buttons
@@ -937,6 +1308,7 @@ def _import_cells(
     *,
     notebook_in: str | None = None,
     registry_state: NotebookDocState | None = None,
+    notebook_dir: str | None = None,
 ) -> None:
     first_cell = True
     for idx, cell in enumerate(nb.cells):
@@ -960,18 +1332,21 @@ def _import_cells(
         first_cell = False
 
         if cell_type == "code":
-            title = _cell_heading(idx, cell_type, ec)
-            _append_body_paragraph(doc, title, notebook_in, lead_break=lead)
+            if lead:
+                _keep_previous_paragraph_with_next(doc)
+            title = _format_in_prompt(ec)
+            _append_body_paragraph(doc, title, notebook_in, lead_break=lead, keep_with_next=True)
             # ▶ and the code TextField must not share the gutter paragraph.
             # update_in_prompt used to setString that whole range, which deletes
             # in-flow ControlShapes (the ▶ vanished after a successful run).
             _append_paragraph_break_at_end(doc)
-        else:
-            _append_cell_heading(doc, _cell_heading(idx, cell_type), lead_break=lead)
+            _style_control_paragraph(doc)
 
         if cell_type == "markdown":
             stats["markdown"] += 1
-            _append_markdown_cell(doc, source, lead_break=True)
+            _append_markdown_cell(
+                doc, source, lead_break=lead, notebook_dir=notebook_dir, ctx=ctx
+            )
         elif cell_type == "code":
             stats["code"] += 1
             field_name = f"nb_cell_{idx}_code"
@@ -994,20 +1369,26 @@ def _import_cells(
                 controls_before=stats["shapes"],
             )
             stats["shapes"] += 1
-            _append_section_heading(doc, "Output")
+            # Invisible output bookmark at the end of the ▶+field paragraph — not a
+            # visible "Output" heading. A bookmark inside "Output" leaked as "/" .
             if registry_state is not None and registry_state.code_cells:
                 bm_name = registry_state.code_cells[-1].output_start_bookmark
                 insert_output_start_bookmark(doc, bm_name)
-            out_text = _format_outputs_for_body(outputs, idx)
+            out_text = _format_outputs_for_body(outputs, idx, execution_count=ec)
             if out_text.strip():
-                stats["outputs"] += len([o for o in outputs if format_output_text(o).strip()])
+                stats["outputs"] += len(
+                    [o for o in outputs if format_output_text(o, ec).strip()]
+                )
                 _append_body_text_block(doc, out_text, _STYLE_OUTPUT, lead_break=True)
             if _outputs_contain_image(outputs):
-                images_added = _import_image_outputs_in_flow(doc, outputs, idx, images_before=stats["images"], ctx=ctx)
+                _append_paragraph_break_at_end(doc)
+                images_added = _import_image_outputs_in_flow(
+                    doc, outputs, idx, images_before=stats["images"], ctx=ctx
+                )
                 stats["images"] += images_added
         else:
             stats["raw"] += 1
-            _append_body_text_block(doc, source, _STYLE_BODY, lead_break=True)
+            _append_body_text_block(doc, source, _STYLE_BODY, lead_break=lead)
 
         log.debug("notebook import cell done index=%d cell_ms=%d controls=%d", idx, _mono_ms(cell_t0), stats["shapes"])
         if (idx + 1) % _PROGRESS_EVERY_N_CELLS == 0 or idx + 1 == cell_count:
