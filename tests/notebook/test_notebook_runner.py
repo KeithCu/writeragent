@@ -463,7 +463,10 @@ def test_is_output_bookmark_home_empty_text_body_not_heading():
     control = MagicMock()
     control.ParaStyleName = "Text Body"
     control.getString.return_value = ""
-    assert _is_output_bookmark_home(control) is True
+    assert _is_output_bookmark_home(control) is False
+    from plugin.notebook.notebook_runner import _is_leftover_empty_paragraph
+
+    assert _is_leftover_empty_paragraph(control) is True
 
     heading = MagicMock()
     heading.ParaStyleName = "Heading 2"

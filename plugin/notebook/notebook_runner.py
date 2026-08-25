@@ -217,16 +217,22 @@ def _is_output_bookmark_home(cursor: Any) -> bool:
         return True
     if _paragraph_has_frame(cursor):
         return True
-    # Empty ▶+field row is Text Body (getString omits frames). Empty Heading 1/2
-    # leftovers from a mash-split are not home.
-    style = _para_style_name(cursor)
-    if (
-        not content
-        and not _style_is_preformatted(style)
-        and not _style_is_heading12(style)
-    ):
-        return True
     return False
+
+
+def _is_leftover_empty_paragraph(cursor: Any) -> bool:
+    """Empty row that is not a heading and not stdout — leftover gap or ▶+field.
+
+    ``getString`` omits ControlShapes, so the ▶+field paragraph looks like this.
+    A leftover blank *between* field and markdown looks the same; insert fills
+    that blank, while clear skips it so ``setString`` cannot eat frames.
+    """
+    if _paragraph_string(cursor).strip():
+        return False
+    style = _para_style_name(cursor)
+    if _style_is_preformatted(style) or _style_is_heading12(style):
+        return False
+    return True
 
 
 def _paragraph_has_frame(cursor: Any) -> bool:
@@ -491,7 +497,7 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     # do not appear). Starting setString there deleted ▶, the TextField, and the
     # bookmark — live UNO runs then logged "output bookmark missing". Do not
     # treat a collapsed stdout cursor as home just because getString is "".
-    if _is_output_bookmark_home(start):
+    if _is_output_bookmark_home(start) or _is_leftover_empty_paragraph(start):
         if not end.gotoNextParagraph(False):
             return
     if _is_next_cell_boundary(_para_style_name(end), _paragraph_string(end), notebook_in):
@@ -729,17 +735,27 @@ def _insert_stdout_paragraph(
             cursor.gotoEndOfParagraph(False)
         except Exception:
             log.debug("notebook run: snap to end of control paragraph failed", exc_info=True)
+        nxt = text.createTextCursorByRange(cursor)
+        if nxt.gotoNextParagraph(False):
+            nxt_text = _paragraph_string(nxt)
+            if (
+                not nxt_text.strip()
+                and not _style_is_heading12(_para_style_name(nxt))
+                and not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in)
+            ):
+                # Import lead_break leaves an empty para after ▶+field. Fill it
+                # rather than inserting another break (field | blank | stdout).
+                _fill(nxt)
+                _finish()
+                return
         _break_then_fill()
         return
 
-    if _paragraph_is_empty(cursor):
-        # Leftover empty output para (Preformatted) can be filled. Any other empty
-        # para is the ▶+field row when frame detection fails — never write into it.
-        if _style_is_preformatted(_para_style_name(cursor)):
-            _fill(cursor)
-            _finish()
-            return
-        _break_then_fill()
+    if _paragraph_is_empty(cursor) and not _style_is_heading12(_para_style_name(cursor)):
+        # Leftover empty gap (Text Body) or empty Preformatted: fill in place.
+        # Breaking here left field | blank | stdout (live UNO gap=2).
+        _fill(cursor)
+        _finish()
         return
 
     nxt = text.createTextCursorByRange(cursor)
