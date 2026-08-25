@@ -14,6 +14,8 @@ It does **not** call ``import_ipynb_to_writer`` itself.
 
 from __future__ import annotations
 
+import logging
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -188,6 +190,22 @@ def test_debug_menu_import_ipynb_action_registered(ctx):
 def test_debug_menu_import_and_run_small_numpy_notebook(ctx, doc):
     assert _SMALL_IPYNB.is_file(), f"missing fixture {_SMALL_IPYNB}"
 
+    nb_log = logging.getLogger("writeragent.notebook")
+    stream = logging.StreamHandler(sys.stderr)
+    stream.setLevel(logging.INFO)
+    stream.setFormatter(logging.Formatter("%(name)s %(levelname)s %(message)s"))
+    nb_log.addHandler(stream)
+    old_level = nb_log.level
+    nb_log.setLevel(logging.INFO)
+
+    try:
+        _debug_menu_import_and_run(ctx, doc)
+    finally:
+        nb_log.removeHandler(stream)
+        nb_log.setLevel(old_level)
+
+
+def _debug_menu_import_and_run(ctx, doc) -> None:
     from plugin.framework.main_shared import get_action_handler
     from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
     from plugin.notebook.form_lookup import index_form_control_models
@@ -196,12 +214,12 @@ def test_debug_menu_import_and_run_small_numpy_notebook(ctx, doc):
         wire_all_notebook_run_buttons,
     )
     from plugin.notebook.notebook_runner import read_code_from_field, run_cell, run_cell_for_doc_hex
+    from plugin.framework.uno_context import get_active_document
 
     handler = get_action_handler(_IMPORT_ACTION)
     assert handler is not None, "scripting.import_ipynb is not registered"
 
     _activate_doc(ctx, doc)
-    from plugin.framework.uno_context import get_active_document
 
     active = get_active_document(ctx)
     assert active is not None, "no active document for Debug-menu import"
