@@ -194,8 +194,8 @@ def _find_cell_output_heading_end(doc: Any, cell: NotebookCodeCell) -> Any | Non
     steps = 0
     while steps < _ENUM_SAFETY_CAP:
         more = enum.hasMoreElements()
-        # Real UNO returns bool; MagicMock is truthy but is not True — stop.
-        if more is not True:
+        # PyUNO may return 1/0; MagicMock is neither True nor int 1 — stop.
+        if more is not True and more != 1:
             break
         steps += 1
         para = enum.nextElement()
