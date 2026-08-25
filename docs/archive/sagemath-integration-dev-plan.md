@@ -4,7 +4,7 @@
 > **Product note (2026-06):** SymPy trusted helpers (`symbolic_math`, Run Python Script **[Math]**) ship first; Sage integration below remains optional future work.  
 > **Last updated:** 2026-06-07  
 > **Owner:** WriterAgent core  
-> **Related:** [Scientific Python bridge](enabling_numpy_in_libreoffice.md) · [Symbolic Math roadmap](scripting-numpy-domains.md#symbolic-math) · [Analysis sub-agent](calc-analysis-sub-agent.md) · [Jupyter notebook import](calc-jupyter-notebook-import.md) · [Math / TeX design](writer-math-tex.md) · [Community integration strategy](../community_integration_strategy.md)
+> **Related:** [Scientific Python bridge](enabling_numpy_in_libreoffice.md) · [Symbolic Math roadmap](scripting-numpy-domains.md#symbolic-math) · [Analysis sub-agent](calc-analysis-sub-agent.md) · [Jupyter notebook import](writer-jupyter-notebook-import.md) · [Math / TeX design](writer-math-tex.md) · [Community integration strategy](../community_integration_strategy.md)
 
 ---
 
@@ -310,7 +310,7 @@ Aligns with [scripting-numpy-domains.md §3 Symbolic Math](scripting-numpy-domai
 
 | Step           | Scope                                                                                                                                     |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **4a (docs)**  | Import `.ipynb` via [jupyter-notebook-import](calc-jupyter-notebook-import.md); cells use WriterAgent venv — document Sage syntax requirements |
+| **4a (docs)**  | Import `.ipynb` via [jupyter-notebook-import](writer-jupyter-notebook-import.md); cells use WriterAgent venv — document Sage syntax requirements |
 | **4b**         | Detect `kernelspec.name == "sage"` → actionable Settings message                                                                          |
 | **4c (defer)** | External Sage Jupyter kernel subprocess — only if 4a–4b insufficient                                                                      |
 

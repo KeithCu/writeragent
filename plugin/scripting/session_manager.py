@@ -267,7 +267,7 @@ def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
             ctx,
             _(
                 "This Writer document has no imported notebook registry. "
-                "Use Tools → Import Jupyter Notebook… first."
+                "Use WriterAgent → Debug → Import Jupyter Notebook… first."
             ),
         )
         return
@@ -361,7 +361,7 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
                     ctx,
                     _(
                         "This Writer document has no imported notebook registry. "
-                        "Use Tools → Import Jupyter Notebook… to enable notebook Python session reset."
+                        "Use WriterAgent → Debug → Import Jupyter Notebook… to enable notebook Python session reset."
                     ),
                 )
             return
@@ -383,7 +383,7 @@ def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
                 ctx,
                 _(
                     "This Writer document has no imported notebook registry. "
-                    "Use Tools → Import Jupyter Notebook… to enable notebook Python session reset."
+                    "Use WriterAgent → Debug → Import Jupyter Notebook… to enable notebook Python session reset."
                 ),
             )
         return

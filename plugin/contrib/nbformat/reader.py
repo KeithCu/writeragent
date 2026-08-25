@@ -97,7 +97,7 @@ def reads(s, **kwargs):
             raise NBFormatError(msg) from None
     raise NBFormatError(
         f"Unsupported nbformat version {major}; WriterAgent only supports v4 "
-        "(v3 and older upgrade deferred — see docs/calc-jupyter-notebook-import.md)."
+        "(v3 and older upgrade deferred — see docs/writer-jupyter-notebook-import.md)."
     )
 
 

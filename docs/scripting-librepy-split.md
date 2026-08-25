@@ -888,7 +888,7 @@ See [scripting-numpy-domains.md](scripting-numpy-domains.md) and [image-recognit
 - [Math / TeX import](writer-math-tex.md) — LaTeX, MathML, StarMath pipeline
 - [Calc integration](calc-integration.md) — broader Calc chat/tools (WriterAgent scope)
 
-**Out of scope for core** (separate PM/dev docs): [embeddings.md](embeddings.md), [calc-duckdb-dev-plan.md](calc-duckdb-dev-plan.md), [calc-jupyter-notebook-import.md](calc-jupyter-notebook-import.md), [calc-spreadsheet-to-python-import.md](calc-spreadsheet-to-python-import.md)
+**Out of scope for core** (separate PM/dev docs): [embeddings.md](embeddings.md), [calc-duckdb-dev-plan.md](calc-duckdb-dev-plan.md), [writer-jupyter-notebook-import.md](writer-jupyter-notebook-import.md), [calc-spreadsheet-to-python-import.md](calc-spreadsheet-to-python-import.md)
 
 ---
 

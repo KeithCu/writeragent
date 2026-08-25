@@ -6,7 +6,7 @@ todos:
     content: "Phase 0: Document notebook model -- cell registry, UserDefinedProperties, session_id notebook:…"
     status: completed
   - id: nb-phase1-run-cell
-    content: "Phase 1: Run single code cell -- ▶ button, shared kernel, output refresh (clear-output API fix pending)"
+    content: "Phase 1: Run single code cell -- ▶ button, shared kernel, output refresh"
     status: completed
   - id: nb-phase2-run-all-stop
     content: "Phase 2: Run All / Run from here, Stop, execution state on gutter [In [n]]"
@@ -30,7 +30,7 @@ isProject: false
 
 ## Purpose
 
-WriterAgent **imports** `.ipynb` files into Writer ([`calc-jupyter-notebook-import.md`](calc-jupyter-notebook-import.md)): markdown, editable code **TextFields** (`nb_cell_{i}_code`), frozen outputs, and (since Phase 1) **▶ Run** per code cell against a **shared `notebook:…` venv kernel**.
+WriterAgent **imports** `.ipynb` files into Writer ([`writer-jupyter-notebook-import.md`](writer-jupyter-notebook-import.md)): markdown, editable code **TextFields** (`nb_cell_{i}_code`), frozen outputs, and (since Phase 1) **▶ Run** per code cell against a **shared `notebook:…` venv kernel**.
 
 Still to build: Run All / Stop, cell CRUD, sidebar, `.ipynb` export, and (later) in-kernel UNO via host proxy.
 
@@ -47,12 +47,12 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 
 ---
 
-## Current status (2026-05-28)
+## Current status (2026-08)
 
 | Phase | State | Summary |
 |-------|--------|---------|
 | **0** | **Shipped** | Registry JSON on document, stable `cell_id` (UUID), output bookmarks, `notebook:…` session id, reset via **WriterAgent → Reset Python Session** |
-| **1** | **Shipped (core)** | In-flow ▶ push buttons, `notebook_runner`, shared kernel, gutter `[In [n]]` updates, venv execution + UI drain |
+| **1** | **Shipped** | In-flow ▶ push buttons, `notebook_runner`, shared kernel, gutter `[In [n]]` updates, venv execution + UI drain, **output replace** (`setString("")`), ATX markdown headings + inline ``code`` |
 | **2–6** | **Not started** | Run All / Stop, CRUD, sidebar, export, UNO proxy |
 
 **Manual smoke (verified on small notebook):** Import → `wired 3/3 run button(s)` in log → click ▶ → `notebook run cell index=…` → venv worker runs → second cell sees variables from first after cell 0 run.
@@ -76,7 +76,7 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 
 ### Known gaps / bugs (Phase 1 follow-up)
 
-1. **`clear_cell_output`** — uses `text.deleteContents(...)`, which is not valid on Writer `XText` in PyUNO (`AttributeError: deleteContents`). Re-runs log `failed to clear output for cell N`; new stdout may **append** beside old output until fixed (use cursor `setString("")` or `removeContents` on the selection range).
+1. **`clear_cell_output`** — **fixed**: uses `cursor.setString("")` (Writer `XText` has no `deleteContents`). Re-run replaces stdout; boundary includes markdown/raw cell chrome so the small NumPy fixture does not lose cells between code runs.
 2. **Re-import** — replaces registry; no merge UX (Phase 3).
 3. **Form URL buttons** — rejected; `TargetURL` / protocol handler does not fire for in-flow form buttons. Use **PUSH** + `XActionListener` only.
 4. **Untitled documents** — `doc.getURL()` empty; listener keeps strong ref to `doc` (PyUNO objects cannot use `weakref`).
@@ -171,7 +171,7 @@ flowchart TB
 
 ---
 
-## Phase 1: Run single code cell — **done (core); polish pending**
+## Phase 1: Run single code cell — **done**
 
 **Goal:** User clicks **▶**; code runs in shared kernel; output area updates; gutter shows `[In [n]]`.
 
@@ -187,7 +187,6 @@ flowchart TB
 
 **Remaining Phase 1 work:**
 
-- Fix `clear_cell_output` UNO API so re-run replaces output cleanly
 - Optional UNO test: `tests/notebook/test_notebook_run_uno.py` (tiny ipynb, run cell, assert body text)
 - Session persistence test through `notebook_runner` API (mirror `test_session_persistence.py`)
 
@@ -283,31 +282,30 @@ Add keys in [`plugin/notebook/module.yaml`](../plugin/notebook/module.yaml) when
 
 ## Performance backlog (parallel / lower priority)
 
-From [`calc-jupyter-notebook-import.md`](calc-jupyter-notebook-import.md):
+From [`writer-jupyter-notebook-import.md`](writer-jupyter-notebook-import.md):
 
 - Background import: decode images off-thread, UNO insert on main thread every *k* images
 - nbformat **v3** upgrade path
-- Full CommonMark markdown (today: HTML-tagged cells only)
+- Full CommonMark markdown (ATX headings + inline ``code`` shipped; lists/tables/images later)
 
 ---
 
 ## Suggested implementation order for a fresh agent
 
-1. Read [`calc-jupyter-notebook-import.md`](calc-jupyter-notebook-import.md) and this file’s **Current status** section.
-2. **Fix Phase 1 polish** — `clear_cell_output` API; confirm output replace in Writer.
-3. **Phase 2** — Run All + Stop + menubar entries.
-4. **Phase 3** — cell CRUD + re-import merge dialog.
-5. Update shipped/deferred tables in `calc-jupyter-notebook-import.md` after each phase.
-6. `make test` + manual Writer smoke.
+1. Read [`writer-jupyter-notebook-import.md`](writer-jupyter-notebook-import.md) and this file’s **Current status** section.
+2. **Phase 2** — Run All + Stop + menubar entries.
+3. **Phase 3** — cell CRUD + re-import merge dialog.
+4. Update shipped/deferred tables in `writer-jupyter-notebook-import.md` after each phase.
+5. `make test` + manual Writer smoke.
 
 **Manual smoke (Phase 1 — current):**
 
 1. `make deploy writer` (or restart LO after OXT update).
-2. Import small two-cell notebook (`x = 1` / `print(x)`).
-3. Log: `notebook controls: wired 2/2 run button(s)`.
-4. Run cell 0, then cell 1 → `print` shows `1`.
-5. **Reset Python Session** → cell 1 fails until cell 0 re-run.
-6. Re-run cell 0 → verify output region (after clear-output fix, no duplicate paragraphs).
+2. **Debug → Import Jupyter Notebook…** and pick `tests/fixtures/introduction-to-numpy-small.ipynb`.
+3. Log: `notebook controls: wired 3/3 run button(s)`.
+4. Run code cells in order (▶ cell 2, then 4, then 6) → NumPy version / array / `a2` (cell 6 sees `a1` from cell 4).
+5. **Reset Python Session** → cell 6 fails until cell 4 re-run.
+6. Re-run a code cell → output region is replaced (no duplicate paragraphs).
 
 **Debug log keywords:** `notebook controls`, `wired`, `notebook run cell`, `failed to clear output`, `venv_worker`.
 
@@ -330,7 +328,7 @@ From [`calc-jupyter-notebook-import.md`](calc-jupyter-notebook-import.md):
 
 ## References
 
-- [Jupyter notebook import (user-facing)](calc-jupyter-notebook-import.md)
+- [Jupyter notebook import (user-facing)](writer-jupyter-notebook-import.md)
 - [Shared kernel semantics (§6)](enabling_numpy_in_libreoffice.md#session-modes-and-recalc-semantics) · [Calc UX backlog](enabling_numpy_in_libreoffice.md#calc-ux-backlog)
 - [NumPy / venv bridge](enabling_numpy_in_libreoffice.md)
 - [Writer forms / in-flow controls](../plugin/writer/specialized/forms.py)

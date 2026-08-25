@@ -36,7 +36,7 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
 | [Monaco editor dev plan](scripting-monaco-editor-dev-plan.md) | IPC, phases 2B–2F |
 | [Collabora Online / jail-safe](scripting-numpy-jailsafe.md) | Thin C++ Add-In + compute service |
 | [Calc spreadsheet → Python import](calc-spreadsheet-to-python-import.md) | Convert formulas to `=PY()` |
-| [Jupyter notebook import](calc-jupyter-notebook-import.md) | Writer `.ipynb` import (not venv compute) |
+| [Jupyter notebook import](writer-jupyter-notebook-import.md) | Writer `.ipynb` import + ▶ run (shared `notebook:…` kernel; not Calc `=PY()`) |
 
 ---
 
@@ -848,7 +848,7 @@ Complex returns (DataFrame, dict, class) should show a compact cell label (e.g. 
 ### Other deferred pointers
 
 - Serialization performance: [scripting-numpy-serialization.md — Future work](scripting-numpy-serialization.md#future-work--serialization-performance)
-- Jupyter `.ipynb` import (Writer only, not venv compute): [calc-jupyter-notebook-import.md](calc-jupyter-notebook-import.md)
+- Jupyter Writer `.ipynb` import + ▶ run: [writer-jupyter-notebook-import.md](writer-jupyter-notebook-import.md)
 - Monaco remaining phases: [scripting-monaco-editor-dev-plan.md](scripting-monaco-editor-dev-plan.md)
 - Domain roadmaps: [scripting-numpy-domains.md](scripting-numpy-domains.md)
 
@@ -874,5 +874,5 @@ Remaining work lives in the child doc (or [§7 backlog](#calc-ux-backlog)). Do *
 | Venv ↔ LO tool RPC | [§7](#venv--libreoffice-tool-rpc) |
 | Collabora Online (Steps A–C landed; plot / Monaco remain) | [scripting-numpy-jailsafe.md](scripting-numpy-jailsafe.md), [online#16010](https://github.com/CollaboraOnline/online/issues/16010) |
 | Monaco editor remaining phases | [scripting-monaco-editor-dev-plan.md](scripting-monaco-editor-dev-plan.md) |
-| Jupyter Writer import (execution loop deferred) | [calc-jupyter-notebook-import.md](calc-jupyter-notebook-import.md) |
+| Jupyter Writer import (Phase 1: import + ▶ run, ATX markdown, output replace) | [writer-jupyter-notebook-import.md](writer-jupyter-notebook-import.md) |
 

@@ -43,7 +43,7 @@ Back to [Enabling NumPy & Python in LibreOffice](enabling_numpy_in_libreoffice.m
 
 This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It does **not** replace the two-phase chat workflow ([compute in venv → write back with tools](enabling_numpy_in_libreoffice.md#two-phase-llm-workflow)); it automates that rewrite for existing sheets.
 
-**Related:** [Jupyter notebook import](calc-jupyter-notebook-import.md) (external `.ipynb` → Writer) · [Enabling NumPy in LibreOffice](enabling_numpy_in_libreoffice.md) (shipped `=PY()` infrastructure) · [Calc UX backlog](enabling_numpy_in_libreoffice.md#calc-ux-backlog) · [Analysis sub-agent](calc-analysis-sub-agent.md) (xlcalculator / excel_in_python references) · [Microsoft `xl()` vs WriterAgent `calc.*`](#microsoft-xl-vs-writeragent-calc) (formula-parity helpers vs Excel data bridge)
+**Related:** [Jupyter notebook import](writer-jupyter-notebook-import.md) (external `.ipynb` → Writer) · [Enabling NumPy in LibreOffice](enabling_numpy_in_libreoffice.md) (shipped `=PY()` infrastructure) · [Calc UX backlog](enabling_numpy_in_libreoffice.md#calc-ux-backlog) · [Analysis sub-agent](calc-analysis-sub-agent.md) (xlcalculator / excel_in_python references) · [Microsoft `xl()` vs WriterAgent `calc.*`](#microsoft-xl-vs-writeragent-calc) (formula-parity helpers vs Excel data bridge)
 
 ---
 

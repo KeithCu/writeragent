@@ -51,8 +51,8 @@ msgstr ""
 
 #: plugin/notebook/notebook_runner.py
 msgid ""
-"This document has no imported notebook. Use Tools → Import Jupyter Notebook…"
-" first."
+"This document has no imported notebook. Use WriterAgent → Debug → Import "
+"Jupyter Notebook… first."
 msgstr ""
 
 #: plugin/notebook/notebook_runner.py
@@ -2035,8 +2035,8 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"This Writer document has no imported notebook registry. Use Tools → Import "
-"Jupyter Notebook… first."
+"This Writer document has no imported notebook registry. Use WriterAgent → "
+"Debug → Import Jupyter Notebook… first."
 msgstr ""
 
 #: plugin/scripting/session_manager.py
@@ -2076,8 +2076,8 @@ msgstr ""
 
 #: plugin/scripting/session_manager.py
 msgid ""
-"This Writer document has no imported notebook registry. Use Tools → Import "
-"Jupyter Notebook… to enable notebook Python session reset."
+"This Writer document has no imported notebook registry. Use WriterAgent → "
+"Debug → Import Jupyter Notebook… to enable notebook Python session reset."
 msgstr ""
 
 #: plugin/scripting/units.py
