@@ -380,6 +380,83 @@ def test_clear_cell_output_collapsed_cursor_stops_at_markdown():
     walker.gotoStartOfParagraph.assert_called_once()
 
 
+def test_clear_cell_output_skips_empty_control_paragraph():
+    """▶+field getString is empty (frames omitted). setString there deleted ▶ and nb_out_*."""
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    start = MagicMock(name="start")
+    start.ParaStyleName = "Text Body"
+    start.getString.return_value = ""
+
+    walker = MagicMock(name="walker")
+    walker.ParaStyleName = "Text Body"
+    walker.getString.return_value = ""
+
+    def goto_next(_expand):
+        walker.ParaStyleName = "Heading 2"
+        walker.getString.return_value = "Reshape and transpose"
+        return True
+
+    walker.gotoNextParagraph.side_effect = goto_next
+    walker.getStart.return_value = "md-start"
+
+    range_start = MagicMock(name="range_start")
+    sel = MagicMock(name="sel")
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+    ):
+        clear_cell_output(doc, cell)
+
+    sel.setString.assert_not_called()
+
+
+def test_clear_cell_output_skips_control_row_then_clears_stdout():
+    """Bookmark home is empty Text Body; stdout in the next Preformatted paragraph."""
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    start = MagicMock(name="start")
+    start.ParaStyleName = "Text Body"
+    start.getString.return_value = ""
+
+    walker = MagicMock(name="walker")
+    walker.ParaStyleName = "Text Body"
+    walker.getString.return_value = ""
+    steps = {"n": 0}
+
+    def goto_next(_expand):
+        steps["n"] += 1
+        if steps["n"] == 1:
+            walker.ParaStyleName = "Preformatted Text"
+            walker.getString.return_value = "old stdout"
+            return True
+        walker.ParaStyleName = "Heading 2"
+        walker.getString.return_value = "Reshape and transpose"
+        return True
+
+    walker.gotoNextParagraph.side_effect = goto_next
+    walker.getStart.return_value = "md-start"
+
+    range_start = MagicMock(name="range_start")
+    sel = MagicMock(name="sel")
+    sel.getString.return_value = "old stdout\n"
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = [walker, range_start, sel]
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+    ):
+        clear_cell_output(doc, cell)
+
+    sel.setString.assert_called_once_with("")
+
+
 def test_run_cell_rerun_clears_then_applies():
     ctx = MagicMock()
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")

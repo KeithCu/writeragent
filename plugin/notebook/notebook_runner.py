@@ -203,6 +203,25 @@ def _style_is_preformatted(para_style: str) -> bool:
     return _style_compact(para_style) in ("preformattedtext", "preformatted")
 
 
+def _is_output_bookmark_home(cursor: Any) -> bool:
+    """True when *cursor* is in the ▶+field row (or leftover ``Output`` heading).
+
+    Writer ``getString()`` omits ControlShapes, so that paragraph looks empty.
+    A collapsed cursor *in stdout* also returns ``""`` until the walker expands
+    it — skipping those rows left old stdout in place and aborted at the next
+    markdown cell. Empty **Preformatted** is leftover stdout (clear/fill it).
+    Empty non-Preformatted is the control row when frame detection fails.
+    """
+    content = _paragraph_string(cursor).strip()
+    if content == "Output" or _IN_PROMPT_RE.match(content):
+        return True
+    if _paragraph_has_frame(cursor):
+        return True
+    if not content and not _style_is_preformatted(_para_style_name(cursor)):
+        return True
+    return False
+
+
 def _paragraph_has_frame(cursor: Any) -> bool:
     """True when the paragraph contains an in-flow ControlShape / graphic (▶ or field)."""
     try:
@@ -222,7 +241,9 @@ def _paragraph_has_frame(cursor: Any) -> bool:
                 continue
             start_cmp = text.compareRegionStarts(para.getStart(), cursor)
             end_cmp = text.compareRegionEnds(cursor, para.getEnd())
-            if not (start_cmp <= 0 and end_cmp <= 0):
+            # compareRegionStarts(A,B) is 1 if A starts before B. Cursor is in *para*
+            # when para starts at/before the cursor and the cursor ends at/before para.
+            if not (start_cmp >= 0 and end_cmp >= 0):
                 continue
             portions = para.createEnumeration()
         except Exception:
@@ -312,18 +333,12 @@ def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
         return None
     current = _cursor_after_bookmark(doc, name)
     if current is not None:
-        content = _paragraph_string(current).strip()
-        # Still on the control paragraph (empty text / frames) or leftover Output.
-        if not content or content == "Output" or _IN_PROMPT_RE.match(content) or _paragraph_has_frame(current):
-            return current
+        return current
     try:
         text = doc.getText()
-        bookmarks = doc.getBookmarks()
-        if bookmarks.hasByName(name):
-            text.removeTextContent(bookmarks.getByName(name))
         heading_end = _code_field_paragraph_end(doc, cell)
         if heading_end is None:
-            return _cursor_after_bookmark(doc, name)
+            return None
         bookmark = doc.createInstance("com.sun.star.text.Bookmark")
         bookmark.Name = name
         text.insertTextContent(heading_end, bookmark, False)
@@ -374,12 +389,7 @@ def _collapse_leading_empty_paragraphs(
         # Bookmark at the paragraph break reports as the *next* para (often a
         # leftover blank). Snap to the ▶+field bookmark paragraph so we delete
         # that blank instead of treating it as the bookmark's home.
-        content = _paragraph_string(start).strip()
-        at_home = (
-            content == "Output"
-            or bool(_IN_PROMPT_RE.match(content))
-            or _paragraph_has_frame(start)
-        )
+        at_home = _is_output_bookmark_home(start)
         if not at_home:
             heading = _find_cell_output_heading_end(doc, cell)
             if heading is None:
@@ -448,9 +458,11 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     if start is None:
         return
     end = text.createTextCursorByRange(start)
-    content = _paragraph_string(start).strip()
-    # Skip the control paragraph (▶ + field + bookmark) and leftover "Output" chrome.
-    if content == "Output" or _IN_PROMPT_RE.match(content) or _paragraph_has_frame(start):
+    # Bookmark lives in the ▶+field paragraph (getString is empty because frames
+    # do not appear). Starting setString there deleted ▶, the TextField, and the
+    # bookmark — live UNO runs then logged "output bookmark missing". Do not
+    # treat a collapsed stdout cursor as home just because getString is "".
+    if _is_output_bookmark_home(start):
         if not end.gotoNextParagraph(False):
             return
     if _is_next_cell_boundary(_para_style_name(end), _paragraph_string(end), notebook_in):
@@ -663,8 +675,7 @@ def _insert_stdout_paragraph(
         _fill(cursor)
         _finish()
 
-    home = _paragraph_string(cursor).strip()
-    if home == "Output" or _IN_PROMPT_RE.match(home) or _paragraph_has_frame(cursor):
+    if _is_output_bookmark_home(cursor):
         try:
             cursor.gotoEndOfParagraph(False)
         except Exception:
@@ -673,8 +684,13 @@ def _insert_stdout_paragraph(
         return
 
     if _paragraph_is_empty(cursor):
-        _fill(cursor)
-        _finish()
+        # Leftover empty output para (Preformatted) can be filled. Any other empty
+        # para is the ▶+field row when frame detection fails — never write into it.
+        if _style_is_preformatted(_para_style_name(cursor)):
+            _fill(cursor)
+            _finish()
+            return
+        _break_then_fill()
         return
 
     nxt = text.createTextCursorByRange(cursor)
