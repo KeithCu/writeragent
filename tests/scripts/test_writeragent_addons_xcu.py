@@ -124,21 +124,17 @@ def test_writeragent_writer_only_top_level_items():
         assert _CALC_SVC not in (ctx or "")
 
 
-def test_writeragent_jupyter_is_under_debug_not_top_level():
+def test_writeragent_jupyter_is_top_level_below_text_analytics():
     root = ET.parse(_ADDONS_XCU).getroot()
     menubar = _find_menubar(root)
     jupyter = _PROTOCOL + "scripting.import_ipynb"
-    assert jupyter not in _submenu_items(menubar)
+    items = _submenu_items(menubar)
+    assert jupyter in items
+    assert _prop_text(items[jupyter], "Context") == _WRITER_SVC
     debug_urls = [
         _prop_text(item, "URL") for item in _debug_submenu(menubar).findall("node")
     ]
-    assert jupyter in debug_urls
-    jupyter_node = next(
-        item for item in _debug_submenu(menubar).findall("node")
-        if _prop_text(item, "URL") == jupyter
-    )
-    assert _prop_text(jupyter_node, "Context") == _WRITER_SVC
-    assert debug_urls[-1] == jupyter
+    assert jupyter not in debug_urls
 
 
 def test_writeragent_node_names_are_sort_stable():
@@ -164,6 +160,7 @@ def test_writeragent_menu_order():
         _PROTOCOL + "embeddings.search_dialog",
         _PROTOCOL + "writer.insert_latex_dialog",
         _PROTOCOL + "textanalytics.open_dialog",
+        _PROTOCOL + "scripting.import_ipynb",
         "private:separator",
         _PROTOCOL + "main.settings",
         _PROTOCOL + "vision.open_settings",
@@ -216,3 +213,6 @@ def test_writeragent_mcp_images_section_points_at_assets():
     assert by_url[status].endswith("assets/stopped_16.png")
     assert by_url[status].startswith("%origin%/")
     assert _PROTOCOL + "mcp.toggle_server" not in by_url
+    jupyter = _PROTOCOL + "scripting.import_ipynb"
+    assert jupyter in by_url
+    assert by_url[jupyter] == "%origin%/assets/jupyter_32.png"

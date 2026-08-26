@@ -132,6 +132,20 @@
             </prop>
           </node>
           <node oor:name="M10" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Import Jupyter Notebook...</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.writeragent:scripting.import_ipynb</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.text.TextDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M11" oor:op="replace">
             <prop oor:name="URL">
               <value>private:separator</value>
             </prop>
@@ -139,7 +153,7 @@
               <value>com.sun.star.sheet.SpreadsheetDocument,com.sun.star.text.GlobalDocument,com.sun.star.text.TextDocument,com.sun.star.text.WebDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.presentation.PresentationDocument</value>
             </prop>
           </node>
-          <node oor:name="M11" oor:op="replace">
+          <node oor:name="M12" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Settings</value>
             </prop>
@@ -153,7 +167,7 @@
               <value>_self</value>
             </prop>
           </node>
-          <node oor:name="M12" oor:op="replace">
+          <node oor:name="M13" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Vision OCR Settings...</value>
             </prop>
@@ -167,7 +181,7 @@
               <value>_self</value>
             </prop>
           </node>
-          <node oor:name="M13" oor:op="replace">
+          <node oor:name="M14" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Toggle MCP Server</value>
             </prop>
@@ -181,7 +195,7 @@
               <value>_self</value>
             </prop>
           </node>
-          <node oor:name="M14" oor:op="replace">
+          <node oor:name="M15" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">MCP Server Status</value>
             </prop>
@@ -198,7 +212,7 @@
               <value />
             </prop>
           </node>
-          <node oor:name="M15" oor:op="replace">
+          <node oor:name="M16" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Reset Python Session</value>
             </prop>
@@ -212,7 +226,7 @@
               <value>_self</value>
             </prop>
           </node>
-          <node oor:name="M16" oor:op="replace">
+          <node oor:name="M17" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Debug</value>
             </prop>
@@ -226,7 +240,7 @@
               <value>_self</value>
             </prop>
             <node oor:name="Submenu">
-              <node oor:name="M16a" oor:op="replace">
+              <node oor:name="M17a" oor:op="replace">
                 <prop oor:name="Title">
                   <value xml:lang="en-US">Run format tests</value>
                 </prop>
@@ -240,7 +254,7 @@
                   <value>_self</value>
                 </prop>
               </node>
-              <node oor:name="M16b" oor:op="replace">
+              <node oor:name="M17b" oor:op="replace">
                 <prop oor:name="Title">
                   <value xml:lang="en-US">Run calc tests</value>
                 </prop>
@@ -254,7 +268,7 @@
                   <value>_self</value>
                 </prop>
               </node>
-              <node oor:name="M16c" oor:op="replace">
+              <node oor:name="M17c" oor:op="replace">
                 <prop oor:name="Title">
                   <value xml:lang="en-US">Run Calc API integration tests</value>
                 </prop>
@@ -268,7 +282,7 @@
                   <value>_self</value>
                 </prop>
               </node>
-              <node oor:name="M16d" oor:op="replace">
+              <node oor:name="M17d" oor:op="replace">
                 <prop oor:name="Title">
                   <value xml:lang="en-US">Run draw tests</value>
                 </prop>
@@ -282,7 +296,7 @@
                   <value>_self</value>
                 </prop>
               </node>
-              <node oor:name="M16e" oor:op="replace">
+              <node oor:name="M17e" oor:op="replace">
                 <prop oor:name="Title">
                   <value xml:lang="en-US">Evaluation Dashboard</value>
                 </prop>
@@ -296,23 +310,9 @@
                   <value>_self</value>
                 </prop>
               </node>
-              <node oor:name="M16f" oor:op="replace">
-                <prop oor:name="Title">
-                  <value xml:lang="en-US">Import Jupyter Notebook...</value>
-                </prop>
-                <prop oor:name="URL">
-                  <value>org.extension.writeragent:scripting.import_ipynb</value>
-                </prop>
-                <prop oor:name="Context" oor:type="xs:string">
-                  <value>com.sun.star.text.TextDocument</value>
-                </prop>
-                <prop oor:name="Target" oor:type="xs:string">
-                  <value>_self</value>
-                </prop>
-              </node>
             </node>
           </node>
-          <node oor:name="M17" oor:op="replace">
+          <node oor:name="M18" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Report bug...</value>
             </prop>
@@ -466,6 +466,19 @@
           </prop>
           <prop oor:name="ImageBigURL">
             <value>%origin%/assets/latex_32.png</value>
+          </prop>
+        </node>
+      </node>
+      <node oor:name="org.extension.writeragent.scripting.import_ipynb.img" oor:op="replace">
+        <prop oor:name="URL">
+          <value>org.extension.writeragent:scripting.import_ipynb</value>
+        </prop>
+        <node oor:name="UserDefinedImages">
+          <prop oor:name="ImageSmallURL">
+            <value>%origin%/assets/jupyter_32.png</value>
+          </prop>
+          <prop oor:name="ImageBigURL">
+            <value>%origin%/assets/jupyter_32.png</value>
           </prop>
         </node>
       </node>

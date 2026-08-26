@@ -43,10 +43,9 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
         "properties": {
             "sql": {"type": "string", "description": "The SQL query. Use FROM data for active sheet range, or FROM 'file.csv' / 'budget.xlsx' for folder files."},
             "files": {
-                "type": ["array", "object"],
-                "items": {"type": "string"},
+                "type": "object",
                 "additionalProperties": {"type": "string"},
-                "description": "Folder files. List of basenames (legacy) or dict name -> basename/spec (e.g. {\"ledger\": \"ledger.parquet\"}). Office files auto-preloaded with name as table.",
+                "description": "Folder files as name -> basename/spec (e.g. {\"ledger\": \"ledger.parquet\"}). A list of basenames is still accepted. Office files auto-preloaded with name as table.",
             },
             "data_range": {"type": "string", "description": "A1 range on the active sheet (e.g. 'Sheet1.A1:F500' or 'A1:D100'). Becomes table 'data' (use headers param)."},
             "headers": {"type": "boolean", "description": "First row of data_range (or preloaded) contains column headers (default true)."},

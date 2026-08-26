@@ -94,13 +94,16 @@ def test_workbook_session_id_with_explicit_doc() -> None:
     mock_doc = MagicMock()
     mock_doc.getURL.return_value = "file:///custom_sheet.ods"
 
-    with (
-        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-        patch("plugin.scripting.session_manager.is_calc", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-    ):
-        sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
-        assert sid == "calc:file:///custom_sheet.ods"
+    try:
+        with (
+            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+            patch("plugin.scripting.session_manager.is_calc", return_value=True),
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        ):
+            sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
+            assert sid == "calc:file:///custom_sheet.ods"
+    finally:
+        session_manager.clear_active_calc_session()
 
 
 def test_reset_workbook_python_session_prefers_calc() -> None:
@@ -124,6 +127,7 @@ def test_workbook_session_id_off_main_ambiguous_when_two_workbooks() -> None:
     from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
+    session_manager.clear_active_calc_session()
     session_manager.record_active_calc_session("calc:file:///a.ods")
     session_manager.record_active_calc_session("calc:file:///b.ods")
     try:
@@ -141,6 +145,7 @@ def test_workbook_session_id_uses_cached_session_off_main() -> None:
     from unittest.mock import MagicMock, patch
 
     ctx = MagicMock()
+    session_manager.clear_active_calc_session()
     session_manager.record_active_calc_session("calc:file:///cached_sheet.ods")
 
     try:
@@ -162,12 +167,16 @@ def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
     mock_doc = MagicMock()
     mock_doc.getURL.return_value = "file:///fallback_sheet.ods"
 
-    with (
-        patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
-        patch("plugin.scripting.session_manager.is_calc", side_effect=RuntimeError("UNO thread error")),
-    ):
-        sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
-        assert sid == "calc:file:///fallback_sheet.ods"
+    try:
+        with (
+            patch("plugin.scripting.session_manager.python_session_mode", return_value="shared"),
+            patch("plugin.scripting.session_manager.is_calc", side_effect=RuntimeError("UNO thread error")),
+        ):
+            sid = session_manager.workbook_session_id(ctx, doc=mock_doc)
+            assert sid == "calc:file:///fallback_sheet.ods"
+    finally:
+        session_manager.clear_active_calc_session()
+
 
 
 

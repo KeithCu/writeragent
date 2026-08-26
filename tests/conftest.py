@@ -81,6 +81,17 @@ def _disable_dev_llm_prefix_for_deterministic_http_tests():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_calc_session_manager_state():
+    """Ensure Calc session state does not leak between unit tests."""
+    from plugin.scripting.session_manager import clear_active_calc_session
+
+    clear_active_calc_session()
+    yield
+    clear_active_calc_session()
+
+
+
 com = _create_mock_module("com")
 sun = _create_mock_module("com.sun")
 star = _create_mock_module("com.sun.star")

@@ -39,10 +39,9 @@ _DATA_RANGE_DESCRIPTION = (
 )
 _DATA_RANGE_SCHEMA = {
     "description": _DATA_RANGE_DESCRIPTION,
-    "oneOf": [
-        {"type": "string"},
-        {"type": "array", "items": {"type": "string"}},
-    ],
+    # Single type: Gemini function calling rejects oneOf. Execute still
+    # accepts a list of addresses if a model sends one.
+    "type": "string",
 }
 
 _PARAMETERS_CALC = {

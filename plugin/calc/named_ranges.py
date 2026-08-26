@@ -41,6 +41,20 @@ _FLAG_NAME_TO_BIT: dict[str, int] = {
 
 _BIT_TO_FLAG_NAME: dict[int, str] = {v: k for k, v in _FLAG_NAME_TO_BIT.items()}
 
+# Gemini rejects oneOf; advertise the LLM-friendly form. _parse_flags still
+# accepts a comma-string or integer bitmask if sent.
+_FLAGS_SCHEMA: dict[str, Any] = {
+    "description": (
+        "Range type flags as an array of names: 'filter_criteria', 'print_area', "
+        "'column_header', 'row_header'."
+    ),
+    "type": "array",
+    "items": {
+        "type": "string",
+        "enum": list(_FLAG_NAME_TO_BIT.keys()),
+    },
+}
+
 
 def _parse_flags(flags: list[str] | str | int | None) -> int:
     """Parse human-readable flags or integer bitmask into a NamedRangeFlag bitmask."""
@@ -337,14 +351,7 @@ class NamedRangeAdd(ToolCalcRangeBase):
                 "type": "string",
                 "description": "Base cell reference for relative addresses (e.g. 'A1' or 'Sheet1.A1'). Defaults to A1 on sheet 0.",
             },
-            "flags": {
-                "description": "Range type flags: array of strings ('filter_criteria', 'print_area', 'column_header', 'row_header') or integer bitmask.",
-                "oneOf": [
-                    {"type": "array", "items": {"type": "string"}},
-                    {"type": "string"},
-                    {"type": "integer"},
-                ],
-            },
+            "flags": _FLAGS_SCHEMA,
         },
         "required": ["name", "content"],
     }
@@ -405,14 +412,7 @@ class NamedRangeEdit(ToolCalcRangeBase):
                 "description": "Scope where the named range exists: 'global' (default) or specific sheet name.",
             },
             "base_cell": {"type": "string", "description": "New base cell reference for relative coordinates."},
-            "flags": {
-                "description": "New range type flags: array of strings ('filter_criteria', 'print_area', 'column_header', 'row_header') or integer bitmask.",
-                "oneOf": [
-                    {"type": "array", "items": {"type": "string"}},
-                    {"type": "string"},
-                    {"type": "integer"},
-                ],
-            },
+            "flags": _FLAGS_SCHEMA,
         },
         "required": ["name"],
     }

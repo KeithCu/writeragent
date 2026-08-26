@@ -1,0 +1,15 @@
+Jupyter logo (jupyter_logo.svg → jupyter_32.png)
+================================================
+Dev tree only for SVG + this NOTICE — not shipped in the .oxt (see scripts/build_oxt.py should_exclude).
+jupyter_32.png ships.
+
+Source: https://github.com/jupyter/design/tree/master/logos/Logo%20Mark/logomark-orangebody-greyplanets
+Official Project Jupyter “Planet” logomark (orange crescents + grey moons).
+Trademark of Project Jupyter; used to indicate Jupyter notebook import:
+https://jupyter.org
+https://github.com/jupyter/design (BSD-3-Clause assets)
+
+Regenerate 32×32 PNG (trim padding, then *cover* 32×32 so the mark fills
+the menu slot like python_32.png — letterboxing made a previous icon too small):
+  rsvg-convert -h 512 --background-color=none jupyter_logo.svg -o /tmp/j512.png
+  magick /tmp/j512.png -trim +repage -resize 32x32^ -gravity center -extent 32x32 PNG32:jupyter_32.png

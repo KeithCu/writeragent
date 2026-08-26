@@ -310,7 +310,7 @@ Smolagents (`ToolCallingAgent.process_tool_calls`) uses the same rule: multiple 
 
 ### Stop / cancellation
 
-Each sidebar **Send** runs under a **`SendCancellation`** scope ([`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) `agent_session()`). **Stop** calls `scope.cancel()` once.
+Each sidebar **Send** runs under a **`SendCancellation`** scope ([`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) `agent_session()`). **Stop** calls `scope.cancel()` once. Closing the tab (or disposing the send control) during drain is re-entrant on the UI thread inside `processEventsToIdle`; [`SendButtonListener.disposing`](../plugin/chatbot/panel.py) cancels the same scope and latches `_stop_requested_fallback` so the drain stop checker matches Stop.
 
 #### What `scope.cancel()` does
 

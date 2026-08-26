@@ -128,6 +128,7 @@ def test_normalize_schema_optional_scalar_gets_null():
     res = _normalize_schema_for_strict_providers(params)
     assert res["properties"]["max_chars"]["type"] == ["integer", "null"]
     assert res["properties"]["scope"]["type"] == ["string", "null"]
+    assert res["properties"]["scope"]["enum"] == ["full", "selection", "null"]
 
 
 def test_normalize_schema_required_scalar_stays_non_nullable():
@@ -153,6 +154,9 @@ def test_optional_integer_allows_null_on_openai_wire():
     assert props["max_chars"]["type"] == ["integer", "null"]
     assert props["include_images"]["type"] == ["boolean", "null"]
     assert props["start"]["type"] == ["integer", "null"]
+    assert props["scope"]["type"] == ["string", "null"]
+    assert "null" in props["scope"]["enum"]
+    assert "full" in props["scope"]["enum"]
 
 
 def test_optional_scalar_nullable_mcp():
@@ -261,6 +265,52 @@ def test_list_conditional_formats_range_is_array_mcp_widens():
     assert openai["type"] == "array"
     assert mcp["type"] == ["string", "array"]
     assert mcp["items"]["type"] == "string"
+
+
+def test_required_enum_does_not_gain_null():
+    params = {
+        "type": "object",
+        "properties": {"mode": {"type": "string", "enum": ["a", "b"]}},
+        "required": ["mode"],
+    }
+    res = _normalize_schema_for_strict_providers(params)
+    assert res["properties"]["mode"]["type"] == "string"
+    assert res["properties"]["mode"]["enum"] == ["a", "b"]
+
+
+def test_named_range_flags_schema_is_string_array_not_oneof():
+    from plugin.calc.named_ranges import NamedRangeAdd, NamedRangeEdit
+
+    for tool in (NamedRangeAdd(), NamedRangeEdit()):
+        flags = to_openai_schema(tool)["function"]["parameters"]["properties"]["flags"]
+        assert "oneOf" not in flags
+        assert "anyOf" not in flags
+        assert flags["type"] == "array"
+        assert flags["items"]["enum"] == [
+            "filter_criteria",
+            "print_area",
+            "column_header",
+            "row_header",
+        ]
+
+
+def test_venv_data_range_schema_is_string_not_oneof():
+    from plugin.calc.python.venv import RunVenvPythonScript
+
+    tool = RunVenvPythonScript()
+    for doc_type in ("calc", None):
+        props = to_openai_schema(tool, doc_type=doc_type)["function"]["parameters"]["properties"]
+        dr = props["data_range"]
+        assert "oneOf" not in dr
+        assert dr["type"] == ["string", "null"]
+
+
+def test_query_folder_sql_files_schema_is_object():
+    from plugin.calc.duckdb_tools import QueryFolderSqlTool
+
+    files = to_openai_schema(QueryFolderSqlTool())["function"]["parameters"]["properties"]["files"]
+    assert files["type"] == "object"
+    assert files["additionalProperties"]["type"] == "string"
 
 
 def test_set_style_schema_omits_number_format_but_scripting_may_pass_it():

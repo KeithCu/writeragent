@@ -38,6 +38,30 @@ class TestHamburgerMenu:
                 mock_get_handler.assert_called_with("chatbot.extend_selection")
                 mock_handler.assert_called_once_with(frame)
 
+    def test_writer_hamburger_loads_jupyter_icon(self):
+        ctx = MagicMock()
+        smgr = MagicMock()
+        popup = MagicMock()
+        ctx.getServiceManager.return_value = smgr
+        smgr.createInstanceWithContext.return_value = popup
+        popup.execute.return_value = 0
+        button_ctrl = MagicMock()
+        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+        button_ctrl.getPeer.return_value = MagicMock()
+        graphic = MagicMock()
+
+        with (
+            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+            patch("plugin.chatbot.hamburger_menu._load_graphic", return_value=graphic) as load_g,
+        ):
+            show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+        assert any(c.args[-1] == "jupyter_32.png" for c in load_g.call_args_list)
+        labels = [c.args[1] for c in popup.insertItem.call_args_list]
+        assert any("Jupyter" in str(label) for label in labels)
+
     def test_show_hamburger_menu_calc_includes_calc_items(self):
         ctx = MagicMock()
         smgr = MagicMock()

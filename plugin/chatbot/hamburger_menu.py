@@ -110,6 +110,8 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             pos += 1
             add_item(popup, _("Text Analytics..."), "textanalytics.open_dialog", pos)
             pos += 1
+            add_item(popup, _("Import Jupyter Notebook..."), "scripting.import_ipynb", pos, "jupyter_32.png")
+            pos += 1
 
         # 4. Separator
         popup.insertSeparator(pos)
@@ -157,9 +159,6 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
                 d_pos += 1
             add_item(debug_popup, _("Evaluation Dashboard"), "main.EvaluationDashboard", d_pos)
             d_pos += 1
-            if is_writer_doc:
-                add_item(debug_popup, _("Import Jupyter Notebook..."), "scripting.import_ipynb", d_pos)
-                d_pos += 1
 
             debug_id = next_id[0]
             next_id[0] += 1

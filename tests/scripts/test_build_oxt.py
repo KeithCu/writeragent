@@ -29,6 +29,12 @@ def test_python_logo_dev_sources_excluded_from_oxt():
     assert should_exclude("extension/assets/python_32.png") is False
 
 
+def test_jupyter_logo_dev_sources_excluded_from_oxt():
+    assert should_exclude("extension/assets/jupyter_logo.svg") is True
+    assert should_exclude("extension/assets/jupyter_logo.NOTICE") is True
+    assert should_exclude("extension/assets/jupyter_32.png") is False
+
+
 def test_provider_logo_pngs_ship_notice_excluded():
     assert should_exclude("extension/assets/provider_logos.NOTICE") is True
     for stem in ("openrouter", "together", "huggingface", "nvidia"):
