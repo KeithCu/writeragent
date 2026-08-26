@@ -603,7 +603,7 @@ def test_gutter_text_cursor_stops_before_frame_portion():
 
 
 def test_update_in_prompt_does_not_setstring_whole_paragraph():
-    """Whole-para setString deletes in-flow ▶ and code fields that share the gutter line."""
+    """Whole-para setString deletes in-flow ▶ on the In [n]: gutter. Rewrite Text only."""
     text_portion = MagicMock(name="text_portion")
     text_portion.getPropertyValue.return_value = "Text"
     frame_portion = MagicMock(name="frame_portion")

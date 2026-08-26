@@ -152,6 +152,22 @@ def _draw_control_names(doc) -> list[str]:
     return names
 
 
+def _anchor_paragraph_string(doc, shape_name: str) -> str:
+    from plugin.notebook.notebook_runner import _find_control_shape_by_name
+
+    shape = _find_control_shape_by_name(doc, shape_name)
+    if shape is None:
+        return ""
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursorByRange(shape.getAnchor())
+        cursor.gotoStartOfParagraph(False)
+        cursor.gotoEndOfParagraph(True)
+        return str(cursor.getString() or "")
+    except Exception:
+        return ""
+
+
 def _output_text_for_cell(doc, cell) -> str:
     from plugin.notebook.notebook_runner import (
         _cursor_after_bookmark,
@@ -536,9 +552,40 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     want_h = _height_for_text(src_in2, doc)
     print(f"medium In[2] lines={lines_in2} shape_h={h_in2} want_h={want_h}", flush=True)
     assert lines_in2 >= 10, f"fixture In[2] should be multi-line, got {lines_in2}"
-    assert h_in2 >= want_h or h_in2 >= lines_in2 * 420, (
+    assert h_in2 >= want_h or h_in2 >= (lines_in2 + 1) * 420, (
         f"In[2] field clips source: height={h_in2} lines={lines_in2} want={want_h}"
     )
+
+    from plugin.notebook.cell_registry import cell_id_to_hex
+    from plugin.notebook.writer_importer import _text_area_width_units
+
+    run_in2 = f"nb_run_{cell_id_to_hex(cell_in2.cell_id)}"
+    gutter_in2 = _anchor_paragraph_string(doc, run_in2)
+    field_para_in2 = _anchor_paragraph_string(doc, cell_in2.code_field_name)
+    field_w = int(shape_in2.getSize().Width)
+    area = _text_area_width_units(doc)
+    print(
+        f"medium In[2] gutter={gutter_in2!r} field_para={field_para_in2!r} "
+        f"field_w={field_w} area={area}",
+        flush=True,
+    )
+    assert gutter_in2.strip().startswith("In ["), f"▶ not on In [n]: row: {gutter_in2!r}"
+    assert not field_para_in2.strip().startswith("In ["), (
+        f"field still shares gutter para: {field_para_in2!r}"
+    )
+    assert field_w >= area - 50, f"field not full text-area width: {field_w} vs {area}"
+
+    cell_in3 = state.code_cells[2]
+    src_in3 = read_code_from_field(doc, cell_in3.code_field_name)
+    lines_in3 = max(1, src_in3.count("\n") + 1)
+    shape_in3 = _find_control_shape_by_name(doc, cell_in3.code_field_name)
+    assert shape_in3 is not None
+    h_in3 = int(shape_in3.getSize().Height)
+    want_in3 = _height_for_text(src_in3, doc)
+    print(f"medium In[3] lines={lines_in3} shape_h={h_in3} want_h={want_in3}", flush=True)
+    assert h_in3 >= want_in3, f"In[3] wrap-clip: height={h_in3} want={want_in3} lines={lines_in3}"
+    run_in3 = f"nb_run_{cell_id_to_hex(cell_in3.cell_id)}"
+    assert _anchor_paragraph_string(doc, run_in3).strip().startswith("In [")
 
     why_page = _page_of_text(doc, "Why NumPy?")
     dt_page = _page_of_text(doc, "1. DataTypes and attributes")
@@ -678,6 +725,9 @@ def test_medium_run_in2_keeps_in3_controls(ctx, doc):
     assert run_name in names, f"In[3] ▶ eaten: {names!r}"
     src_after = read_code_from_field(doc, second_of_pair.code_field_name)
     assert src_after.strip() == src_before.strip(), f"In[3] source changed: {src_after!r}"
+    assert _anchor_paragraph_string(doc, run_name).strip().startswith("In ["), (
+        f"In[3] ▶ left the gutter after run: {_anchor_paragraph_string(doc, run_name)!r}"
+    )
 
 
 def _writer_page_count(doc) -> int | None:

@@ -224,7 +224,7 @@ def _is_this_cell_field_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any)
 
 
 def _is_foreign_control_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any) -> bool:
-    """True when *cursor* is in another cell's ▶+field paragraph."""
+    """True when *cursor* is in another cell's ▶ gutter or code-field paragraph."""
     if not _paragraph_has_frame(cursor):
         return False
     return not _is_this_cell_field_paragraph(doc, cell, cursor)
@@ -233,7 +233,7 @@ def _is_foreign_control_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any)
 def _is_output_bookmark_home(
     cursor: Any, doc: Any | None = None, cell: NotebookCodeCell | None = None
 ) -> bool:
-    """True when *cursor* is in *this* cell's ▶+field row (or leftover Output).
+    """True when *cursor* is in *this* cell's code-field row (or leftover Output).
 
     Any ``In [n]:`` used to count as home. Consecutive code cells (medium In[2]
     then In[3]) drift the bookmark onto the *next* gutter; clear then skipped
@@ -836,8 +836,9 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
     """Cursor over leading Text portions of *para*, stopping before in-flow shapes.
 
     Importer used to put AS_CHARACTER ▶ / code ``TextField`` in the same paragraph as
-    ``[In [n]]\\tCell N: Code``. ``setString`` on ``para.getStart()``–``getEnd()`` then
-    deleted those ``ControlShape``s (TextPortionType ``Frame``). Replace text only.
+    ``[In [n]]``. ``setString`` on ``para.getStart()``–``getEnd()`` then
+    deleted those ``ControlShape``s (TextPortionType ``Frame``). ▶ now sits on the
+    ``In [n]:`` gutter; rewrite leading Text portions only, never the Frame.
     """
     try:
         enum = para.createEnumeration()

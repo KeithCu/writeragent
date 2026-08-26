@@ -22,22 +22,23 @@ from plugin.notebook.writer_importer import (
     _append_paragraph_break_at_end,
     _apply_no_spellcheck_for_import,
     _cell_heading,
-    _code_field_width_units,
     _coerce_notebook_text,
     _create_import_para_style,
     _decode_notebook_image,
     _DEFAULT_WIDTH,
     _ensure_notebook_import_styles,
+    _FIELD_HEIGHT_PAD,
     _format_in_prompt,
     _height_for_text,
     _inline_backticks_to_html,
     _iter_markdown_blocks,
+    _LINE_HEIGHT,
     _looks_like_html,
     _notebook_image_payload,
     _png_pixel_size,
     _prepare_display_text,
     _resolve_para_style,
-    _RUN_BUTTON_SIZE,
+    _text_area_width_units,
     _unglue_last_paragraph,
     _wrap_html_fragment,
     format_all_outputs,
@@ -205,12 +206,23 @@ def test_height_for_text_fits_last_line():
     """15-line In[2] source must be taller than the old 380 HMM/line clip height."""
     src = "\n".join(f"line{i}" for i in range(15))
     h = _height_for_text(src)
-    assert h >= 15 * 420
+    assert h == 16 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
     assert h > 15 * 380
 
 
-def test_code_field_width_leaves_gutter_for_play_button():
-    assert _code_field_width_units(None) == _DEFAULT_WIDTH - _RUN_BUTTON_SIZE - 50
+def test_height_for_text_includes_one_wrap_line():
+    """Two source lines get a third visual line of pad (In[3] long print wraps)."""
+    h = _height_for_text("line1\nline2")
+    assert h == 3 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
+
+
+def test_code_field_uses_full_text_area_width():
+    from plugin.notebook.writer_importer import _insert_code_input_in_flow
+
+    src = inspect.getsource(_insert_code_input_in_flow)
+    assert "_text_area_width_units(doc)" in src
+    assert "_RUN_BUTTON_SIZE" not in src
+    assert _text_area_width_units(None) == _DEFAULT_WIDTH
 
 
 def test_unglue_last_paragraph_clears_keep_with_next():

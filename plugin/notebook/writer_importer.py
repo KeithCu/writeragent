@@ -47,9 +47,8 @@ log = logging.getLogger("writeragent.notebook")
 _DEFAULT_WIDTH = 14000
 _MIN_FIELD_HEIGHT = 500
 _LINE_HEIGHT = 450
-# 10pt Liberation Mono is ~353 HMM; 380 HMM/line clipped descenders on the last
-# line (In[2]/In[4]/In[9]). 450 HMM/line + pad keeps the last line visible without
-# a 9 cm cap. Do not shrink the font or page margins to hide pagination holes.
+# Extra _LINE_HEIGHT so one leftover wrapped visual line is not clipped (In[3]).
+# No wrap-width calculator, no HScroll — wrapping in Writer is correct.
 _FIELD_HEIGHT_PAD = 280
 # AS_CHARACTER cannot split; cap near one page body so a huge cell page-breaks as a
 # unit. Do not use a 9 cm cap — that sliced 15-line cells.
@@ -161,7 +160,8 @@ def _coerce_notebook_text(value: Any) -> str:
 def _height_for_text(text: str, doc: Any | None = None) -> int:
     """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
     lines = max(1, (text or "").count("\n") + 1)
-    raw = lines * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
+    # One extra line of pad: a long source line may wrap once. Do not compute wrap.
+    raw = (lines + 1) * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
     cap = _max_field_height_units(doc)
     return max(_MIN_FIELD_HEIGHT, min(cap, raw))
 
@@ -999,16 +999,6 @@ def _anchor_control_as_character(shape: Any) -> None:
         log.debug("notebook import TextWrap not applied", exc_info=True)
 
 
-def _code_field_width_units(doc: Any | None) -> int:
-    """Text-area width minus a hairline so ▶ + field stay on one line.
-
-    A field as wide as the text area plus a hanging-indent ▶ wraps the field
-    onto a second line whose height is the full gray box — a blank band then
-    the real field, which looks like a page hole.
-    """
-    return max(6000, _text_area_width_units(doc) - _RUN_BUTTON_SIZE - 50)
-
-
 def _append_body_paragraph(
     doc: Any,
     content: str,
@@ -1158,7 +1148,7 @@ def _style_run_button_model(model: Any) -> None:
 
 
 def _style_control_paragraph(doc: Any) -> None:
-    """Put ▶ in the left gutter (negative first-line indent); field stays in the text area."""
+    """Field-only paragraph: full text-area width, no hanging indent for ▶."""
     try:
         text = doc.getText()
         cursor = text.createTextCursor()
@@ -1166,7 +1156,7 @@ def _style_control_paragraph(doc: Any) -> None:
         body = _resolve_para_style(doc, _STYLE_BODY)
         if body:
             cursor.setPropertyValue("ParaStyleName", body)
-        cursor.setPropertyValue("ParaFirstLineIndent", -_RUN_BUTTON_SIZE)
+        cursor.setPropertyValue("ParaFirstLineIndent", 0)
         cursor.setPropertyValue("ParaLeftMargin", 0)
         cursor.setPropertyValue("ParaTopMargin", 0)
         cursor.setPropertyValue("ParaBottomMargin", 150)
@@ -1188,7 +1178,7 @@ def _insert_run_button_in_flow(
     controls_before: int,
     ctx: Any | None = None,
 ) -> None:
-    """In-flow ▶ push button; listeners attached after import via ``wire_all_notebook_run_buttons``."""
+    """In-flow ▶ on the ``In [n]:`` gutter paragraph (not the tall gray field)."""
     from plugin.notebook.notebook_controls import form_button_push_type
 
     hex_id = cell_id_to_hex(cell_id)
@@ -1257,7 +1247,7 @@ def _insert_code_input_in_flow(
     text_ms = _mono_ms(t_text)
 
     h = _height_for_text(display, doc)
-    field_w = _code_field_width_units(doc)
+    field_w = _text_area_width_units(doc)
     t_shape = time.monotonic()
     shape = doc.createInstance("com.sun.star.drawing.ControlShape")
     if shape is None:
@@ -1400,9 +1390,19 @@ def _import_cells(
             _unglue_last_paragraph(doc)
             title = _cell_heading(idx, cell_type, ec)
             _append_body_paragraph(doc, title, notebook_in, lead_break=lead, keep_with_next=True)
-            # ▶ and the code TextField must not share the gutter paragraph.
-            # update_in_prompt used to setString that whole range, which deletes
-            # in-flow ControlShapes (the ▶ vanished after a successful run).
+            field_name = f"nb_cell_{idx}_code"
+            if registry_state is not None:
+                entry = new_code_cell_entry(idx, ec, field_name)
+                registry_state.code_cells.append(entry)
+                # ▶ on the In [n]: row so it is not AS_CHARACTER-stacked under the
+                # tall field. update_in_prompt rewrites leading Text only (stops at Frame).
+                _insert_run_button_in_flow(
+                    doc,
+                    cell_id=entry.cell_id,
+                    controls_before=stats["shapes"],
+                    ctx=ctx,
+                )
+                stats["shapes"] += 1
             _append_paragraph_break_at_end(doc)
             _style_control_paragraph(doc)
 
@@ -1414,18 +1414,6 @@ def _import_cells(
         elif cell_type == "code":
             stats["code"] += 1
             field_name = f"nb_cell_{idx}_code"
-            if registry_state is not None:
-                entry = new_code_cell_entry(idx, ec, field_name)
-                registry_state.code_cells.append(entry)
-            if registry_state is not None and registry_state.code_cells:
-                entry = registry_state.code_cells[-1]
-                _insert_run_button_in_flow(
-                    doc,
-                    cell_id=entry.cell_id,
-                    controls_before=stats["shapes"],
-                    ctx=ctx,
-                )
-                stats["shapes"] += 1
             _insert_code_input_in_flow(
                 doc,
                 name=field_name,
@@ -1433,7 +1421,7 @@ def _import_cells(
                 controls_before=stats["shapes"],
             )
             stats["shapes"] += 1
-            # Invisible output bookmark at the end of the ▶+field paragraph — not a
+            # Invisible output bookmark at the end of the field paragraph — not a
             # visible "Output" heading. A bookmark inside "Output" leaked as "/" .
             if registry_state is not None and registry_state.code_cells:
                 bm_name = registry_state.code_cells[-1].output_start_bookmark

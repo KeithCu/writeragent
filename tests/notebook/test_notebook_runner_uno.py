@@ -107,6 +107,22 @@ def _draw_control_names(doc) -> list[str]:
     return names
 
 
+def _anchor_paragraph_string(doc, shape_name: str) -> str:
+    from plugin.notebook.notebook_runner import _find_control_shape_by_name
+
+    shape = _find_control_shape_by_name(doc, shape_name)
+    if shape is None:
+        return ""
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursorByRange(shape.getAnchor())
+        cursor.gotoStartOfParagraph(False)
+        cursor.gotoEndOfParagraph(True)
+        return str(cursor.getString() or "")
+    except Exception:
+        return ""
+
+
 def _assert_controls_present(doc, cell) -> None:
     from plugin.notebook.cell_registry import cell_id_to_hex
 
@@ -114,6 +130,10 @@ def _assert_controls_present(doc, cell) -> None:
     run_name = f"nb_run_{cell_id_to_hex(cell.cell_id)}"
     assert run_name in names, f"{run_name} missing from draw page: {names}"
     assert cell.code_field_name in names, f"{cell.code_field_name} missing from draw page: {names}"
+    gutter = _anchor_paragraph_string(doc, run_name)
+    assert gutter.strip().startswith("In ["), f"▶ not on In [n]: row: {gutter!r}"
+    field_para = _anchor_paragraph_string(doc, cell.code_field_name)
+    assert not field_para.strip().startswith("In ["), f"field shares gutter para: {field_para!r}"
 
 
 def _assert_stdout_not_mashed(doc) -> list[tuple[str, str]]:
