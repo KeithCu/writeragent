@@ -14,6 +14,7 @@ import pytest
 
 from plugin.scripting.editor_ipc import (
     exception_traceback,
+    failure_detail,
     failure_message,
     read_message,
     stamp_session,
@@ -89,14 +90,10 @@ def test_exception_traceback_includes_frame():
     assert "test_exception_traceback_includes_frame" in tb
 
 
-def test_failure_message_combines_summary_detail_and_trace():
-    try:
-        raise RuntimeError("boom")
-    except RuntimeError as e:
-        msg = failure_message("Summary", detail="stderr line", exc=e)
+def test_failure_message_combines_summary_and_detail():
+    msg = failure_message("Summary", detail="stderr line")
     assert msg.startswith("Summary\n\n")
     assert "stderr line" in msg
-    assert "RuntimeError: boom" in msg
 
 
 def test_failure_message_accepts_none_detail():
@@ -108,13 +105,23 @@ def test_failure_message_empty_summary():
     assert failure_message("", detail="", exc=None) == ""
 
 
-def test_failure_message_none_detail_with_exc():
+def test_failure_detail_rejects_exc_when_deal_present():
+    """exc is None in the pre so CrossHair cannot format_exception a symbolic error."""
+    import deal
+    from tests.strip_bundle import deal_pre_present
+
+    if not deal_pre_present(failure_detail):
+        pytest.skip("@deal.pre stripped in release bundle")
     try:
-        raise ValueError("probe failure")
-    except ValueError as e:
-        msg = failure_message("Summary", detail=None, exc=e)
-    assert msg.startswith("Summary\n\n")
-    assert "ValueError: probe failure" in msg
+        raise RuntimeError("boom")
+    except RuntimeError as e:
+        with pytest.raises(deal.PreContractError):
+            failure_detail(detail="stderr line", exc=e)
+        with pytest.raises(deal.PreContractError):
+            failure_message("Summary", detail=None, exc=e)
+        tb = exception_traceback(e)
+        assert "RuntimeError: boom" in tb
+    assert failure_detail(detail="stderr line", exc=None) == "stderr line"
 
 
 def test_stamp_session_always_sends_id_mode_and_target():

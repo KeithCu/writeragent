@@ -26,7 +26,17 @@ import sys
 import tempfile
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SHAPE_RANK, deal
+from plugin.framework.deal_shim import (
+    DEAL_MAX_ARGV,
+    DEAL_MAX_SHAPE_DIM,
+    DEAL_MAX_SHAPE_RANK,
+    DEAL_MAX_SOURCE,
+    DEAL_MAX_TOKEN,
+    ascii_bounded,
+    deal,
+    inverse_ensure,
+    str_bounded,
+)
 
 # CrossHair may invoke deal post/ensure as ``fn(*call_args, result=return_value, **kwargs)``.
 # Naming a positional parameter ``result`` then raises TypeError (multiple values). Keep ``result`` keyword-only.
@@ -316,24 +326,72 @@ def _deal_grid_ok(grid: object) -> bool:
     return True
 
 
-def _deal_dict_ok(obj: object) -> bool:
-    """Finite dict domain for envelope detectors. Non-dicts stay allowed (return False).
+def _deal_numeric_cell_ok(value: object) -> bool:
+    """CrossHair domain for ``is_numeric_coercible`` / ``is_numeric_grid`` cells.
 
-    Unbounded dicts let deep check wander on Any envelopes. Pytest 256 keys fits
-    real wire envelopes; CrossHair uses 4.
+    Numpy scalars stay allowed in the body (``type(value).__name__``) for
+    production; the pre keeps SMT off ``Any`` + ``startswith``.
     """
-    return not isinstance(obj, dict) or len(obj) <= DEAL_MAX_SHAPE_DIM
+    if value is None:
+        return True
+    t = type(value)
+    if t is bool:
+        return True
+    if t is int or t is float:
+        return True
+    if t is str:
+        return ascii_bounded(value, DEAL_MAX_SOURCE)
+    return False
 
 
-@deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
-    lambda envelope, result: not result
-    or (
-        isinstance(envelope, dict)
-        and envelope.get("__wa_payload__") == PAYLOAD_MULTI_DATA
-        and isinstance(envelope.get("items"), list)
-    )
-)
+def _deal_envelope_value_ok(val: object, *, depth: int) -> bool:
+    """Size-capped nests; leaves (scalars, bytes, numpy, dates) are not expanded.
+
+    Detectors must still return False on garbage dicts, so values are not
+    restricted to ascii tokens — only nested list/dict size is capped.
+    """
+    if depth > 4:
+        return False
+    if type(val) is str:
+        return str_bounded(val, DEAL_MAX_SOURCE)
+    if type(val) is list:
+        return len(val) <= DEAL_MAX_SHAPE_DIM and all(
+            _deal_envelope_value_ok(item, depth=depth + 1) for item in val
+        )
+    if type(val) is dict:
+        return _deal_dict_ok_at(val, depth=depth + 1)
+    return True
+
+
+def _deal_dict_ok_at(obj: object, *, depth: int) -> bool:
+    if not isinstance(obj, dict):
+        return True
+    if len(obj) > DEAL_MAX_SHAPE_DIM:
+        return False
+    for k, v in obj.items():
+        if type(k) is str:
+            if not str_bounded(k, DEAL_MAX_TOKEN):
+                return False
+        elif type(k) is int:
+            if abs(k) > DEAL_MAX_ARGV:
+                return False
+        else:
+            return False
+        if not _deal_envelope_value_ok(v, depth=depth):
+            return False
+    return True
+
+
+def _deal_dict_ok(obj: object) -> bool:
+    """Finite dict domain for envelope detectors. Non-dicts stay allowed (pre True).
+
+    Unbounded dicts / Any values let deep check wander. Pytest 256 keys fits
+    real wire envelopes; CrossHair uses 4. Keys are length-capped str or small
+    int (split_grid ``strings``); nested list/dict values are size-capped leaves.
+    """
+    return _deal_dict_ok_at(obj, depth=0)
+
+
 def _is_multi_data_envelope(envelope: object) -> bool:
     # CrossHair TypeError on typing.Literal['a','b','rc'] when proxying empty dict (FV §8.1 D).
     # crosshair: off
@@ -350,7 +408,7 @@ def _is_multi_data_envelope(envelope: object) -> bool:
 
 @deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
+@inverse_ensure(
     lambda obj, result: not result
     or (
         isinstance(obj, dict)
@@ -362,17 +420,6 @@ def is_multi_data(obj: Any) -> bool:
     return _is_multi_data_envelope(obj)
 
 
-@deal.pre(lambda envelope: _deal_dict_ok(envelope))
-@deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
-    lambda envelope, result: not result
-    or (
-        isinstance(envelope, dict)
-        and envelope.get("__wa_payload__") == PAYLOAD_IMAGE
-        and isinstance(envelope.get("data"), bytes)
-        and isinstance(envelope.get("format"), str)
-    )
-)
 def _is_image_payload_envelope(envelope: object) -> bool:
     if not isinstance(envelope, dict):
         return False
@@ -386,7 +433,7 @@ def _is_image_payload_envelope(envelope: object) -> bool:
 
 @deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
+@inverse_ensure(
     lambda obj, result: not result
     or (
         isinstance(obj, dict)
@@ -431,17 +478,6 @@ def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
 
 
 
-@deal.pre(lambda envelope: _deal_dict_ok(envelope))
-@deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
-    lambda envelope, result: not result
-    or (
-        isinstance(envelope, dict)
-        and envelope.get("__wa_payload__") == PAYLOAD_DATAFRAME
-        and isinstance(envelope.get("columns"), list)
-        and "data" in envelope
-    )
-)
 def _is_dataframe_envelope(envelope: object) -> bool:
     if not isinstance(envelope, dict):
         return False
@@ -462,7 +498,7 @@ def _is_dataframe_envelope(envelope: object) -> bool:
 
 @deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
+@inverse_ensure(
     lambda obj, result: not result
     or (
         isinstance(obj, dict)
@@ -475,19 +511,6 @@ def is_dataframe_payload(obj: Any) -> bool:
     return _is_dataframe_envelope(obj)
 
 
-@deal.pre(lambda envelope: _deal_dict_ok(envelope))
-@deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
-    lambda envelope, result: not result
-    or (
-        isinstance(envelope, dict)
-        and envelope.get("__wa_payload__") == PAYLOAD_CALC_RANGE
-        and isinstance(envelope.get("shape"), list)
-        and len(envelope["shape"]) == 2
-        and all(isinstance(d, int) and d >= 0 for d in envelope["shape"])
-        and "data" in envelope
-    )
-)
 def _is_calc_range_envelope(envelope: object) -> bool:
     if not isinstance(envelope, dict):
         return False
@@ -504,7 +527,7 @@ def _is_calc_range_envelope(envelope: object) -> bool:
 
 @deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
+@inverse_ensure(
     lambda obj, result: not result
     or (
         isinstance(obj, dict)
@@ -520,22 +543,6 @@ def is_calc_range_payload(obj: Any) -> bool:
     return _is_calc_range_envelope(obj)
 
 
-@deal.pre(lambda envelope: _deal_dict_ok(envelope))
-@deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
-    lambda envelope, result: not result
-    or (
-        isinstance(envelope, dict)
-        and envelope.get("__wa_payload__") == PAYLOAD_SPLIT_GRID
-        and isinstance(envelope.get("shape"), list)
-        and len(envelope["shape"]) in (1, 2)
-        and all(isinstance(d, int) and d >= 0 for d in envelope["shape"])
-        and (
-            isinstance(envelope.get("buffer"), bytes)
-            or isinstance(envelope.get("b64"), str)
-        )
-    )
-)
 def _is_split_grid_envelope(envelope: object) -> bool:
     if not isinstance(envelope, dict):
         return False
@@ -552,18 +559,9 @@ def _is_split_grid_envelope(envelope: object) -> bool:
 
 @deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
-    lambda obj, result: not result
-    or (
-        _is_split_grid_envelope(obj)
-        or _is_multi_data_envelope(obj)
-        or _is_image_payload_envelope(obj)
-        or _is_dataframe_envelope(obj)
-        or _is_calc_range_envelope(obj)
-    )
-)
 def _is_any_payload_envelope(obj: object) -> bool:
-    # Defined after family detectors so mypy/deal see all names bound.
+    # Body already ORs the five family detectors; a matching ensure re-ran all
+    # five on every CrossHair post (check-all deep 32900105768, 8:14).
     return (
         _is_split_grid_envelope(obj)
         or _is_multi_data_envelope(obj)
@@ -764,6 +762,20 @@ def binary_envelope_skip_reason(
     return f"needs cells >= {min_cells} (got {ncells} in shape {shape})"
 
 
+def _is_numeric_coercible_impl(value: Any) -> bool:
+    """Body of ``is_numeric_coercible`` without ``@deal.pre`` (used by ``is_numeric_grid``)."""
+    if value is None or isinstance(value, (bool, int, float)):
+        return True
+    # Fast direct type inspection for NumPy scalar types on the child side without module-level imports
+    tname = type(value).__name__
+    if tname.startswith(("int", "float", "bool", "uint")):
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    return False
+
+
+@deal.pre(lambda value: _deal_numeric_cell_ok(value))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
 @deal.ensure(
     lambda value, *a, result=_DEAL_RETURN, **k: not (isinstance(value, str) and value.strip())
@@ -781,15 +793,7 @@ def is_numeric_coercible(value: Any) -> bool:
     mixed grids stay lists after child split_grid unpack (zip codes and labels preserved).
     Empty strings match Calc empty cells (``None``).
     """
-    if value is None or isinstance(value, (bool, int, float)):
-        return True
-    # Fast direct type inspection for NumPy scalar types on the child side without module-level imports
-    tname = type(value).__name__
-    if tname.startswith(("int", "float", "bool", "uint")):
-        return True
-    if isinstance(value, str):
-        return not value.strip()
-    return False
+    return _is_numeric_coercible_impl(value)
 
 
 @deal.pre(lambda grid: isinstance(grid, list) and _deal_grid_ok(grid))
@@ -800,8 +804,8 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     if len(grid) == 0:
         return True
     if type(grid[0]) in (list, tuple):
-        return all(is_numeric_coercible(cell) for row in grid for cell in row)
-    return all(is_numeric_coercible(cell) for cell in grid)
+        return all(_is_numeric_coercible_impl(cell) for row in grid for cell in row)
+    return all(_is_numeric_coercible_impl(cell) for cell in grid)
 
 
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), int) and _deal_return(*a, result=result) >= 0)
@@ -1360,7 +1364,7 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
 
 @deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
-@deal.ensure(
+@inverse_ensure(
     lambda obj, result: not result
     or (
         isinstance(obj, dict)

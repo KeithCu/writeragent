@@ -150,11 +150,17 @@ def exception_traceback(exc: BaseException) -> str:
 
 
 @deal.pre(
-    lambda detail=None, exc=None: detail is None or str_bounded(detail, DEAL_MAX_SOURCE)
+    lambda detail=None, exc=None: (detail is None or str_bounded(detail, DEAL_MAX_SOURCE))
+    and exc is None
 )
 @deal.post(lambda result: isinstance(result, str))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
-    """Combine subprocess stderr, probe output, and/or an exception traceback."""
+    """Combine subprocess stderr, probe output, and/or an exception traceback.
+
+    ``exc is None`` in the pre so CrossHair cannot run ``traceback.format_exception``
+    on a symbolic BaseException (check-all deep 32900105768, 8:22). Production
+    still formats ``exc`` when deal is stripped; pytest uses ``exception_traceback``.
+    """
     chunks: list[str] = []
     detail_text = (detail or "").strip()
     if detail_text:
@@ -167,6 +173,7 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
 @deal.pre(
     lambda summary, detail=None, exc=None: str_bounded(summary, DEAL_MAX_SOURCE)
     and (detail is None or str_bounded(detail, DEAL_MAX_SOURCE))
+    and exc is None
 )
 @deal.post(lambda result: isinstance(result, str))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:

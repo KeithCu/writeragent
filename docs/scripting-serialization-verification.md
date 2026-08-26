@@ -107,6 +107,7 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - `_is_ndarray(obj)` — NumPy ndarray type check without importing NumPy at module load
 - `_deal_return` / `_DEAL_RETURN` — keyword-only `result=` for CrossHair/deal ensure arity (see formal_verification §8.1 A)
 - Collection emptiness in `@deal` bodies/ensures: `len(shape) > 0` / `len(grid) == 0`, not `bool(shape)` / `if grid:` (CrossHair `SymbolicBool` TypeError)
+- Public envelope `is_*` keep `@deal.pre`/`@deal.post`; nested dict-shape posts use `inverse_ensure`. Private `_is_*` helpers are implementation (no duplicate ensure). `_deal_dict_ok` requires ascii token keys and simple values.
 
 ### Key invariants encoded
 

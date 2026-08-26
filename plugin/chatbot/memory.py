@@ -77,10 +77,9 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
     if isinstance(arguments, dict):
         return cast("dict[str, Any]", arguments)
     if isinstance(arguments, str):
-        import sys
-
-        if "crosshair" in sys.modules:
-            return None
+        # Do not sniff sys.modules["crosshair"] — CrossHair explores both
+        # branches. 16-char JSON (DEAL_MAX_SOURCE under CrossHair) via
+        # safe_json_loads is the domain; keep this FQN on.
         from plugin.framework.errors import safe_json_loads
 
         parsed = safe_json_loads(arguments)

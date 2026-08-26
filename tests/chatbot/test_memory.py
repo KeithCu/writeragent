@@ -134,6 +134,10 @@ class TestMemory(unittest.TestCase):
             {"key": "x", "content": "y"},
         )
         self.assertIsNone(upsert_memory_arguments_dict("not json"))
+        self.assertEqual(
+            upsert_memory_arguments_dict('{"key": "from_json", "content": "v"}'),
+            {"key": "from_json", "content": "v"},
+        )
 
 '''
 @unittest.skip("Disabled per user request - depends on uno")

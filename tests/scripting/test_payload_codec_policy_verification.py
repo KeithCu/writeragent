@@ -66,7 +66,7 @@ _CELL = st.one_of(
     st.booleans(),
     st.integers(min_value=-10_000, max_value=10_000),
     st.floats(allow_nan=False, allow_infinity=False, width=64),
-    st.text(max_size=12),
+    st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=12),
 )
 
 
@@ -80,7 +80,7 @@ def _find_crosshair() -> str | None:
     return None
 
 
-@given(s=st.text(min_size=1, max_size=40).filter(lambda t: bool(t.strip())))
+@given(s=st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), min_size=1, max_size=40).filter(lambda t: t.strip() != ""))
 @settings(max_examples=vhs_max_examples(80, 800), deadline=None)
 def test_hypothesis_nonempty_strings_never_coercible(s: str) -> None:
     assert is_numeric_coercible(s) is False
@@ -168,6 +168,18 @@ def test_zip_code_string_not_coercible() -> None:
     assert is_numeric_grid([[1.0, 2.0], [3.0, None]]) is True
 
 
+def test_is_numeric_coercible_pre_rejects_unbounded_any() -> None:
+    if not deal_pre_present(is_numeric_coercible):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        is_numeric_coercible([1])
+    with pytest.raises(deal.PreContractError):
+        is_numeric_coercible({"a": 1})
+    assert is_numeric_coercible(None) is True
+    assert is_numeric_coercible(True) is True
+    assert is_numeric_coercible(1) is True
+
+
 def test_wire_cell_count_split_grid_and_none() -> None:
     assert wire_cell_count(None) == 0
     assert wire_cell_count(42) == 1
@@ -233,9 +245,13 @@ def test_envelope_detector_overflow_pre_fails_closed() -> None:
         st.booleans(),
         st.integers(),
         st.floats(allow_nan=False, allow_infinity=False),
-        st.text(max_size=20),
-        st.lists(st.integers(), max_size=4),
-        st.dictionaries(st.text(max_size=8), st.integers(), max_size=4),
+        st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=20),
+        st.lists(st.integers(min_value=-100, max_value=100), max_size=4),
+        st.dictionaries(
+            st.text(alphabet=st.characters(blacklist_categories=("Cs",), max_codepoint=127), max_size=8),
+            st.integers(min_value=-100, max_value=100),
+            max_size=4,
+        ),
         st.fixed_dictionaries({"__wa_payload__": st.sampled_from(["", "nope", "grid", "img"])}),
         st.fixed_dictionaries(
             {

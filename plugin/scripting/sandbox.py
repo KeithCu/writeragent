@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     import subprocess
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH, DEAL_MAX_TOKEN, deal, str_bounded
+from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH, DEAL_MAX_TOKEN, deal, inverse_ensure, str_bounded
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
@@ -198,10 +198,10 @@ _PIPE_BUF_TARGET = 1024 * 1024
     )
 )
 @deal.post(lambda result: isinstance(result, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()))
-@deal.ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
-@deal.ensure(lambda base, result: all(not any(s in k.upper() for s in _BLOCKED_ENV_SUBSTR) for k in result))
+@inverse_ensure(lambda base, result: all(k.upper() not in _BLOCKED_ENV_EXACT for k in result))
+@inverse_ensure(lambda base, result: all(not any(s in k.upper() for s in _BLOCKED_ENV_SUBSTR) for k in result))
 @deal.ensure(
-    lambda base, result: (not base)
+    lambda base, result: (base is None or len(base) == 0)
     or (
         result.get("PYTHONIOENCODING") == "utf-8"
         and result.get("PYTHONUTF8") == "1"
@@ -210,7 +210,7 @@ _PIPE_BUF_TARGET = 1024 * 1024
 )
 def scrub_subprocess_env(base: dict[str, str] | None) -> dict[str, str]:
     """Drop likely-secret vars and LO Python overrides from the environment passed to venv Python."""
-    if not base:
+    if base is None or len(base) == 0:
         return {}
     out: dict[str, str] = {}
     for k, v in base.items():
