@@ -350,6 +350,14 @@ def locate_formula_cell_in_doc(
 
     active_cache = cache if cache is not None else FORMULA_LOCATION_CACHE
     doc_url = document_cache_key(doc)
+    # Uniqueness is a negative ("no second origin"). FormulaLocationCache is an
+    # opportunistic MRU, not a complete index, so a cached coord still matching
+    # does not prove there is no duplicate. Do not skip queryContentCells on a
+    # cache hit (that was the first-match bug: spill/image/scalar wrote the wrong
+    # cell). Follow-up: a live complete index (sheet modify listener tracking
+    # every =PY() origin as unique vs ambiguous) could skip the walk when the
+    # formula set is known unchanged. Until then every unique-origin lookup must
+    # scan formula cells.
     collected: list[tuple[Any, Any, tuple[int, int]]] = []
     seen: set[tuple[str, int, int]] = set()
 
