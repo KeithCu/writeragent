@@ -28,6 +28,7 @@ from plugin.scripting.config_limits import (
     python_exec_timeout_max,
     resolve_python_exec_timeout,
     _clamp_timeout,
+    _timeout_sec_ok,
 )
 from plugin.scripting.calc_range import (
     column_vector_as_2d,
@@ -80,7 +81,7 @@ def test_import_policy_contracts() -> None:
         st.floats(min_value=-float(DEAL_MAX_ARGV), max_value=float(DEAL_MAX_ARGV), allow_nan=False, allow_infinity=False),
         st.text(max_size=DEAL_MAX_TOKEN),
         st.none(),
-    )
+    ).filter(_timeout_sec_ok)
 )
 @settings(max_examples=100)
 def test_resolve_python_exec_timeout_clamping(val: float | int | str | None) -> None:
@@ -123,6 +124,10 @@ def test_resolve_python_exec_timeout_rejects_bool_timeout_and_configured() -> No
         resolve_python_exec_timeout(None, configured=DEAL_MAX_ARGV + 1)
     assert resolve_python_exec_timeout(None, configured=33) == 33
     assert resolve_python_exec_timeout(None, configured=None) == python_exec_timeout_default()
+    assert resolve_python_exec_timeout("100") == 100
+    assert resolve_python_exec_timeout("bad") == python_exec_timeout_default()
+    with pytest.raises(deal.PreContractError):
+        resolve_python_exec_timeout(str(DEAL_MAX_ARGV + 1))
 
 
 @given(grid=st.one_of(

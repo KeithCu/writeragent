@@ -124,7 +124,37 @@ def python_exec_timeout_max() -> int:
 # symbolic ints (check-all deep 32900105768: resolve(..., configured=33) then
 # nested _clamp_timeout). ``type(x) is int`` rejects bools the same way for
 # real values and is CrossHair-friendly.
-@deal.pre(lambda value: type(value) is int and abs(value) <= DEAL_MAX_ARGV)
+def _timeout_int_ok(value: object) -> bool:
+    return type(value) is int and abs(value) <= DEAL_MAX_ARGV
+
+
+def _timeout_sec_ok(timeout_sec: object) -> bool:
+    """Domain for resolve_python_exec_timeout that cannot nested-fail _clamp_timeout.
+
+    Numeric strings take the parse → _clamp_timeout path. Length-only
+    ``str_bounded`` still allowed CrossHair's ``'100'`` (DEAL_MAX_ARGV=32)
+    after the bool-identity fix.
+    """
+    if timeout_sec is None:
+        return True
+    if _timeout_int_ok(timeout_sec):
+        return True
+    if isinstance(timeout_sec, float) and abs(timeout_sec) <= DEAL_MAX_ARGV:
+        return True
+    if isinstance(timeout_sec, str) and str_bounded(timeout_sec, DEAL_MAX_TOKEN):
+        try:
+            parsed = int(float(timeout_sec))
+        except (TypeError, ValueError, OverflowError):
+            return True
+        return _timeout_int_ok(parsed)
+    return False
+
+
+def _timeout_configured_ok(configured: object) -> bool:
+    return configured is None or _timeout_int_ok(configured)
+
+
+@deal.pre(lambda value: _timeout_int_ok(value))
 @deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def _clamp_timeout(value: int) -> int:
     lo = python_exec_timeout_min()
@@ -132,18 +162,10 @@ def _clamp_timeout(value: int) -> int:
     return max(lo, min(hi, value))
 
 
-@deal.pre(
-    lambda timeout_sec, configured=None: timeout_sec is None
-    or (type(timeout_sec) is int and abs(timeout_sec) <= DEAL_MAX_ARGV)
-    or (isinstance(timeout_sec, float) and abs(timeout_sec) <= DEAL_MAX_ARGV)
-    or (isinstance(timeout_sec, str) and str_bounded(timeout_sec, DEAL_MAX_TOKEN))
-)
+@deal.pre(lambda timeout_sec, configured=None: _timeout_sec_ok(timeout_sec))
 # Without this, a real bool (int subclass) or an int outside DEAL_MAX_ARGV leaks
 # into _clamp_timeout and CrossHair reports a nested PreconditionFailed.
-@deal.pre(
-    lambda timeout_sec, configured=None: configured is None
-    or (type(configured) is int and abs(configured) <= DEAL_MAX_ARGV)
-)
+@deal.pre(lambda timeout_sec, configured=None: _timeout_configured_ok(configured))
 @deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def resolve_python_exec_timeout(
     timeout_sec: int | float | str | None,
