@@ -151,7 +151,7 @@ The live smoke imports the small NumPy fixture and **runs** the three code cells
 
 The same file also covers HTML `<img>` + markdown links (`test_debug_menu_import_html_img_and_markdown_link`): [`tests/fixtures/html-img-and-md-link.ipynb`](../tests/fixtures/html-img-and-md-link.ipynb) uses `../images/numpy-anatomy-of-an-array-updated.png` plus `[NumPy](https://numpy.org/…)`. Assert a graphic object and a Writer hyperlink, not literal `[text](url)` or raw `##`. Do not import the 184-cell Bourke notebook in the live loop.
 
-Live ▶ click (``getControl`` / ``XButton``, not ``run_cell()`` alone):
+Live ▶ click (form-level ``XActionListener`` on the form controller container, not ``run_cell()`` alone; tests still deliver one ``ActionEvent`` through the live view):
 
 ```bash
 python -m plugin.testing_runner tests/notebook/test_notebook_runner_uno.py
@@ -179,7 +179,7 @@ plugin/
 │   ├── cell_registry.py       # WriterAgentNotebookJson, bookmarks, cell_id UUID
 │   ├── form_lookup.py         # Find form models (draw page + text fallback)
 │   ├── import_dialog.py       # File picker, post-import wire + msgbox
-│   ├── notebook_controls.py   # ▶ PUSH buttons, XActionListener wiring
+│   ├── notebook_controls.py   # ▶ PUSH buttons; one form-level XActionListener (not N getControl)
 │   ├── notebook_runner.py     # run_cell, venv execute, output refresh
 │   └── writer_importer.py     # Import loop, zxx locale, flush_ui_idle
 └── contrib/nbformat/          # Vendored .ipynb reader (v4 read only)

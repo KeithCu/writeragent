@@ -6,8 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import plugin.notebook.notebook_controls as notebook_controls
 from plugin.notebook.notebook_controls import (
+    NotebookFormRunListener,
     NotebookRunButtonListener,
     get_control_view_for_model,
+    wire_all_notebook_run_buttons,
     wire_run_button_listener,
 )
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -18,6 +20,7 @@ setup_uno_mocks()
 def setup_function() -> None:
     notebook_controls._listener_refs = []
     notebook_controls._wired_keys = set()
+    notebook_controls._wired_form_docs = set()
 
 
 def test_get_control_view_uses_gettypebyname_for_xcontrolaccess():
@@ -109,3 +112,91 @@ def test_notebook_run_button_listener_untitled_resolves_by_runtime_uid():
         listener.on_action_performed(MagicMock())
     resolve.assert_called_with(ctx, "uid-hidden-nb")
     run.assert_called_once_with(ctx, found, "cafebabecafebabecafebabecafebabe")
+
+
+def test_form_run_listener_dispatches_nb_run_name():
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    listener = NotebookFormRunListener(ctx, doc)
+    model = MagicMock()
+    model.Name = "nb_run_deadbeefdeadbeefdeadbeefdeadbeef"
+    control = MagicMock()
+    control.getModel.return_value = model
+    ev = MagicMock()
+    ev.Source = control
+    ev.ActionCommand = ""
+    with patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run:
+        listener.on_action_performed(ev)
+    run.assert_called_once_with(ctx, doc, "deadbeefdeadbeefdeadbeefdeadbeef")
+
+
+def test_form_run_listener_ignores_non_run_controls():
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    listener = NotebookFormRunListener(ctx, doc)
+    model = MagicMock()
+    model.Name = "nb_cell_0_code"
+    control = MagicMock()
+    control.getModel.return_value = model
+    ev = MagicMock()
+    ev.Source = control
+    ev.ActionCommand = ""
+    with patch("plugin.notebook.notebook_runner.run_cell_for_doc_hex") as run:
+        listener.on_action_performed(ev)
+    run.assert_not_called()
+
+
+def test_wire_all_attaches_one_form_listener_without_getcontrol():
+    """Import wiring must not call getControl once per ▶ button."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    doc.getRuntimeUID.return_value = "uid-form-1"
+
+    run_ctrl = MagicMock()
+    run_model = MagicMock()
+    run_model.Name = "nb_run_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    run_ctrl.getModel.return_value = run_model
+    run_ctrl.queryInterface.return_value = run_ctrl
+
+    code_ctrl = MagicMock()
+    code_model = MagicMock()
+    code_model.Name = "nb_cell_0_code"
+    code_ctrl.getModel.return_value = code_model
+    code_ctrl.queryInterface.return_value = None
+    code_ctrl.addActionListener.side_effect = RuntimeError("not a button")
+
+    container = MagicMock()
+    container.getControls.return_value = (code_ctrl, run_ctrl)
+    fc = MagicMock()
+    fc.getContainer.return_value = container
+    controller = MagicMock()
+    controller.getFormController.return_value = fc
+    doc.getCurrentController.return_value = controller
+    forms = MagicMock()
+    forms.getCount.return_value = 1
+    forms.getByIndex.return_value = MagicMock()
+    doc.getDrawPage.return_value.getForms.return_value = forms
+
+    cell = MagicMock()
+    cell.cell_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    state = MagicMock()
+    state.code_cells = [cell, cell]
+
+    with (
+        patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=True),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_controls.get_control_view_for_model") as get_view,
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+    ):
+        first = wire_all_notebook_run_buttons(ctx, doc)
+        second = wire_all_notebook_run_buttons(ctx, doc)
+    assert first == 1
+    assert second == 1
+    get_view.assert_not_called()
+    run_ctrl.addActionListener.assert_called_once()
+    container.addContainerListener.assert_called_once()
+    form_lis = [lis for lis in notebook_controls._listener_refs if getattr(lis, "_form_level", False)]
+    assert len(form_lis) == 1

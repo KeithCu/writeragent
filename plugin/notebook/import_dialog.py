@@ -101,7 +101,12 @@ def run_import_ipynb_dialog(uno_ctx: Any = None) -> None:
         int((time.monotonic() - import_t0) * 1000),
         stats,
     )
-    flush_ui_idle(ctx)
+    to_msg_t0 = time.monotonic()
+    flush_ui_idle(ctx, log_phase="flush_ui_idle before_completion_msgbox")
+    log.info(
+        "notebook import dialog to_completion_msgbox elapsed_ms=%d",
+        int((time.monotonic() - to_msg_t0) * 1000),
+    )
     log.debug("notebook import showing completion message box")
     msgbox(
         ctx,

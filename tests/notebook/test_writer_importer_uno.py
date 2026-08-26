@@ -491,7 +491,7 @@ def _debug_menu_import_and_run(ctx, doc) -> None:
 
     ensure_form_design_mode_off(doc)
     wired = wire_all_notebook_run_buttons(ctx, doc)
-    assert wired == 3, f"expected wired 3/3 run buttons, got {wired}"
+    assert wired == 1, f"expected one form-level ▶ listener, got {wired}"
 
     # Shared notebook: kernel — run the three code cells in document order.
     results = []

@@ -603,15 +603,19 @@ def _log_shape_add(
         )
 
 
-def flush_ui_idle(ctx: Any | None) -> None:
+def flush_ui_idle(ctx: Any | None, *, log_phase: str | None = None) -> None:
     if ctx is None:
         return
+    t0 = time.monotonic()
     try:
         from plugin.framework.uno_context import process_events_to_idle
 
         process_events_to_idle(ctx)
     except Exception:
         log.debug("processEventsToIdle failed", exc_info=True)
+        return
+    if log_phase:
+        log.info("notebook import %s elapsed_ms=%d", log_phase, _mono_ms(t0))
 
 
 def _resolve_para_style(doc: Any, style_name: str | None) -> str | None:
@@ -1455,6 +1459,7 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
     notebook_in = _ensure_notebook_import_styles(doc)
     # Re-import replaces the whole registry (merge UX is Phase 3).
     registry_state = NotebookDocState(source_path=path)
+    cells_t0 = time.monotonic()
     _import_cells(
         doc,
         nb,
@@ -1466,19 +1471,26 @@ def import_ipynb_to_writer(doc: Any, path: str, ctx: Any | None = None) -> dict[
         registry_state=registry_state,
         notebook_dir=os.path.dirname(os.path.abspath(path)) if path else None,
     )
+    log.info("notebook import cells_done elapsed_ms=%d cells=%d", _mono_ms(cells_t0), stats["cells"])
     if registry_state.code_cells:
         from plugin.notebook.notebook_controls import ensure_form_design_mode_off, wire_all_notebook_run_buttons
         from plugin.notebook.notebook_runner import init_registry_execution_counter
 
+        reg_t0 = time.monotonic()
         init_registry_execution_counter(registry_state)
         save_registry(doc, registry_state)
         save_notebook_source_path(doc, path)
         ensure_form_design_mode_off(doc)
-        flush_ui_idle(ctx)
+        log.info(
+            "notebook import registry_and_design_mode elapsed_ms=%d code_cells=%d",
+            _mono_ms(reg_t0),
+            len(registry_state.code_cells),
+        )
+        flush_ui_idle(ctx, log_phase="flush_ui_idle after_registry")
         if ctx is not None:
             wire_all_notebook_run_buttons(ctx, doc)
     else:
-        flush_ui_idle(ctx)
+        flush_ui_idle(ctx, log_phase="flush_ui_idle after_cells")
 
     stats["controls"] = stats["shapes"]
     total_ms = _mono_ms(run_t0)

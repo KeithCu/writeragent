@@ -165,9 +165,11 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
 
     from plugin.notebook.form_lookup import find_form_control_model_by_name
     from plugin.notebook.notebook_controls import (
-        _listener_refs,
+        _doc_key,
         _query_interface,
+        form_run_listeners,
         get_control_view_for_model,
+        prune_dead_listeners,
         wired_run_listener_count,
     )
 
@@ -184,14 +186,69 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
     evt = uno.createUnoStruct("com.sun.star.awt.ActionEvent")
     evt.Source = control
     evt.ActionCommand = str(getattr(model, "Name", "") or "")
+    prune_dead_listeners()
+    key = _doc_key(doc)
     n = wired_run_listener_count(hex_id)
-    assert n == 1, f"expected 1 XActionListener for ▶, got {n} (triplicate wiring?)"
-    matched = [lis for lis in _listener_refs if getattr(lis, "_hex_id", None) == hex_id]
-    assert len(matched) == 1, f"listener list mismatch: {len(matched)}"
-    # Fire every matched listener — a real click would. With n==1 this is one run.
+    matched = [lis for lis in form_run_listeners() if getattr(lis, "_doc_key_val", None) == key]
+    assert len(matched) == 1, f"form listener list mismatch: {len(matched)} (count={n})"
+    # Fire the shared listener — a real click delivers one ActionEvent with Source=button.
     for lis in matched:
         lis.actionPerformed(evt)
     return "action-listener"
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
+    """Import must attach one form-level listener, not N controller.getControl(model)."""
+    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
+    from plugin.notebook.notebook_controls import form_run_listeners, wired_run_listener_count
+    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+
+    ipynb = _tiny_ipynb_path()
+    try:
+        with patch("plugin.notebook.notebook_controls.get_control_view_for_model") as get_view:
+            get_view.side_effect = AssertionError("import must not call getControl per ▶")
+            import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
+        flush_ui_idle(ctx)
+        state = load_registry(doc)
+        assert state is not None and len(state.code_cells) == 1
+        hex_id = cell_id_to_hex(state.code_cells[0].cell_id)
+        assert len(form_run_listeners()) == 1
+        assert wired_run_listener_count(hex_id) == 1
+
+        fake_result = {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}
+        runs: list[str] = []
+
+        def _exec(*_a, **_k):
+            runs.append("run")
+            return fake_result
+
+        with (
+            patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
+            patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        ):
+            _fire_run_button_via_get_control(ctx, doc, hex_id)
+        assert len(runs) == 1, f"first ▶ must run once, got {len(runs)}"
+        # Re-import / bootstrap must not stack listeners (untitled RuntimeUID de-dupe).
+        from plugin.notebook.notebook_controls import wire_all_notebook_run_buttons
+
+        wire_all_notebook_run_buttons(ctx, doc)
+        wire_all_notebook_run_buttons(ctx, doc)
+        assert len(form_run_listeners()) == 1
+        assert wired_run_listener_count(hex_id) == 1
+        runs.clear()
+        with (
+            patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
+            patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        ):
+            _fire_run_button_via_get_control(ctx, doc, hex_id)
+        assert len(runs) == 1, f"re-wire must not triple-fire, got {len(runs)}"
+    finally:
+        try:
+            ipynb.unlink()
+        except OSError:
+            pass
 
 
 @native_test
@@ -219,7 +276,7 @@ def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
 
         ensure_form_design_mode_off(doc)
         wired = wire_all_notebook_run_buttons(ctx, doc)
-        assert wired == 1, f"expected wired 1/1 run button, got {wired}"
+        assert wired == 1, f"expected one form-level listener, got {wired}"
 
         boxes: list = []
 
@@ -286,7 +343,7 @@ def test_run_first_of_consecutive_code_cells_keeps_next_controls(ctx, doc):
         _assert_controls_present(doc, second)
 
         ensure_form_design_mode_off(doc)
-        assert wire_all_notebook_run_buttons(ctx, doc) == 2
+        assert wire_all_notebook_run_buttons(ctx, doc) == 1
 
         fake = {"status": "ok", "stdout": "first\nstill first\n", "result": None}
         with (

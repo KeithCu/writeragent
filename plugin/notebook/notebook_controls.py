@@ -2,27 +2,45 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Wire notebook ▶ buttons to run handlers (form URL buttons do not reach ProtocolHandler)."""
+"""Wire notebook ▶ buttons to run handlers (form URL buttons do not reach ProtocolHandler).
+
+``controller.getControl(model)`` realizes each control view. On a 144-button import
+that was ~2.4s (and ~10s on some machines). PUSH buttons fire ``XActionListener`` on
+the *view*; the form controller's ``XControlContainer`` already holds realized views
+and notifies ``XContainerListener`` when later views appear (scroll / first paint).
+
+Live check (Writer ``XFormLayerAccess.getFormController``):
+``org.openoffice.comp.svx.FormController`` is *not* ``XApproveActionBroadcaster``
+and the form model is not either. ``addMouseClickHandler`` / container mouse /
+``XScriptListener`` did not see PUSH activation. ``doAccessibleAction`` *did*
+notify ``XApproveActionListener`` / ``XActionListener`` on the button view.
+
+So we attach **one** shared ``XActionListener`` to the form controller container
+(existing ``getControls()`` plus ``elementInserted``), not N ``getControl(model)``.
+"""
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import uno
 
-from plugin.framework.uno_listeners import BaseActionListener
-from plugin.notebook.cell_registry import cell_id_to_hex, has_notebook_registry, load_registry
-from plugin.notebook.form_lookup import index_form_control_models
+from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener
+from plugin.notebook.cell_registry import has_notebook_registry, load_registry
 
 log = logging.getLogger("writeragent.notebook")
 
 # com.sun.star.form.FormButtonType.PUSH — URL buttons open TargetURL via desktop, not our handler.
 _FORM_BUTTON_PUSH = 0
 
-# Keep listeners alive (UNO holds weak refs). Key: (doc_key, hex_id).
+_RUN_PREFIX = "nb_run_"
+
+# Keep listeners alive (UNO holds weak refs). Form-level: one pair per document.
 _listener_refs: list[Any] = []
 _wired_keys: set[tuple[str, str]] = set()
+_wired_form_docs: set[str] = set()
 
 
 def form_button_push_type() -> int:
@@ -68,9 +86,53 @@ def _doc_key(doc: Any) -> str:
     return f"id:{id(doc)}"
 
 
+def _hex_id_from_control_name(name: str) -> str | None:
+    if not isinstance(name, str) or not name.startswith(_RUN_PREFIX):
+        return None
+    hex_id = name[len(_RUN_PREFIX) :]
+    return hex_id or None
+
+
+def _control_name(obj: Any) -> str:
+    if obj is None:
+        return ""
+    model = obj
+    get_model = getattr(obj, "getModel", None)
+    if callable(get_model):
+        try:
+            maybe = get_model()
+            if maybe is not None:
+                model = maybe
+        except Exception:
+            pass
+    try:
+        return str(getattr(model, "Name", "") or "")
+    except Exception:
+        return ""
+
+
+def _hex_id_from_event(rEvent: Any) -> str | None:
+    cmd = str(getattr(rEvent, "ActionCommand", "") or "")
+    hex_id = _hex_id_from_control_name(cmd)
+    if hex_id:
+        return hex_id
+    return _hex_id_from_control_name(_control_name(getattr(rEvent, "Source", None)))
+
+
 def wired_run_listener_count(hex_id: str) -> int:
-    """How many live ▶ listeners are registered for *hex_id* (any document)."""
-    return sum(1 for lis in _listener_refs if getattr(lis, "_hex_id", None) == hex_id)
+    """How many live ▶ handlers would run *hex_id* (form-level counts as one)."""
+    n = 0
+    for lis in _listener_refs:
+        if getattr(lis, "_form_level", False):
+            n += 1
+        elif getattr(lis, "_hex_id", None) == hex_id:
+            n += 1
+    return n
+
+
+def form_run_listeners() -> list[Any]:
+    """Shared form-level ▶ listeners (tests fire these with a real ActionEvent)."""
+    return [lis for lis in _listener_refs if getattr(lis, "_form_level", False)]
 
 
 def get_control_view_for_model(doc: Any, model: Any) -> Any | None:
@@ -99,19 +161,24 @@ def get_control_view_for_model(doc: Any, model: Any) -> Any | None:
 
 def prune_dead_listeners() -> None:
     """Remove listeners whose target document is closed/gone."""
-    global _listener_refs, _wired_keys
+    global _listener_refs, _wired_keys, _wired_form_docs
     survivors: list[Any] = []
     survivor_keys: set[tuple[str, str]] = set()
+    survivor_forms: set[str] = set()
     for lis in _listener_refs:
         try:
             doc = lis._resolve_doc()
             if doc is not None:
                 survivors.append(lis)
-                survivor_keys.add((lis._doc_key_val, lis._hex_id))
+                if getattr(lis, "_form_level", False):
+                    survivor_forms.add(lis._doc_key_val)
+                else:
+                    survivor_keys.add((lis._doc_key_val, lis._hex_id))
         except Exception:
             pass
     _listener_refs = survivors
     _wired_keys = survivor_keys
+    _wired_form_docs = survivor_forms
 
 
 class NotebookRunButtonListener(BaseActionListener):
@@ -120,6 +187,7 @@ class NotebookRunButtonListener(BaseActionListener):
     def __init__(self, ctx: Any, doc: Any, hex_id: str) -> None:
         self._ctx = ctx
         self._hex_id = hex_id
+        self._form_level = False
         self._doc_key_val = _doc_key(doc)
         try:
             self._doc_url = str(doc.getURL() or "")
@@ -174,8 +242,108 @@ class NotebookRunButtonListener(BaseActionListener):
         run_cell_for_doc_hex(self._ctx, doc, self._hex_id)
 
 
+class NotebookFormRunListener(NotebookRunButtonListener):
+    """One listener for every ``nb_run_*`` PUSH button on a document."""
+
+    def __init__(self, ctx: Any, doc: Any) -> None:
+        super().__init__(ctx, doc, hex_id="")
+        self._form_level = True
+        self._attached_names: set[str] = set()
+
+    def on_action_performed(self, rEvent: Any) -> None:
+        hex_id = _hex_id_from_event(rEvent)
+        if not hex_id:
+            return
+        doc = self._resolve_doc()
+        if doc is None:
+            log.warning("notebook run button: document gone")
+            return
+        from plugin.notebook.notebook_runner import run_cell_for_doc_hex
+
+        run_cell_for_doc_hex(self._ctx, doc, hex_id)
+
+
+class NotebookFormContainerListener(BaseContainerListener):
+    """When the form view realizes another control, attach the shared ▶ listener."""
+
+    def __init__(self, form_listener: NotebookFormRunListener) -> None:
+        self._form_listener = form_listener
+        self._doc_key_val = form_listener._doc_key_val
+        self._form_level = False
+
+    def _resolve_doc(self) -> Any | None:
+        return self._form_listener._resolve_doc()
+
+    def on_element_inserted(self, Event: Any) -> None:
+        elem = getattr(Event, "Element", None)
+        _attach_action_listener(elem, self._form_listener)
+
+
+def _attach_action_listener(control: Any, listener: NotebookFormRunListener) -> bool:
+    if control is None:
+        return False
+    name = _control_name(control)
+    hex_id = _hex_id_from_control_name(name)
+    if not hex_id:
+        return False
+    if name in listener._attached_names:
+        return True
+    try:
+        btn = None
+        try:
+            btn = _query_interface(control, "com.sun.star.awt.XButton")
+        except Exception:
+            btn = None
+        if btn is not None:
+            btn.addActionListener(listener)
+        elif hasattr(control, "addActionListener"):
+            control.addActionListener(listener)
+        else:
+            return False
+        listener._attached_names.add(name)
+        return True
+    except Exception:
+        log.debug("notebook controls: form attach failed for %s", name, exc_info=True)
+        return False
+
+
+def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
+    """Return ``(form_controller, view_container)`` or ``(None, None)``."""
+    try:
+        controller = doc.getCurrentController()
+        if controller is None:
+            return None, None
+        forms = None
+        if hasattr(doc, "getDrawPage"):
+            try:
+                forms = doc.getDrawPage().getForms()
+            except Exception:
+                forms = None
+        if forms is None or getattr(forms, "getCount", lambda: 0)() < 1:
+            return None, None
+        form = forms.getByIndex(0)
+        fc = None
+        if hasattr(controller, "getFormController"):
+            fc = controller.getFormController(form)
+        if fc is None:
+            access = _query_interface(controller, "com.sun.star.view.XFormLayerAccess")
+            if access is not None:
+                fc = access.getFormController(form)
+        if fc is None:
+            return None, None
+        container = fc.getContainer() if hasattr(fc, "getContainer") else None
+        return fc, container
+    except Exception:
+        log.debug("notebook controls: form controller lookup failed", exc_info=True)
+        return None, None
+
+
 def wire_run_button_listener(ctx: Any, doc: Any, model: Any, hex_id: str) -> bool:
-    """Attach ``XActionListener`` to a ▶ button model's view. Returns True on success."""
+    """Attach ``XActionListener`` to a ▶ button model's view. Returns True on success.
+
+    Import no longer calls this in a loop (``getControl`` per cell). Kept for unit
+    tests and a single-button fallback.
+    """
     prune_dead_listeners()
     key = (_doc_key(doc), hex_id)
     if key in _wired_keys:
@@ -204,7 +372,10 @@ def wire_run_button_listener(ctx: Any, doc: Any, model: Any, hex_id: str) -> boo
 
 
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
-    """Wire every ``nb_run_*`` control listed in the notebook registry. Returns count wired."""
+    """Attach the shared form-level ▶ listener if missing. Returns 1 when wired.
+
+    Does **not** call ``controller.getControl(model)`` per code cell.
+    """
     if not has_notebook_registry(doc):
         return 0
     state = load_registry(doc)
@@ -212,36 +383,52 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
         return 0
     from plugin.notebook.writer_importer import flush_ui_idle
 
+    prune_dead_listeners()
+    doc_key = _doc_key(doc)
     ensure_form_design_mode_off(doc)
-    flush_ui_idle(ctx)
-    models_by_name = index_form_control_models(doc)
-    log.debug("notebook controls: indexed %d form control model(s)", len(models_by_name))
-    wired = 0
-    missing_model = 0
-    no_view = 0
-    for cell in state.code_cells:
-        hex_id = cell_id_to_hex(cell.cell_id)
-        name = f"nb_run_{hex_id}"
-        model = models_by_name.get(name)
-        if model is None:
-            missing_model += 1
-            log.debug("notebook controls: model %r not found in document", name)
-            continue
-        if wire_run_button_listener(ctx, doc, model, hex_id):
-            wired += 1
-        else:
-            no_view += 1
-    code_cells = len(state.code_cells)
-    if wired:
-        log.info("notebook controls: wired %d/%d run button(s)", wired, code_cells)
-    elif code_cells:
+    flush_ui_idle(ctx, log_phase="flush_ui_idle before_form_listener")
+    if doc_key in _wired_form_docs:
+        log.debug("notebook controls: form listener already attached doc=%s", doc_key)
+        return 1
+
+    t0 = time.monotonic()
+    _fc, container = _form_and_container(doc)
+    if container is None:
         log.warning(
-            "notebook controls: wired 0/%d run buttons (missing_model=%d no_view=%d); re-import after deploy",
-            code_cells,
-            missing_model,
-            no_view,
+            "notebook controls: no form controller container; ▶ clicks will not run (%d code cells)",
+            len(state.code_cells),
         )
-    return wired
+        return 0
+
+    listener = NotebookFormRunListener(ctx, doc)
+    attached = 0
+    try:
+        controls = container.getControls() if hasattr(container, "getControls") else ()
+        for control in controls or ():
+            if _attach_action_listener(control, listener):
+                attached += 1
+    except Exception:
+        log.debug("notebook controls: getControls attach failed", exc_info=True)
+
+    container_lis: NotebookFormContainerListener | None = NotebookFormContainerListener(listener)
+    try:
+        container.addContainerListener(container_lis)
+    except Exception:
+        log.debug("notebook controls: addContainerListener failed", exc_info=True)
+        container_lis = None
+
+    _listener_refs.append(listener)
+    if container_lis is not None:
+        _listener_refs.append(container_lis)
+    _wired_form_docs.add(doc_key)
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    log.info(
+        "notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d",
+        elapsed_ms,
+        attached,
+        len(state.code_cells),
+    )
+    return 1
 
 
 def install_notebook_run_button_wiring(ctx: Any) -> None:

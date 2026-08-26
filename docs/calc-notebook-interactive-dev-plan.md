@@ -89,7 +89,7 @@ This plan is **Writer-first**. Calc notebook import is out of scope unless expli
 
 - **`queryInterface`** must use `uno.getTypeByName("com.sun.star.view.XControlAccess")`, not imported IDL classes (same pattern as [`pivot.py`](../plugin/calc/pivot.py)).
 - **Control lookup** — in-flow `ControlShape` models live on **`doc.getDrawPage()`**, not only as `TextPortionType == "Frame"` in body enumeration ([`form_lookup.py`](../plugin/notebook/form_lookup.py); mirrors [`form_list_controls`](../plugin/writer/specialized/forms.py)).
-- **Wire timing** — attach listeners **after** import + `processEventsToIdle()`, not per-cell during insert; batch `wire_all_notebook_run_buttons` once.
+- **Wire timing** — attach **one** form-controller `XActionListener` after import + `processEventsToIdle()`. Do **not** call `controller.getControl(model)` per ▶ (that realized every view; ~2.4s for 144 buttons). `wire_all_notebook_run_buttons` attaches the shared listener to `getFormController(form).getContainer()` (`getControls()` + `XContainerListener`). PUSH clicks are view `XActionListener` / `XApproveActionBroadcaster`; the form model and `runtime.XFormController` are not action broadcasters (live QI).
 - **Spellcheck** — set document + paragraph styles to **`zxx`** (no linguistic content) at import start ([`rich_text.py`](../plugin/chatbot/rich_text.py) uses the same locale).
 - **In-flow controls vs `setString`** — `XTextRange.setString` on a paragraph that contains `AS_CHARACTER` ControlShapes deletes those shapes. Rewrite Text portions only (`update_in_prompt` / `_gutter_text_cursor`).
 - **`PARAGRAPH_BREAK` cursor** — After `insertControlCharacter(..., PARAGRAPH_BREAK)`, the cursor stays **before** the break ([`html_export.py`](../plugin/writer/html_export.py)). Move with `goRight(1)` / `gotoNextParagraph` before inserting stdout.
@@ -184,7 +184,7 @@ flowchart TB
 **Built:**
 
 - **Run control:** In-flow `CommandButton` (`Label` ▶, `ButtonType` PUSH) before each code `TextField`; names `nb_run_{hex}`
-- [`notebook_controls.py`](../plugin/notebook/notebook_controls.py): `wire_all_notebook_run_buttons`, `get_control_view_for_model`, listener → `run_cell_for_doc_hex`
+- [`notebook_controls.py`](../plugin/notebook/notebook_controls.py): `wire_all_notebook_run_buttons` (one form-level listener), `get_control_view_for_model` (tests / single-button), listener → `run_cell_for_doc_hex`
 - [`notebook_runner.py`](../plugin/notebook/notebook_runner.py): `read_code_from_field` (via `form_lookup`), `execute_code` + `run_blocking_in_thread`, `run_cell`, `apply_run_result`, `update_in_prompt`
 - [`main.py`](../plugin/main.py): `_dispatch_command` for `notebook.run_cell.{hex}`; bootstrap wiring hook
 - Import: spellcheck off (`zxx`); wire after import in `import_ipynb_to_writer` and `import_dialog.py`

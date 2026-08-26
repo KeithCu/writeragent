@@ -40,6 +40,7 @@ _XDocumentEventListener: Any = None
 _XCloseListener: Any = None
 _XTerminateListener: Any = None
 _XActivationEventListener: Any = None
+_XContainerListener: Any = None
 _HAVE_UNO = False
 
 try:
@@ -56,6 +57,7 @@ try:
     from com.sun.star.util import XCloseListener as _XCloseListener_impl
     from com.sun.star.frame import XTerminateListener as _XTerminateListener_impl
     from com.sun.star.sheet import XActivationEventListener as _XActivationEventListener_impl
+    from com.sun.star.container import XContainerListener as _XContainerListener_impl
 
     _unohelper = _unohelper_impl
     _XEventListener = _XEventListener_impl
@@ -68,6 +70,7 @@ try:
     _XCloseListener = _XCloseListener_impl
     _XTerminateListener = _XTerminateListener_impl
     _XActivationEventListener = _XActivationEventListener_impl
+    _XContainerListener = _XContainerListener_impl
     _HAVE_UNO = True
 except ImportError:
     pass
@@ -85,6 +88,7 @@ if TYPE_CHECKING:
     class _XCloseListenerParent: pass
     class _XTerminateListenerParent: pass
     class _XActivationEventListenerParent: pass
+    class _XContainerListenerParent: pass
 else:
     class _DummyBase: pass
     class _DummyEventListener: pass
@@ -97,6 +101,7 @@ else:
     class _DummyCloseListener: pass
     class _DummyTerminateListener: pass
     class _DummyActivationListener: pass
+    class _DummyContainerListener: pass
 
     _BaseParent = _unohelper.Base if _HAVE_UNO else _DummyBase
     _XEventListenerParent = _XEventListener if _HAVE_UNO else _DummyEventListener
@@ -109,6 +114,7 @@ else:
     _XCloseListenerParent = _XCloseListener if _HAVE_UNO else _DummyCloseListener
     _XTerminateListenerParent = _XTerminateListener if _HAVE_UNO else _DummyTerminateListener
     _XActivationEventListenerParent = _XActivationEventListener if _HAVE_UNO else _DummyActivationListener
+    _XContainerListenerParent = _XContainerListener if _HAVE_UNO else _DummyContainerListener
 
 
 def _catch_and_log(func):
@@ -138,6 +144,29 @@ class BaseListener(_BaseParent, _XEventListenerParent):
         self.on_disposing(Source)
 
     def on_disposing(self, Source: Any) -> None:
+        pass
+
+
+class BaseContainerListener(BaseListener, _XContainerListenerParent):
+    @_catch_and_log
+    def elementInserted(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        self.on_element_inserted(Event)
+
+    @_catch_and_log
+    def elementRemoved(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        self.on_element_removed(Event)
+
+    @_catch_and_log
+    def elementReplaced(self, Event: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        self.on_element_replaced(Event)
+
+    def on_element_inserted(self, Event: Any) -> None:
+        pass
+
+    def on_element_removed(self, Event: Any) -> None:
+        pass
+
+    def on_element_replaced(self, Event: Any) -> None:
         pass
 
 
