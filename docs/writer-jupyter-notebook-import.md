@@ -30,7 +30,7 @@ For the full interactive roadmap (Run All, Stop, export, …), see [calc-noteboo
 |-------------------|----------|
 | Vendored **nbformat v4** read — [`plugin/contrib/nbformat/`](../plugin/contrib/nbformat/): `read_ipynb(path)`, `reads(json_string)` → `NotebookNode` with `rejoin_lines` | **nbformat v3** upgrade |
 | Menu: **WriterAgent → Debug → Import Jupyter Notebook…** — [`import_dialog.py`](../plugin/notebook/import_dialog.py) | Run All / Stop ([dev plan](calc-notebook-interactive-dev-plan.md) Phase 2) |
-| Import engine — [`writer_importer.py`](../plugin/notebook/writer_importer.py): **ATX `#`/`##` headings** (Heading 1/2), **`* `/`- ` lists** as Writer bullets, **`**bold**` / `*italic*`**, inline `` `code` ``, HTML-tagged cells, in-flow code fields, output + markdown images; **`zxx` locale** at import start | GFM tables, hover-only play, collapsible cells |
+| Import engine — [`writer_importer.py`](../plugin/notebook/writer_importer.py): **ATX `#`/`##` headings** (Heading 1/2), **`* `/`- ` lists** as Writer bullets, **`**bold**` / `*italic*`**, ``[text](url)`` hyperlinks, HTML ``<img>``/``<a>`` in mixed markdown cells, in-flow code fields, output + markdown/HTML images; **`zxx` locale** at import start | GFM tables, hover-only play, collapsible cells |
 | **Notebook registry (Phase 0)** — [`cell_registry.py`](../plugin/notebook/cell_registry.py): `WriterAgentNotebookJson`, stable `cell_id`, **invisible** output bookmarks `nb_out_*`, `WriterAgentNotebookSourcePath` | Export back to `.ipynb` (Phase 5) |
 | **Run code cell (Phase 1)** — in-flow ▶ **push** button + [`notebook_controls.py`](../plugin/notebook/notebook_controls.py) + [`notebook_runner.py`](../plugin/notebook/notebook_runner.py); shared `notebook:…` kernel; re-run **replaces** output (`setString("")`); UI drain on every run | Cell CRUD, sidebar (Phases 3–4) |
 | Control lookup — [`form_lookup.py`](../plugin/notebook/form_lookup.py) indexes `ControlShape` models on the document draw page (required for wiring ▶ buttons) | Batched background image decode |
@@ -81,7 +81,7 @@ For each cell in order, the importer appends to the **document body**:
 
 | Cell type | Structure in Writer |
 |-----------|-------------------|
-| **markdown** | Rendered CommonMark only: **ATX `#` → Heading 1**, **`##+` → Heading 2**; `* `/`- ` (and numbered) lists as real Writer bullets; `**bold**` / `*italic*`; inline `` `code` `` → `<code>` via HTML; `![](...)` images when the path/URL is reachable; other lines **Text Body**. Immediately before each code cell, KeepWithNext is cleared on the last markdown paragraph (Heading 2’s style default would otherwise glue that heading onto the tall field and leave a half-empty page). |
+| **markdown** | Rendered CommonMark: **ATX `#` → Heading 1**, **`##+` → Heading 2**; `* `/`- ` (and numbered) lists as real Writer bullets; `**bold**` / `*italic*`; inline `` `code` `` → `<code>` via HTML; ``[text](url)`` → Writer hyperlinks; `![](...)` and HTML ``<img src>`` images when the path/URL is reachable (relative paths resolve against the `.ipynb` directory). Mixed cells that contain ``<img>`` / ``<a>`` still render headings/lists/bold — those tags are converted to markdown first, so the cell is **not** dumped through the StarWriter HTML filter. Other lines **Text Body**. Immediately before each code cell, KeepWithNext is cleared on the last markdown paragraph (Heading 2’s style default would otherwise glue that heading onto the tall field and leave a half-empty page). |
 | **code (gutter)** | **`WriterAgent Notebook In`** (Text Body parent, 9 pt, not Heading 3) — `In [k]:` or `In [ ]:` plus the small ▶ (`nb_run_{cell_id hex}`) on **that same paragraph**. `update_in_prompt` rewrites leading Text portions only (stops at Frame) so `setString` cannot delete the button. |
 | **code (body)** | New paragraph → **TextField** only (`nb_cell_{index}_code`, Liberation Mono, light gray fill, hairline border, **full** text-area width) → invisible bookmark `nb_out_{hex}` at the end of that paragraph. Stdout/images go directly under the field. `Out [n]:` only for `execute_result` / last-line values, not print streams. Never-run cells have **no** empty Output block. |
 | **raw** | **Text Body** — raw cell source |
@@ -94,7 +94,7 @@ For each cell in order, the importer appends to the **document body**:
 
 **Paragraph styles:** Built-in names are resolved case-insensitively. **`WriterAgent Notebook In`** is auto-created for the `In [n]:` gutter (parent **Text Body**, not Heading 3).
 
-**Images:** `image/png` and `image/jpeg` in outputs (import or live matplotlib) are embedded via [`insert_image_at_locator`](../plugin/writer/images/image_tools.py) under the cell, width capped to the text area, aspect ratio kept, no wrap, no extra blank paragraphs. Markdown `![](...)` uses the same path when the file or URL is reachable.
+**Images:** `image/png` and `image/jpeg` in outputs (import or live matplotlib) are embedded via [`insert_image_at_locator`](../plugin/writer/images/image_tools.py) under the cell, width capped to the text area, aspect ratio kept, no wrap, no extra blank paragraphs. Markdown `![](...)` and HTML `<img src="...">` use the same embed path: relative files resolve against the notebook directory (`tests/fixtures/introduction-to-numpy.ipynb` → `../images/` = [`tests/images/`](../tests/images/), vendored from [mrdbourke/zero-to-mastery-ml](https://github.com/mrdbourke/zero-to-mastery-ml)), and `http(s)` URLs are fetched. Do not send a mixed markdown cell through the HTML filter just because it contains `<img>` — that resolved relative `src` against a temp file and left `##` / `**` raw.
 
 ---
 
@@ -148,6 +148,8 @@ python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py
 ```
 
 The live smoke imports the small NumPy fixture and **runs** the three code cells. A sandbox `Forbidden access to dunder attribute` / `__version__` deny is a **hard failure** (not a “clean error”). A real missing-numpy `ModuleNotFoundError` is allowed when the worker venv has no NumPy. After run, ▶ / code fields must still be on the draw page, stdout must not share a paragraph with the next markdown, and the document must not contain `Cell N: Markdown` chrome.
+
+The same file also covers HTML `<img>` + markdown links (`test_debug_menu_import_html_img_and_markdown_link`): [`tests/fixtures/html-img-and-md-link.ipynb`](../tests/fixtures/html-img-and-md-link.ipynb) uses `../images/test-html-img.png` plus `[NumPy](https://numpy.org/…)`. Assert a graphic object and a Writer hyperlink, not literal `[text](url)` or raw `##`. Do not import the 184-cell Bourke notebook in the live loop.
 
 Live ▶ click (``getControl`` / ``XButton``, not ``run_cell()`` alone):
 

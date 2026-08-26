@@ -32,6 +32,9 @@ _SMALL_IPYNB = (
 _MEDIUM_IPYNB = (
     Path(__file__).resolve().parents[1] / "fixtures" / "introduction-to-numpy-medium.ipynb"
 )
+_HTML_IMG_IPYNB = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "html-img-and-md-link.ipynb"
+)
 _IMPORT_ACTION = "scripting.import_ipynb"
 _HEADINGS = (
     ("A Small Introduction to NumPy", 1),
@@ -230,6 +233,126 @@ def test_debug_menu_import_ipynb_action_registered(ctx):
     assert handler is not None, (
         "Debug menu action scripting.import_ipynb is not registered "
         "(WriterAgent → Debug → Import Jupyter Notebook…)"
+    )
+
+
+def _graphic_count(doc) -> int:
+    try:
+        objs = doc.getGraphicObjects()
+        return int(objs.getCount())
+    except Exception:
+        pass
+    n = 0
+    try:
+        dp = doc.getDrawPage()
+        for i in range(dp.getCount()):
+            shape = dp.getByIndex(i)
+            try:
+                st = str(shape.getShapeType() or "")
+            except Exception:
+                continue
+            if "Graphic" in st:
+                n += 1
+    except Exception:
+        return n
+    return n
+
+
+def _hyperlink_urls(doc) -> list[str]:
+    urls: list[str] = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        try:
+            if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
+                continue
+            portions = el.createEnumeration()
+        except Exception:
+            continue
+        while portions.hasMoreElements():
+            portion = portions.nextElement()
+            try:
+                url = str(portion.getPropertyValue("HyperLinkURL") or "")
+            except Exception:
+                url = ""
+            if url:
+                urls.append(url)
+    try:
+        fields = doc.getTextFields().createEnumeration()
+        while fields.hasMoreElements():
+            field = fields.nextElement()
+            try:
+                url = str(field.getPropertyValue("URL") or "")
+            except Exception:
+                url = ""
+            if url:
+                urls.append(url)
+    except Exception:
+        pass
+    return urls
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_debug_menu_import_html_img_and_markdown_link(ctx, doc):
+    """Relative HTML <img> embeds; [text](url) is a hyperlink; mixed cell keeps markdown."""
+    assert _HTML_IMG_IPYNB.is_file(), f"missing fixture {_HTML_IMG_IPYNB}"
+    img = _HTML_IMG_IPYNB.resolve().parents[1] / "images" / "test-html-img.png"
+    assert img.is_file(), f"missing {img}"
+
+    from plugin.framework.main_shared import get_action_handler
+    from plugin.framework.uno_context import get_active_document, process_events_to_idle
+
+    handler = get_action_handler(_IMPORT_ACTION)
+    assert handler is not None, "scripting.import_ipynb is not registered"
+
+    _activate_doc(ctx, doc)
+    active = get_active_document(ctx)
+    assert active is not None, "no active document for Debug-menu import"
+
+    picker_patch, picker = _drive_filepicker(_HTML_IMG_IPYNB)
+    boxes = []
+    capture = _capture_msgbox(boxes)
+
+    with picker_patch, patch("plugin.notebook.import_dialog.msgbox", capture):
+        handler()
+
+    process_events_to_idle(ctx)
+
+    assert "execute" in picker.calls and "getFiles" in picker.calls, (
+        f"FilePicker was not driven through _pick_ipynb_path: {picker.calls}"
+    )
+    completion = "\n".join(msg for _title, msg, _bt in boxes)
+    assert "Imported notebook" in completion or "Cells: 1" in completion, (
+        f"completion msgbox missing import stats: {boxes!r}"
+    )
+
+    body = doc.getText().getString() or ""
+    assert "What is NumPy?" in body
+    assert "Anatomy of an array" in body
+    assert "## What is NumPy?" not in body
+    assert "### Anatomy" not in body
+    assert "[NumPy](" not in body
+    assert "**Array**" not in body
+    assert "NumPy" in body
+    assert "Array" in body
+
+    paras = _paragraphs(doc)
+    anatomy = [(s, t) for s, t in paras if "Anatomy of an array" in t]
+    assert anatomy, f"Anatomy heading missing: {paras!r}"
+    assert not anatomy[0][1].lstrip().startswith("#"), anatomy[0]
+    heading_hit = next((s for s, t in anatomy if _style_is_heading(s, 2)), None)
+    if heading_hit is None:
+        families = doc.getStyleFamilies().getByName("ParagraphStyles")
+        if families.hasByName("Heading 2"):
+            raise AssertionError(f"Anatomy expected Heading 2, got {anatomy!r}")
+
+    assert _graphic_count(doc) >= 1, (
+        f"relative HTML <img> was not embedded (graphics={_graphic_count(doc)})"
+    )
+    urls = _hyperlink_urls(doc)
+    assert any("numpy.org" in u for u in urls), (
+        f"markdown link was not a Writer hyperlink: body={body!r} urls={urls!r}"
     )
 
 

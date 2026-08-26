@@ -189,7 +189,11 @@ def _writer_doc_mock(*, with_bookmarks: bool = False):
 
 
 def test_looks_like_html_detects_tags():
-    assert _looks_like_html('<a href="https://example.com">x</a>') is True
+    # <a>/<img> stay on the markdown path so mixed cells keep headings and lists.
+    assert _looks_like_html('<a href="https://example.com">x</a>') is False
+    assert _looks_like_html('<img src="../images/foo.png" alt="x"/>') is False
+    assert _looks_like_html("## Heading\n\n<img src=\"x.png\">\n") is False
+    assert _looks_like_html("<div>raw</div>") is True
     assert _looks_like_html("## Plain markdown\n\nno tags") is False
 
 
@@ -706,6 +710,13 @@ def test_inline_markdown_bold_italic_code():
     assert "**" not in html
     assert _paragraph_needs_html("use **bold** here") is True
     assert _paragraph_needs_html("plain text") is False
+    link_html = _inline_markdown_to_html("See the [NumPy docs](https://numpy.org/).")
+    assert '<a href="https://numpy.org/">NumPy docs</a>' in link_html
+    assert "[NumPy docs]" not in link_html
+    assert _paragraph_needs_html("See the [NumPy docs](https://numpy.org/).") is True
+    code_link = _inline_markdown_to_html("use [`np.sort()`](https://numpy.org/sort).")
+    assert "<code>np.sort()</code>" in code_link
+    assert 'href="https://numpy.org/sort"' in code_link
 
 
 def test_import_markdown_lists_and_bold_use_html(tmp_path, monkeypatch):
@@ -753,3 +764,195 @@ def test_height_for_text_accounts_for_long_wrapped_lines():
     h_short = _height_for_text(short_lines)
     h_long = _height_for_text(long_wrapped_line)
     assert h_long > h_short
+
+
+_TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+    b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+)
+
+
+def test_html_img_and_a_to_markdown_extracts_tags():
+    from plugin.notebook.writer_importer import _html_img_and_a_to_markdown, _iter_markdown_blocks
+
+    src = (
+        '<a target="_blank" href="https://colab.research.google.com/">\n'
+        '  <img src="https://colab.research.google.com/assets/colab-badge.svg" '
+        'alt="Open In Colab"/>\n'
+        "</a>\n"
+        "\n"
+        "[View source](https://github.com/example/nb)\n"
+        "\n"
+        "## What is NumPy?\n"
+        "\n"
+        '<img src="../images/numpy-anatomy-of-an-array-updated.png" '
+        'alt="anatomy of a numpy array"/>\n'
+        "\n"
+        "### Anatomy of an array\n"
+        "\n"
+        "* **Array** - A list of numbers.\n"
+    )
+    converted = _html_img_and_a_to_markdown(src)
+    assert "<img" not in converted.lower()
+    assert "<a " not in converted.lower()
+    assert "![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)" in converted
+    assert "![anatomy of a numpy array](../images/numpy-anatomy-of-an-array-updated.png)" in converted
+    assert "## What is NumPy?" in converted
+    blocks = _iter_markdown_blocks(converted)
+    kinds = [k for k, _p in blocks]
+    assert "h2" in kinds
+    assert "img" in kinds
+    assert "ul" in kinds
+    assert any(k == "h2" and p == "Anatomy of an array" for k, p in blocks)
+    assert any(k == "img" and p[1].endswith("numpy-anatomy-of-an-array-updated.png") for k, p in blocks)
+
+
+def test_resolve_markdown_image_path_relative_to_notebook_dir(tmp_path):
+    from plugin.notebook.writer_importer import _resolve_markdown_image_path
+
+    nb_dir = tmp_path / "fixtures"
+    img_dir = tmp_path / "images"
+    nb_dir.mkdir()
+    img_dir.mkdir()
+    img = img_dir / "foo.png"
+    img.write_bytes(_TINY_PNG)
+    resolved = _resolve_markdown_image_path("../images/foo.png", str(nb_dir))
+    assert resolved is not None
+    assert Path(resolved).resolve() == img.resolve()
+    assert _resolve_markdown_image_path("../images/missing.png", str(nb_dir)) is None
+
+
+def test_resolve_bourke_images_from_fixture_notebook_dir():
+    from plugin.notebook.writer_importer import _resolve_markdown_image_path
+
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures"
+    for name in (
+        "numpy-6-step-ml-framework-tools-numpy-highlight.png",
+        "numpy-anatomy-of-an-array-updated.png",
+        "numpy-panda.jpeg",
+        "numpy-car-photo.png",
+        "numpy-dog-photo.png",
+        "test-html-img.png",
+    ):
+        resolved = _resolve_markdown_image_path(f"../images/{name}", str(fixtures))
+        assert resolved is not None, name
+        assert Path(resolved).is_file(), name
+
+
+def test_svg_pixel_size_reads_viewbox():
+    from plugin.notebook.writer_importer import _svg_pixel_size
+
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 117 20"></svg>'
+    assert _svg_pixel_size(svg) == (117, 20)
+    sized = b'<svg width="80" height="20"></svg>'
+    assert _svg_pixel_size(sized) == (80, 20)
+
+
+def test_import_mixed_html_img_cell_renders_markdown_and_image(tmp_path, monkeypatch):
+    """HTML <img> + markdown in one cell: heading/list/link, relative image embed."""
+    from plugin.notebook.writer_importer import import_ipynb_to_writer
+
+    nb_dir = tmp_path / "fixtures"
+    img_dir = tmp_path / "images"
+    nb_dir.mkdir()
+    img_dir.mkdir()
+    (img_dir / "tiny.png").write_bytes(_TINY_PNG)
+    ipynb = nb_dir / "mixed.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"markdown","metadata":{},"source":'
+        '"## What is NumPy?\\n\\n'
+        '[NumPy](https://numpy.org/doc/stable/index.html) stands for numerical Python.\\n\\n'
+        '<img src=\\"../images/tiny.png\\" alt=\\"tiny test image\\"/>\\n\\n'
+        '### Anatomy of an array\\n\\n'
+        '* **Array** - A list of numbers."}'
+        "]}",
+        encoding="utf-8",
+    )
+
+    doc, body_text, body_cursor = _writer_doc_mock()
+    para_styles = MagicMock()
+    para_styles.hasByName.return_value = True
+    families = MagicMock()
+    families.getByName.return_value = para_styles
+    doc.getStyleFamilies.return_value = families
+    html_calls: list[str] = []
+    embed_calls: list[str] = []
+
+    def fake_insert_html(cursor, html, **kwargs):
+        html_calls.append(html)
+        return True
+
+    def fake_embed(d, src, notebook_dir, *, ctx=None):
+        embed_calls.append(src)
+        return True
+
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
+    monkeypatch.setattr("plugin.notebook.writer_importer._embed_markdown_image", fake_embed)
+
+    stats = import_ipynb_to_writer(doc, str(ipynb))
+    assert stats["markdown"] == 1
+    inserted = [call.args[1] for call in body_text.insertString.call_args_list]
+    assert "What is NumPy?" in inserted
+    assert "Anatomy of an array" in inserted
+    assert not any(str(t).lstrip().startswith("#") for t in inserted)
+    assert not any("[NumPy]" in str(t) for t in inserted)
+    assert not any("**Array**" in str(t) for t in inserted)
+    joined_html = "\n".join(html_calls)
+    assert 'href="https://numpy.org/doc/stable/index.html"' in joined_html
+    assert "<strong>Array</strong>" in joined_html
+    assert embed_calls == ["../images/tiny.png"]
+    style_names = [
+        call.args[1] for call in body_cursor.setPropertyValue.call_args_list if call.args[0] == "ParaStyleName"
+    ]
+    assert _STYLE_MD_H2 in style_names
+
+
+def test_import_html_img_fixture_notebook(monkeypatch):
+    ipynb = Path(__file__).resolve().parents[1] / "fixtures" / "html-img-and-md-link.ipynb"
+    assert ipynb.is_file()
+    img = Path(__file__).resolve().parents[1] / "images" / "test-html-img.png"
+    assert img.is_file()
+
+    doc, body_text, body_cursor = _writer_doc_mock()
+    para_styles = MagicMock()
+    para_styles.hasByName.return_value = True
+    families = MagicMock()
+    families.getByName.return_value = para_styles
+    doc.getStyleFamilies.return_value = families
+    html_calls: list[str] = []
+    embed_srcs: list[str] = []
+    locator_calls: list[str] = []
+
+    def fake_insert_html(cursor, html, **kwargs):
+        html_calls.append(html)
+        return True
+
+    def fake_locator(ctx, model, path, **kw):
+        locator_calls.append(str(path))
+        return MagicMock()
+
+    import plugin.notebook.writer_importer as wi
+
+    real_embed = wi._embed_markdown_image
+
+    def tracking_embed(d, src, notebook_dir, *, ctx=None):
+        embed_srcs.append(src)
+        return real_embed(d, src, notebook_dir, ctx=ctx)
+
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
+    monkeypatch.setattr("plugin.notebook.writer_importer.insert_image_at_locator", fake_locator)
+    monkeypatch.setattr("plugin.notebook.writer_importer._embed_markdown_image", tracking_embed)
+
+    ctx = MagicMock()
+    stats = import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
+    assert stats["markdown"] == 1
+    inserted = [call.args[1] for call in body_text.insertString.call_args_list]
+    assert "What is NumPy?" in inserted
+    assert "Anatomy of an array" in inserted
+    assert not any("[NumPy]" in str(t) for t in inserted)
+    joined_html = "\n".join(html_calls)
+    assert "numpy.org" in joined_html
+    assert "<strong>Array</strong>" in joined_html
+    assert embed_srcs == ["../images/test-html-img.png"]
+    assert locator_calls, "relative HTML <img> was not embedded"

@@ -102,9 +102,17 @@ _INLINE_CODE_RE = re.compile(r"`([^`]+)`")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
 _ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)|(?<!_)_(?!_)(.+?)(?<!_)_(?!_)")
 _MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+# Negative lookbehind so ``![alt](src)`` is not treated as a markdown link.
+_MD_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)]+)\)")
 _MD_UL_RE = re.compile(r"^[*+-][ \t]+(.*)$")
 _MD_OL_RE = re.compile(r"^\d+[.)][ \t]+(.*)$")
 _MD_IMAGE_LINE_RE = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$")
+_HTML_IMG_RE = re.compile(r"(?is)<img\b[^>]*?/?>")
+_HTML_A_RE = re.compile(r"(?is)<a\b([^>]*)>(.*?)</a>")
+_HTML_A_OR_IMG_TAG_RE = re.compile(r"(?is)</?(?:img|a)\b[^>]*?/?>")
+_HTML_ATTR_RE = re.compile(
+    r"""(?is)([a-z_:][-a-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"""
+)
 _IN_PROMPT_RE = re.compile(r"^In \[[0-9 ]*\]:")
 
 
@@ -286,6 +294,41 @@ def _jpeg_pixel_size(raw: bytes) -> tuple[int, int] | None:
     return None
 
 
+def _svg_pixel_size(raw: bytes) -> tuple[int, int] | None:
+    """Read width/height or viewBox so SVG badges are not stretched to the page cap."""
+    text = raw.decode("utf-8", errors="ignore")[:4000]
+    vb = re.search(
+        r"viewBox\s*=\s*[\"']?\s*[-0-9.]+\s+[-0-9.]+\s+([0-9.]+)\s+([0-9.]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if vb:
+        w, h = float(vb.group(1)), float(vb.group(2))
+        if w >= 1 and h >= 1:
+            return int(w), int(h)
+    wm = re.search(r"\bwidth\s*=\s*[\"']?([0-9.]+)", text, flags=re.IGNORECASE)
+    hm = re.search(r"\bheight\s*=\s*[\"']?([0-9.]+)", text, flags=re.IGNORECASE)
+    if wm and hm:
+        w, h = float(wm.group(1)), float(hm.group(1))
+        if w >= 1 and h >= 1:
+            return int(w), int(h)
+    return None
+
+
+def _image_mime_from_bytes(raw: bytes, path: str) -> str:
+    if raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if len(raw) >= 2 and raw[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    lower = (path or "").lower()
+    head = raw.lstrip()[:256].lower()
+    if lower.endswith(".svg") or b"<svg" in head:
+        return "image/svg+xml"
+    if lower.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    return "image/png"
+
+
 def _text_area_width_units(doc: Any | None) -> int:
     """Page width minus left/right margins (1/100 mm), for code fields and images."""
     if doc is None:
@@ -355,6 +398,8 @@ def _display_size_units(raw: bytes, mime: str, *, max_width_mm: float | None = N
         px_size = _png_pixel_size(raw)
     elif mime in ("image/jpeg", "image/jpg"):
         px_size = _jpeg_pixel_size(raw)
+    elif mime == "image/svg+xml":
+        px_size = _svg_pixel_size(raw)
     if px_size is not None:
         px_w, px_h = px_size
     else:
@@ -728,8 +773,66 @@ def _format_in_prompt(execution_count: Any | None) -> str:
     return f"In [{execution_count}]:"
 
 
+def _html_attr(tag_or_attrs: str, name: str) -> str:
+    """Read one HTML attribute value (quoted or bare) from a start tag or attr blob."""
+    want = name.lower()
+    for match in _HTML_ATTR_RE.finditer(tag_or_attrs or ""):
+        if (match.group(1) or "").lower() != want:
+            continue
+        raw = match.group(2)
+        if raw is None:
+            raw = match.group(3)
+        if raw is None:
+            raw = match.group(4)
+        return html_lib.unescape((raw or "").strip())
+    return ""
+
+
+def _html_img_and_a_to_markdown(source: str) -> str:
+    """Turn Jupyter HTML ``<img>`` / ``<a>`` into markdown so mixed cells stay CommonMark.
+
+    Sending the whole cell through StarWriter HTML wrote a temp file whose directory
+    was the resolver for relative ``<img src>``, so ``../images/*.png`` next to the
+    ``.ipynb`` 404'd. Headings and ``**bold**`` in those cells were also left raw.
+    """
+    if not source or "<" not in source:
+        return source
+
+    def repl_img(match: re.Match[str]) -> str:
+        src = _html_attr(match.group(0), "src")
+        if not src:
+            return ""
+        alt = _html_attr(match.group(0), "alt")
+        return f"![{alt}]({src})"
+
+    work = _HTML_IMG_RE.sub(repl_img, source)
+
+    def repl_a(match: re.Match[str]) -> str:
+        href = _html_attr(match.group(1), "href")
+        inner = match.group(2) or ""
+        if not href:
+            return inner
+        stripped = inner.strip()
+        # Linked image (Colab badge): keep the image; ``[![alt](src)](url)`` is not
+        # an embed in ``_iter_markdown_blocks``.
+        if _MD_IMAGE_LINE_RE.match(stripped) or (stripped.startswith("![") and "](" in stripped):
+            return inner
+        text = re.sub(r"\s+", " ", stripped)
+        if not text:
+            return inner
+        return f"[{text}]({href})"
+
+    return _HTML_A_RE.sub(repl_a, work)
+
+
 def _looks_like_html(text: str) -> bool:
-    return bool(_HTML_TAG_RE.search((text or "").strip()))
+    """True when the cell still has HTML other than ``<img>`` / ``<a>``.
+
+    Those two tags are converted to markdown first; treating them as a raw HTML
+    cell dumped ``##`` / ``**`` as literal text and broke relative images.
+    """
+    stripped = _HTML_A_OR_IMG_TAG_RE.sub(" ", text or "")
+    return bool(_HTML_TAG_RE.search(stripped.strip()))
 
 
 def _inline_backticks_to_html(text: str) -> str:
@@ -745,8 +848,13 @@ def _inline_backticks_to_html(text: str) -> str:
 
 
 def _inline_markdown_to_html(text: str) -> str:
-    """Escape *text* and wrap ``code``, **bold**, and *italic* as HTML."""
-    if not _BOLD_RE.search(text or "") and not _ITALIC_RE.search(text or "") and not _MD_IMAGE_RE.search(text or ""):
+    """Escape *text* and wrap ``code``, **bold**, *italic*, and ``[text](url)`` as HTML."""
+    if (
+        not _BOLD_RE.search(text or "")
+        and not _ITALIC_RE.search(text or "")
+        and not _MD_IMAGE_RE.search(text or "")
+        and not _MD_LINK_RE.search(text or "")
+    ):
         return _inline_backticks_to_html(text)
     placeholders: list[str] = []
 
@@ -780,7 +888,16 @@ def _inline_markdown_to_html(text: str) -> str:
         escaped_inner = escape_non_placeholders(inner or "")
         return hold(f"<em>{escaped_inner}</em>")
 
+    def stash_link(match: re.Match[str]) -> str:
+        inner = match.group(1) or ""
+        url = _split_markdown_image_src(match.group(2) or "")
+        if not url:
+            return match.group(0)
+        href = html_lib.escape(url, quote=True)
+        return hold(f'<a href="{href}">{escape_non_placeholders(inner)}</a>')
+
     work = _INLINE_CODE_RE.sub(stash_code, work)
+    work = _MD_LINK_RE.sub(stash_link, work)
     work = _BOLD_RE.sub(stash_bold, work)
     work = _ITALIC_RE.sub(stash_italic, work)
     escaped = escape_non_placeholders(work)
@@ -800,6 +917,8 @@ def _paragraph_needs_html(text: str) -> bool:
     if "**" in text or "__" in text:
         return True
     if _MD_IMAGE_RE.search(text):
+        return True
+    if _MD_LINK_RE.search(text):
         return True
     if _ITALIC_RE.search(text):
         return True
@@ -920,7 +1039,7 @@ def _fetch_remote_image(url: str) -> str | None:
             return None
         suffix = ".png"
         lower = url.lower().split("?", 1)[0]
-        for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
             if lower.endswith(ext):
                 suffix = ".jpg" if ext == ".jpeg" else ext
                 break
@@ -967,11 +1086,7 @@ def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, ctx: 
             raw = fh.read(_MAX_IMAGE_DECODE_BYTES + 1)
         if not raw or len(raw) > _MAX_IMAGE_DECODE_BYTES:
             return False
-        mime = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
-        if raw[:8] == b"\x89PNG\r\n\x1a\n":
-            mime = "image/png"
-        elif raw[:2] == b"\xff\xd8":
-            mime = "image/jpeg"
+        mime = _image_mime_from_bytes(raw, path)
         _append_paragraph_break_at_end(doc) if _doc_body_nonempty(doc) else None
         return _insert_image_in_flow(doc, raw=raw, mime=mime, images_before=0, ctx=ctx)
     except Exception:
@@ -1092,13 +1207,18 @@ def _append_markdown_cell(
     notebook_dir: str | None = None,
     ctx: Any | None = None,
 ) -> None:
-    """Markdown cell: HTML as-is; ATX headings, lists, bold/italic, inline code, images.
+    """Markdown cell: ATX headings, lists, bold/italic, ``[text](url)``, images.
 
-    Jupyter cells are CommonMark, not HTML. No ``Cell N: Markdown`` chrome.
+    HTML ``<img>`` / ``<a>`` become markdown first so mixed cells still render
+    headings and lists. Whole-cell StarWriter HTML is only for leftover HTML
+    (tables, divs). Relative ``<img src>`` resolves against the ``.ipynb``
+    directory via ``_embed_markdown_image``, not a temp-file HTML import.
+    No ``Cell N: Markdown`` chrome.
     """
     display, _unused = _prepare_display_text(source)
     if not display:
         return
+    display = _html_img_and_a_to_markdown(display)
     if _looks_like_html(display):
         if not _insert_html_at_body_end(doc, display, lead_break=lead_break):
             _append_body_paragraph(doc, display, _STYLE_BODY, lead_break=False)
