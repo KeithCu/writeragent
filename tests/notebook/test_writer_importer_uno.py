@@ -540,12 +540,7 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
         assert cell.code_field_name in names, f"{cell.code_field_name} missing: {names}"
 
     from plugin.notebook.notebook_runner import _find_control_shape_by_name, read_code_from_field
-    from plugin.notebook.writer_importer import (
-        _FIELD_HEIGHT_PAD,
-        _height_for_text,
-        _LINE_HEIGHT,
-        _WRAP_SLACK,
-    )
+    from plugin.notebook.writer_importer import _height_for_text
 
     # Multi-line In[2] field must be tall enough that the last line is not clipped.
     cell_in2 = state.code_cells[1]
@@ -557,7 +552,7 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     want_h = _height_for_text(src_in2, doc)
     print(f"medium In[2] lines={lines_in2} shape_h={h_in2} want_h={want_h}", flush=True)
     assert lines_in2 >= 10, f"fixture In[2] should be multi-line, got {lines_in2}"
-    assert h_in2 >= want_h or h_in2 >= lines_in2 * 420, (
+    assert h_in2 >= want_h or h_in2 >= (lines_in2 + 1) * 420, (
         f"In[2] field clips source: height={h_in2} lines={lines_in2} want={want_h}"
     )
 
@@ -567,15 +562,11 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     shape_in1 = _find_control_shape_by_name(doc, cell_in1.code_field_name)
     assert shape_in1 is not None
     h_in1 = int(shape_in1.getSize().Height)
-    print(f"medium In[1] lines={lines_in1} shape_h={h_in1}", flush=True)
+    want_in1 = _height_for_text(src_in1, doc)
+    print(f"medium In[1] lines={lines_in1} shape_h={h_in1} want_h={want_in1}", flush=True)
     assert lines_in1 == 2, f"fixture In[1] should be two source lines, got {lines_in1}"
-    # Half-line slack, not a full empty gray row under a short cell.
-    assert h_in1 < (lines_in1 + 1) * _LINE_HEIGHT + _FIELD_HEIGHT_PAD, (
-        f"In[1] has a full extra gray line: height={h_in1}"
-    )
-    assert h_in1 >= lines_in1 * _LINE_HEIGHT + _WRAP_SLACK, (
-        f"In[1] lost wrap slack: height={h_in1}"
-    )
+    # Full extra line of wrap slack. Short cells keep a bit of empty gray.
+    assert h_in1 >= want_in1, f"In[1] lost wrap slack: height={h_in1} want={want_in1}"
 
     from plugin.notebook.cell_registry import cell_id_to_hex
     from plugin.notebook.writer_importer import _text_area_width_units
@@ -622,8 +613,9 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
         assert dt_page == why_page, (
             f"DataTypes heading skipped to page {dt_page} away from Why NumPy on {why_page}"
         )
-    # A tall AS_CHARACTER field may miss the remainder of page 1; that is not
-    # KeepWithNext glue (DataTypes staying with Why NumPy is the hole we forbid).
+    # Extra wrap-line pad can make In[2]'s field miss the remainder of page 1.
+    # That is an unsplittable AS_CHARACTER jump, not KeepWithNext glue (DataTypes
+    # staying with Why NumPy is the hole we still forbid).
     pages_used = sorted({pg for pg, _s, _t in by_page})
     for page in pages_used:
         empties = _leading_empty_count(by_page, page)

@@ -47,11 +47,13 @@ log = logging.getLogger("writeragent.notebook")
 _DEFAULT_WIDTH = 14000
 _MIN_FIELD_HEIGHT = 500
 _LINE_HEIGHT = 450
-# Hairline + descenders. Half a line of wrap slack so a leftover wrap (In[3])
-# is not clipped, without a full empty gray row under short cells (In[1]).
-# No wrap-width calculator, no HScroll — wrapping in Writer is correct.
+# Hairline + descenders. One extra _LINE_HEIGHT of wrap slack so a leftover
+# wrap (In[3] `type(a2))`) is fully inside the gray box. Half-line slack
+# (`_LINE_HEIGHT // 2`) clipped that last visual line mid-glyph and did not
+# tighten short cells (In[1] still had empty gray). Live with a bit of empty
+# gray on short cells. No wrap-width calculator, no HScroll.
 _FIELD_HEIGHT_PAD = 280
-_WRAP_SLACK = _LINE_HEIGHT // 2
+_WRAP_SLACK = _LINE_HEIGHT
 # AS_CHARACTER cannot split; cap near one page body so a huge cell page-breaks as a
 # unit. Do not use a 9 cm cap — that sliced 15-line cells.
 _MAX_FIELD_HEIGHT = 24000
@@ -162,7 +164,7 @@ def _coerce_notebook_text(value: Any) -> str:
 def _height_for_text(text: str, doc: Any | None = None) -> int:
     """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
     lines = max(1, (text or "").count("\n") + 1)
-    # Half-line slack for one leftover wrap. Do not compute wrap width.
+    # One extra line of pad: a long source line may wrap once. Do not compute wrap.
     raw = lines * _LINE_HEIGHT + _FIELD_HEIGHT_PAD + _WRAP_SLACK
     cap = _max_field_height_units(doc)
     return max(_MIN_FIELD_HEIGHT, min(cap, raw))
