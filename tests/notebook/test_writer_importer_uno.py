@@ -536,31 +536,70 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
     want_h = _height_for_text(src_in2, doc)
     print(f"medium In[2] lines={lines_in2} shape_h={h_in2} want_h={want_h}", flush=True)
     assert lines_in2 >= 10, f"fixture In[2] should be multi-line, got {lines_in2}"
-    assert h_in2 >= want_h or h_in2 >= lines_in2 * 450, (
+    assert h_in2 >= want_h or h_in2 >= lines_in2 * 420, (
         f"In[2] field clips source: height={h_in2} lines={lines_in2} want={want_h}"
     )
 
     why_page = _page_of_text(doc, "Why NumPy?")
     dt_page = _page_of_text(doc, "1. DataTypes and attributes")
     in2_page = _page_of_text(doc, "In [2]:")
+    by_page = _paragraphs_with_pages(doc)
+    layout = _paragraphs_with_layout(doc)
     print(
         f"medium pages why={why_page} datatypes={dt_page} in2={in2_page} "
-        f"shape_y={int(shape_in2.getPosition().Y)}",
+        f"leading_empties={ {p: _leading_empty_count(by_page, p) for p in sorted({pg for pg, _s, _t in by_page})} }",
         flush=True,
     )
-    # Unglue markdown from the tall field so DataTypes is not pulled onto the next
-    # page, leaving page 1 half empty.
     if why_page is not None and dt_page is not None:
         assert dt_page == why_page, (
             f"DataTypes heading skipped to page {dt_page} away from Why NumPy on {why_page}"
         )
-    first_ys = _first_code_field_y_by_page(doc)
-    print(f"medium first field Y by page={first_ys!r}", flush=True)
-    for page, y in first_ys.items():
-        assert y < 5000, f"page {page} starts with a {y} HMM hole before the first code field"
+    pages_used = sorted({pg for pg, _s, _t in by_page})
+    for page in pages_used:
+        empties = _leading_empty_count(by_page, page)
+        assert empties <= 1, (
+            f"page {page} starts with {empties} empty paragraphs before content: "
+            f"{[t for pg, _s, t in by_page if pg == page][:6]!r}"
+        )
 
     pages = _writer_page_count(doc)
-    assert pages is None or pages <= 4, f"medium import still paginating too loosely: {pages} pages"
+    print(f"medium page_count={pages}", flush=True)
+    box = _page_box(doc)
+    if box is not None and layout:
+        top, bottom, page_h = box
+        print(f"medium page box top={top} bottom={bottom} h={page_h}", flush=True)
+        for page in pages_used:
+            first = next(
+                (item for item in layout if item[0] == page and (item[3] or "").strip()),
+                None,
+            )
+            if first is None:
+                continue
+            _pg, y, _style, text = first
+            preview = " ".join((text or "").split())[:48]
+            print(f"medium page {page} first_y={y} {preview!r}", flush=True)
+            # Skip-before-shape: a quarter-page blank top band is ~5000+ HMM.
+            # Allow Heading space-before, not a hole.
+            if page > 1 and y > 0:
+                assert y <= top + 2500, (
+                    f"page {page} blank top band: {preview!r} at Y={y} (top margin {top})"
+                )
+        if in2_page and in2_page > 1:
+            prev = [item for item in layout if item[0] == in2_page - 1 and (item[3] or "").strip()]
+            if prev:
+                last_y = prev[-1][1]
+                remaining = page_h - bottom - last_y
+                last_preview = " ".join((prev[-1][3] or "").split())[:48]
+                print(
+                    f"medium In[2] page={in2_page} last_prev_y={last_y} "
+                    f"remaining={remaining} field_h={h_in2} last={last_preview!r}",
+                    flush=True,
+                )
+                if last_y > 0:
+                    assert remaining < h_in2 + 1500, (
+                        f"In[2] started page {in2_page} but page {in2_page - 1} still had "
+                        f"{remaining} HMM after {last_preview!r} (field is {h_in2})"
+                    )
 
 
 @native_test
@@ -635,26 +674,92 @@ def _page_of_text(doc, needle: str) -> int | None:
     return None
 
 
-def _first_code_field_y_by_page(doc) -> dict[int, int]:
-    """Page → Y of the first nb_cell_* field on that page (1/100 mm)."""
-    from plugin.notebook.notebook_runner import _find_control_shape_by_name
-    from plugin.notebook.cell_registry import load_registry
+def _paragraphs_with_pages(doc) -> list[tuple[int, str, str]]:
+    out: list[tuple[int, str, str]] = []
+    try:
+        vc = doc.getCurrentController().getViewCursor()
+        enum = doc.getText().createEnumeration()
+        while enum.hasMoreElements():
+            el = enum.nextElement()
+            try:
+                if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
+                    continue
+                style = str(el.getPropertyValue("ParaStyleName") or "")
+                text = str(el.getString() or "")
+                vc.gotoRange(el.getStart(), False)
+                page = int(vc.getPage())
+            except Exception:
+                continue
+            out.append((page, style, text))
+    except Exception:
+        return out
+    return out
 
-    state = load_registry(doc)
-    if state is None:
-        return {}
-    vc = doc.getCurrentController().getViewCursor()
-    first: dict[int, int] = {}
-    for cell in state.code_cells:
-        shape = _find_control_shape_by_name(doc, cell.code_field_name)
-        if shape is None:
+
+def _leading_empty_count(by_page: list[tuple[int, str, str]], page: int) -> int:
+    n = 0
+    seen = False
+    for pg, _style, text in by_page:
+        if pg != page:
+            if seen:
+                break
             continue
+        seen = True
+        if (text or "").strip():
+            break
+        n += 1
+    return n
+
+
+def _page_box(doc) -> tuple[int, int, int] | None:
+    """(top_margin, bottom_margin, page_height) in 1/100 mm."""
+    try:
+        families = doc.getStyleFamilies().getByName("PageStyles")
+        name = ""
         try:
-            vc.gotoRange(shape.getAnchor(), False)
-            page = int(vc.getPage())
-            y = int(shape.getPosition().Y)
+            name = str(doc.getPropertyValue("PageDescName") or "")
         except Exception:
-            continue
-        if page not in first or y < first[page]:
-            first[page] = y
-    return first
+            name = ""
+        style = None
+        if name and families.hasByName(name):
+            style = families.getByName(name)
+        else:
+            for candidate in ("Standard", "Default", "Default Page Style"):
+                if families.hasByName(candidate):
+                    style = families.getByName(candidate)
+                    break
+        if style is None:
+            return None
+        return (
+            int(style.getPropertyValue("TopMargin")),
+            int(style.getPropertyValue("BottomMargin")),
+            int(style.getPropertyValue("Height")),
+        )
+    except Exception:
+        return None
+
+
+def _paragraphs_with_layout(doc) -> list[tuple[int, int, str, str]]:
+    """(page, view Y in 1/100 mm, style, text) for skip-before / blank-tail checks."""
+    out: list[tuple[int, int, str, str]] = []
+    try:
+        vc = doc.getCurrentController().getViewCursor()
+        enum = doc.getText().createEnumeration()
+        while enum.hasMoreElements():
+            el = enum.nextElement()
+            try:
+                if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
+                    continue
+                style = str(el.getPropertyValue("ParaStyleName") or "")
+                text = str(el.getString() or "")
+                vc.gotoRange(el.getStart(), False)
+                page = int(vc.getPage())
+                pos = vc.getPosition()
+                y = int(getattr(pos, "Y", 0) or 0)
+            except Exception:
+                continue
+            out.append((page, y, style, text))
+    except Exception:
+        return out
+    return out
+

@@ -46,9 +46,11 @@ log = logging.getLogger("writeragent.notebook")
 # 1/100 mm — code field width falls back when page style is unavailable.
 _DEFAULT_WIDTH = 14000
 _MIN_FIELD_HEIGHT = 500
-_LINE_HEIGHT = 500
-# Hairline border + descenders. 380 HMM/line clipped the last source line (In[2]/In[4]).
-_FIELD_HEIGHT_PAD = 320
+_LINE_HEIGHT = 450
+# 10pt Liberation Mono is ~353 HMM; 380 HMM/line clipped descenders on the last
+# line (In[2]/In[4]/In[9]). 450 HMM/line + pad keeps the last line visible without
+# a 9 cm cap. Do not shrink the font or page margins to hide pagination holes.
+_FIELD_HEIGHT_PAD = 280
 # AS_CHARACTER cannot split; cap near one page body so a huge cell page-breaks as a
 # unit. Do not use a 9 cm cap — that sliced 15-line cells.
 _MAX_FIELD_HEIGHT = 24000
@@ -963,6 +965,50 @@ def _embed_markdown_image(doc: Any, src: str, notebook_dir: str | None, *, ctx: 
                 pass
 
 
+def _unglue_last_paragraph(doc: Any) -> None:
+    """Clear KeepWithNext on the last body paragraph.
+
+    Built-in Heading 2 (and some HTML list styles) keep-with-next. That glues the
+    last markdown paragraph onto the following code cell's unsplittable
+    AS_CHARACTER field, so Writer moves the whole block and leaves a page hole.
+    Call this immediately before inserting a code cell. KeepWithNext on the
+    ``In [n]:`` gutter still holds the label with its field.
+    """
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+        cursor.setPropertyValue("ParaKeepWithNext", False)
+        cursor.setPropertyValue("ParaKeepTogether", False)
+    except Exception:
+        log.debug("notebook import unglue last paragraph failed", exc_info=True)
+
+
+def _anchor_control_as_character(shape: Any) -> None:
+    """In-flow control: AS_CHARACTER, top-aligned, no wrap beside the next shape."""
+    shape.setPropertyValue("AnchorType", AS_CHARACTER)
+    # VertOrientation.TOP — keep ▶ and the field on one line box (max height,
+    # not stacked). CHAR_CENTER / wrap was a plausible source of blank top bands.
+    try:
+        shape.setPropertyValue("VertOrient", 1)
+    except Exception:
+        log.debug("notebook import VertOrient not applied", exc_info=True)
+    try:
+        shape.setPropertyValue("TextWrap", 0)
+    except Exception:
+        log.debug("notebook import TextWrap not applied", exc_info=True)
+
+
+def _code_field_width_units(doc: Any | None) -> int:
+    """Text-area width minus a hairline so ▶ + field stay on one line.
+
+    A field as wide as the text area plus a hanging-indent ▶ wraps the field
+    onto a second line whose height is the full gray box — a blank band then
+    the real field, which looks like a page hole.
+    """
+    return max(6000, _text_area_width_units(doc) - _RUN_BUTTON_SIZE - 50)
+
+
 def _append_body_paragraph(
     doc: Any,
     content: str,
@@ -1124,7 +1170,10 @@ def _style_control_paragraph(doc: Any) -> None:
         cursor.setPropertyValue("ParaLeftMargin", 0)
         cursor.setPropertyValue("ParaTopMargin", 0)
         cursor.setPropertyValue("ParaBottomMargin", 150)
-        cursor.setPropertyValue("ParaKeepTogether", True)
+        # KeepTogether on a one-line para with a tall AS_CHARACTER object can
+        # force a page break even when the box would still fit. The shape
+        # cannot split either way; do not add an extra keep.
+        cursor.setPropertyValue("ParaKeepTogether", False)
         # Do not KeepWithNext: gluing the tall AS_CHARACTER field to following
         # markdown pulled both onto the next page and left a half-empty page.
         cursor.setPropertyValue("ParaKeepWithNext", False)
@@ -1160,7 +1209,7 @@ def _insert_run_button_in_flow(
         raise RuntimeError("Failed to create ControlShape for run button")
     shape.setSize(Size(_RUN_BUTTON_SIZE, _RUN_BUTTON_SIZE))
     shape.Control = model
-    shape.setPropertyValue("AnchorType", AS_CHARACTER)
+    _anchor_control_as_character(shape)
 
     text = doc.getText()
     cursor = text.createTextCursor()
@@ -1208,14 +1257,14 @@ def _insert_code_input_in_flow(
     text_ms = _mono_ms(t_text)
 
     h = _height_for_text(display, doc)
-    field_w = _text_area_width_units(doc)
+    field_w = _code_field_width_units(doc)
     t_shape = time.monotonic()
     shape = doc.createInstance("com.sun.star.drawing.ControlShape")
     if shape is None:
         raise RuntimeError("Failed to create ControlShape")
     shape.setSize(Size(field_w, h))
     shape.Control = model
-    shape.setPropertyValue("AnchorType", AS_CHARACTER)
+    _anchor_control_as_character(shape)
     create_ms += _mono_ms(t_shape)
 
     text = doc.getText()
@@ -1346,6 +1395,9 @@ def _import_cells(
         first_cell = False
 
         if cell_type == "code":
+            # Previous markdown (Heading 2 keep-with-next, HTML lists) must not
+            # glue onto this cell's unsplittable field.
+            _unglue_last_paragraph(doc)
             title = _cell_heading(idx, cell_type, ec)
             _append_body_paragraph(doc, title, notebook_in, lead_break=lead, keep_with_next=True)
             # ▶ and the code TextField must not share the gutter paragraph.

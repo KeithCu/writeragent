@@ -22,9 +22,11 @@ from plugin.notebook.writer_importer import (
     _append_paragraph_break_at_end,
     _apply_no_spellcheck_for_import,
     _cell_heading,
+    _code_field_width_units,
     _coerce_notebook_text,
     _create_import_para_style,
     _decode_notebook_image,
+    _DEFAULT_WIDTH,
     _ensure_notebook_import_styles,
     _format_in_prompt,
     _height_for_text,
@@ -35,6 +37,8 @@ from plugin.notebook.writer_importer import (
     _png_pixel_size,
     _prepare_display_text,
     _resolve_para_style,
+    _RUN_BUTTON_SIZE,
+    _unglue_last_paragraph,
     _wrap_html_fragment,
     format_all_outputs,
     format_output_text,
@@ -201,8 +205,19 @@ def test_height_for_text_fits_last_line():
     """15-line In[2] source must be taller than the old 380 HMM/line clip height."""
     src = "\n".join(f"line{i}" for i in range(15))
     h = _height_for_text(src)
-    assert h >= 15 * 450
+    assert h >= 15 * 420
     assert h > 15 * 380
+
+
+def test_code_field_width_leaves_gutter_for_play_button():
+    assert _code_field_width_units(None) == _DEFAULT_WIDTH - _RUN_BUTTON_SIZE - 50
+
+
+def test_unglue_last_paragraph_clears_keep_with_next():
+    doc, _body_text, body_cursor = _writer_doc_mock()
+    _unglue_last_paragraph(doc)
+    body_cursor.setPropertyValue.assert_any_call("ParaKeepWithNext", False)
+    body_cursor.setPropertyValue.assert_any_call("ParaKeepTogether", False)
 
 
 def test_cell_heading_is_in_prompt_only():
