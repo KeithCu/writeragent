@@ -20,6 +20,7 @@ from plugin.notebook.notebook_runner import (
     init_registry_execution_counter,
     read_code_from_field,
     run_cell,
+    run_cell_for_doc_hex,
     update_in_prompt,
     run_cell_target_url,
 )
@@ -715,3 +716,90 @@ def test_apply_run_result_missing_bookmark_does_not_append_at_end():
     insert.assert_not_called()
     text.insertString.assert_not_called()
     text.insertControlCharacter.assert_not_called()
+
+
+def test_run_cell_for_doc_hex_execution_error_does_not_msgbox():
+    """InterpreterError / traceback is inline; do not modal after apply_run_result."""
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    doc = MagicMock()
+    ctx = MagicMock()
+    hex_id = cell_id_to_hex(cell.cell_id)
+    apply_calls: list[object] = []
+
+    def rec_apply(_doc, _cell, result, *, ctx=None):
+        apply_calls.append(result)
+
+    with (
+        patch("plugin.notebook.notebook_runner.is_writer", return_value=True),
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", return_value="car[:,:,:3].shape"),
+        patch(
+            "plugin.notebook.notebook_runner.execute_code",
+            return_value={
+                "status": "error",
+                "message": "InterpreterError: name 'car' is not defined",
+                "stdout": "",
+                "traceback": "InterpreterError: name 'car' is not defined",
+            },
+        ),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=rec_apply),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.notebook_runner.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.msgbox") as boxed,
+    ):
+        run_cell_for_doc_hex(ctx, doc, hex_id)
+
+    boxed.assert_not_called()
+    assert apply_calls and apply_calls[0]["status"] == "error"
+
+
+def test_clear_cell_output_preserves_spacer_before_next_heading():
+    """Delete stdout but not the empty paragraph immediately before the next cell."""
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    start = MagicMock(name="start")
+    start.ParaStyleName = "Preformatted Text"
+    start.getString.return_value = "old stdout"
+
+    walker = MagicMock(name="walker")
+    walker.ParaStyleName = "Preformatted Text"
+    walker.getString.return_value = "old stdout"
+    step = {"n": 0}
+    spacer_start = MagicMock(name="spacer-start")
+
+    def goto_next(_expand):
+        step["n"] += 1
+        if step["n"] == 1:
+            walker.ParaStyleName = "Text Body"
+            walker.getString.return_value = ""
+            return True
+        walker.ParaStyleName = "Heading 2"
+        walker.getString.return_value = "1. Creating Arrays"
+        return True
+
+    walker.gotoNextParagraph.side_effect = goto_next
+    walker.getStart.return_value = spacer_start
+
+    range_start = MagicMock(name="range_start")
+    spacer_copy = MagicMock(name="spacer_copy")
+    sel = MagicMock(name="sel")
+    sel.getString.return_value = "old stdout\n"
+
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = [walker, range_start, spacer_copy, sel]
+    doc = MagicMock()
+    doc.getText.return_value = text
+
+    with (
+        patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
+        patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None),
+        patch("plugin.notebook.notebook_runner._is_output_bookmark_home", return_value=False),
+        patch("plugin.notebook.notebook_runner._paragraph_has_frame", return_value=False),
+        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+    ):
+        clear_cell_output(doc, cell)
+
+    walker.gotoRange.assert_called_once_with(spacer_copy, False)
+    sel.setString.assert_called_once_with("")

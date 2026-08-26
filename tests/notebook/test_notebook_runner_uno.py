@@ -387,9 +387,17 @@ def test_apply_run_result_stdout_is_own_paragraph(ctx, doc):
     insert_output_start_bookmark(doc, cell.output_start_bookmark)
     _append_body_paragraph(doc, _AFTER_HEADING, _STYLE_MD_H2, lead_break=True)
 
+    def _gap() -> int:
+        paras = _paragraphs(doc)
+        i_out = next(i for i, (_s, t) in enumerate(paras) if _SENTINEL in t)
+        i_next = next(i for i, (_s, t) in enumerate(paras) if _AFTER_HEADING in t)
+        return i_next - i_out
+
     apply_run_result(doc, cell, {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}, ctx=ctx)
     _assert_stdout_not_mashed(doc)
     assert _AFTER_HEADING in (doc.getText().getString() or "")
+    gap1 = _gap()
+    assert gap1 >= 1, f"next heading mashed onto stdout: {_paragraphs(doc)!r}"
 
     clear_cell_output(doc, cell)
     apply_run_result(doc, cell, {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}, ctx=ctx)
@@ -398,6 +406,9 @@ def test_apply_run_result_stdout_is_own_paragraph(ctx, doc):
     assert _AFTER_HEADING in (doc.getText().getString() or "")
     assert "Cell 3: Markdown" not in (doc.getText().getString() or "")
     assert _empty_paras_between_output_and_content(doc) <= 1
+    gap2 = _gap()
+    assert gap2 == gap1, f"re-run ate spacer: first={gap1} second={gap2} paras={_paragraphs(doc)!r}"
+    assert _AFTER_HEADING not in next(t for _s, t in _paragraphs(doc) if _SENTINEL in t)
 
 
 _SMALL_IPYNB = Path(__file__).resolve().parents[1] / "fixtures" / "introduction-to-numpy-small.ipynb"
@@ -585,4 +596,68 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
     assert state.next_execution_count == 1, (
         f"Restart Kernel must reset In count to 1, got {state.next_execution_count}"
     )
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_run_cell_execution_error_no_msgbox(ctx, doc):
+    """Failed ▶ writes traceback under the cell; no WriterAgent modal."""
+    from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
+    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+    from plugin.notebook.notebook_runner import run_cell_for_doc_hex
+
+    ipynb = _tiny_failing_ipynb_path()
+    boxes: list = []
+
+    def _capture(_c, title, message, *, box_type=1):
+        boxes.append((str(title), str(message), box_type))
+
+    try:
+        import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
+        flush_ui_idle(ctx)
+        state = load_registry(doc)
+        assert state is not None and state.code_cells
+        cell = state.code_cells[0]
+        fake_err = {
+            "status": "error",
+            "message": "InterpreterError: name 'car' is not defined",
+            "stdout": "",
+            "traceback": "InterpreterError: name 'car' is not defined",
+        }
+        with (
+            patch("plugin.notebook.notebook_runner.msgbox", _capture),
+            patch("plugin.notebook.notebook_runner.execute_code", return_value=fake_err),
+        ):
+            run_cell_for_doc_hex(ctx, doc, cell_id_to_hex(cell.cell_id))
+            flush_ui_idle(ctx)
+        assert boxes == [], f"execution error opened msgbox: {boxes!r}"
+        body = doc.getText().getString() or ""
+        assert "car" in body.lower() or "not defined" in body.lower() or "InterpreterError" in body
+    finally:
+        try:
+            ipynb.unlink()
+        except OSError:
+            pass
+
+
+def _tiny_failing_ipynb_path() -> Path:
+    payload = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": "car[:,:,:3].shape\n",
+            },
+            {"cell_type": "markdown", "metadata": {}, "source": "## After fail\n"},
+        ],
+    }
+    handle = tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False, mode="w", encoding="utf-8")
+    with handle as fh:
+        json.dump(payload, fh)
+    return Path(handle.name)
 

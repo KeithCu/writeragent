@@ -2,10 +2,10 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Live Writer smoke: Debug-menu Jupyter import + run on the small NumPy fixture.
+"""Live Writer smoke: Jupyter import + run on the small NumPy fixture.
 
 Entry point is the same action the menubar uses
-(``WriterAgent → Debug → Import Jupyter Notebook…``,
+(``WriterAgent → Import Jupyter Notebook…``,
 ``org.extension.writeragent:scripting.import_ipynb``). The native runner cannot
 click a modal FilePicker, so the test drives that picker to the fixture path
 while still executing ``import_dialog._pick_ipynb_path`` / ``run_import_ipynb_dialog``.
@@ -231,8 +231,8 @@ def test_debug_menu_import_ipynb_action_registered(ctx):
 
     handler = get_action_handler(_IMPORT_ACTION)
     assert handler is not None, (
-        "Debug menu action scripting.import_ipynb is not registered "
-        "(WriterAgent → Debug → Import Jupyter Notebook…)"
+        "Menu action scripting.import_ipynb is not registered "
+        "(WriterAgent → Import Jupyter Notebook…)"
     )
 
 
@@ -770,7 +770,13 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
             # Skip-before-shape: a quarter-page blank top band is ~5000+ HMM.
             # ViewCursor Y is document-absolute (page 2 was 28441 on a 27940 page).
             if page > 1 and local_y > 0:
-                assert local_y <= top + 2500, (
+                # In [n]: may start a page after a tall unsplittable field (KeepTogether
+                # off). That split is preferred over a glued In+field page hole.
+                if (text or "").strip().startswith("In ["):
+                    continue
+                # Tall unsplittable fields can push following markdown below the
+                # old 2500 HMM band; still fail on a near-empty first half-page.
+                assert local_y <= top + 8000, (
                     f"page {page} blank top band: {preview!r} at local Y={local_y} "
                     f"(raw Y={y}, top margin {top})"
                 )
@@ -986,4 +992,48 @@ def _paragraphs_with_layout(doc) -> list[tuple[int, int, str, str]]:
     except Exception:
         return out
     return out
+
+
+_MD_LISTS_QUOTES_IPYNB = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "markdown-lists-quotes.ipynb"
+)
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
+    """Nested * / ol start=3 / blockquotes; In style must not KeepTogether-glue."""
+    from plugin.notebook.writer_importer import (
+        _STYLE_NOTEBOOK_IN,
+        import_ipynb_to_writer,
+        flush_ui_idle,
+    )
+
+    assert _MD_LISTS_QUOTES_IPYNB.is_file()
+    import_ipynb_to_writer(doc, str(_MD_LISTS_QUOTES_IPYNB), ctx=ctx)
+    flush_ui_idle(ctx)
+    body = doc.getText().getString() or ""
+    assert "Ask for help" in body
+    assert "NumPy documentation" in body
+    assert "Note:" in body or "Important to remember" in body
+    assert "how to find unique elements" in body
+    # Literal markdown markers must not survive as body text.
+    assert "* [NumPy" not in body
+    assert "> **Note" not in body
+    assert '> "how to find' not in body
+    paras = _paragraphs(doc)
+    numbered = [t.strip() for _s, t in paras if "Ask for help" in t]
+    assert numbered, f"Ask for help missing: {paras!r}"
+    # Writer may show "3." or keep list numbering in Numbering; do not accept a
+    # restarted "1. **Ask for help**" from a fresh <ol>.
+    assert not any(t.lstrip().startswith("1.") and "Ask for help" in t for t in numbered)
+    families = doc.getStyleFamilies()
+    para_styles = families.getByName("ParagraphStyles")
+    assert para_styles.hasByName(_STYLE_NOTEBOOK_IN)
+    in_style = para_styles.getByName(_STYLE_NOTEBOOK_IN)
+    info = in_style.getPropertySetInfo()
+    if info.hasPropertyByName("ParaKeepTogether"):
+        assert in_style.getPropertyValue("ParaKeepTogether") is False
+    if info.hasPropertyByName("ParaKeepWithNext"):
+        assert in_style.getPropertyValue("ParaKeepWithNext") is False
 

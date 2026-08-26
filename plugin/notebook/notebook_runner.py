@@ -572,16 +572,31 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     if _is_foreign_control_paragraph(doc, cell, end):
         return
     range_start = text.createTextCursorByRange(end)
+    # skip_home + expanding through every empty para up to the next In/heading
+    # used to delete the spacer blank *before* that boundary; the next insert
+    # then mashed stdout onto the heading. Keep the last empty para that sits
+    # immediately before the next cell.
+    last_empty_before_boundary = None
+    if _is_leftover_empty_paragraph(end) and not _paragraph_has_frame(end):
+        last_empty_before_boundary = text.createTextCursorByRange(end)
     found_boundary = False
     while end.gotoNextParagraph(False):
         if _is_next_cell_boundary(_para_style_name(end), _paragraph_string(end), notebook_in):
+            if last_empty_before_boundary is not None:
+                end.gotoRange(last_empty_before_boundary, False)
             end.gotoStartOfParagraph(False)
             found_boundary = True
             break
         if _is_foreign_control_paragraph(doc, cell, end):
+            if last_empty_before_boundary is not None:
+                end.gotoRange(last_empty_before_boundary, False)
             end.gotoStartOfParagraph(False)
             found_boundary = True
             break
+        if _is_leftover_empty_paragraph(end) and not _paragraph_has_frame(end):
+            last_empty_before_boundary = text.createTextCursorByRange(end)
+        else:
+            last_empty_before_boundary = None
     if not found_boundary:
         end.gotoEnd(False)
     sel = text.createTextCursorByRange(range_start)
@@ -721,6 +736,7 @@ def _split_if_stdout_mashed_onto_chrome(
         leftover_text = leftover.strip()
         if not leftover_text:
             _apply_para_style(cursor, output_style)
+            _ensure_one_spacer_before_next_cell(text, cursor, notebook_in)
             return
         if n:
             cursor.goRight(n, False)
@@ -745,6 +761,27 @@ def _split_if_stdout_mashed_onto_chrome(
                 _apply_para_style(prev, output_style)
     except Exception:
         log.debug("notebook run: stdout/chrome style restore failed", exc_info=True)
+
+
+def _ensure_one_spacer_before_next_cell(text: Any, cursor: Any, notebook_in: str | None) -> None:
+    """If stdout sits flush against the next In/heading, insert exactly one blank.
+
+    ``clear_cell_output`` may have kept a spacer; do not add a second. Do not
+    insert a trailing blank when there is no following cell (that was the extra
+    empty under Output, PR 461).
+    """
+    try:
+        nxt = text.createTextCursorByRange(cursor)
+        if not nxt.gotoNextParagraph(False):
+            return
+        nxt_text = _paragraph_string(nxt)
+        if not nxt_text.strip() and not _paragraph_has_frame(nxt):
+            return
+        if not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in):
+            return
+        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    except Exception:
+        log.debug("notebook run: spacer before next cell failed", exc_info=True)
 
 
 def _insert_stdout_paragraph(
@@ -1052,9 +1089,10 @@ def run_cell_for_doc_hex(ctx: Any, doc: Any, hex_id: str) -> None:
     if cell is None:
         msgbox(ctx, "WriterAgent", _("Could not find notebook cell for this control."))
         return
-    run_result = run_cell(ctx, doc, cell.cell_id)
-    if run_result.status == "error" and run_result.message:
-        msgbox(ctx, "WriterAgent", run_result.message)
+    # Execution errors (sandbox, syntax, traceback) already land under the cell
+    # via apply_run_result. A modal here blocked the document and would make
+    # Run All unusable. Keep msgbox only for the setup failures above.
+    run_cell(ctx, doc, cell.cell_id)
 
 
 def run_cell_by_hex(ctx: Any, hex_id: str) -> None:

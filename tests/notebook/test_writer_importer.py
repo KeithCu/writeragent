@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -268,6 +269,8 @@ def test_ensure_notebook_import_styles_creates_and_resolves():
     assert doc.createInstance.call_count == 1
     assert para_styles.insertByName.call_count == 1
     assert in_style == _STYLE_NOTEBOOK_IN
+    new_style.setPropertyValue.assert_any_call("ParaKeepTogether", False)
+    new_style.setPropertyValue.assert_any_call("ParaKeepWithNext", False)
 
 
 def test_apply_no_spellcheck_for_import_sets_zxx():
@@ -682,6 +685,16 @@ def test_import_small_numpy_notebook_fixture(monkeypatch):
     assert "In [3]:" in inserted
 
 
+def _list_item_texts(payload):
+    texts = []
+    for item in payload:
+        if isinstance(item, tuple) and len(item) >= 4:
+            texts.append(item[3])
+        else:
+            texts.append(str(item))
+    return texts
+
+
 def test_iter_markdown_blocks_lists():
     from plugin.notebook.writer_importer import _iter_markdown_blocks
 
@@ -695,9 +708,76 @@ def test_iter_markdown_blocks_lists():
     )
     assert blocks[0] == ("p", "Key terms:")
     assert blocks[1][0] == "ul"
-    assert blocks[1][1][0].startswith("**Array**")
+    assert _list_item_texts(blocks[1][1])[0].startswith("**Array**")
     assert blocks[2][0] == "ul"
-    assert blocks[2][1] == ["`np.array()`", "`np.ones()`"]
+    assert _list_item_texts(blocks[2][1]) == ["`np.array()`", "`np.ones()`"]
+
+
+def test_iter_markdown_blocks_nested_lists_ol_start_and_blockquote():
+    from plugin.notebook.writer_importer import _iter_markdown_blocks, _list_block_to_html
+
+    source = (
+        "2. **Search for it** - try these:\n"
+        "    * [NumPy documentation](https://numpy.org/doc/stable/index.html) - official\n"
+        "    * [Stack Overflow](https://stackoverflow.com/) - questions\n"
+        "\n"
+        "3. **Ask for help** - after searching.\n"
+        "\n"
+        "> **Note:** Important to remember `ndarray`\n"
+        "\n"
+        '> "how to find unique elements in a numpy array"\n'
+    )
+    blocks = _iter_markdown_blocks(source)
+    kinds = [k for k, _p in blocks]
+    assert kinds[0] == "ol"
+    nested_html = _list_block_to_html(blocks[0][1])
+    assert "<ul>" in nested_html
+    assert "<li>" in nested_html
+    assert "NumPy documentation" in nested_html
+    assert "https://numpy.org/doc/stable/index.html" in nested_html
+    assert "*" not in nested_html.replace("**", "")
+    assert kinds[1] == "ol"
+    resume_html = _list_block_to_html(blocks[1][1])
+    assert 'start="3"' in resume_html
+    assert "Ask for help" in resume_html
+    assert kinds[2] == "blockquote"
+    assert blocks[2][1].startswith("**Note:**")
+    assert not blocks[2][1].lstrip().startswith(">")
+    assert kinds[3] == "blockquote"
+    assert "how to find unique elements" in blocks[3][1]
+    assert ">" not in blocks[3][1]
+
+
+def test_import_nested_lists_and_blockquotes_fixture(monkeypatch):
+    ipynb = Path(__file__).resolve().parents[1] / "fixtures" / "markdown-lists-quotes.ipynb"
+    assert ipynb.is_file()
+    doc, body_text, _ = _writer_doc_mock()
+    html_calls: list[str] = []
+
+    def fake_insert_html(cursor, html, **kwargs):
+        html_calls.append(html)
+        return True
+
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
+    stats = import_ipynb_to_writer(doc, str(ipynb))
+    assert stats["markdown"] == 3
+    joined = "\n".join(html_calls)
+    assert "<ul>" in joined
+    assert "<li>" in joined
+    assert 'start="3"' in joined
+    assert "Ask for help" in joined
+    assert "<blockquote>" in joined
+    assert "<strong>Note:</strong>" in joined or "**Note:**" not in joined
+    assert "ndarray" in joined
+    assert "how to find unique elements" in joined
+    assert "https://numpy.org/doc/stable/index.html" in joined
+    assert not re.search(r">\s*\*\s", joined)
+    inserted = [str(call.args[1]) for call in body_text.insertString.call_args_list]
+    assert not any(t.lstrip().startswith("* ") for t in inserted)
+    assert not any(t.lstrip().startswith(">") for t in inserted)
+    for html in html_calls:
+        assert "> **Note" not in html
+        assert ">*" not in html.replace("</", "")
 
 
 def test_inline_markdown_bold_italic_code():

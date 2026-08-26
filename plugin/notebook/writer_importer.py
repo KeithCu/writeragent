@@ -104,8 +104,11 @@ _ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)|(?<!_)_(?!_)(.+?)(
 _MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 # Negative lookbehind so ``![alt](src)`` is not treated as a markdown link.
 _MD_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)]+)\)")
-_MD_UL_RE = re.compile(r"^[*+-][ \t]+(.*)$")
-_MD_OL_RE = re.compile(r"^\d+[.)][ \t]+(.*)$")
+# Optional indent so nested ``* `` / ``1. `` under a list item are list items,
+# not a paragraph that still contains the literal marker (Bourke “help” cell).
+_MD_UL_RE = re.compile(r"^([ \t]*)[*+-][ \t]+(.*)$")
+_MD_OL_RE = re.compile(r"^([ \t]*)(\d+)[.)][ \t]+(.*)$")
+_MD_BQ_RE = re.compile(r"^[ \t]*>[ \t]?(.*)$")
 _MD_IMAGE_LINE_RE = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*$")
 _HTML_IMG_RE = re.compile(r"(?is)<img\b[^>]*?/?>")
 _HTML_A_RE = re.compile(r"(?is)<a\b([^>]*)>(.*?)</a>")
@@ -751,8 +754,12 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         "ParaLeftMargin": -1270,  # Out-dented by 1/2 inch (12.7 mm)
         "ParaTopMargin": _NOTEBOOK_IN_MARGIN_TOP,
         "ParaBottomMargin": _NOTEBOOK_IN_MARGIN_BOTTOM,
-        "ParaKeepTogether": True,
-        "ParaKeepWithNext": True,
+        # KeepTogether + KeepWithNext glued In [n]: onto the tall unsplittable
+        # AS_CHARACTER field; Writer then jumped the whole cell and left a
+        # half-empty page (Out [n] alone on the next page). Prefer a possible
+        # In-line / field page split over a page hole. ▶ stays on the In row.
+        "ParaKeepTogether": False,
+        "ParaKeepWithNext": False,
         "CharHeight": _NOTEBOOK_IN_CHAR_HEIGHT,
         "CharWeight": 150,
         "CharColor": _NOTEBOOK_IN_CHAR_COLOR,
@@ -768,6 +775,15 @@ def _ensure_notebook_import_styles(doc: Any) -> str | None:
         parent_style=parent_body,
         property_updates=property_updates,
     )
+    # Re-import into a document that already has this style must still drop the
+    # old KeepTogether glue (create-if-missing would leave True in place).
+    try:
+        if para_styles.hasByName(_STYLE_NOTEBOOK_IN):
+            existing = para_styles.getByName(_STYLE_NOTEBOOK_IN)
+            existing.setPropertyValue("ParaKeepTogether", False)
+            existing.setPropertyValue("ParaKeepWithNext", False)
+    except Exception:
+        log.debug("notebook import could not update In keep properties", exc_info=True)
     return _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
 
 
@@ -929,16 +945,63 @@ def _paragraph_needs_html(text: str) -> bool:
     return False
 
 
+def _md_indent_cols(prefix: str) -> int:
+    """CommonMark-ish indent width (tabs = 4 columns)."""
+    return len((prefix or "").expandtabs(4))
+
+
+def _list_block_to_html(items: list[Any]) -> str:
+    """Nested ``<ul>``/``<ol start=N>`` from ``(indent, kind, start, text)`` rows."""
+    normalized: list[tuple[int, str, int | None, str]] = []
+    for item in items:
+        if isinstance(item, tuple) and len(item) >= 4:
+            start = item[2]
+            start_n = int(start) if isinstance(start, int) else None
+            normalized.append((int(item[0]), str(item[1]), start_n, str(item[3])))
+        else:
+            normalized.append((0, "ul", None, str(item)))
+    if not normalized:
+        return ""
+
+    def build(index: int, min_indent: int) -> tuple[str, int]:
+        if index >= len(normalized) or normalized[index][0] < min_indent:
+            return "", index
+        indent, kind, start, _text = normalized[index]
+        if kind == "ol" and isinstance(start, int) and start > 1:
+            open_tag = f'<ol start="{start}">'
+        else:
+            open_tag = f"<{kind}>"
+        parts: list[str] = [open_tag]
+        i = index
+        while i < len(normalized) and normalized[i][0] == indent and normalized[i][1] == kind:
+            inner = _inline_markdown_to_html(normalized[i][3])
+            i += 1
+            nested = ""
+            if i < len(normalized) and normalized[i][0] > indent:
+                nested, i = build(i, indent + 1)
+            parts.append(f"<li>{inner}{nested}</li>")
+        parts.append(f"</{kind}>")
+        if i < len(normalized) and normalized[i][0] == indent:
+            rest, i = build(i, min_indent)
+            parts.append(rest)
+        return "".join(parts), i
+
+    html, _end = build(0, normalized[0][0])
+    return html
+
+
 def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
-    """Split CommonMark source into ATX headings, lists, images, and paragraphs.
+    """Split CommonMark source into ATX headings, lists, quotes, images, paragraphs.
 
     Not a full CommonMark parser: GFM tables stay as body text. ``#`` → h1,
-    ``##`` and deeper → h2.
+    ``##`` and deeper → h2. Nested list markers (indented ``*`` / ``1.``) stay
+    list items. A new ``<ol>`` after a nested list keeps markdown numbering via
+    ``start=N``. Consecutive ``>`` lines are blockquotes (one leading ``>`` stripped).
     """
     blocks: list[tuple[str, Any]] = []
     para: list[str] = []
-    list_kind: str | None = None
-    list_items: list[str] = []
+    list_items: list[tuple[int, str, int | None, str]] = []
+    quote: list[str] = []
 
     def flush_para() -> None:
         if para:
@@ -946,11 +1009,14 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
             para.clear()
 
     def flush_list() -> None:
-        nonlocal list_kind
-        if list_kind and list_items:
-            blocks.append((list_kind, list(list_items)))
+        if list_items:
+            blocks.append((list_items[0][1], list(list_items)))
         list_items.clear()
-        list_kind = None
+
+    def flush_quote() -> None:
+        if quote:
+            blocks.append(("blockquote", "\n".join(quote)))
+            quote.clear()
 
     for raw_line in (source or "").splitlines():
         line = raw_line.rstrip()
@@ -958,6 +1024,7 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
         if match:
             flush_para()
             flush_list()
+            flush_quote()
             title = (match.group(2) or "").strip()
             if title:
                 kind = "h1" if len(match.group(1)) <= 1 else "h2"
@@ -967,32 +1034,39 @@ def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
         if img_line:
             flush_para()
             flush_list()
+            flush_quote()
             blocks.append(("img", (img_line.group(1) or "", img_line.group(2).strip())))
             continue
         ul_match = _MD_UL_RE.match(line)
         if ul_match:
             flush_para()
-            if list_kind != "ul":
-                flush_list()
-                list_kind = "ul"
-            list_items.append(ul_match.group(1))
+            flush_quote()
+            list_items.append((_md_indent_cols(ul_match.group(1)), "ul", None, ul_match.group(2)))
             continue
         ol_match = _MD_OL_RE.match(line)
         if ol_match:
             flush_para()
-            if list_kind != "ol":
-                flush_list()
-                list_kind = "ol"
-            list_items.append(ol_match.group(1))
+            flush_quote()
+            start_n = int(ol_match.group(2))
+            list_items.append((_md_indent_cols(ol_match.group(1)), "ol", start_n, ol_match.group(3)))
+            continue
+        bq_match = _MD_BQ_RE.match(line)
+        if bq_match:
+            flush_para()
+            flush_list()
+            quote.append(bq_match.group(1))
             continue
         if not line.strip():
             flush_para()
             flush_list()
+            flush_quote()
             continue
         flush_list()
+        flush_quote()
         para.append(line)
     flush_para()
     flush_list()
+    flush_quote()
     return blocks
 
 
@@ -1111,8 +1185,8 @@ def _unglue_last_paragraph(doc: Any) -> None:
     Built-in Heading 2 (and some HTML list styles) keep-with-next. That glues the
     last markdown paragraph onto the following code cell's unsplittable
     AS_CHARACTER field, so Writer moves the whole block and leaves a page hole.
-    Call this immediately before inserting a code cell. KeepWithNext on the
-    ``In [n]:`` gutter still holds the label with its field.
+    Call this immediately before inserting a code cell. In-gutter KeepWithNext
+    is also off so In+field is not one unsplittable brick.
     """
     try:
         text = doc.getText()
@@ -1236,15 +1310,31 @@ def _append_markdown_cell(
         elif kind == "h2":
             _append_body_paragraph(doc, str(payload), _STYLE_MD_H2, lead_break=block_lead)
         elif kind in ("ul", "ol"):
-            items = payload if isinstance(payload, list) else [str(payload)]
-            lis = "".join(f"<li>{_inline_markdown_to_html(str(item))}</li>" for item in items)
-            html = f"<{kind}>{lis}</{kind}>"
+            items = payload if isinstance(payload, list) else [payload]
+            html = _list_block_to_html(items)
             if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
                 for i, item in enumerate(items):
-                    prefix = "• " if kind == "ul" else f"{i + 1}. "
+                    if isinstance(item, tuple) and len(item) >= 4:
+                        text = str(item[3])
+                        item_kind = str(item[1])
+                        start = item[2] if isinstance(item[2], int) else i + 1
+                    else:
+                        text = str(item)
+                        item_kind = kind
+                        start = i + 1
+                    prefix = "• " if item_kind == "ul" else f"{start}. "
                     _append_body_paragraph(
-                        doc, prefix + str(item), _STYLE_BODY, lead_break=block_lead if i == 0 else True
+                        doc, prefix + text, _STYLE_BODY, lead_break=block_lead if i == 0 else True
                     )
+        elif kind == "blockquote":
+            body = str(payload)
+            html = (
+                "<blockquote><p>"
+                + _inline_markdown_to_html(body).replace("\n", "<br/>")
+                + "</p></blockquote>"
+            )
+            if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
+                _append_body_paragraph(doc, body, _STYLE_BODY, lead_break=block_lead)
         elif kind == "img":
             alt, src = payload if isinstance(payload, tuple) else ("", str(payload))
             if not _embed_markdown_image(doc, str(src), notebook_dir, ctx=ctx):
@@ -1542,7 +1632,16 @@ def _import_cells(
             # glue onto this cell's unsplittable field.
             _unglue_last_paragraph(doc)
             title = _cell_heading(idx, cell_type, ec)
-            _append_body_paragraph(doc, title, notebook_in, lead_break=lead, keep_with_next=True)
+            _append_body_paragraph(doc, title, notebook_in, lead_break=lead, keep_with_next=False)
+            # Style-level KeepWithNext is missing on some LO builds; pin the
+            # gutter paragraph so In+field is not one unsplittable brick.
+            try:
+                gutter = doc.getText().createTextCursor()
+                gutter.gotoEnd(False)
+                gutter.setPropertyValue("ParaKeepTogether", False)
+                gutter.setPropertyValue("ParaKeepWithNext", False)
+            except Exception:
+                log.debug("notebook import In gutter keep flags not applied", exc_info=True)
             field_name = f"nb_cell_{idx}_code"
             if registry_state is not None:
                 entry = new_code_cell_entry(idx, ec, field_name)
