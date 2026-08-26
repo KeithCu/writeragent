@@ -106,6 +106,7 @@ Shared predicates keep `@deal` lambdas short and CrossHair-friendly:
 - `_is_*_envelope` / public `is_*` — valid wire dict shapes for split_grid, multi_data, image, dataframe, calc_range
 - `_is_ndarray(obj)` — NumPy ndarray type check without importing NumPy at module load
 - `_deal_return` / `_DEAL_RETURN` — keyword-only `result=` for CrossHair/deal ensure arity (see formal_verification §8.1 A)
+- Collection emptiness in `@deal` bodies/ensures: `len(shape) > 0` / `len(grid) == 0`, not `bool(shape)` / `if grid:` (CrossHair `SymbolicBool` TypeError)
 
 ### Key invariants encoded
 

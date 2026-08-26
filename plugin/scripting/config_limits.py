@@ -119,11 +119,12 @@ def python_exec_timeout_max() -> int:
     return _schema_int("python_exec_timeout", "max", fallback=_TIMEOUT_FALLBACK_MAX)
 
 
-@deal.pre(
-    lambda value: isinstance(value, bool) is False
-    and isinstance(value, int)
-    and abs(value) <= DEAL_MAX_ARGV
-)
+# bool is an int subclass. ``isinstance(x, bool) is False`` uses object identity,
+# so CrossHair's SymbolicBool never matches False and the pre never holds for
+# symbolic ints (check-all deep 32900105768: resolve(..., configured=33) then
+# nested _clamp_timeout). ``type(x) is int`` rejects bools the same way for
+# real values and is CrossHair-friendly.
+@deal.pre(lambda value: type(value) is int and abs(value) <= DEAL_MAX_ARGV)
 @deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def _clamp_timeout(value: int) -> int:
     lo = python_exec_timeout_min()
@@ -133,9 +134,15 @@ def _clamp_timeout(value: int) -> int:
 
 @deal.pre(
     lambda timeout_sec, configured=None: timeout_sec is None
-    or (isinstance(timeout_sec, bool) is False and isinstance(timeout_sec, int) and abs(timeout_sec) <= DEAL_MAX_ARGV)
+    or (type(timeout_sec) is int and abs(timeout_sec) <= DEAL_MAX_ARGV)
     or (isinstance(timeout_sec, float) and abs(timeout_sec) <= DEAL_MAX_ARGV)
     or (isinstance(timeout_sec, str) and str_bounded(timeout_sec, DEAL_MAX_TOKEN))
+)
+# Without this, a real bool (int subclass) or an int outside DEAL_MAX_ARGV leaks
+# into _clamp_timeout and CrossHair reports a nested PreconditionFailed.
+@deal.pre(
+    lambda timeout_sec, configured=None: configured is None
+    or (type(configured) is int and abs(configured) <= DEAL_MAX_ARGV)
 )
 @deal.post(lambda result: isinstance(result, int) and python_exec_timeout_min() <= result <= python_exec_timeout_max())
 def resolve_python_exec_timeout(

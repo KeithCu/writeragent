@@ -44,6 +44,7 @@ _CROSSHAIR_TARGETS = (
     "plugin.scripting.payload_codec.is_numeric_coercible",
     "plugin.scripting.payload_codec.is_numeric_grid",
     "plugin.scripting.payload_codec.cell_count",
+    "plugin.scripting.payload_codec.should_use_binary_envelope",
     "plugin.scripting.payload_codec.is_split_grid",
     "plugin.scripting.payload_codec.is_multi_data",
     "plugin.scripting.payload_codec.is_image_payload",
@@ -92,6 +93,8 @@ def test_zero_dim_shape_cell_count() -> None:
     assert cell_count((0, 5)) == 0
     assert cell_count((5, 0)) == 0
     assert cell_count((1, 1, 1, 1)) == 1
+    # Empty grid is numeric (vacuous). Use len(), not bool(grid), in the ensure.
+    assert is_numeric_grid([]) is True
 
 
 def test_cell_count_overflow_pre_fails_closed() -> None:

@@ -142,7 +142,11 @@ def test_column_kinds_for_grid_contract_kinds() -> None:
 
 
 def test_should_use_binary_envelope_force_contracts() -> None:
-    """force=always/never overrides cell threshold (deal.ensure); cover-style empty shape."""
+    """force=always/never overrides cell threshold (deal.ensure); cover-style empty shape.
+
+    Empty tuple must stay False under force=auto (len, not bool(shape) — CrossHair
+    SymbolicBool TypeError on check-all deep 32900105768). (0,) is a non-empty shape.
+    """
     assert should_use_binary_envelope((), force="always") is True
     assert should_use_binary_envelope((BINARY_MIN_CELLS,), force="never") is False
     assert should_use_binary_envelope((), min_cells=0, force="auto") is False

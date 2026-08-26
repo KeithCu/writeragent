@@ -287,7 +287,7 @@ def _is_grid_sequence(grid: object) -> bool:
     """True for empty, 1D, or 2D list/tuple grids (jagged 2D allowed; flatten raises ValueError)."""
     if not isinstance(grid, (list, tuple)):
         return False
-    if not grid:
+    if len(grid) == 0:
         return True
     first = grid[0]
     if isinstance(first, (list, tuple)):
@@ -306,7 +306,7 @@ def _deal_grid_ok(grid: object) -> bool:
         return False
     if len(grid) > DEAL_MAX_SHAPE_DIM:
         return False
-    if not grid:
+    if len(grid) == 0:
         return True
     first = grid[0]
     if isinstance(first, (list, tuple)):
@@ -742,7 +742,11 @@ def should_use_binary_envelope(
         return True
     if force == "never":
         return False
-    return bool(shape) and cell_count(shape) >= min_cells
+    # ``bool(shape)`` on a CrossHair symbolic tuple returns SymbolicBool;
+    # Python's ``and`` then TypeErrors (``__bool__`` must return bool) —
+    # should_use_binary_envelope((), min_cells=0, force='auto') on check-all
+    # deep 32900105768. Empty tuple is still False via len; keep this FQN on.
+    return len(shape) > 0 and cell_count(shape) >= min_cells
 
 
 def binary_envelope_skip_reason(
@@ -790,10 +794,10 @@ def is_numeric_coercible(value: Any) -> bool:
 
 @deal.pre(lambda grid: isinstance(grid, list) and _deal_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
-@deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: bool(grid) or _deal_return(*a, result=result) is True)
+@deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: len(grid) > 0 or _deal_return(*a, result=result) is True)
 def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     """True when every cell is numeric-coercible (safe for numeric-only split_grid fast-path)."""
-    if not grid:
+    if len(grid) == 0:
         return True
     if type(grid[0]) in (list, tuple):
         return all(is_numeric_coercible(cell) for row in grid for cell in row)
@@ -834,7 +838,7 @@ def wire_cell_count(data: Any) -> int:
 @deal.post(lambda result: isinstance(result, list))
 def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list[list[Any]]:
     """Normalize to flat or 2D Python lists for small grids (below BINARY_MIN_CELLS) or non-split_grid results."""
-    if not grid:
+    if len(grid) == 0:
         return []
     if type(grid[0]) in (list, tuple) and all(isinstance(r, (list, tuple)) for r in grid):
         return [[_cell_for_json(c) for c in row] for row in grid]

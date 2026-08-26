@@ -23,6 +23,7 @@ from plugin.scripting.import_policy import (
     format_venv_import_policy_for_prompt,
 )
 from plugin.scripting.config_limits import (
+    python_exec_timeout_default,
     python_exec_timeout_min,
     python_exec_timeout_max,
     resolve_python_exec_timeout,
@@ -94,6 +95,34 @@ def test_clamp_timeout_overflow_pre_fails_closed() -> None:
     with pytest.raises(deal.PreContractError):
         _clamp_timeout(DEAL_MAX_ARGV + 1)
     assert python_exec_timeout_min() <= _clamp_timeout(1) <= python_exec_timeout_max()
+
+
+def test_clamp_timeout_rejects_bool() -> None:
+    """bool is an int subclass; type(x) is int must still reject True/False."""
+    if not deal_pre_present(_clamp_timeout):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        _clamp_timeout(True)
+    with pytest.raises(deal.PreContractError):
+        _clamp_timeout(False)
+
+
+def test_resolve_python_exec_timeout_rejects_bool_timeout_and_configured() -> None:
+    """timeout_sec and configured both reject bool so it cannot leak into _clamp_timeout."""
+    if not deal_pre_present(resolve_python_exec_timeout):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        resolve_python_exec_timeout(True)
+    with pytest.raises(deal.PreContractError):
+        resolve_python_exec_timeout(False)
+    with pytest.raises(deal.PreContractError):
+        resolve_python_exec_timeout(None, configured=True)
+    with pytest.raises(deal.PreContractError):
+        resolve_python_exec_timeout(None, configured=False)
+    with pytest.raises(deal.PreContractError):
+        resolve_python_exec_timeout(None, configured=DEAL_MAX_ARGV + 1)
+    assert resolve_python_exec_timeout(None, configured=33) == 33
+    assert resolve_python_exec_timeout(None, configured=None) == python_exec_timeout_default()
 
 
 @given(grid=st.one_of(
