@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-import re
 from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
@@ -54,9 +53,36 @@ _BASE_ALLOW_HEADERS = (
 
 _EXPOSE_HEADERS = "Mcp-Session-Id, Mcp-Protocol-Version"
 
-_ORIGIN_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$")
+# Loopback hosts formerly matched by ``_ORIGIN_RE``. No regex: CrossHair relib
+# on that pattern ate 11:33 (check-all 32877875221).
+_SAFE_LOOPBACK_HOSTS = frozenset(("localhost", "127.0.0.1", "::1"))
+
+# URL-safe Origin alphabet (scheme/host/port, including IPv6 brackets).
+# ascii_bounded(DEAL_MAX_ORIGIN=32) still let SMT wander through urlparse +
+# ipaddress on punctuation junk (is_private_browser_origin 20:40 on the same run).
+_ORIGIN_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:/.-[]"
+)
+# Access-Control-Request-Headers: token chars plus comma/space separators.
+_HEADER_LIST_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-, _"
+)
 
 PREFLIGHT_MAX_AGE = "86400"
+
+
+def _deal_origin_ok(origin: object) -> bool:
+    """Closed Origin domain: URL-safe alphabet, DEAL_MAX_ORIGIN length."""
+    return isinstance(origin, str) and len(origin) <= DEAL_MAX_ORIGIN and all(c in _ORIGIN_CHARS for c in origin)
+
+
+def _deal_allow_headers_ok(value: object) -> bool:
+    """Preflight header-list domain: ascii tokens, few commas (not 32-char junk)."""
+    if not isinstance(value, str) or not ascii_bounded(value, DEAL_MAX_ORIGIN):
+        return False
+    if value.count(",") > DEAL_MAX_CMD_ARGS:
+        return False
+    return all(c in _HEADER_LIST_CHARS for c in value)
 
 
 @deal.pre(lambda value: value is None or str_bounded(value, DEAL_MAX_ORIGIN))
@@ -117,12 +143,12 @@ def normalize_origins_list(value) -> list[str]:
     return out
 
 
-@deal.pre(lambda origin: ascii_bounded(origin, DEAL_MAX_ORIGIN))
+@deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_private_browser_origin(origin: str) -> bool:
     """True when Origin is http(s) with a LAN-style hostname or private/link-local IP."""
     normalized = normalize_cors_origin(origin)
-    if not normalized:
+    if normalized is None:
         return False
     # Spoofed bracket hostnames (e.g. [::1].evil.net) must not crash the handler;
     # stdlib urlparse raises ValueError on invalid IPv6 URL syntax.
@@ -131,7 +157,7 @@ def is_private_browser_origin(origin: str) -> bool:
     except ValueError:
         return False
     host = parsed.hostname
-    if not host:
+    if host is None:
         return False
     h = host.lower()
     if h.endswith(_PRIVATE_SUFFIXES):
@@ -140,7 +166,9 @@ def is_private_browser_origin(origin: str) -> bool:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return False
-    return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
+    # Do not wrap in bool(): CrossHair SymbolicBool TypeError (same class as
+    # bool(shape) on should_use_binary_envelope, check-all 32877875221 20:40).
+    return ip.is_private or ip.is_loopback or ip.is_link_local
 
 
 def set_extra_allowed_origins(origins) -> None:
@@ -162,13 +190,30 @@ def set_allow_private_origins(allow: bool) -> None:
     _allow_private_origins = bool(allow)
 
 
-@deal.pre(lambda origin: ascii_bounded(origin, DEAL_MAX_ORIGIN))
+@deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_extra_allowed_origin(origin: str) -> bool:
-    if not origin:
+    if len(origin) == 0:
         return False
     normalized = normalize_cors_origin(origin)
-    return bool(normalized and normalized in _extra_allowed_origins)
+    return normalized is not None and normalized in _extra_allowed_origins
+
+
+def _is_loopback_origin(origin: str) -> bool:
+    """True for http(s) localhost / 127.0.0.1 / ::1 (optional port). No regex."""
+    normalized = normalize_cors_origin(origin)
+    if normalized is None:
+        return False
+    try:
+        parsed = urlparse(normalized)
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in ("http", "https"):
+        return False
+    host = parsed.hostname
+    if host is None:
+        return False
+    return host.lower() in _SAFE_LOOPBACK_HOSTS
 
 
 def reload_cors_policy_from_config(services) -> None:
@@ -190,13 +235,13 @@ def reload_cors_policy_from_config(services) -> None:
     log.debug("MCP CORS allow private/local browser origins: %s", _allow_private_origins)
 
 
-@deal.pre(lambda origin: ascii_bounded(origin, DEAL_MAX_ORIGIN))
+@deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_safe_origin(origin: str) -> bool:
     """True when Origin may receive Access-Control-Allow-Origin reflection."""
-    if not origin:
+    if len(origin) == 0:
         return False
-    if _ORIGIN_RE.match(origin):
+    if _is_loopback_origin(origin):
         return True
     if is_extra_allowed_origin(origin):
         return True
@@ -207,15 +252,16 @@ def is_safe_origin(origin: str) -> bool:
 
 @deal.pre(
     lambda access_control_request_headers: access_control_request_headers is None
-    or str_bounded(access_control_request_headers, DEAL_MAX_ORIGIN)
+    or _deal_allow_headers_ok(access_control_request_headers)
 )
-@deal.post(lambda result: isinstance(result, str) and "Content-Type" in result)
+@deal.post(lambda result: isinstance(result, str))
+@inverse_ensure(lambda access_control_request_headers, result: "Content-Type" in result)
 def merge_allow_headers(access_control_request_headers: str | None) -> str:
     """Build Access-Control-Allow-Headers: base list union preflight request list."""
     merged: dict[str, str] = {}
     for header in _BASE_ALLOW_HEADERS:
         merged[header.lower()] = header
-    if access_control_request_headers:
+    if access_control_request_headers is not None and len(access_control_request_headers) > 0:
         for header in (h.strip() for h in access_control_request_headers.split(",") if h.strip()):
             key = header.lower()
             if key not in merged:

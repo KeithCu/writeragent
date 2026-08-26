@@ -38,7 +38,7 @@ from plugin.calc.python.formula_edit import (
     PythonFormulaParts,
 )
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN
 from tests.strip_bundle import deal_pre_present, expect_pre_or_body, skip_if_release_build
 from tests.vhs_budget import vhs_max_examples
 
@@ -46,7 +46,7 @@ _CROSSHAIR_ERROR_RE = re.compile(r": error:")
 # Rewrite wrappers (sanitize/escape/rebuild) are ``# crosshair: off`` — check-all
 # drops those FQNs. Data-binding display/parse are also off (run 32840960268).
 # Keep parse/normalize: nested ensures are inverse_ensure-skipped. Range
-# formatters stay on (no regex; printable ascii_bounded pre).
+# formatters stay on (closed A1/sheet alphabet, DEAL_MAX_TOKEN length).
 _CROSSHAIR_TARGETS = (
     "plugin.calc.python.formula_edit._parse_quoted_string",
     "plugin.calc.python.formula_edit.normalize_formula_string",
@@ -219,10 +219,15 @@ def test_formula_edit_overflow_pre_fails_closed() -> None:
         format_data_binding_display("A1\u00a0")
     with pytest.raises(deal.PreContractError):
         parse_data_binding_text("A1\u00a0")
+    range_too_long = "A" * (DEAL_MAX_TOKEN + 1)
     with pytest.raises(deal.PreContractError):
-        format_py_data_range(too_long)
+        format_py_data_range(range_too_long)
     with pytest.raises(deal.PreContractError):
-        format_excel_data_range(too_long)
+        format_excel_data_range(range_too_long)
+    with pytest.raises(deal.PreContractError):
+        format_py_data_range("A1\x00")
+    with pytest.raises(deal.PreContractError):
+        format_excel_data_range("A1\x00")
     too_many = ["A1"] * (DEAL_MAX_SHAPE_DIM + 1)
     with pytest.raises(deal.PreContractError):
         format_data_binding_text(too_many)
@@ -258,7 +263,7 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
 
     format_data_binding_display / parse_data_binding_text are also off
     (deep check-all run 32840960268: Prev 95:09 / 15:20). Range formatters
-    stay on — they no longer use regex.
+    stay on — closed A1/sheet alphabet, no regex.
     """
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module

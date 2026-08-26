@@ -17,6 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from plugin.mcp.cors import (
+    is_private_browser_origin,
     is_safe_origin,
     merge_allow_headers,
     normalize_cors_origin,
@@ -126,12 +127,17 @@ def test_localhost_safe_origin() -> None:
     assert is_safe_origin("http://localhost:3000")
     assert is_safe_origin("http://127.0.0.1")
     assert is_safe_origin("http://[::1]")
+    assert is_safe_origin("http://[::1]:3000")
+    assert is_private_browser_origin("http://192.168.1.50:3000") is True
 
 
 def test_normalize_origins_list_stays_on_check_all() -> None:
     """Nested unique-length ensure is inverse_ensure; the FQN itself stays analyzed."""
     fqns = cover_fqns_for_module(Path("plugin/mcp/cors.py"), require_deal=True)
     assert any(f.endswith(".normalize_origins_list") for f in fqns)
+    assert any(f.endswith(".is_safe_origin") for f in fqns)
+    assert any(f.endswith(".is_private_browser_origin") for f in fqns)
+    assert any(f.endswith(".merge_allow_headers") for f in fqns)
 
 
 def test_cors_origin_overflow_pre_fails_closed() -> None:
@@ -146,8 +152,13 @@ def test_cors_origin_overflow_pre_fails_closed() -> None:
         normalize_cors_origin(too_long)
     with pytest.raises(deal.PreContractError):
         merge_allow_headers(too_long)
+    with pytest.raises(deal.PreContractError):
+        is_safe_origin("http://example.com/?x")
+    with pytest.raises(deal.PreContractError):
+        merge_allow_headers("Content-Type; X-Evil")
     # Pytest keeps the 256-char product domain.
     assert is_safe_origin("http://localhost:3000") is True
+    assert "Content-Type" in merge_allow_headers("X-Custom")
 
 
 @pytest.mark.slow

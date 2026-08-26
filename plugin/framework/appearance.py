@@ -76,10 +76,11 @@ def get_style_window(doc: Any = None, style_window: Any = None, ctx: Any = None)
 from plugin.framework.deal_shim import deal
 
 
+@deal.pre(lambda color: type(color) is int and 0 <= color <= 0xFFFFFF)
 @deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 255.0)
 def _luminance(color: int) -> float:
-    if not isinstance(color, int):
-        return 255.0
+    # No deal.pre used to let CrossHair wander on unbounded ints (3:24 on
+    # check-all 32877875221). ``type(color) is int`` rejects bool; 24-bit RGB.
     r = (color >> 16) & 0xFF
     g = (color >> 8) & 0xFF
     b = color & 0xFF

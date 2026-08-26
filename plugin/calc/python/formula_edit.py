@@ -17,6 +17,7 @@ from typing import Callable
 from plugin.framework.deal_shim import (
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SOURCE,
+    DEAL_MAX_TOKEN,
     ascii_bounded,
     deal,
     inverse_ensure,
@@ -31,6 +32,8 @@ _CALC_PYTHON_FN_ALIASES_BY_LEN = ("PYTHON", "PY")
 _MAX_PYTHON_ALIAS_LEN = max(len(a) for a in CALC_PYTHON_FN_ALIASES)
 # Curly/smart quotes Calc sometimes stores in localized formulas.
 _QUOTE_NORMALIZE = str.maketrans({"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'"})
+# Sheet/A1 range tokens. Space and ``"`` are product (``My Sheet.A1``, quoted sheets).
+_RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.!:'$_ \"")
 
 
 def _py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
@@ -84,15 +87,27 @@ def _quoted_parse_result_ok(s: str, start: int, result: tuple[str, int] | None) 
     return isinstance(code, str) and isinstance(end, int) and 0 <= start < end <= len(s)
 
 
+def _deal_range_addr_ok(s: object) -> bool:
+    """Closed A1 / sheet-range domain for formatters and ``_deal_data_args_ok``.
+
+    Product chars are ``A–Z a–z 0–9 . ! : ' $ _`` plus space / ``"`` so
+    ``My Sheet.A1`` still quotes. Length is ``DEAL_MAX_TOKEN`` (16 CrossHair /
+    64 pytest): ``Sheet!A1`` fits, ``DEAL_MAX_CELL_REF=4`` under CrossHair does
+    not, and ``DEAL_MAX_SOURCE`` (8192 pytest / 16 CrossHair printable ASCII)
+    was the 15:05 / 6:44 sink (check-all 32877875221).
+    """
+    return isinstance(s, str) and len(s) <= DEAL_MAX_TOKEN and all(c in _RANGE_ADDR_CHARS for c in s)
+
+
 def _deal_data_args_ok(data_args: object) -> bool:
     """CrossHair domain for =PY() data-arg lists (pytest still allows DEAL_MAX_SHAPE_DIM).
 
-    Items are A1 / range tokens (closed alphabet), not formula source.
+    Items are A1 / range tokens (same alphabet as the formatters), not formula source.
     """
     return (
         isinstance(data_args, list)
         and len(data_args) <= DEAL_MAX_SHAPE_DIM
-        and all(ascii_bounded(x, DEAL_MAX_SOURCE) for x in data_args)
+        and all(_deal_range_addr_ok(x) for x in data_args)
     )
 
 
@@ -556,16 +571,16 @@ def _format_excel_data_range_body(range_addr: str) -> str:
     return addr
 
 
-# Printable: ascii_bounded uses str.isascii(), which allows NUL. CrossHair relib
-# TypeError on format_*('\x00.\x00') via re.match (run 32840960268).
-@deal.pre(lambda range_addr: ascii_bounded(range_addr, DEAL_MAX_SOURCE) and range_addr.isprintable())
+# Closed range alphabet (not printable-ascii SOURCE): control-free junk through
+# the sheet-quote parser was 15:05 / 6:44 after the NUL/ord fix (32877875221).
+@deal.pre(lambda range_addr: _deal_range_addr_ok(range_addr))
 @deal.post(lambda result: isinstance(result, str))
 def format_py_data_range(range_addr: str) -> str:
     """Format a range for ``=PY()`` data args (quote sheet names with spaces/special chars)."""
     return _format_py_data_range_body(range_addr)
 
 
-@deal.pre(lambda range_addr: ascii_bounded(range_addr, DEAL_MAX_SOURCE) and range_addr.isprintable())
+@deal.pre(lambda range_addr: _deal_range_addr_ok(range_addr))
 @deal.post(lambda result: isinstance(result, str))
 def format_excel_data_range(range_addr: str) -> str:
     """Format a range for Excel OOXML ``=PY()`` data args (``Sheet!A1`` style)."""
@@ -573,7 +588,7 @@ def format_excel_data_range(range_addr: str) -> str:
 
 
 # Defaulted kwargs: deal only forwards provided args + result= (see framework-formal-verification.md §8.1 A).
-@deal.pre(lambda *args, **kwargs: bool(args) and _deal_data_args_ok(args[0]))
+@deal.pre(lambda *args, **kwargs: len(args) > 0 and _deal_data_args_ok(args[0]))
 @deal.post(lambda result: isinstance(result, str) and result.endswith(")"))
 @deal.ensure(lambda *args, result=None, **kwargs: isinstance(result, str) and result.endswith(")"))
 def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_ranges: bool = False) -> str:
@@ -581,10 +596,8 @@ def build_data_suffix(data_args: list[str], *, separator: str = ";", excel_range
 
     *separator* is ``;`` for Calc formulas and ``,`` for Excel OOXML formulas.
     """
-    # Call unwrapped bodies: formatter @deal.pre now requires isprintable(),
-    # but _deal_data_args_ok stays ascii_bounded-only (NUL still in that domain).
-    # Nested PreconditionFailed is a CrossHair CHECK ERROR (same class as #449
-    # dtype=float growth). Bodies have no regex, so control ASCII cannot TypeError.
+    # Call unwrapped bodies so a nested formatter pre cannot PreconditionFailed
+    # if quoting grows the string (same class as #449 dtype=float growth).
     sep = separator if separator in (";", ",") else ";"
     fmt = _format_excel_data_range_body if excel_ranges or sep == "," else _format_py_data_range_body
     args = [fmt(a.strip()) for a in data_args if a.strip()]

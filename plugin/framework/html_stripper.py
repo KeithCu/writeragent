@@ -17,12 +17,25 @@
 
 from __future__ import annotations
 
-from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK, str_bounded, deal
+import os
+
+from plugin.framework.deal_shim import (
+    CROSSHAIR_ENV,
+    DEAL_MAX_HTML_CHUNK,
+    ascii_bounded,
+    str_bounded,
+    deal,
+    inverse_ensure,
+)
 
 # Wider than DEAL_MAX_SOURCE (16 under CrossHair): feed() must still reach the
 # 256-char tag flush under pytest. Pytest binds DEAL_MAX_HTML_CHUNK=512 so that
 # path stays live; CrossHair uses 16.
 _DEAL_MAX_HTML_CHUNK = DEAL_MAX_HTML_CHUNK
+# Import-time only: pytest keeps Unicode body text (café); CrossHair uses ASCII
+# so SMT is not on 16-char Unicode (strip_html_tags 2:16, check-all 32877875221).
+_HTML_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
+_deal_strip_html_ok = ascii_bounded if _HTML_CROSSHAIR else str_bounded
 
 
 class StreamingHTMLStripper:
@@ -92,9 +105,9 @@ class StreamingHTMLStripper:
         return ""
 
 
-@deal.pre(lambda text: str_bounded(text, _DEAL_MAX_HTML_CHUNK))
+@deal.pre(lambda text: _deal_strip_html_ok(text, _DEAL_MAX_HTML_CHUNK))
 @deal.post(lambda result: isinstance(result, str))
-@deal.ensure(lambda text, result: "<" not in result or ">" not in result or len(result) <= len(text))
+@inverse_ensure(lambda text, result: "<" not in result or ">" not in result or len(result) <= len(text))
 def strip_html_tags(text: str) -> str:
     """Synchronous utility to strip HTML tags from a complete string."""
     if not text:

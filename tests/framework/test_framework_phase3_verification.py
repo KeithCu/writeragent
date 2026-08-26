@@ -27,6 +27,20 @@ def test_luminance_contracts(color: int) -> None:
     assert 0.0 <= lum <= 255.0
 
 
+def test_luminance_pre_rejects_unbounded_and_bool() -> None:
+    import deal
+    from tests.strip_bundle import deal_pre_present
+
+    if not deal_pre_present(_luminance):
+        pytest.skip("@deal.pre stripped in release bundle")
+    with pytest.raises(deal.PreContractError):
+        _luminance(0x1000000)
+    with pytest.raises(deal.PreContractError):
+        _luminance(True)  # type: ignore[arg-type]
+    assert 0.0 <= _luminance(0xFFFFFF) <= 255.0
+    assert _luminance(0) == 0.0
+
+
 def test_monaco_theme_info_structure() -> None:
     info = get_monaco_theme_info()
     assert isinstance(info, dict)

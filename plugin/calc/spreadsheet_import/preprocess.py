@@ -6,8 +6,33 @@
 
 from __future__ import annotations
 
+import os
+
 from plugin.calc.python.formula_edit import normalize_formula_string
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal, inverse_ensure
+from plugin.framework.deal_shim import CROSSHAIR_ENV, DEAL_MAX_SOURCE, str_bounded, deal, inverse_ensure
+
+# Quote-machine / typical formula alphabet. Pytest keeps Unicode (curly quotes);
+# CrossHair uses this closed set (normalize_lo_formula_for_parse 3:59, 32877875221).
+_LO_FORMULA_CHARS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    "=();,\"'<>:+-*/^&%$.!_[]{}# \t\n"
+)
+_PREPROCESS_CROSSHAIR = os.environ.get(CROSSHAIR_ENV) == "1"
+
+
+def _deal_lo_formula_ok_pytest(formula: object) -> bool:
+    return str_bounded(formula, DEAL_MAX_SOURCE)
+
+
+def _deal_lo_formula_ok_crosshair(formula: object) -> bool:
+    return (
+        isinstance(formula, str)
+        and len(formula) <= DEAL_MAX_SOURCE
+        and all(c in _LO_FORMULA_CHARS for c in formula)
+    )
+
+
+_deal_lo_formula_ok = _deal_lo_formula_ok_crosshair if _PREPROCESS_CROSSHAIR else _deal_lo_formula_ok_pytest
 
 
 def _no_unquoted_semicolon(s: str) -> bool:
@@ -32,7 +57,7 @@ def _no_unquoted_semicolon(s: str) -> bool:
 # Deep check-all run 32840960268: two nested ensures (curly-quote scan +
 # _no_unquoted_semicolon) cost ~7+7+6 min. Skip under CrossHair; cheap str post
 # and the implementation loop stay.
-@deal.pre(lambda formula: str_bounded(formula, DEAL_MAX_SOURCE))
+@deal.pre(lambda formula: _deal_lo_formula_ok(formula))
 @deal.post(lambda result: isinstance(result, str))
 @inverse_ensure(lambda formula, result: "\u201c" not in result and "\u201d" not in result)
 @inverse_ensure(lambda formula, result: _no_unquoted_semicolon(result))
