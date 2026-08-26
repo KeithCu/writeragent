@@ -554,6 +554,10 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
         assert dt_page == why_page, (
             f"DataTypes heading skipped to page {dt_page} away from Why NumPy on {why_page}"
         )
+    if in2_page is not None and dt_page is not None:
+        assert in2_page == dt_page, (
+            f"In[2] started page {in2_page} instead of staying with DataTypes on {dt_page}"
+        )
     pages_used = sorted({pg for pg, _s, _t in by_page})
     for page in pages_used:
         empties = _leading_empty_count(by_page, page)
@@ -576,30 +580,59 @@ def test_medium_numpy_import_layout_no_run(ctx, doc):
             if first is None:
                 continue
             _pg, y, _style, text = first
+            local_y = _page_local_y(y, page, page_h)
             preview = " ".join((text or "").split())[:48]
-            print(f"medium page {page} first_y={y} {preview!r}", flush=True)
+            print(
+                f"medium page {page} first_y={y} local_y={local_y} {preview!r}",
+                flush=True,
+            )
             # Skip-before-shape: a quarter-page blank top band is ~5000+ HMM.
-            # Allow Heading space-before, not a hole.
-            if page > 1 and y > 0:
-                assert y <= top + 2500, (
-                    f"page {page} blank top band: {preview!r} at Y={y} (top margin {top})"
+            # ViewCursor Y is document-absolute (page 2 was 28441 on a 27940 page).
+            if page > 1 and local_y > 0:
+                assert local_y <= top + 2500, (
+                    f"page {page} blank top band: {preview!r} at local Y={local_y} "
+                    f"(raw Y={y}, top margin {top})"
                 )
-        if in2_page and in2_page > 1:
-            prev = [item for item in layout if item[0] == in2_page - 1 and (item[3] or "").strip()]
-            if prev:
-                last_y = prev[-1][1]
-                remaining = page_h - bottom - last_y
-                last_preview = " ".join((prev[-1][3] or "").split())[:48]
-                print(
-                    f"medium In[2] page={in2_page} last_prev_y={last_y} "
-                    f"remaining={remaining} field_h={h_in2} last={last_preview!r}",
-                    flush=True,
-                )
-                if last_y > 0:
-                    assert remaining < h_in2 + 1500, (
-                        f"In[2] started page {in2_page} but page {in2_page - 1} still had "
-                        f"{remaining} HMM after {last_preview!r} (field is {h_in2})"
-                    )
+        # Print remaining-space math for code cells that start a page. Do not
+        # assert it: the field paragraph is empty in getString(), so last_y is
+        # the In [n]: gutter, not the bottom of the gray box.
+        from plugin.notebook.notebook_runner import _find_control_shape_by_name as _find_shape
+
+        for page in pages_used:
+            if page <= 1:
+                continue
+            first = next(
+                (item for item in layout if item[0] == page and (item[3] or "").strip()),
+                None,
+            )
+            if first is None:
+                continue
+            preview = " ".join((first[3] or "").split())[:48]
+            if not preview.startswith("In ["):
+                continue
+            prev = [item for item in layout if item[0] == page - 1 and (item[3] or "").strip()]
+            if not prev:
+                continue
+            last_y = prev[-1][1]
+            last_local = _page_local_y(last_y, page - 1, page_h)
+            remaining = page_h - bottom - last_local
+            last_preview = " ".join((prev[-1][3] or "").split())[:48]
+            field_h = 0
+            in_index = sum(
+                1
+                for item in layout
+                if item[0] < page and (item[3] or "").strip().startswith("In [")
+            )
+            if 0 <= in_index < len(state.code_cells):
+                shp = _find_shape(doc, state.code_cells[in_index].code_field_name)
+                if shp is not None:
+                    field_h = int(shp.getSize().Height)
+            print(
+                f"medium page {page} starts {preview!r} last_prev_y={last_y} "
+                f"last_local={last_local} remaining={remaining} field_h={field_h} "
+                f"last={last_preview!r}",
+                flush=True,
+            )
 
 
 @native_test
@@ -709,6 +742,13 @@ def _leading_empty_count(by_page: list[tuple[int, str, str]], page: int) -> int:
             break
         n += 1
     return n
+
+
+def _page_local_y(y: int, page: int, page_h: int) -> int:
+    """Map ViewCursor.getPosition().Y (document layout) onto one page."""
+    if page <= 1 or page_h <= 0:
+        return y
+    return y - (page - 1) * page_h
 
 
 def _page_box(doc) -> tuple[int, int, int] | None:
