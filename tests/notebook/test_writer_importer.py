@@ -832,7 +832,6 @@ def test_resolve_bourke_images_from_fixture_notebook_dir():
         "numpy-panda.jpeg",
         "numpy-car-photo.png",
         "numpy-dog-photo.png",
-        "test-html-img.png",
     ):
         resolved = _resolve_markdown_image_path(f"../images/{name}", str(fixtures))
         assert resolved is not None, name
@@ -911,7 +910,7 @@ def test_import_mixed_html_img_cell_renders_markdown_and_image(tmp_path, monkeyp
 def test_import_html_img_fixture_notebook(monkeypatch):
     ipynb = Path(__file__).resolve().parents[1] / "fixtures" / "html-img-and-md-link.ipynb"
     assert ipynb.is_file()
-    img = Path(__file__).resolve().parents[1] / "images" / "test-html-img.png"
+    img = Path(__file__).resolve().parents[1] / "images" / "numpy-anatomy-of-an-array-updated.png"
     assert img.is_file()
 
     doc, body_text, body_cursor = _writer_doc_mock()
@@ -954,5 +953,5 @@ def test_import_html_img_fixture_notebook(monkeypatch):
     joined_html = "\n".join(html_calls)
     assert "numpy.org" in joined_html
     assert "<strong>Array</strong>" in joined_html
-    assert embed_srcs == ["../images/test-html-img.png"]
+    assert embed_srcs == ["../images/numpy-anatomy-of-an-array-updated.png"]
     assert locator_calls, "relative HTML <img> was not embedded"

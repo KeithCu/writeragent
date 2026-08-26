@@ -297,7 +297,7 @@ def _hyperlink_urls(doc) -> list[str]:
 def test_debug_menu_import_html_img_and_markdown_link(ctx, doc):
     """Relative HTML <img> embeds; [text](url) is a hyperlink; mixed cell keeps markdown."""
     assert _HTML_IMG_IPYNB.is_file(), f"missing fixture {_HTML_IMG_IPYNB}"
-    img = _HTML_IMG_IPYNB.resolve().parents[1] / "images" / "test-html-img.png"
+    img = _HTML_IMG_IPYNB.resolve().parents[1] / "images" / "numpy-anatomy-of-an-array-updated.png"
     assert img.is_file(), f"missing {img}"
 
     from plugin.framework.main_shared import get_action_handler

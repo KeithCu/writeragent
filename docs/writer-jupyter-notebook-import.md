@@ -149,7 +149,7 @@ python -m plugin.testing_runner tests/notebook/test_writer_importer_uno.py
 
 The live smoke imports the small NumPy fixture and **runs** the three code cells. A sandbox `Forbidden access to dunder attribute` / `__version__` deny is a **hard failure** (not a “clean error”). A real missing-numpy `ModuleNotFoundError` is allowed when the worker venv has no NumPy. After run, ▶ / code fields must still be on the draw page, stdout must not share a paragraph with the next markdown, and the document must not contain `Cell N: Markdown` chrome.
 
-The same file also covers HTML `<img>` + markdown links (`test_debug_menu_import_html_img_and_markdown_link`): [`tests/fixtures/html-img-and-md-link.ipynb`](../tests/fixtures/html-img-and-md-link.ipynb) uses `../images/test-html-img.png` plus `[NumPy](https://numpy.org/…)`. Assert a graphic object and a Writer hyperlink, not literal `[text](url)` or raw `##`. Do not import the 184-cell Bourke notebook in the live loop.
+The same file also covers HTML `<img>` + markdown links (`test_debug_menu_import_html_img_and_markdown_link`): [`tests/fixtures/html-img-and-md-link.ipynb`](../tests/fixtures/html-img-and-md-link.ipynb) uses `../images/numpy-anatomy-of-an-array-updated.png` plus `[NumPy](https://numpy.org/…)`. Assert a graphic object and a Writer hyperlink, not literal `[text](url)` or raw `##`. Do not import the 184-cell Bourke notebook in the live loop.
 
 Live ▶ click (``getControl`` / ``XButton``, not ``run_cell()`` alone):
 
