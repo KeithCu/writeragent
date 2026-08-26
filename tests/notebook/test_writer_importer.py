@@ -40,6 +40,7 @@ from plugin.notebook.writer_importer import (
     _resolve_para_style,
     _text_area_width_units,
     _unglue_last_paragraph,
+    _WRAP_SLACK,
     _wrap_html_fragment,
     format_all_outputs,
     format_output_text,
@@ -206,14 +207,16 @@ def test_height_for_text_fits_last_line():
     """15-line In[2] source must be taller than the old 380 HMM/line clip height."""
     src = "\n".join(f"line{i}" for i in range(15))
     h = _height_for_text(src)
-    assert h == 16 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
+    assert h == 15 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD + _WRAP_SLACK
     assert h > 15 * 380
 
 
-def test_height_for_text_includes_one_wrap_line():
-    """Two source lines get a third visual line of pad (In[3] long print wraps)."""
+def test_height_for_text_wrap_slack_is_half_line():
+    """Two source lines get half a line of slack, not a full empty gray row."""
     h = _height_for_text("line1\nline2")
-    assert h == 3 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
+    assert h == 2 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD + _WRAP_SLACK
+    assert _WRAP_SLACK == _LINE_HEIGHT // 2
+    assert h < 3 * _LINE_HEIGHT + _FIELD_HEIGHT_PAD
 
 
 def test_code_field_uses_full_text_area_width():
