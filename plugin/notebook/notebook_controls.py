@@ -22,12 +22,13 @@ So we attach **one** shared ``XActionListener`` to the form controller container
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any
 
 import uno
 
-from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener
+from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
 from plugin.notebook.cell_registry import has_notebook_registry, load_registry
 
 log = logging.getLogger("writeragent.notebook")
@@ -41,6 +42,9 @@ _RUN_PREFIX = "nb_run_"
 _listener_refs: list[Any] = []
 _wired_keys: set[tuple[str, str]] = set()
 _wired_form_docs: set[str] = set()
+
+_doc_listener: Any | None = None
+_lock = threading.Lock()
 
 
 def form_button_push_type() -> int:
@@ -439,6 +443,46 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     return 1
 
 
+def _install_doc_event_listener(ctx: Any) -> None:
+    """Attach a global listener so documents/views opened AFTER bootstrap get the menu too."""
+    global _doc_listener
+    with _lock:
+        if _doc_listener is not None:
+            return
+    try:
+        class NotebookDocumentEventListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
+            def __init__(self, ctx: Any) -> None:
+                self._ctx = ctx
+
+            def on_document_event(self, Event: Any) -> None:  # noqa: N803 -- UNO signature
+                try:
+                    name = getattr(Event, "EventName", "") or ""
+                    if name not in ("OnViewCreated", "OnLoadFinished", "OnLoad", "OnNew"):
+                        return
+
+                    controller = getattr(Event, "ViewController", None)
+                    doc = controller.getModel() if controller else getattr(Event, "Source", None)
+
+                    if doc is not None and has_notebook_registry(doc):
+                        # File Open wire_all runs inside XFilter.filter() before XFormLayerAccess.getFormController exists (_form_and_container returns None,None).
+                        # Menu import has a live controller so the same call works.
+                        # This listener is the retry once the view exists. wire_all is idempotent (_wired_form_docs).
+                        ensure_form_design_mode_off(doc)
+                        wire_all_notebook_run_buttons(self._ctx, doc)
+                except Exception:
+                    log.warning("notebook controls: doc-event handling failed", exc_info=True)
+
+        smgr = ctx.getServiceManager()
+        broadcaster = smgr.createInstanceWithContext("com.sun.star.frame.GlobalEventBroadcaster", ctx)
+        listener = NotebookDocumentEventListener(ctx)
+        broadcaster.addDocumentEventListener(listener)
+        with _lock:
+            _doc_listener = listener
+        log.debug("notebook controls: global doc-event listener attached")
+    except Exception:
+        log.warning("notebook controls: doc-event listener install failed", exc_info=True)
+
+
 def install_notebook_run_button_wiring(ctx: Any) -> None:
     """Bootstrap: wire ▶ buttons on the active Writer document (if any)."""
     try:
@@ -446,8 +490,9 @@ def install_notebook_run_button_wiring(ctx: Any) -> None:
         from plugin.framework.uno_context import get_active_document
 
         doc = get_active_document(ctx)
-        if doc is None or not is_writer(doc):
-            return
-        wire_all_notebook_run_buttons(ctx, doc)
+        if doc is not None and is_writer(doc):
+            wire_all_notebook_run_buttons(ctx, doc)
+
+        _install_doc_event_listener(ctx)
     except Exception:
         log.debug("notebook controls: install wiring failed", exc_info=True)
