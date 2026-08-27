@@ -48,8 +48,19 @@ def form_button_push_type() -> int:
 
 
 def ensure_form_design_mode_off(doc: Any) -> None:
-    """Form controls only fire when design mode is off (user mode)."""
+    """Form controls only fire when design mode is off (user mode).
+
+    ▶ are UNO form CommandButtons.
+    Design Mode on = click shows move/resize handles; off = click runs the cell.
+    File Open import filter runs ensure_form_design_mode_off before the window/controller exists, so setFormDesignMode no-ops.
+    ApplyFormDesignMode=False is the load-time switch so the view that attaches after the filter returns is in user mode.
+    setFormDesignMode(False) still needed when a controller already exists (Import into an open doc).
+    """
     try:
+        # Load-time switch for File Open (runs before view/controller exists)
+        doc.ApplyFormDesignMode = False
+
+        # Runtime switch for Menu Import (runs when controller already exists)
         controller = doc.getCurrentController()
         if controller is not None and hasattr(controller, "setFormDesignMode"):
             controller.setFormDesignMode(False)

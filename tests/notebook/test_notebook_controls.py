@@ -23,6 +23,22 @@ def setup_function() -> None:
     notebook_controls._wired_form_docs = set()
 
 
+def test_ensure_form_design_mode_off_no_controller():
+    from plugin.notebook.notebook_controls import ensure_form_design_mode_off
+    doc = MagicMock()
+    doc.getCurrentController.return_value = None
+    ensure_form_design_mode_off(doc)
+    assert doc.ApplyFormDesignMode is False
+
+def test_ensure_form_design_mode_off_with_controller():
+    from plugin.notebook.notebook_controls import ensure_form_design_mode_off
+    doc = MagicMock()
+    controller = MagicMock()
+    doc.getCurrentController.return_value = controller
+    ensure_form_design_mode_off(doc)
+    assert doc.ApplyFormDesignMode is False
+    controller.setFormDesignMode.assert_called_once_with(False)
+
 def test_get_control_view_uses_gettypebyname_for_xcontrolaccess():
     doc = MagicMock()
     controller = MagicMock()

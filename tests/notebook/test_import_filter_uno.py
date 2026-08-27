@@ -84,6 +84,8 @@ def test_import_filter_uno_detect_without_filtername(ctx):
         doc_text = doc.getText().getString()
         assert "In [" in doc_text
         assert '"cell_type"' not in doc_text
+
+        assert doc.ApplyFormDesignMode is False
     finally:
         if doc is not None:
             doc.close(True)
