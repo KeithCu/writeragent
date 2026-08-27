@@ -211,7 +211,7 @@ def repair_json(text: str) -> str:
     return str(json_repair.repair_json(repaired))
 
 
-@deal.pre(lambda text, *_unused, **__: not isinstance(text, str) or _deal_json_text_ok(text))
+@deal.pre(lambda text, *_unused, **__: _deal_json_text_ok(text))
 def repair_json_object(text: str) -> Any:
     """Repair malformed JSON and return a parsed object (json-repair return_objects=True)."""
     if not isinstance(text, str):
