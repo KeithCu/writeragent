@@ -28,7 +28,7 @@ from plugin.framework.client.provider_detection import (
     is_openrouter_endpoint,
 )
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
 
 
 class AuthError(ConfigError):
@@ -94,6 +94,7 @@ PROVIDERS: Dict[str, ProviderConfig] = {
 }
 
 
+@deal.pre(lambda endpoint, provider_hint=None: ascii_bounded(endpoint, DEAL_MAX_TOKEN) and (provider_hint is None or ascii_bounded(provider_hint, DEAL_MAX_TOKEN)))
 def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> str:
     """
     Map an endpoint URL + optional hint to a provider id from PROVIDERS.

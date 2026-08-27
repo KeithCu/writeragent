@@ -93,6 +93,7 @@ def _meta_chunks_from_spans(
     return chunks
 
 
+@deal.pre(lambda sentences: type(sentences) is list and len(sentences) <= DEAL_MAX_SHAPE_DIM)
 def _sentences_spans_ok(sentences: object) -> bool:
     """True when *sentences* is ordered ``(start, end, text)`` with ``0 <= start <= end``.
 
@@ -191,7 +192,7 @@ def _merge_small_sentences_to_spans(
     return spans
 
 
-@deal.pre(lambda passage, *_unused, **__: str_bounded(passage, DEAL_MAX_SOURCE))
+@deal.pre(lambda passage: str_bounded(passage, DEAL_MAX_SOURCE))
 def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int, str]]:
     from plugin.writer.locale.grammar_proofread_locale import GRAMMAR_WHITESPACE_RUN_RE, split_sentence_chunks_by_separator_regex
 
@@ -295,11 +296,7 @@ def split_passage_locale_runs_to_chunk_meta(
     return _meta_chunks_from_spans(passage, all_spans, base_meta)
 
 
-@deal.pre(
-    lambda text, base_meta, *_unused, **__: str_bounded(text, DEAL_MAX_SOURCE)
-    and isinstance(base_meta, dict)
-    and len(base_meta) <= DEAL_MAX_SHAPE_DIM
-)
+@deal.pre(lambda text, base_meta, prose=True, locale_bcp47=None: str_bounded(text, DEAL_MAX_SOURCE) and type(base_meta) is dict and len(base_meta) <= DEAL_MAX_SHAPE_DIM)
 def split_passage_to_chunk_meta(
     text: str,
     base_meta: dict[str, Any],

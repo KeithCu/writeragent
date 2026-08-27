@@ -78,6 +78,7 @@ def _luminance(color: int) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
+@deal.pre(lambda color, factor: type(color) is int and 0 <= color <= 0xFFFFFF and type(factor) is float and 0.0 <= factor <= 1.0)
 def _darken(color: int, factor: float) -> int:
     r = int(((color >> 16) & 0xFF) * factor)
     g = int(((color >> 8) & 0xFF) * factor)

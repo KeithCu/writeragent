@@ -188,7 +188,8 @@ def _skip_string(src: str, i: int) -> int:
 
 
 @deal.pre(lambda src, *_unused, **__: _deal_excel_src_ok(src))
-@inverse_ensure(lambda *args, result="", **kwargs: len(result) == len(args[0]))
+@inverse_ensure(lambda result, src: len(result) == len(src))
+@deal.pre(lambda src: str_bounded(src, DEAL_MAX_SOURCE))
 def _normalize_excel_placeholders(src: str) -> str:
     """Rewrite bare ``%Pn%`` to equal-length ``_Pn_`` so ``ast.parse`` accepts Excel scripts.
 
@@ -313,6 +314,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     and type(col) is int
     and 0 <= col <= 200
 )
+@deal.pre(lambda src, lineno, col: ascii_bounded(src, DEAL_MAX_SOURCE) and type(lineno) is int and type(col) is int)
 def ast_source_offset(src: str, lineno: int, col: int) -> int:
     """Map AST ``(lineno, col_offset)`` to an absolute character index in *src*.
 
