@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:package="org.openoffice.TypeDetection" oor:name="Filters">
+  <node oor:name="Filters">
+    <node oor:name="writer_WriterAgent_Jupyter_Notebook" oor:op="replace">
+      <prop oor:name="UIName" oor:type="xs:string">
+        <value>Jupyter Notebook</value>
+      </prop>
+      <prop oor:name="Type" oor:type="xs:string">
+        <value>writer_WriterAgent_Jupyter_Notebook</value>
+      </prop>
+      <prop oor:name="DocumentService" oor:type="xs:string">
+        <value>com.sun.star.text.TextDocument</value>
+      </prop>
+      <prop oor:name="FilterService" oor:type="xs:string">
+        <value>org.extension.writeragent.JupyterNotebookImportFilter</value>
+      </prop>
+      <prop oor:name="Flags" oor:type="xs:string">
+        <value>IMPORT ALIEN 3RDPARTYFILTER</value>
+      </prop>
+      <prop oor:name="FileFormatVersion" oor:type="xs:int">
+        <value>0</value>
+      </prop>
+    </node>
+  </node>
+</oor:component-data>

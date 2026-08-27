@@ -580,10 +580,13 @@ def generate_manifest_xml(modules, output_path):
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/chatbot/panel_factory.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/librepy/panel_factory.py'),
         ('application/vnd.sun.star.uno-component;type=Python', 'plugin/writer/locale/ai_grammar_proofreader.py'),
+        ('application/vnd.sun.star.uno-component;type=Python', 'plugin/notebook/import_filter.py'),
         (
             'application/vnd.sun.star.configuration-data',
             'registry/org/openoffice/Office/LinguisticWriterAgentGrammar.xcu',
         ),
+        ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/TypeDetection/Types.xcu'),
+        ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/TypeDetection/Filters.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Addons.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Accelerators.xcu'),
         ('application/vnd.sun.star.configuration-data', 'ProtocolHandler.xcu'),

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:package="org.openoffice.TypeDetection" oor:name="Types">
+  <node oor:name="Types">
+    <node oor:name="writer_WriterAgent_Jupyter_Notebook" oor:op="replace">
+      <prop oor:name="UIName" oor:type="xs:string">
+        <value>Jupyter Notebook</value>
+      </prop>
+      <prop oor:name="Extensions" oor:type="xs:string">
+        <value>ipynb</value>
+      </prop>
+      <prop oor:name="MediaType" oor:type="xs:string">
+        <value>application/x-ipynb+json</value>
+      </prop>
+      <prop oor:name="Preferred" oor:type="xs:boolean">
+        <value>true</value>
+      </prop>
+      <prop oor:name="PreferredFilter" oor:type="xs:string">
+        <value>writer_WriterAgent_Jupyter_Notebook</value>
+      </prop>
+    </node>
+  </node>
+</oor:component-data>

@@ -47,17 +47,17 @@ WriterAgent can **read** Jupyter notebooks (nbformat v4) and **import** them int
 | **Control lookup** — [`form_lookup.py`](../plugin/notebook/form_lookup.py) indexes `ControlShape` models on the document draw page (required for wiring ▶ buttons) | Batched background image decode |
 | **Reset Python Session** — clears `notebook:…` kernel for Writer docs with a registry ([`session_manager.py`](../plugin/scripting/session_manager.py)) | `notebook.enable_interactive` / Settings UI keys |
 | **Output images** — `image/png`, `image/jpeg` in `display_data` / `execute_result` | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
-| **Tests** — [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py), [`tests/notebook/`](../tests/notebook/) (pytest) plus live Writer smoke [`tests/notebook/test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py) and [`tests/notebook/test_notebook_runner_uno.py`](../tests/notebook/test_notebook_runner_uno.py) | Pixel-click FilePicker (optional manual) |
+| **Tests** — [`tests/contrib/test_nbformat_read.py`](../tests/contrib/test_nbformat_read.py), [`tests/notebook/`](../tests/notebook/) (pytest) including [`tests/notebook/test_import_filter.py`](../tests/notebook/test_import_filter.py), plus live Writer smoke [`tests/notebook/test_writer_importer_uno.py`](../tests/notebook/test_writer_importer_uno.py), [`tests/notebook/test_notebook_runner_uno.py`](../tests/notebook/test_notebook_runner_uno.py), and [`tests/notebook/test_import_filter_uno.py`](../tests/notebook/test_import_filter_uno.py) | Pixel-click FilePicker (optional manual) |
 
 ---
 
 ## How to Use
 
-1. Open a **Writer** document (empty or existing — import appends at the end).
-2. Click **WriterAgent → Import Jupyter Notebook…** (below Text Analytics...).
-3. Pick a `.ipynb` file.
-4. Wait for the completion dialog (summarizing cells, code fields, images). Cell insertion runs on the main thread using `lockControllers` to prevent layout thrashing.
-5. Click **▶** beside any code cell to execute it.
+**File Open (no UI)** — the primary path. **File → Open…**, desktop double-click, Open Recent, or `soffice notebook.ipynb` creates a new Writer document and imports the notebook with no FilePicker and no completion dialog.
+
+**Menu (append into an open document)** — **WriterAgent → Import Jupyter Notebook…** (below Text Analytics...) still appends into the already-open Writer document. Pick a `.ipynb`; a completion dialog summarizes cells, code fields, and images. Insertion runs on the main thread using `lockControllers` to prevent layout thrashing.
+
+Click **▶** beside any code cell to execute it.
 
 ---
 
@@ -198,19 +198,24 @@ Native test suite execution:
 
 ## Native File Import Filter Registration (`.ipynb` via UNO)
 
-Rather than manually opening an empty Writer document and clicking **WriterAgent → Import Jupyter Notebook…**, `.ipynb` can be registered as a native LibreOffice file import filter. This enables opening `.ipynb` files directly via **File → Open...**, desktop double-click, recent document lists, or CLI (`soffice notebook.ipynb`).
+Rather than manually opening an empty Writer document and clicking **WriterAgent → Import Jupyter Notebook…**, `.ipynb` is registered as a native LibreOffice file import filter. 
+
+**How to Use:**
+- **No-UI Path**: Open `.ipynb` files directly via **File → Open...**, desktop double-click, Open Recent, or CLI (`soffice notebook.ipynb`). This creates a new Writer document and imports the notebook contents directly without showing a FilePicker or a completion message box. 
+- Open Recent works seamlessly because LibreOffice records the `.ipynb` URL and detects the file type by extension upon reopening, allowing re-importing directly from the source. (Note: Saving modifications as `.odt` will create a separate recent item).
+- **Append Path**: The **WriterAgent → Import Jupyter Notebook…** menu entry remains available to *append* a notebook into an already-open Writer document with the completion UI.
 
 ### 1. PyUNO Import Filter Component (`plugin/notebook/import_filter.py`)
 
-A lightweight UNO component implementing `XImporter` and `XImportFilter`:
+A lightweight UNO component implementing `XImporter` and `XFilter`:
 
 ```python
 import uno
 import unohelper
-from com.sun.star.document import XImporter, XImportFilter
+from com.sun.star.document import XImporter, XFilter
 from com.sun.star.lang import XServiceInfo
 
-class JupyterNotebookImportFilter(unohelper.Base, XImporter, XImportFilter, XServiceInfo):
+class JupyterNotebookImportFilter(unohelper.Base, XImporter, XFilter, XServiceInfo):
     def __init__(self, ctx):
         self.ctx = ctx
         self.target_doc = None
@@ -219,7 +224,7 @@ class JupyterNotebookImportFilter(unohelper.Base, XImporter, XImportFilter, XSer
     def setTargetDocument(self, doc):
         self.target_doc = doc
 
-    # XImportFilter: Triggered on File -> Open / double-click
+    # XFilter: Triggered on File -> Open / double-click
     def filter(self, media_descriptor):
         file_url = ""
         for prop in media_descriptor:
@@ -230,9 +235,9 @@ class JupyterNotebookImportFilter(unohelper.Base, XImporter, XImportFilter, XSer
         if not file_url or not self.target_doc:
             return False
             
-        file_path = uno.fileUrlToAbsolutePath(file_url)
-        from plugin.notebook.writer_importer import import_notebook_to_writer
-        import_notebook_to_writer(self.target_doc, file_path)
+        file_path = uno.fileUrlToSystemPath(file_url)
+        from plugin.notebook.writer_importer import import_ipynb_to_writer
+        import_ipynb_to_writer(self.target_doc, file_path, ctx=self.ctx)
         return True
 
     # XServiceInfo
@@ -255,8 +260,8 @@ g_ImplementationHelper.addImplementation(
 ### 2. Registry Configurations (`.xcu`)
 
 - **`TypeDetection/Types.xcu`**: Registers file extension `ipynb` and MIME type `application/x-ipynb+json`.
-- **`TypeDetection/Filters.xcu`**: Maps `ipynb_Jupyter_Notebook` to `com.sun.star.text.TextDocument` and FilterService `org.extension.writeragent.JupyterNotebookImportFilter` with flags `IMPORT ALIEN 3RDPARTY`.
-- **`META-INF/manifest.xml`**: Registers `plugin/notebook/import_filter.py` as an active Python UNO component entry.
+- **`TypeDetection/Filters.xcu`**: Maps `writer_WriterAgent_Jupyter_Notebook` to `com.sun.star.text.TextDocument` and FilterService `org.extension.writeragent.JupyterNotebookImportFilter` with flags `IMPORT ALIEN 3RDPARTYFILTER`.
+- **`META-INF/manifest.xml`**: Registers `plugin/notebook/import_filter.py` and the two `.xcu` files as active extension entries. (Note: Updated statically in `scripts/manifest_registry.py` and regenerated via `python3 scripts/generate_manifest.py`).
 
 ---
 
@@ -267,6 +272,7 @@ g_ImplementationHelper.addImplementation(
 | `cell_registry.py` | [`plugin/notebook/cell_registry.py`](../plugin/notebook/cell_registry.py) | Document registry serialization, cell UUIDs, bookmarks |
 | `import_dialog.py` | [`plugin/notebook/import_dialog.py`](../plugin/notebook/import_dialog.py) | File picker, import dialog, post-import status |
 | `writer_importer.py` | [`plugin/notebook/writer_importer.py`](../plugin/notebook/writer_importer.py) | Core import loop, nbformat processing, Writer DOM insertion |
+| `import_filter.py` | [`plugin/notebook/import_filter.py`](../plugin/notebook/import_filter.py) | Native File Open XFilter+XImporter (no FilePicker / no completion msgbox) |
 | `notebook_controls.py` | [`plugin/notebook/notebook_controls.py`](../plugin/notebook/notebook_controls.py) | ▶ button wiring and PyUNO form listener management |
 | `notebook_runner.py` | [`plugin/notebook/notebook_runner.py`](../plugin/notebook/notebook_runner.py) | Field reading, execution, output replacement |
 | `form_lookup.py` | [`plugin/notebook/form_lookup.py`](../plugin/notebook/form_lookup.py) | Draw page indexer for form controls |
