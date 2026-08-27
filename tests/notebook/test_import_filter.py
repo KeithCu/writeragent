@@ -43,8 +43,12 @@ if "com.sun.star.document" not in sys.modules:
     mock_com.sun = types.ModuleType("com.sun")
     mock_com.sun.star = types.ModuleType("com.sun.star")
     mock_com.sun.star.document = types.ModuleType("com.sun.star.document")
+    class MockXExtendedFilterDetection:
+        pass
+
     mock_com.sun.star.document.XFilter = MockXFilter
     mock_com.sun.star.document.XImporter = MockXImporter
+    mock_com.sun.star.document.XExtendedFilterDetection = MockXExtendedFilterDetection
     mock_com.sun.star.lang = types.ModuleType("com.sun.star.lang")
     mock_com.sun.star.lang.XServiceInfo = MockXServiceInfo
     mock_com.sun.star.lang.XServiceDisplayName = MockXServiceDisplayName
@@ -162,6 +166,7 @@ def test_types_xcu_structural():
     found_ext = False
     for prop in filter_node:
         if prop.get("{http://openoffice.org/2001/registry}name") == "Extensions":
+            assert prop.get("{http://openoffice.org/2001/registry}type") == "oor:string-list"
             val = prop.find("value")
             if val is not None and val.text == "ipynb":
                 found_ext = True
@@ -205,16 +210,82 @@ def test_filters_xcu_structural():
             props[name] = val.text
             
     assert props.get("FilterService") == "org.extension.writeragent.JupyterNotebookImportFilter"
-    assert "IMPORT" in props.get("Flags", "")
-    assert "ALIEN" in props.get("Flags", "")
-    assert "3RDPARTYFILTER" in props.get("Flags", "")
+    assert "IMPORT ALIEN 3RDPARTYFILTER" == props.get("Flags", "")
     assert "EXPORT" not in props.get("Flags", "")
+
+    # Check Flags type is oor:string-list
+    for prop in filter_node:
+        if prop.get("{http://openoffice.org/2001/registry}name") == "Flags":
+            assert prop.get("{http://openoffice.org/2001/registry}type") == "oor:string-list"
+
+
+def test_misc_xcu_structural():
+    path = os.path.join(
+        _repo_root(),
+        "extension",
+        "registry",
+        "org",
+        "openoffice",
+        "TypeDetection",
+        "Misc.xcu",
+    )
+    root = ET.parse(path).getroot()
+    assert root.tag.endswith("component-data")
+    assert root.get("{http://openoffice.org/2001/registry}name") == "Misc"
+
+    detect_services_node = None
+    for child in root:
+        if child.get("{http://openoffice.org/2001/registry}name") == "DetectServices":
+            detect_services_node = child
+            break
+
+    assert detect_services_node is not None
+
+    filter_node = None
+    for child in detect_services_node:
+        if child.get("{http://openoffice.org/2001/registry}name") == "org.extension.writeragent.JupyterNotebookImportFilter":
+            filter_node = child
+            break
+
+    assert filter_node is not None
 
 
 def test_generated_manifest_includes_import_filter():
-    mf = os.path.join(_repo_root(), "extension", "META-INF", "manifest.xml")
-    with open(mf, encoding="utf-8") as f:
-        body = f.read()
-    assert "plugin/notebook/import_filter.py" in body
-    assert "registry/org/openoffice/TypeDetection/Types.xcu" in body
-    assert "registry/org/openoffice/TypeDetection/Filters.xcu" in body
+    import sys
+    import os
+    from unittest.mock import patch
+    # Temporarily append scripts to sys.path to allow imports within the test
+    sys.path.insert(0, _repo_root())
+    sys.path.insert(0, os.path.join(_repo_root(), "scripts"))
+    try:
+        from scripts.manifest_registry import generate_manifest_xml
+
+        with patch("scripts.manifest_registry._write_if_changed") as mock_write:
+            generate_manifest_xml([], "dummy")
+            assert mock_write.called
+            body = mock_write.call_args[0][1]
+
+        assert "plugin/notebook/import_filter.py" in body
+        assert "registry/org/openoffice/TypeDetection/Types.xcu" in body
+        assert "registry/org/openoffice/TypeDetection/Filters.xcu" in body
+        assert "registry/org/openoffice/TypeDetection/Misc.xcu" in body
+    finally:
+        sys.path.pop(0)
+        sys.path.pop(0)
+
+
+def test_detect_method():
+    ctx = Mock()
+    filter_comp = JupyterNotebookImportFilter(ctx)
+
+    media_descriptor = (MockPropertyValue("URL", "file:///fake/path/notebook.ipynb"),)
+    assert filter_comp.detect(media_descriptor) == "writer_WriterAgent_Jupyter_Notebook"
+
+    media_descriptor = (MockPropertyValue("URL", "file:///fake/path/notebook.IPYNB"),)
+    assert filter_comp.detect(media_descriptor) == "writer_WriterAgent_Jupyter_Notebook"
+
+    media_descriptor = (MockPropertyValue("URL", "file:///fake/path/document.txt"),)
+    assert filter_comp.detect(media_descriptor) == ""
+
+    media_descriptor = (MockPropertyValue("ReadOnly", True),)
+    assert filter_comp.detect(media_descriptor) == ""

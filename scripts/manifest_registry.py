@@ -587,6 +587,7 @@ def generate_manifest_xml(modules, output_path):
         ),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/TypeDetection/Types.xcu'),
         ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/TypeDetection/Filters.xcu'),
+        ('application/vnd.sun.star.configuration-data', 'registry/org/openoffice/TypeDetection/Misc.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Addons.xcu'),
         ('application/vnd.sun.star.configuration-data', 'Accelerators.xcu'),
         ('application/vnd.sun.star.configuration-data', 'ProtocolHandler.xcu'),

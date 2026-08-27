@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:package="org.openoffice.TypeDetection" oor:name="Filters">
+<oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:package="org.openoffice.TypeDetection" oor:name="Filter">
   <node oor:name="Filters">
     <node oor:name="writer_WriterAgent_Jupyter_Notebook" oor:op="replace">
       <prop oor:name="UIName" oor:type="xs:string">
@@ -14,7 +14,7 @@
       <prop oor:name="FilterService" oor:type="xs:string">
         <value>org.extension.writeragent.JupyterNotebookImportFilter</value>
       </prop>
-      <prop oor:name="Flags" oor:type="xs:string">
+      <prop oor:name="Flags" oor:type="oor:string-list">
         <value>IMPORT ALIEN 3RDPARTYFILTER</value>
       </prop>
       <prop oor:name="FileFormatVersion" oor:type="xs:int">

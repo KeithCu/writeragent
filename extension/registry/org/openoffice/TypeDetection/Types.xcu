@@ -5,8 +5,11 @@
       <prop oor:name="UIName" oor:type="xs:string">
         <value>Jupyter Notebook</value>
       </prop>
-      <prop oor:name="Extensions" oor:type="xs:string">
+      <prop oor:name="Extensions" oor:type="oor:string-list">
         <value>ipynb</value>
+      </prop>
+      <prop oor:name="DetectService" oor:type="xs:string">
+        <value>org.extension.writeragent.JupyterNotebookImportFilter</value>
       </prop>
       <prop oor:name="MediaType" oor:type="xs:string">
         <value>application/x-ipynb+json</value>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" oor:package="org.openoffice.TypeDetection" oor:name="Misc">
+  <node oor:name="DetectServices">
+    <node oor:name="org.extension.writeragent.JupyterNotebookImportFilter" oor:op="replace">
+      <prop oor:name="Types" oor:type="oor:string-list">
+        <value>writer_WriterAgent_Jupyter_Notebook</value>
+      </prop>
+    </node>
+  </node>
+</oor:component-data>

@@ -30,7 +30,7 @@ ensure_plugin_on_path(
 
 import uno  # noqa: E402
 import unohelper  # noqa: E402
-from com.sun.star.document import XFilter, XImporter  # noqa: E402
+from com.sun.star.document import XFilter, XImporter, XExtendedFilterDetection  # noqa: E402
 from com.sun.star.lang import XServiceInfo  # noqa: E402
 
 from plugin.contrib.nbformat import NBFormatError  # noqa: E402
@@ -41,10 +41,22 @@ log = logging.getLogger("writeragent.notebook")
 IMPL_NAME = "org.extension.writeragent.JupyterNotebookImportFilter"
 
 
-class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceInfo):
+class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceInfo, XExtendedFilterDetection):
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
         self.target_doc = None
+
+    # XExtendedFilterDetection
+    def detect(self, descriptor: Any) -> str:
+        file_url = ""
+        for prop in descriptor:
+            if prop.Name == "URL":
+                file_url = prop.Value
+                break
+
+        if file_url and file_url.lower().endswith(".ipynb"):
+            return "writer_WriterAgent_Jupyter_Notebook"
+        return ""
 
     # XImporter
     def setTargetDocument(self, doc: Any) -> None:
@@ -83,12 +95,18 @@ class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceIn
         return service_name in self.getSupportedServiceNames()
 
     def getSupportedServiceNames(self) -> tuple[str]:
-        return ("com.sun.star.document.ImportFilter",)
+        return (
+            "com.sun.star.document.ImportFilter",
+            "com.sun.star.document.ExtendedTypeDetection",
+        )
 
 
 g_ImplementationHelper = unohelper.ImplementationHelper()
 g_ImplementationHelper.addImplementation(
     JupyterNotebookImportFilter,
     IMPL_NAME,
-    ("com.sun.star.document.ImportFilter",),
+    (
+        "com.sun.star.document.ImportFilter",
+        "com.sun.star.document.ExtendedTypeDetection",
+    ),
 )
