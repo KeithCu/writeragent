@@ -27,15 +27,22 @@ def setup_function() -> None:
     notebook_controls._doc_listener = None
 
 
-def test_wire_all_raises_off_main_thread(monkeypatch):
-    """@main_thread_only on wire_all: Layer A tripwire, not the Python lock."""
+def test_wire_all_ok_off_main_thread(monkeypatch):
+    """File Open XFilter is Dummy-2, not threading.main_thread()."""
     monkeypatch.setattr(tg, "on_main_thread", lambda: False)
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     was = tg.GUARD_ON
     tg.GUARD_ON = True
     try:
-        with pytest.raises(RuntimeError, match="UNO thread violation"):
-            wire_all_notebook_run_buttons(MagicMock(), MagicMock())
+        with patch("plugin.notebook.notebook_controls.has_notebook_registry", return_value=False):
+            result = wire_all_notebook_run_buttons(MagicMock(), MagicMock())
+        assert result == 0
+
+        from plugin.notebook.notebook_controls import ensure_form_design_mode_off
+        doc = MagicMock()
+        doc.getCurrentController.return_value = None
+        ensure_form_design_mode_off(doc)
+        assert doc.ApplyFormDesignMode is False
     finally:
         tg.GUARD_ON = was
 

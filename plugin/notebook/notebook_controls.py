@@ -40,11 +40,18 @@ _FORM_BUTTON_PUSH = 0
 _RUN_PREFIX = "nb_run_"
 
 # Keep listeners alive (UNO holds weak refs). Form-level: one pair per document.
-# Main-thread only (Red): File Open, protocol dispatch, GlobalEventBroadcaster.
-# Public UNO entry points use @main_thread_only (Layer A assert; release OXT
-# strips it). Do not decorate listener methods — LO already invokes those on
-# the UI thread (docs/framework-uno-thread-safety.md §A4). _lock only serializes
-# the one-shot global _doc_listener install.
+# File Open XFilter.filter() runs on Dummy-2 while main waits (Yellow; same as
+# issue #402). GlobalEventBroadcaster OnViewCreated during load is Dummy-3.
+# ensure_form_design_mode_off, prune_dead_listeners, and
+# wire_all_notebook_run_buttons must run there; decorating them breaks
+# WRITERAGENT_UNO_THREAD_GUARD=1 File Open (filter returns False → General I/O
+# error). Do not marshal with execute_on_main_thread from the filter (host
+# waiting = deadlock #402). ApplyFormDesignMode=False must happen before the
+# filter returns. Listener methods stay undecorated (LO already invokes those
+# on the UI thread; docs/framework-uno-thread-safety.md §A4). Release OXT still
+# strips remaining decorators. Keep @main_thread_only on getControl /
+# per-button wire / bootstrap install. _lock only serializes the one-shot
+# global _doc_listener install.
 _listener_refs: list[Any] = []
 _wired_keys: set[tuple[str, str]] = set()
 _wired_form_docs: set[str] = set()
@@ -57,7 +64,6 @@ def form_button_push_type() -> int:
     return _FORM_BUTTON_PUSH
 
 
-@main_thread_only
 def ensure_form_design_mode_off(doc: Any) -> None:
     """Form controls only fire when design mode is off (user mode).
 
@@ -181,7 +187,6 @@ def get_control_view_for_model(doc: Any, model: Any) -> Any | None:
         return None
 
 
-@main_thread_only
 def prune_dead_listeners() -> None:
     """Remove listeners whose target document is closed/gone."""
     global _listener_refs, _wired_keys, _wired_form_docs
@@ -395,7 +400,6 @@ def wire_run_button_listener(ctx: Any, doc: Any, model: Any, hex_id: str) -> boo
         return False
 
 
-@main_thread_only
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any) -> int:
     """Attach the shared form-level ▶ listener if missing. Returns 1 when wired.
 
