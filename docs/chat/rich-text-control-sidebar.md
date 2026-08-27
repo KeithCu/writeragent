@@ -235,7 +235,7 @@ Python cannot scroll this control to “end of document.” UNO `insertString` /
 
 **Contract:** insert at the end, then `reveal_rich_control_caret` (brief ReadOnly lift + focus + idle). Do **not** insert dummy tail text — that is the same UNO path as the real append and does not move the EditView caret. Query focus is restored via `set_default_focus_restore`. Reliable pin-to-end still needs an LO peer API (`setSelection` / `ShowCursor`).
 
-Resize still jumps VisArea to the origin (`layoutWindow()` always `SetVisArea(Point())`). The caret is unchanged; reveal after a real `setPosSize` is the restore. A user who clicked mid-transcript has the caret there — inserts at end will not yank them.
+Resize: stock `layoutWindow()` always `SetVisArea(Point())`, so every `setPosSize` jumps to the top. The C++ patch keeps and clamps the old top-left (like `ImpVclMEdit::Resize`). On stock, after a real bounds change we Hidden-SelectAll (same as stream). That resticks the bottom; a mid-transcript scroll position cannot be restored without the patch.
 
 Width at creation/sync uses `last_response_rect` for height and horizontal position but caps width to the live Clear button row.
 
@@ -305,7 +305,7 @@ DEBUG-level `[RICH-SCROLL]` lines record caret reveal, formatted inserts, layout
 
 **User-send pattern (healthy):** after `phase=copy_done` / `reason=copy`, expect `phase=trailing_break` then another Hidden `_scroll_rich_to_tail` (not `reason=user_trailing_break` / `phase=reveal_caret`) before `phase=user_append_done`. A `phase=reveal_caret` on the user insert is the whole-control flash.
 
-**If scroll jumps after open/resize:** look for `phase=sync_bounds` then `reason=resize`. LibreOffice `layoutWindow()` always resets VisArea to the origin; we reveal the view caret after a real bounds change. A mid-transcript click cannot be restored as “end of document.”
+**If scroll jumps after open/resize:** look for `phase=sync_bounds` then Hidden SelectAll (not `reason=resize` / `phase=reveal_caret`). Stock `layoutWindow()` resets VisArea to the origin; we restick to the tail. Mid-transcript scroll cannot be restored on stock.
 
 ### Formatted insert used a fallback path (diagnostics)
 
@@ -392,6 +392,8 @@ Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; re
 | 17 | Never SelectAll. 1-char at tail then collapse to 0-char via `XAccessibleText.setSelection` (and control.setSelection). Same helper on stream, HTML copy, and history batch. | Fail. Live web research: accessible miss, `via=control` no-op, viewport stuck on greeting at text_len>9000. Reverted to SelectAll. |
 | 18 | Restore query (Hidden mode) before and after SelectAll. Drop reveal_caret after copy/history (GetFocus forces Std and paints All()). | Agent stream: no flash. User message still flashes. |
 | 19 | User trailing-break used reveal_caret after SelectAll (GetFocus + Std + All()). Same Hidden scroll as stream; no reveal. | Pass. Keith click-test: You: insert no longer flashes; stream still Hidden; stick-to-bottom held. |
+| 20 | After resize `setPosSize`, Hidden SelectAll instead of reveal_caret. Stock layoutWindow jumps VisArea to origin; C++ patch not required for stick-to-bottom. | Click-test: drag sidebar width with transcript at bottom — stay on newest text, no flash, typing stays in Ask/instruct. |
+
 
 ### Open questions
 

@@ -340,15 +340,15 @@ def sync_rich_control_bounds(rich_control, root_window, placeholder_ctrl, placeh
         bounds_changed = _apply_rich_control_geometry(rich_control, bx, by, bw, bh, update_dialog_model=False)
         if bounds_changed:
             log_rich_scroll("sync_bounds", control=rich_control, rect=f"{bx},{by},{bw},{bh}")
-            # layoutWindow() SetVisArea(Point()) — viewport jumps to top; caret
-            # is unchanged. Reveal the caret so AUTOSCROLL restores the view.
+            # Stock layoutWindow() SetVisArea(Point()) — every setPosSize jumps
+            # to the top. C++ patch keeps old top-left. Stock: Hidden SelectAll, no reveal_caret.
             try:
                 model = rich_control.getModel()
                 text = getattr(model, "Text", "") or "" if model is not None else ""
             except Exception:
                 text = ""
             if text:
-                reveal_rich_control_caret(rich_control, reason="resize")
+                _scroll_rich_to_tail(rich_control)
         if _rich_control_needs_bounds(rich_control, bx, by, bw, bh):
             # Dialog-embedded: model resize after insert fails (-1); reinsert when transcript empty.
             try:
