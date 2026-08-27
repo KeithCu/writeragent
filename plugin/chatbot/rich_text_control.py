@@ -455,9 +455,8 @@ def _apply_rich_control_style_defaults_on_model(model, style_window=None) -> Non
         ("PaintTransparent", False),
         ("MultiLine", True),
         ("VScroll", True),
-        # SelectAll stick-to-bottom leaves a selection. When Ask/instruct has
-        # focus that selection is inactive; hide it so typing does not show
-        # the whole transcript highlighted (exp 16).
+        # If a 1-char tail selection is left (collapse missed), hide it when
+        # Ask/instruct has focus (exp 16). Harmless if selection is collapsed.
         ("HideInactiveSelection", True),
     ):
         _set_model_property(model, name, val)
@@ -1001,28 +1000,86 @@ def _dispatch_rich_uno(control, command: str, ctx=None) -> bool:
         return False
 
 
-def _dispatch_rich_select_all(control, ctx=None) -> None:
-    """Stock stick-to-bottom: SelectAll on the rich peer, then collapse.
+def _accessible_set_selection(obj, start: int, end: int) -> bool:
+    """XAccessibleText.setSelection. Skip VCLXWindow's no-op setSelection (exp 5)."""
+    if obj is None:
+        return False
+    acc = obj
+    try:
+        getter = getattr(obj, "getAccessibleContext", None)
+        if callable(getter):
+            ctx = getter()
+            if ctx is not None:
+                acc = ctx
+    except Exception:
+        acc = obj
+    # XAccessibleText has both. Stock peer setSelection is XTextComponent and
+    # a no-op (exp 5) — it has no getCharacterCount, so walk children instead.
+    count_fn = getattr(acc, "getCharacterCount", None)
+    set_fn = getattr(acc, "setSelection", None)
+    if callable(count_fn) and callable(set_fn):
+        try:
+            acc.setSelection(start, end)
+            return True
+        except Exception:
+            pass
+    try:
+        nch = int(acc.getAccessibleChildCount())
+    except Exception:
+        return False
+    for i in range(min(nch, 8)):
+        try:
+            child = acc.getAccessibleChild(i)
+        except Exception:
+            continue
+        if _accessible_set_selection(child, start, end):
+            return True
+    return False
 
-    Stock 25.2 peer is VCLXWindow, not XTextComponent, so control.setSelection
-    is a no-op (exp 5). Idle/setFocus/reveal_caret also failed (exp 0-4).
-    OSelectAllDispatcher calls EditView.SetSelection(All()); the range is
-    non-collapsed so ShowCursor runs and the viewport follows the tail.
 
-    SelectAll paints the whole transcript selected (exp 15). Collapse to the
-    end *before* process_events_to_idle so that highlight never paints.
-    Collapsed carets skip ShowCursor, so SelectAll must still run first.
+def _set_rich_selection_range(control, start: int, end: int) -> bool:
+    """Set [start, end) on the rich control. 1-char is non-collapsed (ShowCursor).
 
-    Do not setFocus here. That steals the Writer document caret (exp 10).
-    SelectAll still focuses the rich peer, so the caller restores Ask/instruct
-    unless the user clicked the document (install_stream_focus_tracker).
+    Always try XAccessibleText. control.setSelection is a no-op on stock
+    (peer is VCLXWindow, not XTextComponent) but would otherwise return first.
     """
-    _dispatch_rich_uno(control, ".uno:SelectAll", ctx)
-    # queryDispatch can return a dispatcher that no-ops (exp 15 GoToEndOfDoc
-    # "succeeded" and we never tried End). Always fire edit-view collapse
-    # commands. GoRight after SelectAll should land on the tail.
-    for command in (".uno:End", ".uno:GoToEnd", ".uno:GoRight"):
-        _dispatch_rich_uno(control, command, ctx)
+    peer = None
+    try:
+        peer = control.getPeer() if hasattr(control, "getPeer") else None
+    except Exception:
+        peer = None
+    if _accessible_set_selection(control, start, end) or _accessible_set_selection(peer, start, end):
+        log_rich_scroll("set_selection", control=control, start=start, end=end, via="accessible")
+        return True
+    try:
+        import uno
+        if hasattr(control, "setSelection"):
+            control.setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", start, end))
+            log_rich_scroll("set_selection", control=control, start=start, end=end, via="control")
+            return True
+    except Exception as e:
+        log.debug("_set_rich_selection_range control: %s", e)
+    return False
+
+
+def _scroll_rich_to_tail(control, ctx=None) -> None:
+    """Stick-to-bottom without SelectAll (whole-control flash).
+
+    Collapsed (0-char) carets skip ShowCursor, so first select the last
+    character (non-collapsed), then collapse to 0-char at the end.
+    Never .uno:SelectAll — that paints the whole transcript (exp 15-16).
+    """
+    del ctx  # same signature as the old dispatcher helper
+    n = get_control_text_length(control)
+    if n <= 0:
+        return
+    _set_rich_selection_range(control, n - 1, n)
+    _set_rich_selection_range(control, n, n)
+
+
+def _dispatch_rich_select_all(control, ctx=None) -> None:
+    """Back-compat alias: one-char tail then collapse, not SelectAll."""
+    _scroll_rich_to_tail(control, ctx)
 
 
 def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=None):
@@ -1036,20 +1093,16 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
         model = control.getModel()
         if model is None or not hasattr(model, "createTextCursor"):
             return
-        # Do not setFocus on stream. SelectAll already scrolls (exp 6/7).
-        # setFocus + focus_preserved(query) stole document typing (exp 10):
-        # stock Toolkit has no getFocusWindow (PyUNO hasattr lies).
+        # Do not setFocus on stream. setFocus + focus_preserved(query) stole
+        # document typing (exp 10): stock Toolkit has no getFocusWindow
+        # (PyUNO hasattr lies). Scroll with 1-char tail selection, not SelectAll.
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _apply_sidebar_para_margins(cursor)
         cursor.CharBackColor = theme.bg_color
         _insert_string_at_rich_cursor(model, cursor, text, theme.assistant_color)
         if auto_scroll:
-            _dispatch_rich_select_all(control, ctx)
-            # Restore query BEFORE idle. Idle is what paints. SelectAll
-            # focuses the rich peer; painting then shows an active selection
-            # (exp 15). Query focus first so paint is an inactive selection,
-            # which HideInactiveSelection hides (exp 16).
+            _scroll_rich_to_tail(control, ctx)
             from plugin.framework.uno_context import restore_query_if_user_still_there
             restore_query_if_user_still_there()
             process_events_to_idle(ctx, force=True)

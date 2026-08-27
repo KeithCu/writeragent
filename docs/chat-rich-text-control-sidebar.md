@@ -356,9 +356,10 @@ Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; re
 **Repro:** `make mock-llm` (http://127.0.0.1:18766, model `writeragent-mock`). Chat: any message. Web Research: mock round 0 is `web_search`, then `visit_webpage` / `final_answer`. Success = viewport stays on the newest text.
 
 **What landed:**
-- Stick-to-bottom: after each stream chunk and after HTML copy, `peer.queryDispatch(".uno:SelectAll")` on the **rich control peer** (never the Writer frame).
-- Do not `setFocus` / `reveal_rich_control_caret` / `focus_preserved` on stream append. Those steal the document caret. `control.setSelection` is a no-op on stock.
-- Query after Send: `_do_send` already `query.setFocus()`. SelectAll still focuses the rich peer, so restore Ask/instruct unless the user left.
+- Stick-to-bottom (exp 6-13): `peer.queryDispatch(".uno:SelectAll")` on the **rich control peer** after each chunk / HTML copy. That stuck the viewport but painted the whole transcript selected (exp 15-16).
+- Exp 17 (in flight): never SelectAll. Select the last character (non-collapsed, so `ShowCursor` can run), then collapse to 0-char at the end. Prefer `XAccessibleText.setSelection`; `control.setSelection` is a no-op on stock.
+- Do not `setFocus` / `reveal_rich_control_caret` / `focus_preserved` on stream append. Those steal the document caret.
+- Query after Send: `_do_send` already `query.setFocus()`. Restore Ask/instruct after scroll unless the user left.
 - Document during stream: query `focusGained` keeps restoring; Writer `controller.addMouseClickHandler` stops restoring. Toolkit `getFocusWindow` does not exist. Toolkit/window `addFocusListener` only sees top-level windows.
 
 **Did not work (reverted):** idle skip, setFocus/reveal on every chunk, `control.setSelection`, restoring live `getFocusWindow`, toolkit/window focus listeners, `focus_preserved(steal_target=...)`.
@@ -376,7 +377,8 @@ Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; re
 | 13 | Query focusGained + Writer `addMouseClickHandler` | Pass. Query after Send (`qqq`). Document click (`xyz`/`zzz`). Stick-to-bottom held. |
 | 14 | Web Research on mock | Scroll passed on content-only mock; hung tool loop round 0 until mock emitted tool_calls. Origin mock already does web_search then final_answer. |
 | 15 | After SelectAll, dispatch `.uno:GoToEndOfDoc` (fallback `.uno:End`) on the same peer *before* idle | Fail. queryDispatch returned a dispatcher that no-op'd, so we never tried End. Selection stayed visible after every chunk / while typing in Ask/instruct. |
-| 16 | Always dispatch `.uno:End` / `.uno:GoToEnd` / `.uno:GoRight` after SelectAll (ignore GoToEndOfDoc). Restore query *before* idle. `HideInactiveSelection=True` on the edit model. | Click-test: transcript must not stay selected while typing in Ask/instruct. Stick-to-bottom must still hold. |
+| 16 | Always dispatch `.uno:End` / `.uno:GoToEnd` / `.uno:GoRight` after SelectAll (ignore GoToEndOfDoc). Restore query *before* idle. `HideInactiveSelection=True` on the edit model. | Fail. SelectAll paints immediately (active selection) before hide/collapse. Flash on stream, typing, and window create. |
+| 17 | Never SelectAll. 1-char at tail then collapse to 0-char via `XAccessibleText.setSelection` (and control.setSelection). Same helper on stream, HTML copy, and history batch. | Click-test: no whole-control flash on create/stream/type. Viewport still sticks. 1-char leftover is OK; 0-char is better. |
 
 ### Open questions
 

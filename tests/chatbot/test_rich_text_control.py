@@ -9,7 +9,7 @@
 
 from contextlib import contextmanager
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -239,7 +239,7 @@ class TestAppendTextChunk:
         assert mock_prop.call_args_list[0].args[1:] == ("ReadOnly", False)
         assert mock_prop.call_args_list[-1].args[1:] == ("ReadOnly", True)
 
-    def test_append_text_chunk_select_all_not_reveal(self):
+    def test_append_text_chunk_scrolls_tail_not_reveal(self):
         control = MagicMock()
         model = MagicMock()
         cursor = MagicMock()
@@ -249,43 +249,73 @@ class TestAppendTextChunk:
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
              patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor"), \
              patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret") as mock_reveal, \
-             patch("plugin.chatbot.rich_text_control._dispatch_rich_select_all") as mock_sel, \
+             patch("plugin.chatbot.rich_text_control._scroll_rich_to_tail") as mock_scroll, \
              patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle, \
              patch("plugin.framework.uno_context.restore_query_if_user_still_there") as mock_restore:
             append_text_chunk(control, " tail", auto_scroll=True, style_window=MagicMock(), ctx=MagicMock())
 
         mock_idle.assert_called()
-        mock_sel.assert_called_once()
+        mock_scroll.assert_called_once()
         mock_restore.assert_called_once()
         mock_reveal.assert_not_called()
         control.setFocus.assert_not_called()
 
-    def test_select_all_collapses_before_return(self):
-        from plugin.chatbot.rich_text_control import _dispatch_rich_select_all
+    def test_scroll_rich_to_tail_one_char_then_collapse(self):
+        from plugin.chatbot.rich_text_control import _scroll_rich_to_tail
 
-        commands: list[str] = []
-        peer = MagicMock()
-        disp = MagicMock()
-
-        def query_dispatch(url, *_args):
-            commands.append(getattr(url, "Complete", ""))
-            return disp
-
-        peer.queryDispatch.side_effect = query_dispatch
         control = MagicMock()
-        control.getPeer.return_value = peer
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=80), \
+             patch("plugin.chatbot.rich_text_control._set_rich_selection_range") as mock_set, \
+             patch("plugin.chatbot.rich_text_control._dispatch_rich_uno") as mock_uno:
+            _scroll_rich_to_tail(control, ctx=None)
+        assert mock_set.call_args_list == [
+            call(control, 79, 80),
+            call(control, 80, 80),
+        ]
+        mock_uno.assert_not_called()
 
-        class Url:
-            Complete = ""
+    def test_scroll_rich_to_tail_skips_empty(self):
+        from plugin.chatbot.rich_text_control import _scroll_rich_to_tail
 
-        uno = MagicMock()
-        uno.createUnoStruct.side_effect = lambda *_a, **_k: Url()
-        with patch.dict("sys.modules", {"uno": uno}):
-            _dispatch_rich_select_all(control, ctx=None)
-        assert commands[0] == ".uno:SelectAll"
-        assert ".uno:End" in commands
-        assert ".uno:GoRight" in commands
-        assert disp.dispatch.call_count >= 3
+        control = MagicMock()
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=0), \
+             patch("plugin.chatbot.rich_text_control._set_rich_selection_range") as mock_set:
+            _scroll_rich_to_tail(control, ctx=None)
+        mock_set.assert_not_called()
+
+    def test_accessible_set_selection_skips_noop_peer(self):
+        """VCLXWindow has setSelection without getCharacterCount. Walk to XAccessibleText."""
+        from plugin.chatbot.rich_text_control import _accessible_set_selection
+
+        class Text:
+            def __init__(self):
+                self.range = None
+
+            def getCharacterCount(self):
+                return 10
+
+            def setSelection(self, start, end):
+                self.range = (start, end)
+
+        class Peer:
+            def __init__(self):
+                self.child = Text()
+
+            def setSelection(self, *args):
+                raise AssertionError("must not use VCLXWindow setSelection")
+
+            def getAccessibleContext(self):
+                return self
+
+            def getAccessibleChildCount(self):
+                return 1
+
+            def getAccessibleChild(self, _i):
+                return self.child
+
+        peer = Peer()
+        assert _accessible_set_selection(peer, 9, 10) is True
+        assert peer.child.range == (9, 10)
 
     def test_sync_bounds_reveals_caret_after_resize_when_transcript_nonempty(self):
         from types import SimpleNamespace
