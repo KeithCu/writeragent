@@ -279,13 +279,119 @@ def get_toolkit(ctx=None):
 
 # Sidebar query field: restore here after RichTextControl setFocus, not
 # getFocusWindow() (often the Send button after a click, or the transcript).
+# Stock Toolkit has no getFocusWindow (PyUNO hasattr lies → always None).
 _default_focus_restore = None
+_restore_query_after_scroll = True
+_stream_focus_trackers = []
+_stream_rich_control = None
 
 
 def set_default_focus_restore(control) -> None:
     """Pin focus restore to the chat query field (or None on panel dispose)."""
     global _default_focus_restore
     _default_focus_restore = control
+
+
+def note_user_wants_query() -> None:
+    """Mark Ask/instruct as the restore target after a stream SelectAll.
+
+    Called from _do_send next to query.setFocus(), and from query focusGained.
+    """
+    global _restore_query_after_scroll
+    _restore_query_after_scroll = True
+
+
+def restore_query_if_user_still_there() -> None:
+    """After a stream SelectAll, put the caret back in Ask/instruct unless the user left."""
+    if not _restore_query_after_scroll:
+        return
+    q = _default_focus_restore
+    if q is None or not hasattr(q, "setFocus"):
+        return
+    try:
+        q.setFocus()
+        log.debug("restore_query_if_user_still_there")
+    except Exception as e:
+        log.debug("restore_query_if_user_still_there: %s", e)
+
+
+def _current_document_controller(ctx):
+    try:
+        smgr = getattr(ctx, "ServiceManager", None)
+        if smgr is None:
+            return None
+        desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        comp = desktop.getCurrentComponent() if desktop is not None else None
+        if comp is None:
+            return None
+        return comp.getCurrentController()
+    except Exception as e:
+        log.debug("document controller: %s", e)
+        return None
+
+
+def install_stream_focus_tracker(ctx, query=None, rich=None) -> None:
+    """Query focusGained → keep restoring. Document mouse click → stop.
+
+    Window focus listeners miss in-frame query→page clicks (same top-level).
+    Writer's XUserInputInterception mouse handler sees the page click.
+    """
+    global _stream_rich_control, _default_focus_restore
+    if query is not None:
+        _default_focus_restore = query
+    if rich is not None:
+        _stream_rich_control = rich
+    if _stream_focus_trackers:
+        return
+    try:
+        import unohelper
+        from com.sun.star.awt import XFocusListener, XMouseClickHandler
+    except ImportError:
+        return
+
+    class _QueryFocus(unohelper.Base, XFocusListener):
+        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            return
+
+        def focusLost(self, e):  # noqa: N802 -- UNO signature
+            return
+
+        def focusGained(self, e):  # noqa: N802 -- UNO signature
+            global _restore_query_after_scroll
+            _restore_query_after_scroll = True
+            log.debug("stream focus: query")
+
+    class _DocClick(unohelper.Base, XMouseClickHandler):
+        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            return
+
+        def mousePressed(self, e):  # noqa: N802 -- UNO signature
+            global _restore_query_after_scroll
+            _restore_query_after_scroll = False
+            log.debug("stream focus: document click")
+            return False
+
+        def mouseReleased(self, e):  # noqa: N802 -- UNO signature
+            return False
+
+    controller = None
+    try:
+        if query is not None and hasattr(query, "addFocusListener"):
+            q_track = _QueryFocus()
+            query.addFocusListener(q_track)
+            _stream_focus_trackers.append(q_track)
+        controller = _current_document_controller(ctx)
+        if controller is not None and hasattr(controller, "addMouseClickHandler"):
+            d_track = _DocClick()
+            controller.addMouseClickHandler(d_track)
+            _stream_focus_trackers.append(d_track)
+        log.debug(
+            "install_stream_focus_tracker n=%d mouse=%s",
+            len(_stream_focus_trackers),
+            bool(controller is not None and hasattr(controller, "addMouseClickHandler")),
+        )
+    except Exception as e:
+        log.debug("install_stream_focus_tracker: %s", e)
 
 
 def _focus_restore_target(explicit=None):

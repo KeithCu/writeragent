@@ -347,6 +347,35 @@ Add `create_hidden_writer(ctx, *, title="_blank")` to [`plugin/doc/document_help
 
 Run `make test` and the manual QA checklist above after changes. Preserve history batching in `append_rich_messages_via_clipboard`.
 
+### Scroll experiments (2026-08-27)
+
+Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; revert if it fails.
+
+**Keep:** after Send, Ask/instruct keeps focus. If the user clicks into the Writer document during the stream, typing stays there. Stick-to-bottom must not dump keystrokes into the history control.
+
+**Repro:** `make mock-llm` (http://127.0.0.1:18766, model `writeragent-mock`). Chat: any message. Web Research: mock round 0 is `web_search`, then `visit_webpage` / `final_answer`. Success = viewport stays on the newest text.
+
+**What landed:**
+- Stick-to-bottom: after each stream chunk and after HTML copy, `peer.queryDispatch(".uno:SelectAll")` on the **rich control peer** (never the Writer frame).
+- Do not `setFocus` / `reveal_rich_control_caret` / `focus_preserved` on stream append. Those steal the document caret. `control.setSelection` is a no-op on stock.
+- Query after Send: `_do_send` already `query.setFocus()`. SelectAll still focuses the rich peer, so restore Ask/instruct unless the user left.
+- Document during stream: query `focusGained` keeps restoring; Writer `controller.addMouseClickHandler` stops restoring. Toolkit `getFocusWindow` does not exist. Toolkit/window `addFocusListener` only sees top-level windows.
+
+**Did not work (reverted):** idle skip, setFocus/reveal on every chunk, `control.setSelection`, restoring live `getFocusWindow`, toolkit/window focus listeners, `focus_preserved(steal_target=...)`.
+
+**Experiments:**
+
+| # | Change | Result |
+|---|--------|--------|
+| 0-4 | Idle / setFocus / reveal_caret / skip focus_preserved | Fail. Viewport stuck on Line 001. |
+| 5 | `control.setSelection(end, end)` | Fail on stock. Peer is VCLXWindow, not XTextComponent. |
+| 6-7 | `peer.queryDispatch(".uno:SelectAll")` after insert and after HTML copy | Pass. Mid-stream and post-Ready viewport followed the tail (Line 078-080). |
+| 8-9 | Restore live getFocusWindow / steal_target | Fail. getFocusWindow always None. |
+| 10 | No setFocus on stream; keep SelectAll | Partial. Document typing works; query lost after Send (SelectAll steals). |
+| 11-12 | Toolkit / component-window focus listeners | Partial. Query works; document yank — listeners only see top-level windows. |
+| 13 | Query focusGained + Writer `addMouseClickHandler` | Pass. Query after Send (`qqq`). Document click (`xyz`/`zzz`). Stick-to-bottom held. |
+| 14 | Web Research on mock | Scroll passed on content-only mock; hung tool loop round 0 until mock emitted tool_calls. Origin mock already does web_search then final_answer. |
+
 ### Open questions
 
 - Incremental **formatted** HTML during stream (bold/lists live) vs. today’s strip-then-rerender-on-done? (Tag stripping mid-stream is already shipped — do not re-implement that.)

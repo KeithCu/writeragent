@@ -972,6 +972,38 @@ def _insert_string_at_rich_cursor(model, cursor, text, char_color=None) -> None:
         pass
 
 
+def _dispatch_rich_select_all(control, ctx=None) -> None:
+    """Stock stick-to-bottom: SelectAll on the rich peer, never the Writer frame.
+
+    Stock 25.2 peer is VCLXWindow, not XTextComponent, so control.setSelection
+    is a no-op (exp 5). Idle/setFocus/reveal_caret also failed (exp 0-4).
+    OSelectAllDispatcher calls EditView.SetSelection(All()); the range is
+    non-collapsed so ShowCursor runs and the viewport follows the tail.
+
+    Do not setFocus here. That steals the Writer document caret (exp 10).
+    SelectAll still focuses the rich peer, so the caller restores Ask/instruct
+    unless the user clicked the document (install_stream_focus_tracker).
+    """
+    try:
+        peer = control.getPeer() if hasattr(control, "getPeer") else None
+        if peer is None or not hasattr(peer, "queryDispatch"):
+            return
+        import uno
+        url = uno.createUnoStruct("com.sun.star.util.URL")
+        setattr(url, "Complete", ".uno:SelectAll")
+        if ctx is not None and hasattr(ctx, "ServiceManager"):
+            transformer = ctx.ServiceManager.createInstanceWithContext(
+                "com.sun.star.util.URLTransformer", ctx
+            )
+            transformer.parseStrict(url)
+        disp = peer.queryDispatch(url, "", 0)
+        if disp is not None:
+            disp.dispatch(url, ())
+            log_rich_scroll("select_all", control=control)
+    except Exception as e:
+        log.debug("_dispatch_rich_select_all: %s", e)
+
+
 def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=None):
     """Append plain text during assistant streaming with theme assistant color."""
     if not control or not text:
@@ -983,23 +1015,24 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
         model = control.getModel()
         if model is None or not hasattr(model, "createTextCursor"):
             return
-        if auto_scroll and hasattr(control, "setFocus"):
-            control.setFocus()
+        # Do not setFocus on stream. SelectAll already scrolls (exp 6/7).
+        # setFocus + focus_preserved(query) stole document typing (exp 10):
+        # stock Toolkit has no getFocusWindow (PyUNO hasattr lies).
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         _apply_sidebar_para_margins(cursor)
         cursor.CharBackColor = theme.bg_color
         _insert_string_at_rich_cursor(model, cursor, text, theme.assistant_color)
         if auto_scroll:
-            # Large UNO inserts leave EditEngine in IsFormatting(); ShowCursor
-            # no-ops until idle. HTML paste already idles around copy; stream
-            # used to skip this and never followed the caret.
+            _dispatch_rich_select_all(control, ctx)
             process_events_to_idle(ctx, force=True)
-            reveal_rich_control_caret(control, ctx=ctx, reason="append_chunk", _already_focus_preserved=True)
+            # SelectAll steals to the rich peer. Put query back unless a
+            # mouse handler saw the user click the document (exp 13).
+            from plugin.framework.uno_context import restore_query_if_user_still_there
+            restore_query_if_user_still_there()
 
     try:
-        with focus_preserved(ctx):
-            _do_append()
+        _do_append()
     except Exception:
         log.exception("append_text_chunk (rich control) failed")
 

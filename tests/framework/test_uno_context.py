@@ -120,6 +120,24 @@ def test_focus_preserved_prefers_pinned_query_over_toolkit():
     send_btn.setFocus.assert_not_called()
 
 
+def test_restore_query_if_user_still_there():
+    from plugin.framework import uno_context as uc
+
+    query = MagicMock()
+    uc.set_default_focus_restore(query)
+    uc.note_user_wants_query()
+    try:
+        uc.restore_query_if_user_still_there()
+        query.setFocus.assert_called_once()
+        query.reset_mock()
+        uc._restore_query_after_scroll = False
+        uc.restore_query_if_user_still_there()
+        query.setFocus.assert_not_called()
+    finally:
+        uc.set_default_focus_restore(None)
+        uc._restore_query_after_scroll = True
+
+
 def test_process_events_to_idle_calls_toolkit():
     from plugin.framework.uno_context import process_events_to_idle
     from plugin.framework.queue_executor import reset_suppressed_vcl_pump_count

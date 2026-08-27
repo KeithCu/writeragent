@@ -251,9 +251,15 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
                 widget = RichTextChatWidget(self.ctx, rich_control, style_window=root_window)
                 self.rich_text_widget = widget
                 try:
-                    from plugin.framework.uno_context import set_default_focus_restore
+                    from plugin.framework.uno_context import (
+                        install_stream_focus_tracker,
+                        set_default_focus_restore,
+                    )
 
                     set_default_focus_restore(controls.get("query"))
+                    install_stream_focus_tracker(
+                        self.ctx, query=controls.get("query"), rich=rich_control
+                    )
                 except Exception as e:
                     log.debug("set_default_focus_restore: %s", e)
                 controls["response_rich"] = rich_control

@@ -239,7 +239,7 @@ class TestAppendTextChunk:
         assert mock_prop.call_args_list[0].args[1:] == ("ReadOnly", False)
         assert mock_prop.call_args_list[-1].args[1:] == ("ReadOnly", True)
 
-    def test_append_text_chunk_idles_then_reveals(self):
+    def test_append_text_chunk_select_all_not_reveal(self):
         control = MagicMock()
         model = MagicMock()
         cursor = MagicMock()
@@ -249,13 +249,16 @@ class TestAppendTextChunk:
         with patch("plugin.chatbot.rich_text.get_theme_colors", return_value=(0, 0, 0x1E293B)), \
              patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor"), \
              patch("plugin.chatbot.rich_text_control.reveal_rich_control_caret") as mock_reveal, \
+             patch("plugin.chatbot.rich_text_control._dispatch_rich_select_all") as mock_sel, \
              patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle, \
-             patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus):
+             patch("plugin.framework.uno_context.restore_query_if_user_still_there") as mock_restore:
             append_text_chunk(control, " tail", auto_scroll=True, style_window=MagicMock(), ctx=MagicMock())
 
         mock_idle.assert_called()
-        mock_reveal.assert_called_once()
-        assert mock_reveal.call_args.kwargs.get("reason") == "append_chunk"
+        mock_sel.assert_called_once()
+        mock_restore.assert_called_once()
+        mock_reveal.assert_not_called()
+        control.setFocus.assert_not_called()
 
     def test_sync_bounds_reveals_caret_after_resize_when_transcript_nonempty(self):
         from types import SimpleNamespace

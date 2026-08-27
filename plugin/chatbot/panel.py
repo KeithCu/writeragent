@@ -953,6 +953,9 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             # Send button click leaves focus on Send; keep the query field
             # ready for the next question (reveal/scroll must not win later).
             try:
+                from plugin.framework.uno_context import note_user_wants_query
+
+                note_user_wants_query()
                 if hasattr(self.query_control, "setFocus"):
                     self.query_control.setFocus()
             except Exception as e:

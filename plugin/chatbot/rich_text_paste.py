@@ -44,6 +44,7 @@ from plugin.chatbot.rich_text_control import (
     _insert_string_at_rich_cursor,
     _is_automatic_char_color,
     get_control_text_length,
+    _dispatch_rich_select_all,
     log_rich_scroll,
     reveal_rich_control_caret,
 )
@@ -372,6 +373,7 @@ def _copy_formatted_from_hidden_doc_to_control(
 
             if inserted:
                 if auto_scroll:
+                    _dispatch_rich_select_all(control, ctx)
                     reveal_rich_control_caret(control, ctx=ctx, reason="copy", _already_focus_preserved=True)
                 log_rich_scroll("copy_done", control=control, role=role, auto_scroll=int(auto_scroll))
                 log.info(
@@ -449,6 +451,7 @@ def append_rich_messages_via_clipboard(
                 doc, control, ctx, style_window=style_window, auto_scroll=False, cell_link_targets=batch_links,
             ):
                 any_inserted = True
+                _dispatch_rich_select_all(control, ctx)
                 reveal_rich_control_caret(control, ctx=ctx, reason="history_batch")
             else:
                 log.warning(
