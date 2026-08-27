@@ -972,36 +972,51 @@ def _insert_string_at_rich_cursor(model, cursor, text, char_color=None) -> None:
         pass
 
 
-def _dispatch_rich_select_all(control, ctx=None) -> None:
-    """Stock stick-to-bottom: SelectAll on the rich peer, never the Writer frame.
-
-    Stock 25.2 peer is VCLXWindow, not XTextComponent, so control.setSelection
-    is a no-op (exp 5). Idle/setFocus/reveal_caret also failed (exp 0-4).
-    OSelectAllDispatcher calls EditView.SetSelection(All()); the range is
-    non-collapsed so ShowCursor runs and the viewport follows the tail.
-
-    Do not setFocus here. That steals the Writer document caret (exp 10).
-    SelectAll still focuses the rich peer, so the caller restores Ask/instruct
-    unless the user clicked the document (install_stream_focus_tracker).
-    """
+def _dispatch_rich_uno(control, command: str, ctx=None) -> bool:
+    """queryDispatch *command* on the rich peer, never the Writer frame."""
     try:
         peer = control.getPeer() if hasattr(control, "getPeer") else None
         if peer is None or not hasattr(peer, "queryDispatch"):
-            return
+            return False
         import uno
         url = uno.createUnoStruct("com.sun.star.util.URL")
-        setattr(url, "Complete", ".uno:SelectAll")
+        setattr(url, "Complete", command)
         if ctx is not None and hasattr(ctx, "ServiceManager"):
             transformer = ctx.ServiceManager.createInstanceWithContext(
                 "com.sun.star.util.URLTransformer", ctx
             )
             transformer.parseStrict(url)
         disp = peer.queryDispatch(url, "", 0)
-        if disp is not None:
-            disp.dispatch(url, ())
-            log_rich_scroll("select_all", control=control)
+        if disp is None:
+            return False
+        disp.dispatch(url, ())
+        log_rich_scroll("dispatch", control=control, command=command)
+        return True
     except Exception as e:
-        log.debug("_dispatch_rich_select_all: %s", e)
+        log.debug("_dispatch_rich_uno %s: %s", command, e)
+        return False
+
+
+def _dispatch_rich_select_all(control, ctx=None) -> None:
+    """Stock stick-to-bottom: SelectAll on the rich peer, then collapse.
+
+    Stock 25.2 peer is VCLXWindow, not XTextComponent, so control.setSelection
+    is a no-op (exp 5). Idle/setFocus/reveal_caret also failed (exp 0-4).
+    OSelectAllDispatcher calls EditView.SetSelection(All()); the range is
+    non-collapsed so ShowCursor runs and the viewport follows the tail.
+
+    SelectAll paints the whole transcript selected (exp 15). Collapse to the
+    end *before* process_events_to_idle so that highlight never paints.
+    Collapsed carets skip ShowCursor, so SelectAll must still run first.
+
+    Do not setFocus here. That steals the Writer document caret (exp 10).
+    SelectAll still focuses the rich peer, so the caller restores Ask/instruct
+    unless the user clicked the document (install_stream_focus_tracker).
+    """
+    _dispatch_rich_uno(control, ".uno:SelectAll", ctx)
+    # Either command is enough if the peer knows it; missing ones no-op.
+    if not _dispatch_rich_uno(control, ".uno:GoToEndOfDoc", ctx):
+        _dispatch_rich_uno(control, ".uno:End", ctx)
 
 
 def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=None):

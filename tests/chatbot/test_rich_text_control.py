@@ -260,6 +260,32 @@ class TestAppendTextChunk:
         mock_reveal.assert_not_called()
         control.setFocus.assert_not_called()
 
+    def test_select_all_collapses_before_return(self):
+        from plugin.chatbot.rich_text_control import _dispatch_rich_select_all
+
+        commands: list[str] = []
+        peer = MagicMock()
+        disp = MagicMock()
+
+        def query_dispatch(url, *_args):
+            commands.append(getattr(url, "Complete", ""))
+            return disp
+
+        peer.queryDispatch.side_effect = query_dispatch
+        control = MagicMock()
+        control.getPeer.return_value = peer
+
+        class Url:
+            Complete = ""
+
+        uno = MagicMock()
+        uno.createUnoStruct.side_effect = lambda *_a, **_k: Url()
+        with patch.dict("sys.modules", {"uno": uno}):
+            _dispatch_rich_select_all(control, ctx=None)
+        assert commands[0] == ".uno:SelectAll"
+        assert ".uno:GoToEndOfDoc" in commands or ".uno:End" in commands
+        assert disp.dispatch.call_count >= 2
+
     def test_sync_bounds_reveals_caret_after_resize_when_transcript_nonempty(self):
         from types import SimpleNamespace
 

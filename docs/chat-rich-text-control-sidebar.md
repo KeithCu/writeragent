@@ -375,6 +375,7 @@ Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; re
 | 11-12 | Toolkit / component-window focus listeners | Partial. Query works; document yank — listeners only see top-level windows. |
 | 13 | Query focusGained + Writer `addMouseClickHandler` | Pass. Query after Send (`qqq`). Document click (`xyz`/`zzz`). Stick-to-bottom held. |
 | 14 | Web Research on mock | Scroll passed on content-only mock; hung tool loop round 0 until mock emitted tool_calls. Origin mock already does web_search then final_answer. |
+| 15 | After SelectAll, dispatch `.uno:GoToEndOfDoc` (fallback `.uno:End`) on the same peer *before* idle | Un-flash. SelectAll still moves VisArea; collapse so the whole transcript does not paint selected on every chunk. |
 
 ### Open questions
 
