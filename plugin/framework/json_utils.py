@@ -173,9 +173,8 @@ def _deal_json_text_ok_pytest(text: object) -> bool:
 
 
 def _deal_json_text_ok_crosshair(text: object) -> bool:
-    return not isinstance(text, str) or (
-        len(text) <= DEAL_MAX_SOURCE
-        and all(c in _JSON_CHARS for c in text)
+    return isinstance(text, str) and len(text) <= DEAL_MAX_SOURCE and all(
+        c in _JSON_CHARS for c in text
     )
 
 

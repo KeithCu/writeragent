@@ -101,6 +101,8 @@ def _meta_chunks_from_spans(
         and len(s) == 3
         and type(s[0]) is int
         and type(s[1]) is int
+        and 0 <= s[0] <= DEAL_MAX_SOURCE
+        and 0 <= s[1] <= DEAL_MAX_SOURCE
         and type(s[2]) is str
         and ascii_bounded(s[2], DEAL_MAX_SOURCE)
         for s in sentences
@@ -312,6 +314,11 @@ def split_passage_locale_runs_to_chunk_meta(
     lambda text, base_meta, *args, **kwargs: ascii_bounded(text, DEAL_MAX_SOURCE)
     and type(base_meta) is dict
     and len(base_meta) <= DEAL_MAX_SHAPE_DIM
+    and all(
+        type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN)
+        and (v is None or type(v) in (int, float, bool) or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN)))
+        for k, v in base_meta.items()
+    )
     and (kwargs.get("locale_bcp47") is None or ascii_bounded(kwargs.get("locale_bcp47"), DEAL_MAX_TOKEN))
 )
 def split_passage_to_chunk_meta(

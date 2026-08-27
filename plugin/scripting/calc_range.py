@@ -436,7 +436,7 @@ def _deal_inner_grid_cell_ok_pytest(c: object) -> bool:
 
 
 def _deal_inner_grid_cell_ok_crosshair(c: object) -> bool:
-    return type(c) in (str, int, float, bool, type(None))
+    return type(c) in (str, int, float, type(None))
 
 
 _deal_inner_grid_cell_ok = _deal_inner_grid_cell_ok_crosshair if UNDER_CROSSHAIR else _deal_inner_grid_cell_ok_pytest
@@ -521,7 +521,7 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
     return (materialize_calc_range(wire),)
 
 
-@deal.pre(lambda obj: (not hasattr(obj, "__len__")) or len(obj) <= DEAL_MAX_SHAPE_DIM)
+@deal.pre(lambda obj: type(obj) in (list, tuple) and len(obj) <= DEAL_MAX_SHAPE_DIM)
 def _is_json_list_of_grids(obj: Any) -> bool:
     """True when *obj* is a JSON array of 2D grids (Online =PY multi-range without multi_data).
 

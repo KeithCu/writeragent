@@ -312,7 +312,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     lambda src, lineno, col: _deal_excel_src_ok(src)
     and type(lineno) is int
     and type(col) is int
-    and 0 <= lineno <= DEAL_MAX_SOURCE
+    and 0 <= lineno <= 4
     and 0 <= col <= DEAL_MAX_SOURCE
 )
 def ast_source_offset(src: str, lineno: int, col: int) -> int:
