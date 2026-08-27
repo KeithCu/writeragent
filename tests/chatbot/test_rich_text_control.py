@@ -273,6 +273,23 @@ class TestAppendTextChunk:
         # SelectAll is between the two restores so Hidden mode stays.
         assert mock_uno.call_count == 1
 
+    def test_scroll_rich_to_tail_is_not_reentrant(self):
+        from plugin.chatbot import rich_text_control as rtc
+
+        control = MagicMock()
+        calls = {"n": 0}
+
+        def nested(_control, _command, _ctx):
+            calls["n"] += 1
+            rtc._scroll_rich_to_tail(control, ctx=None)
+
+        with patch("plugin.chatbot.rich_text_control._dispatch_rich_uno", side_effect=nested), \
+             patch("plugin.framework.uno_context.restore_query_if_user_still_there"):
+            rtc._scroll_rich_to_tail(control, ctx=None)
+
+        assert calls["n"] == 1
+        assert rtc._IN_SCROLL_TO_TAIL is False
+
     def test_sync_bounds_scrolls_tail_after_resize_when_transcript_nonempty(self):
         from types import SimpleNamespace
 
