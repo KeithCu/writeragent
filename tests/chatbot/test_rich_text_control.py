@@ -283,8 +283,9 @@ class TestAppendTextChunk:
         with patch.dict("sys.modules", {"uno": uno}):
             _dispatch_rich_select_all(control, ctx=None)
         assert commands[0] == ".uno:SelectAll"
-        assert ".uno:GoToEndOfDoc" in commands or ".uno:End" in commands
-        assert disp.dispatch.call_count >= 2
+        assert ".uno:End" in commands
+        assert ".uno:GoRight" in commands
+        assert disp.dispatch.call_count >= 3
 
     def test_sync_bounds_reveals_caret_after_resize_when_transcript_nonempty(self):
         from types import SimpleNamespace

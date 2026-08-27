@@ -455,6 +455,10 @@ def _apply_rich_control_style_defaults_on_model(model, style_window=None) -> Non
         ("PaintTransparent", False),
         ("MultiLine", True),
         ("VScroll", True),
+        # SelectAll stick-to-bottom leaves a selection. When Ask/instruct has
+        # focus that selection is inactive; hide it so typing does not show
+        # the whole transcript highlighted (exp 16).
+        ("HideInactiveSelection", True),
     ):
         _set_model_property(model, name, val)
     try:
@@ -1014,9 +1018,11 @@ def _dispatch_rich_select_all(control, ctx=None) -> None:
     unless the user clicked the document (install_stream_focus_tracker).
     """
     _dispatch_rich_uno(control, ".uno:SelectAll", ctx)
-    # Either command is enough if the peer knows it; missing ones no-op.
-    if not _dispatch_rich_uno(control, ".uno:GoToEndOfDoc", ctx):
-        _dispatch_rich_uno(control, ".uno:End", ctx)
+    # queryDispatch can return a dispatcher that no-ops (exp 15 GoToEndOfDoc
+    # "succeeded" and we never tried End). Always fire edit-view collapse
+    # commands. GoRight after SelectAll should land on the tail.
+    for command in (".uno:End", ".uno:GoToEnd", ".uno:GoRight"):
+        _dispatch_rich_uno(control, command, ctx)
 
 
 def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=None):
@@ -1040,11 +1046,13 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
         _insert_string_at_rich_cursor(model, cursor, text, theme.assistant_color)
         if auto_scroll:
             _dispatch_rich_select_all(control, ctx)
-            process_events_to_idle(ctx, force=True)
-            # SelectAll steals to the rich peer. Put query back unless a
-            # mouse handler saw the user click the document (exp 13).
+            # Restore query BEFORE idle. Idle is what paints. SelectAll
+            # focuses the rich peer; painting then shows an active selection
+            # (exp 15). Query focus first so paint is an inactive selection,
+            # which HideInactiveSelection hides (exp 16).
             from plugin.framework.uno_context import restore_query_if_user_still_there
             restore_query_if_user_still_there()
+            process_events_to_idle(ctx, force=True)
 
     try:
         _do_append()
