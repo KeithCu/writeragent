@@ -11,7 +11,6 @@ log = logging.getLogger(__name__)
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
     ascii_bounded,
@@ -158,9 +157,7 @@ def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
     )
 )
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
-@deal.pre(lambda arguments: (type(arguments) is dict and len(arguments) <= DEAL_MAX_SHAPE_DIM) or (type(arguments) is str and len(arguments) <= 16))
 def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
-    # crosshair: off
     """Chat preview for librarian ToolCall.arguments (dict or JSON string)."""
     d = upsert_memory_arguments_dict(arguments)
     if not d:

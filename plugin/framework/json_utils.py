@@ -193,7 +193,7 @@ def repair_json(text: str) -> str:
     return str(json_repair.repair_json(repaired))
 
 
-@deal.pre(lambda text: str_bounded(text, DEAL_MAX_SOURCE))
+@deal.pre(lambda text, *_unused, **__: not isinstance(text, str) or str_bounded(text, DEAL_MAX_SOURCE))
 def repair_json_object(text: str) -> Any:
     """Repair malformed JSON and return a parsed object (json-repair return_objects=True)."""
     if not isinstance(text, str):

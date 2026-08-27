@@ -358,27 +358,27 @@ class CalcRange:
         return self._unary_op(operator.abs)
 
     # Rich comparisons (aligned through _binary_op: 1x1 returns bool; multi-cell returns bool ndarray)
-    @deal.pre(lambda self, other: type(other) is int)
+    @deal.pre(lambda self, other: len(self._values) <= DEAL_MAX_SHAPE_DIM and (not self._values or len(self._values[0]) <= DEAL_MAX_SHAPE_DIM))
     def __eq__(self, other: Any) -> Any:
         return self._binary_op(other, operator.eq)
 
-    @deal.pre(lambda self, other: type(other) is int)
+    @deal.pre(lambda self, other: len(self._values) <= DEAL_MAX_SHAPE_DIM and (not self._values or len(self._values[0]) <= DEAL_MAX_SHAPE_DIM))
     def __ne__(self, other: Any) -> Any:
         return self._binary_op(other, operator.ne)
 
-    @deal.pre(lambda self, other: type(other) is int)
+    @deal.pre(lambda self, other: len(self._values) <= DEAL_MAX_SHAPE_DIM and (not self._values or len(self._values[0]) <= DEAL_MAX_SHAPE_DIM))
     def __lt__(self, other: Any) -> Any:
         return self._binary_op(other, operator.lt)
 
-    @deal.pre(lambda self, other: type(other) is int)
+    @deal.pre(lambda self, other: len(self._values) <= DEAL_MAX_SHAPE_DIM and (not self._values or len(self._values[0]) <= DEAL_MAX_SHAPE_DIM))
     def __le__(self, other: Any) -> Any:
         return self._binary_op(other, operator.le)
 
-    @deal.pre(lambda self, other: type(other) is int)
+    @deal.pre(lambda self, other: len(self._values) <= DEAL_MAX_SHAPE_DIM and (not self._values or len(self._values[0]) <= DEAL_MAX_SHAPE_DIM))
     def __gt__(self, other: Any) -> Any:
         return self._binary_op(other, operator.gt)
 
-    @deal.pre(lambda self, other: type(other) is int)
+    @deal.pre(lambda self, other: len(self._values) <= DEAL_MAX_SHAPE_DIM and (not self._values or len(self._values[0]) <= DEAL_MAX_SHAPE_DIM))
     def __ge__(self, other: Any) -> Any:
         return self._binary_op(other, operator.ge)
 
@@ -401,7 +401,7 @@ def materialize_calc_range(wire: Any) -> CalcRange:
     return CalcRange(_materialize_inner_grid(wire))
 
 
-@deal.pre(lambda inner: type(inner) is list and len(inner) <= DEAL_MAX_SHAPE_DIM)
+@deal.pre(lambda inner: (not isinstance(inner, (list, tuple))) or len(inner) <= DEAL_MAX_SHAPE_DIM)
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     """Unpack split_grid / ndarray / nested lists to a rectangular ``list[list]``."""
     from plugin.scripting.payload_codec import child_unpack_data, is_split_grid
@@ -467,7 +467,7 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
     return (materialize_calc_range(wire),)
 
 
-@deal.pre(lambda obj: type(obj) is list and len(obj) <= DEAL_MAX_SHAPE_DIM)
+@deal.pre(lambda obj: (not hasattr(obj, "__len__")) or len(obj) <= DEAL_MAX_SHAPE_DIM)
 def _is_json_list_of_grids(obj: Any) -> bool:
     """True when *obj* is a JSON array of 2D grids (Online =PY multi-range without multi_data).
 
