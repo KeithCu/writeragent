@@ -210,11 +210,13 @@ def test_trim_trailing_empty_paragraph_keeps_frame():
     enum.nextElement.return_value = portion
 
     para_rng = MagicMock()
+    para_rng.getString.return_value = ""
     para_rng.createEnumeration.return_value = enum
     body_text.createTextCursorByRange.return_value = para_rng
 
     _trim_trailing_empty_paragraph(doc)
 
+    body_cursor.setString.assert_not_called()
     # prev text.createTextCursorByRange shouldn't be called because it returns early
     assert body_text.createTextCursorByRange.call_count == 1
 
