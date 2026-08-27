@@ -26,6 +26,7 @@ from plugin.notebook.writer_importer import (
     _coerce_notebook_text,
     _create_import_para_style,
     _decode_notebook_image,
+    _trim_trailing_empty_paragraph,
     _DEFAULT_WIDTH,
     _ensure_notebook_import_styles,
     _FIELD_HEIGHT_PAD,
@@ -145,6 +146,99 @@ class _FakePoint:
     def __init__(self, x, y):
         self.X = x
         self.Y = y
+
+
+def test_trim_trailing_empty_paragraph_deletes_when_empty():
+    doc, body_text, body_cursor = _writer_doc_mock()
+    body_cursor.getString.return_value = "   "
+    body_cursor.getPropertyValue.return_value = "Text Body"
+
+    enum = MagicMock()
+    enum.hasMoreElements.return_value = False
+
+    para_rng = MagicMock()
+    para_rng.getString.return_value = ""
+    para_rng.createEnumeration.return_value = enum
+
+    sel = MagicMock()
+    sel.gotoPreviousParagraph.return_value = True
+
+    body_text.createTextCursorByRange.side_effect = [para_rng, sel]
+
+    _trim_trailing_empty_paragraph(doc)
+
+    body_cursor.setString.assert_called_once_with("")
+
+
+def test_trim_trailing_empty_paragraph_keeps_in_prompt():
+    doc, body_text, body_cursor = _writer_doc_mock()
+    body_cursor.getString.return_value = ""
+
+    para_rng = MagicMock()
+    para_rng.getString.return_value = "In [2]:"
+    body_text.createTextCursorByRange.return_value = para_rng
+
+    _trim_trailing_empty_paragraph(doc)
+
+    body_cursor.setString.assert_not_called()
+
+
+def test_trim_trailing_empty_paragraph_keeps_heading():
+    doc, body_text, body_cursor = _writer_doc_mock()
+    body_cursor.getString.return_value = ""
+    body_cursor.getPropertyValue.return_value = "Heading 2"
+
+    para_rng = MagicMock()
+    para_rng.getString.return_value = ""
+    body_text.createTextCursorByRange.return_value = para_rng
+
+    _trim_trailing_empty_paragraph(doc)
+
+    # Text cursor by range is only called once
+    assert body_text.createTextCursorByRange.call_count == 1
+
+
+def test_trim_trailing_empty_paragraph_keeps_frame():
+    doc, body_text, body_cursor = _writer_doc_mock()
+    body_cursor.getString.return_value = ""
+    body_cursor.getPropertyValue.return_value = "Text Body"
+
+    enum = MagicMock()
+    portion = MagicMock()
+    portion.getPropertyValue.return_value = "Frame"
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = portion
+
+    para_rng = MagicMock()
+    para_rng.createEnumeration.return_value = enum
+    body_text.createTextCursorByRange.return_value = para_rng
+
+    _trim_trailing_empty_paragraph(doc)
+
+    # prev text.createTextCursorByRange shouldn't be called because it returns early
+    assert body_text.createTextCursorByRange.call_count == 1
+
+
+def test_insert_html_at_body_end_calls_trim(monkeypatch):
+    doc, body_text, body_cursor = _writer_doc_mock()
+    body_cursor.getString.return_value = ""
+
+    def fake_insert_html(cursor, html, **kwargs):
+        return True
+
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
+
+    trim_called = False
+    def fake_trim(doc):
+        nonlocal trim_called
+        trim_called = True
+
+    monkeypatch.setattr("plugin.notebook.writer_importer._trim_trailing_empty_paragraph", fake_trim)
+
+    import plugin.notebook.writer_importer as wi
+    wi._insert_html_at_body_end(doc, "<p>html</p>", lead_break=False)
+
+    assert trim_called is True
 
 
 def test_import_stack_cursor_place_advances(monkeypatch):

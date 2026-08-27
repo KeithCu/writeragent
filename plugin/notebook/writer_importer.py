@@ -1323,6 +1323,52 @@ def _append_body_text_block(
     _append_body_paragraph(doc, display, para_style, lead_break=lead_break)
 
 
+def _trim_trailing_empty_paragraph(doc: Any) -> None:
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+
+        para_rng = text.createTextCursorByRange(cursor)
+        para_rng.gotoStartOfParagraph(False)
+        para_rng.gotoEndOfParagraph(True)
+        if (para_rng.getString() or "").strip() != "":
+            return
+
+        try:
+            style = str(cursor.getPropertyValue("ParaStyleName") or "")
+        except Exception:
+            style = str(getattr(cursor, "ParaStyleName", "") or "")
+        if "Heading" in style:
+            return
+        try:
+            portions = para_rng.createEnumeration()
+        except Exception:
+            portions = None
+        if portions:
+            psteps = 0
+            while psteps < 64:
+                pmore = portions.hasMoreElements()
+                if pmore is not True and pmore != 1:
+                    break
+                psteps += 1
+                portion = portions.nextElement()
+                try:
+                    ptype = str(portion.getPropertyValue("TextPortionType") or "")
+                except Exception:
+                    ptype = str(getattr(portion, "TextPortionType", "") or "")
+                if ptype == "Frame":
+                    return
+
+        prev = text.createTextCursorByRange(cursor)
+        if prev.gotoPreviousParagraph(False):
+            prev.gotoEndOfParagraph(False)
+            cursor.gotoRange(prev.getEnd(), True)
+            cursor.setString("")
+    except Exception:
+        log.debug("notebook import: trim trailing empty paragraph failed", exc_info=True)
+
+
 def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool) -> bool:
     """Insert an HTML fragment at the document end. Returns False on failure."""
     text = doc.getText()
@@ -1335,6 +1381,7 @@ def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool) -> bool:
 
     try:
         insert_html_fragment_at_cursor(cursor, _wrap_html_fragment(html), wrap=False)
+        _trim_trailing_empty_paragraph(doc)
         return True
     except Exception:
         log.exception("notebook import HTML insert failed; falling back to plain text")
