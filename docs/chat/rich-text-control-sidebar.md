@@ -399,3 +399,4 @@ Live loop on stock LibreOffice (no C++ peer patch). One experiment at a time; re
 - Preserve real `NumberingRules` on paste and drop manual list-prefix reconstruction?
 - Spellcheck/grammar on the transcript?
 - Out-of-process webview still worth it long-term?
+- Create-time whole-control flash (greeting/history SelectAll while viewport is still Std). Pri 7; send/stream paths are Hidden.
