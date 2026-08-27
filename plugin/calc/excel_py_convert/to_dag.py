@@ -190,6 +190,8 @@ def _skip_string(src: str, i: int) -> int:
 @deal.pre(lambda src, *_unused, **__: _deal_excel_src_ok(src))
 @inverse_ensure(lambda *args, result="", **kwargs: len(result) == len(args[0]))
 def _normalize_excel_placeholders(src: str) -> str:
+    # crosshair: off
+    # regex/char-walk on symbolic src; 82331 examples / 119m on cover-all 32987767383 after alphabet pre.
     """Rewrite bare ``%Pn%`` to equal-length ``_Pn_`` so ``ast.parse`` accepts Excel scripts.
 
     Placeholders inside strings and comments are left untouched so quoted
@@ -307,7 +309,7 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
 
 
 @deal.pre(
-    lambda src, lineno, col, *_unused, **__: str_bounded(src, DEAL_MAX_SOURCE)
+    lambda src, lineno, col, *_unused, **__: _deal_excel_src_ok(src)
     and type(lineno) is int
     and 1 <= lineno <= 100
     and type(col) is int

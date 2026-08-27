@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Mapping, Optional, NamedTuple, cast
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.chatbot.memory import format_upsert_memory_chat_line
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, DEAL_MAX_SHAPE_DIM, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, str_bounded, deal
 
 # Short sidebar chat labels for delegate_to_specialized_*_toolset gateway tools.
 DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
@@ -41,7 +41,6 @@ def _describe_empty_response_content(content: Any) -> str:
         and all(isinstance(item, dict) and len(item) <= DEAL_MAX_CMD_ARGS for item in tool_calls)
     )
 )
-@deal.pre(lambda tool_calls: tool_calls is None or (type(tool_calls) is list and len(tool_calls) <= DEAL_MAX_SHAPE_DIM))
 def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
     if tool_calls is None:
         return "none"
@@ -83,7 +82,7 @@ def is_delegate_gateway(func_name: str) -> bool:
     return func_name in DELEGATE_GATEWAY_TOOL_NAMES
 
 
-@deal.pre(lambda func_args: isinstance(func_args, Mapping) and len(func_args) <= DEAL_MAX_SHAPE_DIM)
+@deal.pre(lambda func_args: type(func_args) is dict and len(func_args) <= DEAL_MAX_CMD_ARGS)
 def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
     domain = func_args.get("domain")
     if isinstance(domain, str) and domain.strip():

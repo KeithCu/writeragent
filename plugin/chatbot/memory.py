@@ -158,6 +158,8 @@ def format_upsert_memory_chat_line(func_args: Mapping[str, Any]) -> str:
 )
 @deal.post(lambda result: isinstance(result, str) and result.endswith("\n"))
 def format_upsert_memory_chat_line_from_arguments(arguments: object) -> str:
+    # crosshair: off
+    # safe_json_loads/json.loads CrossHairInternal after DEAL_MAX_SOURCE pre; cover-all 32987767383 ~23m.
     """Chat preview for librarian ToolCall.arguments (dict or JSON string)."""
     d = upsert_memory_arguments_dict(arguments)
     if not d:
