@@ -279,13 +279,25 @@ def test_detect_method():
     filter_comp = JupyterNotebookImportFilter(ctx)
 
     media_descriptor = (MockPropertyValue("URL", "file:///fake/path/notebook.ipynb"),)
-    assert filter_comp.detect(media_descriptor) == "writer_WriterAgent_Jupyter_Notebook"
+    type_name, out_desc = filter_comp.detect(media_descriptor)
+    assert type_name == "writer_WriterAgent_Jupyter_Notebook"
+    assert isinstance(out_desc, tuple)
+    assert len(out_desc) == 1
 
     media_descriptor = (MockPropertyValue("URL", "file:///fake/path/notebook.IPYNB"),)
-    assert filter_comp.detect(media_descriptor) == "writer_WriterAgent_Jupyter_Notebook"
+    type_name, out_desc = filter_comp.detect(media_descriptor)
+    assert type_name == "writer_WriterAgent_Jupyter_Notebook"
+    assert isinstance(out_desc, tuple)
+    assert len(out_desc) == 1
 
     media_descriptor = (MockPropertyValue("URL", "file:///fake/path/document.txt"),)
-    assert filter_comp.detect(media_descriptor) == ""
+    type_name, out_desc = filter_comp.detect(media_descriptor)
+    assert type_name == ""
+    assert isinstance(out_desc, tuple)
+    assert len(out_desc) == 1
 
     media_descriptor = (MockPropertyValue("ReadOnly", True),)
-    assert filter_comp.detect(media_descriptor) == ""
+    type_name, out_desc = filter_comp.detect(media_descriptor)
+    assert type_name == ""
+    assert isinstance(out_desc, tuple)
+    assert len(out_desc) == 1

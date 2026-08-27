@@ -51,3 +51,39 @@ def test_import_filter_uno_load_component(ctx):
     finally:
         if doc is not None:
             doc.close(True)
+
+
+@native_test
+def test_import_filter_uno_detect_without_filtername(ctx):
+    """Load an .ipynb via desktop.loadComponentFromURL without explicit FilterName to test detect()."""
+    desktop = get_desktop(ctx)
+    assert desktop is not None
+
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    fixture_path = os.path.join(
+        repo_root, "tests", "fixtures", "introduction-to-numpy-small.ipynb"
+    )
+    assert os.path.exists(fixture_path), f"Fixture not found: {fixture_path}"
+
+    file_url = uno.systemPathToFileUrl(fixture_path)
+
+    from com.sun.star.beans import PropertyValue
+
+    prop_hidden = PropertyValue()
+    prop_hidden.Name = "Hidden"
+    prop_hidden.Value = True
+
+    doc = desktop.loadComponentFromURL(file_url, "_blank", 0, (prop_hidden,))
+    try:
+        assert doc is not None
+        assert is_writer(doc)
+        state = load_registry(doc)
+        assert state is not None
+        assert len(state.code_cells) > 0
+
+        doc_text = doc.getText().getString()
+        assert "In [" in doc_text
+        assert '"cell_type"' not in doc_text
+    finally:
+        if doc is not None:
+            doc.close(True)

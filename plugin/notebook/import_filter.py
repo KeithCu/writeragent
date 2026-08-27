@@ -47,16 +47,18 @@ class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceIn
         self.target_doc = None
 
     # XExtendedFilterDetection
-    def detect(self, descriptor: Any) -> str:
+    def detect(self, Descriptor: Any) -> Any:  # type: ignore
         file_url = ""
-        for prop in descriptor:
-            if prop.Name == "URL":
-                file_url = prop.Value
+        props = list(Descriptor or ())
+        for prop in props:
+            if getattr(prop, "Name", "") == "URL":
+                file_url = str(prop.Value or "")
                 break
 
-        if file_url and file_url.lower().endswith(".ipynb"):
-            return "writer_WriterAgent_Jupyter_Notebook"
-        return ""
+        type_name = ""
+        if file_url.lower().endswith(".ipynb"):
+            type_name = "writer_WriterAgent_Jupyter_Notebook"
+        return type_name, tuple(props)
 
     # XImporter
     def setTargetDocument(self, doc: Any) -> None:
