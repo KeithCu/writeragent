@@ -629,6 +629,31 @@ def test_specialized_inner_finish_only_when_no_discovery_tools():
     assert "outline" in ((out.tool_args or {}).get("answer") or "").lower()
 
 
+def test_specialized_inner_does_not_walk_delegate_read_document():
+    """Empty-path delegate_read_document loops the inner agent (Packet E7 soak)."""
+    tools = _tools("list_nearby_files", "delegate_read_document", "specialized_workflow_finished")
+    first = decide_completion(
+        {"messages": [{"role": "user", "content": "outline this"}], "tools": tools},
+        MockLLMConfig(delay_ms=0),
+    )
+    assert first.tool_name == "list_nearby_files"
+    second = decide_completion(
+        {
+            "messages": [
+                {"role": "user", "content": "outline this"},
+                {
+                    "role": "user",
+                    "content": 'Action:\n{"name": "list_nearby_files", "arguments": {}}\nObservation:\n[]',
+                },
+            ],
+            "tools": tools,
+        },
+        MockLLMConfig(delay_ms=0),
+    )
+    assert second.tool_name == "specialized_workflow_finished"
+    assert second.content is None
+
+
 def test_mutate_wrapup_is_not_research_wording():
     out = decide_completion(
         {

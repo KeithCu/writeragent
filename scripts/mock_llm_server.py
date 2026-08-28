@@ -69,14 +69,15 @@ _ACTION_NAME_RE = re.compile(
     r'grep_nearby_files|delegate_read_document)"'
 )
 _CURRENT_QUERY_MARKER = "### CURRENT QUERY:"
-# Inner document_research often has no get_document_tree. Call one discovery
+# Inner document_research often has no get_document_tree. Call *one* discovery
 # tool first so Packet E7 shows nested status and E8 has time to click Stop.
+# Do not walk every discovery tool — delegate_read_document with an empty path
+# opens junk files and never reaches specialized_workflow_finished.
 _SPECIALIZED_INNER_PRE_FINISH = (
     "get_document_tree",
     "list_nearby_files",
     "search_nearby_files",
     "grep_nearby_files",
-    "delegate_read_document",
 )
 
 # Phrase → scenario. First match wins. Keep distinct from research/comment keywords.
@@ -579,16 +580,22 @@ def _specialized_inner_args(name: str) -> dict[str, Any]:
         return {"query": "outline"}
     if name == "grep_nearby_files":
         return {"pattern": "outline"}
-    if name == "delegate_read_document":
-        return {"path": ""}
     return {}
 
 
 def _specialized_inner_completion(messages: list[Any], tool_names: set[str]) -> Completion:
     called = _called_tool_names(messages)
     finish_name = "final_answer" if "final_answer" in tool_names else "specialized_workflow_finished"
+    # One discovery step, then finish. Calling every advertised tool (especially
+    # delegate_read_document with path="") loops the inner agent (Packet E7 soak).
+    if any(name in called for name in _SPECIALIZED_INNER_PRE_FINISH):
+        return Completion(
+            tool_name=finish_name,
+            tool_args={"answer": "Mock outline complete. Nested document_research tools finished."},
+            finish_reason="tool_calls",
+        )
     for name in _SPECIALIZED_INNER_PRE_FINISH:
-        if name in tool_names and name not in called:
+        if name in tool_names:
             return Completion(
                 tool_name=name,
                 tool_args=_specialized_inner_args(name),
