@@ -201,6 +201,16 @@ class QueryTextListener(BaseTextListener):
         if not model:
             model = rEvent.Source.getModel()
         text = model.Text.strip()
+        try:
+            src = rEvent.Source
+            ps = src.getPosSize() if hasattr(src, "getPosSize") else None
+            log.info(
+                "[LAYOUT] source=query_text query=%s has_text=%s",
+                ("%sx%s@%s" % (ps.Width, ps.Height, ps.X)) if ps else "?",
+                bool(text),
+            )
+        except Exception:
+            log.info("[LAYOUT] source=query_text has_text=%s", bool(text))
 
         # Dispatch event to the state machine
         self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(text)}))

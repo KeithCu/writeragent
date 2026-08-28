@@ -173,7 +173,8 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             self._in_relayout = False
 
     def on_window_resized(self, rEvent):
-        _resize_debug("windowResized: W=%d H=%d" % (rEvent.Source.getPosSize().Width, rEvent.Source.getPosSize().Height))
+        r = rEvent.Source.getPosSize()
+        log.info("[LAYOUT] source=windowResized root=%dx%d", r.Width, r.Height)
         self.relayout_now(rEvent.Source)
 
     def note_width_negotiated(self, viewport_w: int = 0):
@@ -252,14 +253,19 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         response = layouts.get("response")
         if response is not None:
             self._last_response_rect = (response.x, response.y, response.width, response.height)
+            max_right = 0
+            for rect in layouts.values():
+                max_right = max(max_right, rect.x + rect.width)
             log.info(
-                "[LAYOUT] response_rect x=%d y=%d w=%d h=%d root=%dx%d",
+                "[LAYOUT] response_rect x=%d y=%d w=%d h=%d root=%dx%d max_child_right=%d overflow=%s",
                 response.x,
                 response.y,
                 response.width,
                 response.height,
                 w,
                 h,
+                max_right,
+                "YES" if max_right > w - 2 else "no",
             )
             rich = self._c.get("response_rich")
             if rich is not None:

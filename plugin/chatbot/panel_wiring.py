@@ -209,7 +209,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
                         max_right = max(max_right, pr.X + pr.Width)
                     except Exception:
                         pass
-            log.debug("layout_sanity: root_w=%d max_child_right=%d overflow=%s" % (rw, max_right, "YES" if max_right > rw - 2 else "no"))
+            log.info("[LAYOUT] layout_sanity root_w=%d max_child_right=%d overflow=%s" % (rw, max_right, "YES" if max_right > rw - 2 else "no"))
         except Exception:
             pass
     except Exception:
