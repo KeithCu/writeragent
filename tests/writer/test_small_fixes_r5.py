@@ -203,7 +203,7 @@ def test_add_comment_occurrence_author_and_span():
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
         res = AddComment().execute(ctx, content="note", search="hit", occurrence=1, author="Rev")
     assert res["status"] == "ok" and res["author"] == "Rev" and res["anchor_text"] == "second hit"
-    # Spans the match: cursor covers found, insertTextContent called with absorb=True.
+    # Assert spanning-anchor insert: cursor covers found, absorb=True.
     mtext.createTextCursorByRange.assert_called_once_with(second.getStart.return_value)
     cursor.gotoRange.assert_called_once_with(second.getEnd.return_value, True)
     mtext.insertTextContent.assert_called_once_with(cursor, doc.createInstance.return_value, True)

@@ -122,8 +122,13 @@ class AddComment(ToolBase):
         annotation.setPropertyValue("Author", author)
         annotation.setPropertyValue("Content", content)
         _set_annotation_date(annotation)
-        # Span the match with absorb=True (PR #365 Q15). Use found.getText() so table
-        # cells / frames still work.
+        # Intended spanning-anchor insert (PR #365 Q15): cursor covers the match,
+        # absorb=True. Use found.getText() so table cells / frames still work.
+        # There is no insert/balloon bug. Writer still shows the comment when
+        # View > Comments (ShowAnnotations) is on; a missing balloon is
+        # display-off, not a failed insert. PR #493 switched to a point insert
+        # on that mistaken diagnosis; this restores the original API and keeps
+        # only that PR's field-count check.
         anchor_text = ""
         try:
             anchor_text = found.getString()

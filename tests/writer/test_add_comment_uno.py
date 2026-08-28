@@ -8,7 +8,8 @@
 #
 # add_comment returns structured fields (matched, comment_added, anchor_text) so the agent
 # can tell whether the anchor was found and the comment actually inserted, instead of having
-# to parse the message string.
+# to parse the message string. Native tests also enumerate TextFields to assert the
+# Annotation registered (and that the spanning insert left the matched passage in the body).
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
@@ -47,7 +48,7 @@ def test_add_comment_reports_anchor_found_uno(ctx, doc):
     assert res.get("comment_added") is True, res
     assert res.get("anchor_text") == "Anchor", res
     assert "a note" in _annotation_contents(doc), _annotation_contents(doc)
-    # absorb=True spans the match; it must not eat the anchored text.
+    # Spanning insert: Annotation registered as a TextField; matched passage stays in the body.
     assert "Anchor here please" in doc.getText().getString()
 
 
