@@ -87,3 +87,13 @@ class TestPanelHTMLStripper:
             
             # Should have appended "<b" to response
             mock_set_text.assert_called_with(send.response_control, "Current: a <b")
+
+    def test_finalize_skips_rerender_after_stop(self):
+        """Packet B1: Stop must keep streamed text + [Stopped by user], not paste No response."""
+        send = _make_plain_send_listener()
+        send.rerender_rich_text_session = MagicMock()
+        send._plain_text_stripper = None
+        finalize_sidebar_assistant_response(send, allow_rerender=False)
+        send.rerender_rich_text_session.assert_not_called()
+        finalize_sidebar_assistant_response(send, allow_rerender=True)
+        send.rerender_rich_text_session.assert_called_once()

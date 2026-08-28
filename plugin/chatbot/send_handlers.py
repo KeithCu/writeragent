@@ -832,7 +832,7 @@ class SendHandlersMixin:
 
         from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
-        finalize_sidebar_assistant_response(self)
+        finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
 
     def _get_mcp_url(self: SendHandlerHost) -> str | None:
         """Construct the local MCP streamable-HTTP endpoint URL from config."""

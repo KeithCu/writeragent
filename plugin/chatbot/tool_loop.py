@@ -685,7 +685,7 @@ class ToolCallingMixin:
 
             from plugin.chatbot.rich_text import finalize_sidebar_assistant_response
 
-            finalize_sidebar_assistant_response(self)
+            finalize_sidebar_assistant_response(self, allow_rerender=not self.stop_requested)
         finally:
             self._tool_loop_interpreter = None
             self._active_q = None

@@ -302,9 +302,16 @@ def append_rich_text(doc, text, role="assistant", style_window=None):
         log.exception("Error in append_rich_text: %s", e)
 
 
-def finalize_sidebar_assistant_response(listener) -> None:
-    """Re-import the last assistant message as HTML when rich sidebar is active."""
-    listener.rerender_rich_text_session()
+def finalize_sidebar_assistant_response(listener, *, allow_rerender: bool = True) -> None:
+    """Re-import the last assistant message as HTML when rich sidebar is active.
+
+    Skip rerender after Stop. STOP_REQUESTED stores session content
+    ``No response.``; ``rerender_last_assistant_if_html`` then truncates the
+    stream tail — including the ``[Stopped by user]`` append — and pastes that
+    placeholder (Packet B1: ramble vanished, marker never visible).
+    """
+    if allow_rerender:
+        listener.rerender_rich_text_session()
     stripper = getattr(listener, "_plain_text_stripper", None)
     if stripper is not None:
         leftover = stripper.finalize()
