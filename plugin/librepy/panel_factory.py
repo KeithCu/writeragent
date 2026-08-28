@@ -119,13 +119,13 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
             eff_w,
         )
         with suppress_disposed("getHeightForWidth setPosSize", logger=log):
-            if parent_w != eff_w:
-                sync_childframe_width(self.parent_window, eff_w)
             self.PanelWindow.setPosSize(0, 0, eff_w, current_h, 15)
         rl = getattr(self, "resize_listener", None)
         if rl is not None:
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
                 rl.relayout_now(self.PanelWindow)
+        with suppress_disposed("getHeightForWidth childframe", logger=log):
+            sync_childframe_width(self.parent_window, eff_w)
         return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
 
     def getMinimalWidth(self):

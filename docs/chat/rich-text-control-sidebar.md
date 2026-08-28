@@ -404,6 +404,8 @@ Do not raise `getMinimalWidth` to the HiDPI child extent. DeckLayouter sets max 
 
 Native weld panels (`SidebarPanelBase::getHeightForWidth`) return height only. GTK `ChildFrame` hexpands; `Layout()` sizes the AWT child to the allocation. AWT HiDPI is different: `GtkSalFrame::SetPosSize` on a SYSTEMCHILD calls `gtk_widget_set_size_request`, and that request sticks. Keith 2026-08-27: `parent_after=992` the whole shrink while `deck_hint` 899→806; H-bar vanished only when the column ≥ 992. Sync ChildFrame *width only* to `deck_hint` every layout so the request cannot stay at 992. Do not set HEIGHT (that sticks the 2488 content request).
 
+Create-time (Keith 2026-08-27): `[FIRST LAYOUT] root_w=320 max_child_right=1087 overflow=YES` then `parent=1115`. Relayout used to defer until deck negotiation, so HiDPI XDL kids seeded the H-bar. Clamp children first (even at 320), then set the ChildFrame. Narrow leftover (~2 inches) is that same 1087 − column.
+
 ### Open questions
 
 - Incremental **formatted** HTML during stream (bold/lists live) vs. today’s strip-then-rerender-on-done? (Tag stripping mid-stream is already shipped — do not re-implement that.)

@@ -141,6 +141,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         self._root_window = None
         self._parent_window = None
         self._width_negotiated = False
+        self._viewport_w = 0
         self._last_response_rect = None
 
     @property
@@ -158,9 +159,8 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     def relayout_now(self, win):
         if not win:
             return
-        if not self._width_negotiated and self._snapshot is None:
-            _resize_debug("relayout_now: deferred until deck width negotiated")
-            return
+        # Do not wait for deck negotiation. Keith create-time: root=320 with
+        # max_child_right=1087 seeded the H-bar until the first widen.
         if self._in_relayout:
             _resize_debug("relayout_now: skipped (in_relayout)")
             return
@@ -176,8 +176,10 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         _resize_debug("windowResized: W=%d H=%d" % (rEvent.Source.getPosSize().Width, rEvent.Source.getPosSize().Height))
         self.relayout_now(rEvent.Source)
 
-    def note_width_negotiated(self):
+    def note_width_negotiated(self, viewport_w: int = 0):
         self._width_negotiated = True
+        if viewport_w > 0:
+            self._viewport_w = int(viewport_w)
 
     def _capture_snapshot(self, win):
         r = win.getPosSize()
@@ -219,17 +221,6 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         if w <= 0 or h <= 0:
             return
 
-        # Shrink can skip getHeightForWidth. Keep the ChildFrame request = dialog.
-        parent = getattr(self, "_parent_window", None)
-        if parent is not None:
-            try:
-                pr = parent.getPosSize()
-                if pr.Width != w:
-                    log.info("childframe_sync relayout %s -> %s", pr.Width, w)
-                    sync_childframe_width(parent, w)
-            except Exception:
-                pass
-
         if self._snapshot is None:
             self._capture_snapshot(win)
         snapshot = self._snapshot
@@ -241,10 +232,22 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         if not layouts:
             return
 
+        # Clamp children first so GTK preferred width drops, then the ChildFrame.
         for name, rect in layouts.items():
             ctrl = self._c.get(name)
             if ctrl is not None:
                 self._apply_rect(ctrl, rect)
+
+        viewport = self._viewport_w if self._viewport_w > 0 else w
+        parent = getattr(self, "_parent_window", None)
+        if parent is not None:
+            try:
+                pr = parent.getPosSize()
+                if pr.Width != viewport:
+                    log.info("childframe_sync relayout %s -> %s", pr.Width, viewport)
+                    sync_childframe_width(parent, viewport)
+            except Exception:
+                pass
 
         response = layouts.get("response")
         if response is not None:

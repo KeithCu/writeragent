@@ -207,23 +207,11 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         rl = getattr(self, "resize_listener", None)
         if rl is not None and hasattr(rl, "note_width_negotiated"):
             with suppress_disposed("getHeightForWidth note_width_negotiated", logger=log):
-                rl.note_width_negotiated()
+                rl.note_width_negotiated(eff_w)
         with suppress_disposed("getHeightForWidth setPosSize", logger=log):
-            # Width only on the ChildFrame. HEIGHT would stick Keith's 2488 request.
-            # Native weld never needs this; AWT preferred size on HiDPI does.
-            if parent_w != eff_w:
-                log.info("childframe_sync %s -> %s", parent_w, eff_w)
-                sync_childframe_width(self.parent_window, eff_w)
+            # Dialog first, then clamp children, then ChildFrame. Setting the
+            # ChildFrame while kids still request 1087 lets GTK keep max(875, 1087).
             self.PanelWindow.setPosSize(0, 0, eff_w, current_h, 15)
-            after = self.PanelWindow.getPosSize()
-            parent_after = self.parent_window.getPosSize()
-            log.info(
-                "getHeightForWidth root_after=%sx%s parent_after=%sx%s",
-                after.Width,
-                after.Height,
-                parent_after.Width,
-                parent_after.Height,
-            )
 
         if rl is not None:
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
@@ -233,6 +221,19 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
                 log_rich_scroll("getHeightForWidth_before", control=rich, eff_w=eff_w)
                 rl.relayout_now(self.PanelWindow)
                 log_rich_scroll("getHeightForWidth_after", control=rich, eff_w=eff_w)
+
+        with suppress_disposed("getHeightForWidth childframe", logger=log):
+            log.info("childframe_sync %s -> %s", parent_w, eff_w)
+            sync_childframe_width(self.parent_window, eff_w)
+            after = self.PanelWindow.getPosSize()
+            parent_after = self.parent_window.getPosSize()
+            log.info(
+                "getHeightForWidth root_after=%sx%s parent_after=%sx%s",
+                after.Width,
+                after.Height,
+                parent_after.Width,
+                parent_after.Height,
+            )
 
         return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
 
@@ -332,16 +333,14 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         with suppress_disposed("constrain panel window", logger=log):
             parent_rect = self.xParentWindow.getPosSize()
             current_rect = self.m_panelRootWindow.getPosSize()
-            parent_w = parent_rect.Width if parent_rect else 0
-            current_w = current_rect.Width if current_rect else 0
-            # 180 here used to be XDL AppFont treated as pixels; children are
-            # already ~304px (Clear), so a 180px root overflowed and seeded H-scroll.
-            min_w = self.toolpanel.getMinimalWidth() if self.toolpanel else _PRE_NEGOTIATION_PANEL_WIDTH
-            target_w = sidebar_column_width(0, parent_w, current_w, min_w=min_w)
+            # Cap to 320, not parent. sidebar_column_width(0, 1115) would fill
+            # the HiDPI ChildFrame request and seed the default H-bar.
+            target_w = _PRE_NEGOTIATION_PANEL_WIDTH
             target_h = current_rect.Height if current_rect.Height > 0 else (
                 parent_rect.Height if parent_rect.Height > 0 else 400
             )
             if target_w > 0 and target_h > 0:
+                sync_childframe_width(self.xParentWindow, target_w)
                 self.m_panelRootWindow.setPosSize(0, 0, target_w, target_h, 15)
                 log.debug("panel pre-negotiation constrained to W=%s H=%s" % (target_w, target_h))
         return self.m_panelRootWindow
