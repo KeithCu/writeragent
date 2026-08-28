@@ -26,6 +26,16 @@ def _set_body(doc, text_value):
     text.insertString(cur, text_value, False)
 
 
+def _annotation_contents(doc):
+    out = []
+    enum = doc.getTextFields().createEnumeration()
+    while enum.hasMoreElements():
+        field = enum.nextElement()
+        if field.supportsService("com.sun.star.text.textfield.Annotation"):
+            out.append(field.getPropertyValue("Content"))
+    return out
+
+
 @native_test
 @with_native_doc("writer")
 def test_add_comment_reports_anchor_found_uno(ctx, doc):
@@ -36,6 +46,7 @@ def test_add_comment_reports_anchor_found_uno(ctx, doc):
     assert res.get("matched") is True, res
     assert res.get("comment_added") is True, res
     assert res.get("anchor_text") == "Anchor", res
+    assert "a note" in _annotation_contents(doc), _annotation_contents(doc)
 
 
 @native_test

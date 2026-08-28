@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The 6 smaller R5 fixes: dry_run, apply_style all/occurrence, track_changes_list text/location,
-add_comment span/occurrence/author, insert_page_break anchored, regex/case in apply. No LibreOffice."""
+add_comment point-insert/occurrence/author, insert_page_break anchored, regex/case in apply. No LibreOffice."""
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -159,9 +159,35 @@ def test_apply_style_occurrence_out_of_range():
     assert res["status"] == "error" and "out of range" in res["message"]
 
 
-# ---- D4: add_comment span / occurrence / author -----------------------------
+# ---- D4: add_comment point-insert / occurrence / author ---------------------
 
-def test_add_comment_occurrence_author_and_span():
+class _FiniteEnum:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def hasMoreElements(self):
+        return bool(self._items)
+
+    def nextElement(self):
+        return self._items.pop(0)
+
+
+def _fields_that_grow():
+    """getTextFields mock: empty on first enumeration, one Annotation after insert."""
+    calls = {"n": 0}
+    field = MagicMock()
+    field.supportsService.return_value = True
+    fields = MagicMock()
+
+    def _enum():
+        calls["n"] += 1
+        return _FiniteEnum([] if calls["n"] == 1 else [field])
+
+    fields.createEnumeration.side_effect = _enum
+    return fields
+
+
+def test_add_comment_occurrence_author_and_point_insert():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
@@ -170,12 +196,29 @@ def test_add_comment_occurrence_author_and_span():
     second.getText.return_value = mtext = MagicMock()
     doc.findFirst.return_value = first
     doc.findNext.return_value = second
+    doc.getTextFields.return_value = _fields_that_grow()
     ctx = SimpleNamespace(doc=doc)
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
         res = AddComment().execute(ctx, content="note", search="hit", occurrence=1, author="Rev")
     assert res["status"] == "ok" and res["author"] == "Rev" and res["anchor_text"] == "second hit"
-    # Spans the match: insertTextContent called with absorb=True.
-    assert mtext.insertTextContent.call_args[0][2] is True
+    # Point insert: insertTextContent called with absorb=False at the match start.
+    assert mtext.insertTextContent.call_args[0][2] is False
+    mtext.createTextCursorByRange.assert_called_once_with(second.getStart.return_value)
+
+
+def test_add_comment_errors_when_annotation_does_not_register():
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    found = MagicMock()
+    found.getString.return_value = "hit"
+    found.getText.return_value = MagicMock()
+    doc.findFirst.return_value = found
+    empty = MagicMock()
+    empty.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    doc.getTextFields.return_value = empty
+    res = AddComment().execute(SimpleNamespace(doc=doc), content="note", search="hit")
+    assert res["status"] == "error" and res["comment_added"] is False and res["matched"] is True
 
 
 def test_add_comment_not_found_at_occurrence():

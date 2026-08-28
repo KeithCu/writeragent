@@ -74,9 +74,9 @@ class AddComment(ToolBase):
     name = "add_comment"
     intent = "review"
     description = (
-        "Add a comment/annotation anchored to text matching search. The comment SPANS the "
-        "matched passage (the user sees which text it covers). Use occurrence to target a later "
-        "match and author to sign it."
+        "Add a comment/annotation anchored to text matching search. The comment is inserted "
+        "at the start of the match (visible in Writer's Comments pane). Use occurrence to "
+        "target a later match and author to sign it."
     )
     parameters = {"type": "object", "properties": {
         "content": {"type": "string", "description": "The comment text."},
@@ -122,18 +122,26 @@ class AddComment(ToolBase):
         annotation.setPropertyValue("Author", author)
         annotation.setPropertyValue("Content", content)
         _set_annotation_date(annotation)
-        # Insert SPANNING the match (absorb=True over a cursor covering found), so the annotation
-        # highlights the passage instead of a zero-width point. Anchor in the match's own text
-        # object (cell/frame safe).
+        # Point insert at the start of the match with absorb=False. Spanning via absorb=True
+        # (PR #365) replaced the passage with the field and LibreOffice did not show a balloon.
+        # Anchor in the match's own text object (cell/frame safe).
         anchor_text = ""
         try:
             anchor_text = found.getString()
         except Exception:
             pass
+        before = _count_annotations(doc)
         match_text = found.getText()
         cursor = match_text.createTextCursorByRange(found.getStart())
-        cursor.gotoRange(found.getEnd(), True)
-        match_text.insertTextContent(cursor, annotation, True)
+        match_text.insertTextContent(cursor, annotation, False)
+        if _count_annotations(doc) <= before:
+            return {
+                "status": "error",
+                "message": "Comment insert did not register an annotation.",
+                "matched": True,
+                "comment_added": False,
+                "anchor_text": anchor_text or search_text,
+            }
 
         return {"status": "ok", "message": "Comment added.", "author": author, "matched": True, "comment_added": True, "anchor_text": anchor_text or search_text}
 
@@ -450,6 +458,28 @@ class CommentCheckStop(ToolWriterCommentBase):
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
+
+
+def _count_annotations(doc):
+    """How many Annotation text fields are on *doc* (0 if the enumeration is unusable)."""
+    n = 0
+    try:
+        enum = doc.getTextFields().createEnumeration()
+    except Exception:
+        return 0
+    while True:
+        try:
+            if not enum.hasMoreElements():
+                break
+            field = enum.nextElement()
+        except Exception:
+            break
+        try:
+            if field.supportsService("com.sun.star.text.textfield.Annotation"):
+                n += 1
+        except Exception:
+            continue
+    return n
 
 
 def _set_annotation_date(annotation):
