@@ -7,12 +7,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 64
 MIN_CHUNK = 120
 DEFAULT_SENTENCE_LOCALE = "en@ss=standard"
+
+# cover-all 33180040863: _sentences_spans_ok ~15m / _split_passage_whitespace ~24m (regex).
+_DEAL_SENT_LIST_LEN = 2 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
+_DEAL_SENT_SPAN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_DEAL_SENT_TEXT_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
 def _embeddings_pip_install_hint() -> str:
@@ -95,16 +100,16 @@ def _meta_chunks_from_spans(
 
 @deal.pre(
     lambda sentences: type(sentences) is list
-    and len(sentences) <= DEAL_MAX_SHAPE_DIM
+    and len(sentences) <= _DEAL_SENT_LIST_LEN
     and all(
         type(s) is tuple
         and len(s) == 3
         and type(s[0]) is int
         and type(s[1]) is int
-        and 0 <= s[0] <= DEAL_MAX_SOURCE
-        and 0 <= s[1] <= DEAL_MAX_SOURCE
+        and 0 <= s[0] <= _DEAL_SENT_SPAN
+        and 0 <= s[1] <= _DEAL_SENT_SPAN
         and type(s[2]) is str
-        and ascii_bounded(s[2], DEAL_MAX_SOURCE)
+        and ascii_bounded(s[2], _DEAL_SENT_TEXT_LEN)
         for s in sentences
     )
 )
@@ -208,6 +213,8 @@ def _merge_small_sentences_to_spans(
 
 @deal.pre(lambda passage: ascii_bounded(passage, DEAL_MAX_SOURCE))
 def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int, str]]:
+    # Regex splitter is engine-hostile under CrossHair (cover-all 33180040863 ~24m).
+    # crosshair: off
     from plugin.writer.locale.grammar_proofread_locale import GRAMMAR_WHITESPACE_RUN_RE, split_sentence_chunks_by_separator_regex
 
     sentences: list[tuple[int, int, str]] = []

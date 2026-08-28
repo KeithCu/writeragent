@@ -102,14 +102,15 @@ PROVIDERS: Dict[str, ProviderConfig] = {
 
 
 _URL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._:/")
-# cover-all 33127995861: _resolve_provider_id 231k lines at URL=32 (substring scan).
-_DEAL_RESOLVE_URL_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_URL
+# cover-all 33127995861: 231k at URL=32; 33180040863 still ~53m / 230k at URL=8.
+_DEAL_RESOLVE_URL_LEN = 3 if UNDER_CROSSHAIR else DEAL_MAX_URL
+_DEAL_RESOLVE_HINT_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
 
 
 @deal.pre(
     lambda endpoint, provider_hint=None: ascii_bounded(endpoint, _DEAL_RESOLVE_URL_LEN)
     and all(c in _URL_CHARS for c in endpoint)
-    and (provider_hint is None or ascii_bounded(provider_hint, DEAL_MAX_TOKEN))
+    and (provider_hint is None or ascii_bounded(provider_hint, _DEAL_RESOLVE_HINT_LEN))
 )
 def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> str:
     """
