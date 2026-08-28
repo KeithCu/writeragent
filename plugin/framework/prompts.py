@@ -134,6 +134,11 @@ Prioritize what reduces future user steering."""
 
 
 # Shared venv Python prompt text (run_venv_python_script, =PY(), delegate domain=python).
+# CALC_FORMULA_SYNTAX still shows inline =PY("…"; range). Typical scripts fit in
+# Calc MAXSTRLEN (1024) because of auto-imports and domain helpers. If Err:513
+# becomes common for generated formulas, prefer the two-cell pattern
+# (=PY($A$1; range) — Monaco already follows that ref) instead of lengthening
+# this prompt. Not scheduled.
 PYTHON_VENV_AUTO_IMPORTS_ALIASES = "`numpy` (as `np`), `sympy` (as `sp`), `pandas` (as `pd`), `scipy.stats` (as `st`), `matplotlib.pyplot` (as `plt`), `plugin.scripting.calc_functions` (as `calc`), standard library `math`, `datetime` (as `dt`), `re`, `random`, `statistics`, `collections`, `itertools`, `json`, and `csv`. When `=PY` has data range args, a binding-only `xl(\"%Pn%\")` helper is also injected (Excel import; not a live sheet read)"
 
 # Populated at module end (after full constants init) to avoid import cycles via smolagents.

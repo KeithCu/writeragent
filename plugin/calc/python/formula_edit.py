@@ -635,6 +635,45 @@ def rebuild_python_formula_with_data(
     return f'{prefix}"{escaped}"{build_data_suffix(data_args, separator=separator, excel_ranges=excel_escape or separator == ",")}'
 
 
+def py_code_arg_is_cell_ref(code: str) -> bool:
+    """True when ``=PY``'s first argument is a single cell address, not Python.
+
+    ``=PY($A$1; data)`` / ``=PY(Sheet.A1)`` store source in that cell. Ranges
+    (``A1:B10``) and unquoted Python (``sp.prime(100)``) return False.
+    """
+    if type(code) is not str:
+        return False
+    s = code.strip()
+    if not s or ":" in s or "\n" in s:
+        return False
+    from plugin.calc.address_utils import parse_address, split_sheet_prefix
+
+    _sheet, rest = split_sheet_prefix(s)
+    bare = rest.replace("$", "").strip()
+    if not bare:
+        return False
+    try:
+        parse_address(bare)
+    except ValueError:
+        return False
+    return True
+
+
+def py_formula_has_unquoted_code_ref(formula: str) -> bool:
+    """True when the formula is ``=PY($A$1; …)`` (unquoted), not ``=PY(\"A1\")``."""
+    parts = parse_python_formula(formula)
+    if parts is None or not py_code_arg_is_cell_ref(parts.code):
+        return False
+    raw = normalize_formula_string(formula)
+    start = _py_call_open_end(raw, require_equals=True)
+    if start is None:
+        return False
+    body = raw[start:]
+    if body.endswith(")"):
+        body = body[:-1]
+    return not body.strip().startswith('"')
+
+
 def rebuild_python_formula_with_code_ref(
     code_ref: str,
     data_args: list[str],

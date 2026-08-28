@@ -33,6 +33,7 @@
   var suppressDirty = false;
   var dataBindingTitle = "Calc injects `data` and `ranges` from these range(s) at runtime.";
   var dataBindingDisabledTitle = "Data ranges apply only when saving as a =PYTHON() formula.";
+  var followCodeRef = false;
   var completeTimer = null;
   var completeSeq = 0;
 
@@ -179,6 +180,7 @@
     sessionTarget = msg.target && typeof msg.target === "object" ? msg.target : {};
     var isRunScript = currentMode === "run_script";
     var isCalcCell = currentMode === "calc_cell";
+    followCodeRef = !!msg.follow_code_ref;
 
     setToolbarVisible("btn-run", isRunScript);
     setToolbarVisible("cell-addr", isCalcCell);
@@ -259,7 +261,7 @@
     var plainEl = getPlainTextCheckbox();
     var input = getDataBindingInput();
     var label = document.getElementById("data-binding-label");
-    var disabled = !!plainEl && plainEl.checked;
+    var disabled = !!plainEl && plainEl.checked && !followCodeRef;
     if (input) {
       input.disabled = disabled;
       input.title = disabled ? dataBindingDisabledTitle : dataBindingTitle;

@@ -29,7 +29,9 @@ from plugin.calc.python.formula_edit import (
     format_data_binding_text,
     parse_data_binding_text,
     parse_python_formula,
+    py_formula_has_unquoted_code_ref,
     rebuild_python_formula,
+    rebuild_python_formula_with_code_ref,
     rebuild_python_formula_with_data,
 )
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
@@ -78,6 +80,38 @@ def _parse_cell_python_formula(cell: Any) -> tuple[str, PythonFormulaParts | Non
         if parts is not None:
             return parts.code, parts, raw
     return "", None, None
+
+
+def _same_calc_cell(left: Any, right: Any) -> bool:
+    if left is right:
+        return True
+    try:
+        a = left.getCellAddress()
+        b = right.getCellAddress()
+        return int(a.Column) == int(b.Column) and int(a.Row) == int(b.Row) and int(a.Sheet) == int(b.Sheet)
+    except Exception:
+        return False
+
+
+def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
+    """Resolve ``$A$1`` / ``Sheet.A1`` to a cell, or None if the address is bad."""
+    try:
+        from plugin.calc.address_utils import split_sheet_prefix
+        from plugin.calc.bridge import CalcBridge
+
+        sheet, rest = split_sheet_prefix(code_ref.strip())
+        bare = rest.replace("$", "").strip()
+        if not bare:
+            return None
+        if sheet:
+            needs_quotes = any(not (c.isalnum() or c == "_") for c in sheet) or sheet[:1].isdigit()
+            addr = f"'{sheet}'.{bare}" if needs_quotes else f"{sheet}.{bare}"
+        else:
+            addr = bare
+        return CalcBridge(doc).get_cell_by_address(addr)
+    except Exception:
+        log.debug("python_editor: could not resolve code ref %r", code_ref, exc_info=True)
+        return None
 
 
 def _load_cell_editor_code(cell: Any) -> tuple[str, PythonFormulaParts | None, str | None]:
@@ -303,8 +337,38 @@ def _apply_plain_text_save(doc: Any, cell: Any, *, new_code: str) -> dict[str, A
     }
 
 
-def editor_load_save_as_plain(*, parsed_parts: PythonFormulaParts | None, initial_code: str) -> bool:
+def _apply_followed_ref_save(
+    doc: Any,
+    formula_cell: Any,
+    *,
+    code_cell: Any,
+    code_ref: str,
+    new_code: str,
+    data_binding_text: str | None,
+) -> dict[str, Any]:
+    """Write Python to the referenced code cell; keep ``=PY($A$1; …)`` as a ref."""
+    code_cell.setString(new_code)
+    if data_binding_text is not None:
+        data_args = parse_data_binding_text(data_binding_text)
+        formula_cell.setFormula(rebuild_python_formula_with_code_ref(code_ref, data_args))
+    _recalculate_after_save(doc)
+    return {
+        "type": "saved",
+        "ok": True,
+        "save_as_plain": True,
+        "status_ok_text": _("Saved without =PY()."),
+    }
+
+
+def editor_load_save_as_plain(
+    *,
+    parsed_parts: PythonFormulaParts | None,
+    initial_code: str,
+    follow_code_ref: bool = False,
+) -> bool:
     """Default plain-text checkbox on editor load: on for plain cells, off for ``=PY()`` or empty."""
+    if follow_code_ref:
+        return True
     return parsed_parts is None and bool(initial_code.strip())
 
 
@@ -316,7 +380,22 @@ def _apply_cell_save(
     new_code: str,
     save_as_plain: bool,
     data_binding_text: str | None = None,
+    code_cell: Any | None = None,
+    code_ref: str | None = None,
 ) -> dict[str, Any]:
+    if (
+        code_cell is not None
+        and code_ref
+        and not _same_calc_cell(code_cell, cell)
+    ):
+        return _apply_followed_ref_save(
+            doc,
+            cell,
+            code_cell=code_cell,
+            code_ref=code_ref,
+            new_code=new_code,
+            data_binding_text=data_binding_text,
+        )
     if save_as_plain:
         return _apply_plain_text_save(doc, cell, new_code=new_code)
     return _apply_formula_save(
@@ -336,10 +415,25 @@ def _launch_editor_with_code(
     initial_code: str,
     parsed_parts: PythonFormulaParts | None,
     exe: str,
+    code_cell: Any | None = None,
+    code_ref: str | None = None,
 ) -> None:
+    follow = bool(code_ref and code_cell is not None and not _same_calc_cell(code_cell, cell))
     data_binding = format_data_binding_display(parsed_parts.data_suffix) if parsed_parts else ""
+    display_cell = code_cell if follow else cell
 
     def on_save(code: str, save_as_plain: bool, data_binding: str | None = None, _action: str = "cell_save") -> dict[str, Any]:
+        if follow:
+            return _apply_cell_save(
+                doc,
+                cell,
+                parsed_parts=parsed_parts,
+                new_code=code,
+                save_as_plain=True,
+                data_binding_text=data_binding,
+                code_cell=code_cell,
+                code_ref=code_ref,
+            )
         binding = None if save_as_plain else data_binding
         return _apply_cell_save(
             doc,
@@ -360,14 +454,17 @@ def _launch_editor_with_code(
         "code": initial_code,
         "title": _("Python cell editor"),
         "plain_text_label": _("Save without =PY()"),
-        "save_as_plain": editor_load_save_as_plain(parsed_parts=parsed_parts, initial_code=initial_code),
+        "save_as_plain": editor_load_save_as_plain(
+            parsed_parts=parsed_parts, initial_code=initial_code, follow_code_ref=follow
+        ),
         "save_label": _("Save"),
         "show_plain_text": True,
         "show_data_binding": True,
+        "follow_code_ref": follow,
         "data_binding": data_binding,
-        "cell_address": format_cell_a1(cell),
+        "cell_address": format_cell_a1(display_cell),
         "doc_url": "",
-        "resource": format_cell_a1(cell),
+        "resource": format_cell_a1(display_cell),
     }
     try:
         from plugin.scripting.document_scripts import document_scripts_identity
@@ -416,12 +513,37 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
         return
     doc, cell, _formula = resolved
 
+    # Follow =PY($A$1) into A1 (plain code cell). Do not quote the ref on save.
+    # Prompting the LLM to emit this two-cell pattern is deferred: auto-imports
+    # and helpers usually fit in Calc MAXSTRLEN (1024). Revisit CALC_FORMULA_SYNTAX
+    # if Err:513 shows up for generated =PY("…").
     initial_code, parsed_parts, source_formula = _load_cell_editor_code(cell)
+    code_cell: Any | None = None
+    code_ref: str | None = None
+    if parsed_parts is not None and source_formula and py_formula_has_unquoted_code_ref(source_formula):
+        followed = _resolve_code_ref_cell(doc, parsed_parts.code)
+        if followed is None:
+            msgbox(
+                ctx,
+                product_display_name(ctx),
+                _("Could not open the code cell {0}.").format(parsed_parts.code),
+            )
+            return
+        if not _same_calc_cell(followed, cell):
+            try:
+                initial_code = str(followed.getString() or "")
+            except Exception:
+                log.debug("python_editor: code-cell getString failed", exc_info=True)
+                initial_code = ""
+            code_cell = followed
+            code_ref = parsed_parts.code
+
     log.info(
-        "python_editor: initial_code len=%s parsed=%s source=%r",
+        "python_editor: initial_code len=%s parsed=%s source=%r follow=%s",
         len(initial_code),
         parsed_parts is not None,
         (source_formula or "")[:80],
+        code_ref,
     )
 
     if parsed_parts is None and _cell_has_unparsed_python(cell):
@@ -447,6 +569,8 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
             initial_code=initial_code,
             parsed_parts=parsed_parts,
             exe=exe,
+            code_cell=code_cell,
+            code_ref=code_ref,
         )
         log.info("python_editor: editor session started")
         return
@@ -460,6 +584,8 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
         cell=cell,
         initial_code=initial_code,
         parsed_parts=parsed_parts,
+        code_cell=code_cell,
+        code_ref=code_ref,
     )
     if opened:
         return

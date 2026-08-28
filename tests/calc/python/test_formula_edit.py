@@ -18,6 +18,8 @@ from plugin.calc.python.formula_edit import (
     normalize_formula_string,
     parse_data_binding_text,
     parse_python_formula,
+    py_code_arg_is_cell_ref,
+    py_formula_has_unquoted_code_ref,
     rebuild_python_formula,
     rebuild_python_formula_with_data,
     replace_python_code,
@@ -94,6 +96,26 @@ def test_parse_unquoted_code():
     parts = parse_python_formula("=PYTHON(sp.prime(100))")
     assert parts is not None
     assert parts.code == "sp.prime(100)"
+
+
+def test_py_code_arg_is_cell_ref():
+    assert py_code_arg_is_cell_ref("A1") is True
+    assert py_code_arg_is_cell_ref("$A$1") is True
+    assert py_code_arg_is_cell_ref("Sheet1.A1") is True
+    assert py_code_arg_is_cell_ref("Sheet1!$B$2") is True
+    assert py_code_arg_is_cell_ref("A1:B10") is False
+    assert py_code_arg_is_cell_ref("sp.prime(100)") is False
+    assert py_code_arg_is_cell_ref('result = 1') is False
+    assert py_code_arg_is_cell_ref("np.sum(data)") is False
+    assert py_code_arg_is_cell_ref("") is False
+
+
+def test_py_formula_has_unquoted_code_ref():
+    assert py_formula_has_unquoted_code_ref("=PY($A$1; C1:C10)") is True
+    assert py_formula_has_unquoted_code_ref("=PY(A1)") is True
+    assert py_formula_has_unquoted_code_ref('=PY("A1")') is False
+    assert py_formula_has_unquoted_code_ref('=PY("result = 1"; A1)') is False
+    assert py_formula_has_unquoted_code_ref("=PY(sp.prime(100))") is False
 
 
 def test_normalize_array_and_no_equals():
