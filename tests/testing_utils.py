@@ -1300,13 +1300,61 @@ def create_mock_client():
     mock_client.config.get.return_value = False
     return mock_client
 
-def create_mock_http_response(status_code=200, json_data=None):
-    """Creates a mock HTTP response object."""
+def create_mock_http_response(
+    status_code=200,
+    json_data=None,
+    *,
+    reason=None,
+    body=None,
+    sse_lines=None,
+    iter_side_effect=None,
+    headers=None,
+):
+    """Mock ``http.client.HTTPResponse`` for pytest (no UNO, no live HTTP).
+
+    * ``json_data`` / ``body`` feed sync ``response.read()``.
+    * ``sse_lines`` feeds ``for line in response`` / ``iterate_sse`` (bytes or str).
+    * ``iter_side_effect`` is raised after those lines (timeout / connection reset
+      mid-stream). HTTP 4xx/5xx use ``status`` + ``reason`` + body; they are not
+      retried by ``LlmClient``.
+    """
     from unittest.mock import MagicMock
+    import http.client
     import json
 
     mock_resp = MagicMock()
     mock_resp.status = status_code
-    if json_data is not None:
-        mock_resp.read.return_value = json.dumps(json_data).encode()
+    mock_resp.reason = (
+        reason if reason is not None else http.client.responses.get(status_code, "")
+    )
+    header_map = dict(headers or {})
+
+    def _getheader(name, default=None):
+        return header_map.get(name, header_map.get(str(name).lower(), default))
+
+    mock_resp.getheader.side_effect = _getheader
+
+    if body is None and json_data is not None:
+        body = json.dumps(json_data).encode("utf-8")
+    mock_resp.read.return_value = b"" if body is None else body
+
+    lines = []
+    if sse_lines is not None:
+        for line in sse_lines:
+            if isinstance(line, str):
+                line = line.encode("utf-8")
+            if not line.endswith(b"\n"):
+                line = line + b"\n"
+            lines.append(line)
+
+    if iter_side_effect is not None:
+        def _iter():
+            yield from lines
+            raise iter_side_effect
+
+        # return_value (not side_effect): ``for line in response`` matches
+        # existing LlmClient tests that set ``__iter__.return_value = iter(...)``.
+        mock_resp.__iter__.return_value = _iter()
+    else:
+        mock_resp.__iter__.return_value = iter(lines)
     return mock_resp

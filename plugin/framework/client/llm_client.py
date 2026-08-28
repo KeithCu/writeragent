@@ -558,6 +558,12 @@ class LlmClient:
                                 log.exception("streaming_loop: JSON decode error in payload: %s", payload)
                             continue
 
+                        # Valid JSON that is not an object (array / string / number) is not a
+                        # chat chunk. .get would raise and abort the stream; skip so later
+                        # well-formed chunks can still apply.
+                        if type(chunk) is not dict:
+                            continue
+
                         chunk_model = chunk.get("model")
                         if chunk_model and used_model is None:
                             used_model = str(chunk_model)

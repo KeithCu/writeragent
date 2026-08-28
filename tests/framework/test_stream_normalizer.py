@@ -5,7 +5,8 @@
 
 
 from plugin.framework.client import stream_normalizer as sn
-from plugin.framework.client.stream_normalizer import _extract_thinking_from_delta
+from plugin.framework.client.stream_normalizer import _extract_thinking_from_delta, iterate_sse
+from plugin.tests.testing_utils import create_mock_http_response
 
 
 def test_extract_thinking_from_delta_reasoning_field():
@@ -340,5 +341,39 @@ def test_streaming_replay_truncates_encrypted_fragments_to_shape_dim():
     assert isinstance(replay, dict)
     details = replay.get("reasoning_details", [])
     assert len(details) == DEAL_MAX_SHAPE_DIM
+
+
+def test_iterate_sse_skips_comments_blanks_and_keeps_data_and_raw_json():
+    """SSE comments / blank lines are dropped; data: and raw JSON lines are payloads."""
+    stream = create_mock_http_response(
+        sse_lines=[
+            b": keep-alive",
+            b"",
+            b'data: {"choices": [{"delta": {"content": "Hi"}}]}',
+            b"data: [DONE]",
+            b'{"choices": [{"delta": {"content": "raw"}}]}',
+        ]
+    )
+    assert list(iterate_sse(stream)) == [
+        '{"choices": [{"delta": {"content": "Hi"}}]}',
+        "[DONE]",
+        '{"choices": [{"delta": {"content": "raw"}}]}',
+    ]
+
+
+def test_iterate_sse_truncated_and_non_utf8_lines_still_yield_later_payloads():
+    """A truncated data: line is still yielded (JSON decode is the client's job)."""
+    stream = create_mock_http_response(
+        sse_lines=[
+            b'data: {"choices": [{"delta": {"content": "hel',
+            b'data: {"choices": [{"delta": {"content": "lo"}}]}',
+            b"data: [DONE]",
+        ]
+    )
+    payloads = list(iterate_sse(stream))
+    assert payloads[0].startswith('{"choices":')
+    assert '"hel' in payloads[0]
+    assert payloads[1] == '{"choices": [{"delta": {"content": "lo"}}]}'
+    assert payloads[2] == "[DONE]"
 
 

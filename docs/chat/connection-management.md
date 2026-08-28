@@ -48,6 +48,8 @@ LocalHttpsCertificateFallback     # local HTTPS verified-to-unverified retry pol
 6. **SSL Handling**: Public HTTPS is always verified. Local HTTPS starts verified and retries unverified only after a certificate verification failure (self-signed Ollama/LM Studio).
 7. **Transient Retry**: Retries one connection failure on a fresh connection if no stream tokens have been delivered yet. After the first content/thinking token, a reset is surfaced as connection-lost (retrying would duplicate text). User stop still exits without retry. HTTP 429/5xx are not retried.
 
+Pytest (no UNO): [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py) drives this with [`create_mock_http_response`](../../tests/testing_utils.py) — 503/429 do not retry, one timeout/reset retry before tokens, `CONNECTION_LOST` after the first token, and malformed / truncated SSE chunks are skipped. Parser unit tests: [`tests/framework/test_stream_normalizer.py`](../../tests/framework/test_stream_normalizer.py) (`iterate_sse`).
+
 ### Current Limitations
 
 The existing system works well for sequential requests but has some limitations:

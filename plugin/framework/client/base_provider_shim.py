@@ -67,8 +67,12 @@ class BaseProviderShim:
         from .stream_normalizer import _extract_thinking_from_delta
 
         choices = chunk.get("choices", [])
-        choice = choices[0] if choices else {}
-        delta = choice.get("delta", {})
+        # Unexpected schema (string "choices", non-dict first element) used to
+        # AttributeError on .get and abort the whole stream. Treat as no choice
+        # so later valid chunks can still apply.
+        choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+        delta_raw = choice.get("delta", {})
+        delta = delta_raw if isinstance(delta_raw, dict) else {}
 
         finish_reason = choice.get("finish_reason") if choice else None
         if not finish_reason:
