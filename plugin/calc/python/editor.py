@@ -31,7 +31,6 @@ from plugin.calc.python.formula_edit import (
     parse_python_formula,
     py_formula_has_unquoted_code_ref,
     rebuild_python_formula,
-    rebuild_python_formula_with_code_ref,
     rebuild_python_formula_with_data,
 )
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
@@ -347,10 +346,17 @@ def _apply_followed_ref_save(
     data_binding_text: str | None,
 ) -> dict[str, Any]:
     """Write Python to the referenced code cell; keep ``=PY($A$1; …)`` as a ref."""
+    from plugin.calc.python.formula_edit import CALC_PYTHON_FN, build_data_suffix
+
     code_cell.setString(new_code)
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
-        formula_cell.setFormula(rebuild_python_formula_with_code_ref(code_ref, data_args))
+        # Keep the original ref token ($A$1, Sheet1.$B$2). rebuild_python_formula_with_code_ref
+        # runs format_py_data_range, which strips $ — that turns an absolute code ref
+        # relative, so copying the formula after save would follow the wrong cell.
+        formula_cell.setFormula(
+            f"={CALC_PYTHON_FN}({code_ref.strip()}{build_data_suffix(data_args)})"
+        )
     _recalculate_after_save(doc)
     return {
         "type": "saved",

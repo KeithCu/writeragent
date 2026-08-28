@@ -113,6 +113,8 @@ def test_py_code_arg_is_cell_ref():
 def test_py_formula_has_unquoted_code_ref():
     assert py_formula_has_unquoted_code_ref("=PY($A$1; C1:C10)") is True
     assert py_formula_has_unquoted_code_ref("=PY(A1)") is True
+    assert py_formula_has_unquoted_code_ref("=PYTHON($A$1; C1:C10)") is True
+    assert py_formula_has_unquoted_code_ref("=PY(Sheet1.$B$2)") is True
     assert py_formula_has_unquoted_code_ref('=PY("A1")') is False
     assert py_formula_has_unquoted_code_ref('=PY("result = 1"; A1)') is False
     assert py_formula_has_unquoted_code_ref("=PY(sp.prime(100))") is False

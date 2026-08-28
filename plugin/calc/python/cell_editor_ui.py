@@ -151,7 +151,15 @@ class NativePythonCellEditorDialog:
             log.debug("native cell editor: CellAddr failed", exc_info=True)
 
     def _following_ref(self) -> bool:
-        return bool(self._code_ref) and self._code_cell is not None and self._code_cell is not self._cell
+        from plugin.calc.python.editor import _same_calc_cell
+
+        # UNO often hands back distinct proxies for the same cell; identity (`is`)
+        # would treat a self-ref as a follow. Address compare matches editor.py.
+        return (
+            bool(self._code_ref)
+            and self._code_cell is not None
+            and not _same_calc_cell(self._code_cell, self._cell)
+        )
 
     def _apply_load(self, initial_code: str) -> None:
         from plugin.calc.python.editor import editor_load_save_as_plain
