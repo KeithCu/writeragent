@@ -317,4 +317,4 @@ def test_attach_leave_query_listeners_adds_mouse_and_focus():
         control.addFocusListener.assert_called_once()
         assert len(uc._stream_focus_trackers) == 2
     finally:
-        uc._stream_focus_trackers[:] = saved()
+        uc._stream_focus_trackers[:] = saved
