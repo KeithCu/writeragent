@@ -323,8 +323,8 @@ Assign by packet id (`A`–`H`). Do not skip the “why hard” line — that is
 
 | ID | Mock | Steps | Pass | Watch |
 |----|------|-------|------|-------|
-| B1 | `--delay-ms 40`, type `keep talking` (or `--scenario ramble`) | Click **Stop** while words still arrive | Stream stops; button returns to Send; **next hello works** | no second nested drain; Stop stays clickable during stream (`pump_ui_idle`) |
-| B2 | ramble | Stop, immediately Send again | No double-stream, no stuck “Starting…” | worker join / `_active_q` cleared |
+| B1 | `--delay-ms 40`, type `keep talking` (or `--scenario ramble`) | Click **Stop** while words still arrive | Stream stops; `[Stopped by user]`; button returns to Send/Record; **next hello works** | `Stop clicked` / `StopButtonListener: STOP_CLICKED` in the log; drain is **not** inside Send `actionPerformed`; no second nested drain |
+| B2 | ramble | Stop, immediately Send again | No double-stream, no stuck “Starting…” | `_active_q` cleared in tool-loop `finally`; reused `LlmClient` re-registers on the new send scope |
 | B3 | ramble | Click Stop twice | Second click is a no-op, not a crash | |
 | B4 | empty query box, venv configured | Record → Stop Rec without speaking long | Button Record ↔ Stop Rec ↔ Send; no send if truly empty and no wav | `SendEventKind.RECORD_CLICKED` / `STOP_REC_CLICKED` |
 | B5 | ramble | Resize / click other sidebar widgets **during** stream | UI paints; Stop still works | drain owns `processEventsToIdle` |

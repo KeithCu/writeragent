@@ -147,7 +147,15 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
 
     Worker threads must use this (or ``scope.is_cancelled``) so Stop stays latched after
     the main thread clears ``panel._send_cancellation`` when the drain loop exits.
+
+    When both *scope* and *fallback* are set, either latch is enough: Stop can
+    fire after SEND_CLICKED but before the deferred drain enters ``agent_session``.
     """
+    if scope is not None and fallback is not None:
+        def _cancelled() -> bool:
+            return scope.is_cancelled() or fallback()
+
+        return _cancelled
     if scope is not None:
         return scope.is_cancelled
     if fallback is not None:
@@ -156,11 +164,16 @@ def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[]
 
 
 @contextmanager
-def agent_session() -> Generator[SendCancellation, None, None]:
-    """Mark a chat/agent session as active and expose a :class:`SendCancellation` scope."""
+def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancellation, None, None]:
+    """Mark a chat/agent session as active and expose a :class:`SendCancellation` scope.
+
+    Pass an existing *scope* when Stop must be able to cancel before the drain
+    body starts (Send ``actionPerformed`` returns, then AsyncCallback runs drain).
+    """
     global _AGENT_ACTIVE_COUNT
-    scope = SendCancellation()
-    scope.bind_executor(default_executor)
+    if scope is None:
+        scope = SendCancellation()
+        scope.bind_executor(default_executor)
     token = _current_send_cancellation.set(scope)
     with _AGENT_ACTIVE_LOCK:
         _AGENT_ACTIVE_COUNT += 1

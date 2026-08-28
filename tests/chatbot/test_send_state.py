@@ -129,3 +129,13 @@ def test_stop_clicked_when_idle_emits_no_stop_send():
     tr = next_state(state, SendEvent(SendEventKind.STOP_CLICKED))
     assert tr.state == state
     assert not any(isinstance(e, StopSendEffect) for e in tr.effects)
+
+
+def test_stop_clicked_twice_while_busy_stays_busy():
+    """Packet B3: second Stop while winding down must not leave the FSM."""
+    state = SendButtonState(True, False, True, False, True)
+    tr = next_state(state, SendEvent(SendEventKind.STOP_CLICKED))
+    tr2 = next_state(tr.state, SendEvent(SendEventKind.STOP_CLICKED))
+    assert tr2.state.is_busy is True
+    assert tr2.state.is_recording is False
+    assert any(isinstance(e, StopSendEffect) for e in tr2.effects)

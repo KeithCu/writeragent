@@ -87,7 +87,7 @@ class ToolLoopHost(Protocol):
     _terminal_status: str
 
     # Session I/O handles for the effect interpreter (not FSM control state).
-    _active_q: "queue.Queue[Any]"
+    _active_q: "queue.Queue[Any] | None"
     _active_client: "LlmClient"
     _active_max_tokens: int
     _active_tools: list[dict[str, Any]]
@@ -267,6 +267,13 @@ class ToolCallingMixin:
             self.client = LlmClient(api_config, self.ctx)
         else:
             self.client.config = api_config
+            # Reused clients registered on the previous send's scope; Stop on
+            # this send must close HTTP via the current SendCancellation.
+            from plugin.framework.queue_executor import get_current_send_cancellation
+
+            reuse_scope = get_current_send_cancellation()
+            if reuse_scope is not None:
+                reuse_scope.register_client(self.client)
         assert self.client is not None
         client = self.client
 
@@ -681,6 +688,8 @@ class ToolCallingMixin:
             finalize_sidebar_assistant_response(self)
         finally:
             self._tool_loop_interpreter = None
+            self._active_q = None
+            self._active_batched_q = None
             self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=None)
 
     def begin_inline_web_approval(self, query: str, tool: str, event: Any) -> None:

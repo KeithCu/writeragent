@@ -219,6 +219,24 @@ def test_stop_checker_stays_true_after_panel_clears_scope_reference():
     assert stop_checker() is True
 
 
+def test_bind_send_stop_checker_ors_fallback_before_scope_cancel():
+    from plugin.framework.queue_executor import bind_send_stop_checker
+
+    scope = SendCancellation()
+    checker = bind_send_stop_checker(scope, lambda: True)
+    assert not scope.is_cancelled()
+    assert checker() is True
+
+
+def test_agent_session_reuses_existing_scope():
+    existing = SendCancellation()
+    existing.cancel()
+    with agent_session(existing) as scope:
+        assert scope is existing
+        assert scope.is_cancelled()
+    assert is_agent_active() is False
+
+
 class TestSendCancellationHooksLocking:
     """Regression tests for _on_cancel_hooks not being lock-protected.
 

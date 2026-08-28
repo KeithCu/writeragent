@@ -14,6 +14,9 @@ from unittest.mock import MagicMock, patch
 
 from plugin.framework.config_schema import _get_schema_default
 from plugin.chatbot.panel import QueryKeyListener, SendButtonListener, query_enter_triggers_primary_send
+from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind
+from plugin.chatbot.sidebar_state import SidebarCompositeState
+from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.queue_executor import SendCancellation
 
 
@@ -77,6 +80,54 @@ class SendDisposeTests(unittest.TestCase):
         self.assertTrue(listener._stop_requested_fallback)
         self.assertIsNone(listener.ctx)
         self.assertIsNone(listener.panel)
+
+    def test_start_send_posts_drain_off_action_listener(self) -> None:
+        """Send must return from actionPerformed before drain so GTK delivers Stop."""
+        listener = _make_send_listener()
+        posted: list = []
+        listener.queue_executor.post = lambda fn, *a, **k: posted.append(fn)
+        listener._do_send = MagicMock()
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        self.assertEqual(len(posted), 1)
+        listener._do_send.assert_not_called()
+        self.assertTrue(listener.sidebar_state.send.is_busy)
+        self.assertIsNotNone(listener._send_cancellation)
+        posted[0]()
+        listener._do_send.assert_called_once()
+
+    def test_stop_before_deferred_drain_skips_do_send(self) -> None:
+        listener = _make_send_listener()
+        posted: list = []
+        listener.queue_executor.post = lambda fn, *a, **k: posted.append(fn)
+        listener._do_send = MagicMock()
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+        self.assertTrue(listener._stop_requested_fallback)
+        self.assertTrue(listener._send_cancellation.is_cancelled())
+        posted[0]()
+        listener._do_send.assert_not_called()
+
+    def test_record_start_failure_does_not_leave_stop_rec(self) -> None:
+        """Nested ERROR during RECORD_CLICKED used to restore Stop Rec after resetting is_recording."""
+        listener = _make_send_listener()
+        listener.sidebar_state = SidebarCompositeState(
+            send=SendButtonState(False, False, False, False, True),
+            tool_loop=None,
+            audio=AudioRecorderState(status="idle"),
+        )
+        send_model = MagicMock()
+        send_model.Label = "Record"
+        listener.send_control.getModel.return_value = send_model
+        listener.stop_control.getModel.return_value = MagicMock()
+        listener.audio_recorder = MagicMock()
+        listener.audio_recorder.start_recording.side_effect = RuntimeError("no microphone")
+        listener._append_response = MagicMock()
+        listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
+        self.assertFalse(listener.sidebar_state.send.is_recording)
+        self.assertFalse(listener.sidebar_state.send.is_busy)
+        self.assertNotEqual(send_model.Label, "Stop Rec")
 
 
 class _MockDisposedException(Exception):

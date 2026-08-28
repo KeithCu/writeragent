@@ -327,6 +327,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._approval_event = None
         self._approval_ui_backup = None
         self._approval_query_for_engine = None
+        self._dispatch_reenter: list[Any] | None = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
         self.queue_executor = QueueExecutor(ctx=ctx)
@@ -383,8 +384,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     @property
     def stop_requested(self) -> bool:
         scope = getattr(self, "_send_cancellation", None)
-        if scope is not None:
-            return scope.is_cancelled()
+        if scope is not None and scope.is_cancelled():
+            return True
         return self._stop_requested_fallback
 
     @stop_requested.setter
@@ -785,8 +786,19 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self.sidebar_state = tr.state
         self._send_busy = self.sidebar_state.send.is_busy
 
-        for effect in tr.effects:
-            self._interpret_effect(effect)
+        # Nested dispatch during an effect (e.g. Record start failure) must run
+        # after remaining effects. RECORD_CLICKED emits UpdateUIEffect after
+        # StartRecordingEffect; a nested ERROR_OCCURRED used to restore Stop Rec
+        # on a listener that was no longer recording.
+        reenter: list[Any] = []
+        self._dispatch_reenter = reenter
+        try:
+            for effect in tr.effects:
+                self._interpret_effect(effect)
+        finally:
+            self._dispatch_reenter = None
+        for nested in reenter:
+            self.dispatch(nested)
 
     def _on_audio_auto_stop(self) -> None:
         """Silence detector ended capture; same FSM path as clicking Stop Rec (stop + send)."""
@@ -832,7 +844,11 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                     self.audio_recorder.start_recording()
                 except RuntimeError as re:
                     self._append_response("\n[Audio error: %s]\n" % str(re))
-                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+                    pending = getattr(self, "_dispatch_reenter", None)
+                    if pending is not None:
+                        pending.append(SendEvent(SendEventKind.ERROR_OCCURRED))
+                    else:
+                        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 self.sync_audio_slice()
 
             case StopRecordingEffect():
@@ -850,34 +866,25 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 self.sync_audio_slice()
 
             case StartSendEffect():
+                from plugin.framework.queue_executor import SendCancellation, default_executor
+
                 self._stop_requested_fallback = False
                 self._terminal_status = "Ready"
-                try:
-                    from plugin.framework.queue_executor import agent_session
-
-                    # Scope is cleared in finally; workers use resolve_stop_checker().
-                    with agent_session() as cancel_scope:
-                        cancel_scope.bind_executor(self.queue_executor)
-                        self._send_cancellation = cancel_scope
-                        try:
-                            self._do_send()
-                        finally:
-                            self._send_cancellation = None
-                except Exception as e:
-                    doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
-                    log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
-                    self._append_response("\n\n[Error: %s]\n" % str(e))
-                    self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-                finally:
-                    update_activity_state("")
-                    if self._terminal_status == "Error":
-                        self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
-                    else:
-                        self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                        if self._terminal_status:
-                            self._set_status(_(self._terminal_status))
+                # Create the scope before posting so a Stop click between Send
+                # returning and the AsyncCallback drain still latches cancel.
+                scope = SendCancellation()
+                scope.bind_executor(default_executor)
+                scope.bind_executor(self.queue_executor)
+                self._send_cancellation = scope
+                # Bug: drain used to run inside Send actionPerformed. On GTK,
+                # processEventsToIdle from that stack does not deliver a second
+                # dialog ActionEvent, so Stop looked enabled but never fired
+                # (Packet B ramble completed all 200 words). Post to the next
+                # VCL tick so the listener returns first.
+                self.queue_executor.post(self._run_send_drain)
 
             case StopSendEffect():
+                log.info("Stop clicked (cancel in-flight send)")
                 scope = getattr(self, "_send_cancellation", None)
                 if scope is not None:
                     scope.cancel()
@@ -904,6 +911,36 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
     # _transcribe_audio_async is provided by SendHandlersMixin.
+
+    def _run_send_drain(self) -> None:
+        """Run ``_do_send`` on a VCL tick after Send ``actionPerformed`` returns."""
+        from plugin.framework.i18n import _
+        from plugin.framework.queue_executor import agent_session
+
+        try:
+            with agent_session(getattr(self, "_send_cancellation", None)) as cancel_scope:
+                cancel_scope.bind_executor(self.queue_executor)
+                self._send_cancellation = cancel_scope
+                try:
+                    if cancel_scope.is_cancelled() or self._stop_requested_fallback:
+                        log.info("Send drain skipped (Stop before drain started)")
+                        return
+                    self._do_send()
+                finally:
+                    self._send_cancellation = None
+        except Exception as e:
+            doc_type_for_log = getattr(self, "initial_doc_type", "unknown")
+            log.exception("SendButton unhandled exception [doc: %s]", doc_type_for_log)
+            self._append_response("\n\n[Error: %s]\n" % str(e))
+            self._terminal_status = "Error"
+        finally:
+            update_activity_state("")
+            if self._terminal_status == "Error":
+                self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
+            else:
+                self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+                if self._terminal_status:
+                    self._set_status(_(self._terminal_status))
 
     def _get_doc_type_str(self, model):
         from plugin.doc.doc_type import doc_type_title_for_label
@@ -1149,6 +1186,7 @@ class StopButtonListener(BaseActionListener):
                 self.send_listener._finish_inline_web_approval(False)
                 return
         if self.send_listener:
+            log.info("StopButtonListener: STOP_CLICKED")
             self.send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
 
