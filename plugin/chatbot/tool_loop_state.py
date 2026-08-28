@@ -388,10 +388,7 @@ def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
 )
 @deal.ensure(lambda state, event, result: event.kind != EventKind.STOP_REQUESTED or result.state.is_stopped)
 @deal.ensure(lambda state, event, result: not state.is_stopped or result.state.is_stopped)
-@deal.ensure(
-    lambda state, event, result: not state.is_stopped
-    or len(result.state.pending_tools) >= len(state.pending_tools)
-)
+@deal.ensure(lambda state, event, result: not state.is_stopped or len(result.state.pending_tools) >= len(state.pending_tools))
 @deal.ensure(lambda state, event, result: stopped_effects_exclude_tool_spawns(result.state, result.effects))
 @deal.ensure(lambda state, event, result: result.state.round_num <= max(state.round_num + 1, state.max_rounds))
 def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[ToolLoopState]:
