@@ -74,9 +74,9 @@ class AddComment(ToolBase):
     name = "add_comment"
     intent = "review"
     description = (
-        "Add a comment/annotation anchored to text matching search. The comment is inserted "
-        "at the start of the match (visible in Writer's Comments pane). Use occurrence to "
-        "target a later match and author to sign it."
+        "Add a comment/annotation anchored to text matching search. The comment SPANS the "
+        "matched passage (the user sees which text it covers). Use occurrence to target a later "
+        "match and author to sign it."
     )
     parameters = {"type": "object", "properties": {
         "content": {"type": "string", "description": "The comment text."},
@@ -122,16 +122,8 @@ class AddComment(ToolBase):
         annotation.setPropertyValue("Author", author)
         annotation.setPropertyValue("Content", content)
         _set_annotation_date(annotation)
-        # Point insert at the match start (absorb=False), in found.getText() so table
-        # cells / frames work. PR #365 Q15 tried to SPAN the passage with absorb=True
-        # over found so Writer would highlight which text the comment covers. That is
-        # the wrong API: insertTextContent(..., absorb=True) REPLACES the range with
-        # the Annotation field (a point PostIt). Writer then draws no balloon, and
-        # the matched text can disappear, while the tool still returns comment_added.
-        # A real range comment needs a different path — select the match, then
-        # dispatch .uno:InsertAnnotation (what Insert > Comment uses on a selection),
-        # or ODF annotation-start / annotation-end marks. TODO: research that if we
-        # want spanning highlights later. Do not go back to absorb=True.
+        # Span the match with absorb=True (PR #365 Q15). Use found.getText() so table
+        # cells / frames still work.
         anchor_text = ""
         try:
             anchor_text = found.getString()
@@ -140,7 +132,8 @@ class AddComment(ToolBase):
         before = _count_annotations(doc)
         match_text = found.getText()
         cursor = match_text.createTextCursorByRange(found.getStart())
-        match_text.insertTextContent(cursor, annotation, False)
+        cursor.gotoRange(found.getEnd(), True)
+        match_text.insertTextContent(cursor, annotation, True)
         if _count_annotations(doc) <= before:
             return {
                 "status": "error",

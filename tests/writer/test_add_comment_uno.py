@@ -47,6 +47,8 @@ def test_add_comment_reports_anchor_found_uno(ctx, doc):
     assert res.get("comment_added") is True, res
     assert res.get("anchor_text") == "Anchor", res
     assert "a note" in _annotation_contents(doc), _annotation_contents(doc)
+    # absorb=True spans the match; it must not eat the anchored text.
+    assert "Anchor here please" in doc.getText().getString()
 
 
 @native_test

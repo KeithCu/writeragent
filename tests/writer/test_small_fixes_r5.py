@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The 6 smaller R5 fixes: dry_run, apply_style all/occurrence, track_changes_list text/location,
-add_comment point-insert/occurrence/author, insert_page_break anchored, regex/case in apply. No LibreOffice."""
+add_comment span/occurrence/author, insert_page_break anchored, regex/case in apply. No LibreOffice."""
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -159,7 +159,7 @@ def test_apply_style_occurrence_out_of_range():
     assert res["status"] == "error" and "out of range" in res["message"]
 
 
-# ---- D4: add_comment point-insert / occurrence / author ---------------------
+# ---- D4: add_comment span / occurrence / author -----------------------------
 
 class _FiniteEnum:
     def __init__(self, items):
@@ -187,13 +187,15 @@ def _fields_that_grow():
     return fields
 
 
-def test_add_comment_occurrence_author_and_point_insert():
+def test_add_comment_occurrence_author_and_span():
     from plugin.writer.specialized.comments import AddComment
 
     doc = MagicMock()
     first, second = MagicMock(), MagicMock()
     second.getString.return_value = "second hit"
     second.getText.return_value = mtext = MagicMock()
+    cursor = MagicMock()
+    mtext.createTextCursorByRange.return_value = cursor
     doc.findFirst.return_value = first
     doc.findNext.return_value = second
     doc.getTextFields.return_value = _fields_that_grow()
@@ -201,9 +203,10 @@ def test_add_comment_occurrence_author_and_point_insert():
     with patch("plugin.writer.specialized.comments._set_annotation_date"):
         res = AddComment().execute(ctx, content="note", search="hit", occurrence=1, author="Rev")
     assert res["status"] == "ok" and res["author"] == "Rev" and res["anchor_text"] == "second hit"
-    # Point insert: insertTextContent called with absorb=False at the match start.
-    assert mtext.insertTextContent.call_args[0][2] is False
+    # Spans the match: cursor covers found, insertTextContent called with absorb=True.
     mtext.createTextCursorByRange.assert_called_once_with(second.getStart.return_value)
+    cursor.gotoRange.assert_called_once_with(second.getEnd.return_value, True)
+    mtext.insertTextContent.assert_called_once_with(cursor, doc.createInstance.return_value, True)
 
 
 def test_add_comment_errors_when_annotation_does_not_register():
