@@ -309,6 +309,24 @@ def note_user_wants_query() -> None:
     _restore_query_after_scroll = True
 
 
+def note_user_left_query() -> None:
+    """Stop restoring Ask/instruct after stream SelectAll.
+
+    Bug: ``restore_query_if_user_still_there()`` runs on every stream chunk and
+    calls ``query.setFocus()``. That aborts an in-flight Stop click so GTK/VCL
+    never delivers ``ActionEvent`` (Packet B1: Stop looked enabled, ramble ran
+    to word199, no ``STOP_CLICKED`` in the log). Sidebar Stop/Clear/other
+    controls call this on mouseEntered/mousePressed/focusGained — earlier than
+    ActionEvent — so later chunks no-op the restore and the click can finish.
+    Writer page clicks use the same flag (document ``XMouseClickHandler``).
+    """
+    global _restore_query_after_scroll
+    if not _restore_query_after_scroll:
+        return
+    _restore_query_after_scroll = False
+    log.debug("stream focus: left query")
+
+
 def restore_query_if_user_still_there() -> None:
     """After a stream SelectAll, put the caret back in Ask/instruct unless the user left."""
     if not _restore_query_after_scroll:
@@ -338,11 +356,68 @@ def _current_document_controller(ctx):
         return None
 
 
-def install_stream_focus_tracker(ctx, query=None, rich=None) -> None:
-    """Query focusGained → keep restoring. Document mouse click → stop.
+def _attach_leave_query_listeners(control) -> None:
+    """Stop restoring Ask/instruct when the user targets this sidebar control.
+
+    Document page clicks are handled by ``XMouseClickHandler``; sidebar Stop
+    is not on that path. mouseEntered is earlier than ActionEvent.
+    """
+    if control is None:
+        return
+    try:
+        import unohelper
+        from com.sun.star.awt import XFocusListener, XMouseListener
+    except ImportError:
+        return
+
+    class _LeaveQueryFocus(unohelper.Base, XFocusListener):
+        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            return
+
+        def focusLost(self, e):  # noqa: N802 -- UNO signature
+            return
+
+        def focusGained(self, e):  # noqa: N802 -- UNO signature
+            note_user_left_query()
+            log.debug("stream focus: sidebar control")
+
+    class _LeaveQueryMouse(unohelper.Base, XMouseListener):
+        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            return
+
+        def mousePressed(self, e):  # noqa: N802 -- UNO signature
+            note_user_left_query()
+
+        def mouseReleased(self, e):  # noqa: N802 -- UNO signature
+            return
+
+        def mouseEntered(self, e):  # noqa: N802 -- UNO signature
+            note_user_left_query()
+
+        def mouseExited(self, e):  # noqa: N802 -- UNO signature
+            return
+
+    try:
+        if hasattr(control, "addMouseListener"):
+            mouse_track = _LeaveQueryMouse()
+            control.addMouseListener(mouse_track)
+            _stream_focus_trackers.append(mouse_track)
+        if hasattr(control, "addFocusListener"):
+            focus_track = _LeaveQueryFocus()
+            control.addFocusListener(focus_track)
+            _stream_focus_trackers.append(focus_track)
+    except Exception as e:
+        log.debug("leave-query listeners: %s", e)
+
+
+def install_stream_focus_tracker(ctx, query=None, rich=None, leave_query_controls=None) -> None:
+    """Query focusGained → keep restoring. Document / sidebar pointer → stop.
 
     Window focus listeners miss in-frame query→page clicks (same top-level).
     Writer's XUserInputInterception mouse handler sees the page click.
+    Sidebar Stop/Clear/other widgets are not on that handler — pass them as
+    *leave_query_controls* so stream ``query.setFocus()`` does not steal the
+    click (Packet B1).
     """
     global _stream_rich_control, _default_focus_restore
     if query is not None:
@@ -365,8 +440,7 @@ def install_stream_focus_tracker(ctx, query=None, rich=None) -> None:
             return
 
         def focusGained(self, e):  # noqa: N802 -- UNO signature
-            global _restore_query_after_scroll
-            _restore_query_after_scroll = True
+            note_user_wants_query()
             log.debug("stream focus: query")
 
     class _DocClick(unohelper.Base, XMouseClickHandler):
@@ -374,8 +448,7 @@ def install_stream_focus_tracker(ctx, query=None, rich=None) -> None:
             return
 
         def mousePressed(self, e):  # noqa: N802 -- UNO signature
-            global _restore_query_after_scroll
-            _restore_query_after_scroll = False
+            note_user_left_query()
             log.debug("stream focus: document click")
             return False
 
@@ -393,6 +466,9 @@ def install_stream_focus_tracker(ctx, query=None, rich=None) -> None:
             d_track = _DocClick()
             controller.addMouseClickHandler(d_track)
             _stream_focus_trackers.append(d_track)
+        for ctrl in leave_query_controls or ():
+            if ctrl is not None and ctrl is not query:
+                _attach_leave_query_listeners(ctrl)
         log.debug(
             "install_stream_focus_tracker n=%d mouse=%s",
             len(_stream_focus_trackers),

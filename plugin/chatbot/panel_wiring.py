@@ -259,7 +259,21 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
 
                     set_default_focus_restore(controls.get("query"))
                     install_stream_focus_tracker(
-                        self.ctx, query=controls.get("query"), rich=rich_control
+                        self.ctx,
+                        query=controls.get("query"),
+                        rich=rich_control,
+                        leave_query_controls=(
+                            controls.get("stop"),
+                            controls.get("clear"),
+                            controls.get("send"),
+                            controls.get("btn_settings"),
+                            controls.get("btn_python"),
+                            controls.get("btn_latex"),
+                            controls.get("btn_search"),
+                            controls.get("btn_hamburger"),
+                            controls.get("chat_mode_selector"),
+                            controls.get("model_selector"),
+                        ),
                     )
                 except Exception as e:
                     log.debug("set_default_focus_restore: %s", e)

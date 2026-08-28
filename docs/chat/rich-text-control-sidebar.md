@@ -216,6 +216,9 @@ flowchart LR
 |----------|------|
 | `focus_preserved(ctx)` | Context manager: capture focus window, yield, restore (query field stays focused during RichTextControl mutations) |
 | `process_events_to_idle(ctx, rounds=1)` | Drain UI events between append / caret-reveal steps |
+| `restore_query_if_user_still_there()` | After stream SelectAll, `query.setFocus()` only while the user still wants Ask/instruct |
+| `note_user_left_query()` | Stop restoring (Stop/Clear/other sidebar pointer, Writer page click) so stream `setFocus` cannot abort Stop |
+| `install_stream_focus_tracker` | Query focusGained → restore; document click + `leave_query_controls` mouse/focus → leave |
 
 ### Key APIs (`rich_text_paste.py`)
 
@@ -323,7 +326,7 @@ Assign by packet id (`A`–`H`). Do not skip the “why hard” line — that is
 
 | ID | Mock | Steps | Pass | Watch |
 |----|------|-------|------|-------|
-| B1 | `--delay-ms 40`, type `keep talking` (or `--scenario ramble`) | Click **Stop** while words still arrive | Stream stops; `[Stopped by user]`; button returns to Send/Record; **next hello works** | `Stop clicked` / `StopButtonListener: STOP_CLICKED` in the log; drain is **not** inside Send `actionPerformed`; no second nested drain |
+| B1 | `--delay-ms 40`, type `keep talking` (or `--scenario ramble`) | Click **Stop** while words still arrive | Stream stops; `[Stopped by user]`; button returns to Send/Record; **next hello works** | `Stop clicked` / `StopButtonListener: STOP_CLICKED` (action or `mousePressed`) in the log; drain is **not** inside Send `actionPerformed`; no second nested drain; query restore must not run after Stop pointer (`stream focus: left query`) |
 | B2 | ramble | Stop, immediately Send again | No double-stream, no stuck “Starting…” | `_active_q` cleared in tool-loop `finally`; reused `LlmClient` re-registers on the new send scope |
 | B3 | ramble | Click Stop twice | Second click is a no-op, not a crash | |
 | B4 | empty query box, venv configured | Record → Stop Rec without speaking long | Button Record ↔ Stop Rec ↔ Send; no send if truly empty and no wav | `SendEventKind.RECORD_CLICKED` / `STOP_REC_CLICKED` |

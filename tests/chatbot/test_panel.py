@@ -13,7 +13,13 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.config_schema import _get_schema_default
-from plugin.chatbot.panel import QueryKeyListener, SendButtonListener, query_enter_triggers_primary_send
+from plugin.chatbot.panel import (
+    QueryKeyListener,
+    SendButtonListener,
+    notify_stop_mouse_entered,
+    notify_stop_mouse_pressed,
+    query_enter_triggers_primary_send,
+)
 from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
@@ -128,6 +134,46 @@ class SendDisposeTests(unittest.TestCase):
         self.assertFalse(listener.sidebar_state.send.is_recording)
         self.assertFalse(listener.sidebar_state.send.is_busy)
         self.assertNotEqual(send_model.Label, "Stop Rec")
+
+    def test_stop_mouse_pressed_cancels_busy_send(self) -> None:
+        listener = _make_send_listener()
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.queue_executor.post = lambda fn, *a, **k: None
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        self.assertTrue(listener.sidebar_state.send.is_busy)
+        self.assertFalse(listener._stop_requested_fallback)
+        notify_stop_mouse_pressed(listener)
+        self.assertTrue(listener._stop_requested_fallback)
+        self.assertTrue(listener._send_cancellation.is_cancelled())
+
+    def test_stop_mouse_pressed_idle_is_noop(self) -> None:
+        listener = _make_send_listener()
+        notify_stop_mouse_pressed(listener)
+        self.assertFalse(listener._stop_requested_fallback)
+        self.assertFalse(listener.sidebar_state.send.is_busy)
+
+    def test_stop_mouse_pressed_skips_web_search_approval(self) -> None:
+        listener = _make_send_listener()
+        listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
+        listener.queue_executor.post = lambda fn, *a, **k: None
+        listener.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+        listener._approval_event = object()
+        notify_stop_mouse_pressed(listener)
+        self.assertFalse(listener._stop_requested_fallback)
+
+    def test_stop_mouse_entered_stops_query_restore(self) -> None:
+        from plugin.framework import uno_context as uc
+
+        query = MagicMock()
+        uc.set_default_focus_restore(query)
+        uc.note_user_wants_query()
+        try:
+            notify_stop_mouse_entered()
+            uc.restore_query_if_user_still_there()
+            query.setFocus.assert_not_called()
+        finally:
+            uc.set_default_focus_restore(None)
+            uc._restore_query_after_scroll = True
 
 
 class _MockDisposedException(Exception):

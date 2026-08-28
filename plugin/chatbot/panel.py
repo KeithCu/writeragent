@@ -1169,6 +1169,68 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 # ---------------------------------------------------------------------------
 
 
+def notify_stop_mouse_entered() -> None:
+    """Hovering Stop: do not restore Ask/instruct on the next stream chunk."""
+    from plugin.framework.uno_context import note_user_left_query
+
+    note_user_left_query()
+
+
+def notify_stop_mouse_pressed(send_listener) -> None:
+    """Stop mousePressed: drop query restore and cancel if a send is in flight.
+
+    Bug: stream SelectAll called ``query.setFocus()`` every chunk. That abort
+    the Stop ``ActionEvent`` on GTK (Packet B1: no ``STOP_CLICKED`` in the log,
+    ramble ran to word199). mousePressed is earlier; latching cancel here is
+    belt-and-suspenders if ActionEvent still never fires. Change/Reject during
+    web-search approval stays on ActionEvent — do not treat those as Stop.
+    """
+    from plugin.framework.uno_context import note_user_left_query
+
+    note_user_left_query()
+    if send_listener is None:
+        return
+    if getattr(send_listener, "_approval_event", None) is not None:
+        return
+    send = getattr(getattr(send_listener, "sidebar_state", None), "send", None)
+    if send is None or not send.is_busy:
+        return
+    log.info("StopButtonListener: STOP_CLICKED (mousePressed)")
+    send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+
+
+def attach_stop_mouse_listener(stop_control, send_listener) -> None:
+    """Deliver Stop during stream even when ActionEvent is swallowed."""
+    if stop_control is None or not hasattr(stop_control, "addMouseListener"):
+        return
+    try:
+        import unohelper
+        from com.sun.star.awt import XMouseListener
+    except ImportError:
+        return
+
+    class _StopMouse(unohelper.Base, XMouseListener):  # type: ignore[misc]
+        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+            return
+
+        def mousePressed(self, e):  # noqa: N802 -- UNO signature
+            notify_stop_mouse_pressed(send_listener)
+
+        def mouseReleased(self, e):  # noqa: N802 -- UNO signature
+            return
+
+        def mouseEntered(self, e):  # noqa: N802 -- UNO signature
+            notify_stop_mouse_entered()
+
+        def mouseExited(self, e):  # noqa: N802 -- UNO signature
+            return
+
+    try:
+        stop_control.addMouseListener(_StopMouse())
+    except Exception:
+        log.exception("Stop mouse listener attach failed")
+
+
 class StopButtonListener(BaseActionListener):
     """Listener for the Stop button - sets a flag in SendButtonListener to halt loops."""
 

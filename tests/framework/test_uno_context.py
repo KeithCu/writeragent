@@ -138,6 +138,25 @@ def test_restore_query_if_user_still_there():
         uc._restore_query_after_scroll = True
 
 
+def test_note_user_left_query_skips_restore():
+    """Packet B1: hovering/clicking Stop must stop query.setFocus on stream chunks."""
+    from plugin.framework import uno_context as uc
+
+    query = MagicMock()
+    uc.set_default_focus_restore(query)
+    uc.note_user_wants_query()
+    try:
+        uc.note_user_left_query()
+        uc.restore_query_if_user_still_there()
+        query.setFocus.assert_not_called()
+        uc.note_user_wants_query()
+        uc.restore_query_if_user_still_there()
+        query.setFocus.assert_called_once()
+    finally:
+        uc.set_default_focus_restore(None)
+        uc._restore_query_after_scroll = True
+
+
 def test_process_events_to_idle_calls_toolkit():
     from plugin.framework.uno_context import process_events_to_idle
     from plugin.framework.queue_executor import reset_suppressed_vcl_pump_count
@@ -267,3 +286,35 @@ def test_extension_id_constants_match_package_ids():
         EXTENSION_ID_WRITERAGENT,
         EXTENSION_ID_LIBREHARPER,
     )
+
+
+def test_attach_leave_query_listeners_adds_mouse_and_focus():
+    """Sidebar Stop/Clear must get mouse listeners so stream restore does not steal the click."""
+    import types
+
+    from plugin.framework import uno_context as uc
+
+    class _Base:
+        pass
+
+    class XFocusListener:
+        pass
+
+    class XMouseListener:
+        pass
+
+    control = MagicMock()
+    saved = list(uc._stream_focus_trackers)
+    uc._stream_focus_trackers.clear()
+    fake_awt = types.SimpleNamespace(XFocusListener=XFocusListener, XMouseListener=XMouseListener)
+    try:
+        with patch.dict(
+            sys.modules,
+            {"unohelper": types.SimpleNamespace(Base=_Base), "com.sun.star.awt": fake_awt},
+        ):
+            uc._attach_leave_query_listeners(control)
+        control.addMouseListener.assert_called_once()
+        control.addFocusListener.assert_called_once()
+        assert len(uc._stream_focus_trackers) == 2
+    finally:
+        uc._stream_focus_trackers[:] = saved()

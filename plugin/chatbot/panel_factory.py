@@ -841,6 +841,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             SendButtonListener,
             SettingsButtonListener,
             StopButtonListener,
+            attach_stop_mouse_listener,
         )
         from plugin.doc.doc_type import is_calc
         from plugin.framework.uno_context import get_extension_url
@@ -917,6 +918,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             if controls["stop"]:
                 controls["stop"].addActionListener(StopButtonListener(send_listener))
+                attach_stop_mouse_listener(controls["stop"], send_listener)
             send_listener._set_button_states(send_enabled=True, stop_enabled=False)
         except Exception:
             log.exception("Send/Stop button wiring failed")
