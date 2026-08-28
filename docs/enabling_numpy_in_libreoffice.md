@@ -675,7 +675,7 @@ Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_
 | Pattern | When to use | Example |
 | ------- | ----------- | ------- |
 | **Bare NumPy / expression** | Default for short inline code | `=PY("np.sum(data)"; B1:B10)` |
-| **Code in a cell** | Multi-line / huge scripts (avoids `MAXSTRLEN`) | `A1` = script text (**Save without =PY()**); `=PY($A$1; B1:B10)`. Opening the formula cell in Monaco edits **A1**. |
+| **Code in a cell** | Multi-line / huge scripts (avoids `MAXSTRLEN`) | `A1` = script text (**Save without =PY()**); `=PY($A$1; B1:B10)` (or `Sheet2.A1` / `'My Sheet'.$B$2`). Opening the formula cell edits the code cell; **Data:** on the formula stays editable. |
 | **ASCII quotes only** | Always when pasting / generating formulas | Normalize curly `“”` → `"` (WriterAgent does this on parse) |
 | **Comma vs semicolon** | Match file/locale | XLSX OOXML → commas; Calc UI often `;` |
 | **XLSX test sheets** | Manual serialization regression | See [`scripts/generate_serialization_spreadsheet.py`](../scripts/generate_serialization_spreadsheet.py) |

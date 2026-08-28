@@ -503,3 +503,192 @@ def test_open_quoted_a1_does_not_follow_code_cell():
     assert load_msg["code"] == "A1"
     assert load_msg["follow_code_ref"] is False
     assert load_msg["save_as_plain"] is False
+
+
+def _open_with_formula(formula, *, resolve_cell=None, initial_code=None):
+    from plugin.calc.python import editor as ed
+    from plugin.calc.python.formula_edit import parse_python_formula
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    cell = MagicMock()
+    cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
+    parts = parse_python_formula(formula)
+    assert parts is not None
+    code = initial_code if initial_code is not None else parts.code
+    captured: dict = {}
+
+    def fake_launch(_ctx, *, exe, load_message, on_save, on_closed=None):
+        captured["load_message"] = load_message
+        return True
+
+    resolve_target = resolve_cell if resolve_cell is not None else MagicMock()
+    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+        ed, "_get_active_calc_cell", return_value=(doc, cell, formula)
+    ), patch.object(
+        ed, "_load_cell_editor_code", return_value=(code, parts, formula)
+    ), patch.object(
+        ed, "_resolve_code_ref_cell", return_value=resolve_target
+    ) as resolve, patch.object(
+        ed, "monaco_editor_available", return_value=("/venv/bin/python", True)
+    ), patch.object(
+        ed, "launch_monaco_editor", side_effect=fake_launch
+    ), patch.object(
+        ed, "msgbox"
+    ) as boxed, patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+        ed.open_python_cell_editor(ctx)
+    captured["resolve"] = resolve
+    captured["msgbox"] = boxed
+    captured["cell"] = cell
+    captured["parts"] = parts
+    return captured
+
+
+def test_open_range_code_arg_does_not_follow():
+    captured = _open_with_formula("=PY(A1:A10)")
+    captured["resolve"].assert_not_called()
+    assert captured["load_message"]["follow_code_ref"] is False
+    assert captured["load_message"]["code"] == "A1:A10"
+
+
+def test_open_a1_plus_b1_does_not_follow():
+    captured = _open_with_formula("=PY(A1+B1)")
+    captured["resolve"].assert_not_called()
+    assert captured["load_message"]["follow_code_ref"] is False
+    assert captured["load_message"]["code"] == "A1+B1"
+
+
+def test_open_sp_prime_does_not_follow():
+    captured = _open_with_formula("=PY(sp.prime(100))")
+    captured["resolve"].assert_not_called()
+    assert captured["load_message"]["follow_code_ref"] is False
+    assert captured["load_message"]["code"] == "sp.prime(100)"
+
+
+def test_open_relative_a1_follows_code_cell():
+    code_cell = MagicMock()
+    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
+    code_cell.getString.return_value = "result = 11"
+    captured = _open_with_formula("=PY(A1)", resolve_cell=code_cell, initial_code="A1")
+    captured["resolve"].assert_called_once()
+    assert captured["load_message"]["code"] == "result = 11"
+    assert captured["load_message"]["follow_code_ref"] is True
+
+
+def test_open_sheet2_follows_code_cell():
+    code_cell = MagicMock()
+    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=1)
+    code_cell.getString.return_value = "result = 7"
+    captured = _open_with_formula(
+        "=PY(Sheet2.A1; C1:C2)",
+        resolve_cell=code_cell,
+        initial_code="Sheet2.A1",
+    )
+    captured["resolve"].assert_called_once()
+    assert captured["load_message"]["code"] == "result = 7"
+    assert captured["load_message"]["follow_code_ref"] is True
+    assert captured["load_message"]["data_binding"] == "C1:C2"
+
+
+def test_open_python_alias_follows_code_cell():
+    code_cell = MagicMock()
+    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
+    code_cell.getString.return_value = "result = 5"
+    captured = _open_with_formula(
+        "=PYTHON($A$1; C1:C2)",
+        resolve_cell=code_cell,
+        initial_code="$A$1",
+    )
+    captured["resolve"].assert_called_once()
+    assert captured["load_message"]["code"] == "result = 5"
+    assert captured["load_message"]["follow_code_ref"] is True
+    assert captured["load_message"]["data_binding"] == "C1:C2"
+
+
+def test_open_missing_code_cell_shows_error():
+    from plugin.calc.python import editor as ed
+    from plugin.calc.python.formula_edit import parse_python_formula
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    cell = MagicMock()
+    formula = "=PY(Missing.A1)"
+    parts = parse_python_formula(formula)
+    assert parts is not None
+    with patch.object(ed, "get_active_session", return_value=None), patch.object(
+        ed, "_get_active_calc_cell", return_value=(doc, cell, formula)
+    ), patch.object(
+        ed, "_load_cell_editor_code", return_value=("Missing.A1", parts, formula)
+    ), patch.object(
+        ed, "_resolve_code_ref_cell", return_value=None
+    ), patch.object(
+        ed, "launch_monaco_editor"
+    ) as launch, patch.object(
+        ed, "msgbox"
+    ) as boxed, patch("plugin.calc.python.editor_context_menu.install_calc_cell_context_menu"):
+        ed.open_python_cell_editor(ctx)
+    launch.assert_not_called()
+    boxed.assert_called_once()
+    assert "Missing.A1" in boxed.call_args.args[2]
+
+
+def test_native_follow_two_data_ranges_shown_and_saved():
+    from plugin.calc.python.formula_edit import parse_python_formula
+
+    formula_cell = MagicMock()
+    formula_cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
+    code_cell = MagicMock()
+    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
+    parts = parse_python_formula("=PY($A$1; B1:B10; C1:C10)")
+    dlg, inst = _open_native(
+        cell=formula_cell,
+        code_cell=code_cell,
+        code_ref="$A$1",
+        initial_code="result = data",
+        parsed_parts=parts,
+    )
+    assert inst is not None
+    assert inst._following_ref() is True
+    assert dlg.controls["DataEdit"]._model.Enabled is True
+    assert "B1:B10" in dlg.controls["DataEdit"].getText()
+    assert "C1:C10" in dlg.controls["DataEdit"].getText()
+    dlg.controls["DataEdit"].setText("D1:D5, E1:E5")
+    dlg.controls["CodeEdit"].setText("result = 1")
+    with patch(
+        "plugin.calc.python.editor._apply_cell_save",
+        return_value={"type": "saved", "ok": True, "save_as_plain": True},
+    ) as mock_save:
+        inst._save()
+    assert mock_save.call_args.kwargs["data_binding_text"] == "D1:D5, E1:E5"
+    assert mock_save.call_args.kwargs["code_ref"] == "$A$1"
+
+
+def test_native_follow_python_alias_and_clear_data():
+    from plugin.calc.python.formula_edit import parse_python_formula
+
+    formula_cell = MagicMock()
+    formula_cell.getCellAddress.return_value = SimpleNamespace(Column=1, Row=0, Sheet=0)
+    code_cell = MagicMock()
+    code_cell.getCellAddress.return_value = SimpleNamespace(Column=0, Row=0, Sheet=0)
+    parts = parse_python_formula("=PYTHON($A$1; C1:C10)")
+    dlg, inst = _open_native(
+        cell=formula_cell,
+        code_cell=code_cell,
+        code_ref="$A$1",
+        initial_code="result = data",
+        parsed_parts=parts,
+    )
+    assert inst is not None
+    assert inst._following_ref() is True
+    assert dlg.controls["DataEdit"]._model.Enabled is True
+    assert dlg.controls["DataEdit"].getText() == "C1:C10"
+    dlg.controls["DataEdit"].setText("")
+    dlg.controls["CodeEdit"].setText("result = 2")
+    with patch(
+        "plugin.calc.python.editor._apply_cell_save",
+        return_value={"type": "saved", "ok": True, "save_as_plain": True},
+    ) as mock_save:
+        inst._save()
+    assert mock_save.call_args.kwargs["data_binding_text"] == ""
+    assert mock_save.call_args.kwargs["code_ref"] == "$A$1"
+    assert mock_save.call_args.kwargs["new_code"] == "result = 2"
