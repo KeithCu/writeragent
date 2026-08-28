@@ -56,6 +56,7 @@ from plugin.calc.excel_py_convert.models import (
 )
 from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
 from plugin.framework.deal_shim import (
+    DEAL_MAX_CELL_REF,
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_PLACEHOLDER_INDEX,
     DEAL_MAX_SOURCE,
@@ -90,11 +91,27 @@ def _deal_excel_src_ok_crosshair(src: object) -> bool:
 
 # Import-time only — do not branch inside ``@deal.pre`` lambdas.
 _deal_excel_src_ok = _deal_excel_src_ok_crosshair if UNDER_CROSSHAIR else _deal_excel_src_ok_pytest
-# ``ast_source_offset`` lineno: CrossHair uses 4 so SMT stays tiny. Pytest must
+# ast_source_offset lineno: CrossHair uses 4 so SMT stays tiny. Pytest must
 # accept real multiline ``xl(`` (AST ``end_lineno`` can exceed 4). Cap at
 # DEAL_MAX_SOURCE — a ``str_bounded`` script cannot have more lines than chars.
-# A hard ``lineno <= 4`` on both profiles rejected 5-line Excel scripts in pytest.
 _AST_OFFSET_MAX_LINENO = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_AST_OFFSET_MAX_SRC = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_AST_OFFSET_MAX_COL = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+# Tiny alphabet: cover-all 33127995861 still read 1.05M lines at SOURCE=16 with
+# the Excel placeholder alphabet. splitlines/encode only needs a newline.
+_AST_OFFSET_CHARS = frozenset("AB \n")
+_DEAL_BINDING_A1_LEN = DEAL_MAX_CELL_REF if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+
+
+def _deal_ast_offset_src_ok_pytest(src: object) -> bool:
+    return str_bounded(src, DEAL_MAX_SOURCE)
+
+
+def _deal_ast_offset_src_ok_crosshair(src: object) -> bool:
+    return isinstance(src, str) and len(src) <= _AST_OFFSET_MAX_SRC and all(c in _AST_OFFSET_CHARS for c in src)
+
+
+_deal_ast_offset_src_ok = _deal_ast_offset_src_ok_crosshair if UNDER_CROSSHAIR else _deal_ast_offset_src_ok_pytest
 
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
 # Bare Excel placeholder in source (not anchored); same length as ``_Pn_`` sentinel.
@@ -314,11 +331,11 @@ def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
 
 
 @deal.pre(
-    lambda src, lineno, col: _deal_excel_src_ok(src)
+    lambda src, lineno, col: _deal_ast_offset_src_ok(src)
     and type(lineno) is int
     and type(col) is int
     and 0 <= lineno <= _AST_OFFSET_MAX_LINENO
-    and 0 <= col <= DEAL_MAX_SOURCE
+    and 0 <= col <= _AST_OFFSET_MAX_COL
 )
 def ast_source_offset(src: str, lineno: int, col: int) -> int:
     """Map AST ``(lineno, col_offset)`` to an absolute character index in *src*.
@@ -461,8 +478,8 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
     and len(resolved) <= DEAL_MAX_CMD_ARGS
     and all(
         isinstance(r, ResolvedDep)
-        and (r.a1 is None or ascii_bounded(r.a1, DEAL_MAX_SOURCE))
-        and (r.original is None or ascii_bounded(r.original, DEAL_MAX_SOURCE))
+        and (r.a1 is None or ascii_bounded(r.a1, _DEAL_BINDING_A1_LEN))
+        and (r.original is None or ascii_bounded(r.original, _DEAL_BINDING_A1_LEN))
         for r in resolved
     )
     and type(header_modes) is dict

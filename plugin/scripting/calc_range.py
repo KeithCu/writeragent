@@ -18,7 +18,7 @@ import math
 import operator
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
 
 
@@ -102,20 +102,34 @@ def _dedupe_column_names(names: list[str]) -> list[str]:
     return out
 
 
-def _deal_calc_range_other_ok(other: object) -> bool:
-    return type(other) in (int, float, bool, str, type(None)) or (
-        isinstance(other, CalcRange)
-        and len(other._values) <= DEAL_MAX_SHAPE_DIM
-        and (not other._values or len(other._values[0]) <= DEAL_MAX_SHAPE_DIM)
+def _deal_grid_values_ok(values: object) -> bool:
+    return (
+        isinstance(values, list)
+        and len(values) <= DEAL_MAX_SHAPE_DIM
+        and all(
+            isinstance(row, list)
+            and len(row) <= DEAL_MAX_SHAPE_DIM
+            and all(_deal_inner_grid_cell_ok(c) for c in row)
+            for row in values
+        )
     )
+
+
+def _deal_calc_range_other_ok(other: object) -> bool:
+    t = type(other)
+    if t is type(None) or t is bool:
+        return True
+    if t is int:
+        return -8 <= other <= 8
+    if t is float:
+        return True
+    if t is str:
+        return ascii_bounded(other, 4)
+    return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
 
 
 def _deal_binary_op_pre(self: Any, other: object) -> bool:
-    return (
-        len(self._values) <= DEAL_MAX_SHAPE_DIM
-        and (not self._values or len(self._values[0]) <= DEAL_MAX_SHAPE_DIM)
-        and _deal_calc_range_other_ok(other)
-    )
+    return _deal_grid_values_ok(self._values) and _deal_calc_range_other_ok(other)
 
 
 class CalcRange:
@@ -436,7 +450,16 @@ def _deal_inner_grid_cell_ok_pytest(c: object) -> bool:
 
 
 def _deal_inner_grid_cell_ok_crosshair(c: object) -> bool:
-    return type(c) in (str, int, float, type(None))
+    # cover-all 33127995861: unbounded str/int cells made _materialize 530k lines
+    # and compare dunders 90–172k each. Tiny ints + 4-char ascii still hits None/str/int.
+    t = type(c)
+    if t is type(None):
+        return True
+    if t is int:
+        return -8 <= c <= 8
+    if t is str:
+        return ascii_bounded(c, 4)
+    return False
 
 
 _deal_inner_grid_cell_ok = _deal_inner_grid_cell_ok_crosshair if UNDER_CROSSHAIR else _deal_inner_grid_cell_ok_pytest
@@ -447,7 +470,20 @@ def _deal_json_list_of_grids_arg_ok_pytest(obj: object) -> bool:
 
 
 def _deal_json_list_of_grids_arg_ok_crosshair(obj: object) -> bool:
-    return isinstance(obj, (list, tuple)) and len(obj) <= DEAL_MAX_SHAPE_DIM
+    if type(obj) not in (list, tuple) or len(obj) > DEAL_MAX_SHAPE_DIM:
+        return False
+    for item in obj:
+        if type(item) not in (list, tuple) or len(item) > DEAL_MAX_SHAPE_DIM:
+            return False
+        for row in item:
+            if type(row) in (list, tuple):
+                if len(row) > DEAL_MAX_SHAPE_DIM:
+                    return False
+                if not all(_deal_inner_grid_cell_ok(c) for c in row):
+                    return False
+            elif not _deal_inner_grid_cell_ok(row):
+                return False
+    return True
 
 
 _deal_json_list_of_grids_arg_ok = (
@@ -549,6 +585,29 @@ def _is_json_list_of_grids(obj: Any) -> bool:
     return any(item and isinstance(item[0], (list, tuple)) and not isinstance(item[0], (str, bytes)) for item in obj)
 
 
+@deal.pre(
+    lambda columns, data=None, include_header=True, **__: type(columns) is list
+    and len(columns) <= DEAL_MAX_SHAPE_DIM
+    and all(str_bounded(c, DEAL_MAX_TOKEN) for c in columns)
+    and (
+        data is None
+        or (
+            type(data) is list
+            and len(data) <= DEAL_MAX_SHAPE_DIM
+            and all(
+                (
+                    type(row) is list
+                    and len(row) <= DEAL_MAX_SHAPE_DIM
+                    and all(_deal_inner_grid_cell_ok(c) for c in row)
+                )
+                if type(row) is list
+                else _deal_inner_grid_cell_ok(row)
+                for row in data
+            )
+        )
+    )
+    and type(include_header) is bool
+)
 def dataframe_to_labeled_grid(
     columns: list[str],
     data: list[list[Any]] | list[Any] | None,

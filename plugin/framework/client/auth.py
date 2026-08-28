@@ -28,7 +28,7 @@ from plugin.framework.client.provider_detection import (
     is_openrouter_endpoint,
 )
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, DEAL_MAX_URL, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, DEAL_MAX_URL, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 
 
 def reject_control_chars_in_api_key(api_key: str) -> str:
@@ -102,10 +102,12 @@ PROVIDERS: Dict[str, ProviderConfig] = {
 
 
 _URL_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._:/")
+# cover-all 33127995861: _resolve_provider_id 231k lines at URL=32 (substring scan).
+_DEAL_RESOLVE_URL_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_URL
 
 
 @deal.pre(
-    lambda endpoint, provider_hint=None: ascii_bounded(endpoint, DEAL_MAX_URL)
+    lambda endpoint, provider_hint=None: ascii_bounded(endpoint, _DEAL_RESOLVE_URL_LEN)
     and all(c in _URL_CHARS for c in endpoint)
     and (provider_hint is None or ascii_bounded(provider_hint, DEAL_MAX_TOKEN))
 )

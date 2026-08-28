@@ -25,6 +25,9 @@ DELEGATE_GATEWAY_TOOL_NAMES = frozenset(
     }
 )
 DELEGATE_TASK_CHAT_MAX = 120
+# cover-all 33127995861: max_len 1..120 * SOURCE=16 ascii ate 114k lines on truncate.
+_DEAL_TRUNCATE_TASK_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_DEAL_TRUNCATE_MAX_LEN = 8 if UNDER_CROSSHAIR else DELEGATE_TASK_CHAT_MAX
 _EMPTY_MODEL_DEBUG_CONTENT_PREVIEW_MAX = 120
 
 
@@ -50,6 +53,7 @@ def _describe_empty_response_content(content: Any) -> str:
             type(item) is dict
             and len(item) <= DEAL_MAX_CMD_ARGS
             and all(type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) for k in item)
+            and all(v is None or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN)) for v in item.values())
             for item in tool_calls
         )
     )
@@ -125,9 +129,9 @@ def delegate_status_label(func_args: Mapping[str, Any]) -> str:
 
 
 @deal.pre(
-    lambda task, max_len=DELEGATE_TASK_CHAT_MAX, *_unused, **__: ascii_bounded(task, DEAL_MAX_SOURCE)
+    lambda task, max_len=DELEGATE_TASK_CHAT_MAX, *_unused, **__: ascii_bounded(task, _DEAL_TRUNCATE_TASK_LEN)
     and type(max_len) is int
-    and 1 <= max_len <= DELEGATE_TASK_CHAT_MAX
+    and 1 <= max_len <= _DEAL_TRUNCATE_MAX_LEN
 )
 def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
     one_line = task.replace("\n", " ").replace("\r", " ").strip()
