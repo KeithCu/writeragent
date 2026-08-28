@@ -575,7 +575,7 @@ Snapshot **2026-08-27**: **48 verified / 8 partial** in [`verification_status.js
 
 #### 4. Optional new Tier-0 slice (only after 1–2)
 
-Highest unused pure surface: **[`plugin/calc/spreadsheet_import/translate.py`](../../plugin/calc/spreadsheet_import/translate.py)** (formula → Python codegen, no UNO). Secondary: pure color/units in [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) (`parse_color_to_uno_int`, mm/px helpers)—extract if mixed with UNO. Skip vendored `plugin/lib/**`.
+[`plugin/calc/spreadsheet_import/translate.py`](../../plugin/calc/spreadsheet_import/translate.py) is **not** the next slice — spreadsheet import is a low-priority prototype. Secondary if needed: pure color/units in [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) (`parse_color_to_uno_int`, mm/px helpers)—extract if mixed with UNO. Skip vendored `plugin/lib/**`.
 
 #### 5. Tooling (low code, high leverage)
 
@@ -583,7 +583,7 @@ Highest unused pure surface: **[`plugin/calc/spreadsheet_import/translate.py`](.
 - Keep `CROSSHAIR_*_SKIP` empty; hostility = shim / `# crosshair: off` / refactor.
 - Stale “Practical Implementation Guide” samples below still mention old paths—treat Phase 9 + this section as source of truth over the illustrative CI YAML.
 
-**Suggested next session (single track):** optional new Tier-0 [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) contracts, or one remaining named FSM legality property (send idle-Stop no-op, or MCP error latch once reset is defined). Do not remove `next_state` offs. Do not reopen json_utils / errors / payload_codec to “force verified.”
+**Suggested next session (single track):** one remaining named FSM legality property (send idle-Stop no-op, or MCP error latch once reset is defined). Do not remove `next_state` offs. Do not reopen json_utils / errors / payload_codec to “force verified.” Do not start `translate.py` contracts (spreadsheet import is a low-priority prototype).
 
 ---
 

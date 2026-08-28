@@ -12,7 +12,7 @@ WriterAgent and LibrePy can **read** Jupyter notebooks (nbformat v4) and **impor
 |------------|------------|--------------|---------------|
 | **Jupyter Notebook (`.ipynb`)** | **Writer** | Flowing text document, in-flow code `TextField`s, ▶ push buttons, `notebook:…` shared venv kernel | **This document** |
 | **Formula Python (`=PY()`)** | **Calc** | In-cell spreadsheet formula execution, native Calc dependency DAG | [`../enabling_numpy_in_libreoffice.md`](../enabling_numpy_in_libreoffice.md) |
-| **Convert Sheet to Python** | **Calc** | Translates Calc workbook formulas into `=PY()` Python formulas | [`../calc/spreadsheet-to-python-import.md`](../calc/spreadsheet-to-python-import.md) |
+| **Convert Sheet to Python** | **Calc** | Prototype / low priority — translates Calc formulas into `=PY()` | [`../calc/spreadsheet-to-python-import.md`](../calc/spreadsheet-to-python-import.md) |
 
 > [!NOTE]
 > **Why Writer for `.ipynb` notebooks?**

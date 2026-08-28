@@ -62,7 +62,7 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 
 #### Calc-parity `xl` helpers (deferred from LibrePy) {#calc-parity-xl-helpers-deferred-from-librepy}
 
-WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) — **259** Calc/Excel formula parity helpers auto-imported as **`calc`** in the venv (e.g. `calc.sumif(...)`, `calc.xlookup(...)`). They exist so spreadsheet import can emit compact Python instead of pasting inline `def` blocks per workbook ([../calc/spreadsheet-to-python-import.md](../calc/spreadsheet-to-python-import.md)). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](../calc/spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-calc)).
+WriterAgent ships [`plugin/scripting/calc_functions.py`](../../plugin/scripting/calc_functions.py) and [`plugin/scripting/venv/calc_functions_*.py`](../../plugin/scripting/venv/) — **259** Calc/Excel formula parity helpers auto-imported as **`calc`** in the venv (e.g. `calc.sumif(...)`, `calc.xlookup(...)`). They were built so the **prototype** spreadsheet import could emit compact Python instead of pasting inline `def` blocks per workbook ([../calc/spreadsheet-to-python-import.md](../calc/spreadsheet-to-python-import.md), low priority). This is **not** the same as Microsoft Python in Excel’s `xl()` range bridge ([comparison](../calc/spreadsheet-to-python-import.md#microsoft-xl-vs-writeragent-calc)).
 
 **LibrePy (core OXT) excludes them for now** (~134 KB source; filtered in [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py) via `LIBREPY_CALC_FUNCTIONS_EXCLUDES`). Rationale:
 

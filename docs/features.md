@@ -32,7 +32,7 @@ Product overview lives in the root [README](../README.md). This page maps each a
 | Domain helpers (Viz, Math, Quant, …) | [scripting/numpy-domains.md](scripting/numpy-domains.md) |
 | Analysis tools | [calc/analysis-tools.md](calc/analysis-tools.md) · [calc/analysis-sub-agent.md](calc/analysis-sub-agent.md) |
 | Specialized toolsets | [calc/specialized-toolsets.md](calc/specialized-toolsets.md) |
-| Sheet → Python | [calc/spreadsheet-to-python-import.md](calc/spreadsheet-to-python-import.md) |
+| Sheet → Python | [calc/spreadsheet-to-python-import.md](calc/spreadsheet-to-python-import.md) (prototype, low priority) |
 | Conditional formatting | [calc/conditional-formatting.md](calc/conditional-formatting.md) |
 | Sheet filters | [calc/sheet-filter.md](calc/sheet-filter.md) |
 | Serialization | [scripting/numpy-serialization.md](scripting/numpy-serialization.md) |

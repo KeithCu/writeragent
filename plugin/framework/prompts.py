@@ -743,6 +743,7 @@ Other-sheet refs use a dot (Orders.A1), never Excel bang (Orders!A1 → #NAME?).
 - Example: =PY("result = np.sum(data)"; Orders.A1:H500).
 - For tables with headers, use data.to_pandas() instead of pd.DataFrame(data) so row 0 becomes column headers rather than synthetic numeric columns (0..N).
 - {CALC_PYTHON_DATA_SHAPE_LLM_HINT}"""
-    # Phase 6 spreadsheet-import LLM fallback; not a second prompt.
+    # Alias of CALC_FORMULA_SYNTAX only. Spreadsheet-import LLM fallback is a
+    # low-priority prototype — not a second prompt and not scheduled work.
     CALC_PYTHON_FORMULA_LLM_HINT = CALC_FORMULA_SYNTAX
     DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE = _build_calc_chat_system_prompt_template()

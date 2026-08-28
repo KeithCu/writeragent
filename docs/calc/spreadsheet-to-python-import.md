@@ -1,6 +1,6 @@
 ---
 name: Calc Spreadsheet → Python Import
-overview: Import or convert an open Calc workbook so cell data stays the same while spreadsheet formulas become =PY() Python (venv-backed), targeting ~90% automated conversion on typical business sheets.
+overview: Prototype (low priority). Import or convert an open Calc workbook so cell data stays the same while spreadsheet formulas become =PY() Python. Not a product pillar; Phase 6 LLM fallback is not scheduled.
 todos:
   - id: phase0-spec
     content: "Phase 0: Spec + benchmark corpus + coverage metrics (this doc)"
@@ -22,7 +22,7 @@ todos:
     status: completed
   - id: phase6-llm-fallback
     content: "Phase 6: LLM assist for remaining cells + cross-sheet edge cases"
-    status: pending
+    status: cancelled
 isProject: false
 ---
 
@@ -30,7 +30,7 @@ isProject: false
 
 Back to [Enabling NumPy & Python in LibreOffice](../enabling_numpy_in_libreoffice.md).
 
-**Status: Shipped.**
+**Status: Prototype — low priority.** An interesting in-workbook rewrite (Phases 0–5 exist). It is **not** a product pillar and is **not** next engineering work. Do not pick Phase 6 (LLM fallback), extra function coverage, or `translate.py` formal verification unless this is explicitly revived.
 
 ## Executive summary
 
@@ -428,7 +428,7 @@ flowchart TB
 | [Sheet2Code](https://sheet2code.com/) | Sheets / Excel | Parser design reference | DAG + codegen patterns |
 | [excel_in_python](https://github.com/ncalm/excel_in_python) | pandas | Function semantics | P2 lookup helpers |
 | Mito / FlyingKoala | Excel UI | UX only | Column vectorization ideas |
-| LLM + `CALC_PYTHON_FORMULA_LLM_HINT` | In-doc context | **High** | Phase 6 long tail |
+| LLM + `CALC_PYTHON_FORMULA_LLM_HINT` | In-doc context | **Low** (not scheduled) | Prototype long tail |
 
 **Recommendation:** Phase 3 — hand-rolled parser for P1; parallel spike on `formulas` ODS load. Do **not** add PyPI deps to OXT without vendoring review.
 
@@ -1089,7 +1089,9 @@ If 50 cells share one pattern `=A{row}*2`, one matrix `=PY()` counts as **50 con
 
 ## 10. Phased dev plan
 
-### Phase 6 — LLM fallback (optional)
+### Phase 6 — LLM fallback (not scheduled)
+
+Prototype long-tail only. Do not start this unless spreadsheet import is explicitly revived.
 
 **Deliverables**
 
@@ -1162,6 +1164,6 @@ Run with `make test`. New tests follow module naming in [AGENTS.md](../../AGENTS
 
 ## Implementation status
 
-All core components (Ingest, Preservation, Parser, Translators, Vectorization, Dialog, Chat tool) are **Shipped**.
+All core components (Ingest, Preservation, Parser, Translators, Vectorization, Dialog, Chat tool) exist in-tree as a **prototype**.
 
-**Next engineering step:** Phase 6 — LLM fallback.
+**Not scheduled:** Phase 6 LLM fallback, more builtin coverage, or promoting this to a product feature.

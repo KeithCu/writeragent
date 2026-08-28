@@ -35,7 +35,7 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
 | [LibrePy-surface live QA plan](librepy-manual-qa-plan.md) | Real-scenario Calc/RPS/domain checks (`=PY("1 + 1")` upward). Either OXT; do not test chat/`=PROMPT()`. |
 | [Monaco editor dev plan](scripting/monaco-editor-dev-plan.md) | IPC, phases 2B–2F |
 | [Collabora Online / jail-safe](scripting/numpy-jailsafe.md) | Thin C++ Add-In + compute service |
-| [Calc spreadsheet → Python import](calc/spreadsheet-to-python-import.md) | Convert formulas to `=PY()` |
+| [Calc spreadsheet → Python import](calc/spreadsheet-to-python-import.md) | Prototype / low priority — convert formulas to `=PY()` |
 | [Jupyter notebook import](writer/jupyter-notebook-import.md) | Writer `.ipynb` import + ▶ run (shared `notebook:…` kernel; not Calc `=PY()`) |
 
 ---
@@ -834,7 +834,7 @@ Complex returns (DataFrame, dict, class) should show a compact cell label (e.g. 
 | **Formula-bar Jedi** | [Monaco 2D](scripting/monaco-editor-dev-plan.md#phase-2d--jedi-autocompletion-child-only-performance-sensitive) |
 | **Named ranges / structured tables / `headers` in `data`** | [`calc_addin_data.py`](../plugin/calc/calc_addin_data.py) |
 | **Label preservation** | First row/column as pandas Index when requested |
-| **Spreadsheet → Python import** | [calc/spreadsheet-to-python-import.md](calc/spreadsheet-to-python-import.md) |
+| **Spreadsheet → Python import** | Prototype / low priority — [calc/spreadsheet-to-python-import.md](calc/spreadsheet-to-python-import.md) |
 | **Worker idle shutdown / per-formula `timeout_sec`** | Global timeout is Settings → Python; per-cell timeout and idle worker teardown are not shipped |
 | **Python edit dialog tiers 1–3** | [§6 deferred UX](#optional-python-edit-dialog-deferred-ux) |
 | **Range alignment for multi-range NumPy** | Mismatched shapes before `np.corrcoef` — [data shapes deferred](calc/py-data-shapes.md#deferred-upgrades) |
