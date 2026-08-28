@@ -174,6 +174,9 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     def on_window_resized(self, rEvent):
         r = rEvent.Source.getPosSize()
         log.info("[LAYOUT] source=windowResized root=%dx%d", r.Width, r.Height)
+        # Do not setPosSize the dialog here. windowResized can beat
+        # getHeightForWidth on a widen drag (1x: 465 then hfw 465); snapping
+        # back to last deck_hint would fight the splitter.
         self.relayout_now(rEvent.Source)
 
     def note_width_negotiated(self, viewport_w: int = 0):
@@ -220,6 +223,15 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         w, h = int(r.Width), int(r.Height)
         if w <= 0 or h <= 0:
             return
+        # Column is last getHeightForWidth. Before the first hfw, the first
+        # layout width (320) is the column so a GTK jump (320→383) is not filled.
+        # A windowResized grow without a new deck_hint is GTK, not a drag.
+        # Do not setPosSize the dialog here; that can beat hfw on a widen.
+        if self._viewport_w <= 0:
+            self._viewport_w = w
+        elif w > self._viewport_w:
+            log.info("[LAYOUT] cap_width window=%s viewport=%s", w, self._viewport_w)
+            w = self._viewport_w
 
         if self._snapshot is None:
             self._capture_snapshot(win)

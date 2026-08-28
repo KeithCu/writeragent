@@ -2,23 +2,19 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Sidebar column width: fill the deck viewport, keep the ChildFrame request in sync.
+"""Sidebar column width: fill the deck viewport.
 
 Deck.cxx ScrolledWindow H-policy is AUTOMATIC. getHeightForWidth is called
 with rContentBox.GetWidth() (the viewport). The AWT parent is CreateChildFrame
 inside that box.
 
-GtkSalFrame::SetPosSize on a SYSTEMCHILD calls gtk_widget_set_size_request.
-That request sticks. Keith's HiDPI log: parent_after stayed 992 while
-deck_hint/root shrank 899 → 806. Extra space = 992 − viewport. Wide enough
-that the column >= 992 and the H-bar vanished.
-
 Trust nWidth (the viewport) except:
   - 180: XDL AppFont leak, use parent
   - nWidth > 1.5× parent: document-frame leak, use parent
 
-Then setPosSize the ChildFrame WIDTH only to that value, every layout,
-so the request cannot stay at 992.
+Do not setPosSize the ChildFrame. GtkSalFrame::SetPosSize on a SYSTEMCHILD
+is gtk_widget_set_size_request (a minimum). Kids can grow past it.
+Experiments: docs/chat/sidebar-hscroll-experiments.md
 """
 
 from __future__ import annotations
