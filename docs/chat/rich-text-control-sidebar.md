@@ -260,7 +260,7 @@ To chat without a real model (streaming HTML, scroll, tool loops, Stop, empty re
 make mock-llm
 # or: .venv/bin/python scripts/mock_llm_server.py --delay-ms 30 --offline
 # Soak Stop:     .venv/bin/python scripts/mock_llm_server.py --delay-ms 40 --scenario ramble
-# Nested Stop (E8): --delay-ms also pauses stream=False inner HTTP (smol / specialized)
+# Nested Stop (E8): --delay-ms 80 --sync-delay-ms 8000 (snappy SSE, long nested stream=False POSTs)
 # Soak errors:   .venv/bin/python scripts/mock_llm_server.py --fail hang --fail-after-chunks 4
 ```
 
@@ -364,7 +364,7 @@ Assign by packet id (`A`–`H`). Do not skip the “why hard” line — that is
 | E5 | `insert filler` | Mutate end | Paragraph appended; **next** hello’s system prompt sees new length (not stale snapshot) | `apply_document_content`; `refresh_document_context` |
 | E6 | `two tools` / `in parallel` | One send | `search_in_document` **and** `get_document_tree` run; one HTML wrap-up | `accumulate_delta` two `index` values |
 | E7 | `outline this` | Delegate | Nested agent status while main drain stays alive; then main-chat HTML; Stop still works mid-delegate | `delegate_to_specialized_writer_toolset` domain `document_research`; inner discovery tool (often `list_nearby_files`, or `get_document_tree` when advertised) then `specialized_workflow_finished` (canned outline) — not main-chat HTML as the specialized `answer` |
-| E8 | E7 + click Stop during nested work (`--delay-ms` 1500+ so inner `stream=False` POSTs are clickable) | Cancel | Nested work stops; UI recovers; next hello works | `resolve_stop_checker()`, not a panel boolean alone |
+| E8 | E7 + click Stop during nested work (`--delay-ms 80 --sync-delay-ms 8000` so inner `stream=False` POSTs stay clickable without a slow main SSE eating the window) | Cancel | Nested work stops; UI recovers; next hello works | `resolve_stop_checker()`, not a panel boolean alone |
 
 #### Packet F — HTTP errors, hang, SSE quirks
 

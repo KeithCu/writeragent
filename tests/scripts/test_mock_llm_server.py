@@ -25,6 +25,7 @@ from scripts.mock_llm_server import (
     iter_sse_payloads,
     make_handler_class,
     models_list_body,
+    response_delay_s,
     sync_response_body,
 )
 
@@ -40,6 +41,15 @@ def test_models_list_includes_mock_id():
     assert MOCK_STT_MODEL_ID in ids
     chat = next(row for row in body["data"] if row["id"] == MOCK_MODEL_ID)
     assert "audio" in chat["architecture"]["input_modalities"]
+
+
+def test_response_delay_s_sync_override():
+    """Packet E8: stretch nested stream=False POSTs without slowing main SSE."""
+    cfg = MockLLMConfig(delay_ms=80, sync_delay_ms=8000)
+    assert response_delay_s(cfg, stream=True) == 0.08
+    assert response_delay_s(cfg, stream=False) == 8.0
+    inherit = MockLLMConfig(delay_ms=1500)
+    assert response_delay_s(inherit, stream=False) == 1.5
 
 
 def test_chit_chat_html():

@@ -128,6 +128,8 @@ _DELEGATE_WRITER = "delegate_to_specialized_writer_toolset"
 @dataclass
 class MockLLMConfig:
     delay_ms: int = 25
+    # None means use delay_ms. Packet E8: keep SSE snappy, stretch nested stream=False POSTs.
+    sync_delay_ms: int | None = None
     offline: bool = False
     always_research: bool = False
     scenario: str = "none"
@@ -136,6 +138,15 @@ class MockLLMConfig:
     fail_after_chunks: int = DEFAULT_FAIL_AFTER_CHUNKS
     sse_comments: bool = False
     transcript: str = DEFAULT_TRANSCRIPT
+
+
+def response_delay_s(config: MockLLMConfig, *, stream: bool) -> float:
+    """Seconds to sleep between SSE chunks, or once before a non-streaming JSON body."""
+    if stream:
+        ms = config.delay_ms
+    else:
+        ms = config.delay_ms if config.sync_delay_ms is None else config.sync_delay_ms
+    return max(0, int(ms)) / 1000.0
 
 
 @dataclass
@@ -1081,11 +1092,12 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
             unused_status, hang = _effective_fail(config, completion)
             if unused_status is not None:
                 return
-            delay = max(0, int(config.delay_ms)) / 1000.0
+            delay = response_delay_s(config, stream=stream)
             if not stream:
                 # Nested smol / specialized agents use stream=False. Without this
-                # sleep, Packet E7/E8 nested work finishes in a few milliseconds
-                # and Stop cannot be clicked (delay_ms only applied to SSE).
+                # sleep, Packet E7/E8 nested work finishes in a few milliseconds.
+                # --sync-delay-ms stretches only that path so Stop is clickable
+                # without slowing main-chat SSE (which would eat the nested window).
                 if delay:
                     time.sleep(delay)
                 self._send_json(200, sync_response_body(completion, model))
@@ -1120,7 +1132,8 @@ def serve(host: str, port: int, config: MockLLMConfig) -> None:
     print(
         f"Mock LLM on http://{host}:{port}/v1 (model {MOCK_MODEL_ID}; "
         f"offline={config.offline} always_research={config.always_research} "
-        f"scenario={config.scenario} fail={config.fail} delay_ms={config.delay_ms})",
+        f"scenario={config.scenario} fail={config.fail} delay_ms={config.delay_ms} "
+        f"sync_delay_ms={config.sync_delay_ms})",
         flush=True,
     )
     httpd.serve_forever()
@@ -1134,7 +1147,13 @@ def main(argv: list[str] | None = None) -> int:
         "--delay-ms",
         type=int,
         default=25,
-        help="Pause between SSE chunks and before each non-streaming JSON response",
+        help="Pause between SSE chunks (and before sync JSON unless --sync-delay-ms is set)",
+    )
+    parser.add_argument(
+        "--sync-delay-ms",
+        type=int,
+        default=None,
+        help="Pause before each non-streaming JSON response (nested smol/specialized). Default: --delay-ms",
     )
     parser.add_argument(
         "--offline",
@@ -1173,6 +1192,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config = MockLLMConfig(
         delay_ms=args.delay_ms,
+        sync_delay_ms=args.sync_delay_ms,
         offline=args.offline,
         always_research=args.always_research,
         scenario=args.scenario,
