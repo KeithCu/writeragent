@@ -305,7 +305,7 @@ def test_python_tool_panel_get_height_for_width_handles_all_sizes():
     # deck_hint is the viewport; ChildFrame request is synced to it (width only)
     panel.getHeightForWidth(350)
     panel_win.setPosSize.assert_called_with(0, 0, 350, 400, 15)
-    parent_win.setPosSize.assert_called_with(0, 0, 350, 0, 4)
+    parent_win.setPosSize.assert_not_called()
     listener.relayout_now.assert_called_with(panel_win)
 
     # Wide column width (> 500)

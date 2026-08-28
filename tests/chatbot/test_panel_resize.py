@@ -193,7 +193,7 @@ class TestPanelResizeListenerIntegration:
         for name, ctrl in controls.items():
             ps = ctrl.getPosSize()
             assert ps.X + ps.Width <= right, name
-        parent.setPosSize.assert_called_with(0, 0, 320, 0, 4)
+        parent.setPosSize.assert_not_called()
 
 
 class TestSidebarHeaderButtonListeners:

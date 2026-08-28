@@ -74,7 +74,7 @@ try:
 except ImportError:
     TOOLPANEL = 3  # Fallback
 
-from plugin.framework.sidebar_column import sidebar_column_width, sync_childframe_width
+from plugin.framework.sidebar_column import sidebar_column_width
 from plugin.framework.uno_listeners import BaseItemListener, BaseTextListener
 from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model, get_image_model, set_image_model, set_text_model
@@ -209,22 +209,10 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
             with suppress_disposed("getHeightForWidth note_width_negotiated", logger=log):
                 rl.note_width_negotiated(eff_w)
         with suppress_disposed("getHeightForWidth setPosSize", logger=log):
-            # Dialog first, then clamp children, then ChildFrame. Setting the
-            # ChildFrame while kids still request 1087 lets GTK keep max(875, 1087).
+            # Size the AWT dialog only, like last month. ChildFrame setPosSize is
+            # gtk_widget_set_size_request (a minimum); typing grew past it and we
+            # filled the new width (Keith: 995 → 1019).
             self.PanelWindow.setPosSize(0, 0, eff_w, current_h, 15)
-
-        if rl is not None:
-            with suppress_disposed("getHeightForWidth relayout_now", logger=log):
-                from plugin.chatbot.rich_text_control import log_rich_scroll
-
-                rich = rl._c.get("response_rich") if hasattr(rl, "_c") else None
-                log_rich_scroll("getHeightForWidth_before", control=rich, eff_w=eff_w)
-                rl.relayout_now(self.PanelWindow)
-                log_rich_scroll("getHeightForWidth_after", control=rich, eff_w=eff_w)
-
-        with suppress_disposed("getHeightForWidth childframe", logger=log):
-            log.info("childframe_sync %s -> %s", parent_w, eff_w)
-            sync_childframe_width(self.parent_window, eff_w)
             after = self.PanelWindow.getPosSize()
             parent_after = self.parent_window.getPosSize()
             log.info(
@@ -234,6 +222,15 @@ class ChatToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
                 parent_after.Width,
                 parent_after.Height,
             )
+
+        if rl is not None:
+            with suppress_disposed("getHeightForWidth relayout_now", logger=log):
+                from plugin.chatbot.rich_text_control import log_rich_scroll
+
+                rich = rl._c.get("response_rich") if hasattr(rl, "_c") else None
+                log_rich_scroll("getHeightForWidth_before", control=rich, eff_w=eff_w)
+                rl.relayout_now(self.PanelWindow)
+                log_rich_scroll("getHeightForWidth_after", control=rich, eff_w=eff_w)
 
         return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
 
@@ -340,7 +337,6 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 parent_rect.Height if parent_rect.Height > 0 else 400
             )
             if target_w > 0 and target_h > 0:
-                sync_childframe_width(self.xParentWindow, target_w)
                 self.m_panelRootWindow.setPosSize(0, 0, target_w, target_h, 15)
                 log.debug("panel pre-negotiation constrained to W=%s H=%s" % (target_w, target_h))
         return self.m_panelRootWindow

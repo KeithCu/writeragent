@@ -35,7 +35,7 @@ from plugin.framework.uno_bootstrap import ensure_plugin_on_path
 ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.errors import UnoObjectError, suppress_disposed
-from plugin.framework.sidebar_column import sidebar_column_width, sync_childframe_width
+from plugin.framework.sidebar_column import sidebar_column_width
 from plugin.framework.uno_context import get_extension_url, get_ctx
 
 if TYPE_CHECKING:
@@ -124,8 +124,6 @@ class PythonToolPanel(unohelper.Base, XToolPanel, XSidebarPanel):
         if rl is not None:
             with suppress_disposed("getHeightForWidth relayout_now", logger=log):
                 rl.relayout_now(self.PanelWindow)
-        with suppress_disposed("getHeightForWidth childframe", logger=log):
-            sync_childframe_width(self.parent_window, eff_w)
         return uno.createUnoStruct("com.sun.star.ui.LayoutSize", 100, -1, 400)
 
     def getMinimalWidth(self):

@@ -2,7 +2,6 @@ import logging
 
 from dataclasses import dataclass
 
-from plugin.framework.sidebar_column import sync_childframe_width
 from plugin.framework.uno_listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
@@ -233,22 +232,10 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         if not layouts:
             return
 
-        # Clamp children first so GTK preferred width drops, then the ChildFrame.
         for name, rect in layouts.items():
             ctrl = self._c.get(name)
             if ctrl is not None:
                 self._apply_rect(ctrl, rect)
-
-        viewport = self._viewport_w if self._viewport_w > 0 else w
-        parent = getattr(self, "_parent_window", None)
-        if parent is not None:
-            try:
-                pr = parent.getPosSize()
-                if pr.Width != viewport:
-                    log.info("childframe_sync relayout %s -> %s", pr.Width, viewport)
-                    sync_childframe_width(parent, viewport)
-            except Exception:
-                pass
 
         response = layouts.get("response")
         if response is not None:
