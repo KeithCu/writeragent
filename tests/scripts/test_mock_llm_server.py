@@ -107,6 +107,35 @@ def test_smol_offline_final_answer_plain():
     assert "<p>" not in answer
     assert "Python 3.13" in answer
     assert "- " in answer
+    assert "Step budget" not in answer
+
+
+def test_smol_offline_ignores_step_budget_banner():
+    """Live smolagents prefixes each turn with a step-budget user blob (Packet E1)."""
+    out = decide_completion(
+        {
+            "messages": [
+                {
+                    "role": "system",
+                    "content": 'Example Action:\n{"name": "web_search", "arguments": "Population Guangzhou"}',
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Step budget: 0 step(s) used, 15 step(s) remaining (maximum 15). "
+                        "You are on step 1 of 15.\nNew task:\n### CONVERSATION HISTORY:\nNone\n\n"
+                        "### CURRENT QUERY:\nlook up latest Python"
+                    ),
+                },
+            ],
+            "tools": _tools("web_search", "visit_webpage", "final_answer"),
+        },
+        MockLLMConfig(offline=True),
+    )
+    assert out.tool_name == "final_answer"
+    answer = (out.tool_args or {}).get("answer") or ""
+    assert "look up latest Python" in answer
+    assert "Step budget" not in answer
 
 
 def test_smol_online_sequence():
@@ -168,6 +197,63 @@ def test_smol_online_sequence():
         cfg,
     )
     assert third.tool_name == "final_answer"
+
+
+def test_smol_action_in_content_advances_search_then_visit():
+    """smolagents memory is Action JSON in user content, not assistant.tool_calls (Packet E2)."""
+    tools = _tools("web_search", "visit_webpage", "final_answer")
+    cfg = MockLLMConfig(offline=False)
+    system = 'Example Action:\n{"name": "web_search", "arguments": "Population Guangzhou"}'
+    task = (
+        "Step budget: 0 step(s) used, 15 remaining.\nNew task:\n"
+        "### CURRENT QUERY:\nlook up latest Python"
+    )
+    first = decide_completion(
+        {"messages": [{"role": "system", "content": system}, {"role": "user", "content": task}], "tools": tools},
+        cfg,
+    )
+    assert first.tool_name == "web_search"
+    assert (first.tool_args or {}).get("query") == "look up latest Python"
+
+    obs = (
+        "Step budget: 1 step(s) used, 14 remaining.\n"
+        'Action:\n{"name": "web_search", "arguments": {"query": "look up latest Python"}}\n'
+        "Observation:\n<h2>Search Results</h2>"
+        "<a href='https://www.python.org/downloads/'>Download Python</a>"
+    )
+    second = decide_completion(
+        {
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": task},
+                {"role": "user", "content": obs},
+            ],
+            "tools": tools,
+        },
+        cfg,
+    )
+    assert second.tool_name == "visit_webpage"
+    assert (second.tool_args or {}).get("url") == "https://www.python.org/downloads/"
+
+    visited = (
+        obs
+        + '\nAction:\n{"name": "visit_webpage", "arguments": {"url": "https://www.python.org/downloads/"}}\n'
+        "Observation:\nPython 3.14 notes"
+    )
+    third = decide_completion(
+        {
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": task},
+                {"role": "user", "content": visited},
+            ],
+            "tools": tools,
+        },
+        cfg,
+    )
+    assert third.tool_name == "final_answer"
+    assert "look up latest Python" in ((third.tool_args or {}).get("answer") or "")
+    assert "Step budget" not in ((third.tool_args or {}).get("answer") or "")
 
 
 def test_sync_tool_call_arguments_are_json_string():
@@ -503,6 +589,45 @@ def test_specialized_inner_tree_then_final_answer():
     )
     assert second.tool_name == "final_answer"
     assert "outline" in ((second.tool_args or {}).get("answer") or "").lower()
+
+
+def test_specialized_inner_without_tree_finishes_immediately():
+    """Live document_research inner HTTP has specialized_workflow_finished, often no tree tool (Packet E7)."""
+    tools = _tools("search_nearby_files", "specialized_workflow_finished")
+    out = decide_completion(
+        {"messages": [{"role": "user", "content": "outline this"}], "tools": tools},
+        MockLLMConfig(delay_ms=0),
+    )
+    assert out.tool_name == "specialized_workflow_finished"
+    assert "outline" in ((out.tool_args or {}).get("answer") or "").lower()
+    assert out.content is None
+
+
+def test_mutate_wrapup_is_not_research_wording():
+    out = decide_completion(
+        {
+            "messages": [
+                {"role": "user", "content": "insert filler"},
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {"name": "apply_document_content", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {"role": "tool", "content": '{"status": "ok", "message": "Inserted content at end."}'},
+            ],
+            "tools": _tools("apply_document_content", "web_research"),
+        },
+        MockLLMConfig(delay_ms=0),
+    )
+    assert out.tool_name is None
+    assert out.content is not None
+    assert "Inserted content" in out.content
+    assert "I looked that up" not in out.content
 
 
 def test_parallel_two_core_tools():

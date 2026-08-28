@@ -59,6 +59,15 @@ _RESEARCH_RE = re.compile(
     re.IGNORECASE,
 )
 _HTTP_URL_RE = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
+# Smolagents records prior steps as Action JSON in user/assistant *content*,
+# not OpenAI assistant.tool_calls. The system prompt also has example Actions —
+# never scan role=system. Packet E live soak: without this, every nested round
+# re-issues web_search (or skips get_document_tree).
+_ACTION_NAME_RE = re.compile(
+    r'"name"\s*:\s*"(web_search|visit_webpage|get_document_tree|final_answer|'
+    r'specialized_workflow_finished)"'
+)
+_CURRENT_QUERY_MARKER = "### CURRENT QUERY:"
 
 # Phrase → scenario. First match wins. Keep distinct from research/comment keywords.
 _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -282,12 +291,50 @@ def _assistant_tool_names(messages: list[Any]) -> list[str]:
     return names
 
 
+def _action_tool_names(messages: list[Any]) -> list[str]:
+    """Tool names from smolagents Action JSON in non-system message content."""
+    names: list[str] = []
+    for msg in messages:
+        if not isinstance(msg, dict) or msg.get("role") == "system":
+            continue
+        text = _as_text(msg.get("content"))
+        names.extend(_ACTION_NAME_RE.findall(text))
+    return names
+
+
+def _called_tool_names(messages: list[Any]) -> list[str]:
+    """Native tool_calls plus smolagents Action-in-content history."""
+    return _assistant_tool_names(messages) + _action_tool_names(messages)
+
+
+def _current_query(messages: list[Any], fallback: str = "") -> str:
+    """Prefer ``### CURRENT QUERY:`` from any message over the last user blob.
+
+    Smolagents prefixes each step with ``Step budget: N step(s) used…``. Using
+    `_last_user_text` as the research query made DuckDuckGo search that banner
+    (Packet E2) and stuffed it into offline `final_answer` (Packet E1).
+    """
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        text = _as_text(msg.get("content"))
+        if _CURRENT_QUERY_MARKER in text:
+            return text.split(_CURRENT_QUERY_MARKER, 1)[-1].strip()
+    return (fallback or "").strip()
+
+
 def _is_smol_research(tool_names: set[str]) -> bool:
     # final_answer alone is also used by specialized inner agents; require search tools.
     return bool(tool_names & {"web_search", "visit_webpage"})
 
 
 def _is_specialized_inner(tool_names: set[str]) -> bool:
+    # Live document_research inner HTTP advertises specialized_workflow_finished
+    # plus domain tools; get_document_tree is often *not* on that list (core
+    # tree is not a specialized_domain tool). Phrase "outline this" must not
+    # fall through to the main-chat delegate scenario (Packet E7).
+    if "specialized_workflow_finished" in tool_names:
+        return True
     return "get_document_tree" in tool_names and bool(
         tool_names & {"final_answer", "specialized_workflow_finished"}
     )
@@ -339,7 +386,7 @@ def _extract_document_words(messages: list[Any]) -> list[str]:
 def _first_url(text: str) -> str:
     match = _HTTP_URL_RE.search(text or "")
     if match:
-        return match.group(0).rstrip(".,;")
+        return match.group(0).rstrip(".,;\"'")
     return "https://example.com/mock-research"
 
 
@@ -407,6 +454,27 @@ def _html_research_summary(topic: str, tool_text: str) -> str:
     )
 
 
+def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
+    """Main-chat HTML after a tool round. Research wording is only for web_research."""
+    if tool_name == "web_research":
+        return _html_research_summary(user_text, tool_text)
+    snippet = html.escape((tool_text or "").strip().replace("\n", " ")[:280])
+    safe_user = html.escape((user_text or "that request").strip()[:80] or "that request")
+    if tool_name == "apply_document_content":
+        return f"<p>Inserted content into the document.</p><p>{snippet or '(empty)'}</p>"
+    if tool_name.startswith("delegate_to_specialized"):
+        return (
+            f"<p>Specialized agent finished <strong>{safe_user}</strong>.</p>"
+            f"<p>{snippet or '(empty)'}</p>"
+        )
+    if tool_name in {"search_in_document", "get_document_tree", "list_sheets", "list_pages"}:
+        return (
+            f"<p>Ran <code>{html.escape(tool_name)}</code>.</p>"
+            f"<p>{snippet or '(empty)'}</p>"
+        )
+    return _html_research_summary(user_text, tool_text)
+
+
 def _html_flood(topic: str) -> str:
     safe = html.escape((topic or "flood").strip()[:80] or "flood")
     paras = "".join(f"<p>Flood paragraph {i} about {safe}. Padding for VisArea and caret-follow.</p>" for i in range(1, FLOOD_PARAS + 1))
@@ -458,45 +526,47 @@ def _tool_or_html(
 
 
 def _smol_research_completion(messages: list[Any], tool_names: set[str], config: MockLLMConfig, user_text: str) -> Completion:
-    called = _assistant_tool_names(messages)
+    called = _called_tool_names(messages)
+    query = _current_query(messages, user_text) or "mock research"
     if config.offline:
         return Completion(
             tool_name="final_answer",
-            tool_args={"answer": _plain_research_report(user_text)},
+            tool_args={"answer": _plain_research_report(query)},
             finish_reason="tool_calls",
         )
     if "visit_webpage" in called:
         return Completion(
             tool_name="final_answer",
-            tool_args={"answer": _plain_research_report(user_text)},
+            tool_args={"answer": _plain_research_report(query)},
             finish_reason="tool_calls",
         )
     if "web_search" in called:
         last_tool_text = ""
         for msg in reversed(messages):
-            if isinstance(msg, dict) and msg.get("role") == "tool":
-                last_tool_text = _as_text(msg.get("content"))
-                break
+            if not isinstance(msg, dict):
+                continue
+            blob = _as_text(msg.get("content"))
+            if msg.get("role") == "tool" or "Observation:" in blob or "<h2>Search Results</h2>" in blob:
+                last_tool_text = blob
+                if _first_url(last_tool_text) != "https://example.com/mock-research":
+                    break
         return Completion(
             tool_name="visit_webpage",
             tool_args={"url": _first_url(last_tool_text)},
             finish_reason="tool_calls",
         )
-    query = user_text
-    marker = "### CURRENT QUERY:"
-    if marker in user_text:
-        query = user_text.split(marker, 1)[-1].strip()
     return Completion(
         tool_name="web_search",
-        tool_args={"query": query or "mock research", "recency": "any"},
+        tool_args={"query": query, "recency": "any"},
         finish_reason="tool_calls",
     )
 
 
 def _specialized_inner_completion(messages: list[Any], tool_names: set[str]) -> Completion:
-    called = _assistant_tool_names(messages)
+    called = _called_tool_names(messages)
     finish_name = "final_answer" if "final_answer" in tool_names else "specialized_workflow_finished"
-    if "get_document_tree" in called:
+    # Inner document_research often has no get_document_tree; finish immediately.
+    if "get_document_tree" not in tool_names or "get_document_tree" in called:
         return Completion(
             tool_name=finish_name,
             tool_args={"answer": "Mock outline complete. Headings were read via get_document_tree."},
@@ -647,7 +717,7 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
                 tool_text = _as_text(msg.get("content"))
                 break
         return Completion(
-            content=_html_research_summary(user_text, tool_text),
+            content=_html_tool_wrapup(user_text, last_called_tool, tool_text),
             reasoning=reasoning,
             finish_reason="stop",
         )

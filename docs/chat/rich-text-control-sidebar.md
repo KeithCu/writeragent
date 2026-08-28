@@ -288,7 +288,7 @@ Plain “hello” streams two HTML paragraphs (rotating lists/tables/code). Phra
 | `hang the stream` | a few SSE chunks, then the socket drops (no `[DONE]`) |
 | `sse pings` | `: ping` comments between events (`--sse-comments` does this for every stream) |
 
-Specialized inner HTTP (when the request advertises `get_document_tree` plus `final_answer` / `specialized_workflow_finished`): `get_document_tree` then `final_answer`. That is how a writer-delegate soak continues after the gateway call.
+Specialized inner HTTP (when the request advertises `specialized_workflow_finished`, or `get_document_tree` plus `final_answer`): call `get_document_tree` when that tool is on the list, otherwise `specialized_workflow_finished` / `final_answer` with a canned outline. Phrase “outline this” must not fall through to the main-chat delegate scenario on the inner request. Smolagents nested memory is Action JSON in user/assistant **content** (not `assistant.tool_calls`); the mock reads those Actions and `### CURRENT QUERY:` so online research is `web_search` → `visit_webpage` → `final_answer` instead of looping search.
 
 ### Mock LLM agent test plan
 
@@ -356,13 +356,13 @@ Assign by packet id (`A`–`H`). Do not skip the “why hard” line — that is
 
 | ID | Mock | Steps | Pass | Watch |
 |----|------|-------|------|-------|
-| E1 | `--offline`, `look up latest Python` | Web research | Status/thinking for search steps; final HTML summary in main chat; DuckDuckGo not required | smol `web_search` → `visit_webpage` → `final_answer`; `_record_assistant_start` only on final report |
-| E2 | omit `--offline`, same phrase | Live search optional | If network ok, visit_webpage uses a URL from hits; still ends in HTML | |
+| E1 | `--offline`, `look up latest Python` | Web research | Status/thinking for search steps; final HTML summary in main chat; DuckDuckGo not required | smol `final_answer` uses `### CURRENT QUERY:` (not the “Step budget” banner); `_record_assistant_start` only on final report |
+| E2 | omit `--offline`, same phrase | Live search optional | `web_search` once, then `visit_webpage` on a hit URL, then HTML wrap-up — not 15× search | smol Action JSON in content, not native `tool_calls` |
 | E3 | Doc with text “Welcome…”, type `add a comment` | Comment tool | Comment anchored on first word; sidebar “Comment inserted” | `add_comment`; undo stack has the comment |
 | E4 | **Empty** Writer doc, `insert a comment` | apply then comment | Text inserted at beginning, then comment on `Hello` | two-round tool loop; document context refresh |
 | E5 | `insert filler` | Mutate end | Paragraph appended; **next** hello’s system prompt sees new length (not stale snapshot) | `apply_document_content`; `refresh_document_context` |
 | E6 | `two tools` / `in parallel` | One send | `search_in_document` **and** `get_document_tree` run; one HTML wrap-up | `accumulate_delta` two `index` values |
-| E7 | `outline this` | Delegate | Nested agent status while main drain stays alive; then main-chat HTML; Stop still works mid-delegate | `delegate_to_specialized_writer_toolset` domain `document_research`; inner `get_document_tree` then `final_answer` |
+| E7 | `outline this` | Delegate | Nested agent status while main drain stays alive; then main-chat HTML; Stop still works mid-delegate | `delegate_to_specialized_writer_toolset` domain `document_research`; inner `specialized_workflow_finished` (canned outline), or `get_document_tree` then finish when that tool is advertised |
 | E8 | E7 + click Stop during nested work | Cancel | Nested work stops; UI recovers; next hello works | `resolve_stop_checker()`, not a panel boolean alone |
 
 #### Packet F — HTTP errors, hang, SSE quirks
