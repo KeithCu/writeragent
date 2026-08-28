@@ -65,9 +65,19 @@ _HTTP_URL_RE = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
 # re-issues web_search (or skips get_document_tree).
 _ACTION_NAME_RE = re.compile(
     r'"name"\s*:\s*"(web_search|visit_webpage|get_document_tree|final_answer|'
-    r'specialized_workflow_finished)"'
+    r'specialized_workflow_finished|list_nearby_files|search_nearby_files|'
+    r'grep_nearby_files|delegate_read_document)"'
 )
 _CURRENT_QUERY_MARKER = "### CURRENT QUERY:"
+# Inner document_research often has no get_document_tree. Call one discovery
+# tool first so Packet E7 shows nested status and E8 has time to click Stop.
+_SPECIALIZED_INNER_PRE_FINISH = (
+    "get_document_tree",
+    "list_nearby_files",
+    "search_nearby_files",
+    "grep_nearby_files",
+    "delegate_read_document",
+)
 
 # Phrase → scenario. First match wins. Keep distinct from research/comment keywords.
 _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -562,19 +572,31 @@ def _smol_research_completion(messages: list[Any], tool_names: set[str], config:
     )
 
 
+def _specialized_inner_args(name: str) -> dict[str, Any]:
+    if name == "get_document_tree":
+        return {"strategy": "heading_only", "depth": 1}
+    if name == "search_nearby_files":
+        return {"query": "outline"}
+    if name == "grep_nearby_files":
+        return {"pattern": "outline"}
+    if name == "delegate_read_document":
+        return {"path": ""}
+    return {}
+
+
 def _specialized_inner_completion(messages: list[Any], tool_names: set[str]) -> Completion:
     called = _called_tool_names(messages)
     finish_name = "final_answer" if "final_answer" in tool_names else "specialized_workflow_finished"
-    # Inner document_research often has no get_document_tree; finish immediately.
-    if "get_document_tree" not in tool_names or "get_document_tree" in called:
-        return Completion(
-            tool_name=finish_name,
-            tool_args={"answer": "Mock outline complete. Headings were read via get_document_tree."},
-            finish_reason="tool_calls",
-        )
+    for name in _SPECIALIZED_INNER_PRE_FINISH:
+        if name in tool_names and name not in called:
+            return Completion(
+                tool_name=name,
+                tool_args=_specialized_inner_args(name),
+                finish_reason="tool_calls",
+            )
     return Completion(
-        tool_name="get_document_tree",
-        tool_args={"strategy": "heading_only", "depth": 1},
+        tool_name=finish_name,
+        tool_args={"answer": "Mock outline complete. Nested document_research tools finished."},
         finish_reason="tool_calls",
     )
 
@@ -1052,14 +1074,19 @@ def make_handler_class(config: MockLLMConfig, turns: _TurnState | None = None) -
             unused_status, hang = _effective_fail(config, completion)
             if unused_status is not None:
                 return
+            delay = max(0, int(config.delay_ms)) / 1000.0
             if not stream:
+                # Nested smol / specialized agents use stream=False. Without this
+                # sleep, Packet E7/E8 nested work finishes in a few milliseconds
+                # and Stop cannot be clicked (delay_ms only applied to SSE).
+                if delay:
+                    time.sleep(delay)
                 self._send_json(200, sync_response_body(completion, model))
                 return
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
-            delay = max(0, int(config.delay_ms)) / 1000.0
             comments = bool(config.sse_comments or completion.sse_comments)
             max_chunks = int(config.fail_after_chunks) if hang else None
             written = 0
@@ -1096,7 +1123,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="WriterAgent mock OpenAI chat endpoint")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
-    parser.add_argument("--delay-ms", type=int, default=25, help="Pause between SSE chunks")
+    parser.add_argument(
+        "--delay-ms",
+        type=int,
+        default=25,
+        help="Pause between SSE chunks and before each non-streaming JSON response",
+    )
     parser.add_argument(
         "--offline",
         action="store_true",

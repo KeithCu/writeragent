@@ -591,16 +591,42 @@ def test_specialized_inner_tree_then_final_answer():
     assert "outline" in ((second.tool_args or {}).get("answer") or "").lower()
 
 
-def test_specialized_inner_without_tree_finishes_immediately():
+def test_specialized_inner_without_tree_calls_discovery_then_finishes():
     """Live document_research inner HTTP has specialized_workflow_finished, often no tree tool (Packet E7)."""
     tools = _tools("search_nearby_files", "specialized_workflow_finished")
-    out = decide_completion(
+    first = decide_completion(
         {"messages": [{"role": "user", "content": "outline this"}], "tools": tools},
+        MockLLMConfig(delay_ms=0),
+    )
+    assert first.tool_name == "search_nearby_files"
+    second = decide_completion(
+        {
+            "messages": [
+                {"role": "user", "content": "outline this"},
+                {
+                    "role": "user",
+                    "content": 'Action:\n{"name": "search_nearby_files", "arguments": {"query": "outline"}}\nObservation:\n[]',
+                },
+            ],
+            "tools": tools,
+        },
+        MockLLMConfig(delay_ms=0),
+    )
+    assert second.tool_name == "specialized_workflow_finished"
+    assert "outline" in ((second.tool_args or {}).get("answer") or "").lower()
+    assert second.content is None
+
+
+def test_specialized_inner_finish_only_when_no_discovery_tools():
+    out = decide_completion(
+        {
+            "messages": [{"role": "user", "content": "outline this"}],
+            "tools": _tools("specialized_workflow_finished"),
+        },
         MockLLMConfig(delay_ms=0),
     )
     assert out.tool_name == "specialized_workflow_finished"
     assert "outline" in ((out.tool_args or {}).get("answer") or "").lower()
-    assert out.content is None
 
 
 def test_mutate_wrapup_is_not_research_wording():
