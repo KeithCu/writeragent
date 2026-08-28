@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from plugin.calc.python.editor import (
     _apply_cell_save,
+    _resolve_code_ref_cell,
     build_editor_formula_save,
     editor_load_save_as_plain,
 )
-from plugin.calc.python.formula_edit import parse_python_formula
+from plugin.calc.python.formula_edit import parse_python_formula, py_code_arg_is_cell_ref
 from plugin.tests.testing_utils import CalcCellStub, CalcDocStub
 
 
@@ -28,6 +29,14 @@ def test_editor_load_save_as_plain_plain_string_cell():
 def test_editor_load_save_as_plain_empty_cell():
     assert editor_load_save_as_plain(parsed_parts=None, initial_code="") is False
     assert editor_load_save_as_plain(parsed_parts=None, initial_code="   ") is False
+
+
+def test_editor_load_save_as_plain_follow_code_ref():
+    parts = parse_python_formula("=PY($A$1; C1:C10)")
+    assert parts is not None
+    assert editor_load_save_as_plain(
+        parsed_parts=parts, initial_code="result = 1", follow_code_ref=True
+    ) is True
 
 
 def test_build_editor_formula_save_new_cell_with_data_binding():
@@ -167,3 +176,38 @@ def test_apply_cell_save_plain_text_mode():
     assert cell.getString() == code
     assert cell.getFormula() == ""
     assert doc.calculate_all_count == 1
+
+def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByIndex(0)
+    code_cell = sheet.getCellByPosition(0, 0)
+    formula_cell = sheet.getCellByPosition(1, 0)
+    code_cell.setString("result = 42")
+    formula_cell.setFormula("=PY($A$1; C1:C10)")
+    parts = parse_python_formula(formula_cell.getFormula())
+    assert parts is not None
+    assert parts.code == "$A$1"
+
+    resolved = _resolve_code_ref_cell(doc, parts.code)
+    assert resolved is code_cell
+
+    result = _apply_cell_save(
+        doc,
+        formula_cell,
+        parsed_parts=parts,
+        new_code="result = 99",
+        save_as_plain=False,
+        data_binding_text="C1:C10",
+        code_cell=code_cell,
+        code_ref=parts.code,
+    )
+    assert result["ok"] is True
+    assert result["save_as_plain"] is True
+    assert code_cell.getString() == "result = 99"
+    reparsed = parse_python_formula(formula_cell.getFormula())
+    assert reparsed is not None
+    assert py_code_arg_is_cell_ref(reparsed.code)
+    assert "C1:C10" in formula_cell.getFormula()
+    assert "result = 99" not in formula_cell.getFormula()
+    assert doc.calculate_all_count == 1
+

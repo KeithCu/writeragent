@@ -675,7 +675,7 @@ Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_
 | Pattern | When to use | Example |
 | ------- | ----------- | ------- |
 | **Bare NumPy / expression** | Default for short inline code | `=PY("np.sum(data)"; B1:B10)` |
-| **Code in a cell** | Multi-line / huge scripts (avoids `MAXSTRLEN`) | `A1` = script text; `=PY($A$1; B1:B10)` |
+| **Code in a cell** | Multi-line / huge scripts (avoids `MAXSTRLEN`) | `A1` = script text (**Save without =PY()**); `=PY($A$1; B1:B10)`. Opening the formula cell in Monaco edits **A1**. |
 | **ASCII quotes only** | Always when pasting / generating formulas | Normalize curly `“”` → `"` (WriterAgent does this on parse) |
 | **Comma vs semicolon** | Match file/locale | XLSX OOXML → commas; Calc UI often `;` |
 | **XLSX test sheets** | Manual serialization regression | See [`scripts/generate_serialization_spreadsheet.py`](../scripts/generate_serialization_spreadsheet.py) |
@@ -687,8 +687,8 @@ Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_
 
 These are **not** implemented; kept so design discussions do not rediscover the same traps.
 
-1. **Cell-reference-first UX** — Settings or formula wizard default: “put script in one cell, reference it from `=PY`” (already supported by IDL; needs prompts/UI). Best mitigation for huge scripts until LO raises `MAXSTRLEN`.
-2. **LLM / `=PROMPT()` guardrails** — Prefer cell refs for long code; emit ASCII `"` only; avoid unquoted Python in the formula.
+1. **Cell-reference-first UX** — Shipped for the editor: opening `=PY($A$1; …)` edits A1’s text and saves back to A1 (formula stays a ref). A Settings/wizard default to *create* that pattern is still not implemented. Best mitigation for huge scripts until LO raises `MAXSTRLEN`.
+2. **LLM / `=PROMPT()` guardrails** — Deferred. Auto-imports and helpers usually fit in 1024 chars; do not lengthen `CALC_FORMULA_SYNTAX` unless generated `=PY("…")` hits `Err:513`. Monaco already follows cell-ref formulas.
 3. **Native ODS fixtures** — Shipped: [`tests/fixtures/numpy_domains_demo.ods`](../tests/fixtures/numpy_domains_demo.ods). Use ODS for manual `=PY()` QA (preserves uppercase add-in name; semicolon args). Serialization fixtures use bare `np.sum` / `np.max` (no `float()` wrapper).
 
 ### Future LibreOffice formula-string work {#future-libreoffice-formula-string-work}
