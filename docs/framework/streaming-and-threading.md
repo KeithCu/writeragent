@@ -284,6 +284,8 @@ The main-chat loop keeps the transition layer pure. Queue items from worker thre
 > **Why this matters:** Setting `job_done[0] = True` from the worker thread races with the drain loop's `while not job_done[0]` check. A fast-returning worker (common for short LLM responses) can set the flag before the main thread dequeues and processes the `STREAM_DONE` item. The drain loop then exits without ever calling `on_done` — which means cleanup callbacks such as `leaveUndoContext()` are never invoked, leaving LibreOffice's `XUndoManager` with an open, orphaned context. All subsequent text insertions are recorded under that context as `"Insert $1"` and the undo stack is permanently corrupted for that document session.
 >
 > The worker's `finally` block should only post the sentinel `(STREAM_DONE, None)` to the queue (which guarantees the drain loop unblocks). The drain loop itself sets `job_done[0] = True` when it processes that item.
+>
+> **Drain-handler exceptions:** If a dispatch handler (chunk/thinking UI) raises inside `_process_batch`, that is an inline `ERROR`: call `on_error` once, set `job_done`, and end the batch. Do **not** re-queue `(ERROR, payload)` (that used to keep applying later chunks and then run `STREAM_DONE` as success, so `on_error` never ran). Do **not** call `on_stream_done` after the crash (Writer Extend/Edit would both restore and finish; chat would show Error and Ready). `STREAM_DONE` already dequeued into the current `items` list is skipped because `job_done` is set — breaking *without* `job_done` after that dequeue is what hangs. A live worker `finally` may still post a later sentinel; the loop has already exited, same as a producer `ERROR`.
 
 
 

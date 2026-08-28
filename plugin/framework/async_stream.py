@@ -408,6 +408,10 @@ _DISPATCH: dict[StreamQueueKind, Callable[[_DrainState, Any, Any], None]] = {
 
 def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[[], bool] | None) -> None:
     # crosshair: off
+    # Trailing flush_buffers() must still raise on the success path (outer catch
+    # / test_stream_drain_loop_processing_error). After a fatal inner handler
+    # failure, skip it: a second raise would double-call on_error.
+    skip_trailing_flush = False
     for item in items:
         if stop_checker and stop_checker():
             log.info("run_stream_drain_loop: Stop requested via checker.")
@@ -432,14 +436,35 @@ def _process_batch(state: _DrainState, items: list[Any], stop_checker: Callable[
 
             _DISPATCH[raw_kind](state, data, item)
         except Exception as loop_e:
+            # Dispatch handler (chunk/thinking UI) raised. Re-queuing ERROR used
+            # to continue the batch: later CHUNKs still applied, STREAM_DONE ran
+            # as success, and on_error never ran (the re-queued ERROR sat behind
+            # job_done). Call on_error inline like _handle_error; set job_done so
+            # we do not hang after STREAM_DONE was already dequeued into items.
+            # Do not also call on_stream_done (Writer restore vs finish).
             error_payload = format_error_payload(loop_e)
             log.exception("Stream processing failed")
-            state.q.put((StreamQueueKind.ERROR, error_payload))
+            try:
+                state.flush_buffers()
+                state.close_thinking()
+            except Exception:
+                log.exception("Stream buffer flush after handler failure also failed")
+            recovered = False
+            try:
+                recovered = state.on_error(error_payload) is True
+            except Exception:
+                log.exception("on_error after stream handler failure also failed")
+            if recovered:
+                continue
+            state.job_done[0] = True
+            skip_trailing_flush = True
+            break
 
         if state.job_done[0]:
             break
 
-    state.flush_buffers()
+    if not skip_trailing_flush:
+        state.flush_buffers()
 
 
 def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, on_stopped, on_error, on_status_fn=None, ctx=None, show_search_thinking=False, on_approval_required=None, stop_checker=None):
@@ -461,7 +486,9 @@ def run_stream_drain_loop(q, toolkit, job_done, apply_chunk_fn, on_stream_done, 
     - (STOPPED, ignored): Calls on_stopped() (second element unused).
     - (ERROR, payload): Calls on_error(payload). If on_error returns True, the
       drain keeps running (handler recovered, e.g. STT fallback spawned a new
-      worker on this queue). Any other return value ends the loop.
+      worker on this queue). Any other return value ends the loop. A dispatch
+      handler that raises is the same contract (inline on_error, no re-queue,
+      no on_stream_done).
     - (TOOL_CALL, payload): Agent-backend tool block; shown as text via apply_chunk_fn.
     - (TOOL_RESULT, payload): Agent-backend tool result block; shown as text via apply_chunk_fn.
     """

@@ -791,6 +791,199 @@ class TestAsyncStreamErrorHandling():
         assert ('Processing failed' in error_payload['message'])
 
 
+def test_process_batch_handler_raises_on_second_chunk_ends_batch(monkeypatch):
+    """Dispatch-handler raise on the second CHUNK ends the batch without fake success.
+
+    Consecutive CHUNKs only append; apply_chunk_fn runs in flush_buffers(). Patch
+    _handle_chunk (not apply_chunk_fn) so this hits the inner except, not the
+    outer catch that test_stream_drain_loop_processing_error covers.
+
+    STREAM_DONE is already in the dequeued items list; job_done + break skips it
+    rather than leaving it on the queue. Do not assert q still holds STREAM_DONE.
+    """
+    import plugin.framework.async_stream as async_stream
+
+    q = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "one"))
+    q.put((StreamQueueKind.CHUNK, "two"))
+    q.put((StreamQueueKind.CHUNK, "three"))
+    q.put((StreamQueueKind.STREAM_DONE, None))
+
+    applied = []
+    errors = []
+    done_calls = []
+    orig = async_stream._handle_chunk
+    calls = [0]
+
+    def boom_chunk(state, data, item):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise RuntimeError("second chunk")
+        return orig(state, data, item)
+
+    monkeypatch.setitem(async_stream._DISPATCH, StreamQueueKind.CHUNK, boom_chunk)
+
+    def apply_chunk(text, is_thinking):
+        applied.append(text)
+
+    def on_error(e):
+        errors.append(e)
+
+    def on_stream_done(item):
+        done_calls.append(item)
+        return True
+
+    job_done = [False]
+    async_stream.run_stream_drain_loop(
+        q, None, job_done, apply_chunk,
+        on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
+    )
+
+    assert job_done[0] is True
+    assert calls[0] == 2
+    assert len(errors) == 1
+    assert errors[0]["status"] == "error"
+    assert "second chunk" in errors[0]["message"]
+    assert done_calls == []
+    joined = "".join(applied)
+    assert "one" in joined
+    assert "three" not in joined
+
+
+def test_process_batch_handler_raises_on_second_thinking_ends_batch(monkeypatch):
+    """Same inner-except contract for THINKING as for CHUNK."""
+    import plugin.framework.async_stream as async_stream
+
+    q = queue.Queue()
+    q.put((StreamQueueKind.THINKING, "hmm"))
+    q.put((StreamQueueKind.THINKING, "nope"))
+    q.put((StreamQueueKind.THINKING, "later"))
+    q.put((StreamQueueKind.STREAM_DONE, None))
+
+    applied = []
+    errors = []
+    done_calls = []
+    orig = async_stream._handle_thinking
+    calls = [0]
+
+    def boom_thinking(state, data, item):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise RuntimeError("second thinking")
+        return orig(state, data, item)
+
+    monkeypatch.setitem(async_stream._DISPATCH, StreamQueueKind.THINKING, boom_thinking)
+
+    def apply_chunk(text, is_thinking):
+        applied.append(text)
+
+    def on_error(e):
+        errors.append(e)
+
+    def on_stream_done(item):
+        done_calls.append(item)
+        return True
+
+    job_done = [False]
+    async_stream.run_stream_drain_loop(
+        q, None, job_done, apply_chunk,
+        on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
+    )
+
+    assert job_done[0] is True
+    assert calls[0] == 2
+    assert len(errors) == 1
+    assert "second thinking" in errors[0]["message"]
+    assert done_calls == []
+    joined = "".join(applied)
+    assert "hmm" in joined
+    assert "later" not in joined
+
+
+def test_process_batch_handler_error_on_error_true_keeps_draining(monkeypatch):
+    """on_error returning True is STT-style recovery: keep the batch, still honor STREAM_DONE."""
+    import plugin.framework.async_stream as async_stream
+
+    q = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "one"))
+    q.put((StreamQueueKind.CHUNK, "two"))
+    q.put((StreamQueueKind.CHUNK, "three"))
+    q.put((StreamQueueKind.STREAM_DONE, None))
+
+    applied = []
+    errors = []
+    done_calls = []
+    orig = async_stream._handle_chunk
+    calls = [0]
+
+    def boom_chunk(state, data, item):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise RuntimeError("second chunk")
+        return orig(state, data, item)
+
+    monkeypatch.setitem(async_stream._DISPATCH, StreamQueueKind.CHUNK, boom_chunk)
+
+    def apply_chunk(text, is_thinking):
+        applied.append(text)
+
+    def on_error(e):
+        errors.append(e)
+        return True
+
+    def on_stream_done(item):
+        done_calls.append(item)
+        return True
+
+    job_done = [False]
+    async_stream.run_stream_drain_loop(
+        q, None, job_done, apply_chunk,
+        on_stream_done=on_stream_done, on_stopped=lambda: None, on_error=on_error,
+    )
+
+    assert job_done[0] is True
+    assert len(errors) == 1
+    assert len(done_calls) == 1
+    joined = "".join(applied)
+    assert "one" in joined
+    assert "three" in joined
+
+
+def test_process_batch_handler_error_on_error_raises_still_sets_job_done(monkeypatch):
+    """A raising on_error must still set job_done and must not be retried by the outer catch."""
+    import plugin.framework.async_stream as async_stream
+
+    q = queue.Queue()
+    q.put((StreamQueueKind.CHUNK, "one"))
+    q.put((StreamQueueKind.CHUNK, "two"))
+    q.put((StreamQueueKind.STREAM_DONE, None))
+
+    errors = []
+    orig = async_stream._handle_chunk
+    calls = [0]
+
+    def boom_chunk(state, data, item):
+        calls[0] += 1
+        if calls[0] == 2:
+            raise RuntimeError("second chunk")
+        return orig(state, data, item)
+
+    monkeypatch.setitem(async_stream._DISPATCH, StreamQueueKind.CHUNK, boom_chunk)
+
+    def on_error(e):
+        errors.append(e)
+        raise RuntimeError("on_error error")
+
+    job_done = [False]
+    async_stream.run_stream_drain_loop(
+        q, None, job_done, lambda _t, _th: None,
+        on_stream_done=lambda _i: True, on_stopped=lambda: None, on_error=on_error,
+    )
+
+    assert job_done[0] is True
+    assert len(errors) == 1
+
+
 # --- BatchingStreamQueue tests (producer-side 250 ms smoothing) ---
 
 def test_batching_stream_queue_basic_join_and_flush():
