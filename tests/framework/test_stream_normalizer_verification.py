@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import copy
+import io
+import json
 import re
 import shutil
 import subprocess
@@ -28,6 +30,7 @@ from plugin.framework.client.stream_normalizer import (
     _thinking_text_from_delta,
     accumulate_streaming_thinking,
     extract_reasoning_replay_from_response,
+    iterate_sse,
     new_streaming_thinking_meta,
     strip_think_tags,
 )
@@ -49,6 +52,59 @@ def _find_crosshair() -> str | None:
     if venv_bin_ch.exists():
         return str(venv_bin_ch)
     return None
+
+
+def _sse_lines_from_byte_chunks(chunks: list[bytes]) -> list[bytes]:
+    """Reassemble complete lines the way ``HTTPResponse.readline`` does.
+
+    ``iterate_sse`` is line-oriented and has no leftover buffer — arbitrary TCP
+    cuts are valid only after this step (tests only; not plugin code).
+    """
+    buf = b""
+    lines: list[bytes] = []
+    for chunk in chunks:
+        buf += chunk
+        while True:
+            idx = buf.find(b"\n")
+            if idx < 0:
+                break
+            lines.append(buf[: idx + 1])
+            buf = buf[idx + 1 :]
+    if buf:
+        lines.append(buf)
+    return lines
+
+
+def _chat_delta_json(content: str) -> str:
+    return json.dumps({"choices": [{"delta": {"content": content}}]}, ensure_ascii=False)
+
+
+def _data_json_line(content: str) -> bytes:
+    return ("data: " + _chat_delta_json(content)).encode("utf-8")
+
+
+def _raw_json_line(content: str) -> bytes:
+    return _chat_delta_json(content).encode("utf-8")
+
+
+_SSE_CONTENT = st.text(
+    alphabet=st.characters(blacklist_categories=("Cs",), min_codepoint=32),
+    max_size=20,
+)
+_SSE_LINE = st.one_of(
+    st.just(b": ping"),
+    st.just(b""),
+    st.just(b"data: [DONE]"),
+    _SSE_CONTENT.map(_data_json_line),
+    _SSE_CONTENT.map(_raw_json_line),
+)
+_SSE_LINES = st.lists(_SSE_LINE, min_size=1, max_size=12)
+
+
+def _split_seq(seq: list[bytes], cuts: list[int]) -> list[list[bytes]]:
+    n = len(seq)
+    pts = sorted({0, n, *(min(max(0, c), n) for c in cuts)})
+    return [seq[a:b] for a, b in zip(pts, pts[1:]) if a < b]
 
 
 @given(parts=st.lists(st.text(min_size=1, max_size=12), min_size=1, max_size=5))
@@ -97,6 +153,42 @@ def test_hypothesis_merge_reasoning_details_chunked_equals_full(a: str, b: str, 
     assert chunked == full
     assert len(chunked) == 1
     assert chunked[0]["text"] == a + b
+
+
+@given(left=_SSE_LINES, right=_SSE_LINES)
+@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
+def test_hypothesis_iterate_sse_concat_homomorphism(left: list[bytes], right: list[bytes]) -> None:
+    """``iterate_sse`` is stateless per line: no multi-``data:`` coalescing (unlike SSE spec)."""
+    assert list(iterate_sse(left)) + list(iterate_sse(right)) == list(iterate_sse(left + right))
+
+
+@given(
+    lines=_SSE_LINES,
+    cuts=st.lists(st.integers(min_value=0, max_value=12), max_size=6),
+)
+@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
+def test_hypothesis_iterate_sse_line_partition(lines: list[bytes], cuts: list[int]) -> None:
+    got: list[str] = []
+    for group in _split_seq(lines, cuts):
+        got.extend(iterate_sse(group))
+    assert got == list(iterate_sse(lines))
+
+
+@given(
+    lines=_SSE_LINES,
+    cuts=st.lists(st.integers(min_value=0, max_value=800), min_size=0, max_size=8),
+)
+@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
+def test_hypothesis_iterate_sse_readline_fragments_match_whole(lines: list[bytes], cuts: list[int]) -> None:
+    """TCP-style byte cuts + readline == unsplit line list / BytesIO of the joined blob."""
+    blob = b"\n".join(lines)
+    n = len(blob)
+    pts = sorted({0, n, *(min(max(0, c), n) for c in cuts)})
+    fragments = [blob[a:b] for a, b in zip(pts, pts[1:]) if a < b]
+    reassembled = _sse_lines_from_byte_chunks(fragments)
+    expected = list(iterate_sse(lines))
+    assert list(iterate_sse(reassembled)) == expected
+    assert list(iterate_sse(io.BytesIO(blob))) == expected
 
 
 def test_normalize_stream_delta_unwraps_choices() -> None:

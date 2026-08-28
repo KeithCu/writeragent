@@ -203,7 +203,7 @@
       "crosshair_last_run": "2026-08-06",
       "crosshair_result": "no_counterexamples",
       "ci_integration": true,
-      "notes": "Hypothesis: thinking concat, merge chunked==full, think-tag chunk round-trip, streaming replay keys. CrossHair FQN: _merge_reasoning_details, _thinking_text_from_delta. ThinkTagStreamSplitter.feed and _normalize_stream_delta are not CrossHair. make verify picks up test_stream_normalizer_verification.py."
+      "notes": "Hypothesis: thinking concat, merge chunked==full, think-tag chunk round-trip, streaming replay keys, iterate_sse line-partition + readline-fragment (no @deal on iterate_sse). CrossHair FQN: _merge_reasoning_details, _thinking_text_from_delta. ThinkTagStreamSplitter.feed and _normalize_stream_delta are not CrossHair. make verify picks up test_stream_normalizer_verification.py."
     },
     "client/response_normalizers.py": {
       "status": "verified",

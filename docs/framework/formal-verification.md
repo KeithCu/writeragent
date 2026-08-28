@@ -233,7 +233,7 @@ Deep CrossHair sweeps are also available on GitHub Actions via manual dispatch (
 | Target | Hypothesis budget | Scope |
 |--------|-------------------|--------|
 | **`make verify`** | Light defaults in each suite | All `*_verification.py` (deal oracles + light `@given`; `-m "not slow"` so CrossHair pytest hooks stay on `crosshair-check-all`) |
-| **`make vhs`** | `WRITERAGENT_VHS_EXTENSIVE=1` (alias: `WRITERAGENT_SERIALIZATION_EXTENSIVE`) | Deep fuzz (`-k hypothesis`): serialization A/B; chat/MCP FSMs; Phase 8 domains (done: `formula_edit`, `cors`, `word_diff_split`, `embeddings_split`); stream/response normalizers; sandbox path + scrub env; payload_codec policy; `address_utils` |
+| **`make vhs`** | `WRITERAGENT_VHS_EXTENSIVE=1` (alias: `WRITERAGENT_SERIALIZATION_EXTENSIVE`) | Deep fuzz (`-k hypothesis`): serialization A/B; chat/MCP FSMs; Phase 8 domains (done: `formula_edit`, `cors`, `word_diff_split`, `embeddings_split`); stream/response normalizers (SSE line-partition + readline-fragment); sandbox path + scrub env; payload_codec policy; `address_utils` |
 | **`make slowtests`** | Extensive | Serialization fixture pass, then `vhs` |
 
 Shared helpers: [`tests/vhs_budget.py`](../../tests/vhs_budget.py) (`vhs_extensive` / `vhs_max_examples`), FSM strategies [`tests/chatbot/fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py).
@@ -337,9 +337,14 @@ CrossHair's Z3 engine will not just throw random fuzzing data at the function; i
 When CrossHair finds a counterexample, it provides the exact symbolic input required to break our algorithm. We patch the code, and the state space is secured.
 
 ### Phase 4: SMT-Driven Protocol Verification
-Beyond utility functions, we can apply FV to state machines. For example, our LLM streaming chunk normalizer (in `plugin/framework/async_stream.py`). 
 
-By defining contracts that assert *"No matter how a JSON delta stream is arbitrarily chunked or fragmented over the network, the final assembled output string will exactly match the output of a synchronous, unfragmented payload,"* we can use CrossHair to mathematically prove our streaming parser's resilience against arbitrary network fragmentation.
+The LLM stream stack is line-oriented. We do **not** ask CrossHair to prove `iterate_sse` (generator + `bytes.decode` — engine-hostile). Hypothesis covers the well-formed fragmentation claim; pytest covers malformed chunks.
+
+1. **Transport** (`http.client.HTTPResponse` / `readline`) reassembles TCP fragments into complete lines. `iterate_sse` itself has no leftover buffer — feeding raw byte chunks into it is not a supported API.
+2. **`iterate_sse`** maps complete lines to payload strings (comments/blanks dropped). Each `data:` line is its own payload — we do **not** coalesce consecutive `data:` lines the way the SSE spec does. Oracles in [`test_stream_normalizer_verification.py`](../../tests/framework/test_stream_normalizer_verification.py): line-list homomorphism and readline-fragment identity (`test_hypothesis_iterate_sse_*`).
+3. **`accumulate_delta`** (already verified) concatenates JSON delta `content` / tool-call arguments so chunked deltas match the unfragmented payload.
+
+Malformed / truncated SSE is pytest ([`test_client_llm.py`](../../tests/framework/test_client_llm.py) / [`test_stream_normalizer.py`](../../tests/framework/test_stream_normalizer.py)), not VHS.
 
 ## Why we refactored orchestration into pure state machines
 
@@ -537,7 +542,7 @@ Named deep domains (oracles + `test_hypothesis_*` so `-k hypothesis` selects the
 | Writer word diff / redline split | [`word_diff_split.py`](../../plugin/writer/word_diff_split.py) | [`test_writer_diff_and_html_verification.py`](../../tests/writer/test_writer_diff_and_html_verification.py) |
 | Embeddings sentence chunking | [`embeddings_split.py`](../../plugin/embeddings/embeddings_split.py) | [`test_embeddings_split_verification.py`](../../tests/embeddings/test_embeddings_split_verification.py) |
 
-Also on the same `make vhs` line (same budget helper): serialization A/B Hypothesis; chat/MCP FSM oracles; stream/response normalizers; sandbox path + `scrub_subprocess_env`; payload_codec policy; `address_utils` column/address round-trips.
+Also on the same `make vhs` line (same budget helper): serialization A/B Hypothesis; chat/MCP FSM oracles; stream/response normalizers (including `iterate_sse` line-partition + readline-fragment); sandbox path + `scrub_subprocess_env`; payload_codec policy; `address_utils` column/address round-trips.
 
 **Not the same as “verified” in `verification_status.json`:** several of these modules remain **`partial`** because CrossHair is engine-limited or `ci_integration` is still false—Phase 8 only means **deep Hypothesis is in place and selected by `vhs`**. Closing those partials is Phase 9.
 
