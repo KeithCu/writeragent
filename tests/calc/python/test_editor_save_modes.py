@@ -210,6 +210,7 @@ def test_follow_code_ref_save_writes_a1_keeps_formula_ref():
     assert py_code_arg_is_cell_ref(reparsed.code)
     assert "C1:C10" in formula_cell.getFormula()
     assert "$A$1" in formula_cell.getFormula()
+    assert formula_cell.getFormula().count(")") == 1
     assert "result = 99" not in formula_cell.getFormula()
     assert doc.calculate_all_count == 1
 
@@ -241,4 +242,33 @@ def test_follow_code_ref_save_can_change_data_binding():
     assert "D1:D20" in formula
     assert "C1:C10" not in formula
     assert "np.mean" not in formula
+    assert formula.count(")") == 1
+
+
+def test_follow_code_ref_empty_data_keeps_formula_and_one_paren():
+    doc = CalcDocStub()
+    sheet = doc.getSheets().getByIndex(0)
+    code_cell = sheet.getCellByPosition(0, 0)
+    formula_cell = sheet.getCellByPosition(1, 0)
+    code_cell.setString("result = 42")
+    formula_cell.setFormula("=PY($A$1)")
+    parts = parse_python_formula(formula_cell.getFormula())
+    assert parts is not None
+    original = formula_cell.getFormula()
+
+    result = _apply_cell_save(
+        doc,
+        formula_cell,
+        parsed_parts=parts,
+        new_code="result = 99",
+        save_as_plain=False,
+        data_binding_text="",
+        code_cell=code_cell,
+        code_ref=parts.code,
+    )
+    assert result["ok"] is True
+    assert code_cell.getString() == "result = 99"
+    assert formula_cell.getFormula() == original
+    assert formula_cell.getFormula().count(")") == 1
+    assert not str(formula_cell.getFormula()).endswith("))")
 

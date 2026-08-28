@@ -344,6 +344,7 @@ def _apply_followed_ref_save(
     code_ref: str,
     new_code: str,
     data_binding_text: str | None,
+    parsed_parts: PythonFormulaParts | None = None,
 ) -> dict[str, Any]:
     """Write Python to the referenced code cell; keep ``=PY($A$1; …)`` as a ref."""
     from plugin.calc.python.formula_edit import CALC_PYTHON_FN, build_data_suffix
@@ -351,12 +352,21 @@ def _apply_followed_ref_save(
     code_cell.setString(new_code)
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
-        # Keep the original ref token ($A$1, Sheet1.$B$2). rebuild_python_formula_with_code_ref
-        # runs format_py_data_range, which strips $ — that turns an absolute code ref
-        # relative, so copying the formula after save would follow the wrong cell.
-        formula_cell.setFormula(
-            f"={CALC_PYTHON_FN}({code_ref.strip()}{build_data_suffix(data_args)})"
-        )
+        old_args: list[str] = []
+        if parsed_parts is not None:
+            old_args = parse_data_binding_text(
+                format_data_binding_display(parsed_parts.data_suffix)
+            )
+        # Leave the formula cell alone when only the code changed. Native follow
+        # save always sends Data: '' — rewriting =PY($A$1) used to emit =PY($A$1))
+        # (Err:508) and is unnecessary when the ranges did not change.
+        if data_args != old_args:
+            # Keep the original ref token ($A$1). format_py_data_range strips $
+            # which would make an absolute code ref relative after save.
+            # build_data_suffix already includes the closing ')'.
+            formula_cell.setFormula(
+                f"={CALC_PYTHON_FN}({code_ref.strip()}{build_data_suffix(data_args)}"
+            )
     _recalculate_after_save(doc)
     return {
         "type": "saved",
@@ -401,6 +411,7 @@ def _apply_cell_save(
             code_ref=code_ref,
             new_code=new_code,
             data_binding_text=data_binding_text,
+            parsed_parts=parsed_parts,
         )
     if save_as_plain:
         return _apply_plain_text_save(doc, cell, new_code=new_code)
