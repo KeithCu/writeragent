@@ -440,7 +440,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> Tuple[ToolLoopStat
 
 **Reference implementation:** [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py) — see [`../scripting/serialization-verification.md`](../scripting/serialization-verification.md).
 
-**Status (partial):** `deal` on `send_state.next_state` (send/stop mutual exclusion), `audio_recorder_state.next_state` (valid status + error path), thin ensures on `tool_loop_state.next_state` (STOP→`ExitLoopEffect`, round bound), and `mcp_state.next_state` (missing tool_name → `SendErrorEffect`, `TOOL_COMPLETED` → `StreamResponseEffect`, `REQUEST_ERROR` sets `is_error`). Pytest oracles + Hypothesis (light in `make verify`, deep in `make vhs`) + slow CrossHair hooks in [`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py) and [`tests/mcp/test_mcp_state_verification.py`](../../tests/mcp/test_mcp_state_verification.py). Strategies: [`tests/chatbot/fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py). Tracking: [`verification_status.json`](../verification_status.json).
+**Status (partial):** `deal` on `send_state.next_state` (send/stop mutual exclusion), `audio_recorder_state.next_state` (valid status + error path), `tool_loop_state.next_state` (STOP→`ExitLoopEffect`; **stopped-latched pending tools never spawn**; `is_stopped` sticky; pending length never shrinks while stopped; round bound), and `mcp_state.next_state` (missing tool_name → `SendErrorEffect`, `TOOL_COMPLETED` → `StreamResponseEffect`, `REQUEST_ERROR` sets `is_error`). Pytest oracles + Hypothesis (light in `make verify`, deep in `make vhs`) + slow CrossHair hooks in [`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py) and [`tests/mcp/test_mcp_state_verification.py`](../../tests/mcp/test_mcp_state_verification.py). Strategies: [`tests/chatbot/fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py). Tracking: [`verification_status.json`](../verification_status.json). `next_state` stays `# crosshair: off`.
 
 ### Step 1: Add Design by Contract to State Machines
 
@@ -555,7 +555,11 @@ Snapshot **2026-08-27**: **48 verified / 8 partial** in [`verification_status.js
 
 #### 2. FSM partials (Phase 6 catch-up — do not fight engine)
 
-[`send_state`](../../plugin/chatbot/send_state.py), [`audio_recorder_state`](../../plugin/chatbot/audio_recorder_state.py), [`mcp_state`](../../plugin/mcp/mcp_state.py), [`tool_loop_state`](../../plugin/chatbot/tool_loop_state.py) / [`state_machine`](../../plugin/chatbot/state_machine.py) helpers: deal + Hypothesis already on `vhs`. **`next_state` stays `# crosshair: off`** (`event.data` is unbounded `dict[str, Any]`, plus Exception/JSON/host paths). Next work = stronger pure ensures / more FSM strategies in [`fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py), not removing offs.
+[`send_state`](../../plugin/chatbot/send_state.py), [`audio_recorder_state`](../../plugin/chatbot/audio_recorder_state.py), [`mcp_state`](../../plugin/mcp/mcp_state.py), [`tool_loop_state`](../../plugin/chatbot/tool_loop_state.py) / [`state_machine`](../../plugin/chatbot/state_machine.py) helpers: deal + Hypothesis already on `vhs`. **`next_state` stays `# crosshair: off`** (`event.data` is unbounded `dict[str, Any]`, plus Exception/JSON/host paths). Do not promote these rows to `verified`.
+
+**Done:** **stopped-latched pending tools never spawn** (`stopped_effects_exclude_tool_spawns`; `is_stopped` sticky; pending length never shrinks while stopped). Biased strategies in [`fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py).
+
+**Still thin:** send-button Stop-while-idle as Hypothesis/`@deal.ensure`; MCP `REQUEST_ERROR` latch-until-reset (needs a defined reset — `TOOL_COMPLETED` currently overwrites `is_error`).
 
 #### 3. Engine-hostile partials (shim or accept partial)
 
@@ -574,7 +578,7 @@ Highest unused pure surface: **[`plugin/calc/spreadsheet_import/translate.py`](.
 - Keep `CROSSHAIR_*_SKIP` empty; hostility = shim / `# crosshair: off` / refactor.
 - Stale “Practical Implementation Guide” samples below still mention old paths—treat Phase 9 + this section as source of truth over the illustrative CI YAML.
 
-**Suggested next session (single track):** optional new Tier-0 [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) contracts, or one named FSM legality property (do not remove `next_state` offs). Do not reopen json_utils / errors / payload_codec to “force verified.”
+**Suggested next session (single track):** optional new Tier-0 [`translate.py`](../../plugin/calc/spreadsheet_import/translate.py) contracts, or one remaining named FSM legality property (send idle-Stop no-op, or MCP error latch once reset is defined). Do not remove `next_state` offs. Do not reopen json_utils / errors / payload_codec to “force verified.”
 
 ---
 

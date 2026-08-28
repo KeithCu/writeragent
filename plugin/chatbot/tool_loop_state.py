@@ -362,6 +362,23 @@ class CleanupAudioEffect:
     pass
 
 
+@deal.post(lambda result: type(result) is bool)
+def stopped_effects_exclude_tool_spawns(state: object, effects: object) -> bool:
+    """True unless *state* is stopped and *effects* contain a tool-worker spawn.
+
+    Named legality: stopped-latched pending tools never spawn. NEXT_TOOL while
+    ``is_stopped`` must not emit ``SpawnToolWorkerEffect`` (the
+    ``or state.is_stopped`` guard). STREAM_DONE after stop may still append
+    pending and emit ``TriggerNextToolEffect`` — the interpreter queues
+    NEXT_TOOL; the FSM must still not spawn a tool worker.
+    """
+    if not getattr(state, "is_stopped", False):
+        return True
+    if type(effects) is not list and type(effects) is not tuple:
+        return True
+    return not any(isinstance(e, SpawnToolWorkerEffect) for e in effects)
+
+
 # --- State Machine Transition ---
 @deal.pre(lambda state, event: isinstance(state.max_rounds, int) and state.max_rounds > 0 and state.round_num >= 0)
 @deal.post(lambda result: result.state.round_num >= 0)
@@ -369,6 +386,13 @@ class CleanupAudioEffect:
     lambda state, event, result: event.kind != EventKind.STOP_REQUESTED
     or any(isinstance(e, ExitLoopEffect) for e in result.effects)
 )
+@deal.ensure(lambda state, event, result: event.kind != EventKind.STOP_REQUESTED or result.state.is_stopped)
+@deal.ensure(lambda state, event, result: not state.is_stopped or result.state.is_stopped)
+@deal.ensure(
+    lambda state, event, result: not state.is_stopped
+    or len(result.state.pending_tools) >= len(state.pending_tools)
+)
+@deal.ensure(lambda state, event, result: stopped_effects_exclude_tool_spawns(result.state, result.effects))
 @deal.ensure(lambda state, event, result: result.state.round_num <= max(state.round_num + 1, state.max_rounds))
 def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[ToolLoopState]:
     """Pure transition function for the tool-calling loop."""

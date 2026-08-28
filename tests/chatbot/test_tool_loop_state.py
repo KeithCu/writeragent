@@ -23,6 +23,7 @@ from plugin.chatbot.tool_loop_state import (
     next_state,
     object_dict_or_empty,
     pending_tool_call_fields,
+    stopped_effects_exclude_tool_spawns,
 )
 
 # --- Helpers ---
@@ -388,6 +389,21 @@ def test_apply_document_content_no_debug_when_replaced():
     )
 
 
+def test_stopped_effects_exclude_tool_spawns_predicate():
+    spawn = SpawnToolWorkerEffect(
+        call_id="c1",
+        func_name="noop",
+        func_args_str="{}",
+        func_args={},
+        is_async=False,
+    )
+    running = create_base_state(is_stopped=False)
+    stopped = create_base_state(is_stopped=True)
+    assert stopped_effects_exclude_tool_spawns(running, [spawn]) is True
+    assert stopped_effects_exclude_tool_spawns(stopped, [spawn]) is False
+    assert stopped_effects_exclude_tool_spawns(stopped, []) is True
+
+
 def test_next_tool_when_stopped():
     # If is_stopped=True but empty pending_tools, it shouldn't update status
     state = create_base_state(is_stopped=True)
@@ -397,6 +413,38 @@ def test_next_tool_when_stopped():
     
     assert not any(isinstance(e, ToolLoopUIEffect) and e.kind == "status" for e in effects)
     assert any(isinstance(e, SpawnLLMWorkerEffect) for e in effects)
+
+
+def test_next_tool_when_stopped_with_pending_does_not_spawn_tool():
+    """Stopped-latched pending tools never spawn.
+
+    Deleting ``or state.is_stopped`` from NEXT_TOOL fails this. STREAM_DONE after
+    STOP may still append pending and emit TriggerNextToolEffect (see
+    test_stream_done_after_stop_may_append_and_trigger_next); that is allowed.
+    """
+    tool_calls = [{"id": "call_1", "function": {"name": "test_tool", "arguments": "{}"}}]
+    state = create_base_state(pending_tools=tool_calls, is_stopped=True)
+    tr = next_state(state, create_event(EventKind.NEXT_TOOL))
+    assert not any(isinstance(e, SpawnToolWorkerEffect) for e in tr.effects)
+    assert tr.state.pending_tools == tool_calls
+    assert tr.state.is_stopped is True
+
+
+def test_stream_done_after_stop_may_append_and_trigger_next():
+    """After STOP, STREAM_DONE with tool_calls may append + TriggerNextToolEffect.
+
+    The interpreter queues NEXT_TOOL; the FSM must still not emit SpawnToolWorkerEffect.
+    """
+    state = create_base_state(is_stopped=True)
+    tool_calls = [{"id": "1", "function": {"name": "test", "arguments": "{}"}}]
+    tr = next_state(
+        state,
+        create_event(EventKind.STREAM_DONE, response={"tool_calls": tool_calls, "content": "x"}),
+    )
+    assert tr.state.is_stopped is True
+    assert len(tr.state.pending_tools) == 1
+    assert any(isinstance(e, TriggerNextToolEffect) for e in tr.effects)
+    assert not any(isinstance(e, SpawnToolWorkerEffect) for e in tr.effects)
 
 def test_tool_result_parsing():
     state = create_base_state()

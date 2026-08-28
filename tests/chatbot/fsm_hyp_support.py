@@ -98,16 +98,44 @@ def audio_recorder_events(draw):
     return ErrorOccurredEvent(error_message=draw(st.sampled_from(("boom", "device", ""))))
 
 
+def pending_tool_call() -> st.SearchStrategy[dict]:
+    """One OpenAI-shaped tool_call dict matching ``pending_tool_call_fields``."""
+    return st.fixed_dictionaries(
+        {
+            "id": st.sampled_from(("c1", "c2", "c3")),
+            "function": st.fixed_dictionaries(
+                {
+                    "name": st.sampled_from(("noop", "web_search")),
+                    "arguments": st.just("{}"),
+                }
+            ),
+        }
+    )
+
+
+def pending_tool_call_list(*, min_size: int = 0, max_size: int = 3) -> st.SearchStrategy[list]:
+    return st.lists(pending_tool_call(), min_size=min_size, max_size=max_size)
+
+
 @st.composite
 def tool_loop_states(draw):
     max_rounds = draw(st.integers(min_value=1, max_value=8))
     round_num = draw(st.integers(min_value=0, max_value=max_rounds))
+    is_stopped = draw(st.booleans())
+    # st.lists(min_size=0) is empty-heavy; one_of keeps leftover pending visible
+    # under the light verify budget (60). When stopped, extra nonempty draws so
+    # NEXT_TOOL hits the spawn-exclusion hole instead of mostly pending=[].
+    nonempty = pending_tool_call_list(min_size=1, max_size=3)
+    if is_stopped:
+        pending = draw(st.one_of(st.just([]), nonempty, nonempty))
+    else:
+        pending = draw(st.one_of(st.just([]), nonempty))
     return ToolLoopState(
         round_num=round_num,
-        pending_tools=[],
+        pending_tools=pending,
         max_rounds=max_rounds,
         status=draw(st.sampled_from(("Thinking...", "Running tool...", "Stopped", "Ready"))),
-        is_stopped=draw(st.booleans()),
+        is_stopped=is_stopped,
     )
 
 
@@ -131,7 +159,8 @@ def tool_loop_events(draw):
     if kind == ToolEventKind.ERROR:
         return ToolLoopEvent(kind, {"message": draw(st.sampled_from(("err", "")))})
     if kind == ToolEventKind.STREAM_DONE:
-        return ToolLoopEvent(kind, {"response": {"tool_calls": [], "content": "", "finish_reason": "stop"}})
+        tool_calls = draw(st.one_of(st.just([]), pending_tool_call_list(min_size=1, max_size=2)))
+        return ToolLoopEvent(kind, {"response": {"tool_calls": tool_calls, "content": "", "finish_reason": "stop"}})
     if kind == ToolEventKind.TOOL_RESULT:
         return ToolLoopEvent(
             kind,

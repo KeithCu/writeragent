@@ -44,9 +44,11 @@ from plugin.chatbot.state_machine import (
 from plugin.chatbot.tool_loop_state import (
     EventKind,
     ExitLoopEffect,
+    SpawnToolWorkerEffect,
     ToolLoopEvent,
     ToolLoopState,
     next_state as tool_loop_next_state,
+    stopped_effects_exclude_tool_spawns,
 )
 from tests.chatbot.fsm_hyp_support import (
     audio_recorder_events,
@@ -138,7 +140,9 @@ def test_tool_loop_stop_emits_exit_loop() -> None:
     )
     tr = tool_loop_next_state(state, ToolLoopEvent(EventKind.STOP_REQUESTED, {}))
     assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
+    assert tr.state.is_stopped
     assert tr.state.round_num <= max(state.round_num + 1, state.max_rounds)
+    assert stopped_effects_exclude_tool_spawns(tr.state, tr.effects)
 
 
 def test_tool_loop_formatting_helpers() -> None:
@@ -203,12 +207,37 @@ def test_hypothesis_audio_recorder_invariants(state: AudioRecorderState, event) 
 @given(state=tool_loop_states(), event=tool_loop_events())
 @settings(max_examples=_hyp_n("tool_loop"), deadline=None)
 def test_hypothesis_tool_loop_invariants(state: ToolLoopState, event: ToolLoopEvent) -> None:
+    """Stopped-latched pending tools never spawn; is_stopped is sticky; pending never shrinks while stopped."""
     tr = tool_loop_next_state(state, event)
     assert tr.state.round_num >= 0
     assert tr.state.round_num <= max(state.round_num + 1, state.max_rounds)
+    if state.is_stopped:
+        assert tr.state.is_stopped
+        assert len(tr.state.pending_tools) >= len(state.pending_tools)
+    assert stopped_effects_exclude_tool_spawns(tr.state, tr.effects)
     if event.kind == EventKind.STOP_REQUESTED:
         assert any(isinstance(e, ExitLoopEffect) for e in tr.effects)
         assert tr.state.is_stopped
+        assert not any(isinstance(e, SpawnToolWorkerEffect) for e in tr.effects)
+
+
+@given(state=tool_loop_states(), events=st.lists(tool_loop_events(), min_size=1, max_size=5))
+@settings(max_examples=_hyp_n("sequences"), deadline=None)
+def test_hypothesis_tool_loop_stop_sequences(state: ToolLoopState, events) -> None:
+    """Forced STOP, then a short walk: latch sticks and leftover pending never spawn."""
+    stop_tr = tool_loop_next_state(state, ToolLoopEvent(EventKind.STOP_REQUESTED, {}))
+    assert stop_tr.state.is_stopped
+    assert any(isinstance(e, ExitLoopEffect) for e in stop_tr.effects)
+    assert stopped_effects_exclude_tool_spawns(stop_tr.state, stop_tr.effects)
+    cur = stop_tr.state
+    pending_floor = len(cur.pending_tools)
+    for event in events:
+        tr = tool_loop_next_state(cur, event)
+        assert tr.state.is_stopped
+        assert len(tr.state.pending_tools) >= pending_floor
+        assert stopped_effects_exclude_tool_spawns(tr.state, tr.effects)
+        pending_floor = len(tr.state.pending_tools)
+        cur = tr.state
 
 
 @given(state=send_handler_states(), event=send_handler_events())

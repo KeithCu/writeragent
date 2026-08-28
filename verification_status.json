@@ -672,10 +672,11 @@
           "format_tool_running_ui",
           "format_tool_result_chat_text",
           "is_replaced_zero_result",
+          "stopped_effects_exclude_tool_spawns",
           "next_state"
         ],
         "crosshair_result": "helpers_analyzed_next_state_off",
-        "notes": "next_state has # crosshair: off (safe_json_loads); pure helpers are CrossHair targets; Hypothesis STOP/round oracles in test_fsm_verification (deep via make vhs)",
+        "notes": "next_state has # crosshair: off (safe_json_loads); stopped-latched pending tools never spawn (stopped_effects_exclude_tool_spawns; is_stopped sticky; pending monotonic while stopped); Hypothesis in test_fsm_verification (deep via make vhs); stay partial",
         "ci_integration": true
       }
     },
