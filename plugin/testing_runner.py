@@ -203,7 +203,12 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
     cmd = _user_profile_soffice_argv(soffice, accept)
     proc = subprocess.Popen(cmd, env=_child_env_without_runner_python(), start_new_session=True)
     local = uno.getComponentContext()
-    resolver = local.ServiceManager.createInstanceWithContext(
+    smgr = getattr(local, "getServiceManager", lambda: None)()
+    if smgr is None:
+        smgr = getattr(local, "ServiceManager", None)
+    if smgr is None:
+        raise RuntimeError("no ServiceManager on local UNO context")
+    resolver = smgr.createInstanceWithContext(
         "com.sun.star.bridge.UnoUrlResolver", local
     )
     url = "uno:%sStarOffice.ComponentContext" % accept
