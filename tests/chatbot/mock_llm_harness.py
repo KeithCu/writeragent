@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import os
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
 from typing import Any
@@ -58,6 +60,9 @@ def start_mock_sidebar_session(*, delay_ms: int = 20, offline: bool = True, **fl
     set_text_model(MOCK_MODEL_ID, update_lru=False)
     if not get_api_key_for_endpoint(base_url):
         set_api_key_for_endpoint(base_url, "mock-key")
+    # Live sidebar is the OXT process. get_config caches mtime checks for 2s.
+    if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
+        time.sleep(2.1)
     return MockSidebarSession(httpd, thread, base_url, saved)
 
 

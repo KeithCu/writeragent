@@ -563,7 +563,14 @@ Writer with body text “Welcome to WriterAgent.” unless **empty** is specifie
 
 ### v2 Packet F — HTTP / SSE errors
 
-**Landed (thin):** F1, F2, F14 in [`tests/chatbot/test_mock_llm_sidebar_uno.py`](../../tests/chatbot/test_mock_llm_sidebar_uno.py). Run **`make test-mock-sidebar`**: visible soffice with **your** LibreOffice user profile (`--norestore` so crash-recovery does not block; tests show `WriterAgentDeck` over UNO). Starts like ``make lo-start`` (``--norestore --writer``) plus a UNO pipe — not ``officehelper``'s ``--nodefault`` GUI, which opened then crashed. The child does not inherit the runner ``PYTHONPATH``. Other UNO tests stay `make test-uno` (headless + throwaway profile). Debug-only live panel list: `register_debug_live_panel` in `panel_factory` (gated; strip for release). Harness: [`tests/chatbot/mock_llm_harness.py`](../../tests/chatbot/mock_llm_harness.py).
+**Landed (thin):** F1, F2, F14 in [`tests/chatbot/test_mock_llm_sidebar_uno.py`](../../tests/chatbot/test_mock_llm_sidebar_uno.py). Run **`make test-mock-sidebar`** (not `make test-uno`). Visible soffice with **your** LibreOffice user profile:
+
+- **Bootstrap:** Popen ``--norestore --writer --accept=pipe`` like ``make lo-start``. Do **not** use ``officehelper.bootstrap`` (it appends ``--nodefault`` and the GUI crashed / URP disposed). Child env strips ``PYTHONPATH`` so the OXT is not mixed with the checkout.
+- **Crash recovery:** ``--norestore`` skips the recovery dialog that otherwise blocks the UNO pipe.
+- **View → Sidebar off:** tests dispatch ``.uno:SidebarDeck.WriterAgentDeck`` (shows the sidebar; ``.uno:Sidebar`` *toggles*). Decks come from the controller's ``XSidebarProvider.getDecks()``, not ``controller.Sidebar`` (that is ``XSidebar.requestLayout`` only).
+- **Out-of-process UNO:** the live ``SendButtonListener`` lives in soffice. Drive query/send over URP (``uno_click``); poll Stop ``Enabled`` and transcript text. Do not ``processEventsToIdle`` on the pipe.
+
+Harness: [`tests/chatbot/mock_llm_harness.py`](../../tests/chatbot/mock_llm_harness.py). Hooks: [`plugin/chatbot/sidebar_test_hooks.py`](../../plugin/chatbot/sidebar_test_hooks.py). Other UNO tests stay `make test-uno` (headless + throwaway profile).
 
 Each case ends with **`next_hello_ok()`** unless noted. Prefer phrase triggers so default mock stays up; use `--fail` only for “all requests” cases (then restart mock or toggle fail off before hello).
 

@@ -12,7 +12,6 @@ import time
 from plugin.testing_runner import native_test, setup, teardown
 
 from tests.chatbot.mock_llm_harness import (
-    require_send_listener,
     start_mock_sidebar_session,
     stop_mock_sidebar_session,
 )
@@ -48,33 +47,20 @@ def _setup_mock(ctx):
 
     from plugin.chatbot.sidebar_test_hooks import (
         adopt_runtime_send_listeners,
-        chat_dialog_controls,
-        current_component,
-        show_writeragent_chat_deck,
+        ensure_sidebar_chat_mode,
+        send_listener,
+        wait_for_chat_dialog_controls,
     )
 
     _ensure_writer_doc(ctx)
-    sl = None
-    controls = None
-    # Do not processEventsToIdle over URP on a visible office — it can hang the pipe.
-    for _attempt in range(12):
-        try:
-            doc = current_component(ctx)
-            show_writeragent_chat_deck(ctx, doc)
-            time.sleep(0.5)
-            adopt_runtime_send_listeners()
-            try:
-                sl = require_send_listener(skip_if_missing=False)
-                break
-            except AssertionError:
-                sl = None
-            controls = chat_dialog_controls(ctx, doc)
-            if controls is not None:
-                break
-        except Exception:
-            time.sleep(0.5)
+    # Point writeragent.json at the mock *before* showing the deck so the live
+    # OXT send path is not still using the user's real endpoint.
+    _session = start_mock_sidebar_session(delay_ms=20, offline=True)
+    controls = wait_for_chat_dialog_controls(ctx, timeout=20.0)
+    adopt_runtime_send_listeners()
+    sl = send_listener()
     if sl is None and controls is None:
-        from plugin.chatbot.sidebar_test_hooks import sidebar_deck_names
+        from plugin.chatbot.sidebar_test_hooks import current_component, sidebar_deck_names
 
         names = []
         try:
@@ -85,7 +71,7 @@ def _setup_mock(ctx):
             "WriterAgent chat sidebar not wired after showing WriterAgentDeck "
             "(View → Sidebar must be on). decks=%s" % (names,)
         )
-    _session = start_mock_sidebar_session(delay_ms=20, offline=True)
+    ensure_sidebar_chat_mode(controls)
     _session.controls = controls
     _session.listener = sl
 
@@ -132,44 +118,59 @@ def _transcript() -> str:
 
 
 def _send_and_wait(text: str, timeout: float = 60.0, *, wait_for: str | None = None):
-    from plugin.chatbot.sidebar_test_hooks import press_send, set_query_text, uno_click, wait_idle
+    from plugin.chatbot.sidebar_test_hooks import (
+        press_send,
+        set_query_text,
+        set_query_text_via_controls,
+        uno_click,
+        wait_controls_send_finished,
+        wait_idle,
+    )
 
+    before = _transcript()
     sl = getattr(_session, "listener", None)
     if sl is not None:
         set_query_text(text, listener=sl)
         press_send(listener=sl)
         assert wait_idle(listener=sl, timeout=timeout), "send did not go idle: %r" % text
+        if wait_for:
+            body = _transcript()
+            suffix = body[len(before) :] if body.startswith(before) else body
+            assert wait_for.lower() in suffix.lower() or wait_for.lower() in body.lower(), (
+                "after send %r expected %r in %r" % (text, wait_for, body[-500:])
+            )
         return sl
     controls = getattr(_session, "controls", None)
     assert controls is not None, "no SendButtonListener and no chat dialog controls"
-    query = controls["query"]
-    model = query.getModel()
-    model.Text = text
+    set_query_text_via_controls(controls, text)
+    time.sleep(0.2)
     uno_click(controls["send"])
-    deadline = time.monotonic() + timeout
-    needle = wait_for
-    while time.monotonic() < deadline:
-        body = _transcript()
-        if needle and needle.lower() in body.lower():
-            time.sleep(0.4)
-            return None
-        time.sleep(0.2)
-    body = _transcript()
-    if needle:
-        assert needle.lower() in body.lower(), "after send %r expected %r in %r" % (text, needle, body[-500:])
+    assert wait_controls_send_finished(
+        controls,
+        timeout=timeout,
+        transcript_fn=_transcript,
+        wait_for=wait_for,
+        before=before,
+    ), "send did not finish: %r transcript=%r" % (text, _transcript()[-500:])
     return None
 
 
 def _hello_ok() -> None:
     sl = getattr(_session, "listener", None)
+    before = _transcript()
     if sl is not None:
         from plugin.chatbot.sidebar_test_hooks import next_hello_ok
 
         assert next_hello_ok(listener=sl, timeout=60.0), "recovery hello failed"
         return
-    _send_and_wait("hello", wait_for="hello")
-    body = _transcript().lower()
-    assert "hello" in body or "<p" in body or "<ul" in body, "hello reply missing: %r" % body[-400:]
+    # User line is "hello"; require mock HTML body ("mock" appears in every template).
+    _send_and_wait("hello", wait_for="mock")
+    body = _transcript()
+    suffix = body[len(before) :] if body.startswith(before) else body
+    blob = suffix if suffix else body
+    assert "mock" in blob.lower() or "<p" in blob.lower() or "<ul" in blob.lower(), (
+        "hello reply missing: %r" % body[-400:]
+    )
 
 
 @native_test
