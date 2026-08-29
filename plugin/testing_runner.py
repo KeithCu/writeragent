@@ -124,8 +124,8 @@ def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
         quoted = '"%s"' % soffice
         if use_user_profile:
             # Keep the developer's UserInstallation (extension + writeragent.json).
-            # --norestore: crash recovery UI blocks bootstrap (sidebar is shown in tests).
-            return "%s --norestore --nofirststartwizard --nocrashreport" % quoted
+            # Actual GUI start is ``_user_profile_soffice_argv`` (adds --writer, no --nodefault).
+            return "%s --norestore --nofirststartwizard --nocrashreport --writer" % quoted
         profile_url = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-")).as_uri()
         return (
             "%s --headless --norestore --nofirststartwizard --nocrashreport "
@@ -143,6 +143,22 @@ def _child_env_without_runner_python() -> dict[str, str]:
     for key in _SOFFICE_STRIP_ENV:
         env.pop(key, None)
     return env
+
+
+def _user_profile_soffice_argv(soffice: Path, accept: str) -> list[str]:
+    """Visible Writer on the real user profile. No ``--nodefault`` (officehelper crash).
+
+    ``--norestore`` skips the crash-recovery dialog that otherwise blocks the UNO pipe.
+    Tests then show ``WriterAgentDeck`` over UNO (View → Sidebar may be off).
+    """
+    return [
+        str(soffice),
+        "--norestore",
+        "--nofirststartwizard",
+        "--nocrashreport",
+        "--writer",
+        "--accept=%s" % accept,
+    ]
 
 
 def _resolve_soffice_bin(officehelper_module: Any) -> Path | None:
@@ -177,28 +193,30 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
     import uno
     from com.sun.star.connection import NoConnectException
 
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        raise RuntimeError("user-profile sidebar tests need DISPLAY (visible Writer)")
     soffice = _resolve_soffice_bin(officehelper_module)
     if soffice is None:
         raise RuntimeError("soffice not found (PATH, officehelper dir, or common install paths)")
     pipe = "uno%s" % str(random.random())[2:]
     accept = "pipe,name=%s;urp;" % pipe
-    cmd = [
-        str(soffice),
-        "--norestore",
-        "--nofirststartwizard",
-        "--nocrashreport",
-        "--writer",
-        "--accept=%s" % accept,
-    ]
-    subprocess.Popen(cmd, env=_child_env_without_runner_python(), start_new_session=True)
+    cmd = _user_profile_soffice_argv(soffice, accept)
+    proc = subprocess.Popen(cmd, env=_child_env_without_runner_python(), start_new_session=True)
     local = uno.getComponentContext()
     resolver = local.ServiceManager.createInstanceWithContext(
         "com.sun.star.bridge.UnoUrlResolver", local
     )
     url = "uno:%sStarOffice.ComponentContext" % accept
     last_exc: BaseException | None = None
-    for delay in (1, 2, 3, 5, 8):
+    # GUI + extension OnStartApp is slower than headless officehelper.
+    for delay in (0.5, 1, 1, 2, 2, 3, 5, 8, 8):
         time.sleep(delay)
+        code = proc.poll()
+        if code is not None:
+            raise RuntimeError(
+                "user-profile soffice exited %s before UNO connect (crash recovery or mixed PYTHONPATH?)"
+                % code
+            )
         try:
             return resolver.resolve(url)
         except NoConnectException as exc:

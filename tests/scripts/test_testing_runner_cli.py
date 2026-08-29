@@ -34,3 +34,13 @@ def test_parse_cli_default_is_headless_suite(monkeypatch) -> None:
     assert tr.use_user_profile is False
     assert tr.show_window is True
     assert rest == ["test_charts_uno"]
+
+
+def test_user_profile_soffice_argv_skips_nodefault_and_restore() -> None:
+    from pathlib import Path
+
+    argv = tr._user_profile_soffice_argv(Path("/usr/bin/soffice"), "pipe,name=uno1;urp;")
+    assert "--norestore" in argv
+    assert "--writer" in argv
+    assert "--nodefault" not in argv
+    assert any(a.startswith("--accept=") for a in argv)
