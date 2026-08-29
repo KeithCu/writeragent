@@ -296,10 +296,6 @@ def test_sidebar_panel_none_when_empty() -> None:
     assert panel is None or sl is getattr(panel, "send_listener", sl)
 
 
-class _SidebarNoDecks:
-    """controller.Sidebar is XSidebar — requestLayout only, no getDecks."""
-
-
 class _FakeDeck:
     def __init__(self) -> None:
         self.activated = False
@@ -342,9 +338,10 @@ class _FakeDecks:
         return self.writer
 
 
-class _ProviderController:
+class _SidebarProvider:
+    """Matches SwXTextView.Sidebar (XSidebarProvider), not the controller."""
+
     def __init__(self) -> None:
-        self.Sidebar = _SidebarNoDecks()
         self._decks = _FakeDecks()
         self.visible_sets: list[bool] = []
         self.decks_shown = False
@@ -361,6 +358,11 @@ class _ProviderController:
     def showDecks(self, value: bool) -> None:
         self.decks_shown = bool(value)
 
+
+class _ProviderController:
+    def __init__(self) -> None:
+        self.Sidebar = _SidebarProvider()
+
     def getCurrentController(self):
         return self
 
@@ -368,12 +370,18 @@ class _ProviderController:
         return SimpleNamespace()
 
 
-def test_sidebar_provider_uses_controller_get_decks_not_sidebar_property() -> None:
+def test_sidebar_provider_uses_sidebar_property_not_controller_get_decks() -> None:
     ctrl = _ProviderController()
     provider = sidebar_provider(ctrl)
-    assert provider is ctrl
-    assert not hasattr(ctrl.Sidebar, "getDecks")
+    assert provider is ctrl.Sidebar
+    assert not hasattr(ctrl, "getDecks")
     assert "WriterAgentDeck" in sidebar_deck_names(SimpleNamespace(), ctrl)
+
+
+def test_sidebar_provider_falls_back_to_controller_get_decks() -> None:
+    decks = _FakeDecks()
+    ctrl = SimpleNamespace(getDecks=lambda: decks)
+    assert sidebar_provider(ctrl) is ctrl
 
 
 def test_chat_dialog_controls_reads_xdl_from_provider_decks() -> None:
@@ -383,7 +391,7 @@ def test_chat_dialog_controls_reads_xdl_from_provider_decks() -> None:
     assert "query" in out and "send" in out
 
 
-def test_show_writeragent_chat_deck_activates_when_sidebar_property_has_no_decks() -> None:
+def test_show_writeragent_chat_deck_activates_writeragent_deck() -> None:
     class _Helper:
         def executeDispatch(self, *args):
             return None
@@ -395,9 +403,9 @@ def test_show_writeragent_chat_deck_activates_when_sidebar_property_has_no_decks
     )
     doc = _ProviderController()
     show_writeragent_chat_deck(ctx, doc)
-    assert doc.visible_sets == [True]
-    assert doc.decks_shown is True
-    assert doc._decks.writer.activated is True
+    assert doc.Sidebar.visible_sets == [True]
+    assert doc.Sidebar.decks_shown is True
+    assert doc.Sidebar._decks.writer.activated is True
 
 
 class _StopCtrl:

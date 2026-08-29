@@ -567,8 +567,8 @@ Writer with body text “Welcome to WriterAgent.” unless **empty** is specifie
 
 - **Bootstrap:** Popen ``--norestore --writer --accept=pipe`` like ``make lo-start``. Do **not** use ``officehelper.bootstrap`` (it appends ``--nodefault`` and the GUI crashed / URP disposed). Child env strips ``PYTHONPATH`` so the OXT is not mixed with the checkout.
 - **Crash recovery:** ``--norestore`` skips the recovery dialog that otherwise blocks the UNO pipe.
-- **View → Sidebar off:** tests dispatch ``.uno:SidebarDeck.WriterAgentDeck`` (shows the sidebar; ``.uno:Sidebar`` *toggles*). Decks come from the controller's ``XSidebarProvider.getDecks()``, not ``controller.Sidebar`` (that is ``XSidebar.requestLayout`` only).
-- **Out-of-process UNO:** the live ``SendButtonListener`` lives in soffice. Drive query/send over URP (``uno_click``); poll Stop ``Enabled`` and transcript text. Do not ``processEventsToIdle`` on the pipe.
+- **View → Sidebar off:** tests dispatch ``.uno:SidebarDeck.WriterAgentDeck`` (shows the sidebar; ``.uno:Sidebar`` *toggles*). Decks come from ``controller.Sidebar`` (``XSidebarProvider.getDecks`` on SwXTextView). The soffice child sets ``WRITERAGENT_UNO_THREAD_GUARD=0`` so URP deck dispatch can create ChatPanel (otherwise ``getRealInterface`` aborts on Dummy-N).
+- **Out-of-process UNO:** the live ``SendButtonListener`` lives in soffice. Drive query/send over URP (``uno_click``); poll Stop ``Enabled`` and transcript text. Do not ``processEventsToIdle`` on the pipe. A stale ``.lock`` with ``IPCServer=false`` is removed when no soffice.bin is running so ``--accept`` binds.
 
 Harness: [`tests/chatbot/mock_llm_harness.py`](../../tests/chatbot/mock_llm_harness.py). Hooks: [`plugin/chatbot/sidebar_test_hooks.py`](../../plugin/chatbot/sidebar_test_hooks.py). Other UNO tests stay `make test-uno` (headless + throwaway profile).
 

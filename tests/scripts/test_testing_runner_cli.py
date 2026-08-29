@@ -26,6 +26,13 @@ def test_soffice_strip_env_names() -> None:
     assert "PYTHONHOME" in tr._SOFFICE_STRIP_ENV
 
 
+def test_user_profile_child_env_disables_uno_thread_guard(monkeypatch) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/checkout")
+    env = tr._child_env_without_runner_python(uno_thread_guard=False)
+    assert "PYTHONPATH" not in env
+    assert env.get("WRITERAGENT_UNO_THREAD_GUARD") == "0"
+
+
 def test_parse_cli_default_is_headless_suite(monkeypatch) -> None:
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setattr(tr, "show_window", False)

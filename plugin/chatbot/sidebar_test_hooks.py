@@ -130,13 +130,17 @@ def _query_uno_interface(obj: Any, typename: str) -> Any:
 def sidebar_provider(controller: Any) -> Any:
     """Return ``XSidebarProvider`` (decks / setVisible), or None.
 
-    ``controller.Sidebar`` is ``getSidebar()`` → ``XSidebar`` (requestLayout only).
-    Packet F used that property and never saw decks when View → Sidebar was off.
-    Decks live on the controller's ``XSidebarProvider``.
+    On ``SwXTextView``, ``getDecks`` is ``controller.Sidebar`` (the property),
+    not a method on the controller. ``queryInterface(XSidebarProvider)`` on
+    the controller is None. Prefer the property, then a controller that
+    already has ``getDecks``.
     """
     _require_debug()
     if controller is None:
         return None
+    sidebar = getattr(controller, "Sidebar", None)
+    if sidebar is not None and callable(getattr(sidebar, "getDecks", None)):
+        return sidebar
     if callable(getattr(controller, "getDecks", None)):
         return controller
     return _query_uno_interface(controller, "com.sun.star.ui.XSidebarProvider")

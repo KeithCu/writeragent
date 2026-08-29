@@ -138,10 +138,14 @@ def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
 _SOFFICE_STRIP_ENV = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV")
 
 
-def _child_env_without_runner_python() -> dict[str, str]:
+def _child_env_without_runner_python(*, uno_thread_guard: bool | None = None) -> dict[str, str]:
     env = dict(os.environ)
     for key in _SOFFICE_STRIP_ENV:
         env.pop(key, None)
+    # URP dispatch of WriterAgentDeck runs getRealInterface off the VCL thread.
+    # Dev thread_guard would abort ChatPanel create (Dummy-N). Official opt-out.
+    if uno_thread_guard is False:
+        env["WRITERAGENT_UNO_THREAD_GUARD"] = "0"
     return env
 
 
@@ -261,7 +265,11 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
     port = _unused_tcp_port()
     accept = "socket,host=127.0.0.1,port=%s;urp;" % port
     cmd = _user_profile_soffice_argv(soffice, accept)
-    proc = subprocess.Popen(cmd, env=_child_env_without_runner_python(), start_new_session=True)
+    proc = subprocess.Popen(
+        cmd,
+        env=_child_env_without_runner_python(uno_thread_guard=False),
+        start_new_session=True,
+    )
     local = uno.getComponentContext()
     smgr = getattr(local, "getServiceManager", lambda: None)()
     if smgr is None:
