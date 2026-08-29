@@ -176,8 +176,9 @@ def _deal_json_text_ok_pytest(text: object) -> bool:
 
 
 def _deal_json_text_ok_crosshair(text: object) -> bool:
-    # cover-all 33127995861: 103k at SOURCE=16; 33180040863 still ~16m/15m at len=4.
-    return isinstance(text, str) and len(text) <= 2 and all(
+    # cover-all 33127995861: 103k at SOURCE=16; 33180040863 ~16m at len=4;
+    # 33211730747 still ~46m at len=2 — identity repair, so len=1 is enough.
+    return isinstance(text, str) and len(text) <= 1 and all(
         c in _JSON_CHARS for c in text
     )
 

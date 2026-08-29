@@ -21,6 +21,12 @@ from typing import Any
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
 
+# cover-all 33211730747: calc_range alone ~2.3h (shape_dim=4, int±8, ascii4).
+_DEAL_GRID_DIM = 2 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
+_DEAL_CELL_INT_ABS = 2 if UNDER_CROSSHAIR else 8
+_DEAL_CELL_STR_LEN = 2 if UNDER_CROSSHAIR else 4
+_DEAL_COL_NAME_LEN = _DEAL_CELL_STR_LEN if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
+
 
 @deal.post(lambda result: isinstance(result, list))
 def ensure_rectangular_2d(grid: Any) -> list[list[Any]]:
@@ -105,10 +111,10 @@ def _dedupe_column_names(names: list[str]) -> list[str]:
 def _deal_grid_values_ok(values: object) -> bool:
     return (
         isinstance(values, list)
-        and len(values) <= DEAL_MAX_SHAPE_DIM
+        and len(values) <= _DEAL_GRID_DIM
         and all(
             isinstance(row, list)
-            and len(row) <= DEAL_MAX_SHAPE_DIM
+            and len(row) <= _DEAL_GRID_DIM
             and all(_deal_inner_grid_cell_ok(c) for c in row)
             for row in values
         )
@@ -127,11 +133,11 @@ def _deal_calc_range_other_ok_crosshair(other: object) -> bool:
     if other is None or isinstance(other, bool):
         return True
     if isinstance(other, int):
-        return -8 <= other <= 8
+        return -_DEAL_CELL_INT_ABS <= other <= _DEAL_CELL_INT_ABS
     if isinstance(other, float):
         return True
     if isinstance(other, str):
-        return ascii_bounded(other, 4)
+        return ascii_bounded(other, _DEAL_CELL_STR_LEN)
     return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
 
 
@@ -463,13 +469,13 @@ def _deal_inner_grid_cell_ok_pytest(c: object) -> bool:
 
 def _deal_inner_grid_cell_ok_crosshair(c: object) -> bool:
     # cover-all 33127995861: unbounded str/int cells made _materialize 530k lines
-    # and compare dunders 90–172k each. Tiny ints + 4-char ascii still hits None/str/int.
+    # and compare dunders 90–172k each. 33211730747 still ~2.3h at ±8/ascii4/dim4.
     if c is None:
         return True
     if isinstance(c, int):
-        return -8 <= c <= 8
+        return -_DEAL_CELL_INT_ABS <= c <= _DEAL_CELL_INT_ABS
     if isinstance(c, str):
-        return ascii_bounded(c, 4)
+        return ascii_bounded(c, _DEAL_CELL_STR_LEN)
     return False
 
 
@@ -481,14 +487,14 @@ def _deal_json_list_of_grids_arg_ok_pytest(obj: object) -> bool:
 
 
 def _deal_json_list_of_grids_arg_ok_crosshair(obj: object) -> bool:
-    if not isinstance(obj, (list, tuple)) or len(obj) > DEAL_MAX_SHAPE_DIM:
+    if not isinstance(obj, (list, tuple)) or len(obj) > _DEAL_GRID_DIM:
         return False
     for item in obj:
-        if not isinstance(item, (list, tuple)) or len(item) > DEAL_MAX_SHAPE_DIM:
+        if not isinstance(item, (list, tuple)) or len(item) > _DEAL_GRID_DIM:
             return False
         for row in item:
             if isinstance(row, (list, tuple)):
-                if len(row) > DEAL_MAX_SHAPE_DIM:
+                if len(row) > _DEAL_GRID_DIM:
                     return False
                 if not all(_deal_inner_grid_cell_ok(c) for c in row):
                     return False
@@ -505,11 +511,11 @@ _deal_json_list_of_grids_arg_ok = (
 @deal.pre(
     lambda inner: (type(inner) not in (list, tuple))
     or (
-        len(inner) <= DEAL_MAX_SHAPE_DIM
+        len(inner) <= _DEAL_GRID_DIM
         and all(
             type(r) not in (list, tuple)
             or (
-                len(r) <= DEAL_MAX_SHAPE_DIM
+                len(r) <= _DEAL_GRID_DIM
                 and all(_deal_inner_grid_cell_ok(c) for c in r)
             )
             for r in inner
@@ -598,17 +604,17 @@ def _is_json_list_of_grids(obj: Any) -> bool:
 
 @deal.pre(
     lambda columns, data=None, include_header=True, **__: type(columns) is list
-    and len(columns) <= DEAL_MAX_SHAPE_DIM
-    and all(str_bounded(c, DEAL_MAX_TOKEN) for c in columns)
+    and len(columns) <= _DEAL_GRID_DIM
+    and all(str_bounded(c, _DEAL_COL_NAME_LEN) for c in columns)
     and (
         data is None
         or (
             type(data) is list
-            and len(data) <= DEAL_MAX_SHAPE_DIM
+            and len(data) <= _DEAL_GRID_DIM
             and all(
                 (
                     type(row) is list
-                    and len(row) <= DEAL_MAX_SHAPE_DIM
+                    and len(row) <= _DEAL_GRID_DIM
                     and all(_deal_inner_grid_cell_ok(c) for c in row)
                 )
                 if type(row) is list

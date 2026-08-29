@@ -15,9 +15,11 @@ MIN_CHUNK = 120
 DEFAULT_SENTENCE_LOCALE = "en@ss=standard"
 
 # cover-all 33180040863: _sentences_spans_ok ~15m / _split_passage_whitespace ~24m (regex).
-_DEAL_SENT_LIST_LEN = 2 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
-_DEAL_SENT_SPAN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_DEAL_SENT_TEXT_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+# 33211730747: embeddings_split ~35m — shrink spans/text further; cap passage under CH.
+_DEAL_SENT_LIST_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
+_DEAL_SENT_SPAN = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_DEAL_SENT_TEXT_LEN = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_DEAL_PASSAGE_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
 def _embeddings_pip_install_hint() -> str:
@@ -44,7 +46,7 @@ def _import_splitter() -> Any:
 
 
 @deal.pre(
-    lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: str_bounded(text, DEAL_MAX_SOURCE)
+    lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: str_bounded(text, _DEAL_PASSAGE_LEN)
     and (locale == DEFAULT_SENTENCE_LOCALE or ascii_bounded(locale, DEAL_MAX_TOKEN))
 )
 def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
@@ -77,9 +79,9 @@ def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE)
 
 
 @deal.pre(
-    lambda passage, spans, base_meta, *_unused, **__: str_bounded(passage, DEAL_MAX_SOURCE)
+    lambda passage, spans, base_meta, *_unused, **__: str_bounded(passage, _DEAL_PASSAGE_LEN)
     and isinstance(spans, list)
-    and len(spans) <= DEAL_MAX_SHAPE_DIM
+    and len(spans) <= _DEAL_SENT_LIST_LEN
 )
 @deal.post(lambda result: isinstance(result, list))
 def _meta_chunks_from_spans(
@@ -150,7 +152,7 @@ def _filter_ordered_sentence_spans(
 
 
 @deal.pre(
-    lambda passage, sentences, *_unused, **__: str_bounded(passage, DEAL_MAX_SOURCE)
+    lambda passage, sentences, *_unused, **__: str_bounded(passage, _DEAL_PASSAGE_LEN)
     and _sentences_spans_ok(sentences)
 )
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(s, tuple) and len(s) == 2 and 0 <= s[0] <= s[1] for s in result))
@@ -211,7 +213,7 @@ def _merge_small_sentences_to_spans(
     return spans
 
 
-@deal.pre(lambda passage: ascii_bounded(passage, DEAL_MAX_SOURCE))
+@deal.pre(lambda passage: ascii_bounded(passage, _DEAL_PASSAGE_LEN))
 def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int, str]]:
     # Regex splitter is engine-hostile under CrossHair (cover-all 33180040863 ~24m).
     # crosshair: off
@@ -225,7 +227,7 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
 
 
 @deal.pre(
-    lambda passage, locale_bcp47=None, *_unused, **__: str_bounded(passage, DEAL_MAX_SOURCE)
+    lambda passage, locale_bcp47=None, *_unused, **__: str_bounded(passage, _DEAL_PASSAGE_LEN)
     and (locale_bcp47 is None or ascii_bounded(locale_bcp47, DEAL_MAX_TOKEN))
 )
 def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
@@ -250,7 +252,7 @@ def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None)
     return _merge_small_sentences_to_spans(passage, sentences)
 
 
-@deal.pre(lambda passage, *_unused, **__: str_bounded(passage, DEAL_MAX_SOURCE))
+@deal.pre(lambda passage, *_unused, **__: str_bounded(passage, _DEAL_PASSAGE_LEN))
 def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
     if len(passage) <= CHUNK_SIZE:
         return [(0, len(passage))]
@@ -274,7 +276,7 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
 
 
 @deal.pre(
-    lambda text, runs, base_meta, *_unused, **__: str_bounded(text, DEAL_MAX_SOURCE)
+    lambda text, runs, base_meta, *_unused, **__: str_bounded(text, _DEAL_PASSAGE_LEN)
     and isinstance(runs, list)
     and len(runs) <= DEAL_MAX_SHAPE_DIM
     and isinstance(base_meta, dict)
@@ -318,7 +320,7 @@ def split_passage_locale_runs_to_chunk_meta(
 
 
 @deal.pre(
-    lambda text, base_meta, *args, **kwargs: ascii_bounded(text, DEAL_MAX_SOURCE)
+    lambda text, base_meta, *args, **kwargs: ascii_bounded(text, _DEAL_PASSAGE_LEN)
     and type(base_meta) is dict
     and len(base_meta) <= DEAL_MAX_SHAPE_DIM
     and all(

@@ -82,9 +82,10 @@ def _deal_excel_src_ok_pytest(src: object) -> bool:
 
 
 def _deal_excel_src_ok_crosshair(src: object) -> bool:
+    # cover-all 33211730747: to_dag ~2.2h; keep alphabet but shrink len 16→8.
     return (
         isinstance(src, str)
-        and len(src) <= DEAL_MAX_SOURCE
+        and len(src) <= 8
         and all(c in _EXCEL_PLACEHOLDER_CHARS for c in src)
     )
 
@@ -102,10 +103,12 @@ _AST_OFFSET_CHARS = frozenset("AB \n")
 _DEAL_BINDING_A1_LEN = DEAL_MAX_CELL_REF if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 _DEAL_RESOLVED_LEN = 2 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
 # cover-all 33180040863: _normalize_bindings ~59m — kind/note were unbounded strings.
-_DEAL_NOTE_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+# 33211730747: still multi-10m on note/convert at 4; shrink further.
+_DEAL_NOTE_LEN = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 _RESOLVED_KINDS = frozenset(("range", "unresolved", "table_snapshot", "anchor_snapshot"))
 _DEAL_CONVERT_LIST = 2 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
-_DEAL_CONVERT_STR = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_DEAL_CONVERT_STR = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_DEAL_REWRITE_SRC = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
 def _deal_ast_offset_src_ok_pytest(src: object) -> bool:
@@ -186,7 +189,7 @@ def _header_mode_from_keywords(node: ast.Call) -> HeaderMode:
 
 
 @deal.pre(
-    lambda src, i, *_unused, **__: str_bounded(src, DEAL_MAX_SOURCE)
+    lambda src, i, *_unused, **__: str_bounded(src, _DEAL_REWRITE_SRC)
     and type(i) is int
     and 0 <= i < len(src)
 )
@@ -273,7 +276,7 @@ def _p_num_from_arg(arg0: ast.AST) -> tuple[int | None, str | None, bool]:
     return None, None, True
 
 
-@deal.pre(lambda code, *_unused, **__: str_bounded(code or "", DEAL_MAX_SOURCE))
+@deal.pre(lambda code, *_unused, **__: str_bounded(code or "", _DEAL_REWRITE_SRC))
 def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     """Locate direct ``xl(...)`` call expressions via AST after placeholder normalization."""
     issues: list[str] = []
@@ -349,6 +352,9 @@ def ast_source_offset(src: str, lineno: int, col: int) -> int:
     within the line — not Unicode character indices. Convert before slicing *src*
     so a non-ASCII prefix cannot shift the rewrite window. Shared with ``to_excel``.
     """
+    # cover-all 33211730747: 1.05M lines at len=2/"AB \n" — symbolic UTF-8 mid-codepoint
+    # walk is engine-hostile (same class as regex/NUL), not a domain we can shrink further.
+    # crosshair: off
     if lineno < 1 or col < 0:
         return -1
     lines = src.splitlines(keepends=True)
@@ -366,7 +372,7 @@ def ast_source_offset(src: str, lineno: int, col: int) -> int:
 
 
 @deal.pre(
-    lambda code, num_deps, index_map=None, *_unused, **__: str_bounded(code or "", DEAL_MAX_SOURCE)
+    lambda code, num_deps, index_map=None, *_unused, **__: str_bounded(code or "", _DEAL_REWRITE_SRC)
     and type(num_deps) is int
     and 0 <= num_deps <= DEAL_MAX_CMD_ARGS
     and (

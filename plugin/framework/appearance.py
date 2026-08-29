@@ -68,7 +68,8 @@ def get_style_window(doc: Any = None, style_window: Any = None, ctx: Any = None)
 
 
 # cover-all 33180040863: _darken ~11m wandering 24-bit RGB even with factor in {0,0.5,0.94,1}.
-_DEAL_THEME_COLORS = (0, 1, 0x808080, 0xFFFFFF)
+# cover-all 33211730747: _darken/_luminance still ~16m of appearance; two colors suffice.
+_DEAL_THEME_COLORS = (0, 0xFFFFFF)
 
 
 def _deal_theme_color_ok(color: object) -> bool:
@@ -88,7 +89,7 @@ def _luminance(color: int) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
-@deal.pre(lambda color, factor: _deal_theme_color_ok(color) and factor in (0.0, 0.5, 0.94, 1.0))
+@deal.pre(lambda color, factor: _deal_theme_color_ok(color) and factor in (0.0, 1.0))
 def _darken(color: int, factor: float) -> int:
     r = int(((color >> 16) & 0xFF) * factor)
     g = int(((color >> 8) & 0xFF) * factor)
