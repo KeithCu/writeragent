@@ -115,6 +115,33 @@ def uno_click(control: Any) -> None:
     raise RuntimeError("control has no accessible click")
 
 
+def _query_uno_interface(obj: Any, typename: str) -> Any:
+    """PyUNO ``queryInterface`` needs ``uno.getTypeByName``, not the IDL class."""
+    if obj is None or not hasattr(obj, "queryInterface"):
+        return None
+    try:
+        import uno
+
+        return obj.queryInterface(uno.getTypeByName(typename))
+    except Exception:
+        return None
+
+
+def sidebar_provider(controller: Any) -> Any:
+    """Return ``XSidebarProvider`` (decks / setVisible), or None.
+
+    ``controller.Sidebar`` is ``getSidebar()`` → ``XSidebar`` (requestLayout only).
+    Packet F used that property and never saw decks when View → Sidebar was off.
+    Decks live on the controller's ``XSidebarProvider``.
+    """
+    _require_debug()
+    if controller is None:
+        return None
+    if callable(getattr(controller, "getDecks", None)):
+        return controller
+    return _query_uno_interface(controller, "com.sun.star.ui.XSidebarProvider")
+
+
 def sidebar_deck_names(ctx: Any, doc: Any) -> list[str]:
     """Deck ids from XSidebarProvider, or empty if the API is unavailable."""
     _require_debug()
@@ -122,13 +149,68 @@ def sidebar_deck_names(ctx: Any, doc: Any) -> list[str]:
         return []
     try:
         controller = doc.getCurrentController()
-        sidebar = controller.Sidebar
-        decks = sidebar.getDecks()
+        provider = sidebar_provider(controller)
+        if provider is None:
+            return []
+        decks = provider.getDecks()
         if hasattr(decks, "getElementNames"):
             return [str(n) for n in decks.getElementNames()]
     except Exception:
         return []
     return []
+
+
+def _panel_root_window(panel: Any) -> Any:
+    if panel is None:
+        return None
+    for attr in ("getDialog", "getWindow"):
+        getter = getattr(panel, attr, None)
+        if not callable(getter):
+            continue
+        try:
+            win = getter()
+        except Exception:
+            continue
+        if win is not None:
+            return win
+    return getattr(panel, "Window", None) or getattr(panel, "PanelWindow", None)
+
+
+def _control_container(window: Any) -> Any:
+    if window is None:
+        return None
+    if hasattr(window, "getControl"):
+        return window
+    return _query_uno_interface(window, "com.sun.star.awt.XControlContainer") or window
+
+
+_CHAT_CONTROL_NAMES = (
+    "query",
+    "send",
+    "stop",
+    "response",
+    "response_rich",
+    "status",
+    "model_selector",
+    "chat_mode_selector",
+)
+
+
+def _controls_from_window(window: Any) -> dict[str, Any] | None:
+    root = _control_container(window)
+    if root is None or not hasattr(root, "getControl"):
+        return None
+    out: dict[str, Any] = {}
+    for name in _CHAT_CONTROL_NAMES:
+        try:
+            ctrl = root.getControl(name)
+        except Exception:
+            ctrl = None
+        if ctrl is not None:
+            out[name] = ctrl
+    if "query" in out and "send" in out:
+        return out
+    return None
 
 
 def chat_dialog_controls(ctx: Any, doc: Any) -> dict[str, Any] | None:
@@ -138,13 +220,10 @@ def chat_dialog_controls(ctx: Any, doc: Any) -> dict[str, Any] | None:
         return None
     try:
         controller = doc.getCurrentController()
-        try:
-            sidebar = controller.Sidebar
-        except Exception:
-            sidebar = None
-        if sidebar is None:
+        provider = sidebar_provider(controller)
+        if provider is None:
             return None
-        decks = sidebar.getDecks()
+        decks = provider.getDecks()
         deck = None
         if hasattr(decks, "hasByName") and decks.hasByName("WriterAgentDeck"):
             deck = decks.getByName("WriterAgentDeck")
@@ -156,22 +235,7 @@ def chat_dialog_controls(ctx: Any, doc: Any) -> dict[str, Any] | None:
             panel = panels.getByName("ChatPanel")
         elif hasattr(panels, "getByIndex"):
             panel = panels.getByIndex(0)
-        if panel is None or not hasattr(panel, "getDialog"):
-            return None
-        dialog = panel.getDialog()
-        if dialog is None or not hasattr(dialog, "getControl"):
-            return None
-        names = ("query", "send", "stop", "response", "response_rich", "status")
-        out: dict[str, Any] = {}
-        for name in names:
-            try:
-                ctrl = dialog.getControl(name)
-            except Exception:
-                ctrl = None
-            if ctrl is not None:
-                out[name] = ctrl
-        if "query" in out and "send" in out:
-            return out
+        return _controls_from_window(_panel_root_window(panel))
     except Exception:
         log.debug("chat_dialog_controls failed", exc_info=True)
     return None
@@ -218,7 +282,9 @@ def adopt_runtime_send_listeners() -> int:
 def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
     """Make the WriterAgent sidebar deck visible on *doc* (debug tests).
 
-    Used with ``--norestore`` so crash-recovery UI is not required to reopen the deck.
+    ``.uno:SidebarDeck.WriterAgentDeck`` shows the sidebar if View → Sidebar is
+    off. Do not dispatch ``.uno:Sidebar`` — that *toggles*. ``--norestore``
+    skips crash-recovery so this dispatch is what reopens the deck.
     """
     _require_debug()
     if doc is None:
@@ -231,33 +297,28 @@ def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
     try:
         smgr = ctx.getServiceManager()
         helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-        # Do not dispatch .uno:Sidebar — it *toggles* and can hide a deck that is already on.
         try:
             helper.executeDispatch(frame, ".uno:SidebarDeck.WriterAgentDeck", "", 0, ())
         except Exception:
             log.debug("show_writeragent_chat_deck dispatch WriterAgentDeck failed", exc_info=True)
     except Exception:
         log.debug("show_writeragent_chat_deck DispatchHelper failed", exc_info=True)
-    sidebar = None
-    try:
-        sidebar = controller.Sidebar
-    except Exception:
-        sidebar = None
-    if sidebar is None:
+    provider = sidebar_provider(controller)
+    if provider is None:
         return
     try:
-        if hasattr(sidebar, "isVisible") and not sidebar.isVisible():
-            sidebar.setVisible(True)
-        elif hasattr(sidebar, "setVisible"):
-            sidebar.setVisible(True)
+        if hasattr(provider, "isVisible") and not provider.isVisible():
+            provider.setVisible(True)
+        elif hasattr(provider, "setVisible"):
+            provider.setVisible(True)
     except Exception:
         pass
     try:
-        sidebar.showDecks(True)
+        provider.showDecks(True)
     except Exception:
         pass
     try:
-        decks = sidebar.getDecks()
+        decks = provider.getDecks()
         if decks is None:
             return
         name = "WriterAgentDeck"
@@ -271,6 +332,97 @@ def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
                 return
     except Exception:
         log.debug("show_writeragent_chat_deck failed", exc_info=True)
+
+
+def wait_for_chat_dialog_controls(ctx: Any, timeout: float = 20.0) -> dict[str, Any] | None:
+    """Show WriterAgentDeck until query+send exist. Does not pump VCL over URP."""
+    _require_debug()
+    deadline = time.monotonic() + max(0.0, timeout)
+    last: dict[str, Any] | None = None
+    while time.monotonic() <= deadline:
+        try:
+            doc = current_component(ctx)
+            show_writeragent_chat_deck(ctx, doc)
+            last = chat_dialog_controls(ctx, doc)
+            if last is not None:
+                return last
+        except Exception:
+            log.debug("wait_for_chat_dialog_controls attempt failed", exc_info=True)
+        time.sleep(0.4)
+    return last
+
+
+def control_enabled(control: Any) -> bool | None:
+    """``model.Enabled`` over URP, or None if unreadable."""
+    _require_debug()
+    if control is None:
+        return None
+    try:
+        model = control.getModel()
+        return bool(getattr(model, "Enabled"))
+    except Exception:
+        return None
+
+
+def ensure_sidebar_chat_mode(controls: dict[str, Any] | None) -> None:
+    """Select main Chat (not Librarian) so Packet F hits the chat completions path."""
+    _require_debug()
+    if not controls:
+        return
+    sel = controls.get("chat_mode_selector")
+    if sel is None:
+        return
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, set_selector_mode_with_flags, sidebar_mode_flags_for_doc_type
+
+    set_selector_mode_with_flags(sel, CHAT_MODE_CHAT, sidebar_mode_flags_for_doc_type("writer"))
+
+
+def set_query_text_via_controls(controls: dict[str, Any], text: str) -> None:
+    """Set the query box over URP so QueryTextListener can enable Send."""
+    _require_debug()
+    from plugin.chatbot.dialogs import set_control_text
+
+    set_control_text(controls["query"], text)
+
+
+def wait_controls_send_finished(
+    controls: dict[str, Any],
+    timeout: float = 60.0,
+    *,
+    transcript_fn: Callable[[], str] | None = None,
+    wait_for: str | None = None,
+    before: str = "",
+) -> bool:
+    """Wait until Stop is idle and optional new transcript text appeared.
+
+    Out-of-process tests cannot read ``SendButtonListener.is_busy``. Stop is
+    enabled while a send is in flight (Packet F HTTP errors included).
+    """
+    _require_debug()
+    deadline = time.monotonic() + max(0.0, timeout)
+    stop = controls.get("stop")
+    # Let the click start; HTTP 500 can finish before the first poll.
+    time.sleep(0.25)
+    while time.monotonic() <= deadline:
+        en = control_enabled(stop) if stop is not None else None
+        busy = en is True
+        body = transcript_fn() if transcript_fn is not None else ""
+        suffix = body[len(before) :] if before and body.startswith(before) else body
+        if wait_for:
+            found = wait_for.lower() in suffix.lower()
+            if not found and body != before:
+                found = wait_for.lower() in body.lower()
+        else:
+            found = True
+        if found and not busy:
+            return True
+        time.sleep(0.15)
+    if wait_for and transcript_fn is not None:
+        body = transcript_fn()
+        suffix = body[len(before) :] if before and body.startswith(before) else body
+        return wait_for.lower() in suffix.lower() or (body != before and wait_for.lower() in body.lower())
+    en = control_enabled(stop) if stop is not None else None
+    return en is not True
 
 
 def _control_label(control: Any) -> str:

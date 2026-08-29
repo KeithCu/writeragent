@@ -18,6 +18,8 @@ from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.sidebar_test_hooks import (
     approval_active,
     audio_status,
+    chat_dialog_controls,
+    control_enabled,
     debug_hooks_available,
     inject_wav,
     iter_live_chat_panels,
@@ -36,10 +38,14 @@ from plugin.chatbot.sidebar_test_hooks import (
     send_state,
     set_audio_supported,
     set_query_text,
+    show_writeragent_chat_deck,
+    sidebar_deck_names,
     sidebar_panel,
+    sidebar_provider,
     stub_recorder_child,
     transcript_contains,
     transcript_text,
+    wait_controls_send_finished,
     wait_idle,
 )
 from tests.chatbot.mock_llm_harness import mock_config
@@ -288,3 +294,139 @@ def test_sidebar_panel_none_when_empty() -> None:
     panel = sidebar_panel()
     sl = send_listener()
     assert panel is None or sl is getattr(panel, "send_listener", sl)
+
+
+class _SidebarNoDecks:
+    """controller.Sidebar is XSidebar — requestLayout only, no getDecks."""
+
+
+class _FakeDeck:
+    def __init__(self) -> None:
+        self.activated = False
+        self._panels = _FakePanels()
+
+    def activate(self, on: bool) -> None:
+        self.activated = bool(on)
+
+    def getPanels(self):
+        return self._panels
+
+
+class _FakeDialog:
+    def __init__(self) -> None:
+        self._ctrls = {"query": object(), "send": object(), "stop": object()}
+
+    def getControl(self, name: str):
+        return self._ctrls.get(name)
+
+
+class _FakePanels:
+    def hasByName(self, name: str) -> bool:
+        return name == "ChatPanel"
+
+    def getByName(self, name: str):
+        return SimpleNamespace(getDialog=lambda: _FakeDialog())
+
+
+class _FakeDecks:
+    def __init__(self) -> None:
+        self.writer = _FakeDeck()
+
+    def getElementNames(self):
+        return ["WriterAgentDeck"]
+
+    def hasByName(self, name: str) -> bool:
+        return name == "WriterAgentDeck"
+
+    def getByName(self, name: str):
+        return self.writer
+
+
+class _ProviderController:
+    def __init__(self) -> None:
+        self.Sidebar = _SidebarNoDecks()
+        self._decks = _FakeDecks()
+        self.visible_sets: list[bool] = []
+        self.decks_shown = False
+
+    def getDecks(self):
+        return self._decks
+
+    def isVisible(self) -> bool:
+        return False
+
+    def setVisible(self, value: bool) -> None:
+        self.visible_sets.append(bool(value))
+
+    def showDecks(self, value: bool) -> None:
+        self.decks_shown = bool(value)
+
+    def getCurrentController(self):
+        return self
+
+    def getFrame(self):
+        return SimpleNamespace()
+
+
+def test_sidebar_provider_uses_controller_get_decks_not_sidebar_property() -> None:
+    ctrl = _ProviderController()
+    provider = sidebar_provider(ctrl)
+    assert provider is ctrl
+    assert not hasattr(ctrl.Sidebar, "getDecks")
+    assert "WriterAgentDeck" in sidebar_deck_names(SimpleNamespace(), ctrl)
+
+
+def test_chat_dialog_controls_reads_xdl_from_provider_decks() -> None:
+    doc = _ProviderController()
+    out = chat_dialog_controls(SimpleNamespace(), doc)
+    assert out is not None
+    assert "query" in out and "send" in out
+
+
+def test_show_writeragent_chat_deck_activates_when_sidebar_property_has_no_decks() -> None:
+    class _Helper:
+        def executeDispatch(self, *args):
+            return None
+
+    ctx = SimpleNamespace(
+        getServiceManager=lambda: SimpleNamespace(
+            createInstanceWithContext=lambda *a: _Helper()
+        )
+    )
+    doc = _ProviderController()
+    show_writeragent_chat_deck(ctx, doc)
+    assert doc.visible_sets == [True]
+    assert doc.decks_shown is True
+    assert doc._decks.writer.activated is True
+
+
+class _StopCtrl:
+    def __init__(self) -> None:
+        self._model = SimpleNamespace(Enabled=False)
+
+    def getModel(self):
+        return self._model
+
+
+def test_wait_controls_send_finished_sees_new_transcript(monkeypatch) -> None:
+    stop = _StopCtrl()
+    state = {"body": "old", "n": 0}
+
+    def transcript() -> str:
+        state["n"] += 1
+        if state["n"] >= 2:
+            stop._model.Enabled = False
+            return "old\n[API error: HTTP Error 500]"
+        stop._model.Enabled = True
+        return "old"
+
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.time.sleep", lambda _s: None)
+    ok = wait_controls_send_finished(
+        {"stop": stop},
+        timeout=2.0,
+        transcript_fn=transcript,
+        wait_for="API error",
+        before="old",
+    )
+    assert ok is True
+    assert control_enabled(stop) is False
