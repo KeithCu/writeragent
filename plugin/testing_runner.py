@@ -210,7 +210,8 @@ def _clear_stale_user_profile_ipc() -> None:
         return
     import glob
 
-    for path in glob.glob("/tmp/OSL_PIPE_%s_*" % os.getuid()):
+    tmp = tempfile.gettempdir()
+    for path in glob.glob(os.path.join(tmp, "OSL_PIPE_%s_*" % os.getuid())):
         try:
             os.unlink(path)
         except OSError:

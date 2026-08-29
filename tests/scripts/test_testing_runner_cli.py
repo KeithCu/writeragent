@@ -58,3 +58,22 @@ def test_libreoffice_user_lock_path_is_under_profile() -> None:
     lock = tr._libreoffice_user_lock_path()
     assert lock.name == ".lock"
     assert "libreoffice" in str(lock).lower() or "LibreOffice" in str(lock)
+
+
+def test_clear_stale_user_profile_ipc_globs_os_tempdir(monkeypatch, tmp_path) -> None:
+    import glob
+    import tempfile
+
+    monkeypatch.setattr(tr, "_soffice_bin_running", lambda: False)
+    monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / "missing.lock")
+    seen: list[str] = []
+
+    def fake_glob(pattern: str) -> list[str]:
+        seen.append(pattern)
+        return []
+
+    monkeypatch.setattr(glob, "glob", fake_glob)
+    tr._clear_stale_user_profile_ipc()
+    assert seen == [
+        os.path.join(tempfile.gettempdir(), "OSL_PIPE_%s_*" % os.getuid())
+    ]
