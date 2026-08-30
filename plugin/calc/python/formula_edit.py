@@ -395,8 +395,11 @@ def sanitize_inline_py_code(code: str) -> str:
     return sanitized
 
 
+@deal.pre(lambda code: str_bounded(code, DEAL_MAX_SOURCE + 256))
+@deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 def inline_py_code_has_lexer_collisions(code: str) -> list[str]:
     """Return token names still present that ``sanitize_inline_py_code`` would rewrite."""
+    # crosshair: off  # four regex searches on free strings (cover-all 33314946731: ~5.3h, 500k lines). Same rewrite-regex class as sanitize. Doable later with a tiny token alphabet.
     hits: list[str] = []
     if _LEXER_COLLISION_FLOAT_RE.search(code):
         hits.append("float")
@@ -650,6 +653,7 @@ def py_code_arg_is_cell_ref(code: str) -> bool:
     ``=PY($A$1; data)`` / ``=PY(Sheet.A1)`` store source in that cell. Ranges
     (``A1:B10``) and unquoted Python (``sp.prime(100)``) return False.
     """
+    # crosshair: off  # parse_address/split_sheet_prefix on free strings (cover-all 33314946731: ~14m, 22k lines). Doable later with the closed A1/_deal_range_addr_ok domain.
     if type(code) is not str:
         return False
     s = code.strip()
