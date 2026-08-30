@@ -313,6 +313,7 @@ def _reset_cache() -> None:  # pyright: ignore[reportUnusedFunction]  # test hel
 # --- Interpreter resolution ---
 
 
+@deal.pre(lambda path: str_bounded(path, DEAL_MAX_PATH))
 def _strip_surrounding_quotes(path: str) -> str:
     """Strip one layer of matching quotes (Windows Explorer \"Copy as path\")."""
     s = path.strip()
@@ -323,6 +324,7 @@ def _strip_surrounding_quotes(path: str) -> str:
 
 def _path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
+    # crosshair: off  # urlparse/unquote/url2pathname combinatorics on free strings (cover-all 33293627157: ~2.0h, 190k lines / 108k examples). Doable later with a tiny file-URL alphabet.
     from urllib.parse import unquote, urlparse
     from urllib.request import url2pathname
 
@@ -345,6 +347,7 @@ def _path_from_file_url(raw: str) -> str | None:
 
 def _normalize_venv_path_input(venv_dir: str) -> str:
     """Strip quotes, convert file URLs, then expand ``~`` and env vars."""
+    # crosshair: off  # expandvars/file-URL path still combinatoric as an entry (cover-all 33293627157: ~4.5m, 139k lines). Doable later with DEAL_MAX_PATH + opaque URL helper.
     cleaned = _strip_surrounding_quotes(venv_dir.strip())
     if cleaned.lower().startswith("file:"):
         from_url = _path_from_file_url(cleaned)
@@ -497,4 +500,3 @@ def is_safe_workspace_path(target_path: str, root_dir: str) -> bool:
         return os.path.commonpath([abs_target, abs_root]) == abs_root
     except Exception:
         return False
-

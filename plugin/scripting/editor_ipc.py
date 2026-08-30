@@ -104,6 +104,7 @@ _deal_ipc_dict_ok = _deal_ipc_dict_ok_crosshair if UNDER_CROSSHAIR else _deal_ip
 @deal.pre(lambda target: target is None or _deal_ipc_dict_ok(target))
 def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
     """Keep only string identity fields; drop empty values and UNO objects."""
+    # crosshair: off  # nested IPC dict domain still combinatoric despite _deal_ipc_dict_ok (cover-all 33293627157: ~7m, 113k lines). Doable later with a constructor domain.
     if not target:
         return {}
     out: dict[str, str] = {}
@@ -120,6 +121,7 @@ def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
 @deal.pre(lambda msg: _deal_ipc_dict_ok(msg))
 def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
     """Build ``target`` from an explicit dict plus top-level load aliases."""
+    # crosshair: off  # nested IPC dict + alias merges (cover-all 33293627157: ~9m, 148k lines). Doable later with a constructor domain.
     raw = msg.get("target")
     target = normalize_target(raw if isinstance(raw, Mapping) else None)
     aliases = (
@@ -148,6 +150,7 @@ def target_from_load(msg: Mapping[str, Any]) -> dict[str, str]:
 )
 def target_identity_key(mode: str, target: Mapping[str, str] | None) -> tuple[str, str, str, str, str]:
     """Stable key so reopening the same cell/script reuses ``session_id``."""
+    # crosshair: off  # nested IPC dict domain (cover-all 33293627157: ~9m, 159k lines). Doable later; thin wrapper over normalize_target.
     t = normalize_target(target)
     return (
         str(mode or ""),
@@ -177,6 +180,7 @@ def stamp_session(
     target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Copy *msg* and attach ``session_id``, ``mode``, and ``target`` (always)."""
+    # crosshair: off  # nested IPC dict copy/merge (cover-all 33293627157: ~11m, 157k lines). Doable later with a constructor domain.
     out = dict(msg)
     out["session_id"] = str(session_id or "")
     use_mode = str(mode or out.get("mode") or "")
@@ -203,6 +207,7 @@ _deal_exc_ok = _deal_exc_ok_crosshair if UNDER_CROSSHAIR else _deal_exc_ok_pytes
 @deal.pre(lambda exc: _deal_exc_ok(exc))
 def exception_traceback(exc: BaseException) -> str:
     """Full traceback string for *exc*."""
+    # crosshair: off  # BaseException/traceback formatting; CrossHair pre forces exc is None so covering is circular (cover-all 33293627157: ~11m, 92k lines). Doable later.
     return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
 
 
@@ -213,6 +218,7 @@ def exception_traceback(exc: BaseException) -> str:
 @deal.post(lambda result: isinstance(result, str))
 def failure_detail(*, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Combine subprocess stderr, probe output, and/or an exception traceback."""
+    # crosshair: off  # detail/traceback join still slow with bounds (cover-all 33293627157: ~4m, 61k lines). Doable later.
     chunks: list[str] = []
     detail_text = (detail or "").strip()
     if detail_text:
@@ -230,6 +236,7 @@ def failure_detail(*, detail: str | None = None, exc: BaseException | None = Non
 @deal.post(lambda result: isinstance(result, str))
 def failure_message(summary: str, *, detail: str | None = None, exc: BaseException | None = None) -> str:
     """Build a msgbox body: *summary* plus optional detail/traceback blocks."""
+    # crosshair: off  # thin wrapper over failure_detail (cover-all 33293627157: ~2m, 40k lines). Doable later.
     body = failure_detail(detail=detail, exc=exc)
     if body:
         return f"{summary}\n\n{body}"
