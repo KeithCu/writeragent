@@ -441,6 +441,28 @@ def test_cover_fqns_skip_crosshair_off_callables(tmp_path: Path) -> None:
     assert not any(f.endswith(".Host.run") for f in fqns)
 
 
+
+def test_cover_fqns_skips_deal_predicate_helpers(tmp_path: Path) -> None:
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    mod = tmp_path / "plugin" / "deal_helpers.py"
+    mod.parent.mkdir(parents=True)
+    mod.write_text(
+        "def _deal_foo_ok_pytest(x):\n"
+        "    return True\n"
+        "\n"
+        "def _deal_foo_ok_crosshair(x):\n"
+        "    return True\n"
+        "\n"
+        "def real_product(x):\n"
+        "    return x\n",
+        encoding="utf-8",
+    )
+    fqns = cover_fqns_for_module(mod)
+    assert any(f.endswith(".real_product") for f in fqns)
+    assert not any("._deal_" in f for f in fqns)
+
+
 def test_cover_fqns_require_deal_drops_bare_helpers(tmp_path: Path) -> None:
     from scripts.crosshair_stream import cover_fqns_for_module
 

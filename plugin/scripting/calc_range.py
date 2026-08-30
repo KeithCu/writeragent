@@ -355,93 +355,116 @@ class CalcRange:
     # Binary arithmetic
     @deal.pre(_deal_binary_op_pre)
     def __add__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.add)
 
     @deal.pre(_deal_binary_op_pre)
     def __radd__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.add, is_reverse=True)
 
     @deal.pre(_deal_binary_op_pre)
     def __sub__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.sub)
 
     @deal.pre(_deal_binary_op_pre)
     def __rsub__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.sub, is_reverse=True)
 
     @deal.pre(_deal_binary_op_pre)
     def __mul__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.mul)
 
     @deal.pre(_deal_binary_op_pre)
     def __rmul__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.mul, is_reverse=True)
 
     @deal.pre(_deal_binary_op_pre)
     def __truediv__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.truediv)
 
     @deal.pre(_deal_binary_op_pre)
     def __rtruediv__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.truediv, is_reverse=True)
 
     @deal.pre(_deal_binary_op_pre)
     def __floordiv__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.floordiv)
 
     @deal.pre(_deal_binary_op_pre)
     def __rfloordiv__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.floordiv, is_reverse=True)
 
     @deal.pre(_deal_binary_op_pre)
     def __mod__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.mod)
 
     @deal.pre(_deal_binary_op_pre)
     def __rmod__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.mod, is_reverse=True)
 
     @deal.pre(_deal_binary_op_pre)
     def __pow__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.pow)
 
     @deal.pre(_deal_binary_op_pre)
     def __rpow__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.pow, is_reverse=True)
 
     # Unary
     def __neg__(self) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._unary_op(operator.neg)
 
     def __pos__(self) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._unary_op(operator.pos)
 
     def __abs__(self) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._unary_op(operator.abs)
 
     # Rich comparisons (aligned through _binary_op: 1x1 returns bool; multi-cell returns bool ndarray)
     @deal.pre(_deal_binary_op_pre)
     def __eq__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.eq)
 
     @deal.pre(_deal_binary_op_pre)
     def __ne__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.ne)
 
     @deal.pre(_deal_binary_op_pre)
     def __lt__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.lt)
 
     @deal.pre(_deal_binary_op_pre)
     def __le__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.le)
 
     @deal.pre(_deal_binary_op_pre)
     def __gt__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.gt)
 
     @deal.pre(_deal_binary_op_pre)
     def __ge__(self, other: Any) -> Any:
+        # crosshair: off  # thin wrapper around _binary_op/_unary_op; doable later (cover-all 33258921875)
         return self._binary_op(other, operator.ge)
 
 
@@ -523,6 +546,7 @@ _deal_json_list_of_grids_arg_ok = (
 )
 def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     """Unpack split_grid / ndarray / nested lists to a rectangular ``list[list]``."""
+    # crosshair: off  # Any/numpy/split_grid combinatorics; tiny list domain later (cover-all 33258921875: 575k lines)
     from plugin.scripting.payload_codec import child_unpack_data, is_split_grid
 
     if is_split_grid(inner):

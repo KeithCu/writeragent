@@ -518,6 +518,7 @@ def _normalize_bindings(
     ``excel_deps`` is parallel to ``data_args`` (original Excel tokens for export fidelity).
     Unresolved deps produce issues and an empty a1 — caller must fail-closed.
     """
+    # crosshair: off  # ResolvedDep objects still explode SMT; tiny pre is not enough (cover-all 33258921875: 255k lines). Doable later.
     issues: list[str] = []
     bindings: list[BindingInfo] = []
     index_map: dict[int, int] = {}

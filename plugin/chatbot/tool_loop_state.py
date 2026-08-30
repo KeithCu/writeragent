@@ -64,6 +64,7 @@ def _describe_empty_response_content(content: Any) -> str:
     )
 )
 def _describe_empty_response_tool_calls(tool_calls: Any) -> str:
+    # crosshair: off  # dict values still Any; three-line helper. Doable later with value bounds (cover-all 33258921875: 311k lines).
     if tool_calls is None:
         return "none"
     if isinstance(tool_calls, list):

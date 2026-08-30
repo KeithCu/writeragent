@@ -119,6 +119,7 @@ def _sentences_spans_ok(sentences: object) -> bool:
 
     Successive starts must be ``>=`` the previous end (production splitters are sequential).
     """
+    # crosshair: off  # deal.pre predicate; covering it is circular (cover-all 33258921875: 267k lines). Doable later.
     if not isinstance(sentences, list) or len(sentences) > DEAL_MAX_SHAPE_DIM:
         return False
     prev_end: int | None = None

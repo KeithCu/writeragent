@@ -152,6 +152,7 @@ def _resolve_provider_id(endpoint: str, provider_hint: Optional[str] = None) -> 
     Map an endpoint URL + optional hint to a provider id from PROVIDERS.
     Falls back to "custom" when nothing matches.
     """
+    # crosshair: off  # substring fragment-in-url; finite endpoint enum still 61k examples (pre filters, does not construct). Doable later with a constructor domain (cover-all 33258921875).
     if provider_hint:
         normalized = provider_hint.strip().lower()
         if normalized in PROVIDERS:

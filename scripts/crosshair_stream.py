@@ -490,6 +490,9 @@ def cover_fqns_for_module(path: Path, *, require_deal: bool = False) -> list[str
     Cover-all uses this list so hostile hosts marked off are not entry points, while
     sibling pure helpers in the same file still get covered.
 
+    Names starting with ``_deal_`` are skipped: they are contract predicates, and
+    covering the pytest-wide ``object`` variants is circular (cover-all 33258921875).
+
     A column-0 module ``# crosshair: off`` yields an empty list (same as check skipping the file).
     ``require_deal=True`` keeps only callables that have ``@deal.`` (check-all).
     """
@@ -514,6 +517,8 @@ def cover_fqns_for_module(path: Path, *, require_deal: bool = False) -> list[str
         return False
 
     def _maybe_add(qual: str, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        if node.name.startswith("_deal_"):
+            return
         segment = ast.get_source_segment(text, node)
         if segment is None or source_has_crosshair_off(segment):
             return
