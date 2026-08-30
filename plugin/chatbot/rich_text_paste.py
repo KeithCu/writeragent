@@ -129,11 +129,13 @@ def _flatten_text_table_rows(table) -> list[str]:
     return ["\t".join(row) for row in _text_table_cell_rows(table)]
 
 
-# Tab stops are 1/100 mm from the paragraph left. Liberation Sans ~0.6em, plus a
-# 2-character gap, so a body cell longer than the header cannot overrun the next stop.
-_TAB_CHAR_EM = 0.6
-_TAB_GAP_CHARS = 2
-_MM100_PER_PT = 35.28
+# RichTextControl is EditEngine: ParaTabStops Position is twips (1/20 pt), not
+# Writer's 1/100 mm (EE_PARA_TABS has no CONVERT_TWIPS). 0.5em tracks Liberation
+# Sans; a fixed 8pt slack covers a short wide word (Bananas is ~0.56em) so the
+# tab does not jump, without padding a long Description column by a quarter inch.
+_TAB_CHAR_EM = 0.5
+_TAB_SLACK_PT = 8.0
+_TWIPS_PER_PT = 20
 
 
 def _max_column_chars(rows: list[list[str]]) -> list[int]:
@@ -145,31 +147,47 @@ def _max_column_chars(rows: list[list[str]]) -> list[int]:
     return widths
 
 
-def _column_width_mm100(max_chars: int) -> int:
-    n = max(0, int(max_chars)) + _TAB_GAP_CHARS
-    return max(1, int(round(n * CHAT_FONT_HEIGHT * _MM100_PER_PT * _TAB_CHAR_EM)))
+def _column_width_twips(max_chars: int) -> int:
+    content_pt = max(0, int(max_chars)) * CHAT_FONT_HEIGHT * _TAB_CHAR_EM
+    return max(1, int(round((content_pt + _TAB_SLACK_PT) * _TWIPS_PER_PT)))
 
 
-def _tab_stop_positions_mm100(max_chars: list[int]) -> tuple[int, ...]:
-    """Stop after each column except the last (the last column has no following tab)."""
+def _tab_stop_positions_twips(max_chars: list[int]) -> tuple[int, ...]:
+    """Stop after each column except the last, in twips (EditEngine ParaTabStops)."""
     if len(max_chars) < 2:
         return ()
     acc = 0
     stops: list[int] = []
     for width in max_chars[:-1]:
-        acc += _column_width_mm100(width)
+        acc += _column_width_twips(width)
         stops.append(acc)
     return tuple(stops)
 
 
-def _apply_table_tab_stops(cursor, positions_mm100) -> None:
-    if cursor is None or not positions_mm100:
+# Tiny bump above the first table row and below the last. Same 1/100 mm unit as
+# CHAT_PARA_SIDE_MARGIN (EditEngine para margins are METRIC_ITEM). Body rows
+# force 0 so a newline does not inherit the first-row top pad.
+_TABLE_V_PAD_MM100 = 150
+
+
+def _apply_table_row_vpad(cursor, *, top: int = 0, bottom: int = 0) -> None:
+    if cursor is None:
+        return
+    try:
+        cursor.ParaTopMargin = int(top)
+        cursor.ParaBottomMargin = int(bottom)
+    except Exception as e:
+        log.debug("_apply_table_row_vpad failed: %s", e)
+
+
+def _apply_table_tab_stops(cursor, positions_twips) -> None:
+    if cursor is None or not positions_twips:
         return
     try:
         import uno
 
         stops = []
-        for pos in positions_mm100:
+        for pos in positions_twips:
             ts = uno.createUnoStruct("com.sun.star.style.TabStop")
             ts.Position = int(pos)
             ts.Alignment = 0  # com.sun.star.style.TabAlign.LEFT
@@ -427,7 +445,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         # HTML import creates a real TextTable; portion enum throws and used
                         # to abort the whole copy (truncate-then-fail blanked the stream tail).
                         cell_rows = _text_table_cell_rows(para)
-                        tab_stops = _tab_stop_positions_mm100(_max_column_chars(cell_rows))
+                        tab_stops = _tab_stop_positions_twips(_max_column_chars(cell_rows))
                         for i, cells in enumerate(cell_rows):
                             if i:
                                 _insert_string_at_rich_cursor(
@@ -436,6 +454,12 @@ def _copy_formatted_from_hidden_doc_to_control(
                                 dest_cursor.gotoEnd(False)
                                 _apply_sidebar_para_margins(dest_cursor)
                             _apply_table_tab_stops(dest_cursor, tab_stops)
+                            last = i == len(cell_rows) - 1
+                            _apply_table_row_vpad(
+                                dest_cursor,
+                                top=_TABLE_V_PAD_MM100 if i == 0 else 0,
+                                bottom=_TABLE_V_PAD_MM100 if last else 0,
+                            )
                             # First row stands in for <th>: no grid, so bold+underline.
                             # Body rows pass False so the inserted range is forced normal
                             # (EditEngine otherwise keeps the header run's attributes).
