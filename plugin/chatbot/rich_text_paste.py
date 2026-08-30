@@ -20,7 +20,8 @@ into the control (preferred), then transferable / SystemClipboard / Ctrl+V fallb
 
 The direct-copy path walks Writer body enumeration (paragraphs and TextTables) and inserts
 via insertString on the form TextField model. RichTextControl is EditEngine — no table grid —
-so TextTables are flattened to tab-separated rows. EditEngine paste does not preserve Writer
+so TextTables are flattened to tab-separated rows with ParaTabStops at the max
+column width (EditEngine has no table grid). EditEngine paste does not preserve Writer
 NumberingRules, so list bullets and ordered numbers are reconstructed manually — see
 _list_prefix_for_paragraph.
 """
@@ -107,11 +108,11 @@ def _is_writer_text_table(element) -> bool:
         return False
 
 
-def _flatten_text_table_rows(table) -> list[str]:
-    """Cell strings as tab-separated rows. EditEngine cannot host a Writer table."""
+def _text_table_cell_rows(table) -> list[list[str]]:
+    """Cell strings for a Writer TextTable, row-major."""
     n_rows = int(table.getRows().getCount())
     n_cols = int(table.getColumns().getCount())
-    rows: list[str] = []
+    rows: list[list[str]] = []
     for row_idx in range(n_rows):
         cells: list[str] = []
         for col_idx in range(n_cols):
@@ -119,8 +120,65 @@ def _flatten_text_table_rows(table) -> list[str]:
                 cells.append(table.getCellByPosition(col_idx, row_idx).getString() or "")
             except Exception:
                 cells.append("")
-        rows.append("\t".join(cells))
+        rows.append(cells)
     return rows
+
+
+def _flatten_text_table_rows(table) -> list[str]:
+    """Cell strings as tab-separated rows. EditEngine cannot host a Writer table."""
+    return ["\t".join(row) for row in _text_table_cell_rows(table)]
+
+
+# Tab stops are 1/100 mm from the paragraph left. Liberation Sans ~0.6em, plus a
+# 2-character gap, so a body cell longer than the header cannot overrun the next stop.
+_TAB_CHAR_EM = 0.6
+_TAB_GAP_CHARS = 2
+_MM100_PER_PT = 35.28
+
+
+def _max_column_chars(rows: list[list[str]]) -> list[int]:
+    n_cols = max((len(row) for row in rows), default=0)
+    widths = [0] * n_cols
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell or ""))
+    return widths
+
+
+def _column_width_mm100(max_chars: int) -> int:
+    n = max(0, int(max_chars)) + _TAB_GAP_CHARS
+    return max(1, int(round(n * CHAT_FONT_HEIGHT * _MM100_PER_PT * _TAB_CHAR_EM)))
+
+
+def _tab_stop_positions_mm100(max_chars: list[int]) -> tuple[int, ...]:
+    """Stop after each column except the last (the last column has no following tab)."""
+    if len(max_chars) < 2:
+        return ()
+    acc = 0
+    stops: list[int] = []
+    for width in max_chars[:-1]:
+        acc += _column_width_mm100(width)
+        stops.append(acc)
+    return tuple(stops)
+
+
+def _apply_table_tab_stops(cursor, positions_mm100) -> None:
+    if cursor is None or not positions_mm100:
+        return
+    try:
+        import uno
+
+        stops = []
+        for pos in positions_mm100:
+            ts = uno.createUnoStruct("com.sun.star.style.TabStop")
+            ts.Position = int(pos)
+            ts.Alignment = 0  # com.sun.star.style.TabAlign.LEFT
+            ts.DecimalChar = "."
+            ts.FillChar = " "
+            stops.append(ts)
+        cursor.ParaTabStops = tuple(stops)
+    except Exception as e:
+        log.debug("_apply_table_tab_stops failed: %s", e)
 
 
 def _role_color_for_text(text: str, user_color: int, assistant_color: int, default_role: str = "assistant") -> int:
@@ -368,13 +426,16 @@ def _copy_formatted_from_hidden_doc_to_control(
                     if _is_writer_text_table(para):
                         # HTML import creates a real TextTable; portion enum throws and used
                         # to abort the whole copy (truncate-then-fail blanked the stream tail).
-                        for i, row_text in enumerate(_flatten_text_table_rows(para)):
+                        cell_rows = _text_table_cell_rows(para)
+                        tab_stops = _tab_stop_positions_mm100(_max_column_chars(cell_rows))
+                        for i, cells in enumerate(cell_rows):
                             if i:
                                 _insert_string_at_rich_cursor(
                                     model, dest_cursor, "\n", bold=False, underline=False,
                                 )
                                 dest_cursor.gotoEnd(False)
                                 _apply_sidebar_para_margins(dest_cursor)
+                            _apply_table_tab_stops(dest_cursor, tab_stops)
                             # First row stands in for <th>: no grid, so bold+underline.
                             # Body rows pass False so the inserted range is forced normal
                             # (EditEngine otherwise keeps the header run's attributes).
@@ -382,7 +443,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             _insert_string_at_rich_cursor(
                                 model,
                                 dest_cursor,
-                                row_text,
+                                "\t".join(cells),
                                 default_color,
                                 bold=is_header,
                                 underline=is_header,
