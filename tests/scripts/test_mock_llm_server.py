@@ -508,6 +508,8 @@ def test_detect_scenario_phrases_and_force():
     assert detect_scenario("please content filter this") == "content_filter"
     assert detect_scenario("filtered reply please") == "content_filter"
     assert detect_scenario("hello", forced="flood") == "flood"
+    assert detect_scenario("show a table") == "table"
+    assert detect_scenario("send a table please") == "table"
     assert detect_scenario("hello") == ""
 
 

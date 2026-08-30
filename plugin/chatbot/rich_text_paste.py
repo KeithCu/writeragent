@@ -370,10 +370,14 @@ def _copy_formatted_from_hidden_doc_to_control(
                         # to abort the whole copy (truncate-then-fail blanked the stream tail).
                         for i, row_text in enumerate(_flatten_text_table_rows(para)):
                             if i:
-                                _insert_string_at_rich_cursor(model, dest_cursor, "\n")
+                                _insert_string_at_rich_cursor(
+                                    model, dest_cursor, "\n", bold=False, underline=False,
+                                )
                                 dest_cursor.gotoEnd(False)
                                 _apply_sidebar_para_margins(dest_cursor)
                             # First row stands in for <th>: no grid, so bold+underline.
+                            # Body rows pass False so the inserted range is forced normal
+                            # (EditEngine otherwise keeps the header run's attributes).
                             is_header = i == 0
                             _insert_string_at_rich_cursor(
                                 model,

@@ -102,6 +102,7 @@ _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("think_content", re.compile(r"\bthink tags\b", re.IGNORECASE)),
     ("think", re.compile(r"\b(think out loud|show thinking)\b", re.IGNORECASE)),
     ("flood", re.compile(r"\b(fill the sidebar|very long)\b", re.IGNORECASE)),
+    ("table", re.compile(r"\b(show a table|send a table|table please)\b", re.IGNORECASE)),
     ("delegate", re.compile(r"\b(outline this|use the writer toolset)\b", re.IGNORECASE)),
     ("parallel", re.compile(r"\b(two tools|in parallel)\b", re.IGNORECASE)),
     ("mutate", re.compile(r"\b(insert filler|append a paragraph)\b", re.IGNORECASE)),
@@ -615,6 +616,17 @@ def _html_chat(topic: str, turn: int) -> str:
     return template.format(topic=safe)
 
 
+def _html_table(topic: str) -> str:
+    """Deterministic HTML table for sidebar header-row QA (not the rotating hello templates)."""
+    safe = html.escape((topic or "your message").strip()[:120] or "your message")
+    return (
+        f"<p>A tiny table about {safe} — check that cells survive the hidden-Writer paste.</p>"
+        "<table><tr><th>Col A</th><th>Col B</th></tr><tr><td>stream</td><td>plain</td></tr>"
+        "<tr><td>done</td><td>HTML</td></tr></table>"
+        "<p>Second paragraph after the table so the message is still two blocks tall.</p>"
+    )
+
+
 def _html_research_summary(topic: str, tool_text: str) -> str:
     safe = html.escape((topic or "that query").strip()[:120] or "that query")
     snippet = html.escape((tool_text or "").strip().replace("\n", " ")[:280])
@@ -836,6 +848,8 @@ def _scenario_user_turn(
         return Completion(content=None, finish_reason="length")
     if scenario == "flood":
         return Completion(content=_html_flood(user_text), reasoning=reasoning, finish_reason="stop")
+    if scenario == "table":
+        return Completion(content=_html_table(user_text), reasoning=reasoning, finish_reason="stop")
     if scenario == "think":
         return Completion(
             content=_think_html(user_text, turn),

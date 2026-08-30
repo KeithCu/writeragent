@@ -998,25 +998,37 @@ def _apply_char_color_to_cursor_range(model, start, end, char_color) -> None:
         log.debug("_apply_char_color_to_cursor_range failed: %s", e)
 
 
-def _apply_char_emphasis_to_cursor_range(model, start, end, *, bold=False, underline=False) -> None:
-    if start is None or end is None or not (bold or underline):
+def _apply_char_emphasis_to_cursor_range(model, start, end, *, bold=None, underline=None) -> None:
+    if start is None or end is None or (bold is None and underline is None):
         return
     try:
         sel = model.createTextCursor()
         sel.gotoRange(start, False)
         sel.gotoRange(end, True)
-        if bold:
+        if bold is True:
             sel.CharWeight = 150.0
-        if underline:
+        elif bold is False:
+            sel.CharWeight = CHAT_FONT_WEIGHT
+        if underline is True:
             sel.CharUnderline = 1
+        elif underline is False:
+            sel.CharUnderline = 0
     except Exception as e:
         log.debug("_apply_char_emphasis_to_cursor_range failed: %s", e)
 
 
 def _insert_string_at_rich_cursor(
-    model, cursor, text, char_color=None, *, bold=False, underline=False
+    model, cursor, text, char_color=None, *, bold=None, underline=None
 ) -> None:
-    """Insert *text* at *cursor* on a form RichText model."""
+    """Insert *text* at *cursor* on a form RichText model.
+
+    *bold* / *underline* are tri-state. True paints the inserted range after
+    insert, False forces normal on that range, None leaves weight/underline
+    alone (HTML portion copy sets them on *cursor* first). Do not set
+    CharWeight/CharUnderline on *cursor* before insert: EditEngine treats
+    those as sticky insert attributes, so a table header would paint every
+    following row.
+    """
     if not text:
         return
     start = None
@@ -1027,17 +1039,6 @@ def _insert_string_at_rich_cursor(
     if char_color is not None and not _is_automatic_char_color(char_color):
         try:
             cursor.CharColor = char_color
-        except Exception:
-            pass
-    if bold:
-        try:
-            cursor.CharWeight = 150.0
-        except Exception:
-            pass
-    if underline:
-        try:
-            # com.sun.star.awt.FontUnderline.SINGLE
-            cursor.CharUnderline = 1
         except Exception:
             pass
 
@@ -1077,12 +1078,12 @@ def _insert_string_at_rich_cursor(
                 _apply_char_color_to_cursor_range(model, start, end, char_color)
             except Exception:
                 pass
-        if bold or underline:
+        if bold is not None or underline is not None:
             try:
                 _apply_char_emphasis_to_cursor_range(model, start, end, bold=bold, underline=underline)
             except Exception:
                 pass
-    if bold or underline:
+    if bold is not None or underline is not None:
         try:
             cursor.CharWeight = CHAT_FONT_WEIGHT
             cursor.CharUnderline = 0
