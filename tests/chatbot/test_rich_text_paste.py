@@ -17,12 +17,14 @@ setup_uno_mocks()
 
 from plugin.chatbot.rich_text_control import HISTORY_RENDER_BATCH_CHARS
 from plugin.chatbot.rich_text_paste import (
+    _cell_width_em,
     _column_width_twips,
     _copy_formatted_from_hidden_doc_to_control,
     _flatten_text_table_rows,
     _is_writer_text_table,
     _list_prefix_for_paragraph,
     _max_column_chars,
+    _max_column_ems,
     _resolve_portion_char_color,
     _TABLE_V_PAD_MM100,
     _tab_stop_positions_twips,
@@ -398,14 +400,29 @@ class TestFlattenTextTableCopy:
         ]
         max_chars = _max_column_chars(rows)
         assert max_chars == [7, 19, 8]  # Bananas, Ripe yellow bananas, Quantity
-        stops = _tab_stop_positions_twips(max_chars)
+        max_ems = _max_column_ems(rows)
+        assert max_ems[0] == _cell_width_em("Bananas")  # wider than bold Item
+        stops = _tab_stop_positions_twips(rows)
         assert stops == (
-            _column_width_twips(7),
-            _column_width_twips(7) + _column_width_twips(19),
+            _column_width_twips(max_ems[0]),
+            _column_width_twips(max_ems[0]) + _column_width_twips(max_ems[1]),
         )
-        # Header-only widths would overrun column 1 (Item=4 < Bananas=7).
-        header_only = _tab_stop_positions_twips([4, 11, 8])
+        header_only = _tab_stop_positions_twips([rows[0]])
         assert header_only[0] < stops[0]
+        # Tab is past the longest glyph so Bananas cannot skip the first stop.
+        bananas_twips = int(round(_cell_width_em("Bananas") * 10.0 * 20))
+        assert stops[0] > bananas_twips
+
+    def test_tab_stops_tighter_than_char_count_plus_8pt_for_even_cells(self):
+        rows = [
+            ["Header 1", "Header 2", "Header 3"],
+            ["Row 1 Col 1", "Row 1 Col 2", "Row 1 Col 3"],
+            ["Row 2 Col 1", "Row 2 Col 2", "Row 2 Col 3"],
+        ]
+        stops = _tab_stop_positions_twips(rows)
+        old = int(round((11 * 10.0 * 0.5 + 8.0) * 20))  # previous 0.5em + 8pt slack
+        assert stops[0] < old
+        assert stops[1] - stops[0] < old
 
     def test_copy_flattens_table_between_paragraphs(self):
         control = MagicMock()
@@ -483,7 +500,7 @@ class TestFlattenTextTableCopy:
             )
 
         assert ok is True, reason
-        expected = _tab_stop_positions_twips(_max_column_chars(cells))
+        expected = _tab_stop_positions_twips(cells)
         assert applied == [expected, expected]
 
     def test_copy_applies_vertical_pad_on_first_and_last_row(self):

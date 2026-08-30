@@ -130,12 +130,40 @@ def _flatten_text_table_rows(table) -> list[str]:
 
 
 # RichTextControl is EditEngine: ParaTabStops Position is twips (1/20 pt), not
-# Writer's 1/100 mm (EE_PARA_TABS has no CONVERT_TWIPS). 0.5em tracks Liberation
-# Sans; a fixed 8pt slack covers a short wide word (Bananas is ~0.56em) so the
-# tab does not jump, without padding a long Description column by a quarter inch.
-_TAB_CHAR_EM = 0.5
-_TAB_SLACK_PT = 8.0
+# Writer's 1/100 mm (EE_PARA_TABS has no CONVERT_TWIPS). Column width is the
+# longest cell in Liberation Sans ems (ASCII advances from the Regular TTF)
+# plus a 0.3em gap — font-relative, so HiDPI and 96dpi match. Header row is
+# bold (~1.07x). Fallback 0.55em for non-ASCII.
 _TWIPS_PER_PT = 20
+_TAB_GAP_EM = 0.30
+_BOLD_EM = 1.07
+_FALLBACK_EM = 0.55
+# ASCII 32-126, advance / em (Liberation Sans Regular, UPM 2048).
+_LIBERATION_SANS_EM = (
+    0.2778, 0.2778, 0.3550, 0.5562, 0.5562, 0.8892, 0.6670, 0.1909, 0.3330, 0.3330,
+    0.3892, 0.5840, 0.2778, 0.3330, 0.2778, 0.2778, 0.5562, 0.5562, 0.5562, 0.5562,
+    0.5562, 0.5562, 0.5562, 0.5562, 0.5562, 0.5562, 0.2778, 0.2778, 0.5840, 0.5840,
+    0.5840, 0.5562, 1.0151, 0.6670, 0.6670, 0.7222, 0.7222, 0.6670, 0.6108, 0.7778,
+    0.7222, 0.2778, 0.5000, 0.6670, 0.5562, 0.8330, 0.7222, 0.7778, 0.6670, 0.7778,
+    0.7222, 0.6670, 0.6108, 0.7222, 0.6670, 0.9438, 0.6670, 0.6670, 0.6108, 0.2778,
+    0.2778, 0.2778, 0.4692, 0.5562, 0.3330, 0.5562, 0.5562, 0.5000, 0.5562, 0.5562,
+    0.2778, 0.5562, 0.5562, 0.2222, 0.2222, 0.5000, 0.2222, 0.8330, 0.5562, 0.5562,
+    0.5562, 0.5562, 0.3330, 0.5000, 0.2778, 0.5562, 0.5000, 0.7222, 0.5000, 0.5000,
+    0.5000, 0.3340, 0.2598, 0.3340, 0.5840,
+)
+
+
+def _cell_width_em(text: str, *, bold: bool = False) -> float:
+    adv = 0.0
+    for ch in text or "":
+        o = ord(ch)
+        if 32 <= o <= 126:
+            adv += _LIBERATION_SANS_EM[o - 32]
+        else:
+            adv += _FALLBACK_EM
+    if bold:
+        adv *= _BOLD_EM
+    return adv
 
 
 def _max_column_chars(rows: list[list[str]]) -> list[int]:
@@ -147,27 +175,39 @@ def _max_column_chars(rows: list[list[str]]) -> list[int]:
     return widths
 
 
-def _column_width_twips(max_chars: int) -> int:
-    content_pt = max(0, int(max_chars)) * CHAT_FONT_HEIGHT * _TAB_CHAR_EM
-    return max(1, int(round((content_pt + _TAB_SLACK_PT) * _TWIPS_PER_PT)))
+def _max_column_ems(rows: list[list[str]]) -> list[float]:
+    n_cols = max((len(row) for row in rows), default=0)
+    widths = [0.0] * n_cols
+    for r_i, row in enumerate(rows):
+        bold = r_i == 0
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], _cell_width_em(cell or "", bold=bold))
+    return widths
 
 
-def _tab_stop_positions_twips(max_chars: list[int]) -> tuple[int, ...]:
+def _column_width_twips(width_em: float) -> int:
+    return max(1, int(round((max(0.0, float(width_em)) + _TAB_GAP_EM) * CHAT_FONT_HEIGHT * _TWIPS_PER_PT)))
+
+
+def _tab_stop_positions_twips(rows: list[list[str]]) -> tuple[int, ...]:
     """Stop after each column except the last, in twips (EditEngine ParaTabStops)."""
-    if len(max_chars) < 2:
+    max_ems = _max_column_ems(rows)
+    if len(max_ems) < 2:
         return ()
     acc = 0
     stops: list[int] = []
-    for width in max_chars[:-1]:
-        acc += _column_width_twips(width)
+    for width_em in max_ems[:-1]:
+        acc += _column_width_twips(width_em)
         stops.append(acc)
     return tuple(stops)
 
 
-# Tiny bump above the first table row and below the last. Same 1/100 mm unit as
-# CHAT_PARA_SIDE_MARGIN (EditEngine para margins are METRIC_ITEM). Body rows
-# force 0 so a newline does not inherit the first-row top pad.
-_TABLE_V_PAD_MM100 = 150
+# Above the first table row and below the last. Same 1/100 mm unit as
+# CHAT_PARA_SIDE_MARGIN (EditEngine para margins are METRIC_ITEM, not pixels).
+# 0.85em of the 10pt chat font ≈ 3mm — a breath, not 1.5mm of hairline.
+_TABLE_V_PAD_EM = 0.85
+_MM100_PER_PT = 35.28
+_TABLE_V_PAD_MM100 = int(round(_TABLE_V_PAD_EM * CHAT_FONT_HEIGHT * _MM100_PER_PT))
 
 
 def _apply_table_row_vpad(cursor, *, top: int = 0, bottom: int = 0) -> None:
@@ -445,7 +485,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                         # HTML import creates a real TextTable; portion enum throws and used
                         # to abort the whole copy (truncate-then-fail blanked the stream tail).
                         cell_rows = _text_table_cell_rows(para)
-                        tab_stops = _tab_stop_positions_twips(_max_column_chars(cell_rows))
+                        tab_stops = _tab_stop_positions_twips(cell_rows)
                         for i, cells in enumerate(cell_rows):
                             if i:
                                 _insert_string_at_rich_cursor(
