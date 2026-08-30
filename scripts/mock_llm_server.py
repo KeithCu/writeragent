@@ -618,12 +618,14 @@ def _html_chat(topic: str, turn: int) -> str:
 
 def _html_table(topic: str) -> str:
     """Deterministic HTML table for sidebar header-row QA (not the rotating hello templates)."""
-    safe = html.escape((topic or "your message").strip()[:120] or "your message")
     return (
-        f"<p>A tiny table about {safe} — check that cells survive the hidden-Writer paste.</p>"
-        "<table><tr><th>Col A</th><th>Col B</th></tr><tr><td>stream</td><td>plain</td></tr>"
-        "<tr><td>done</td><td>HTML</td></tr></table>"
-        "<p>Second paragraph after the table so the message is still two blocks tall.</p>"
+        "<p>Produce inventory:</p>"
+        "<table>"
+        "<tr><th>Item</th><th>Description</th><th>Quantity</th></tr>"
+        "<tr><td>Apples</td><td>Fresh red apples</td><td>12</td></tr>"
+        "<tr><td>Bananas</td><td>Ripe yellow bananas</td><td>8</td></tr>"
+        "<tr><td>Oranges</td><td>Juicy orange citrus</td><td>15</td></tr>"
+        "</table>"
     )
 
 
