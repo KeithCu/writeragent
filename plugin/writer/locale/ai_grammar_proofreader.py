@@ -298,10 +298,10 @@ def _apply_proofreading_end_positions(a_res: Any, a_text: str, covered_end: int)
 def classify_errors_against_window(
     errors: Sequence[dict[str, Any]], n_start: int, n_behind: int
 ) -> dict[str, Any]:
-    """Count cached errors fully inside / before / after / straddling ``[n_start, n_behind)``.
+    """Count returned errors fully inside / before / after / straddling ``[n_start, n_behind)``.
 
-    Writer typically only paints markup inside that half-open span. ``before_window`` on a
-    later-sentence call is the suspected reason earlier Harper hits never show as waves.
+    Writer honors ``aErrors`` outside that window; this is debug observation
+    only (``do_proofreading_result_window``).
     """
     in_w = before = after = straddle = 0
     parts: list[str] = []
@@ -513,6 +513,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 combined_errors.append(adj)
         return combined_errors, uncached_spans
 
+    def _active_grammar_provider(self) -> str:
+        """Pinned instance provider (LibreHarper) or current config (WriterAgent)."""
+        from plugin.framework.config import get_grammar_provider
+
+        return getattr(self, "_provider", "") or get_grammar_provider()
+
     def _try_harper_fast_path(
         self,
         a_doc_id: str,
@@ -521,10 +527,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         combined_errors: list[dict[str, Any]],
     ) -> bool:
         """If this is Harper, lint ready process now or kick one ensure. True = do not enqueue."""
-        from plugin.framework.config import get_grammar_provider, user_config_dir
+        from plugin.framework.config import user_config_dir
 
-        provider = getattr(self, "_provider", "") or get_grammar_provider()
-        if provider != "harper":
+        if self._active_grammar_provider() != "harper":
             return False
 
         from dataclasses import asdict
@@ -662,14 +667,26 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 n_next=getattr(a_res, "nStartOfNextSentencePosition", None),
             )
 
-            # 3. Check the cache for ALL sentences in the paragraph
-            combined_errors, uncached_paragraph_spans = self._process_cache_hits(aDocumentIdentifier, loc_key, paragraph_spans)
+            # 3. Cache lookup. Harper is synchronous: return only the sentence(s)
+            #    this call asked about. LLM / queued providers still look up the
+            #    whole paragraph so a later call can carry earlier sentences'
+            #    now-warm cache (Writer honors aErrors outside the active window).
+            is_harper = self._active_grammar_provider() == "harper"
+            cache_spans = active_spans if is_harper else paragraph_spans
+            combined_errors, uncached_cache_spans = self._process_cache_hits(
+                aDocumentIdentifier, loc_key, cache_spans
+            )
 
             if combined_errors:
                 a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
 
-            # 4. For enqueuing background checks, we only care about active spans that are uncached
-            uncached_active_spans = reconcile_active_and_paragraph_spans(active_spans, uncached_paragraph_spans)
+            # 4. Uncached work is only the active window. Harper already looked
+            #    up active_spans; queued providers intersect paragraph misses.
+            uncached_active_spans = (
+                uncached_cache_spans
+                if is_harper
+                else reconcile_active_and_paragraph_spans(active_spans, uncached_cache_spans)
+            )
 
             _obs_result_window(
                 aDocumentIdentifier,

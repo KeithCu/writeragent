@@ -467,6 +467,164 @@ class TestTypingIntegration:
         assert res.aErrors == ()
         mock_queue_fixture.enqueue.assert_not_called()
 
+    def test_harper_incremental_returns_only_active_sentence_errors(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """Harper incremental calls must not re-attach other sentences' cached errors.
+
+        The LLM path still returns the whole paragraph (async-cache trick). Harper
+        already returned sentence 1 on the call Writer made for sentence 1.
+        """
+        pr = _make_proofreader()
+        pr._provider = "harper"
+        pr._checker_identity = "harper"
+        s1, s2 = "First sentence.", "Second sentence."
+        paragraph = f"{s1} {s2}"
+        off2 = len(s1) + 1
+        gc.cache_put_sentence(
+            "en-US",
+            s1,
+            [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "harper||s1"}],
+            ctx=pr.ctx,
+            doc_id="test-doc",
+            checker_identity="harper",
+        )
+        s2_payload = [
+            {
+                "wrong": "Second",
+                "correct": "Seconds",
+                "n_error_start": 0,
+                "n_error_length": 6,
+                "rule_identifier": "harper||s2",
+                "suggestions": ["Seconds"],
+                "reason": "spelling",
+                "type": "spelling",
+            }
+        ]
+
+        def _lint(text: str, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            assert text == s2
+            return {"errors": s2_payload}
+
+        with (
+            patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
+            patch("plugin.writer.locale.harper.harper_try_lint", side_effect=_lint) as mock_lint,
+        ):
+            mock_split.return_value = [(0, s1), (off2, s2)]
+            res = pr.doProofreading("test-doc", paragraph, mock_locale_fixture, off2, len(paragraph), ())
+
+        mock_queue_fixture.enqueue.assert_not_called()
+        mock_lint.assert_called_once()
+        assert len(res.aErrors) == 1
+        assert res.aErrors[0].nErrorStart == off2
+        assert res.aErrors[0].aRuleIdentifier == "harper||s2"
+
+    def test_harper_n_start_zero_returns_whole_paragraph(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """``n_start == 0`` is a paragraph pass: Harper still returns every sentence."""
+        pr = _make_proofreader()
+        pr._provider = "harper"
+        pr._checker_identity = "harper"
+        s1, s2 = "First sentence.", "Second sentence."
+        paragraph = f"{s1} {s2}"
+        off2 = len(s1) + 1
+        cache_kwargs: dict[str, Any] = {"ctx": pr.ctx, "doc_id": "test-doc", "checker_identity": "harper"}
+        gc.cache_put_sentence(
+            "en-US",
+            s1,
+            [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "harper||s1"}],
+            **cache_kwargs,
+        )
+        gc.cache_put_sentence(
+            "en-US",
+            s2,
+            [{"n_error_start": 0, "n_error_length": 6, "rule_identifier": "harper||s2"}],
+            **cache_kwargs,
+        )
+
+        with (
+            patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
+            patch("plugin.writer.locale.harper.harper_try_lint") as mock_lint,
+        ):
+            mock_split.return_value = [(0, s1), (off2, s2)]
+            cached = pr.doProofreading("test-doc", paragraph, mock_locale_fixture, 0, len(paragraph), ())
+
+        mock_lint.assert_not_called()
+        mock_queue_fixture.enqueue.assert_not_called()
+        assert {(e.nErrorStart, e.aRuleIdentifier) for e in cached.aErrors} == {
+            (0, "harper||s1"),
+            (off2, "harper||s2"),
+        }
+
+        gc.cache_clear()
+        lint_by_text = {
+            s1: {
+                "wrong": "First",
+                "correct": "1st",
+                "n_error_start": 0,
+                "n_error_length": 5,
+                "rule_identifier": "harper||s1",
+                "suggestions": ["1st"],
+                "reason": "spelling",
+                "type": "spelling",
+            },
+            s2: {
+                "wrong": "Second",
+                "correct": "2nd",
+                "n_error_start": 0,
+                "n_error_length": 6,
+                "rule_identifier": "harper||s2",
+                "suggestions": ["2nd"],
+                "reason": "spelling",
+                "type": "spelling",
+            },
+        }
+
+        def _lint(text: str, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {"errors": [lint_by_text[text]]}
+
+        with (
+            patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
+            patch("plugin.writer.locale.harper.harper_try_lint", side_effect=_lint) as mock_lint,
+        ):
+            mock_split.return_value = [(0, s1), (off2, s2)]
+            linted = pr.doProofreading("test-doc", paragraph, mock_locale_fixture, 0, len(paragraph), ())
+
+        assert mock_lint.call_count == 2
+        assert {(e.nErrorStart, e.aRuleIdentifier) for e in linted.aErrors} == {
+            (0, "harper||s1"),
+            (off2, "harper||s2"),
+        }
+
+    def test_llm_incremental_still_returns_other_sentences_cached_errors(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        """Queued providers keep the async trick: sentence-2 call still carries sentence 1."""
+        pr = _make_proofreader()
+        s1, s2 = "First sentence.", "Second sentence."
+        paragraph = f"{s1} {s2}"
+        off2 = len(s1) + 1
+        gc.cache_put_sentence(
+            "en-US",
+            s1,
+            [{"n_error_start": 0, "n_error_length": 5, "rule_identifier": "r1"}],
+            ctx=pr.ctx,
+            doc_id="test-doc",
+        )
+        enqueued_items: list[Any] = []
+        mock_queue_fixture.enqueue.side_effect = lambda item: enqueued_items.append(item)
+
+        with patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split:
+            mock_split.return_value = [(0, s1), (off2, s2)]
+            res = pr.doProofreading("test-doc", paragraph, mock_locale_fixture, off2, len(paragraph), ())
+
+        assert len(res.aErrors) == 1
+        assert res.aErrors[0].nErrorStart == 0
+        assert res.aErrors[0].aRuleIdentifier == "r1"
+        assert len(enqueued_items) == 1
+        assert enqueued_items[0].text == s2
+
     def test_do_proofreading_marshals_persistence_bind_off_main_thread(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:
