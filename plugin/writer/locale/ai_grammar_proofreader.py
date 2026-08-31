@@ -536,23 +536,37 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
         cfg_dir = user_config_dir() or ""
         ident = getattr(self, "_checker_identity", "harper")
+        first_text = uncached_spans[0][2] if uncached_spans else ""
+        if first_text:
+            emit_grammar_status("start", first_text, result="Harper")
+        last_text = first_text
+        issue_count = 0
+        ensuring = False
         for sent_start, unused_end, sent_text in uncached_spans:
             del unused_end
+            last_text = sent_text
             res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key)
             if res is None:
                 grammar_obs("do_proofreading_harper_ensure", doc_id=a_doc_id, grammar_bcp47=loc_key)
+                emit_grammar_status("request", sent_text, result="Starting Harper…")
+                ensuring = True
                 break
+            emit_grammar_status("request", sent_text, result="Harper check")
             errors = res.get("errors", [])
             ignored = doc_ignored_rules(self.ctx, a_doc_id)
             global_ignored = ignored_rules_snapshot()
             norm_errors = normalize_errors_for_text(sent_text, 0, len(sent_text), errors, self.ctx, loc_key)
             filtered = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
             payload = [asdict(e) for e in filtered]
+            issue_count += len(payload)
             cache_put_sentence(loc_key, sent_text, payload, ctx=self.ctx, doc_id=a_doc_id, checker_identity=ident)
             for err_item in payload:
                 adj = dict(err_item)
                 adj["n_error_start"] = sent_start + err_item.get("n_error_start", 0)
                 combined_errors.append(adj)
+        if last_text and not ensuring:
+            iw = "issue" if issue_count == 1 else "issues"
+            emit_grammar_status("done", last_text, result=f"{issue_count} {iw}")
         return True
 
     def _enqueue_misses(self, a_doc_id: str, a_text: str, loc_key: str, uncached_spans: list[tuple[int, int, str]]) -> None:

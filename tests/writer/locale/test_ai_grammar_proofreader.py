@@ -539,3 +539,53 @@ def test_writeragent_proofreader_init_does_not_start_harper() -> None:
     ):
         WriterAgentAiGrammarProofreader(ctx)
         mock_warmup.assert_not_called()
+
+
+
+def test_try_harper_fast_path_emits_status_when_ready() -> None:
+    from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.logging.init_logging"),
+        patch("plugin.writer.locale.grammar_persistence.grammar_registry.register_live_proofreader"),
+    ):
+        pr = WriterAgentAiGrammarProofreader(ctx)
+    pr._provider = "harper"
+    combined: list = []
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
+        patch("plugin.writer.locale.harper.harper_try_lint", return_value={"errors": []}),
+        patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
+        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value=set()),
+        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=()),
+        patch("plugin.writer.locale.grammar_proofread_text.normalize_errors_for_text", return_value=[]),
+        patch("plugin.writer.locale.grammar_proofread_cache.cache_put_sentence"),
+    ):
+        assert pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined) is True
+    phases = [c.args[0] for c in mock_status.call_args_list]
+    assert phases == ["start", "request", "done"]
+    assert mock_status.call_args_list[0].kwargs.get("result") == "Harper"
+    assert mock_status.call_args_list[-1].kwargs.get("result") == "0 issues"
+
+
+def test_try_harper_fast_path_emits_starting_when_ensure() -> None:
+    from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.logging.init_logging"),
+        patch("plugin.writer.locale.grammar_persistence.grammar_registry.register_live_proofreader"),
+    ):
+        pr = WriterAgentAiGrammarProofreader(ctx)
+    pr._provider = "harper"
+    with (
+        patch("plugin.framework.config.user_config_dir", return_value="/tmp"),
+        patch("plugin.writer.locale.harper.harper_try_lint", return_value=None),
+        patch("plugin.writer.locale.ai_grammar_proofreader.emit_grammar_status") as mock_status,
+    ):
+        assert pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], []) is True
+    phases = [c.args[0] for c in mock_status.call_args_list]
+    assert phases == ["start", "request"]
+    assert mock_status.call_args_list[-1].kwargs.get("result") == "Starting Harper…"
+    assert not any(c.args[0] == "done" for c in mock_status.call_args_list)

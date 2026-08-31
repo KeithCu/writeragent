@@ -612,8 +612,12 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         text = format_grammar_status(data)
         try:
             from plugin.framework.queue_executor import post_to_main_thread
+            from plugin.framework.thread_guard import get_background_task_name, on_main_thread
 
-            post_to_main_thread(self._set_status, text)
+            if on_main_thread() and not get_background_task_name():
+                self._set_status(text)
+            else:
+                post_to_main_thread(self._set_status, text)
         except Exception as e:
             log.debug("_on_grammar_status: post_to_main_thread failed: %s", e)
             self._set_status(text)

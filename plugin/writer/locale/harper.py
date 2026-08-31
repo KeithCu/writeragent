@@ -368,12 +368,20 @@ def _schedule_proofread_again() -> None:
 
 def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
     try:
-        harper_bin = _get_harper_binary(user_config_dir)
+        from plugin.writer.locale.grammar_obs import emit_harper_worker_status
+
+        def _on_progress(payload: dict[str, str]) -> None:
+            message = str(payload.get("message") or "").strip()
+            if message:
+                emit_harper_worker_status("Harper", message)
+
+        harper_bin = _get_harper_binary(user_config_dir, heartbeat_fn=_on_progress)
         with _HARPER_LOCK:
             client = _get_or_create_client(harper_bin, user_config_dir, bcp47)
             if not client.is_alive():
                 raise RuntimeError("harper-ls process not running after start")
             _set_state(HarperRuntimeState.READY)
+        emit_harper_worker_status("Harper", "Harper ready")
         _schedule_proofread_again()
     except Exception:
         log.exception("[harper] Background ensure failed")

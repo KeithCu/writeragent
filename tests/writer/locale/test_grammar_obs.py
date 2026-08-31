@@ -111,10 +111,24 @@ def test_emit_harper_worker_status_emits_request_payload() -> None:
 def test_emit_grammar_status_routes_to_libreoffice_status_bar_when_libreharper() -> None:
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
     ):
         go.emit_grammar_status("complete", "Hello world.", result="clean")
     mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "complete", "Hello world.", "clean")
+
+
+def test_emit_grammar_status_updates_status_bar_inline_on_main_thread() -> None:
+    with (
+        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
+        patch("plugin.writer.locale.grammar_obs.update_libreoffice_status_bar") as mock_bar,
+        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+    ):
+        go.emit_grammar_status("start", "Hello world.", result="Harper")
+    mock_bar.assert_called_once_with("start", "Hello world.", "Harper")
+    mock_post.assert_not_called()
 
 
 def test_update_libreoffice_status_bar_lifecycle() -> None:
