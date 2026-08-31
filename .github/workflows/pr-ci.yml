@@ -14,6 +14,11 @@ on:
           - "macos-latest"
           - "windows-latest"
           - "all"
+      test_mock_sidebar:
+        description: "Run make test-mock-sidebar only (skip typecheck, pytest/UNO, packaging)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -21,9 +26,9 @@ concurrency:
 
 jobs:
   test:
-    name: Test & Typecheck (${{ matrix.os }})
+    name: ${{ inputs.test_mock_sidebar == true && format('Mock LLM Sidebar ({0})', matrix.os) || format('Test & Typecheck ({0})', matrix.os) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: ${{ inputs.test_mock_sidebar == true && 60 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +54,10 @@ jobs:
           sudo apt-get update
           # libreoffice-dev ships unoidl-write; make build-core / rdb-core needs it.
           sudo apt-get install -y libreoffice libreoffice-dev python3-uno gettext
+          # Visible Writer for make test-mock-sidebar (testing_runner requires DISPLAY).
+          if [ "${{ inputs.test_mock_sidebar }}" = "true" ]; then
+            sudo apt-get install -y xvfb dbus-x11
+          fi
           curl -fsSL https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
@@ -88,6 +97,7 @@ jobs:
           make vendor manifest compile-translations
 
       - name: Run typecheck
+        if: ${{ inputs.test_mock_sidebar != true }}
         run: |
           make typecheck
 
@@ -98,10 +108,12 @@ jobs:
           unopkg list | grep -q "org.extension.writeragent"
 
       - name: Run tests (Pytest + UNO)
+        if: ${{ inputs.test_mock_sidebar != true }}
         run: |
           make test
 
       - name: Verify Core & Grammar Extension Packaging Lifecycles (LibrePy, LibreHarper)
+        if: ${{ inputs.test_mock_sidebar != true }}
         run: |
           # 1. Build and install LibrePy (removes WriterAgent as both share addin namespace)
           make build-core
@@ -116,3 +128,14 @@ jobs:
           # 3. Clean up installed packages
           unopkg remove org.extension.libreharper || true
           unopkg remove org.extension.librepy || true
+
+      - name: Run mock LLM sidebar tests
+        if: ${{ inputs.test_mock_sidebar == true }}
+        run: |
+          make ensure-uno
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
+              dbus-run-session -- make test-mock-sidebar
+          else
+            make test-mock-sidebar
+          fi

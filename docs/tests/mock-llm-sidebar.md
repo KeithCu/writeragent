@@ -98,6 +98,19 @@ make test-mock-sidebar FILTER=b13      # Run a single case by ID
 make test-mock-sidebar FILTER="B E"    # Run multiple packets
 ```
 
+#### GitHub Actions (PR CI option)
+
+[`.github/workflows/pr-ci.yml`](../../.github/workflows/pr-ci.yml) exposes this as a **Run workflow** checkbox, default off. Pull requests never set it.
+
+From the Actions tab → **PR CI** → **Run workflow**:
+
+| Input | Meaning |
+|-------|---------|
+| `os` | Ubuntu / macOS / Windows / `all` (same picker as the rest of PR CI) |
+| `test_mock_sidebar` | Off (default): typecheck + pytest/UNO + packaging. On: skip those and run `make test-mock-sidebar` only |
+
+Linux starts a virtual framebuffer (`xvfb-run` + `dbus-run-session`) because `testing_runner` refuses `--user-profile` without `DISPLAY`. WriterAgent is still built and registered first.
+
 #### Test Runner Architecture & UNO Invariants
 - **Bootstrap:** LibreOffice is launched via `Popen` with `--norestore --writer --accept=socket,host=127.0.0.1,port=<port>;urp;` (TCP socket). `officehelper.bootstrap` is avoided because its `--nodefault` flag can cause GUI crashes.
 - **Crash Recovery:** `--norestore` suppresses document recovery dialogs that would block the URP pipe.
