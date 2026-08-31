@@ -102,10 +102,67 @@ def test_grammar_work_queue_has_no_top_level_framework_client_package_import() -
     assert "plugin.framework.client.model_fetcher" not in top_level
 
 
+def test_libreharper_bundle_covers_top_level_plugin_imports() -> None:
+    """Every ``plugin.*`` a shipped module imports at load time must also ship.
+
+    ``unopkg add`` executes ``harper_proofreader.py``, so a module missing from
+    the allowlist fails installation rather than degrading at runtime. Two were
+    missing this way: ``config.py`` reaches ``config_schema`` via
+    ``from plugin.framework import config_schema`` and ``client/requests.py``
+    reaches ``client/errors.py`` via ``from .errors import ...`` — neither is a
+    plain ``import plugin.x.y``, so both need submodule-aware resolution.
+    """
+    from pathlib import Path
+
+    from scripts.libreharper_bundle_paths import collect_libreharper_plugin_paths
+    from tests.scripts.test_librepy_import_graph import (
+        _is_shipped_plugin_module,
+        _module_level_import_nodes,
+        _plugin_mod_to_candidates,
+        _resolved_import_from_module,
+    )
+
+    root = Path(_repo_root())
+    shipped = set(collect_libreharper_plugin_paths(str(root)))
+    missing: list[str] = []
+
+    for rel in sorted(shipped):
+        if not rel.endswith(".py"):
+            continue
+        path = root / rel
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel)
+        for node in _module_level_import_nodes(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("plugin.") and not _is_shipped_plugin_module(alias.name, shipped):
+                        missing.append(f"{rel} -> import {alias.name}")
+                continue
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            mod = _resolved_import_from_module(path, node)
+            if not mod or not (mod == "plugin" or mod.startswith("plugin.")):
+                continue
+            if not _is_shipped_plugin_module(mod, shipped):
+                missing.append(f"{rel} -> from {mod}")
+                continue
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                sub = f"{mod}.{alias.name}"
+                if not any((root / cand).is_file() for cand in _plugin_mod_to_candidates(sub)):
+                    continue  # an attribute, not a submodule
+                if not _is_shipped_plugin_module(sub, shipped):
+                    missing.append(f"{rel} -> from {mod} import {alias.name}")
+
+    assert missing == []
+
+
 def test_collect_libreharper_plugin_paths() -> None:
     from scripts.libreharper_bundle_paths import collect_libreharper_plugin_paths
 
     paths = collect_libreharper_plugin_paths(_repo_root())
+    assert "plugin/framework/config_schema.py" in paths
+    assert "plugin/framework/client/errors.py" in paths
     assert "plugin/writer/locale/harper.py" in paths
     assert not any(p.endswith("harper_host.py") for p in paths)
     assert "plugin/doc/udprops.py" in paths

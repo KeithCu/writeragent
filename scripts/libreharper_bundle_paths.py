@@ -25,6 +25,8 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/version.py",
     "plugin/framework/__init__.py",
     "plugin/framework/config.py",
+    # config.py does ``from plugin.framework import config_schema`` at import time.
+    "plugin/framework/config_schema.py",
     "plugin/framework/constants.py",
     "plugin/framework/deal_shim.py",
     "plugin/framework/errors.py",
@@ -42,6 +44,8 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/queue_executor.py",
     "plugin/framework/uno_listeners.py",
     "plugin/framework/client/requests.py",
+    # requests.py does ``from .errors import _format_http_error_response``.
+    "plugin/framework/client/errors.py",
     "plugin/framework/client/ssl_helpers.py",
     "plugin/framework/client/provider_detection.py",
     "plugin/chatbot/dialogs.py",
