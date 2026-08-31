@@ -1140,3 +1140,34 @@ def test_maybe_start_harper_async_idempotent_when_resolving(mock_bg: MagicMock) 
         submitted = maybe_start_harper_async(user_config_dir="/tmp")
         assert submitted is False
         mock_bg.assert_not_called()
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_maybe_start_harper_async_skips_empty_config_dir(mock_bg: MagicMock) -> None:
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=""):
+        submitted = maybe_start_harper_async(user_config_dir="")
+        assert submitted is False
+        mock_bg.assert_not_called()
+        assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_ensure_ready_async_submit_failure_resets_idle(mock_bg: MagicMock) -> None:
+    mock_bg.side_effect = RuntimeError("pool not ready")
+    submitted = harper_module.harper_ensure_ready_async("/tmp")
+    assert submitted is False
+    assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
+
+
+def test_harper_ensure_ready_body_schedules_proofread_again() -> None:
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    with (
+        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+        patch("plugin.writer.locale.harper._get_or_create_client", return_value=mock_client),
+        patch("plugin.writer.locale.harper._schedule_proofread_again") as mock_sched,
+    ):
+        harper_module._harper_ensure_ready_body("/tmp", "en-US")
+    mock_sched.assert_called_once()
+    assert harper_module._HARPER_STATE is HarperRuntimeState.READY

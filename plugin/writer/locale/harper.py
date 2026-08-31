@@ -343,6 +343,29 @@ def _can_start_ensure_locked() -> bool:
     return True
 
 
+def _broadcast_proofread_again() -> None:
+    """Writer may have already walked the document while harper-ls was starting."""
+    from plugin.writer.locale.grammar_persistence import grammar_registry
+
+    for pr in list(grammar_registry.live_proofreaders):
+        fn = getattr(pr, "broadcast_proofread_again", None)
+        if not callable(fn):
+            continue
+        try:
+            fn()
+        except Exception:
+            log.debug("[harper] PROOFREAD_AGAIN failed", exc_info=True)
+
+
+def _schedule_proofread_again() -> None:
+    try:
+        from plugin.framework.queue_executor import post_to_main_thread
+
+        post_to_main_thread(_broadcast_proofread_again)
+    except Exception as e:
+        log.debug("[harper] Could not schedule PROOFREAD_AGAIN: %s", e)
+
+
 def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
     try:
         harper_bin = _get_harper_binary(user_config_dir)
@@ -351,6 +374,7 @@ def _harper_ensure_ready_body(user_config_dir: str, bcp47: str) -> None:
             if not client.is_alive():
                 raise RuntimeError("harper-ls process not running after start")
             _set_state(HarperRuntimeState.READY)
+        _schedule_proofread_again()
     except Exception:
         log.exception("[harper] Background ensure failed")
         with _HARPER_LOCK:
@@ -365,12 +389,19 @@ def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> boo
         _set_state(HarperRuntimeState.RESOLVING)
     from plugin.framework.worker_pool import run_in_background
 
-    run_in_background(
-        _harper_ensure_ready_body,
-        user_config_dir,
-        bcp47,
-        name="harper-ensure-ready",
-    )
+    try:
+        run_in_background(
+            _harper_ensure_ready_body,
+            user_config_dir,
+            bcp47,
+            name="harper-ensure-ready",
+        )
+    except Exception:
+        log.exception("[harper] Could not submit ensure job")
+        with _HARPER_LOCK:
+            if _HARPER_STATE is HarperRuntimeState.RESOLVING:
+                _set_state(HarperRuntimeState.IDLE)
+        return False
     return True
 
 
@@ -403,6 +434,12 @@ def maybe_start_harper_async(
             ucd = get_ucd() or ""
         except Exception:
             ucd = ""
+
+    # Empty profile path would resolve harper/ relative to soffice cwd and FAIL,
+    # which blocks doProofreading for the fail cooldown (Writer will not walk again).
+    if not ucd:
+        log.debug("[harper] skip warmup: user config dir not ready")
+        return False
 
     return harper_ensure_ready_async(ucd, bcp47=bcp47)
 
