@@ -108,6 +108,7 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     >>> split_sheet_prefix("A1:C5")
     (None, 'A1:C5')
     """
+    # crosshair: off  # _SHEET_PREFIX regex (cover-all 33418536119: address_utils in-flight leftover, no COVER TIMING). Engine-hostile; keep off.
     if not ref:
         return None, ref
     match = _SHEET_PREFIX.match(ref)
