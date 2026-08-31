@@ -2,7 +2,8 @@
 # Rebuild LibrePy Calc add-in typelibrary from extension-core IDL.
 # IDL uses org.extension.writeragent.PythonFunction (shared namespace with WriterAgent
 # for formula portability); extension id remains org.extension.librepy.
-# Requires LibreOffice SDK (libreoffice-fresh-sdk): unoidl-write
+# Requires LibreOffice SDK: unoidl-write (Ubuntu/Debian: libreoffice-dev;
+# Arch: libreoffice-fresh-sdk).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IDL_PYTHON="$ROOT/extension-core/idl/XPythonFunction.idl"
@@ -11,7 +12,7 @@ SDK_HOME="${OO_SDK_HOME:-/usr/lib/libreoffice/sdk}"
 UNOIDLWRITE="${SDK_HOME}/bin/unoidl-write"
 
 if [[ ! -x "$UNOIDLWRITE" ]]; then
-  echo "error: unoidl-write not found at $UNOIDLWRITE (install libreoffice-fresh-sdk)." >&2
+  echo "error: unoidl-write not found at $UNOIDLWRITE (install libreoffice-dev on Ubuntu/Debian, or libreoffice-fresh-sdk on Arch)." >&2
   exit 1
 fi
 

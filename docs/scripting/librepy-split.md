@@ -597,7 +597,7 @@ Do **not** reuse `org.extension.writeragent` for the core OXT — `unopkg` must 
 | Extension id | `org.extension.writeragent` | `org.extension.librepy` |
 | `description.xml` | [`extension/description.xml.tpl`](../../extension/description.xml.tpl) | `extension-core/description.xml` (new identifier + display name) |
 | UNO add-in impl | `org.extension.writeragent.PythonFunction` | **`org.extension.writeragent.PythonFunction`** (alias — same namespace as WriterAgent so `ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.*` formulas are portable; extension id stays `org.extension.librepy`) |
-| IDL / RDB | `org.extension.writeragent.PythonFunction.XPythonFunction` | Same IDL module path as WriterAgent ([`extension-core/idl/XPythonFunction.idl`](../extension-core/idl/XPythonFunction.idl)); rebuild via `make rdb-core` |
+| IDL / RDB | `org.extension.writeragent.PythonFunction.XPythonFunction` | Same IDL module path as WriterAgent ([`extension-core/idl/XPythonFunction.idl`](../extension-core/idl/XPythonFunction.idl)); rebuild via `make rdb-core` (needs `unoidl-write` from `libreoffice-dev` on Ubuntu / Debian, or `libreoffice-fresh-sdk` on Arch) |
 | CalcAddIns node | `org.extension.writeragent.PythonFunction` | **`org.extension.writeragent.PythonFunction`** — keep function names **`py`** and **`python`** (users still type `=PY()`) |
 | Protocol handler | `org.extension.writeragent:*` | `org.extension.librepy:*` |
 | Menu URLs | `org.extension.writeragent:scripting.run_python_dialog` | `org.extension.librepy:scripting.run_python_dialog` |
