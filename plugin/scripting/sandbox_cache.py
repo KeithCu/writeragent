@@ -32,16 +32,16 @@ from plugin.framework.deal_shim import (
 
 def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
     # Production passes VENV_AUTHORIZED_IMPORTS (tuple, ~99 names), not a short list.
-    return (
-        type(authorized_imports) in (list, tuple)
-        and all(isinstance(x, str) and "\0" not in x and str_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
-    )
+    if not isinstance(authorized_imports, (list, tuple)):
+        return False
+    return all(isinstance(x, str) and "\0" not in x and str_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
 
 
 def _deal_sandbox_imports_ok_crosshair(authorized_imports: object) -> bool:
+    if not isinstance(authorized_imports, (list, tuple)):
+        return False
     return (
-        type(authorized_imports) in (list, tuple)
-        and len(authorized_imports) <= DEAL_MAX_CMD_ARGS
+        len(authorized_imports) <= DEAL_MAX_CMD_ARGS
         and all(ascii_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
     )
 
