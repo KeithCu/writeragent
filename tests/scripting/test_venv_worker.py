@@ -1073,8 +1073,13 @@ def test_shared_session_persists_after_soft_timeout():
         assert r1["status"] == "ok"
         assert r1["result"] == 12345
 
+        # sleep, not "while True: pass": if SIGALRM is unavailable the executor
+        # falls back to ThreadPoolExecutor, whose shutdown waits for the thread.
+        # A tight loop never finishes, so the host hits the 9s read timeout and
+        # kills the worker (CI: r3 status error). sleep(5) is interrupted by
+        # SIGALRM, or finishes within the 8s grace on the thread fallback.
         with patch.object(vw, "HOST_IPC_READ_GRACE_SEC", 8.0):
-            r2 = mgr.execute("while True: pass", session_id=sid, timeout_sec=1)
+            r2 = mgr.execute("import time\ntime.sleep(5)", session_id=sid, timeout_sec=1)
         assert r2["status"] == "error"
         assert "execution time" in r2.get("message", "").lower() or "timed out" in r2.get("message", "").lower()
 
