@@ -93,12 +93,7 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
     """Same proofreading pipeline; branded for the LibreHarper extension."""
 
     def __init__(self, ctx: Any, *args: Any) -> None:
-        super().__init__(ctx, *args)
-        self._implementation_name = IMPLEMENTATION_NAME
-        self._locales = _harper_locale_tuple()
-        self._checker_identity = "harper"
-        self._provider = "harper"
-        # Pin package id before update check: WriterAgent may also be installed, and
+        # Pin package id before base init and update check: WriterAgent may also be installed, and
         # resolve_package_extension_id prefers the first known id with a location.
         try:
             from plugin.framework.uno_context import set_package_extension_id
@@ -109,6 +104,12 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
             schedule_extension_update_check_once(ctx, EXTENSION_ID_LIBREHARPER)
         except Exception as e:
             log.warning("[grammar] LibreHarper extension update check schedule failed: %s", e)
+
+        super().__init__(ctx, *args)
+        self._implementation_name = IMPLEMENTATION_NAME
+        self._locales = _harper_locale_tuple()
+        self._checker_identity = "harper"
+        self._provider = "harper"
 
     def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
         """LibreHarper is always enabled when registered; check supported locale."""

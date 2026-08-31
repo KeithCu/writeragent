@@ -216,7 +216,7 @@ def _locale_tuple() -> tuple[Any, ...]:
 
 
 def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
-    """Log Doc-tab grammar state only.
+    """Log Doc-tab grammar state and start background warmup if local engine is configured.
 
     We intentionally do **not** call ``XLinguServiceManager2.setConfiguredServices`` here: doing that
     during startup/sidebar init has been observed to destabilize LibreOffice (Writing aids / proofreader
@@ -233,6 +233,12 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     if not enabled:
         log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
+    try:
+        from plugin.writer.locale.harper import maybe_start_harper_async
+
+        maybe_start_harper_async(ctx)
+    except Exception as e:
+        log.warning("[grammar] OnStartApp: could not warmup harper: %s", e)
     log.info("[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the active grammar checker under Tools → Options → Language Settings → Writing aids for the document language (same locales as the extension’s UI translation set).")
 
 
@@ -388,6 +394,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         except Exception:
             log.exception("[grammar] WriterAgentAiGrammarProofreader.__init__: _locale_tuple failed")
             self._locales = ()
+        try:
+            from plugin.writer.locale.harper import maybe_start_harper_async
+
+            maybe_start_harper_async(ctx)
+        except Exception as e:
+            log.warning("[grammar] WriterAgentAiGrammarProofreader harper warmup start failed: %s", e)
 
     # --- XServiceName / XServiceInfo ---
     def getServiceName(self) -> str:

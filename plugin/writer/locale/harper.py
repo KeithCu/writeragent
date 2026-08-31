@@ -374,6 +374,39 @@ def harper_ensure_ready_async(user_config_dir: str, bcp47: str = "en-US") -> boo
     return True
 
 
+def maybe_start_harper_async(
+    ctx: Any = None,
+    *,
+    user_config_dir: str | None = None,
+    bcp47: str = "en-US",
+) -> bool:
+    """Start background warmup of harper-ls if Harper is the active/enabled grammar engine.
+
+    Safe to call from main/startup hooks or proofreader constructors in both LibreHarper
+    (where Harper is always active) and WriterAgent (when doc.grammar_proofreader_enabled == 'harper').
+    Returns True if an async ensure job was submitted, False otherwise.
+    """
+    from plugin.framework.config import get_grammar_provider, is_grammar_enabled, user_config_dir as get_ucd
+    from plugin.framework.uno_context import is_libreharper
+
+    if not is_libreharper():
+        if not is_grammar_enabled() or get_grammar_provider() != "harper":
+            return False
+
+    ucd = user_config_dir
+    if not ucd:
+        try:
+            if ctx is not None:
+                from plugin.framework.config import init_config
+
+                init_config(ctx)
+            ucd = get_ucd() or ""
+        except Exception:
+            ucd = ""
+
+    return harper_ensure_ready_async(ucd, bcp47=bcp47)
+
+
 def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US") -> dict | None:
     """Lint now if harper-ls is already in-process; else kick one ensure and return None.
 

@@ -498,3 +498,28 @@ def test_proofreader_broadcast_proofread_again_notifies_listeners(
     event = listener.processLinguServiceEvent.call_args[0][0]
     assert event.nEvent == 8
     assert pr.removeLinguServiceEventListener(listener) is True
+
+
+def test_ensure_writeragent_proofreader_configured_triggers_harper_warmup() -> None:
+    from plugin.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
+    ):
+        ensure_writeragent_proofreader_configured(ctx)
+        mock_warmup.assert_called_once_with(ctx)
+
+
+def test_writeragent_proofreader_init_triggers_harper_warmup() -> None:
+    from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.logging.init_logging"),
+        patch("plugin.writer.locale.grammar_persistence.grammar_registry.register_live_proofreader"),
+        patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
+    ):
+        WriterAgentAiGrammarProofreader(ctx)
+        mock_warmup.assert_called_once_with(ctx)

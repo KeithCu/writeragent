@@ -217,3 +217,17 @@ def test_harper_proofreader_identity_and_locale_check() -> None:
         reset_package_extension_id_for_tests()
 
 
+def test_harper_proofreader_initialization_starts_harper_warmup() -> None:
+    from unittest.mock import MagicMock, patch
+    from plugin.writer.locale.harper_proofreader import HarperProofreader
+    from plugin.framework.uno_context import reset_package_extension_id_for_tests
+
+    try:
+        ctx = MagicMock()
+        with patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_start:
+            HarperProofreader(ctx)
+            mock_start.assert_called_once_with(ctx)
+    finally:
+        reset_package_extension_id_for_tests()
+
+

@@ -20,6 +20,7 @@ from plugin.writer.locale.harper import (
     _pump_grammar_status_ui,
     harper_try_lint,
     lsp_range_to_offset,
+    maybe_start_harper_async,
     run_harper_check,
     run_harper_lint,
 )
@@ -1088,3 +1089,54 @@ def test_harper_try_lint_failed_after_cooldown_retries(mock_bg: MagicMock) -> No
     assert harper_try_lint("Hello.", "/tmp") is None
     assert mock_bg.call_count == 1
     assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_maybe_start_harper_async_libreharper_submits_job(mock_bg: MagicMock) -> None:
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
+        submitted = maybe_start_harper_async(user_config_dir="/tmp")
+        assert submitted is True
+        assert mock_bg.call_count == 1
+        assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_maybe_start_harper_async_writeragent_harper_submits_job(mock_bg: MagicMock) -> None:
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
+         patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_grammar_provider", return_value="harper"):
+        submitted = maybe_start_harper_async(user_config_dir="/tmp")
+        assert submitted is True
+        assert mock_bg.call_count == 1
+        assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_maybe_start_harper_async_writeragent_off_skips(mock_bg: MagicMock) -> None:
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
+         patch("plugin.framework.config.is_grammar_enabled", return_value=False), \
+         patch("plugin.framework.config.get_grammar_provider", return_value="off"):
+        submitted = maybe_start_harper_async(user_config_dir="/tmp")
+        assert submitted is False
+        mock_bg.assert_not_called()
+        assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_maybe_start_harper_async_writeragent_llm_skips(mock_bg: MagicMock) -> None:
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=False), \
+         patch("plugin.framework.config.is_grammar_enabled", return_value=True), \
+         patch("plugin.framework.config.get_grammar_provider", return_value="llm"):
+        submitted = maybe_start_harper_async(user_config_dir="/tmp")
+        assert submitted is False
+        mock_bg.assert_not_called()
+        assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_maybe_start_harper_async_idempotent_when_resolving(mock_bg: MagicMock) -> None:
+    harper_module._set_state(HarperRuntimeState.RESOLVING)
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=True):
+        submitted = maybe_start_harper_async(user_config_dir="/tmp")
+        assert submitted is False
+        mock_bg.assert_not_called()
