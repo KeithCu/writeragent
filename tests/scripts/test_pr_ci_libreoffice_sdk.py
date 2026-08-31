@@ -24,3 +24,13 @@ def test_ubuntu_ci_installs_libreoffice_dev_for_rdb_core() -> None:
 def test_rdb_script_names_ubuntu_sdk_package() -> None:
     text = _RDB_SCRIPT.read_text(encoding="utf-8")
     assert "libreoffice-dev" in text
+
+
+def test_windows_ci_installs_opengrep_and_forces_utf8() -> None:
+    text = _WORKFLOW.read_text(encoding="utf-8")
+    windows_block = text.split("Install LibreOffice and system tools (Windows)", 1)[1]
+    windows_block = windows_block.split("Install uv", 1)[0]
+    assert "install.ps1" in windows_block
+    assert ".opengrep/cli/latest" in windows_block
+    assert "PYTHONUTF8" in text
+    assert 'unopkg list | grep -q' not in text

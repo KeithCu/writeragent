@@ -30,6 +30,25 @@ _DISABLED_RULE_IDS = (
 )
 
 
+def _configure_utf8_stdio() -> None:
+    """Pin stdout/stderr to UTF-8 so PySpector's emoji banner can print on Windows.
+
+    WHAT WAS WRONG: ``make typecheck`` on Windows CI crashed in pyspector
+    ``_print_banner`` with ``UnicodeEncodeError: 'charmap' codec can't encode
+    character '\\U0001f4a1'`` (cp1252).
+
+    HOW IT HAPPENED: GitHub's Windows runner leaves Python stdio on the ANSI
+    code page. The banner is cosmetic; the encode happens before any scan.
+
+    WHY THIS FIXES IT: ``TextIOWrapper.reconfigure`` switches the existing
+    handles to UTF-8. Tests (and any StringIO stub) have no ``reconfigure``.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def _inject_disabled_rules(rules_toml: str) -> str:
     """Extend the built-in [defaults].disabled_rule_ids list."""
     marker = "disabled_rule_ids = ["
@@ -83,6 +102,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if not argv:
         argv = ["scan", "plugin", "--ai", "-c", "pyspector.toml", "--msg=False"]
+
+    # PySpector 0.2.1 prints U+1F4A1 in _print_banner. Windows CI defaults to
+    # cp1252, so click.echo raises UnicodeEncodeError before the scan starts.
+    _configure_utf8_stdio()
 
     try:
         pyspector_cli.cli.main(args=argv, prog_name="pyspector")

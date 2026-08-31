@@ -43,6 +43,11 @@ jobs:
       run:
         shell: bash
 
+    # Windows runners default Python stdio to cp1252; pyspector prints U+1F4A1.
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -75,7 +80,12 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           choco install libreoffice-fresh gettext make -y || true
-          echo "C:\Program Files\LibreOffice\program" >> $GITHUB_PATH
+          echo "C:\\Program Files\\LibreOffice\\program" >> $GITHUB_PATH
+          # typecheck runs opengrep-lint; Linux/macOS install this, Windows did not.
+          powershell -NoProfile -ExecutionPolicy Bypass -Command \
+            "irm https://raw.githubusercontent.com/opengrep/opengrep/main/install.ps1 | iex" || true
+          echo "$USERPROFILE/.opengrep/cli/latest" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -105,7 +115,9 @@ jobs:
         run: |
           make build
           make register-built-oxt
-          unopkg list | grep -q "org.extension.writeragent"
+          # grep -q + pipefail: unopkg dies of SIGPIPE (exit 141) after the first match.
+          unopkg list > "$RUNNER_TEMP/unopkg-list.txt"
+          grep "org.extension.writeragent" "$RUNNER_TEMP/unopkg-list.txt"
 
       - name: Run tests (Pytest + UNO)
         if: ${{ inputs.test_mock_sidebar != true }}
@@ -118,12 +130,14 @@ jobs:
           # 1. Build and install LibrePy (removes WriterAgent as both share addin namespace)
           make build-core
           make register-librepy-oxt
-          unopkg list | grep -q "org.extension.librepy"
+          unopkg list > "$RUNNER_TEMP/unopkg-list.txt"
+          grep "org.extension.librepy" "$RUNNER_TEMP/unopkg-list.txt"
 
           # 2. Build and install LibreHarper
           make build-harper
           make register-libreharper-oxt
-          unopkg list | grep -q "org.extension.libreharper"
+          unopkg list > "$RUNNER_TEMP/unopkg-list.txt"
+          grep "org.extension.libreharper" "$RUNNER_TEMP/unopkg-list.txt"
 
           # 3. Clean up installed packages
           unopkg remove org.extension.libreharper || true

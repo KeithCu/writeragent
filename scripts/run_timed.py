@@ -21,11 +21,22 @@ def main(argv: list[str]) -> int:
         return 2
     label, cmd = argv[0], argv[1:]
     t0 = time.monotonic()
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # UTF-8: Windows typecheck children (pyspector banner) emit non-cp1252 text.
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     body = proc.stdout or ""
     if body and not body.endswith("\n"):
         body += "\n"
     elapsed = time.monotonic() - t0
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8", errors="replace")
     # One write so a finishing sibling cannot splice into this block.
     sys.stdout.write(f"=== {label} ===\n{body}=== {label}: {elapsed:.1f}s ===\n")
     sys.stdout.flush()
