@@ -354,7 +354,7 @@ Inverse of LibrePy’s filter: LibrePy omits Harper (`writer/locale/harper*.py`)
 
 | Artifact | LibreHarper |
 |----------|-------------|
-| Path list | `scripts/libreharper_bundle_paths.py` |
+| Path list | `scripts/libreharper_bundle_paths.py` (`LIBREHARPER_PLUGIN_FILES`). `unopkg add` executes `harper_proofreader.py`, so every module reached at import time must be listed — including `from plugin.framework import config_schema` and relative `from .errors import …`, not only a plain `import plugin.x.y`. |
 | Builder | `scripts/build_libreharper_oxt.py` → `build/bundle-libreharper/` → `build/LibreHarper.oxt` |
 | Skeleton | `extension-harper/` |
 | Makefile | `manifest-harper`, `build-harper`, `deploy-harper` |

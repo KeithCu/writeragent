@@ -239,7 +239,18 @@ while True:
         assert result["status"] == "ok"
         assert result["result"] == 42
         assert drain is not None
-        assert "x" * 1024 in drain.text()
+        # optimize_popen_pipes raises Linux stderr toward 1 MiB, so the child
+        # can write 128 KiB and reply before the drain thread is scheduled.
+        # execute() returning already proves we did not deadlock on the pipe.
+        # Wait for the drain to catch that flood (CI failed with text() == "").
+        deadline = time.monotonic() + 2.0
+        captured = ""
+        while time.monotonic() < deadline:
+            captured = drain.text()
+            if "x" * 1024 in captured:
+                break
+            time.sleep(0.01)
+        assert "x" * 1024 in captured
     finally:
         mgr._terminate_worker()
     assert drain is not None
