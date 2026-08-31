@@ -56,11 +56,14 @@ jobs:
         shell: bash
 
     # Windows runners default Python stdio to cp1252; pyspector prints U+1F4A1.
+    # Do not set WRITERAGENT_CI_DEBUG_DIR here: runner is not available in
+    # jobs.<job_id>.env (startup_failure 33452656845). Run steps export
+    # $RUNNER_TEMP/pytest-ci-debug instead; upload-artifact path uses
+    # ${{ runner.temp }} at step level, which is valid.
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
       WRITERAGENT_CI_DEBUG: ${{ inputs.ci_debug == true && '1' || '' }}
-      WRITERAGENT_CI_DEBUG_DIR: ${{ runner.temp }}/pytest-ci-debug
 
     steps:
       - name: Checkout repository
@@ -142,6 +145,7 @@ jobs:
           if [ "${{ inputs.pytest_serial }}" = "true" ]; then
             export PYTEST_WORKERS=0
           fi
+          export WRITERAGENT_CI_DEBUG_DIR="$RUNNER_TEMP/pytest-ci-debug"
           if [ "$WRITERAGENT_CI_DEBUG" = "1" ]; then
             mkdir -p "$WRITERAGENT_CI_DEBUG_DIR"
           fi
@@ -150,6 +154,7 @@ jobs:
       - name: Dump leftover processes (CI debug)
         if: ${{ always() && inputs.ci_debug == true }}
         run: |
+          export WRITERAGENT_CI_DEBUG_DIR="$RUNNER_TEMP/pytest-ci-debug"
           mkdir -p "$WRITERAGENT_CI_DEBUG_DIR"
           dump="$WRITERAGENT_CI_DEBUG_DIR/processes.txt"
           if [ "${{ runner.os }}" = "Windows" ]; then

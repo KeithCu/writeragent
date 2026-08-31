@@ -31,8 +31,11 @@ def test_pr_ci_debug_env_only_when_input_true() -> None:
     text = _workflow()
     assert "WRITERAGENT_CI_DEBUG:" in text
     assert "inputs.ci_debug == true && '1' || ''" in text
-    assert "WRITERAGENT_CI_DEBUG_DIR:" in text
-    assert "pytest-ci-debug" in text
+    # runner is not available in jobs.<job_id>.env (startup_failure 33452656845).
+    job_env = text.split("    env:", 1)[1].split("    steps:", 1)[0]
+    assert "runner" not in job_env
+    assert "WRITERAGENT_CI_DEBUG_DIR" not in job_env
+    assert 'export WRITERAGENT_CI_DEBUG_DIR="$RUNNER_TEMP/pytest-ci-debug"' in text
 
 
 def test_pr_ci_debug_uploads_artifacts_and_process_dump() -> None:
