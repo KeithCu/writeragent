@@ -23,22 +23,46 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_CMD_ARGS,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
+    UNDER_CROSSHAIR,
     ascii_bounded,
     deal,
+    str_bounded,
 )
 
 
-def _deal_sandbox_imports_ok(authorized_imports: object) -> bool:
+def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
+    # Production passes VENV_AUTHORIZED_IMPORTS (tuple, ~99 names), not a short list.
     return (
-        isinstance(authorized_imports, list)
+        type(authorized_imports) in (list, tuple)
+        and all(isinstance(x, str) and "\0" not in x and str_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
+    )
+
+
+def _deal_sandbox_imports_ok_crosshair(authorized_imports: object) -> bool:
+    return (
+        type(authorized_imports) in (list, tuple)
         and len(authorized_imports) <= DEAL_MAX_CMD_ARGS
         and all(ascii_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
     )
 
 
-def _deal_sandbox_code_ok(code: object) -> bool:
-    # ascii_bounded allows NUL (isascii); `_cache_key` joins with NUL — exclude it.
+_deal_sandbox_imports_ok = (
+    _deal_sandbox_imports_ok_crosshair if UNDER_CROSSHAIR else _deal_sandbox_imports_ok_pytest
+)
+
+
+def _deal_sandbox_code_ok_pytest(code: object) -> bool:
+    # `_cache_key` joins with NUL; production =PY() scripts may be non-ASCII.
+    return isinstance(code, str) and str_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
+
+
+def _deal_sandbox_code_ok_crosshair(code: object) -> bool:
     return isinstance(code, str) and ascii_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
+
+
+_deal_sandbox_code_ok = (
+    _deal_sandbox_code_ok_crosshair if UNDER_CROSSHAIR else _deal_sandbox_code_ok_pytest
+)
 
 # Statement/expression forms the interpreter refuses outright (see evaluate_ast else branch).
 _FORBIDDEN_NODE_TYPES: tuple[type[ast.AST], ...] = (
