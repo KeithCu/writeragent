@@ -124,11 +124,13 @@ _max_entries = _DEFAULT_MAX_ENTRIES
 
 @deal.pre(lambda authorized_imports: _deal_sandbox_imports_ok(authorized_imports))
 def _imports_fingerprint(authorized_imports: list[str]) -> str:
+    # crosshair: off  # sorted join over symbolic import lists (cover-all 33418536119: sandbox_cache 20906s after PR 523). Doable later with a closed import-alphabet fingerprint.
     return "\n".join(sorted(set(authorized_imports)))
 
 
 @deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
 def _cache_key(code: str, authorized_imports: list[str]) -> str:
+    # crosshair: off  # sha256 on symbolic code+NUL (cover-all 33418536119: sandbox_cache 20906s after PR 523). Engine-hostile; keep off.
     material = code + "\0" + _imports_fingerprint(authorized_imports)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
@@ -156,6 +158,7 @@ def _build_entry(code: str, authorized_imports: list[str]) -> HotEntry:
 @deal.pre(lambda code, authorized_imports: _deal_sandbox_code_ok(code) and _deal_sandbox_imports_ok(authorized_imports))
 def get_hot_entry(code: str, authorized_imports: list[str]) -> HotEntry:
     """Return cached or freshly built parse + static validation for *code*."""
+    # crosshair: off  # threading.Lock + OrderedDict hot cache (cover-all 33418536119: sandbox_cache 20906s after PR 523). Engine-hostile; keep off.
     key = _cache_key(code, authorized_imports)
     with _lock:
         if key in _cache:
