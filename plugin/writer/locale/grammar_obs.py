@@ -32,7 +32,7 @@ def update_libreoffice_status_bar(phase: str, text: str, result: str) -> None:
 
     # Determine status message
     msg = f"LibreHarper: {result or 'Checking...'}"
-    if phase == "done":
+    if phase in ("done", "complete"):
         msg = "LibreHarper: Grammar check complete"
     elif phase == "failed":
         msg = f"LibreHarper: Failed ({result})"
@@ -71,7 +71,7 @@ def update_libreoffice_status_bar(phase: str, text: str, result: str) -> None:
                         _last_status_indicator.setValue(50)
                     except Exception:
                         pass
-            elif phase in ("done", "failed"):
+            elif phase in ("done", "complete", "failed"):
                 if _last_status_indicator is not None:
                     try:
                         _last_status_indicator.setText(msg)

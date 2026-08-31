@@ -106,3 +106,44 @@ def test_emit_harper_worker_status_emits_request_payload() -> None:
         result="Downloading harper-ls v2.7.0…",
         elapsed_ms=None,
     )
+
+
+def test_emit_grammar_status_routes_to_libreoffice_status_bar_when_libreharper() -> None:
+    with (
+        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+    ):
+        go.emit_grammar_status("complete", "Hello world.", result="clean")
+    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "complete", "Hello world.", "clean")
+
+
+def test_update_libreoffice_status_bar_lifecycle() -> None:
+    mock_indicator = MagicMock()
+    mock_frame = MagicMock()
+    mock_frame.createStatusIndicator.return_value = mock_indicator
+    mock_doc = MagicMock()
+    mock_doc.getCurrentController().getFrame.return_value = mock_frame
+
+    with (
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch("plugin.framework.uno_context.get_active_document", return_value=mock_doc),
+    ):
+        # Reset any leftover global indicator
+        go._last_status_indicator = None
+
+        # 1. Start phase
+        go.update_libreoffice_status_bar("start", "Text", "queued")
+        mock_frame.createStatusIndicator.assert_called_once()
+        mock_indicator.start.assert_called_once_with("LibreHarper: queued", 100)
+
+        # 2. Request phase updates text/value
+        go.update_libreoffice_status_bar("request", "Text", "Linting…")
+        mock_indicator.setText.assert_called_with("LibreHarper: Linting…")
+        mock_indicator.setValue.assert_called_with(50)
+
+        # 3. Complete phase ends indicator
+        go.update_libreoffice_status_bar("complete", "Text", "done")
+        mock_indicator.setText.assert_called_with("LibreHarper: Grammar check complete")
+        mock_indicator.end.assert_called_once()
+        assert go._last_status_indicator is None
+
