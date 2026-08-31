@@ -127,6 +127,8 @@ Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_orig
 
 **Current behavior (minimal fix):** [`GenericRequestHandler`](../plugin/mcp/server.py) does **not** set `protocol_version`, so Python’s `BaseHTTPRequestHandler` advertises **HTTP/1.0**. That matches pre–CORS-logging behavior and avoids several HTTP/1.1 client quirks. OPTIONS still returns **`204`** with an empty body; status line may read `HTTP/1.0 204` — that is normal.
 
+JSON responses (including HTTP **400** for an unsupported `Mcp-Protocol-Version` header) are written by [`write_http_json`](../plugin/mcp/server.py) with **`Content-Length`** and an explicit flush. Without that, Darwin urllib can raise `ConnectionResetError` (errno 54) while reading the 400 body after the `ThreadingMixIn` request thread exits.
+
 This section is for **future** changes if you need HTTP/1.1 on the wire (some proxies, clients, or spec wording). It explains a regression seen in 2026 and how to debug similar hangs without expanding the default fix.
 
 #### What changed and why `curl` hung

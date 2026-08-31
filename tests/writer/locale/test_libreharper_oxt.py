@@ -198,13 +198,17 @@ def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
 
 
 def test_harper_proofreader_identity_and_locale_check() -> None:
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, patch
     from plugin.writer.locale.harper_proofreader import HarperProofreader
     from plugin.framework.uno_context import reset_package_extension_id_for_tests
 
     try:
         ctx = MagicMock()
-        proofreader = HarperProofreader(ctx)
+        # __init__ calls maybe_start_harper_async when user_config_dir is set.
+        # The autouse config fixture supplies a real temp dir, so without this
+        # patch a unit test downloads/starts harper-ls and Windows xdist hangs.
+        with patch("plugin.writer.locale.harper.maybe_start_harper_async"):
+            proofreader = HarperProofreader(ctx)
         assert proofreader._checker_identity == "harper"
         assert proofreader._provider == "harper"
 

@@ -24,6 +24,44 @@ class MockHandler:
     def end_headers(self):
         self.headers_ended = True
 
+def test_handle_mcp_post_unsupported_protocol_sets_content_length():
+    """400 protocol-version rejection must frame the JSON body (Darwin urllib RST)."""
+    services = MagicMock()
+    mcp_protocol = MCPProtocolHandler(services)
+    handler = MockHandler({"Mcp-Protocol-Version": "2099-01-01", "Content-Length": "2"}, b"{}")
+
+    mcp_protocol.handle_mcp_post(handler)
+
+    assert 400 in handler.sent_responses
+    body = handler.wfile.getvalue()
+    headers_dict = dict(handler.sent_headers)
+    assert headers_dict.get("Content-Length") == str(len(body))
+    data = json.loads(body.decode("utf-8"))
+    assert data.get("error", {}).get("code") == -32600
+
+
+def test_write_http_json_sets_content_length_and_flushes():
+    from plugin.mcp.server import write_http_json
+
+    handler = MockHandler({})
+    flushed = []
+    orig_write = handler.wfile.write
+
+    def _write(data):
+        orig_write(data)
+        return len(data)
+
+    handler.wfile.write = _write
+    handler.wfile.flush = lambda: flushed.append(True)
+    payload = {"jsonrpc": "2.0", "error": {"code": -32600}}
+    write_http_json(handler, 400, payload)
+    body = handler.wfile.getvalue()
+    assert 400 in handler.sent_responses
+    assert dict(handler.sent_headers).get("Content-Length") == str(len(body))
+    assert json.loads(body.decode("utf-8"))["error"]["code"] == -32600
+    assert flushed == [True]
+
+
 def test_handle_mcp_post_routing():
     """Test that handle_mcp_post properly parses body and extracts X-Document-URL."""
     # Setup mock services

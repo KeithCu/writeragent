@@ -23,6 +23,7 @@ from plugin.writer.locale.harper import (
     maybe_start_harper_async,
     run_harper_check,
     run_harper_lint,
+    shutdown_harper_runtime,
 )
 from plugin.writer.locale.harper_binary import (
     HarperReleaseAsset,
@@ -36,10 +37,10 @@ import plugin.writer.locale.harper_binary as harper_binary_module
 @pytest.fixture(autouse=True)
 def _reset_harper_client_cache() -> None:
     """Each run_harper_lint test owns a fresh LSP client and mocked stdout stream."""
-    for client in harper_module._HARPER_CLIENT_CACHE.values():
-        client.close()
-    harper_module._HARPER_CLIENT_CACHE.clear()
-    harper_module._set_state(HarperRuntimeState.IDLE, failed_at=0.0)
+    shutdown_harper_runtime()
+    harper_binary_module._release_cache.clear()
+    yield
+    shutdown_harper_runtime()
     harper_binary_module._release_cache.clear()
 
 
@@ -1178,4 +1179,36 @@ def test_harper_ensure_ready_body_schedules_proofread_again() -> None:
 def test_harper_try_lint_empty_config_dir_does_not_ensure(mock_bg: MagicMock) -> None:
     assert harper_try_lint("Hello.", "") is None
     mock_bg.assert_not_called()
+    assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
+
+
+def test_harper_close_does_not_block_on_stuck_stdin() -> None:
+    """Fixture teardown must not hang if harper-ls stops reading stdin (Windows CI)."""
+    import time
+
+    client = HarperLSClient.__new__(HarperLSClient)
+    client.uri = "file:///tmp/unused.txt"
+    client._doc_opened = True
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdin.write.side_effect = lambda *_a, **_k: time.sleep(30)
+    mock_proc.stdout = MagicMock()
+    client.proc = mock_proc
+
+    started = time.monotonic()
+    client.close()
+    assert time.monotonic() - started < 2.0
+    mock_proc.stdin.write.assert_not_called()
+    mock_proc.stdin.close.assert_called()
+    mock_proc.terminate.assert_called()
+    assert client.proc is None
+
+
+def test_shutdown_harper_runtime_closes_cached_clients() -> None:
+    mock_client = MagicMock()
+    harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = mock_client
+    harper_module._set_state(HarperRuntimeState.READY)
+    shutdown_harper_runtime()
+    mock_client.close.assert_called_once()
+    assert harper_module._HARPER_CLIENT_CACHE == {}
     assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE

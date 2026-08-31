@@ -63,6 +63,41 @@ _PORT_IN_USE_GUIDANCE = (
 _PORT_IN_USE_ERRNOS = frozenset({98, 48, 10048})
 
 
+def write_http_json(handler, status, data, extra_headers=None, indent=None) -> None:
+    """Send a JSON body with Content-Length and flush.
+
+    ThreadingMixIn closes the client socket when the request thread exits.
+    Without Content-Length, urllib on Darwin treats that close as
+    ``ConnectionResetError`` while reading a 400 body (macOS CI
+    ``test_post_unsupported_protocol_version``).
+    """
+    body = json.dumps(data, ensure_ascii=False, default=str, indent=indent).encode("utf-8")
+    handler.send_response(status)
+    if extra_headers is not None:
+        extra_headers(handler)
+    else:
+        send_cors_headers(handler, preflight=False)
+    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+    flush = getattr(handler.wfile, "flush", None)
+    if callable(flush):
+        try:
+            flush()
+        except Exception:
+            pass
+
+
+def write_http_empty(handler, status, extra_headers=None) -> None:
+    """Status-only response (204/202) with Content-Length: 0 so the client is not left reading to EOF."""
+    handler.send_response(status)
+    if extra_headers is not None:
+        extra_headers(handler)
+    handler.send_header("Content-Length", "0")
+    handler.end_headers()
+
+
 def is_port_in_use_error(exc: BaseException) -> bool:
     """True when *exc* is a bind failure because the TCP port is already taken."""
     if isinstance(exc, OSError):
@@ -113,9 +148,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         path = get_url_path(self.path)
         log_cors_preflight(self, path)
-        self.send_response(204)
-        send_cors_headers(self, preflight=True)
-        self.end_headers()
+        write_http_empty(self, 204, extra_headers=lambda h: send_cors_headers(h, preflight=True))
 
     def _dispatch(self, method):
         path = get_url_path(self.path)
@@ -174,11 +207,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
         return data if data is not None else {}
 
     def _send_json(self, status, data):
-        self.send_response(status)
-        send_cors_headers(self, preflight=False)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
+        write_http_json(self, status, data)
 
     def log_message(self, format: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], format % args)

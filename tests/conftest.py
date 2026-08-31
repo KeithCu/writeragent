@@ -374,12 +374,30 @@ def pytest_runtest_logreport(report):
         return
     _pytest_progress_done += 1
     if report.failed or _pytest_progress_done % 100 == 0:
-        suffix = " FAIL" if report.failed else ""
+        suffix = f" FAIL {report.nodeid}" if report.failed else ""
         _emit_make_pytest_progress(f"pytest: {_pytest_progress_done}{suffix}")
+
+
+def _shutdown_harper_if_loaded() -> None:
+    """Kill leftover harper-ls clients so an xdist worker can exit on Windows."""
+    harper_mod = sys.modules.get("plugin.writer.locale.harper")
+    if harper_mod is None:
+        return
+    shutdown = getattr(harper_mod, "shutdown_harper_runtime", None)
+    if callable(shutdown):
+        shutdown()
+
+
+@pytest.fixture(autouse=True)
+def _shutdown_harper_runtime_after_test():
+    """Unit tests must not leave a harper-ls subprocess for worker teardown."""
+    yield
+    _shutdown_harper_if_loaded()
 
 
 def pytest_sessionfinish(session, exitstatus):
     """Fail the run if isolation leaked a ``MagicMock/`` tree under the repo root."""
+    _shutdown_harper_if_loaded()
     if _is_xdist_worker(session):
         return
     if os.path.isdir(_repo_magic_mock_dir()):

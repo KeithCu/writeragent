@@ -335,6 +335,41 @@ def test_preflight_then_post_tools_list(mcp_server):
         assert "result" in data
 
 
+# Darwin urllib: RST after a short 400 (errno 54). Linux 104 / Windows 10054.
+_HTTP_BODY_RESET_ERRNOS = frozenset({54, 104, 10054})
+
+
+def read_http_error_body(err: urllib.error.HTTPError) -> bytes:
+    """Read an HTTPError body; a peer RST after status 400 must not fail the test."""
+    try:
+        return err.read() or b""
+    except (ConnectionResetError, BrokenPipeError, TimeoutError):
+        return b""
+    except OSError as exc:
+        if getattr(exc, "errno", None) in _HTTP_BODY_RESET_ERRNOS:
+            return b""
+        raise
+
+
+def test_read_http_error_body_survives_darwin_reset():
+    """Status 400 is enough; Darwin-style RST while reading the body is not a regression."""
+    err = urllib.error.HTTPError("http://127.0.0.1/mcp", 400, "Bad Request", hdrs={}, fp=None)
+
+    def _raise_reset() -> bytes:
+        raise ConnectionResetError(54, "Connection reset by peer")
+
+    err.read = _raise_reset  # type: ignore[method-assign]
+    assert err.code == 400
+    assert read_http_error_body(err) == b""
+
+
+def test_read_http_error_body_returns_json_when_available():
+    payload = b'{"jsonrpc":"2.0","error":{"code":-32600}}'
+    err = urllib.error.HTTPError("http://127.0.0.1/mcp", 400, "Bad Request", hdrs={}, fp=None)
+    err.read = lambda: payload  # type: ignore[method-assign]
+    assert json.loads(read_http_error_body(err).decode("utf-8"))["error"]["code"] == -32600
+
+
 def test_post_unsupported_protocol_version(mcp_server):
     payload = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
     data_bytes = json.dumps(payload).encode("utf-8")
@@ -343,6 +378,9 @@ def test_post_unsupported_protocol_version(mcp_server):
     req.add_header("Mcp-Protocol-Version", "2099-01-01")
     with pytest.raises(urllib.error.HTTPError) as exc_info:
         urllib.request.urlopen(req, timeout=5)
-    assert exc_info.value.code == 400
-    body = json.loads(exc_info.value.read().decode("utf-8"))
-    assert body.get("error", {}).get("code") == -32600
+    err = exc_info.value
+    assert err.code == 400
+    raw = read_http_error_body(err)
+    if raw:
+        body = json.loads(raw.decode("utf-8"))
+        assert body.get("error", {}).get("code") == -32600

@@ -36,6 +36,7 @@ from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, safe_json_loads
 from plugin.mcp.cors import send_cors_headers
 from plugin.mcp.http_trace import log_mcp_transport_entry, log_unsupported_protocol_version
+from plugin.mcp.server import write_http_empty, write_http_json
 from plugin.mcp.mcp_state import MCPState, MCPStateStr, EventKind, MCPEvent, ParseRequestEffect, ExecuteToolEffect, StreamResponseEffect, SendErrorEffect, next_state
 from plugin.mcp import wire_types
 
@@ -345,9 +346,7 @@ class MCPProtocolHandler:
     def handle_mcp_delete(self, handler):
         """DELETE /mcp — session termination."""
         log_mcp_transport_entry(handler, "mcp")
-        handler.send_response(200)
-        _send_mcp_response_headers(handler)
-        handler.end_headers()
+        write_http_empty(handler, 200, extra_headers=_send_mcp_response_headers)
 
     def handle_sse_stream(self, handler):
         """GET /sse — legacy SSE transport (keepalive only)."""
@@ -418,19 +417,12 @@ class MCPProtocolHandler:
 
         result = self._process_jsonrpc(msg, document_url=document_url)
         if result is None:
-            handler.send_response(202)
-            _send_mcp_response_headers(handler)
-            handler.end_headers()
+            write_http_empty(handler, 202, extra_headers=_send_mcp_response_headers)
             return
 
         status, response = result
-        handler.send_response(status)
-        _send_mcp_response_headers(handler)
-        handler.send_header("Content-Type", "application/json")
-        handler.end_headers()
-        out = json.dumps(response, ensure_ascii=False, default=str)
         log.info("[SSE] POST >>> %s (id=%s) -> %d", method, req_id, status)
-        handler.wfile.write(out.encode("utf-8"))
+        write_http_json(handler, status, response, extra_headers=_send_mcp_response_headers)
 
     # ── Simple handlers (body, headers, query) -> (status, dict) ─────
 
@@ -507,30 +499,27 @@ class MCPProtocolHandler:
             if responses:
                 self._send_json(handler, 200, responses)
             else:
-                handler.send_response(202)
-                _send_mcp_response_headers(handler)
-                handler.end_headers()
+                write_http_empty(handler, 202, extra_headers=_send_mcp_response_headers)
             return
 
         # Single request
         result = self._process_jsonrpc(msg, document_url=document_url)
         if result is None:
-            handler.send_response(202)
-            _send_mcp_response_headers(handler, session_id=_mcp_session_id)
-            handler.end_headers()
+            write_http_empty(handler, 202, extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id))
             return
         status, response = result
 
         if is_initialize and status == 200:
             _mcp_session_id = str(uuid.uuid4())
 
-        handler.send_response(status)
-        _send_mcp_response_headers(handler, session_id=_mcp_session_id)
-        handler.send_header("Content-Type", "application/json")
-        handler.end_headers()
-        out = json.dumps(response, ensure_ascii=False, default=str, indent=2)
         log.info("[MCP] >>> %s (id=%s) -> %d", method, req_id, status)
-        handler.wfile.write(out.encode("utf-8"))
+        write_http_json(
+            handler,
+            status,
+            response,
+            extra_headers=lambda h: _send_mcp_response_headers(h, session_id=_mcp_session_id),
+            indent=2,
+        )
 
     # ── MCP method handlers ──────────────────────────────────────────
 
@@ -960,8 +949,4 @@ class MCPProtocolHandler:
 
     def _send_json(self, handler, status, data):
         """Send a JSON response via an HTTP handler."""
-        handler.send_response(status)
-        _send_mcp_response_headers(handler)
-        handler.send_header("Content-Type", "application/json")
-        handler.end_headers()
-        handler.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
+        write_http_json(handler, status, data, extra_headers=_send_mcp_response_headers)

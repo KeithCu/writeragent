@@ -274,27 +274,35 @@ class HarperLSClient:
             raise
 
     def close(self) -> None:
-        if self.proc:
-            if self._doc_opened:
+        """Tear down harper-ls without blocking on a stuck stdin pipe.
+
+        The previous path wrote LSP shutdown/exit then waited. On Windows a
+        hung harper-ls fills the stdin pipe; ``stdin.write`` blocks forever
+        and xdist workers never exit (CI sat ~19 min after pytest 99%).
+        Close the pipes first, then terminate/kill with short waits.
+        """
+        proc = self.proc
+        self.proc = None
+        self._doc_opened = False
+        if proc is None:
+            return
+        for stream in (proc.stdin, proc.stdout):
+            if stream is not None:
                 try:
-                    self._write(_lsp_notification("textDocument/didClose", {"textDocument": {"uri": self.uri}}))
+                    stream.close()
                 except Exception:
                     pass
-                self._doc_opened = False
+        if proc.poll() is not None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=0.5)
+        except Exception:
             try:
-                self._write(_lsp_request(self.request_id + 1, "shutdown", None))
-                self._write(_lsp_notification("exit", None))
-                self.proc.wait(timeout=0.2)
+                proc.kill()
+                proc.wait(timeout=0.5)
             except Exception:
-                try:
-                    self.proc.terminate()
-                    self.proc.wait(timeout=0.2)
-                except Exception:
-                    try:
-                        self.proc.kill()
-                    except Exception:
-                        pass
-            self.proc = None
+                pass
 
 
 def lsp_range_to_offset(text: str, line: int, character: int) -> int:
@@ -305,6 +313,19 @@ def lsp_range_to_offset(text: str, line: int, character: int) -> int:
     pos = _LSP_POSITION_CODEC.position_from_client_units(lines, ClientPosition(line=line, character=character))
     offset = sum(len(lines[i]) for i in range(pos.line))
     return min(offset + pos.character, len(text))
+
+
+def shutdown_harper_runtime() -> None:
+    """Close every cached harper-ls client. Safe from tests and extension teardown."""
+    with _HARPER_LOCK:
+        clients = list(_HARPER_CLIENT_CACHE.values())
+        _HARPER_CLIENT_CACHE.clear()
+        _set_state(HarperRuntimeState.IDLE, failed_at=0.0)
+    for client in clients:
+        try:
+            client.close()
+        except Exception:
+            log.debug("[harper] shutdown close failed", exc_info=True)
 
 
 def _get_or_create_client(harper_bin: str, user_config_dir: str, bcp47: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> HarperLSClient:

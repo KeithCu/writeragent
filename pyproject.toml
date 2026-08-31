@@ -51,6 +51,7 @@ dev = [
     "websockets>=13.0,<16",
     "pytest",
     "pytest-xdist",
+    "pytest-timeout",
     "pyyaml",
     "sounddevice",
     "mypy",
