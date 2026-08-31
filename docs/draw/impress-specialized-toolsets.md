@@ -484,7 +484,7 @@ When using shape tools in Writer:
 In Draw/Impress:
 - Shapes have absolute positioning
 - No anchoring required
-- Custom shapes work without special handling
+- Custom shapes still need engine + `CustomShapeGeometry` **before** `page.add` (post-add Type swap can abort soffice)
 
 The current `create_shape` implementation handles both cases with conditional logic.
 

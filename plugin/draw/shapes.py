@@ -408,9 +408,10 @@ class DrawShapes:
         Shapes are created via the document's factory (``doc.createInstance``);
         ``XDrawPage`` is not a reliable ``createInstance`` source in UNO.
 
-        For Writer, ``CustomShape`` + ``EnhancedCustomShapeGeometry`` must be applied **before**
-        ``page.add`` (after position/size). Applying geometry only after add breaks display while
-        ``RectangleShape`` etc. are unaffected.
+        For CustomShape, ``EnhancedCustomShapeGeometry`` must be applied **before**
+        ``page.add`` (after position/size). Applying Type after add replaces the live
+        ``SdrRectObj`` and can abort LibreOffice; Writer also fails to display the
+        shape. ``RectangleShape`` etc. are unaffected.
         """
         try:
             if doc is None:
@@ -677,13 +678,16 @@ class UpsertShape(ToolDrawShapeBase):
             draw_shapes = DrawShapes()
 
             try:
+                # Apply EnhancedCustomShapeGeometry *inside* safe_create_shape (before
+                # page.add). Setting Type=octagon after add replaces the live SdrRectObj
+                # and can abort in SfxItemPool::unregisterNameOrIndex (soffice SIGABRT).
                 shape, geometry_applied, geometry_error = draw_shapes.safe_create_shape(
                     ctx.doc,
                     page,
                     uno_type,
                     position,
                     size,
-                    custom_shape_type=None,
+                    custom_shape_type=custom_shape_type if is_custom_shape else None,
                 )
                 if is_custom_shape and geometry_applied:
                     _log_shape_uno_snapshot("after_custom_geometry", shape)
@@ -692,12 +696,6 @@ class UpsertShape(ToolDrawShapeBase):
 
             _try_writer_at_page_shape_finalize(ctx.doc, bridge, page, shape)
             _try_writer_reapply_position_after_anchor(ctx.doc, shape, position, size)
-
-            # Apply geometry securely AFTER anchoring
-            if is_custom_shape and custom_shape_type:
-                geometry_applied, geometry_error = _apply_enhanced_custom_shape_type(shape, custom_shape_type)
-                if not geometry_applied:
-                    log.warning("shape_upsert (create): Failed to apply EnhancedCustomShapeGeometry post-anchor")
 
             _apply_shape_properties(shape, kwargs)
             _try_writer_invalidate_and_pump(ctx.doc)

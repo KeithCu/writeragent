@@ -19,9 +19,11 @@ Instead of having a unique UNO class for every single geometric possibility (e.g
 
 To create one of these specific shapes:
 1. Instantiate `com.sun.star.drawing.CustomShape`.
-2. Add it to the drawing page.
-3. Configure its `CustomShapeGeometry` property. This property accepts a sequence of `com.sun.star.beans.PropertyValue`.
-4. Set a `PropertyValue` with `Name="Type"` and `Value="<shape_name>"`.
+2. Set `CustomShapeEngine` to `com.sun.star.drawing.EnhancedCustomShapeEngine` and configure `CustomShapeGeometry` **before** `page.add`. This property accepts a sequence of `com.sun.star.beans.PropertyValue`.
+3. Set a `PropertyValue` with `Name="Type"` and `Value="<shape_name>"`.
+4. Add the shape to the drawing page. Do **not** set `CustomShapeGeometry` again after add — swapping Type on a live inserted shape (default CustomShape is an `SdrRectObj`) can abort LibreOffice in `SfxItemPool::unregisterNameOrIndex`.
+
+Writer-only: set `AnchorType=AT_PAGE` before add (already inside `safe_create_shape`). Fill/line properties stay after add.
 
 Commonly supported `<shape_name>` values include:
 - `octagon`
