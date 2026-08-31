@@ -38,7 +38,7 @@ def _deal_sandbox_imports_ok(authorized_imports: object) -> bool:
 
 def _deal_sandbox_code_ok(code: object) -> bool:
     # ascii_bounded allows NUL (isascii); `_cache_key` joins with NUL — exclude it.
-    return ascii_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
+    return isinstance(code, str) and ascii_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
 
 # Statement/expression forms the interpreter refuses outright (see evaluate_ast else branch).
 _FORBIDDEN_NODE_TYPES: tuple[type[ast.AST], ...] = (
