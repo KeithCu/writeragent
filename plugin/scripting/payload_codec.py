@@ -60,6 +60,7 @@ def _to_py(v: Any) -> Any:
     The import is local so the module can be imported on the host (LibreOffice's Python,
     which ships without NumPy).
     """
+    # crosshair: off  # recursive list/tuple Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
     try:
         import numpy as np  # local: safe on host; present in child for mixed grids
         if isinstance(v, np.generic):
@@ -87,6 +88,7 @@ fast_flatten_grid_1d: Any = None
 
 def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
     """Perform a runtime canary test to ensure the Cython binary is correct and compatible."""
+    # crosshair: off  # Any Cython callables (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a closed canary fixture.
     try:
         if fn2d is None or fn1d is None:
             return False
@@ -131,6 +133,7 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
 
 def load_cython_accelerator() -> None:
     """Attempt to load the Cython accelerator and verify it via a runtime canary test."""
+    # crosshair: off  # sys.path/import sniffs (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Engine-hostile; keep off.
     global fast_flatten_grid_2d, fast_flatten_grid_1d, _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION
     if fast_flatten_grid_2d is not None or _CYTHON_ACCELERATOR_DISABLED:
         return
@@ -222,6 +225,7 @@ def invalidate_host_cython_accelerator() -> None:
     the old ``writeragent_vec`` module object. Clear globals and module cache so
     the next load binds the new file instead of calling into a stale mapping.
     """
+    # crosshair: off  # sys.modules sniffs (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Engine-hostile; keep off.
     global fast_flatten_grid_2d, fast_flatten_grid_1d, _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION
     fast_flatten_grid_2d = None
     fast_flatten_grid_1d = None
@@ -454,6 +458,7 @@ def is_image_payload(obj: Any) -> bool:
 
 def find_image_payloads(obj: Any) -> list[dict[str, Any]]:
     """Recursively find all image payloads in the object."""
+    # crosshair: off  # recursive Any dict/list (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
     if is_image_payload(obj):
         return [obj]
     if isinstance(obj, dict):
@@ -477,6 +482,7 @@ def image_payload_suffix(payload: dict[str, Any]) -> str:
 
 def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
     """Write image bytes from *payload* to a persistent temp file; return absolute path."""
+    # crosshair: off  # tempfile/filesystem (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a bytes/format domain.
     suffix = image_payload_suffix(payload)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(payload["data"])
@@ -602,6 +608,11 @@ def _uniform_column_kind(kinds: list[str]) -> str | None:
     return first if all(k == first for k in kinds) else None
 
 
+@deal.pre(
+    lambda envelope, *_unused, ncols=0, **__: _deal_dict_ok(envelope)
+    and isinstance(ncols, int)
+    and 0 <= ncols <= DEAL_MAX_SHAPE_DIM
+)
 def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
     """Per-column unpack kinds from wire ``column_kinds``."""
     kinds = envelope.get("column_kinds")
@@ -630,6 +641,7 @@ def _apply_column_kinds_to_ndarray(
     uniform: str | None = None,
 ) -> Any:
     """Cast float64 ndarray columns to int64 where pack declared int (NumPy trusts column metadata)."""
+    # crosshair: off  # numpy astype on Any (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with an ndarray/kinds domain.
     import numpy as np
 
     if uniform is None:
@@ -655,6 +667,7 @@ def _apply_column_kinds_to_ndarray(
 
 def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     """Short summary for debug logs (avoids dumping huge arrays or base64)."""
+    # crosshair: off  # recursive Any walk (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok + sample bound.
     if is_image_payload(obj):
         return f"image format={obj.get('format')} bytes={len(obj.get('data', b''))}"
     if is_multi_data(obj):
@@ -753,6 +766,12 @@ def should_use_binary_envelope(
     return len(shape) > 0 and cell_count(shape) >= min_cells
 
 
+@deal.pre(lambda shape, *_unused, **__: _deal_shape_ok(shape))
+@deal.pre(
+    lambda shape, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
+    and isinstance(min_cells, int)
+    and 0 <= min_cells <= DEAL_MAX_SHAPE_DIM
+)
 def binary_envelope_skip_reason(
     shape: tuple[int, ...],
     *,
@@ -869,6 +888,7 @@ def _cell_for_json(value: Any) -> Any:
 
 def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> None:
     """Upgrade per-column numeric kind after a successful float(val) on the fast path."""
+    # crosshair: off  # Any val sibling of already-off flatten (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a tiny cell domain.
     st = column_states[c]
     if st == 3:
         return
@@ -921,6 +941,7 @@ def _flatten_append_cell_slow(
     nan: float,
 ) -> None:
     """Full per-cell flatten semantics (None, strings, NumPy scalars, column metadata)."""
+    # crosshair: off  # Any val sibling of already-off flatten (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with a tiny cell domain.
     if val is None:
         buf_append(nan)
         column_has_none[c] = True
@@ -974,6 +995,7 @@ def _flatten_append_cell_slow(
 
 def _validate_rectangular_grid(grid_2d: list[list[Any]], ncols: int) -> None:
     """Reject jagged 2D grids before the flatten hot loop (Calc ranges are rectangular)."""
+    # crosshair: off  # unbounded 2D grid (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with _deal_grid_ok.
     for row in grid_2d:
         if len(row) != ncols:
             row_lens = [len(r) for r in grid_2d]
@@ -987,6 +1009,7 @@ def _iter_split_grid_cells(
     is_2d: bool,
 ) -> Iterator[tuple[int, int, Any]]:
     """Yield ``(col_idx, flat_idx, val)`` row-major for 1D or validated 2D grids."""
+    # crosshair: off  # unbounded grid walk (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Doable later with _deal_grid_ok.
     if is_2d:
         grid_2d = cast("list[list[Any]]", grid)
         idx = 0
@@ -1619,6 +1642,7 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
 
 def _container_has_packable_nested(obj: Any) -> bool:
     """True when *obj* contains ndarray/dict containers that need per-element packing."""
+    # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
     import numpy as np
 
     if isinstance(obj, (dict, np.ndarray)):
@@ -1634,6 +1658,7 @@ def _container_has_packable_nested(obj: Any) -> bool:
 
 def _needs_elementwise_pack(obj: Any) -> bool:
     """True when a list/tuple should be packed element-wise instead of as one grid."""
+    # crosshair: off  # recursive Any (cover-all 33355986432: payload_codec in-flight 6h with sandbox_cache, no flushed COVER TIMING). Doable later with _deal_envelope_value_ok.
     import numpy as np
 
     if isinstance(obj, dict):
