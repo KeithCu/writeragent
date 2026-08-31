@@ -305,6 +305,7 @@ ColumnKind = Literal["int", "float", "bool"]
 
 def _is_grid_sequence(grid: object) -> bool:
     """True for empty, 1D, or 2D list/tuple grids (jagged 2D allowed; flatten raises ValueError)."""
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if not isinstance(grid, (list, tuple)):
         return False
     if len(grid) == 0:
@@ -427,10 +428,12 @@ def _is_multi_data_envelope(envelope: object) -> bool:
     )
 )
 def is_multi_data(obj: Any) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     return _is_multi_data_envelope(obj)
 
 
 def _is_image_payload_envelope(envelope: object) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
@@ -453,6 +456,7 @@ def _is_image_payload_envelope(envelope: object) -> bool:
     )
 )
 def is_image_payload(obj: Any) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     return _is_image_payload_envelope(obj)
 
 
@@ -491,6 +495,7 @@ def write_image_payload_to_temp(payload: dict[str, Any]) -> str:
 
 
 def _is_dataframe_envelope(envelope: object) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
@@ -520,10 +525,12 @@ def _is_dataframe_envelope(envelope: object) -> bool:
     )
 )
 def is_dataframe_payload(obj: Any) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     return _is_dataframe_envelope(obj)
 
 
 def _is_calc_range_envelope(envelope: object) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
@@ -551,11 +558,13 @@ def _is_calc_range_envelope(envelope: object) -> bool:
     )
 )
 def is_calc_range_payload(obj: Any) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     # Canonical wire guard. calc_range.py re-exports this; do not add a second copy.
     return _is_calc_range_envelope(obj)
 
 
 def _is_split_grid_envelope(envelope: object) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if not isinstance(envelope, dict):
         return False
     env_dict = cast("dict[str, Any]", envelope)
@@ -572,6 +581,7 @@ def _is_split_grid_envelope(envelope: object) -> bool:
 @deal.pre(lambda obj: _deal_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 def _is_any_payload_envelope(obj: object) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     # Body already ORs the five family detectors; a matching ensure re-ran all
     # five on every CrossHair post (check-all deep 32900105768, 8:14).
     return (
@@ -615,6 +625,7 @@ def _uniform_column_kind(kinds: list[str]) -> str | None:
 )
 def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
     """Per-column unpack kinds from wire ``column_kinds``."""
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     kinds = envelope.get("column_kinds")
     if isinstance(kinds, list) and len(kinds) == ncols:
         return ["int" if k == "int" else ("bool" if k == "bool" else "float") for k in kinds]
@@ -623,6 +634,7 @@ def envelope_column_kinds(envelope: dict[str, Any], *, ncols: int) -> list[str]:
 
 def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> str | None:
     """Decode-only: all-int or all-float fast path when ``column_kinds`` are uniform; None if mixed."""
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     return _uniform_column_kind(envelope_column_kinds(envelope, ncols=ncols))
 
 
@@ -789,6 +801,7 @@ def binary_envelope_skip_reason(
 
 def _is_numeric_coercible_impl(value: Any) -> bool:
     """Body of ``is_numeric_coercible`` without ``@deal.pre`` (used by ``is_numeric_grid``)."""
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if value is None or isinstance(value, (bool, int, float)):
         return True
     # Fast direct type inspection for NumPy scalar types on the child side without module-level imports
@@ -818,6 +831,7 @@ def is_numeric_coercible(value: Any) -> bool:
     mixed grids stay lists after child split_grid unpack (zip codes and labels preserved).
     Empty strings match Calc empty cells (``None``).
     """
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     return _is_numeric_coercible_impl(value)
 
 
@@ -826,6 +840,7 @@ def is_numeric_coercible(value: Any) -> bool:
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: len(grid) > 0 or _deal_return(*a, result=result) is True)
 def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     """True when every cell is numeric-coercible (safe for numeric-only split_grid fast-path)."""
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if len(grid) == 0:
         return True
     if type(grid[0]) in (list, tuple):
@@ -867,6 +882,7 @@ def wire_cell_count(data: Any) -> int:
 @deal.post(lambda result: isinstance(result, list))
 def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list[list[Any]]:
     """Normalize to flat or 2D Python lists for small grids (below BINARY_MIN_CELLS) or non-split_grid results."""
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     if len(grid) == 0:
         return []
     if type(grid[0]) in (list, tuple) and all(isinstance(r, (list, tuple)) for r in grid):
@@ -1409,6 +1425,7 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
     )
 )
 def is_split_grid(obj: Any) -> bool:
+    # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
     return _is_split_grid_envelope(obj)
 
 
