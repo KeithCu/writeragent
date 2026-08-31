@@ -97,11 +97,17 @@ def test_coerce_dedupes_header_names():
     assert list(result.df.columns) == ["A", "A_1", "B"]
 
 
-def test_describe_data_basic():
-    import importlib.util
+def _has_working_data_profiling() -> bool:
+    try:
+        from data_profiling import ProfileReport  # noqa: F401
+        return True
+    except Exception:
+        return False
 
-    if importlib.util.find_spec("data_profiling") is None:
-        pytest.skip("fg-data-profiling not installed")
+
+def test_describe_data_basic():
+    if not _has_working_data_profiling():
+        pytest.skip("fg-data-profiling not usable on this platform")
     result = analysis.describe_data(SALES_GRID)
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
@@ -130,10 +136,8 @@ def test_describe_data_without_profiling():
 
 
 def test_describe_data_with_profiling():
-    import importlib.util
-
-    if importlib.util.find_spec("data_profiling") is None:
-        pytest.skip("fg-data-profiling not installed")
+    if not _has_working_data_profiling():
+        pytest.skip("fg-data-profiling not usable on this platform")
     result = analysis.describe_data(SALES_GRID)
     assert result["status"] == "ok"
     sales_col = next(col for col in result["columns"] if col["name"] == "Sales")
@@ -335,10 +339,8 @@ def test_run_analysis_monte_carlo_dispatch():
 
 
 def test_run_analysis_dispatches_helper():
-    import importlib.util
-
-    if importlib.util.find_spec("data_profiling") is None:
-        pytest.skip("fg-data-profiling not installed")
+    if not _has_working_data_profiling():
+        pytest.skip("fg-data-profiling not usable on this platform")
     result = analysis.run_analysis("describe_data", SALES_GRID)
     assert result["status"] == "ok"
     assert result["helper"] == "describe_data"
@@ -399,7 +401,10 @@ def test_table_row_cap():
 def test_helper_golden_metrics(helper, call, metric_keys, requires):
     import importlib.util
 
-    if requires and importlib.util.find_spec(requires) is None:
+    if requires == "data_profiling":
+        if not _has_working_data_profiling():
+            pytest.skip("data_profiling not usable on this platform")
+    elif requires and importlib.util.find_spec(requires) is None:
         pytest.skip(f"{requires} not installed")
     result = call()
     assert result["status"] == "ok"

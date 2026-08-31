@@ -187,6 +187,9 @@ def handle_debug_sidebar_command(command: str) -> None:
             query = getattr(sl, "query_control", None)
             if query is not None:
                 set_control_text(query, "")
+            ss = sl.sidebar_state
+            send = dataclasses.replace(ss.send, has_audio=False, has_text=False)
+            sl.sidebar_state = dataclasses.replace(ss, send=send)
             sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": False}))
         elif op == "SET_TEXT_NONEMPTY":
             sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": True}))
@@ -862,7 +865,7 @@ def set_audio_supported(supported: bool, *, listener: Any = None) -> None:
         execute_debug_sidebar_op("SET_AUDIO_1" if supported else "SET_AUDIO_0")
         return
     ss = sl.sidebar_state
-    send = dataclasses.replace(ss.send, audio_supported=bool(supported))
+    send = dataclasses.replace(ss.send, audio_supported=bool(supported), has_audio=False)
     sl.sidebar_state = dataclasses.replace(ss, send=send)
     sl.dispatch(
         SendEvent(
@@ -1050,7 +1053,10 @@ def wait_idle(*, listener: Any = None, timeout: float = 30.0) -> bool:
             except Exception:
                 return False
             stop = controls.get("stop")
-            return control_enabled(stop) is not True
+            send = controls.get("send")
+            if control_enabled(stop) is True:
+                return False
+            return control_enabled(send) is True
         send = sl.sidebar_state.send
         return (not send.is_busy) and (not send.is_recording)
 

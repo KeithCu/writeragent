@@ -20,6 +20,8 @@ if "fcntl" not in sys.modules:
     fake_fcntl.F_SETPIPE_SZ = 1031
     fake_fcntl.fcntl = lambda *args, **kwargs: None
     sys.modules["fcntl"] = fake_fcntl
+elif not hasattr(sys.modules["fcntl"], "F_SETPIPE_SZ"):
+    setattr(sys.modules["fcntl"], "F_SETPIPE_SZ", 1031)
 
 from plugin.scripting.sandbox import (
     _PIPE_BUF_TARGET,

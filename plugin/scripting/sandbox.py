@@ -265,8 +265,11 @@ def optimize_pipe(pipe_fd: int) -> None:
         return
     import fcntl
 
+    cmd = getattr(fcntl, "F_SETPIPE_SZ", None)
+    if cmd is None:
+        return
     try:
-        fcntl.fcntl(pipe_fd, fcntl.F_SETPIPE_SZ, _PIPE_BUF_TARGET)
+        fcntl.fcntl(pipe_fd, cmd, _PIPE_BUF_TARGET)
     except OSError:
         pass
 
@@ -326,7 +329,6 @@ def _path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
     # crosshair: off  # urlparse/unquote/url2pathname combinatorics on free strings (cover-all 33293627157: ~2.0h, 190k lines / 108k examples). Doable later with a tiny file-URL alphabet.
     from urllib.parse import unquote, urlparse
-    from urllib.request import url2pathname
 
     text = raw.strip()
     if text.startswith("file:/") and not text.startswith("file://"):
@@ -336,9 +338,12 @@ def _path_from_file_url(raw: str) -> str | None:
     parsed = urlparse(text)
     if parsed.scheme != "file":
         return None
-    # url2pathname expects the path component; unquote percent-encoding (e.g. José).
-    path = url2pathname(unquote(parsed.path))
-    # Windows: file:///C:/Users/... → /C:/Users/... before url2pathname; after, C:\Users\...
+    unquoted = unquote(parsed.path)
+    if os.name == "nt" and len(unquoted) >= 3 and unquoted[0] == "/" and unquoted[2] == ":":
+        path = unquoted[1:].replace("/", "\\")
+    else:
+        path = unquoted
+    # Windows: file://server/share → netloc=server, path=/share
     if parsed.netloc and os.name == "nt" and not path.startswith("\\\\"):
         # UNC: file://server/share → netloc=server, path=/share
         path = f"\\\\{parsed.netloc}{path}"

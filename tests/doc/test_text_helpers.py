@@ -123,7 +123,11 @@ def test_text_helpers_import_does_not_load_calc_analyzer():
 
     repo_root = str(Path(__file__).resolve().parents[2])
     code = (
-        "import sys\n"
+        "import sys, types\n"
+        "if 'pyuno' not in sys.modules:\n"
+        "    _mod = types.ModuleType('pyuno')\n"
+        "    _mod.getComponentContext = lambda: None\n"
+        "    sys.modules['pyuno'] = _mod\n"
         "import plugin.doc.text_helpers\n"
         "assert 'plugin.calc.analyzer' not in sys.modules\n"
         "assert 'plugin.calc.bridge' not in sys.modules\n"
