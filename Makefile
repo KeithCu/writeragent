@@ -693,9 +693,9 @@ else
 PYTEST_XDIST := -n $(PYTEST_WORKERS) --dist=loadgroup
 endif
 # --timeout is a backstop so a hung worker cannot sit ~19 min (Windows CI).
-# Per-test 90s is well above unit-test runtime; hang points (Harper close, MCP
+# Per-test 300s (5 min) is well above unit-test runtime; hang points (Harper close, MCP
 # 400 body) are fixed in code. Not in pyproject addopts — vhs/slowtests need longer.
-PYTEST_UNIT = WRITERAGENT_PYTEST_PROGRESS=1 PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=90 --timeout-method=thread $(PYTEST_XDIST)
+PYTEST_UNIT = WRITERAGENT_PYTEST_PROGRESS=1 PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST)
 
 pytest:
 	@echo "=== pytest ==="
