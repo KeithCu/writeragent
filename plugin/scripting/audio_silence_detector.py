@@ -113,6 +113,7 @@ class SilenceDetector:
         return self._silence_ms
 
     def process_chunk(self, pcm: bytes, *, frame_count: int) -> SilenceDetectorResult:
+        # crosshair: off  # stateful RMS/float SMT wrapping already-off pcm_energy_int16 (cover-all 33337516899: 52k lines, 3205 examples). Doable later with a tiny PCM/frame domain.
         if not self._config.enabled:
             return SilenceDetectorResult(
                 rms=0.0, peak=0.0, is_speech=False, silence_ms=0, speech_ms=0, should_stop=False, heard_speech=False

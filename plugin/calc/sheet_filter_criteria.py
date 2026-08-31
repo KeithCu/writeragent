@@ -46,6 +46,7 @@ _NAME_TO_CODE: dict[str, int] = {name: idx for idx, name in enumerate(_FILTER_OP
 FILTER_OPERATOR2_LABELS: tuple[str, ...] = _FILTER_OPERATOR2_CODE_NAMES
 
 
+@deal.pre(lambda code: isinstance(code, int) and -8 <= code < 32)
 def filter_operator2_code_to_name(code: int) -> str:
     """Map UNO ``FilterOperator2`` *code* (long) to a stable string label."""
     if 0 <= code < len(_FILTER_OPERATOR2_CODE_NAMES):
@@ -53,6 +54,7 @@ def filter_operator2_code_to_name(code: int) -> str:
     return str(int(code))
 
 
+@deal.pre(lambda name: isinstance(name, str) and ascii_bounded(name, DEAL_MAX_TOKEN))
 def filter_operator2_name_to_code(name: str) -> int | None:
     """Resolve case-insensitive operator name to code, or ``None`` if unknown."""
     key = name.strip().upper().replace("-", "_")
@@ -110,6 +112,7 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
     Later rows: missing ``connection`` defaults to AND; ``OR`` links this row to the
     previous condition only (linear chain — not arbitrary parentheses).
     """
+    # crosshair: off  # nested dict Any (field/value) still combinatoric (cover-all 33337516899: 86k lines, 1559 examples). Doable later with a closed criterion schema.
     if "field" not in raw:
         raise UnoObjectError("Each criterion needs 'field' (0-based column index within range).")
     try:

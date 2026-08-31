@@ -98,10 +98,12 @@ class Token:
         self.is_word = is_word
 
     def __repr__(self):
+        # crosshair: off  # format of free Token.text/offsets (cover-all 33337516899: 8.5k lines). Doable later with a tiny Token domain.
         kind = "W" if self.is_word else "S"
         return "Token(%s %r @%d:%d)" % (kind, self.text, self.start, self.end)
 
     def __eq__(self, other):
+        # crosshair: off  # fieldwise == on free Token (cover-all 33337516899: 154k lines, 6.6k examples). Same combinatoric dunder class as calc_range. Doable later with a tiny Token domain.
         return (
             isinstance(other, Token)
             and self.text == other.text
@@ -137,11 +139,13 @@ class SubEdit:
         self.new_text = new_text
 
     def __repr__(self):
+        # crosshair: off  # format of free SubEdit strings/offsets (cover-all 33337516899: 9.6k lines). Doable later with a tiny SubEdit domain.
         return "SubEdit(%s old[%d:%d]=%r -> %r)" % (
             self.op, self.old_start, self.old_end, self.old_text, self.new_text,
         )
 
     def __eq__(self, other):
+        # crosshair: off  # fieldwise == on free SubEdit (cover-all 33337516899: 281k lines, 12k examples). Doable later with a tiny SubEdit domain.
         return (
             isinstance(other, SubEdit)
             and self.op == other.op
@@ -175,13 +179,16 @@ class SplitResult:
 
     @property
     def is_block(self):
+        # crosshair: off  # symbolic mode str (cover-all 33337516899: 23k lines, 1493 examples). Doable later with closed {block,surgical} alphabet.
         return self.mode == "block"
 
     @property
     def is_surgical(self):
+        # crosshair: off  # symbolic mode str (cover-all 33337516899: 23k lines, 1493 examples). Doable later with closed {block,surgical} alphabet.
         return self.mode == "surgical"
 
     def __repr__(self):
+        # crosshair: off  # format of symbolic mode/frac/list (cover-all 33337516899: 6.9k lines). Doable later with a tiny SplitResult domain.
         return "SplitResult(mode=%s frac=%.4f, %d sub-edit(s))" % (
             self.mode, self.fraction_changed, len(self.sub_edits),
         )
@@ -327,6 +334,7 @@ def _build_surgical_edits(old, new, old_words, new_words, opcodes):
 
     Returns sub-edits sorted by ``old_start`` (non-overlapping by construction).
     """
+    # crosshair: off  # opcodes + Token lists combinatorics (cover-all 33337516899: 24k lines). split_change already off; doable later with a tiny token/opcode alphabet.
     # Pair up matched words: list of (old_word_index, new_word_index) for every equal
     # word, in order. These are the anchors.
     anchors = []
@@ -359,6 +367,7 @@ def _build_surgical_edits(old, new, old_words, new_words, opcodes):
 
 def _emit_segment(out, old, new, old_lo, old_hi, new_lo, new_hi):
     """Append a (possibly trimmed) :class:`SubEdit` for one segment, if it changed."""
+    # crosshair: off  # isspace-trim loops on free strings (cover-all 33337516899: 12.7k lines). Same class as tokenize (already off). Doable later with a tiny string domain.
     old_seg = old[old_lo:old_hi]
     new_seg = new[new_lo:new_hi]
     if old_seg == new_seg:
@@ -401,6 +410,7 @@ def apply_sub_edits(old, sub_edits):
     :func:`split_change` emits them). This mirrors what the LO integration will do --
     splice each surgical span -- and is the property used by the reconstruction tests.
     """
+    # crosshair: off  # SubEdit list + free old string splice (cover-all 33337516899: 44k lines). Doable later with a tiny edit list domain.
     out = []
     cursor = 0
     for e in sorted(sub_edits, key=lambda x: (x.old_start, x.old_end)):
