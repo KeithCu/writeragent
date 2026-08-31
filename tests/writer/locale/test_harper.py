@@ -15,8 +15,10 @@ import pytest
 from plugin.contrib.lsp.json_rpc_framing import read_exactly
 from plugin.writer.locale.harper import (
     HarperLSClient,
+    HarperRuntimeState,
     _harper_lsp_settings,
     _pump_grammar_status_ui,
+    harper_try_lint,
     lsp_range_to_offset,
     run_harper_check,
     run_harper_lint,
@@ -36,6 +38,7 @@ def _reset_harper_client_cache() -> None:
     for client in harper_module._HARPER_CLIENT_CACHE.values():
         client.close()
     harper_module._HARPER_CLIENT_CACHE.clear()
+    harper_module._set_state(HarperRuntimeState.IDLE, failed_at=0.0)
     harper_binary_module._release_cache.clear()
 
 
@@ -1021,3 +1024,67 @@ def test_run_harper_lint_normalizes_unicode_whitespace() -> None:
         assert res["errors"][0]["wrong"] == "an"
         assert res["errors"][0]["n_error_start"] == 10
         assert res["errors"][0]["n_error_length"] == 2
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_idle_kicks_one_ensure(mock_bg: MagicMock) -> None:
+    assert harper_try_lint("Hello.", "/tmp") is None
+    assert mock_bg.call_count == 1
+    assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+    assert harper_try_lint("Hello again.", "/tmp") is None
+    assert mock_bg.call_count == 1
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_ready_returns_errors(mock_bg: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    mock_client.lint.return_value = [
+        {
+            "diagnostic": {
+                "message": "Start with capital letter",
+                "code": "SentenceCapitalization",
+                "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}},
+            },
+            "suggestions": ["This"],
+        }
+    ]
+    harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = mock_client
+    harper_module._set_state(HarperRuntimeState.READY)
+
+    res = harper_try_lint("this is text", "/tmp")
+    assert res is not None
+    assert res["errors"][0]["wrong"] == "this"
+    assert res["errors"][0]["correct"] == "This"
+    mock_bg.assert_not_called()
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_dead_process_kicks_ensure(mock_bg: MagicMock) -> None:
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = False
+    harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = mock_client
+    harper_module._set_state(HarperRuntimeState.READY)
+
+    assert harper_try_lint("Hello.", "/tmp") is None
+    assert mock_bg.call_count == 1
+    assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_failed_cooldown_skips_retry(mock_bg: MagicMock) -> None:
+    import time
+
+    harper_module._set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic())
+    assert harper_try_lint("Hello.", "/tmp") is None
+    mock_bg.assert_not_called()
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_failed_after_cooldown_retries(mock_bg: MagicMock) -> None:
+    import time
+
+    harper_module._set_state(HarperRuntimeState.FAILED, failed_at=time.monotonic() - harper_module._HARPER_FAIL_COOLDOWN_SEC - 1)
+    assert harper_try_lint("Hello.", "/tmp") is None
+    assert mock_bg.call_count == 1
+    assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING

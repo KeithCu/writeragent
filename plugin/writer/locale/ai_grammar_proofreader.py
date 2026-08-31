@@ -497,6 +497,48 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 combined_errors.append(adj)
         return combined_errors, uncached_spans
 
+    def _try_harper_fast_path(
+        self,
+        a_doc_id: str,
+        loc_key: str,
+        uncached_spans: list[tuple[int, int, str]],
+        combined_errors: list[dict[str, Any]],
+    ) -> bool:
+        """If this is Harper, lint ready process now or kick one ensure. True = do not enqueue."""
+        from plugin.framework.config import get_grammar_provider, user_config_dir
+
+        provider = getattr(self, "_provider", "") or get_grammar_provider()
+        if provider != "harper":
+            return False
+
+        from dataclasses import asdict
+
+        from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
+        from plugin.writer.locale.grammar_proofread_cache import cache_put_sentence, ignored_rules_snapshot
+        from plugin.writer.locale.grammar_proofread_text import normalize_errors_for_text
+        from plugin.writer.locale.harper import harper_try_lint
+
+        cfg_dir = user_config_dir() or ""
+        ident = getattr(self, "_checker_identity", "harper")
+        for sent_start, unused_end, sent_text in uncached_spans:
+            del unused_end
+            res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key)
+            if res is None:
+                grammar_obs("do_proofreading_harper_ensure", doc_id=a_doc_id, grammar_bcp47=loc_key)
+                break
+            errors = res.get("errors", [])
+            ignored = doc_ignored_rules(self.ctx, a_doc_id)
+            global_ignored = ignored_rules_snapshot()
+            norm_errors = normalize_errors_for_text(sent_text, 0, len(sent_text), errors, self.ctx, loc_key)
+            filtered = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
+            payload = [asdict(e) for e in filtered]
+            cache_put_sentence(loc_key, sent_text, payload, ctx=self.ctx, doc_id=a_doc_id, checker_identity=ident)
+            for err_item in payload:
+                adj = dict(err_item)
+                adj["n_error_start"] = sent_start + err_item.get("n_error_start", 0)
+                combined_errors.append(adj)
+        return True
+
     def _enqueue_misses(self, a_doc_id: str, a_text: str, loc_key: str, uncached_spans: list[tuple[int, int, str]]) -> None:
         """Enqueue uncached sentences for background processing."""
         provider = getattr(self, "_provider", "")
@@ -617,6 +659,11 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             miss_reason = "partial_miss" if cached_ct > 0 else "all_uncached"
 
             grammar_obs("do_proofreading_cache_partial_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, cached_count=cached_ct, uncached_count=len(uncached_active_spans), errors_returned=len(combined_errors), miss_reason=miss_reason)
+
+            if self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors):
+                if combined_errors:
+                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
+                return a_res
 
             self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans)
             log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
