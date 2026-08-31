@@ -315,6 +315,7 @@ def xhtml_to_semantic_html(full_xhtml, autostyle_parents=None):
     index. Recovers the base style **name** after StarWriter write→read when CSS fingerprint
     fails; does not recover whole-paragraph Para* overrides (v1 limitation — see plan doc).
     """
+    # crosshair: off  # HTMLParser over unbounded XHTML (cover-all 33418536119: xhtml_style_postprocess 1141s). Doable later with UNDER_CROSSHAIR dual-profile + DEAL_MAX_HTML_CHUNK (pytest fixtures exceed 512).
     raw_map, norm_map = parse_style_block(full_xhtml)
     body = _strip_body(full_xhtml)
     tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents)
