@@ -413,9 +413,9 @@ def maybe_start_harper_async(
 ) -> bool:
     """Start background warmup of harper-ls if Harper is the active/enabled grammar engine.
 
-    Safe to call from main/startup hooks or proofreader constructors in both LibreHarper
-    (where Harper is always active) and WriterAgent (when doc.grammar_proofreader_enabled == 'harper').
-    Returns True if an async ensure job was submitted, False otherwise.
+    Call after ``init_config`` so ``user_config_dir`` is the LibreOffice profile folder
+    (parent of writeragent.json). Empty path is a no-op. WriterAgent starts from OnStartApp;
+    LibreHarper from HarperProofreader after init_config (no Jobs.xcu). Returns True if submitted.
     """
     from plugin.framework.config import get_grammar_provider, is_grammar_enabled, user_config_dir as get_ucd
     from plugin.framework.uno_context import is_libreharper
@@ -449,6 +449,8 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US") -> di
 
     Never downloads or ``Popen``s on the caller thread (UNO ``doProofreading``).
     """
+    if not user_config_dir:
+        return None
     with _HARPER_LOCK:
         client = _alive_client()
         if client is not None:

@@ -505,14 +505,30 @@ def test_ensure_writeragent_proofreader_configured_triggers_harper_warmup() -> N
 
     ctx = MagicMock()
     with (
+        patch("plugin.framework.config.init_config"),
         patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"),
         patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
     ):
         ensure_writeragent_proofreader_configured(ctx)
-        mock_warmup.assert_called_once_with(ctx)
+        mock_warmup.assert_called_once_with(ctx, user_config_dir="/tmp/lo-user")
 
 
-def test_writeragent_proofreader_init_triggers_harper_warmup() -> None:
+def test_ensure_writeragent_proofreader_configured_skips_warmup_without_config_dir() -> None:
+    from plugin.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.config.init_config"),
+        patch("plugin.framework.config.is_grammar_enabled", return_value=True),
+        patch("plugin.framework.config.user_config_dir", return_value=""),
+        patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
+    ):
+        ensure_writeragent_proofreader_configured(ctx)
+        mock_warmup.assert_not_called()
+
+
+def test_writeragent_proofreader_init_does_not_start_harper() -> None:
     from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
 
     ctx = MagicMock()
@@ -522,4 +538,4 @@ def test_writeragent_proofreader_init_triggers_harper_warmup() -> None:
         patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_warmup,
     ):
         WriterAgentAiGrammarProofreader(ctx)
-        mock_warmup.assert_called_once_with(ctx)
+        mock_warmup.assert_not_called()

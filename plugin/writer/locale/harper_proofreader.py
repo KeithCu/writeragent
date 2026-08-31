@@ -111,6 +111,17 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
         super().__init__(ctx, *args)
         self._implementation_name = IMPLEMENTATION_NAME
         self._locales = _harper_locale_tuple()
+        # LibreHarper has no OnStartApp job; start harper-ls only once the profile path exists.
+        try:
+            from plugin.framework.config import init_config, user_config_dir
+            from plugin.writer.locale.harper import maybe_start_harper_async
+
+            init_config(ctx)
+            ucd = user_config_dir() or ""
+            if ucd:
+                maybe_start_harper_async(ctx, user_config_dir=ucd)
+        except Exception as e:
+            log.warning("[grammar] LibreHarper harper warmup start failed: %s", e)
 
     def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
         """LibreHarper is always enabled when registered; check supported locale."""

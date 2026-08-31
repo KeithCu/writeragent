@@ -224,19 +224,29 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     active grammar checker under Tools → Options → Language Settings → Writing aids.
     """
     from plugin.framework.logging import init_logging
+    from plugin.framework.config import init_config, is_grammar_enabled, user_config_dir
 
     init_logging(ctx)
     log.debug("[grammar] ensure_proofreader_selection: entry")
-    from plugin.framework.config import is_grammar_enabled
-
+    try:
+        init_config(ctx)
+    except Exception as e:
+        log.debug("[grammar] ensure_proofreader_selection: init_config: %s", e)
     enabled = is_grammar_enabled()
     if not enabled:
         log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
     try:
+        ucd = user_config_dir() or ""
+    except Exception:
+        ucd = ""
+    if not ucd:
+        log.debug("[grammar] skip harper warmup: user config dir not ready")
+        return
+    try:
         from plugin.writer.locale.harper import maybe_start_harper_async
 
-        maybe_start_harper_async(ctx)
+        maybe_start_harper_async(ctx, user_config_dir=ucd)
     except Exception as e:
         log.warning("[grammar] OnStartApp: could not warmup harper: %s", e)
     log.info("[grammar] Doc-tab AI grammar on — if Writer does not underline yet, set WriterAgent as the active grammar checker under Tools → Options → Language Settings → Writing aids for the document language (same locales as the extension’s UI translation set).")
@@ -394,12 +404,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         except Exception:
             log.exception("[grammar] WriterAgentAiGrammarProofreader.__init__: _locale_tuple failed")
             self._locales = ()
-        try:
-            from plugin.writer.locale.harper import maybe_start_harper_async
-
-            maybe_start_harper_async(ctx)
-        except Exception as e:
-            log.warning("[grammar] WriterAgentAiGrammarProofreader harper warmup start failed: %s", e)
 
     # --- XServiceName / XServiceInfo ---
     def getServiceName(self) -> str:

@@ -224,9 +224,31 @@ def test_harper_proofreader_initialization_starts_harper_warmup() -> None:
 
     try:
         ctx = MagicMock()
-        with patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_start:
+        with (
+            patch("plugin.framework.config.init_config"),
+            patch("plugin.framework.config.user_config_dir", return_value="/tmp/lo-user"),
+            patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_start,
+        ):
             HarperProofreader(ctx)
-            mock_start.assert_called_once_with(ctx)
+            mock_start.assert_called_once_with(ctx, user_config_dir="/tmp/lo-user")
+    finally:
+        reset_package_extension_id_for_tests()
+
+
+def test_harper_proofreader_skips_warmup_without_config_dir() -> None:
+    from unittest.mock import MagicMock, patch
+    from plugin.writer.locale.harper_proofreader import HarperProofreader
+    from plugin.framework.uno_context import reset_package_extension_id_for_tests
+
+    try:
+        ctx = MagicMock()
+        with (
+            patch("plugin.framework.config.init_config"),
+            patch("plugin.framework.config.user_config_dir", return_value=""),
+            patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_start,
+        ):
+            HarperProofreader(ctx)
+            mock_start.assert_not_called()
     finally:
         reset_package_extension_id_for_tests()
 

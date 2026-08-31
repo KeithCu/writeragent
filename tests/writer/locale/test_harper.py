@@ -1171,3 +1171,11 @@ def test_harper_ensure_ready_body_schedules_proofread_again() -> None:
         harper_module._harper_ensure_ready_body("/tmp", "en-US")
     mock_sched.assert_called_once()
     assert harper_module._HARPER_STATE is HarperRuntimeState.READY
+
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_empty_config_dir_does_not_ensure(mock_bg: MagicMock) -> None:
+    assert harper_try_lint("Hello.", "") is None
+    mock_bg.assert_not_called()
+    assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
