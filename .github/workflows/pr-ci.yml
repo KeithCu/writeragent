@@ -19,6 +19,16 @@ on:
         required: false
         default: false
         type: boolean
+      ci_debug:
+        description: "Opt-in hang diagnostics (nodeid trail, faulthandler, --max-worker-restart=0, process dump, artifacts). Off by default."
+        required: false
+        default: false
+        type: boolean
+      pytest_serial:
+        description: "Disable xdist (PYTEST_WORKERS=0). Use with ci_debug to get a serial traceback."
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -28,7 +38,9 @@ jobs:
   test:
     name: ${{ inputs.test_mock_sidebar == true && format('Mock LLM Sidebar ({0})', matrix.os) || format('Test & Typecheck ({0})', matrix.os) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ inputs.test_mock_sidebar == true && 60 || 30 }}
+    # 30 is the budget that cancelled 33447705893 after the xdist replace wedge.
+    # Debug runs get 40 so dump + artifact upload still run after a 25-min test step.
+    timeout-minutes: ${{ inputs.test_mock_sidebar == true && 60 || (inputs.ci_debug == true && 40 || 30) }}
     strategy:
       fail-fast: false
       matrix:
@@ -47,6 +59,8 @@ jobs:
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
+      WRITERAGENT_CI_DEBUG: ${{ inputs.ci_debug == true && '1' || '' }}
+      WRITERAGENT_CI_DEBUG_DIR: ${{ runner.temp }}/pytest-ci-debug
 
     steps:
       - name: Checkout repository
@@ -123,8 +137,36 @@ jobs:
 
       - name: Run tests (Pytest + UNO)
         if: ${{ inputs.test_mock_sidebar != true }}
+        timeout-minutes: 25
         run: |
+          if [ "${{ inputs.pytest_serial }}" = "true" ]; then
+            export PYTEST_WORKERS=0
+          fi
+          if [ "$WRITERAGENT_CI_DEBUG" = "1" ]; then
+            mkdir -p "$WRITERAGENT_CI_DEBUG_DIR"
+          fi
           make test
+
+      - name: Dump leftover processes (CI debug)
+        if: ${{ always() && inputs.ci_debug == true }}
+        run: |
+          mkdir -p "$WRITERAGENT_CI_DEBUG_DIR"
+          dump="$WRITERAGENT_CI_DEBUG_DIR/processes.txt"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            tasklist > "$dump" || true
+          else
+            ps -ef > "$dump" || true
+          fi
+          echo "=== harper-ls / soffice.bin ==="
+          grep -E 'harper-ls|soffice(\.bin)?' "$dump" || echo "(none)"
+
+      - name: Upload CI debug artifacts
+        if: ${{ always() && inputs.ci_debug == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-debug-${{ matrix.os }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/pytest-ci-debug/
+          if-no-files-found: warn
 
       - name: Verify Core & Grammar Extension Packaging Lifecycles (LibrePy, LibreHarper)
         if: ${{ inputs.test_mock_sidebar != true }}

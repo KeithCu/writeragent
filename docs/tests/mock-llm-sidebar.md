@@ -108,6 +108,8 @@ From the Actions tab → **PR CI** → **Run workflow**:
 |-------|---------|
 | `os` | Ubuntu / macOS / Windows / `all` (same picker as the rest of PR CI) |
 | `test_mock_sidebar` | Off (default): typecheck + pytest/UNO + packaging. On: skip those and run `make test-mock-sidebar` only |
+| `ci_debug` | Off (default). On: `WRITERAGENT_CI_DEBUG=1` — per-worker nodeid trail, faulthandler dump at 240s, `--max-worker-restart=0`, leftover process dump, upload `ci-debug-<os>-<run_id>`. Does **not** fix the Windows hang; it is how we get the crashed-worker nodeid. |
+| `pytest_serial` | Off (default). On: `PYTEST_WORKERS=0` (no xdist). Use with `ci_debug` when you want a serial traceback. |
 
 Linux starts a virtual framebuffer (`xvfb-run` + `dbus-run-session`) because `testing_runner` refuses `--user-profile` without `DISPLAY`. WriterAgent is still built and registered first.
 

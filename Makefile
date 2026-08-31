@@ -84,7 +84,8 @@ ifeq ($(OS),Windows_NT)
         LO_PYTHON ?= $(LO_PROGRAM)/python.exe
     else
         UNOPKG := unopkg
-        LO_PYTHON ?= python
+        # No LibreOffice program dir: leave LO_PYTHON unset. A random
+        # python.exe cannot host pyuno; test-uno must fail loudly instead.
     endif
 else
     SCRIPTS = $(PROJECT_ROOT)/scripts
@@ -96,6 +97,18 @@ else
     UNAME_S := $(shell uname -s 2>/dev/null)
     ifeq ($(UNAME_S),Darwin)
     LO_CONF := $(HOME)/Library/Application Support/LibreOffice/4
+    # pyuno is a CPython extension built for LibreOffice's bundled interpreter.
+    # Hosting it in an arbitrary CPython (the project .venv is 3.13) segfaults
+    # during import with no output — macOS CI 33447724981 died in ~150ms after
+    # falling through to $(PYTHON). Prefer Current, then any Versions/*, then
+    # Homebrew Caskroom copies of the same app bundle.
+    LO_PYTHON ?= $(firstword $(wildcard \
+        /Applications/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
+        /Applications/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3 \
+        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
+        /opt/homebrew/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3 \
+        /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3 \
+        /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3))
     else
     LO_CONF := $(HOME)/.config/libreoffice/4
     endif
@@ -152,7 +165,7 @@ endif
         dev-deploy dev-deploy-remove \
         lo-start lo-start-full lo-kill lo-restart \
         clean-cache nuke-cache nuke-cache-force unbundle \
-        log log-tail lo-log test pytest test-uno test-mock-sidebar test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full check-ext check-setup deploy ensure-uno \
+        log log-tail lo-log test pytest test-uno test-mock-sidebar test-run test-durations slowtests vhs test-visible lo-test-threadguard lo-test-threadguard-visible typecheck typecheck-full check-ext check-setup deploy ensure-uno _check-lo-python \
         verify crosshair-check crosshair-cover crosshair-check-all crosshair-check-all-deep \
         crosshair-cover-all crosshair-cover-all-deep \
         lo-start-log opengrep-lint opengrep-lint-advisory opengrep-rules-sync opengrep-rules-audit uno-thread-lint uno-thread-lint-advisory opengrep-install \
@@ -219,7 +232,8 @@ help:
 	@echo "  make check-ext              Verify extension is registered"
 	@echo "  make set-config             List all config keys"
 	@echo "  make test                   Run ty, mypy, pyright, pyspector, bandit, pytest + LO tests + excel-py-roundtrip"
-	@echo "  make pytest                 Unit pytest only (xdist -n -1; PYTEST_WORKERS=0 for serial)"
+	@echo "  make pytest                 Unit pytest only (xdist -n auto; PYTEST_WORKERS=0 for serial)"
+	@echo "  WRITERAGENT_CI_DEBUG=1      Opt-in hang diagnostics (nodeid trail, faulthandler, --max-worker-restart=0)"
 	@echo "  make mock-llm               Fake OpenAI chat server on :18766 (sidebar soak: scroll, tools, Stop, errors)"
 	@echo "  make test-uno               UNO tests only via testing_runner (serial live soffice)"
 	@echo "  make test-uno FILTER=…      Same; FILTER=path or test_* name (native runner)"
@@ -664,10 +678,13 @@ check-ext:
 	@echo "---"
 	@"$(PYTHON)" -c "from plugin._manifest import MODULES; print('Manifest OK: %d modules, %d with config' % (len(MODULES), len([m for m in MODULES if m.get('config')])))"
 
-# For LO tests: use Python that has uno/officehelper (LibreOffice's Python on Windows;
-# otherwise same as "python -m plugin.testing_runner").
-# We try to detect one that has the 'uno' module available, falling back to 'python' if none found.
-LO_PYTHON ?= $(shell python3 -c "import uno" 2>/dev/null && echo python3 || (python -c "import uno" 2>/dev/null && echo python || echo $(PYTHON)))
+# Host Python that can import the real pyuno bridge.
+# Windows / Darwin set LO_PYTHON above to LibreOffice's bundled interpreter.
+# Linux (and any platform that left it unset) probes system python3, then python.
+# Do NOT fall back to the project venv: on macOS that CPython 3.13 loads pyuno
+# and segfaults with no output (CI 33447724981). If nothing can import uno,
+# LO_PYTHON stays empty and _check-lo-python fails with the paths we looked for.
+LO_PYTHON ?= $(shell python3 -c "import uno" 2>/dev/null && echo python3 || (python -c "import uno" 2>/dev/null && echo python))
 
 # -j6 leaves a core free. Do not pass basedpyright --threads: it nests workers on this pool.
 typecheck: manifest ruff-for-build
@@ -692,10 +709,24 @@ PYTEST_XDIST :=
 else
 PYTEST_XDIST := -n $(PYTEST_WORKERS) --dist=loadgroup
 endif
-# --timeout is a backstop so a hung worker cannot sit ~19 min (Windows CI).
-# Per-test 300s (5 min) is well above unit-test runtime; hang points (Harper close, MCP
-# 400 body) are fixed in code. Not in pyproject addopts — vhs/slowtests need longer.
-PYTEST_UNIT = WRITERAGENT_PYTEST_PROGRESS=1 PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST)
+# Opt-in hang diagnostics (WRITERAGENT_CI_DEBUG=1). Off by default so PR CI stays
+# unchanged. --max-worker-restart=0 is the highest-value Windows knob: xdist
+# then prints the crashitem nodeid in the session summary instead of cloning
+# the dead worker (default restart budget is numprocesses*4). The clone must
+# re-collect ~6k items; the controller loop_once has a 2s poll and no deadline,
+# which is the 15-minute wedge after "replacing crashed worker gw3"
+# (33447705893). pytest-timeout did not fire — gw3 vanished at 261s with no
+# "Failed: Timeout" line.
+ifeq ($(WRITERAGENT_CI_DEBUG),1)
+PYTEST_CI_DEBUG_FLAGS := --max-worker-restart=0
+else
+PYTEST_CI_DEBUG_FLAGS :=
+endif
+# Per-test 300s thread-method backstop. It does not bound worker collection,
+# sessionstart, or the xdist controller wait, and it cannot abort a native or
+# subprocess block (33447705893: 261s gap, no Failed: Timeout). Not in
+# pyproject addopts — vhs/slowtests need longer.
+PYTEST_UNIT = WRITERAGENT_PYTEST_PROGRESS=1 PYTHONUNBUFFERED=1 "$(PYTHON)" -u -m pytest tests -m "not slow and not integration" --ignore-glob="*_uno.py" --timeout=300 --timeout-method=thread $(PYTEST_XDIST) $(PYTEST_CI_DEBUG_FLAGS)
 
 pytest:
 	@echo "=== pytest ==="
@@ -708,11 +739,29 @@ mock-llm:
 # Optional native-runner selectors: packet letter (B/C/D/E/F/G), case id (f3a), or test_* name.
 FILTER ?=
 
-test-uno:
+# Fail before launching a doomed interpreter. The old silent venv fallback
+# cost hours: macOS CI segfaulted in ~150ms with PYTHONUNBUFFERED=1 and no
+# _progress() output because it crashed during import, not during tests.
+_check-lo-python:
+	@if [ -z "$(strip $(LO_PYTHON))" ]; then \
+		echo >&2 "error: LO_PYTHON is empty — no interpreter that can import uno was found."; \
+		echo >&2 "LibreOffice pyuno cannot be hosted by an arbitrary CPython (macOS CI"; \
+		echo >&2 "segfaulted in ~150ms with no output when the project venv was used)."; \
+		echo >&2 "Looked for:"; \
+		echo >&2 "  macOS: /Applications/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3"; \
+		echo >&2 "         (also Versions/*/bin/python3 and Homebrew Caskroom LibreOffice.app)"; \
+		echo >&2 "  Linux: python3 or python with a working 'import uno' (apt: python3-uno)"; \
+		echo >&2 "  Windows: LibreOffice/program/python.exe"; \
+		echo >&2 "Set LO_PYTHON to LibreOffice's bundled interpreter — not the project .venv."; \
+		exit 1; \
+	fi
+	@echo "LO_PYTHON=$(LO_PYTHON)"
+
+test-uno: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
 	PYTHONUNBUFFERED=1 "$(LO_PYTHON)" -u -m plugin.testing_runner $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
-test-mock-sidebar:
+test-mock-sidebar: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
 	PYTHONUNBUFFERED=1 "$(LO_PYTHON)" -u -m plugin.testing_runner --user-profile tests/chatbot/test_mock_llm_sidebar_uno.py $(FILTER); EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
@@ -752,13 +801,13 @@ vhs:
 		tests/calc/test_address_utils_verification.py \
 		-k hypothesis -s --hypothesis-verbosity=verbose
 
-test-visible:
+test-visible: _check-lo-python
 	PYTHONUNBUFFERED=1 "$(LO_PYTHON)" -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 lo-test-threadguard:
 	WRITERAGENT_UNO_THREAD_GUARD=1 $(MAKE) test-uno
 
-lo-test-threadguard-visible:
+lo-test-threadguard-visible: _check-lo-python
 	WRITERAGENT_UNO_THREAD_GUARD=1 PYTHONUNBUFFERED=1 "$(LO_PYTHON)" -u -m plugin.testing_runner --visible test_charts_uno test_enhanced_charts_uno test_document_research_grep_uno test_rich_html_uno; EXIT_CODE=$$?; $(MAKE) -C "$(PROJECT_ROOT)" lo-kill; exit $$EXIT_CODE
 
 opengrep-lint:
