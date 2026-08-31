@@ -46,9 +46,10 @@ setattr(
     ),
 )
 
-# Mock uno module
+# Mock uno module. Distinct structs per call so multi-error aErrors can be
+# inspected by start/rule (a shared MagicMock return_value overwrites fields).
 uno_mod = _ensure_module("uno")
-uno_mod.createUnoStruct = MagicMock()
+uno_mod.createUnoStruct = MagicMock(side_effect=lambda *_args, **_kwargs: types.SimpleNamespace())
 uno_mod.getConstantByName = MagicMock(return_value=4)  # PROOFREADING
 uno_mod.getComponentContext = MagicMock()
 
