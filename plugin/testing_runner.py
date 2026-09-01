@@ -33,17 +33,27 @@ def _progress(msg: str) -> None:
 
 
 def _soffice_pids() -> str:
-    """Best-effort soffice.bin PIDs for correlating glibc aborts with this run."""
+    """Best-effort soffice PIDs for correlating aborts with this run.
+
+    Linux uses ``soffice.bin``; macOS Homebrew/app bundles name the process
+    ``soffice``. ``pgrep -x soffice.bin`` on Darwin is why CI 33453203864
+    printed ``soffice.bin=-`` while ``lo-kill`` still found PID 18456.
+    """
     try:
         import subprocess
 
-        out = subprocess.check_output(
-            ["pgrep", "-x", "soffice.bin"],
-            text=True,
-            stderr=subprocess.DEVNULL,
-        )
-        pids = ",".join(out.split())
-        return pids or "-"
+        pids: list[str] = []
+        for name in ("soffice.bin", "soffice"):
+            try:
+                out = subprocess.check_output(
+                    ["pgrep", "-x", name],
+                    text=True,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                continue
+            pids.extend(token for token in out.split() if token)
+        return ",".join(dict.fromkeys(pids)) or "-"
     except Exception:
         return "-"
 
@@ -198,7 +208,25 @@ def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
         return None
 
 
-_SOFFICE_STRIP_ENV = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV")
+# Inherited checkout / venv env makes soffice load mixed plugin sources; URP
+# then reports the bridge disposed (testing_runner._bootstrap_office).
+# __PYVENV_LAUNCHER__ is the Darwin venv leak into a child interpreter.
+_SOFFICE_STRIP_ENV = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "__PYVENV_LAUNCHER__")
+
+# Set when a URP dispose is seen so run_all_tests stops instead of 200+ dead suites.
+_urp_bridge_dead: bool = False
+
+
+def _pop_soffice_env() -> tuple[dict[str, str], list[str]]:
+    """Remove runner-Python env from ``os.environ``. Return (saved, stripped keys)."""
+    saved: dict[str, str] = {}
+    stripped: list[str] = []
+    for key in _SOFFICE_STRIP_ENV:
+        val = os.environ.pop(key, None)
+        if val is not None:
+            saved[key] = val
+            stripped.append(key)
+    return saved, stripped
 
 
 def _child_env_without_runner_python(*, uno_thread_guard: bool | None = None) -> dict[str, str]:
@@ -240,19 +268,7 @@ def _libreoffice_user_lock_path() -> Path:
 
 
 def _soffice_bin_running() -> bool:
-    try:
-        import subprocess
-
-        return (
-            subprocess.call(
-                ["pgrep", "-x", "soffice.bin"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            == 0
-        )
-    except Exception:
-        return False
+    return _soffice_pids() != "-"
 
 
 def _clear_stale_user_profile_ipc() -> None:
@@ -329,9 +345,15 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
     port = _unused_tcp_port()
     accept = "socket,host=127.0.0.1,port=%s;urp;" % port
     cmd = _user_profile_soffice_argv(soffice, accept)
+    stripped = [key for key in _SOFFICE_STRIP_ENV if key in os.environ]
+    child_env = _child_env_without_runner_python(uno_thread_guard=False)
+    _progress(
+        "BOOTSTRAP path=user-profile stripped=%s officehelper=%s soffice_cmd=%r"
+        % (stripped, getattr(officehelper_module, "__file__", "?"), cmd)
+    )
     proc = subprocess.Popen(
         cmd,
-        env=_child_env_without_runner_python(uno_thread_guard=False),
+        env=child_env,
         start_new_session=True,
     )
     local = uno.getComponentContext()
@@ -355,9 +377,18 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
                 % code
             )
         try:
-            return resolver.resolve(url)
+            ctx = resolver.resolve(url)
+            _progress(
+                "BOOTSTRAP path=user-profile connected=True soffice_exit=%s pids=%s"
+                % (proc.poll(), _soffice_pids())
+            )
+            return ctx
         except NoConnectException as exc:
             last_exc = exc
+    _progress(
+        "BOOTSTRAP path=user-profile connected=False soffice_exit=%s pids=%s last=%s"
+        % (proc.poll(), _soffice_pids(), last_exc)
+    )
     raise RuntimeError("could not connect to user-profile soffice: %s" % last_exc)
 
 
@@ -370,13 +401,31 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
     """
     if use_user_profile:
         return _bootstrap_user_profile_gui(officehelper_module)
-    saved: dict[str, str] = {}
-    for key in _SOFFICE_STRIP_ENV:
-        val = os.environ.pop(key, None)
-        if val is not None:
-            saved[key] = val
+    saved, stripped = _pop_soffice_env()
+    cmd = _soffice_bootstrap_command(officehelper_module)
+    resolved = _resolve_soffice_bin(officehelper_module)
+    _progress(
+        "BOOTSTRAP path=headless stripped=%s officehelper=%s soffice_cmd=%r resolved_soffice=%s"
+        % (
+            stripped,
+            getattr(officehelper_module, "__file__", "?"),
+            cmd,
+            resolved,
+        )
+    )
     try:
-        return officehelper_module.bootstrap(soffice=_soffice_bootstrap_command(officehelper_module))
+        ctx = officehelper_module.bootstrap(soffice=cmd)
+        _progress(
+            "BOOTSTRAP path=headless returned=%s pids=%s leftover_PYTHONPATH=%s"
+            % (ctx is not None, _soffice_pids(), os.environ.get("PYTHONPATH"))
+        )
+        return ctx
+    except Exception as exc:
+        _progress(
+            "BOOTSTRAP path=headless error=%s:%s pids=%s"
+            % (type(exc).__name__, exc, _soffice_pids())
+        )
+        raise
     finally:
         os.environ.update(saved)
 
@@ -419,8 +468,15 @@ def _run_suite(ctx: Any, suites: List[Dict[str, Any]], name: str, module, *args)
     return passed, failed
 
 
-def _is_uno_bridge_disposed(exc: Exception) -> bool:
+def _is_uno_bridge_disposed(exc: BaseException) -> bool:
     return type(exc).__name__ == "DisposedException" or "Binary URP bridge" in str(exc)
+
+
+def _mark_urp_dead(exc: BaseException, where: str) -> None:
+    """Record a dead URP bridge and stop scheduling more native suites."""
+    global _urp_bridge_dead
+    _urp_bridge_dead = True
+    _progress("ABORT: URP bridge disposed at %s: %s; remaining suites skipped" % (where, exc))
 
 
 def run_module_suite(ctx, module, name, doc_model=None):
@@ -538,6 +594,9 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 suite_log.append(f"{test_line} — FAIL ({type(e).__name__}: {e})")
                 suite_log.append(traceback.format_exc())
                 _progress(f"TEST end {name}.{test_func.__name__} FAIL")
+                if _is_uno_bridge_disposed(e):
+                    _mark_urp_dead(e, "%s.%s" % (name, test_func.__name__))
+                    break
 
     except Exception as e:
         total_failed += 1
@@ -590,6 +649,8 @@ def run_all_tests(ctx: Any) -> str:
     inside LibreOffice. External callers can parse this JSON, print a report,
     and use total_failed as an exit code condition.
     """
+    global _urp_bridge_dead
+    _urp_bridge_dead = False
     # Mock doc.agent_edit_review_mode during tests to default to "off"
     # and only track its test-specific overrides in memory.
     import plugin.framework.config
@@ -674,6 +735,26 @@ def run_all_tests(ctx: Any) -> str:
             keeper_doc = get_desktop(ctx).loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
     except Exception as e:
         log.warning("run_all_tests: could not create keeper document: %s", e)
+        if _is_uno_bridge_disposed(e):
+            _mark_urp_dead(e, "keeper document")
+            return json.dumps(
+                {
+                    "total_passed": 0,
+                    "total_failed": 1,
+                    "suites": [
+                        {
+                            "name": "bootstrap",
+                            "failed": 1,
+                            "log": [
+                                "could not create keeper document: %s" % e,
+                                "ABORT: URP disposed; not running remaining UNO suites",
+                            ],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
 
     # Initialize the tool registry (Writer/Calc/Draw modules) before loading any
     # UNO test file. Each suite below snapshots/restores sys.modules (uno, com,
@@ -701,8 +782,10 @@ def run_all_tests(ctx: Any) -> str:
         try:
             current_ctx.getServiceManager()
             return current_ctx
-        except Exception:
-            pass
+        except Exception as exc:
+            if _is_uno_bridge_disposed(exc):
+                _mark_urp_dead(exc, "_ensure_live_ctx getServiceManager")
+                return current_ctx
         try:
             _ensure_libreoffice_python_path()
             import officehelper
@@ -721,6 +804,8 @@ def run_all_tests(ctx: Any) -> str:
             return new_ctx
         except Exception as e:
             log.warning("run_all_tests: could not refresh disposed UNO context: %s", e)
+            if _is_uno_bridge_disposed(e):
+                _mark_urp_dead(e, "_ensure_live_ctx refresh")
             return current_ctx
 
     import os
@@ -764,7 +849,13 @@ def run_all_tests(ctx: Any) -> str:
                         test_candidates.append(full_path)
 
         for module_path in sorted(test_candidates):
+            if _urp_bridge_dead:
+                _progress("SUITE skip remaining: URP already disposed")
+                break
             ctx = _ensure_live_ctx(ctx)
+            if _urp_bridge_dead:
+                _progress("SUITE skip remaining: URP already disposed")
+                break
             filename = os.path.basename(module_path)
             module_name = filename[:-3]
             

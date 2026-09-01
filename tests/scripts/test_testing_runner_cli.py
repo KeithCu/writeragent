@@ -24,6 +24,55 @@ def test_parse_cli_user_profile_sets_flags(monkeypatch) -> None:
 def test_soffice_strip_env_names() -> None:
     assert "PYTHONPATH" in tr._SOFFICE_STRIP_ENV
     assert "PYTHONHOME" in tr._SOFFICE_STRIP_ENV
+    assert "VIRTUAL_ENV" in tr._SOFFICE_STRIP_ENV
+    assert "__PYVENV_LAUNCHER__" in tr._SOFFICE_STRIP_ENV
+
+
+def test_pop_soffice_env_restores(monkeypatch) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/checkout")
+    monkeypatch.setenv("__PYVENV_LAUNCHER__", "/venv/bin/python")
+    saved, stripped = tr._pop_soffice_env()
+    assert "PYTHONPATH" in stripped
+    assert "__PYVENV_LAUNCHER__" in stripped
+    assert "PYTHONPATH" not in os.environ
+    os.environ.update(saved)
+    assert os.environ.get("PYTHONPATH") == "/checkout"
+
+
+def test_is_uno_bridge_disposed() -> None:
+    assert tr._is_uno_bridge_disposed(RuntimeError("Binary URP bridge disposed during call"))
+    assert tr._is_uno_bridge_disposed(RuntimeError("Binary URP bridge already disposed"))
+    assert not tr._is_uno_bridge_disposed(RuntimeError("no desktop"))
+
+
+def test_run_module_suite_stops_after_urp_dispose() -> None:
+    ran: list[str] = []
+
+    def test_first(ctx=None):
+        ran.append("first")
+        raise RuntimeError("Binary URP bridge disposed during call")
+
+    def test_second(ctx=None):
+        ran.append("second")
+
+    test_first._is_test = True
+    test_second._is_test = True
+
+    class _Mod:
+        pass
+
+    module = _Mod()
+    module.test_first = test_first
+    module.test_second = test_second
+
+    tr._urp_bridge_dead = False
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.urp")
+    assert ran == ["first"]
+    assert passed == 0
+    assert failed == 1
+    assert tr._urp_bridge_dead is True
+    assert any("ABORT" in line or "disposed" in line.lower() for line in suite_log)
+    tr._urp_bridge_dead = False
 
 
 def test_user_profile_child_env_disables_uno_thread_guard(monkeypatch) -> None:
@@ -60,6 +109,13 @@ def test_libreoffice_user_lock_path_is_under_profile() -> None:
     assert "libreoffice" in str(lock).lower() or "LibreOffice" in str(lock)
 
 
+def test_soffice_bin_running_uses_pids_helper(monkeypatch) -> None:
+    monkeypatch.setattr(tr, "_soffice_pids", lambda: "18456")
+    assert tr._soffice_bin_running() is True
+    monkeypatch.setattr(tr, "_soffice_pids", lambda: "-")
+    assert tr._soffice_bin_running() is False
+
+
 def test_clear_stale_user_profile_ipc_globs_os_tempdir(monkeypatch, tmp_path) -> None:
     import glob
     import tempfile
@@ -74,6 +130,11 @@ def test_clear_stale_user_profile_ipc_globs_os_tempdir(monkeypatch, tmp_path) ->
 
     monkeypatch.setattr(glob, "glob", fake_glob)
     tr._clear_stale_user_profile_ipc()
-    assert seen == [
-        os.path.join(tempfile.gettempdir(), "OSL_PIPE_%s_*" % os.getuid())
-    ]
+    # Production skips the POSIX OSL_PIPE glob when os.getuid is missing
+    # (Windows). The test must not call getuid in the assertion.
+    if hasattr(os, "getuid"):
+        assert seen == [
+            os.path.join(tempfile.gettempdir(), "OSL_PIPE_%s_*" % os.getuid())
+        ]
+    else:
+        assert seen == []
