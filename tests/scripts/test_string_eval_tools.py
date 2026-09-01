@@ -18,6 +18,7 @@ if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
 from string_eval_tools import CalcStringState, StringDocState, dispatch_string_tool
+from eval_worlds import WriterWorld
 
 
 def test_get_full_and_range():
@@ -102,6 +103,21 @@ def test_calc_write_formula_range_and_snapshot():
     dump = json.dumps(snap)
     assert "snapshot" in dump
     assert "Tax" in dump
+
+
+def test_dispatch_search_in_document_alias():
+    s = WriterWorld("hello there")
+    out = dispatch_string_tool(s, "search_in_document", json.dumps({"pattern": "there"}))
+    data = json.loads(out)
+    assert data["status"] == "ok"
+    assert data["ranges"]
+
+
+def test_dispatch_unsupported_writer_tool():
+    s = StringDocState("hello")
+    out = dispatch_string_tool(s, "apply_style", "{}")
+    data = json.loads(out)
+    assert data["code"] == "unsupported_in_eval"
 
 
 def test_calc_sort_range_integer_column():

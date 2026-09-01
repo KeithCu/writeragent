@@ -263,6 +263,9 @@ class ExampleEval:
     gold_document: str | None = None
     error: str | None = None
     oracle_failures: list[str] | None = None
+    process_failures: list[str] | None = None
+    agent_score: float = 0.0
+    trace: list[dict[str, Any]] | None = None
 
 
 def example_passed(result: ExampleEval) -> bool:
@@ -590,11 +593,10 @@ def run_eval_on_examples_llm(
     - ``judge_model``: OpenAI-compatible model id for LLM judge (preferred over ``judge_lm``).
     - ``gold_model``: model id for on-the-fly gold generation (preferred over ``gold_lm``).
     """
-    from eval_prompts import get_writer_eval_chat_system_prompt
+    from eval_prompts import get_eval_system_prompt
 
     from llm_chat_eval import run_llm_chat_eval
 
-    base_instruction = instruction or get_writer_eval_chat_system_prompt()
     results: list[ExampleEval] = []
     examples = list(examples)
     n = len(examples)
@@ -619,10 +621,10 @@ def run_eval_on_examples_llm(
         if student != "scripted" and gm and not gold:
             if not quiet:
                 print(f"  Generating gold standard with {gm}...")
-            inst_g = base_instruction
+            inst_g = instruction or get_eval_system_prompt(task_id)
             if bust_cache:
                 inst_g = f"{inst_g}\n\n[Eval gold: {uuid.uuid4().hex[:8]}]"
-            gold, _ug, gerr = run_llm_chat_eval(
+            gold, _ug, gerr, _gtrace = run_llm_chat_eval(
                 system_prompt=inst_g,
                 document_content=doc,
                 user_question=question,
@@ -641,7 +643,7 @@ def run_eval_on_examples_llm(
             if not quiet:
                 print(f"  Gold generated ({len(gold)} chars).")
 
-        inst = base_instruction
+        inst = instruction or get_eval_system_prompt(task_id)
         if bust_cache:
             inst = f"{inst}\n\n[Eval: {uuid.uuid4().hex[:8]}]"
 
@@ -649,7 +651,7 @@ def run_eval_on_examples_llm(
         error: str | None = None
         prompt_tok = completion_tok = total_tok = 0
         try:
-            final, usage, error = run_llm_chat_eval(
+            final, usage, error, trace = run_llm_chat_eval(
                 system_prompt=inst,
                 document_content=doc,
                 user_question=question,
@@ -675,6 +677,12 @@ def run_eval_on_examples_llm(
 
             correctness, missing, found_reject, oracle_failures = _correctness_breakdown(
                 ex, final
+            )
+            from process_oracles import agent_score_from_failures, check_process
+
+            process_failures = check_process(task_id, trace)
+            agent_score = agent_score_from_failures(
+                oracle_failures, process_failures, error=error
             )
 
             j_score = None
@@ -737,10 +745,11 @@ def run_eval_on_examples_llm(
                 print(
                     f"  correctness={effective_correctness:.2f}  tokens={total_tok}  score={metric_score:.3f}"
                 )
-                if missing or found_reject or oracle_failures:
+                if missing or found_reject or oracle_failures or process_failures:
                     print(
                         f"  missing_expected={missing}  found_reject={found_reject}  "
-                        f"oracle={oracle_failures}"
+                        f"oracle={oracle_failures}  process={process_failures}  "
+                        f"agent_score={agent_score}"
                     )
                 print(f"  doc snippet: {snippet!r}")
 
@@ -770,6 +779,9 @@ def run_eval_on_examples_llm(
                     gold_document=gold,
                     error=error,
                     oracle_failures=oracle_failures,
+                    process_failures=process_failures,
+                    agent_score=agent_score,
+                    trace=trace,
                 )
             )
         except Exception as e:
@@ -789,6 +801,9 @@ def run_eval_on_examples_llm(
                     final_document="",
                     error=error,
                     oracle_failures=[],
+                    process_failures=[],
+                    agent_score=0.0,
+                    trace=[],
                 )
             )
         if not quiet:
@@ -803,15 +818,18 @@ def summarize_results(results: Iterable[ExampleEval]) -> dict:
         return {
             "avg_correctness": 0.0,
             "avg_metric_score": 0.0,
+            "avg_agent_score": 0.0,
             "total_tokens": 0,
         }
     n = len(results)
     avg_correctness = sum(r.correctness for r in results) / n
     avg_metric = sum(r.metric_score for r in results) / n
+    avg_agent = sum(r.agent_score for r in results) / n
     total_tokens = sum(r.total_tokens for r in results)
     return {
         "avg_correctness": avg_correctness,
         "avg_metric_score": avg_metric,
+        "avg_agent_score": avg_agent,
         "total_tokens": total_tokens,
     }
 

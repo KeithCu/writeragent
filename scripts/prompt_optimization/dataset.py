@@ -1,8 +1,9 @@
 """
 Fixed examples for prompt optimization / eval (scripts/prompt_optimization/).
 
-ALL_EXAMPLES is 15 tasks: 12 Writer (including style_consistency, smart_summarization,
-section_refactor, comment_management) + flowchart_gen (Draw) + data_sorting / tax_column (Calc).
+ALL_EXAMPLES is 19 tasks: 12 Writer (including style_consistency, smart_summarization,
+section_refactor, comment_management) + flowchart_gen (Draw) + data_sorting / tax_column
+(Calc) + four Phase F =PY dest rows.
 Structural tasks are scored from the exported final document (oracles + honest substring
 checks). Creative tasks (resume, logical_rewriting, summarization) keep an LLM judge when
 one is configured. See docs/eval/dev-plan.md.
@@ -361,9 +362,84 @@ TAX_COLUMN = {
     "rubric": "Writes correct tax values (Price*0.08, e.g. 0.8/0.4/0.64/1.0). Structural: 60% accuracy (precise calcs, verification step), 40% formatting (correct JSON snapshot with Tax column). Uses CalcStringState fully (no hallucinations on Total/?).",
 }
 
+# Phase F =PY dest (string-first). Fixture is small; the question keeps A1:H500 wording.
+_PY_SHEET = (
+    "Name\tCity\tAmt\n"
+    "Ann\tX\t1\n"
+    "Ann\tX\t1\n"
+    "Bob\tY\t2\n"
+    "Cara\tZ\t3\n"
+    "Cara\tZ\t3\n"
+    "Dan\tX\t4\n"
+    "Eve\tY\t5"
+)
+
+_PY_RUBRIC = (
+    "write_formula_range of =PY(...) into an empty cell outside DataRange A1:H500 "
+    "(J1 or first empty column). Do not write onto the data range. Do not domain=python. "
+    "Do not read_cell_range the whole block."
+)
+
+PY_UNIQUE_BESIDE = {
+    "document_content": _PY_SHEET,
+    "user_question": (
+        "Drop duplicate rows on A1:H500 onto the sheet using =PY. "
+        "Write the formula into an empty cell outside the data range."
+    ),
+    "task_id": "py_unique_beside",
+    "expected_contains": ["=PY", "J1"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": _PY_RUBRIC,
+}
+
+PY_REFUSE_OVERLAP = {
+    "document_content": _PY_SHEET,
+    "user_question": (
+        "Put a =PY unique-rows formula in H1. Data is A1:H500. "
+        "If H1 is inside the data range, write beside it instead and say so."
+    ),
+    "task_id": "py_refuse_overlap",
+    "expected_contains": ["=PY", "J1"],
+    "reject_contains": [],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": _PY_RUBRIC + " H1 is inside A1:H500 — dest must be J1/I1.",
+}
+
+PY_INPLACE_REFRAME = {
+    "document_content": _PY_SHEET,
+    "user_question": (
+        "Write unique rows back onto A1:H500 using =PY. "
+        "If landing on the data range is circular, write beside it and explain briefly."
+    ),
+    "task_id": "py_inplace_reframe",
+    "expected_contains": ["=PY", "J1"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": _PY_RUBRIC + " Dest beside the range, not A1.",
+}
+
+PY_NO_BULK_READ = {
+    "document_content": _PY_SHEET,
+    "user_question": (
+        "Drop duplicate rows on A1:H500 using =PY. "
+        "Do not read_cell_range of A1:H500 or dump the spill into chat."
+    ),
+    "task_id": "py_no_bulk_read",
+    "expected_contains": ["=PY", "J1"],
+    "is_non_trivial": True,
+    "category": "structural",
+    "rubric": _PY_RUBRIC,
+}
+
 ALL_EXAMPLES.append(FLOWCHART_GEN)
 ALL_EXAMPLES.append(DATA_SORTING)
 ALL_EXAMPLES.append(TAX_COLUMN)
+ALL_EXAMPLES.append(PY_UNIQUE_BESIDE)
+ALL_EXAMPLES.append(PY_REFUSE_OVERLAP)
+ALL_EXAMPLES.append(PY_INPLACE_REFRAME)
+ALL_EXAMPLES.append(PY_NO_BULK_READ)
 
 
 
@@ -375,7 +451,14 @@ def task_kind(task_id: str) -> str:
     """
     if task_id == "flowchart_gen":
         return "draw"
-    if task_id in ("data_sorting", "tax_column"):
+    if task_id in (
+        "data_sorting",
+        "tax_column",
+        "py_unique_beside",
+        "py_refuse_overlap",
+        "py_inplace_reframe",
+        "py_no_bulk_read",
+    ):
         return "calc"
     return "writer"
 

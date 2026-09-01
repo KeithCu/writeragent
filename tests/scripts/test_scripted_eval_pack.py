@@ -33,12 +33,14 @@ _LO_CMD = (
 
 def test_scripts_cover_expanded_pack() -> None:
     ids = {ex["task_id"] for ex in ALL_EXAMPLES}
-    assert len(ids) >= 15
+    assert len(ids) >= 19
     assert {
         "style_consistency",
         "smart_summarization",
         "section_refactor",
         "comment_management",
+        "py_unique_beside",
+        "py_no_bulk_read",
     } <= ids
     assert ids <= set(SCRIPTS)
 
@@ -69,6 +71,12 @@ def test_scripted_string_pack_all_pass() -> None:
         if not example_passed(r)
     ]
     assert failed == [], failed
+    process_failed = [
+        (r.task_id, r.process_failures, r.agent_score)
+        for r in results
+        if r.agent_score != 1.0
+    ]
+    assert process_failed == [], process_failed
 
 
 def _lo_eval_available() -> str | None:
@@ -122,5 +130,6 @@ def test_scripted_lo_pack_all_pass() -> None:
     )
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
     assert proc.returncode == 0, out
-    n = len(ALL_EXAMPLES)
+    # =PY dest rows are string-harness only; LO pack stays the original 15.
+    n = len([ex for ex in ALL_EXAMPLES if not str(ex.get("task_id", "")).startswith("py_")])
     assert f"Scripted result pass: {n}/{n}" in out, out

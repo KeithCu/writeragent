@@ -99,7 +99,7 @@ Optimization and multi-model eval use **result oracles** for structural tasks (`
 
 ## Dataset
 
-`dataset.py` `ALL_EXAMPLES` is **15 tasks**: 12 Writer (the original 8 plus `style_consistency`, `smart_summarization`, `section_refactor`, `comment_management`) plus `flowchart_gen` (Draw), `data_sorting` and `tax_column` (Calc). Each has fixed `document_content` and `user_question` so runs are comparable. Kind is keyed by `task_id` (`task_kind()`), not question keywords.
+`dataset.py` `ALL_EXAMPLES` is **19 tasks**: 12 Writer (the original 8 plus `style_consistency`, `smart_summarization`, `section_refactor`, `comment_management`) plus `flowchart_gen` (Draw), `data_sorting` / `tax_column` (Calc), and four Phase F `=PY` dest rows. Each has fixed `document_content` and `user_question` so runs are comparable. Kind is keyed by `task_id` (`task_kind()`), not question keywords.
 
 Structural pass/fail is the **exported final document** (`oracles.py`: Writer HTML, Draw tree JSON, Calc grid). Creative tasks (`reformat_resume`, `logical_rewriting`, `smart_summarization`) keep an LLM judge when `--student llm` and a judge model are set. `gold_standards.json` is hand-written from the rubrics (no live teacher API).
 
@@ -150,7 +150,7 @@ Use `--out path.json` or `--out path.csv` to write results (format by extension)
 
 ### Eval framework (summary)
 
-- **Dataset** (`dataset.py`): 15 fixed tasks (12 Writer + Draw flowchart + 2 Calc) with assigned `category` (structural or creative).
+- **Dataset** (`dataset.py`): 19 fixed tasks (12 Writer + Draw flowchart + 2 Calc + 4 `=PY` dest) with assigned `category` (structural or creative).
 - **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces.
 - **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. `--generate-golds` can still merge a teacher run if you have a key.
 - **Program** (`program.py`): DSPy `WriterAssistant` (ReAct) with mock environment.

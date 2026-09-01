@@ -176,7 +176,26 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
     "style_consistency": [_apply_html(_STYLE_CONSISTENCY), _stop()],
     "smart_summarization": [_apply_html(_SMART_SUMMARIZATION), _stop()],
     "section_refactor": [_apply_html(_SECTION_REFACTOR), _stop()],
-    "comment_management": [_apply_html(_COMMENT_MANAGEMENT), _stop()],
+    "comment_management": [
+        _tools(
+            _tc(
+                "add_comment",
+                {
+                    "search": "uncertain",
+                    "content": "Review this before finalizing",
+                },
+                "cmt_1",
+            )
+        ),
+        _tools(
+            _tc(
+                "apply_document_content",
+                {"target": "end", "content": " (review requirement)"},
+                "note_1",
+            )
+        ),
+        _stop(),
+    ],
     "flowchart_gen": [
         _tools(
             _tc(
@@ -232,6 +251,11 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
                 "shape_4",
             ),
         ),
+        _tools(
+            _tc("shape_connect", {"start": 0, "end": 1}, "conn_1"),
+            _tc("shape_connect", {"start": 1, "end": 2}, "conn_2"),
+            _tc("shape_connect", {"start": 2, "end": 3}, "conn_3"),
+        ),
         _tools(_tc("get_draw_tree", {}, "tree_1")),
         _stop(),
     ],
@@ -280,6 +304,25 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         _stop(),
     ],
 }
+
+_PY_FORMULA = '=PY("result = data.to_pandas().drop_duplicates()"; A1:H500)'
+_PY_WRITE = _tools(
+    _tc(
+        "write_formula_range",
+        {"range": ["J1"], "values": _PY_FORMULA},
+        "py_1",
+    )
+)
+SCRIPTS["py_unique_beside"] = [_PY_WRITE, _stop("wrote unique rows beside the range at J1")]
+SCRIPTS["py_refuse_overlap"] = [
+    _PY_WRITE,
+    _stop("H1 is inside A1:H500; wrote =PY at J1 instead"),
+]
+SCRIPTS["py_inplace_reframe"] = [
+    _PY_WRITE,
+    _stop("writing onto A1:H500 is circular; dest is J1 beside the data"),
+]
+SCRIPTS["py_no_bulk_read"] = [_PY_WRITE, _stop("wrote =PY at J1 without reading the block")]
 
 
 class ScriptedStudent:

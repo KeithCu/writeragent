@@ -93,12 +93,34 @@ _TAX_BAD = json.dumps(
 _FLOW_GOOD = json.dumps(
     {
         "status": "ok",
+        "connections": [
+            {"from_index": 0, "to_index": 1},
+            {"from_index": 1, "to_index": 2},
+        ],
         "tree": [
-            {"text": "Start"},
+            {"text": "Start", "connected_end": {"name": "shape_1", "text": "Process: user login"}},
             {"text": "Process: user login"},
             {"text": "Decision: credentials valid?"},
             {"text": "End"},
         ],
+    }
+)
+_PY_GOOD = json.dumps(
+    {
+        "status": "ok",
+        "snapshot": True,
+        "formulas": {"J1": '=PY("result = 1"; A1:H500)'},
+        "writes": [{"range": ["J1"], "dests": ["J1"], "formula": '=PY("result = 1"; A1:H500)'}],
+        "grid": [["Name"]],
+    }
+)
+_PY_BAD = json.dumps(
+    {
+        "status": "ok",
+        "snapshot": True,
+        "formulas": {"H1": '=PY("result = 1"; A1:H500)'},
+        "writes": [{"range": ["H1"], "dests": ["H1"], "formula": '=PY("result = 1"; A1:H500)'}],
+        "grid": [["Name"]],
     }
 )
 
@@ -121,6 +143,7 @@ _FLOW_GOOD = json.dumps(
         ("data_sorting", _SORT_GOOD),
         ("tax_column", _TAX_GOOD),
         ("flowchart_gen", _FLOW_GOOD),
+        ("py_unique_beside", _PY_GOOD),
     ],
 )
 def test_good_fixtures_pass(task_id: str, doc: str) -> None:
@@ -157,6 +180,22 @@ def test_good_fixtures_pass(task_id: str, doc: str) -> None:
         ("tax_column", _TAX_BAD, "8%"),
         ("logical_rewriting", _LOGICAL_REWRITING.replace("WriterAgent", "LocalWriter"), "LocalWriter"),
         ("flowchart_gen", json.dumps({"status": "ok", "tree": [{"text": "Start"}]}), "Process"),
+        (
+            "flowchart_gen",
+            json.dumps(
+                {
+                    "status": "ok",
+                    "tree": [
+                        {"text": "Start"},
+                        {"text": "Process: user login"},
+                        {"text": "Decision: credentials valid?"},
+                        {"text": "End"},
+                    ],
+                }
+            ),
+            "connections",
+        ),
+        ("py_unique_beside", _PY_BAD, "inside"),
     ],
 )
 def test_mutated_fixtures_fail(task_id: str, doc: str, needle: str) -> None:

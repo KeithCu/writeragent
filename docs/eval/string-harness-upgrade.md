@@ -1,5 +1,8 @@
 # String-harness upgrade (no LO)
 
+**Status:** implemented on the string backend (worlds, core catalog,
+process/`=PY` score). Multi-turn and `--backend lo` still out of scope.
+
 Plan for making `--backend string` a real WriterAgent eval: same core
 tool catalog as chat, document worlds that can tell the truth, and a
 second score for how the agent worked. **`--backend lo` is out of

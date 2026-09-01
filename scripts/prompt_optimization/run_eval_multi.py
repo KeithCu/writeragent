@@ -204,6 +204,8 @@ def _run_one_model(
             "judge_naturalness": r.judge_naturalness,
             "judge_reasoning": r.judge_reasoning,
             "correctness": r.correctness,
+            "agent_score": r.agent_score,
+            "process_failures": r.process_failures,
             "metric_score": r.metric_score,
             "total_tokens": r.total_tokens,
             "final_document": r.final_document,
@@ -219,6 +221,7 @@ def _run_one_model(
             "output_cost_per_million": cfg.output_cost_per_million,
             "pricing_known": pricing_known,
             "avg_correctness": summary["avg_correctness"],
+            "avg_agent_score": summary.get("avg_agent_score", 0.0),
             "avg_metric_score": summary["avg_metric_score"],
             "total_tokens": summary["total_tokens"],
             "total_cost_usd": total_cost,
@@ -423,7 +426,7 @@ def main() -> int:
             for i, ex in enumerate(examples):
                 tid = getattr(ex, "task_id", f"example_{i}")
                 print(f"  [{i+1}/{len(examples)}] Generating gold for {tid}...")
-                html, _, gerr = run_llm_chat_eval(
+                html, _, gerr, _gtrace = run_llm_chat_eval(
                     system_prompt=inst,
                     document_content=ex.document_content,
                     user_question=ex.user_question,
@@ -556,6 +559,7 @@ def main() -> int:
                             "output_cost_per_million": cfg.output_cost_per_million,
                             "pricing_known": False,
                             "avg_correctness": 0.0,
+                            "avg_agent_score": 0.0,
                             "avg_metric_score": 0.0,
                             "total_tokens": 0,
                             "total_cost_usd": 0.0,

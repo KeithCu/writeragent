@@ -11,8 +11,10 @@ def test_get_writer_eval_chat_system_prompt_lists_eval_tools() -> None:
     p = get_writer_eval_chat_system_prompt()
     assert "get_document_content" in p
     assert "apply_document_content" in p
-    assert "find_text" in p
+    assert "search_in_document" in p
+    assert "unsupported_in_eval" in p
     assert "Eval harness" in p
+    assert "Only get_document_content" not in p
 
 
 def test_get_writer_eval_chat_system_prompt_includes_format_rules() -> None:

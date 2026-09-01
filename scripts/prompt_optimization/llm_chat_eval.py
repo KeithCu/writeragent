@@ -17,7 +17,6 @@ from typing import Any, Literal
 
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.config import normalize_endpoint_url
-from plugin.framework.tool import to_openai_schema
 from plugin.framework.client.llm_client import LlmClient
 
 # PyUNO: `com.sun.star` imports inside plugin.writer require uno first.
@@ -34,7 +33,9 @@ for _p in (_REPO, _SCRIPTS_PO):
         sys.path.insert(0, str(_p))
 
 from dataset import task_kind
-from string_eval_tools import StringDocState, DrawDocState, CalcStringState, dispatch_string_tool
+from eval_catalog import build_eval_tool_schemas
+from eval_worlds import CalcWorld, DrawWorld, WriterWorld
+from string_eval_tools import dispatch_string_tool
 
 
 class _EvalMockContext:
@@ -48,164 +49,22 @@ class _EvalMockContext:
 
 BackendKind = Literal["string", "lo"]
 
-class _EvalToolSchema:
-    """Minimal tool-shaped object for ``to_openai_schema`` (no UNO)."""
 
-    def __init__(self, name: str, description: str, parameters: dict[str, Any]) -> None:
-        self.name = name
-        self.description = description
-        self.parameters = parameters
-
-    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any]:
-        return self.parameters
-
-    def get_description(self, doc_type: str | None = None) -> str:
-        return self.description
-
-
-_FIND_TEXT_SCHEMA = _EvalToolSchema(
-    "find_text",
-    (
-        "Find text in the document. Returns JSON with status and ranges "
-        "(start, end, text) in document character offsets."
-    ),
-    {
-        "type": "object",
-        "properties": {
-            "search": {"type": "string", "description": "Text to find."},
-            "start": {
-                "type": "integer",
-                "description": "Character offset to start searching from.",
-            },
-            "limit": {
-                "type": "integer",
-                "description": "Max number of matches to return.",
-            },
-            "case_sensitive": {
-                "type": "boolean",
-                "description": "Case-sensitive match (default true).",
-            },
-        },
-        "required": ["search"],
-    },
-)
-
-
-def _writer_eval_schemas() -> list[dict[str, Any]]:
-    """Production Writer schemas when UNO is importable; static fallback otherwise."""
+def _trace_entry(name: str, raw_args: str, result: str) -> dict[str, Any]:
+    parsed: dict[str, Any] = {}
     try:
-        from plugin.writer.content import ApplyDocumentContent, GetDocumentContent
-
-        return [
-            to_openai_schema(GetDocumentContent()),
-            to_openai_schema(ApplyDocumentContent()),
-        ]
-    except ImportError:
-        return [
-            {
-                "name": "get_document_content",
-                "description": "Get document content. scope: full, selection, or range.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "scope": {"type": "string"},
-                        "max_chars": {"type": "integer"},
-                        "start": {"type": "integer"},
-                        "end": {"type": "integer"},
-                    },
-                },
-            },
-            {
-                "name": "apply_document_content",
-                "description": "Insert or replace document content (plain text or HTML).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "target": {"type": "string"},
-                        "content": {"type": "string"},
-                        "old_content": {"type": "string"},
-                        "all_matches": {"type": "boolean"},
-                    },
-                    "required": ["content"],
-                },
-            },
-        ]
-
-
-def build_eval_tool_schemas(include_draw: bool = False, include_calc: bool = False) -> list[dict[str, Any]]:
-    """OpenAI function schemas for eval tools. include_draw for shapes, include_calc for
-    sorting/tax column tests (see CalcStringState in string_eval_tools.py).
-    Matches production names from plugin/calc/cells.py and plugin/doc/document_helpers.py."""
-    schemas = [
-        *_writer_eval_schemas(),
-        to_openai_schema(_FIND_TEXT_SCHEMA),
-    ]
-    if include_draw:
-        # Minimal schemas for shapes (full production schemas in main codebase)
-        schemas.extend([
-            {
-                "name": "shape_upsert",
-                "description": "Create or edit a shape on the draw page. Returns shape and status.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "action": {"type": "string", "enum": ["create", "edit"]},
-                        "index": {"type": "integer"},
-                        "shape_type": {"type": "string", "description": "rectangle, flowchart-process, ellipse, etc."},
-                        "text": {"type": "string", "description": "Text content for the shape."},
-                        "x": {"type": "integer"},
-                        "y": {"type": "integer"},
-                        "width": {"type": "integer"},
-                        "height": {"type": "integer"},
-                    },
-                    "required": ["action"],
-                },
-            },
-            {
-                "name": "get_draw_tree",
-                "description": "Returns semantic tree (DOM) of shapes. Use for verifying flowcharts, connections, hierarchy without screenshots.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "page_index": {"type": "integer"},
-                    },
-                },
-            },
-        ])
-    if include_calc:
-        schemas.extend([
-            {
-                "name": "sort_range",
-                "description": "Sort a range by column (for Data Sorting test).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "sort_column": {"type": "string", "description": "Column name like 'Revenue'"},
-                        "ascending": {"type": "boolean", "description": "False for descending"},
-                    },
-                },
-            },
-            {
-                "name": "write_cell_range",
-                "description": "Write values to a range (for tax column test).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "range": {"type": "string", "description": "e.g. C2:C10"},
-                        "values": {"type": "array", "items": {"type": "number"}},
-                    },
-                },
-            },
-            {
-                "name": "get_sheet_summary",
-                "description": "Get grid summary and data (matches get_calc_context_for_chat).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                },
-            },
-        ])
-    return schemas
+        loaded = json.loads(result) if result else {}
+        if isinstance(loaded, dict):
+            parsed = loaded
+    except json.JSONDecodeError:
+        parsed = {}
+    return {
+        "name": name,
+        "arguments": raw_args,
+        "result_status": str(parsed.get("status") or ""),
+        "result_chars": len(result or ""),
+        "error_code": str(parsed.get("code") or ""),
+    }
 
 
 def _build_api_config(
@@ -266,29 +125,26 @@ def run_llm_chat_eval(
     verbose: bool = False,
     student: Literal["llm", "scripted"] = "llm",
     task_id: str = "",
-) -> tuple[str, dict[str, int], str | None]:
+) -> tuple[str, dict[str, int], str | None, list[dict[str, Any]]]:
     """
-    Run one eval example: multi-round tool loop, return (final_html, usage, error).
+    Run one eval example: multi-round tool loop.
 
-    ``final_html`` is the document after tool calls: in-memory HTML/JSON for ``string``,
-    or Writer HTML / Draw tree / Calc snapshot for ``lo``.
-    ``student='scripted'`` replays ``scripted_student.SCRIPTS`` (no LlmClient, no key).
+    Returns ``(final_document, usage, error, trace)``. Trace entries are
+    ``{name, arguments, result_status, result_chars, error_code}``.
     """
     kind = task_kind(task_id)
-    is_draw_task = kind == "draw"
-    is_calc_task = kind == "calc"
-    tools = build_eval_tool_schemas(include_draw=is_draw_task, include_calc=is_calc_task)
+    tools = build_eval_tool_schemas(kind=kind)
 
     instruction = system_prompt
     if bust_cache:
         instruction = f"{instruction}\n\n[Eval: {uuid.uuid4().hex[:8]}]"
 
-    if is_draw_task:
-        state: StringDocState | DrawDocState | CalcStringState = DrawDocState()
-    elif is_calc_task:
-        state = CalcStringState(document_content)
+    if kind == "draw":
+        state: WriterWorld | DrawWorld | CalcWorld = DrawWorld()
+    elif kind == "calc":
+        state = CalcWorld(document_content)
     else:
-        state = StringDocState(document_content)
+        state = WriterWorld(document_content)
     user_body = (
         f"[DOCUMENT CONTENT]\n{document_content}\n[END DOCUMENT]\n\n{user_question}"
     )
@@ -303,6 +159,7 @@ def run_llm_chat_eval(
         "total_tokens": 0,
     }
     err: str | None = None
+    trace: list[dict[str, Any]] = []
 
     if student == "scripted":
         from scripted_student import ScriptedStudent
@@ -366,15 +223,18 @@ def run_llm_chat_eval(
                                 flush=True,
                             )
                         result = dispatch_string_tool(state, name, raw_args or "{}")
+                        trace.append(_trace_entry(name, raw_args or "{}", result))
                         if verbose:
                             rp = result if len(result) <= 400 else result[:400] + "..."
                             print(f"  [Tool->] {rp!r}", flush=True)
                     else:
                         result = _dispatch_lo_tool(name, raw_args or "{}", verbose=verbose)
+                        trace.append(_trace_entry(name, raw_args or "{}", result))
                 else:
                     result = json.dumps(
                         {"status": "error", "message": "Missing tool name"}
                     )
+                    trace.append(_trace_entry(name, raw_args or "{}", result))
                 messages.append(
                     {
                         "role": "tool",
@@ -385,19 +245,19 @@ def run_llm_chat_eval(
 
     except Exception as e:
         err = str(e)
-        return "", usage_acc, err
+        return "", usage_acc, err, trace
 
     if backend == "lo":
         import tools_lo as tl
 
         final = tl.get_eval_export(kind) or ""
     else:
-        if isinstance(state, DrawDocState):
+        if isinstance(state, DrawWorld):
             tree_res = state.get_draw_tree()
-            final = json.dumps(tree_res, indent=2)  # Tree JSON for judging flowchart/structure
-        elif isinstance(state, CalcStringState):
-            final = json.dumps(state.snapshot(), indent=2)  # Grid JSON for sorting/tax tests
+            final = json.dumps(tree_res, indent=2)
+        elif isinstance(state, CalcWorld):
+            final = json.dumps(state.snapshot(), indent=2)
         else:
             final = state.get_html()
 
-    return final, usage_acc, err
+    return final, usage_acc, err, trace

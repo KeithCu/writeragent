@@ -15,7 +15,13 @@ from __future__ import annotations
 import html
 import json
 import re
+import sys
+from pathlib import Path
 from typing import Any, Callable
+
+_HERE = Path(__file__).resolve().parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
 
 # 999 + 135.15 + 43 + 66 + 215.31
 _TABLE_FROM_MESS_TOTAL = 1458.46
@@ -309,6 +315,21 @@ def oracle_flowchart_gen(doc: str) -> list[str]:
     for token in ("Start", "Process", "Decision", "End", "login", "credentials"):
         if token.casefold() not in blob.casefold():
             fails.append(f"flowchart missing {token!r}")
+    # Labels alone are not a flowchart — require connector metadata.
+    connected = 0
+    if data:
+        tree = data.get("tree")
+        if isinstance(tree, list):
+            for node in tree:
+                if not isinstance(node, dict):
+                    continue
+                if node.get("connected_start") or node.get("connected_end"):
+                    connected += 1
+        edges = data.get("connections")
+        if isinstance(edges, list) and edges:
+            connected = max(connected, len(edges))
+    if connected < 2:
+        fails.append("flowchart missing connections")
     return fails
 
 
@@ -334,6 +355,31 @@ def oracle_data_sorting(doc: str) -> list[str]:
             revenues.append(num)
     if revenues != sorted(revenues, reverse=True):
         return ["Revenue column is not sorted descending"]
+    return []
+
+
+def oracle_py_dest(doc: str) -> list[str]:
+    """Document gate for =PY dest: formula text at a cell outside A1:H500."""
+    data = parse_json_export(doc)
+    if not data:
+        return ["no Calc snapshot"]
+    formulas = data.get("formulas")
+    if not isinstance(formulas, dict) or not formulas:
+        return ["no =PY formula recorded"]
+    from eval_worlds import cell_in_a1_range
+
+    found_outside = False
+    found_py = False
+    for addr, formula in formulas.items():
+        text = str(formula)
+        if text.lstrip().upper().startswith("=PY"):
+            found_py = True
+            if not cell_in_a1_range(str(addr), "A1:H500"):
+                found_outside = True
+    if not found_py:
+        return ["no =PY formula recorded"]
+    if not found_outside:
+        return ["=PY dest is inside A1:H500"]
     return []
 
 
@@ -415,6 +461,10 @@ ORACLES: dict[str, Callable[[str], list[str]]] = {
     "flowchart_gen": oracle_flowchart_gen,
     "data_sorting": oracle_data_sorting,
     "tax_column": oracle_tax_column,
+    "py_unique_beside": oracle_py_dest,
+    "py_refuse_overlap": oracle_py_dest,
+    "py_inplace_reframe": oracle_py_dest,
+    "py_no_bulk_read": oracle_py_dest,
     "reformat_resume": oracle_reformat_resume,
     "logical_rewriting": oracle_logical_rewriting,
     "smart_summarization": oracle_smart_summarization,

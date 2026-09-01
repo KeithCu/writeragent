@@ -1,0 +1,248 @@
+{
+  "writer": [
+    {
+      "name": "get_document_content",
+      "description": "Get document (or selection/range) content. Result includes document_length. scope: full, selection, or range (requires start, end).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "scope": {"type": "string", "enum": ["full", "selection", "range"]},
+          "max_chars": {"type": "integer"},
+          "start": {"type": "integer"},
+          "end": {"type": "integer"}
+        }
+      }
+    },
+    {
+      "name": "apply_document_content",
+      "description": "Insert or replace content. To replace the ENTIRE document use target='full_document' with content only. Use target='search' with old_content for find-and-replace of a specific substring only.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "content": {"type": "array", "items": {"type": "string"}},
+          "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"]},
+          "old_content": {"type": "string"},
+          "all_matches": {"type": "boolean"}
+        },
+        "required": ["content"]
+      }
+    },
+    {
+      "name": "search_in_document",
+      "description": "Search for text ANYWHERE in the document (body, tables, frames, comments). Each match reports where it lives.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {"type": "string"},
+          "case_sensitive": {"type": "boolean"},
+          "max_results": {"type": "integer"},
+          "return_offsets": {"type": "boolean"}
+        },
+        "required": ["pattern"]
+      }
+    },
+    {
+      "name": "add_comment",
+      "description": "Add a comment/annotation anchored to text matching search.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "content": {"type": "string"},
+          "search": {"type": "string"},
+          "occurrence": {"type": "integer"}
+        },
+        "required": ["content", "search"]
+      }
+    },
+    {
+      "name": "apply_style",
+      "description": "Apply a paragraph or character style (family='ParagraphStyles' or 'CharacterStyles').",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "style_name": {"type": "string"},
+          "family": {"type": "string"}
+        },
+        "required": ["style_name"]
+      }
+    },
+    {
+      "name": "get_document_tree",
+      "description": "Return the heading/outline tree of the document.",
+      "parameters": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "set_selection",
+      "description": "Set the current selection to a character range or search hit.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start": {"type": "integer"},
+          "end": {"type": "integer"},
+          "search": {"type": "string"}
+        }
+      }
+    },
+    {
+      "name": "get_guidance",
+      "description": "Read one how-to manual topic (search, navigation, images, …).",
+      "parameters": {
+        "type": "object",
+        "properties": {"topic": {"type": "string"}},
+        "required": ["topic"]
+      }
+    }
+  ],
+  "draw": [
+    {
+      "name": "get_draw_tree",
+      "description": "Returns semantic tree (DOM) of shapes. Use for verifying flowcharts, connections, hierarchy without screenshots.",
+      "parameters": {
+        "type": "object",
+        "properties": {"page_index": {"type": "integer"}}
+      }
+    },
+    {
+      "name": "shape_upsert",
+      "description": "Create or edit a shape on the draw page. Returns shape and status.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["create", "edit"]},
+          "index": {"type": "integer"},
+          "shape_type": {"type": "string"},
+          "text": {"type": "string"},
+          "x": {"type": "integer"},
+          "y": {"type": "integer"},
+          "width": {"type": "integer"},
+          "height": {"type": "integer"}
+        },
+        "required": ["action"]
+      }
+    },
+    {
+      "name": "shape_connect",
+      "description": "Connect two shapes on the same page with a connector.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start": {"type": "integer"},
+          "end": {"type": "integer"},
+          "page": {"type": "integer"}
+        },
+        "required": ["start", "end"]
+      }
+    },
+    {
+      "name": "shape_summary",
+      "description": "Flat summary of shapes on the page (index, type, geometry, text).",
+      "parameters": {
+        "type": "object",
+        "properties": {"page_index": {"type": "integer"}}
+      }
+    },
+    {
+      "name": "shape_delete",
+      "description": "Delete a shape by index.",
+      "parameters": {
+        "type": "object",
+        "properties": {"index": {"type": "integer"}},
+        "required": ["index"]
+      }
+    },
+    {
+      "name": "list_pages",
+      "description": "List draw/impress pages.",
+      "parameters": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "add_slide",
+      "description": "Add a slide or draw page.",
+      "parameters": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "read_slide_text",
+      "description": "Read text from a slide/page.",
+      "parameters": {
+        "type": "object",
+        "properties": {"page_index": {"type": "integer"}}
+      }
+    }
+  ],
+  "calc": [
+    {
+      "name": "get_sheet_summary",
+      "description": "Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes.",
+      "parameters": {
+        "type": "object",
+        "properties": {"sheet": {"type": "string"}}
+      }
+    },
+    {
+      "name": "read_cell_range",
+      "description": "Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; for bulk work write =PY(..., DataRange) instead of reading the block.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "range": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["range"]
+      }
+    },
+    {
+      "name": "write_formula_range",
+      "description": "To run Python on sheet data, write =PY(\"result = …\"; DataRange) into one empty cell outside DataRange (e.g. J1 for A1:H500, or a new sheet). Do not dump the input or full spill into chat; do not write =PY onto DataRange (circular).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "range": {"type": "array", "items": {"type": "string"}},
+          "values": {"type": "string"}
+        },
+        "required": ["range", "values"]
+      }
+    },
+    {
+      "name": "sort_range",
+      "description": "Sorts the specified range(s) by a column.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "range": {"type": "array", "items": {"type": "string"}},
+          "sort_column": {"type": "integer"},
+          "ascending": {"type": "boolean"},
+          "has_header": {"type": "boolean"}
+        },
+        "required": ["range"]
+      }
+    },
+    {
+      "name": "list_sheets",
+      "description": "List workbook sheets.",
+      "parameters": {"type": "object", "properties": {}}
+    },
+    {
+      "name": "set_style",
+      "description": "Set cell style properties on a range.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "range": {"type": "array", "items": {"type": "string"}},
+          "properties": {"type": "object"}
+        }
+      }
+    },
+    {
+      "name": "create_sheet",
+      "description": "Create a new sheet.",
+      "parameters": {
+        "type": "object",
+        "properties": {"name": {"type": "string"}}
+      }
+    },
+    {
+      "name": "list_calc_functions",
+      "description": "List available Calc functions.",
+      "parameters": {"type": "object", "properties": {}}
+    }
+  ]
+}

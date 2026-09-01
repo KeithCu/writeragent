@@ -100,6 +100,13 @@ def main():
         print(f"Model: {model} @ {api_base}  backend={args.backend}\n")
 
     examples = to_eval_examples(ALL_EXAMPLES)
+    # Phase F =PY dest rows are string-world only (process oracles + formula dest).
+    if args.backend == "lo" and not args.example:
+        examples = [
+            ex
+            for ex in examples
+            if not str(getattr(ex, "task_id", "")).startswith("py_")
+        ]
     if args.example:
         examples = [ex for ex in examples if getattr(ex, "task_id", "") == args.example]
         if not examples:
@@ -217,7 +224,9 @@ def main():
                     print(
                         f"  {r.task_id}: error={r.error!r} "
                         f"missing={r.missing_expected} reject={r.found_reject} "
-                        f"oracle={r.oracle_failures or []}"
+                        f"oracle={r.oracle_failures or []} "
+                        f"process={r.process_failures or []} "
+                        f"agent_score={r.agent_score}"
                     )
         return 0
     finally:

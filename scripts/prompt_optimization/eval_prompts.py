@@ -2,48 +2,73 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Writer eval-harness system prompt for offline DSPy (`scripts/prompt_optimization`).
+"""Eval-harness system prompts for ``scripts/prompt_optimization``.
 
-HTML / apply_document_content rules stay in plugin.framework.prompts; this module
-describes only the tools wired in the eval harness.
+Reuse production HTML / Calc dest rules. Core tools are advertised as in
+chat; unimplemented names return ``unsupported_in_eval``.
 """
 from __future__ import annotations
 
 from plugin.framework.prompts import (
+    CALC_CORE_DIRECTIVES,
     SIDEBAR_VS_DOCUMENT,
     TRANSLATION_RULES,
     WRITER_APPLY_DOCUMENT_HTML_RULES,
+    WRITER_CHAT_TOOLS_SECTION,
 )
 
 
-WRITER_EVAL_TOOLS_SECTION = """TOOLS (eval harness):
-- apply_document_content: Insert or replace HTML in the document (parameters and format — see APPLY_DOCUMENT_CONTENT AND HTML below).
-- get_document_content: Read document (full/selection/range) as HTML.
-- find_text: Find text in the document (JSON ranges)."""
-
-WRITER_EVAL_SCOPE = (
-    "[Eval harness] Only get_document_content, apply_document_content, and find_text are registered. "
-    "Do not use web research, delegate_to_specialized_writer_toolset, search_in_document, apply_style, or add_comment."
+EVAL_HARNESS_NOTE = (
+    "[Eval harness] Core tools match chat. Tools the string harness does not "
+    "implement return status=error code=unsupported_in_eval — recover or finish "
+    "without them. Do not call domain=python."
 )
-
-WRITER_EVAL_TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS (eval harness):
-- Use find_text to locate passages; use apply_document_content (often with old_content) to replace HTML.
-- Re-read with get_document_content after substantive edits if needed."""
 
 
 def get_writer_eval_chat_system_prompt() -> str:
-    """Writer chat-style system prompt for offline DSPy eval (`scripts/prompt_optimization`).
+    """Writer chat-style system prompt for string eval."""
+    return "\n\n".join(
+        [
+            SIDEBAR_VS_DOCUMENT,
+            EVAL_HARNESS_NOTE,
+            WRITER_CHAT_TOOLS_SECTION,
+            TRANSLATION_RULES,
+            WRITER_APPLY_DOCUMENT_HTML_RULES,
+        ]
+    )
 
-    Reuses the same HTML / apply_document_content rules as production chat
-    (`WRITER_APPLY_DOCUMENT_HTML_RULES`, `TRANSLATION_RULES`) but describes only tools implemented in the
-    eval harness: ``get_document_content``, ``apply_document_content``, ``find_text``.
-    Omits web research, specialized delegation, memory, and tools not wired in ``tools_lo``.
-    """
-    return "\n\n".join([
-        SIDEBAR_VS_DOCUMENT,
-        WRITER_EVAL_SCOPE,
-        WRITER_EVAL_TOOLS_SECTION,
-        TRANSLATION_RULES,
-        WRITER_EVAL_TOOL_USAGE_PATTERNS,
-        WRITER_APPLY_DOCUMENT_HTML_RULES,
-    ])
+
+def get_calc_eval_chat_system_prompt() -> str:
+    """Calc prompt: dest / =PY rules from production plus the eval note."""
+    return "\n\n".join(
+        [
+            EVAL_HARNESS_NOTE,
+            CALC_CORE_DIRECTIVES,
+            (
+                "Use write_formula_range for values and for "
+                '=PY("result = …"; DataRange) in an empty cell outside DataRange '
+                "(e.g. J1 for A1:H500). Do not read the whole block into chat."
+            ),
+        ]
+    )
+
+
+def get_draw_eval_chat_system_prompt() -> str:
+    return "\n\n".join(
+        [
+            EVAL_HARNESS_NOTE,
+            "Use shape_upsert to create flowchart shapes and shape_connect for edges. "
+            "Verify with get_draw_tree (connections, text, types) — no screenshots.",
+        ]
+    )
+
+
+def get_eval_system_prompt(task_id: str = "") -> str:
+    from dataset import task_kind
+
+    kind = task_kind(task_id)
+    if kind == "calc":
+        return get_calc_eval_chat_system_prompt()
+    if kind == "draw":
+        return get_draw_eval_chat_system_prompt()
+    return get_writer_eval_chat_system_prompt()
