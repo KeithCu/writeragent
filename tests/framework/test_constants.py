@@ -7,7 +7,6 @@ setup_uno_mocks()
 
 from plugin.framework.prompts import (
     DELEGATION_USER_FILE_DATA_HINT,
-    RESEARCH_DELEGATE_TO_DOCUMENT,
     SIDEBAR_VS_DOCUMENT,
     get_greeting_for_document,
     get_chat_system_prompt_for_document,
@@ -148,10 +147,6 @@ def test_writer_chat_prompt_research_delegate_to_document():
 
     model = MagicMock()
     model.supportsService.return_value = False
-    prompt = get_chat_system_prompt_for_document(model)
-    assert RESEARCH_DELEGATE_TO_DOCUMENT in prompt
-    assert RESEARCH_DELEGATE_TO_DOCUMENT in WRITER_CORE_DIRECTIVES
-    assert "apply_document_content" in RESEARCH_DELEGATE_TO_DOCUMENT
     block = get_specialized_delegation_for_model(model)
     assert "web_research:" in block
     assert "apply_document_content" in block
@@ -234,7 +229,6 @@ def test_get_core_directives_writer():
     assert 'delegate_to_specialized_writer_toolset(domain="web_research")' in directives
     assert 'delegate_to_specialized_writer_toolset(domain="python")' in directives
     assert DELEGATION_USER_FILE_DATA_HINT in directives
-    assert RESEARCH_DELEGATE_TO_DOCUMENT in directives
 
 
 def test_writer_chat_prompt_delegation_routing_local_vs_web():

@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -66,6 +68,43 @@ def test_makefile_lo_python_probe_does_not_silently_use_venv() -> None:
     assert "test-uno: _check-lo-python" in text
 
 
+def test_makefile_linux_lo_python_prefers_usr_bin() -> None:
+    """Ubuntu CI: setup-python shadows PATH python3; python3-uno is /usr/bin/python3."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    darwin = text.split("ifeq ($(UNAME_S),Darwin)", 1)[1].split("else", 1)[0]
+    linux = text.split("ifeq ($(UNAME_S),Darwin)", 1)[1].split("else", 1)[1]
+    assert '/usr/bin/python3 -c "import uno"' in linux
+    assert "echo /usr/bin/python3" in linux
+    assert "/usr/bin/python3" not in darwin
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux /usr/bin/python3 probe")
+def test_check_lo_python_ignores_path_python3_without_uno(tmp_path: Path) -> None:
+    """33456719039: PATH python3 is setup-python 3.13; probe must still pick /usr/bin."""
+    probe = subprocess.run(
+        ["/usr/bin/python3", "-c", "import uno"],
+        check=False,
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        pytest.skip("python3-uno not installed on /usr/bin/python3")
+    fake = tmp_path / "python3"
+    fake.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    fake.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
+    proc = subprocess.run(
+        ["make", "-C", str(PROJECT_ROOT), "_check-lo-python"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode == 0, combined
+    assert "LO_PYTHON=/usr/bin/python3" in combined
+
+
 def test_makefile_compile_translations_uses_python_script() -> None:
     """Windows CI skipped msgfmt silently; compile must not depend on GNU find."""
     text = MAKEFILE.read_text(encoding="utf-8")
@@ -95,4 +134,5 @@ def test_test_uno_empty_lo_python_fails_loudly() -> None:
     assert proc.returncode != 0, combined
     assert "LO_PYTHON is empty" in combined
     assert "LibreOfficePython.framework" in combined
+    assert "/usr/bin/python3" in combined
     assert "plugin.testing_runner" not in combined

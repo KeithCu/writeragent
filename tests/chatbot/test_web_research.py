@@ -1161,3 +1161,59 @@ def test_visit_webpage_still_caches_successful_fetch(tmp_path):
     assert "Hello cached page" in cached
 
 
+def test_get_research_completion_instruction():
+    """Verify document-type-tailored research completion instructions."""
+    from plugin.framework.prompts import (
+        get_research_completion_instruction,
+        RESEARCH_COMPLETION_INSTRUCTION_WRITER,
+        RESEARCH_COMPLETION_INSTRUCTION_CALC,
+        RESEARCH_COMPLETION_INSTRUCTION_DRAW,
+    )
+
+    writer_inst = get_research_completion_instruction("writer")
+    assert writer_inst == RESEARCH_COMPLETION_INSTRUCTION_WRITER
+    assert "apply_document_content" in writer_inst
+    assert "sent ONLY to you — the user has NOT seen it yet" in writer_inst
+
+    calc_inst = get_research_completion_instruction("calc")
+    assert calc_inst == RESEARCH_COMPLETION_INSTRUCTION_CALC
+    assert "write_cell_range" in calc_inst
+    assert "sent ONLY to you — the user has NOT seen it yet" in calc_inst
+
+    draw_inst = get_research_completion_instruction("draw")
+    assert draw_inst == RESEARCH_COMPLETION_INSTRUCTION_DRAW
+    assert "document tools" in draw_inst
+
+    impress_inst = get_research_completion_instruction("impress")
+    assert impress_inst == RESEARCH_COMPLETION_INSTRUCTION_DRAW
+
+    default_inst = get_research_completion_instruction(None)
+    assert default_inst == RESEARCH_COMPLETION_INSTRUCTION_WRITER
+
+
+def test_web_research_tool_includes_instruction_in_result(tmp_path):
+    """WebResearchTool.execute must include an instruction field tailored to doc_type."""
+    from plugin.chatbot.web_research import WebResearchTool
+    from plugin.tests.testing_utils import MockContext
+
+    ctx = MagicMock()
+    ctx.ctx = MockContext()
+    ctx.doc_type = "calc"
+
+    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
+         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config_int_safe", return_value=50), \
+         patch("plugin.framework.config.get_config_int", return_value=30), \
+         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
+         patch("plugin.chatbot.web_research._run_web_agent", return_value="Live research result text"):
+
+        tool = WebResearchTool()
+        res = tool.execute(ctx, query="Calculate revenue trends")
+        assert res["status"] == "ok"
+        assert res["result"] == "Live research result text"
+        assert "instruction" in res
+        assert "write_cell_range" in res["instruction"]
+        assert "sent ONLY to you — the user has NOT seen it yet" in res["instruction"]
+
+
+

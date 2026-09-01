@@ -529,6 +529,11 @@ class WebResearchTool(ToolBase):
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if udir else None
         cache_max_age_days = get_config_int("web_cache_validity_days")
 
+        from plugin.framework.prompts import get_research_completion_instruction
+
+        doc_type = getattr(ctx, "doc_type", None)
+        instruction = get_research_completion_instruction(doc_type)
+
         if cache_enabled and cache_path and os.path.exists(cache_path) and unique_key:
             try:
                 from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, lookup_research_cache
@@ -561,7 +566,7 @@ class WebResearchTool(ToolBase):
                         matched_key=matched_raw_key if event in ("hit_fuzzy", "hit_embedding") else None,
                         score=score if event in ("hit_fuzzy", "hit_embedding") else None,
                     )
-                    return {"status": "ok", "message": _("Web research completed."), "result": cached, **cache_fields}
+                    return {"status": "ok", "message": _("Web research completed."), "result": cached, "instruction": instruction, **cache_fields}
             except Exception as e:
                 log.warning("Failed to lookup web research cache: %s", e)
 
@@ -663,6 +668,8 @@ class WebResearchTool(ToolBase):
 
             cache_fields: dict[str, Any] = {}
             if isinstance(final_ans, dict) and "status" in final_ans:
+                if final_ans.get("status") == "ok":
+                    final_ans.setdefault("instruction", instruction)
                 if final_ans.get("status") == "ok" and cache_enabled and cache_path and unique_key:
                     try:
                         raw_mb = get_config_int_safe("web_cache_max_mb")
@@ -685,7 +692,7 @@ class WebResearchTool(ToolBase):
 
             from plugin.framework.i18n import _
 
-            out: dict[str, Any] = {"status": "ok", "message": _("Web research completed."), "result": result_str}
+            out: dict[str, Any] = {"status": "ok", "message": _("Web research completed."), "result": result_str, "instruction": instruction}
             if cache_fields:
                 out.update(cache_fields)
             return out
