@@ -84,8 +84,36 @@ def test_venv_probe_progress_pumps_events():
     with (
         patch("plugin.scripting.venv_probe_ui.process_events_to_idle") as mock_pump,
         patch("plugin.scripting.venv_probe_ui.set_control_text"),
+        patch("plugin.scripting.venv_probe_ui.on_main_thread", return_value=True),
     ):
         progress.set_status("warming worker")
+
+    mock_pump.assert_called_once_with(ctx)
+
+
+def test_venv_probe_progress_finish_pumps_only_on_main_thread() -> None:
+    ctx = MagicMock()
+    progress = VenvProbeProgressDialog(ctx)
+    progress._dlg = MagicMock()
+    progress._dlg.getControl.return_value = MagicMock()
+
+    with (
+        patch("plugin.scripting.venv_probe_ui.process_events_to_idle") as mock_pump,
+        patch("plugin.scripting.venv_probe_ui.set_control_text"),
+        patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
+        patch("plugin.scripting.venv_probe_ui.on_main_thread", return_value=False),
+    ):
+        progress.finish("Venv check failed", False)
+
+    mock_pump.assert_not_called()
+
+    with (
+        patch("plugin.scripting.venv_probe_ui.process_events_to_idle") as mock_pump,
+        patch("plugin.scripting.venv_probe_ui.set_control_text"),
+        patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
+        patch("plugin.scripting.venv_probe_ui.on_main_thread", return_value=True),
+    ):
+        progress.finish("Venv OK", True)
 
     mock_pump.assert_called_once_with(ctx)
 

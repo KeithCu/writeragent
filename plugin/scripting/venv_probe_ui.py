@@ -19,6 +19,7 @@ from plugin.chatbot.dialogs import (
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.thread_guard import on_main_thread
 from plugin.framework.uno_context import process_events_to_idle
 from plugin.framework.worker_pool import run_in_background
 
@@ -85,11 +86,20 @@ class VenvProbeProgressDialog:
         if btn_close is not None:
             btn_close.addActionListener(_VenvProbeCloseListener(self))
 
+    def _pump_dialog(self) -> None:
+        # finish() is posted from the probe worker via post_to_main_thread.
+        # Opengrep intrafile taint still treats process_events_to_idle in
+        # finish() as a worker sink (uno-off-main-thread). A bare
+        # if on_main_thread() is the documented sanitizer; pumping VCL
+        # off-main is never correct.
+        if on_main_thread():
+            process_events_to_idle(self._ctx)
+
     def set_display(self, text: str) -> None:
         if self._dlg is None:
             return
         set_control_text(self._dlg.getControl("LogArea"), text)
-        process_events_to_idle(self._ctx)
+        self._pump_dialog()
 
     def set_status(self, text: str) -> None:
         if self._dlg is None:
@@ -98,7 +108,7 @@ class VenvProbeProgressDialog:
         if len(status) > 80:
             status = status[:77] + "..."
         set_control_text(self._dlg.getControl("StatusLbl"), status)
-        process_events_to_idle(self._ctx)
+        self._pump_dialog()
 
     def finish(self, title: str, ok: bool) -> None:
         if self._dlg is None:
@@ -109,7 +119,7 @@ class VenvProbeProgressDialog:
             log.debug("venv probe dialog title failed", exc_info=True)
         set_control_text(self._dlg.getControl("StatusLbl"), _("Done") if ok else _("Failed"))
         set_control_enabled(self._dlg.getControl("BtnClose"), True)
-        process_events_to_idle(self._ctx)
+        self._pump_dialog()
 
     def _dispose(self) -> None:
         dlg = self._dlg
