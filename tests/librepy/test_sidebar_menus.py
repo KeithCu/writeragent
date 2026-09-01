@@ -172,6 +172,7 @@ def test_menu_icon_filesystem_paths_include_oxt_and_checkout_layouts():
     from plugin.framework.uno_context import menu_icon_filesystem_paths
 
     paths = menu_icon_filesystem_paths("python_32.png")
-    assert paths[0].endswith("assets/python_32.png")
-    assert "extension/assets" not in paths[0].replace("\\", "/")
-    assert paths[1].replace("\\", "/").endswith("extension/assets/python_32.png")
+    posix = [p.replace("\\", "/") for p in paths]
+    assert posix[0].endswith("assets/python_32.png")
+    assert "extension/assets" not in posix[0]
+    assert posix[1].endswith("extension/assets/python_32.png")

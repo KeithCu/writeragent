@@ -18,7 +18,6 @@ import select
 import struct
 import subprocess
 import sys
-import threading
 import time
 from typing import Any, Callable, IO
 
@@ -154,28 +153,23 @@ def read_pickle_frame_with_timeout(
     """
     timeout_sec = max(0.0, float(timeout_sec))
     if sys.platform == "win32":
-        result: list[Any | None] = [None]
-        error: list[BaseException | None] = [None]
+        # PeekNamedPipe, not a daemon thread blocked in ReadFile. Closing the
+        # pipe while that thread is still in ReadFile crashed the xdist worker
+        # (CI 33453184665: gw1 died in test_pickle_frame_timeout_on_pipe — that
+        # was the Windows hang). Same poll style as _readline_with_timeout_win32.
 
-        def _reader() -> None:
-            try:
-                result[0] = read_pickle_frame(
-                    stream,
-                    max_payload_bytes=max_payload_bytes,
-                    frame_label=frame_label,
-                    require_dict=require_dict,
-                )
-            except Exception as exc:
-                error[0] = exc
+        def _read_exact_win32(n: int) -> bytes:
+            return _read_bytes_with_timeout_win32(
+                stream, n, timeout_sec, cmd=frame_label
+            )
 
-        thread = threading.Thread(target=_reader, name="ipc-pickle-timeout", daemon=True)
-        thread.start()
-        thread.join(timeout=timeout_sec)
-        if thread.is_alive():
-            raise subprocess.TimeoutExpired(cmd=frame_label, timeout=timeout_sec)
-        if error[0] is not None:
-            raise error[0]
-        return result[0]
+        payload = read_frame_payload(
+            stream,
+            max_payload_bytes=max_payload_bytes,
+            frame_label=frame_label,
+            read_exact=_read_exact_win32,
+        )
+        return _decode_pickle_payload(payload, frame_label=frame_label, require_dict=require_dict)
 
     deadline = time.monotonic() + timeout_sec
 
@@ -208,6 +202,49 @@ def write_json_line(stream: IO[str], payload: dict[str, Any]) -> None:
     """Write one JSON object followed by a newline to a text-mode pipe."""
     stream.write(json.dumps(payload) + "\n")
     stream.flush()
+
+
+def _read_bytes_with_timeout_win32(
+    stream: IO[bytes],
+    n: int,
+    timeout_sec: float,
+    *,
+    cmd: str,
+) -> bytes:
+    """Read *n* bytes from a Windows pipe without a stuck ReadFile thread.
+
+    Polls ``PeekNamedPipe`` until bytes are queued, then reads only what is
+    available. Raises ``TimeoutExpired`` on deadline. Falls back to a blocking
+    ``read`` when ``fileno()`` is not a real pipe fd (BytesIO / mocks).
+    """
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return stream.read(n)
+    if not isinstance(fd, int):
+        return stream.read(n)
+
+    deadline = time.monotonic() + max(0.0, timeout_sec)
+    buf = bytearray()
+    while len(buf) < n:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_sec)
+        avail = _peek_pipe_bytes_available(fd)
+        if avail is None:
+            chunk = stream.read(n - len(buf))
+            if not chunk:
+                return bytes(buf)
+            buf.extend(chunk)
+            continue
+        if avail > 0:
+            chunk = stream.read(min(n - len(buf), avail))
+            if not chunk:
+                return bytes(buf)
+            buf.extend(chunk)
+            continue
+        time.sleep(max(0.0, min(0.001, remaining)))
+    return bytes(buf)
 
 
 def _peek_pipe_bytes_available(fd: int) -> int | None:

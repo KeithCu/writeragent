@@ -66,6 +66,14 @@ def test_makefile_lo_python_probe_does_not_silently_use_venv() -> None:
     assert "test-uno: _check-lo-python" in text
 
 
+def test_makefile_compile_translations_uses_python_script() -> None:
+    """Windows CI skipped msgfmt silently; compile must not depend on GNU find."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    recipe = text.split("compile-translations:", 1)[1].split("compile-translations-core:", 1)[0]
+    assert "compile_translations.py" in recipe
+    assert "command -v msgfmt" not in recipe
+
+
 def test_makefile_ci_debug_max_worker_restart_is_opt_in() -> None:
     text = MAKEFILE.read_text(encoding="utf-8")
     assert "ifeq ($(WRITERAGENT_CI_DEBUG),1)" in text

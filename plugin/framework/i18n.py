@@ -90,6 +90,55 @@ def get_lo_locale(ctx=None):
     return _DEFAULT_LOCALE
 
 
+def _mo_candidates(localedir: str, lang: str, domain: str = "writeragent") -> list[str]:
+    """Likely ``.mo`` paths for *lang* (exact tag, then language stem)."""
+    tags = [lang]
+    stem = lang.split(".")[0]
+    if stem not in tags:
+        tags.append(stem)
+    if "_" in stem:
+        prefix = stem.split("_", 1)[0]
+        if prefix not in tags:
+            tags.append(prefix)
+    return [os.path.join(localedir, tag, "LC_MESSAGES", "%s.mo" % domain) for tag in tags]
+
+
+def load_translation(
+    languages: list[str],
+    localedir: str | None = None,
+    *,
+    fallback: bool = True,
+) -> gettext.NullTranslations:
+    """Load domain ``writeragent`` for *languages*.
+
+    ``gettext.find`` expands tags via ``locale.normalize``. On Windows that
+    search can miss ``locales/<lang>/LC_MESSAGES/writeragent.mo`` even when
+    the file exists (CI 33453184665: ``Built-in`` stayed English). Open the
+    explicit catalog path when the stdlib lookup returns a dummy catalog.
+    """
+    locales_dir = localedir if localedir is not None else get_locales_dir()
+    trans = gettext.translation(
+        "writeragent",
+        locales_dir,
+        languages=languages,
+        fallback=True,
+    )
+    # GNUTranslations subclasses NullTranslations — compare the exact type.
+    if type(trans) is not gettext.NullTranslations:
+        return trans
+    for lang in languages:
+        for path in _mo_candidates(locales_dir, lang):
+            if not os.path.isfile(path):
+                continue
+            with open(path, "rb") as fh:
+                return gettext.GNUTranslations(fh)
+    if fallback:
+        return gettext.NullTranslations()
+    raise FileNotFoundError(
+        "no writeragent.mo for languages %s under %s" % (languages, locales_dir)
+    )
+
+
 def init_i18n(ctx=None) -> None:
     """Load gettext for the current locale.
 
@@ -112,7 +161,7 @@ def init_i18n(ctx=None) -> None:
 
         log.debug("i18n init: ctx_is_none=%s locale=%s locales_dir=%s (exists=%s) mofiles=%s", ctx is None, locale, locales_dir, os.path.isdir(locales_dir), mofiles if mofiles else "none")
 
-        _translation = gettext.translation(domain="writeragent", localedir=locales_dir, languages=[locale], fallback=True)
+        _translation = load_translation([locale], locales_dir, fallback=True)
         log.debug("i18n init: translation_type=%s", type(_translation).__name__)
     except Exception as e:
         log.debug("Failed to initialize i18n: %s. Falling back to default gettext.", e)

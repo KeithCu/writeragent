@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot import bug_report as br
@@ -38,7 +39,9 @@ def test_collect_environment_block_includes_endpoint_and_model():
     assert "Endpoint: https://api.example.com" in block
     assert "Chat model: test-model" in block
     assert "WriterAgent: 0.8.33" in block
-    assert "WriterAgent debug log: `/tmp/lo-user/writeragent_debug.log`" in block
+    # Production uses os.path.join; Windows CI failed on a hardcoded POSIX slash.
+    expected_log = os.path.join("/tmp/lo-user", "writeragent_debug.log")
+    assert f"WriterAgent debug log: `{expected_log}`" in block
 
 
 def test_collect_environment_block_librepy_uses_venv_path():
@@ -51,7 +54,8 @@ def test_collect_environment_block_librepy_uses_venv_path():
     assert "Python venv path: /home/user/venv" in block
     assert "Endpoint:" not in block
     assert "Chat model:" not in block
-    assert "LibrePy debug log: `/tmp/lo-user/writeragent_debug.log`" in block
+    expected_log = os.path.join("/tmp/lo-user", "writeragent_debug.log")
+    assert f"LibrePy debug log: `{expected_log}`" in block
 
 
 def test_should_offer_bug_report_denies_config_errors():

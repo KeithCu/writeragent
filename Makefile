@@ -630,11 +630,7 @@ translate-missing:
 	"$(PYTHON)" scripts/translate_missing.py --execute
 
 compile-translations:
-	@if command -v msgfmt >/dev/null 2>&1; then \
-		find locales -name "*.po" -exec sh -c 'msgfmt -o "$$(dirname $$1)/$$(basename $$1 .po).mo" "$$1"' _ {} \;; \
-	else \
-		echo "Skipping .mo compilation (msgfmt not found; install gettext: choco install gettext.install)"; \
-	fi
+	"$(PYTHON)" $(SCRIPTS)/compile_translations.py
 
 compile-translations-core:
 	"$(PYTHON)" $(SCRIPTS)/build_librepy_locales.py

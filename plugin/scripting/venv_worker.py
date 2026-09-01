@@ -153,6 +153,36 @@ def _worker_registry_key(exe: str, pool: str) -> str:
     return f"{pool}:{exe}"
 
 
+def pid_is_alive(pid: int) -> bool:
+    """True if *pid* still names a live process.
+
+    ``os.kill(pid, 0)`` is POSIX. On Windows signal 0 is WinError 87, so a
+    naive helper treated every live grandchild as dead (CI 33453184665).
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        return _pid_is_alive_win32(int(pid))
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _pid_is_alive_win32(pid: int) -> bool:
+    import ctypes
+
+    # PROCESS_QUERY_LIMITED_INFORMATION: exists-check without PROCESS_ALL_ACCESS.
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if handle:
+        kernel32.CloseHandle(handle)
+        return True
+    # ACCESS_DENIED (5): process exists but this token cannot query it.
+    return ctypes.get_last_error() == 5
+
+
 def _kill_process_tree(proc: subprocess.Popen[Any]) -> None:
     """Kill *proc* and its descendants (POSIX process group, Windows ``taskkill /T``)."""
     if proc.poll() is not None:

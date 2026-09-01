@@ -55,8 +55,12 @@ def test_download_url_to_file_atomic_replace_preserves_inode(tmp_path):
     """Redownload must not truncate an existing file in place (mapped .so SIGBUS)."""
     dest = tmp_path / "pack.so"
     dest.write_bytes(b"OLD_NATIVE_BYTES")
-    # Hold an open fd like dlopen/mmap would — truncate-in-place would ruin this view.
-    fd = os.open(str(dest), os.O_RDONLY)
+    # POSIX: hold an fd like mmap so truncate-in-place would ruin this view.
+    # Windows: a generic RDONLY handle lacks FILE_SHARE_DELETE, so even the
+    # loaded-DLL rename-aside path hits WinError 32 (CI 33453184665). That
+    # Windows path is covered by test_atomic_replace_native_windows_*.
+    hold_fd = os.name != "nt"
+    fd = os.open(str(dest), os.O_RDONLY) if hold_fd else None
     try:
 
         class _Resp:
@@ -79,11 +83,13 @@ def test_download_url_to_file_atomic_replace_preserves_inode(tmp_path):
             _download_url_to_file("https://example.test/pack.so", str(dest), statuses.append)
 
         assert dest.read_bytes() == b"NEW!"
-        os.lseek(fd, 0, os.SEEK_SET)
-        assert os.read(fd, 100) == b"OLD_NATIVE_BYTES"
+        if fd is not None:
+            os.lseek(fd, 0, os.SEEK_SET)
+            assert os.read(fd, 100) == b"OLD_NATIVE_BYTES"
         assert not (tmp_path / "pack.so.partial").exists()
     finally:
-        os.close(fd)
+        if fd is not None:
+            os.close(fd)
 
 
 def test_download_url_to_file_cleans_partial_on_failure(tmp_path):

@@ -27,6 +27,7 @@ from plugin.scripting.venv_worker import (
     PythonWorkerManager,
     _worker_error,
     _worker_error_message,
+    pid_is_alive,
     reset_python_session,
     run_code_in_user_venv,
     scrub_subprocess_env,
@@ -305,12 +306,10 @@ while True:
         mgr._terminate_worker()
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+def test_pid_is_alive_current_process():
+    assert pid_is_alive(os.getpid())
+    assert not pid_is_alive(0)
+    assert not pid_is_alive(-1)
 
 
 def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
@@ -354,15 +353,15 @@ time.sleep(120)
                 break
             time.sleep(0.05)
         assert gpid is not None, "worker did not report grandchild pid"
-        assert _pid_alive(gpid)
+        assert pid_is_alive(gpid)
         mgr._terminate_worker()
         dead_deadline = time.monotonic() + 5
-        while time.monotonic() < dead_deadline and _pid_alive(gpid):
+        while time.monotonic() < dead_deadline and pid_is_alive(gpid):
             time.sleep(0.05)
-        assert not _pid_alive(gpid), f"grandchild pid {gpid} survived worker termination"
+        assert not pid_is_alive(gpid), f"grandchild pid {gpid} survived worker termination"
     finally:
         mgr._terminate_worker()
-        if gpid is not None and _pid_alive(gpid):
+        if gpid is not None and pid_is_alive(gpid):
             try:
                 os.kill(gpid, 9)
             except OSError:

@@ -590,12 +590,21 @@ def export_graphic_to_bytes(ctx: Any, graphic: Any) -> bytes:
     sm = getattr(ctx_any, "ServiceManager", getattr(ctx_any, "getServiceManager", lambda: None)())
     assert sm is not None
     gp = cast("Any", sm).createInstanceWithContext("com.sun.star.graphic.GraphicProvider", ctx_any)
-    with tempfile.NamedTemporaryFile(suffix=".png") as tmp:
-        tmp_url = uno.systemPathToFileUrl(tmp.name)
+    # Windows cannot reopen a still-open NamedTemporaryFile (sharing /
+    # DeleteOnClose). mkstemp + unlink matches image_utils / payload_codec.
+    fd, tmp_name = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    try:
+        tmp_url = uno.systemPathToFileUrl(tmp_name)
         props = (PropertyValue(Name="URL", Value=tmp_url), PropertyValue(Name="MimeType", Value="image/png"))
         gp.storeGraphic(graphic, props)
-        with open(tmp.name, "rb") as f:
+        with open(tmp_name, "rb") as f:
             return f.read()
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
 
 
 def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:

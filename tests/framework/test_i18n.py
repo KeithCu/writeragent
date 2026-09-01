@@ -1,5 +1,4 @@
 import unittest
-import gettext
 from gettext import NullTranslations
 from unittest.mock import MagicMock, patch
 import deal
@@ -229,18 +228,41 @@ class TestI18n(unittest.TestCase):
         self.assertIsNotNone(get_backend("Eingebaut"))
         self.assertIsNotNone(get_backend("Integriert"))
 
+    def _ensure_mo(self, lang: str) -> str:
+        """Return locales dir, compiling *lang* from .po when .mo is missing."""
+        from pathlib import Path
+
+        from scripts.compile_translations import compile_po
+
+        localedir = get_locales_dir()
+        po = Path(localedir) / lang / "LC_MESSAGES" / "writeragent.po"
+        mo = po.with_suffix(".mo")
+        if not mo.is_file():
+            compile_po(po, mo)
+        self.assertTrue(mo.is_file(), "compiled catalog missing: %s" % mo)
+        return localedir
+
     def test_i18n_translation_loading(self):
         """gettext can load writeragent.mo and translate 'Built-in' to German (Integriert)."""
-        localedir = get_locales_dir()
-        translation = gettext.translation("writeragent", localedir, languages=["de"], fallback=True)
+        localedir = self._ensure_mo("de")
+        translation = i18n_module.load_translation(["de"], localedir, fallback=False)
         self.assertEqual(translation.gettext("Built-in"), "Integriert")
         self.assertEqual(translation.gettext("Backend"), "Backend")
 
     def test_i18n_translation_loading_korean(self):
         """gettext can load writeragent.mo and translate 'Built-in' to Korean."""
-        localedir = get_locales_dir()
-        translation = gettext.translation("writeragent", localedir, languages=["ko"], fallback=True)
+        localedir = self._ensure_mo("ko")
+        translation = i18n_module.load_translation(["ko"], localedir, fallback=False)
         self.assertEqual(translation.gettext("Built-in"), "내장")
+
+    def test_load_translation_opens_explicit_mo_when_find_misses(self):
+        """Windows gettext.find can miss locales/<lang>/… even when the .mo exists."""
+        localedir = self._ensure_mo("de")
+        dummy = NullTranslations()
+        with patch("plugin.framework.i18n.gettext.translation", return_value=dummy):
+            translation = i18n_module.load_translation(["de"], localedir, fallback=False)
+        self.assertEqual(translation.gettext("Built-in"), "Integriert")
+        self.assertIsNot(type(translation), NullTranslations)
 
     def test_dialog_views_imports(self):
         """Import dialog_views with full UNO; otherwise expect ImportError (headless pytest)."""
