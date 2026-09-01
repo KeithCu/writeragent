@@ -59,6 +59,7 @@ class StreamingHTMLStripper:
         Holds back any potential HTML tags in a buffer until they are either confirmed
         (closed with '>') or rejected (invalid tag start, new '<', or size limit exceeded).
         """
+        # crosshair: off  # char-by-char tag machine (cover-all 33451622787: ~1800s module, 2 examples despite DEAL_MAX_HTML_CHUNK=16). Doable later: dual-profile ASCII + smaller chunk.
         out: list[str] = []
         for char in chunk:
             if not self.in_tag:
@@ -110,6 +111,7 @@ class StreamingHTMLStripper:
 @inverse_ensure(lambda text, result: "<" not in result or ">" not in result or len(result) <= len(text))
 def strip_html_tags(text: str) -> str:
     """Synchronous utility to strip HTML tags from a complete string."""
+    # crosshair: off  # wraps feed (cover-all 33451622787: 2 examples / 14064 log lines). Same leftover as StreamingHTMLStripper.feed.
     if not text:
         return ""
     stripper = StreamingHTMLStripper()

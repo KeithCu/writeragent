@@ -49,6 +49,7 @@ def index_to_column(index: int) -> str:
     Returns:
         Column letter (e.g. "A", "AB").
     """
+    # crosshair: off  # while+chr combinatoric leftover (cover-all 33451622787: 16405s / 59700 examples despite DEAL_MAX_COL_INDEX=25). Doable later: closed A-Z table instead of divmod/chr.
     result = []
     index += 1
     while index > 0:

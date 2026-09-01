@@ -35,6 +35,8 @@ def _deal_lo_formula_ok_crosshair(formula: object) -> bool:
 _deal_lo_formula_ok = _deal_lo_formula_ok_crosshair if _PREPROCESS_CROSSHAIR else _deal_lo_formula_ok_pytest
 
 
+@deal.pre(lambda s: _deal_lo_formula_ok(s))
+@deal.post(lambda result: isinstance(result, bool))
 def _no_unquoted_semicolon(s: str) -> bool:
     """True when every ``;`` in *s* sits inside a Calc double-quoted string (or none exist)."""
     in_quote = False

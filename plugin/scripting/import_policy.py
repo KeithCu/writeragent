@@ -21,7 +21,7 @@ from plugin.scripting.sandbox import (
     VENV_AUTHORIZED_IMPORTS,
 )
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import UNDER_CROSSHAIR, ascii_bounded, deal
 
 # Stdlib roots from VENV_AUTHORIZED_IMPORTS beyond BASE_BUILTIN_MODULES.
 _VENV_STDLIB_EXTRA: frozenset[str] = frozenset(
@@ -111,6 +111,21 @@ def _join_modules(modules: tuple[str, ...]) -> str:
     return ", ".join(modules)
 
 
+# AUTO_IMPORTS keys/values fit these (longest key 31, longest stmt 46). Pytest
+# stays wide; CrossHair stays tiny vs unbounded str (cover-all 33451622787:
+# _auto_import_alias 1465s module / 3614 examples).
+_DEAL_ALIAS_MOD = 32 if UNDER_CROSSHAIR else 64
+_DEAL_ALIAS_STMT = 48 if UNDER_CROSSHAIR else 128
+
+
+def _deal_auto_import_alias_ok(module_name: object, import_stmt: object) -> bool:
+    return ascii_bounded(module_name, _DEAL_ALIAS_MOD) and ascii_bounded(
+        import_stmt, _DEAL_ALIAS_STMT
+    )
+
+
+@deal.pre(lambda module_name, import_stmt: _deal_auto_import_alias_ok(module_name, import_stmt))
+@deal.post(lambda result: isinstance(result, str))
 def _auto_import_alias(module_name: str, import_stmt: str) -> str:
     marker = " as "
     if marker in import_stmt:
