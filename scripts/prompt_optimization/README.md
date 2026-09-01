@@ -1,6 +1,6 @@
 # Writer prompt optimization with DSPy
 
-This folder implements the DSPy-based optimization of `DEFAULT_CHAT_SYSTEM_PROMPT` for WriterAgent (see plan in repo). Future Calc work: `=PY()` destination placement (J1 vs overlapping H1) is sketched as Phase F in [`docs/eval/dev-plan.md`](../../docs/eval/dev-plan.md) — not implemented here yet.
+This folder implements the DSPy-based optimization of `DEFAULT_CHAT_SYSTEM_PROMPT` for WriterAgent (see plan in repo). Next string-harness work (real tool catalog, document worlds, process/`=PY` score; no LO): [`docs/eval/string-harness-upgrade.md`](../../docs/eval/string-harness-upgrade.md). Phase F `=PY()` dest rows are part of that plan.
 
 ## Benchmarks from repo root
 

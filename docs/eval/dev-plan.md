@@ -1,5 +1,11 @@
 # WriterAgent: Evaluation System Development Plan (Internal Edition)
 
+**Current string-harness work** lives in
+[`string-harness-upgrade.md`](string-harness-upgrade.md) (real core tool
+catalog, document worlds, process/`=PY` score; no LO; multi-turn later).
+This file is the older hybrid/LO roadmap and the Phase F `=PY` table
+that the upgrade plan implements.
+
 This plan covers the WriterAgent prompt optimization + evaluation system (`scripts/prompt_optimization/`). It supports fast non-LO evaluation via `StringDocState` (default `--backend string` in `llm_chat_eval.py`) for Writer text/HTML tasks, `DrawDocState` for shapes/flowcharts, and `CalcStringState` for data sorting (`data_sorting`) and tax column (`tax_column`) tests. Full LO (`--backend lo`) for fidelity. See `ideas.md` (annotated with LO requirements) for the original ~50 test cases. New Calc tests implemented in `string_eval_tools.py:231` (CalcStringState with `sort_range`, `write_cell_range`, `get_sheet_summary`, `snapshot()` JSON output) and `llm_chat_eval.py:221` (task detection + schemas).
 
 ## Current Status

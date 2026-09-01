@@ -2,7 +2,7 @@
 
 WriterAgent includes an in-LibreOffice **LLM Evaluation Suite** for real-world tasks in Writer, Calc, and Draw. Runs track accuracy and **Intelligence-per-Dollar**: **Value (C²/$)** = average correctness squared ÷ average dollars per run (higher is better), using live OpenRouter pricing where available.
 
-How to run evals from the repo: [scripts/prompt_optimization/README.md](../../scripts/prompt_optimization/README.md). Broader plan notes: [dev-plan.md](dev-plan.md).
+How to run evals from the repo: [scripts/prompt_optimization/README.md](../../scripts/prompt_optimization/README.md). Broader plan notes: [dev-plan.md](dev-plan.md). Next string-harness work (no LO): [string-harness-upgrade.md](string-harness-upgrade.md).
 
 ## Snapshot ranking (Apr 2026)
 

@@ -93,7 +93,7 @@ Start here by task.
 | UNO exception policy (disposed vs leaf catches) | [framework/exception-policy.md](framework/exception-policy.md) |
 | LLM Hacks & Workarounds | [chat/llm-hacks.md](chat/llm-hacks.md) |
 | Experimental memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md) |
-| LLM evals / benchmarks | [eval/benchmarks.md](eval/benchmarks.md), [scripts/prompt_optimization/README.md](../scripts/prompt_optimization/README.md) |
+| LLM evals / benchmarks | [eval/benchmarks.md](eval/benchmarks.md), [eval/string-harness-upgrade.md](eval/string-harness-upgrade.md), [scripts/prompt_optimization/README.md](../scripts/prompt_optimization/README.md) |
 
 ## References
 
