@@ -111,6 +111,10 @@ else
         /usr/local/Caskroom/libreoffice/*/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/*/bin/python3))
     else
     LO_CONF := $(HOME)/.config/libreoffice/4
+    # python3-uno binds to the distro interpreter. setup-python / uv put
+    # another python3 first on PATH, so a bare `python3 -c "import uno"`
+    # fails on Ubuntu CI even when python3-uno is installed (33453027089).
+    LO_PYTHON ?= $(shell /usr/bin/python3 -c "import uno" 2>/dev/null && echo /usr/bin/python3)
     endif
     HOME_DIR = $(HOME)
     UNOPKG := unopkg
@@ -750,7 +754,7 @@ _check-lo-python:
 		echo >&2 "Looked for:"; \
 		echo >&2 "  macOS: /Applications/LibreOffice.app/Contents/Frameworks/LibreOfficePython.framework/Versions/Current/bin/python3"; \
 		echo >&2 "         (also Versions/*/bin/python3 and Homebrew Caskroom LibreOffice.app)"; \
-		echo >&2 "  Linux: python3 or python with a working 'import uno' (apt: python3-uno)"; \
+		echo >&2 "  Linux: /usr/bin/python3 (python3-uno), then python3 or python on PATH"; \
 		echo >&2 "  Windows: LibreOffice/program/python.exe"; \
 		echo >&2 "Set LO_PYTHON to LibreOffice's bundled interpreter — not the project .venv."; \
 		exit 1; \

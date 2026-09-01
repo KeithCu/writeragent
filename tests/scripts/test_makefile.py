@@ -66,6 +66,13 @@ def test_makefile_lo_python_probe_does_not_silently_use_venv() -> None:
     assert "test-uno: _check-lo-python" in text
 
 
+def test_makefile_linux_lo_python_prefers_usr_bin() -> None:
+    """Ubuntu CI: setup-python shadows PATH python3; python3-uno is /usr/bin/python3."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    assert '/usr/bin/python3 -c "import uno"' in text
+    assert "echo /usr/bin/python3" in text
+
+
 def test_makefile_ci_debug_max_worker_restart_is_opt_in() -> None:
     text = MAKEFILE.read_text(encoding="utf-8")
     assert "ifeq ($(WRITERAGENT_CI_DEBUG),1)" in text
