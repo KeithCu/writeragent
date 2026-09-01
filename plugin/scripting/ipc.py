@@ -243,7 +243,8 @@ def _read_bytes_with_timeout_win32(
                 return bytes(buf)
             buf.extend(chunk)
             continue
-        time.sleep(max(0.0, min(0.001, remaining)))
+        # Re-read the clock: PeekNamedPipe can cross the deadline.
+        time.sleep(max(0.0, min(0.001, deadline - time.monotonic())))
     return bytes(buf)
 
 

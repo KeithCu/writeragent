@@ -171,6 +171,8 @@ def pid_is_alive(pid: int) -> bool:
 
 
 def _pid_is_alive_win32(pid: int) -> bool:
+    if sys.platform != "win32":
+        return False
     import ctypes
 
     # PROCESS_QUERY_LIMITED_INFORMATION: exists-check without PROCESS_ALL_ACCESS.
