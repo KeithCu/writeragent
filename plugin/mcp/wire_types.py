@@ -223,28 +223,32 @@ _DEAL_CALL_VAL_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 def _deal_call_tool_params_ok(params: object) -> bool:
     # cover-all 33180040863: unbounded params → 3400 examples on from_params.
     # check-all 33668189572: missing/empty name → ValueError CHECK FAIL on {}.
-    return (
-        type(params) is dict
-        and len(params) <= _DEAL_CALL_DICT_LEN
-        and isinstance(params.get("name"), str)
-        and ascii_bounded(params["name"], _DEAL_CALL_VAL_LEN, min_len=1)
-        and (
-            "arguments" not in params
-            or params["arguments"] is None
-            or type(params["arguments"]) is dict
-        )
-        and all(type(k) is str and ascii_bounded(k, _DEAL_CALL_KEY_LEN) for k in params)
-        and all(
-            v is None
-            or (isinstance(v, str) and ascii_bounded(v, _DEAL_CALL_VAL_LEN))
-            or (
-                type(v) is dict
-                and len(v) <= _DEAL_CALL_DICT_LEN
-                and all(type(nk) is str and ascii_bounded(nk, _DEAL_CALL_KEY_LEN) for nk in v)
-            )
-            for v in params.values()
-        )
-    )
+    # ty: Top[dict] keys are Never, so __getitem__ with Literal name/arguments is invalid.
+    if type(params) is not dict:
+        return False
+    if len(params) > _DEAL_CALL_DICT_LEN:
+        return False
+    name = params.get("name")
+    if not isinstance(name, str) or not ascii_bounded(name, _DEAL_CALL_VAL_LEN, min_len=1):
+        return False
+    arguments = params.get("arguments")
+    if arguments is not None and type(arguments) is not dict:
+        return False
+    if not all(type(k) is str and ascii_bounded(k, _DEAL_CALL_KEY_LEN) for k in params):
+        return False
+    for v in params.values():
+        if v is None:
+            continue
+        if isinstance(v, str) and ascii_bounded(v, _DEAL_CALL_VAL_LEN):
+            continue
+        if (
+            type(v) is dict
+            and len(v) <= _DEAL_CALL_DICT_LEN
+            and all(type(nk) is str and ascii_bounded(nk, _DEAL_CALL_KEY_LEN) for nk in v)
+        ):
+            continue
+        return False
+    return True
 
 
 @deal.pre(lambda params: _deal_call_tool_params_ok(params))
