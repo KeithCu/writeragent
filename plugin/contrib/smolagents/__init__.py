@@ -14,14 +14,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-__version__ = "1.25.0.dev0"
+"""Vendored smolagents package.
 
-from .agent_types import *  # noqa: I001
-from .agents import *  # Above noqa avoids a circular dependency due to cli.py
-from .default_tools import *
-from .memory import *
-from .models import *
-from .monitoring import *
-from .serialization import *
-from .tools import *
-from .utils import *
+Import submodules directly (``plugin.contrib.smolagents.utils``, ``.tools``,
+…). This file used to star-import every submodule, which meant
+``from plugin.contrib.smolagents.utils import BASE_BUILTIN_MODULES`` (used by
+compute workers via sandbox.py) also ran ``tools.py`` → ``huggingface_hub``.
+That printed to stdout under full pytest:
+
+    Error importing huggingface_hub.hf_api: No module named 'envwrap'
+    (or 'envwrap.envwrap' is unknown)
+
+and broke pickle-stdio spawn. Keep this init side-effect free.
+"""
+__version__ = "1.25.0.dev0"
