@@ -20,8 +20,11 @@ def test_out_path_relative_is_cwd(monkeypatch, tmp_path) -> None:
     args = type("A", (), {"out": "scripts/prompt_optimization/eval_results_17task.csv"})()
     got = run_eval_multi._out_path(args)
     assert got == tmp_path / "scripts/prompt_optimization/eval_results_17task.csv"
-    abs_args = type("A", (), {"out": "/tmp/eval.csv"})()
-    assert run_eval_multi._out_path(abs_args) == Path("/tmp/eval.csv")
+    # /tmp/eval.csv is not a drive-absolute path on Windows (Path.cwd() / p
+    # becomes C:/tmp/eval.csv). Use a real filesystem abs path like _out_path.
+    abs_out = str(tmp_path / "abs_eval.csv")
+    abs_args = type("A", (), {"out": abs_out})()
+    assert run_eval_multi._out_path(abs_args) == Path(abs_out).resolve()
 
 
 def test_nitro_student_reuses_base_catalog_pricing() -> None:
