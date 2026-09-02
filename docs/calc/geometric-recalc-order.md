@@ -1,6 +1,6 @@
 # Geometric Recalc Order — implementation plan
 
-**Status:** Decided — ready to implement. **Not implemented.** Product calls in [§9](#9-decisions) are closed.
+**Status:** Decided — ready to implement. **Not implemented.** Closed calls in [§9](#9-decisions) stand (no IDL, no 1×1 value-shape strip, no `locate_formula_cell_in_doc` for eval identity, precedent-only, cap skip-sheet, no strip-on-disable, Isolated checkbox visible / no-op). **Eval identity was not closed** in the previous draft — this revision specifies it as **unanimous-ours** plus an off-main `workbook_key` ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
 
 **Related:** [Enabling NumPy & Python](../enabling_numpy_in_libreoffice.md) (session modes, auto-spill), [Microsoft `=PY` design stance](../scripting/ms-py-compatibility.md) (why we refuse Excel co-volatility), [Calc `=PY()` data shapes](py-data-shapes.md) (`data` / `ranges` arity).
 
@@ -80,7 +80,7 @@ Do **not** add a dedicated IDL ordering argument. That rebuilds `.rdb`s for both
 
 **Cross-cluster chaining (decided):** two independent PY clusters on one sheet (A1:A5 and D1:D5) become one chain — D1 waits on A5. That slightly over-dirties the D column when A3 changes. Correctness is fine; users who care can turn the flag off and write explicit `data` refs. Do not add spatial clustering.
 
-**Cap (decided):** `list_python_cells_on_sheet` stops at `_MAX_PYTHON_CELLS_FOUND = 100` (also `_MAX_CELLS_TO_SCAN = 50000`). The function returns a truncated list and does **not** currently say whether a cap fired. **If a cap is hit, skip geometric chaining for that entire sheet and log it.** Do not chain the first 100 and leave #101 with no predecessor. Do not raise the cap in this feature. Treat `len(found) >= _MAX_PYTHON_CELLS_FOUND` as capped (cannot tell “exactly 100” from “101+”; skipping a full 100-cell sheet is the safe default). If the scan cap fires with fewer than 100 PY cells, that list is also incomplete — same skip. A small `(cells, truncated)` wrapper around discovery is fine; do not change the 100/50k constants.
+**Cap (decided):** `list_python_cells_on_sheet` stops at `_MAX_PYTHON_CELLS_FOUND = 100` (also `_MAX_CELLS_TO_SCAN = 50000`) and returns a list with **no truncated flag** (`cell_discovery.py`). **If a cap is hit, skip geometric chaining for that entire sheet and log it.** Do not chain the first 100 and leave #101 with no predecessor. Do not raise the cap. Do not mark any eval-index triple strip-safe for that sheet — you cannot prove unanimous-ours on a truncated list ([§9.5](#95-marker-is-the-udprop--in-memory-map)). Phase 1 treats `len(found) >= _MAX_PYTHON_CELLS_FOUND` as cap-hit (over-skips an exact 100). A real `truncated` flag is **Phase 3**, not Phase 1. If the 50k scan cap fires with fewer than 100 PY cells, that list is also incomplete — same skip.
 
 A 100-cell chain is serial (venv IPC per dirty cell); that is the price of order, not a new cliff.
 
@@ -93,7 +93,7 @@ A2:  =PY("df = clean(df)")          →  =PY("df = clean(df)"; A1)
 A3:  =PY("result = df.describe()")   →  =PY("result = df.describe()"; A2)
 ```
 
-Reuse [`parse_python_formula`](../../plugin/calc/python/formula_edit.py) / `parse_data_binding_text` / `build_data_suffix`. Quoted-code cells: `rebuild_python_formula_with_data`. Code-in-cell (`=PY($A$1; B1:B10)`): detect with `py_formula_has_unquoted_code_ref` / `py_code_arg_is_cell_ref` and rebuild with `rebuild_python_formula_with_code_ref` — **not** `rebuild_python_formula_with_data` (that quotes the code-ref as a string). Do not invent a second formula serializer.
+Reuse [`parse_python_formula`](../../plugin/calc/python/formula_edit.py) / `parse_data_binding_text` / `build_data_suffix`. Quoted-code cells: `rebuild_python_formula_with_data`. Code-in-cell (`=PY($A$1; B1:B10)`): detect with `py_formula_has_unquoted_code_ref` / `py_code_arg_is_cell_ref` and rebuild with `rebuild_python_formula_with_code_ref` — **not** `rebuild_python_formula_with_data` (that quotes the code-ref as a string). `PythonFormulaParts` has no quoted flag (`prefix` / `code` / `data_suffix` only) — splice code-in-cell from the **raw formula**, not `parts.code` alone. Eval-index `code` is the **resolved source** (contents of `$A$1`), not the token `$A$1` ([§9.5](#95-marker-is-the-udprop--in-memory-map)). Do not invent a second formula serializer.
 
 The first cell in the list gets **no** predecessor. Cycles cannot appear if we only ever attach the previous entry in a total order. If a first cell still has a trailing geometric field (successor became first after delete), run the **remove-field** primitive ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
 
@@ -175,10 +175,10 @@ The last-row idea “user already passed the previous PY cell as real data → n
 In `_execute_python_addin_impl` ([`function.py`](../../plugin/calc/python/function.py)):
 
 1. `args = split_python_addin_data_args(data)`
-2. **Strip here** if the in-memory map says this evaluation has a geometric last field (see [§9.5](#95-marker-is-the-udprop--in-memory-map) eval index). Unconditional across **both** branches — including `_code_uses_indexed_multi_data` (`"data["` / `"ranges["` in the source). If the geometric field stays, it becomes `data[-1]` / `ranges[-1]`.
+2. **Strip here** if the eval index marks this `(workbook_key, resolved_code, n_args)` **strip-safe** (unanimous-ours — [§9.5](#95-marker-is-the-udprop--in-memory-map)). Unconditional across **both** branches — including `_code_uses_indexed_multi_data` (`"data["` / `"ranges["` in the source). If the geometric field stays, it becomes `data[-1]` / `ranges[-1]`.
 3. Then `py_data = calc_addin_args_from_split(...)` and the existing trailing-single-cell **matrix-index** heuristic (the `is_multi and not _code_uses_indexed_multi_data(code)` block that peels a last 1-cell arg as `index_arg`, after which `finalize_python_return` slices `flat[value]`).
 
-If strip runs after that heuristic, appending `;A1` to `=PY("np.mean(data)"; B1:B10)` would coincidentally fix arity and **corrupt** the result (A1’s value used as a matrix index). Phase 4 must test both `=PY("np.mean(data)"; B1:B10)` and `=PY("ranges[-1].shape"; B1:B10)`.
+If strip is skipped on a fill-down of identical `=PY("np.mean(data)"; B1:B10; pred)`, `calc_addin_args_from_split` flips `data` to a list, then the index heuristic peels the predecessor **value** as `index_arg` — silent wrong numbers. Strip must run first, and fill-down must be strip-safe when every cell with that triple is ours. Phase 4 must test both `=PY("np.mean(data)"; B1:B10)` and `=PY("ranges[-1].shape"; B1:B10)`, plus fill-down and mixed neighbors.
 
 Do not invent a reserved formula suffix. Do not add a third IDL argument.
 
@@ -201,9 +201,9 @@ Do not invent a reserved formula suffix. Do not add a third IDL argument.
 | Piece | New? | Reuse |
 |-------|------|--------|
 | Settings checkbox | Small | `module.yaml` + existing Settings dialog |
-| Discover PY cells in order | Tiny wrapper | `cell_discovery.list_python_cells_on_sheet` / `list_python_cells_in_doc` — add a truncation signal, do not raise the cap |
+| Discover PY cells in order | Phase 1: `len >= 100` | `list_python_cells_on_sheet` / `list_python_cells_in_doc` — no truncated flag today; a real flag is Phase 3, do not raise the cap |
 | Parse / rebuild `=PY(code; args)` | Small splice + remove-field | `formula_edit.py` — `rebuild_python_formula_with_data` **or** `rebuild_python_formula_with_code_ref` |
-| Marker | ~1 extra day | Copy `WriterAgentSpillRegistry` / `load_spill_registry_for_doc` / `SPILL_REGISTRY` / `save_spill_registry_for_doc` (`udprops.get_document_property` / `set_document_property`) |
+| Marker | ~1 extra day | Copy `WriterAgentSpillRegistry` / `load_spill_registry_for_doc` / `SPILL_REGISTRY` (`udprops`). Record `workbook_key` even in Isolated. Unanimous-ours eval index — not uniqueness, not ≥1-hit. |
 | Deferred UI-thread writes + undo | Small | `perform_deferred_spill`, `_undo_lock`, Timer 0.1s — share debounce; explicit re-entrancy flag |
 | Sheet modify | Small | **Shared trigger**, not a sibling listener; geometric job does its own PY discovery |
 | Strip geometric arg from worker `data` | Medium | `_execute_python_addin_impl` — map lookup **before** the index heuristic and **before** `calc_addin_args_from_split` |
@@ -224,7 +224,14 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 |------|------------|
 | Shadowing `data` (arity flip) | Precedent-only strip via the map, **before** the index heuristic ([§4](#4-data-binding--do-not-shadow-data)) |
 | 1×1 / “is a PY cell” strip | Forbidden — add-in sees values only ([§4.1](#41-why-a-value-shape-strip-cannot-work)) |
-| Index heuristic eats `;A1` | Strip first; Phase 4 tests `np.mean(data)` and `ranges[-1].shape` |
+| Index heuristic eats `;A1` | Strip first; Phase 4 tests `np.mean(data)`, `ranges[-1].shape`, fill-down |
+| Uniqueness / “fail-safe = no strip” | **Rejected** — kills fill-down of identical `=PY("np.mean(data)"; B1:B10)` |
+| ≥1-hit strip | **Rejected** — would strip a mixed matrix-index neighbor |
+| Mixed ours + user same triple | Do not mark strip-safe; residual is “chain loses strip,” not “user cell loses last arg” |
+| Two open workbooks | `off_main_calc_session_is_unambiguous()` false → no strip |
+| Isolated still needs strip | Record `workbook_key` on the UI-thread path even when `workbook_session_id` is `None` |
+| Keying the token `$A$1` | Eval `code` is resolved source (`execute_python_addin`); repair must read the code cell |
+| Naive `;` arity | Repair `n_args` must match `split_python_addin_data_args`, not a semicolon count |
 | Rewrite during recalc | Same ban as spill; deferred only |
 | Undo fragmentation | `_undo_lock`: hidden when `isUndoPossible()`, else `lock()`; flag-on reconcile is one locked unit |
 | Infinite rewrite loop | Idempotent desired-vs-actual; re-entrancy flag; skip if already correct |
@@ -241,15 +248,15 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 
 ## 8. Suggested phases
 
-**Phase 0 — Review (this doc).** Closed. Do not reopen [§9.1](#91-precedent-only-not-value-in-data-not-idl) C (IDL) or a value-shape strip.
+**Phase 0 — Review (this doc).** Closed product calls stand. Eval identity is specified in [§9.5](#95-marker-is-the-udprop--in-memory-map) (unanimous-ours + `workbook_key`) — do not treat the previous uniqueness draft as closed. Do not reopen [§9.1](#91-precedent-only-not-value-in-data-not-idl) C (IDL) or a value-shape strip.
 
-**Phase 1 — Pure list + formula splice.** Unit tests only: given a list of addresses + current formulas + the in-memory record, compute the patch. No UNO. This is the whole algorithm. Encode the [§9.5](#95-marker-is-the-udprop--in-memory-map) table, including **remove-field**, code-in-cell `=PY($A$1; B1:B10)`, and “cap-hit → skip sheet.”
+**Phase 1 — Pure list + formula splice.** Unit tests only: given a list of addresses + current formulas + the in-memory record, compute the patch and the eval-index bools. No UNO. Encode the [§9.5](#95-marker-is-the-udprop--in-memory-map) table, including **remove-field**, code-in-cell splice from the raw formula (`rebuild_python_formula_with_code_ref`), fill-down unanimous-ours, mixed poison, and “`len >= 100` → skip sheet, do not mark strip-safe.” No truncated-flag API in this phase.
 
-**Phase 2 — Flag + attach on save / flag-on.** Monaco and native cell save call the splicer; apply on the UI thread after save (save is already outside recalc). Settings default off. Flag-on walks **all sheets**. Persist / load the UDProp like spill.
+**Phase 2 — Flag + attach on save / flag-on.** Monaco and native cell save call the splicer; apply on the UI thread after save (save is already outside recalc). Settings default off. Flag-on walks **all sheets**. Persist / load the UDProp like spill. Record `workbook_key` even in Isolated (unsaved files must not use empty URL).
 
-**Phase 3 — Deferred repair on insert/delete.** Shared trigger + spill-like timer + re-entrancy flag. UNO tests: three-cell column, insert PY in the middle, successor’s field updates; delete (including successor-becomes-first → remove-field); undo. Cap-hit sheet is left unchained.
+**Phase 3 — Deferred repair on insert/delete.** Shared trigger + spill-like timer + re-entrancy flag. UNO tests: three-cell column, insert PY in the middle, successor’s field updates; delete (including successor-becomes-first → remove-field); undo. Cap-hit sheet is left unchained. A real discovery `truncated` flag belongs here if needed — not Phase 1.
 
-**Phase 4 — Strip geometric arg from worker ingress.** Map lookup after `split_python_addin_data_args`, **before** the index heuristic and `calc_addin_args_from_split`. Tests in [§10](#10-test-plan-when-implemented).
+**Phase 4 — Strip geometric arg from worker ingress.** After `split_python_addin_data_args`, if the triple is strip-safe, drop `args[-1]` **before** the index heuristic and `calc_addin_args_from_split`. Tests in [§10](#10-test-plan-when-implemented).
 
 **Non-goals until someone asks:** cross-sheet chains, workbook-global order, Isolated value-piping, sidebar annotations, Excel export special-case, raising the 100-cell cap, strip-on-disable, spatial clustering of independent PY groups, a dedicated IDL arg.
 
@@ -257,7 +264,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 
 ## 9. Decisions
 
-Closed. Rejected alternatives are listed so they are not reopened in the first PR.
+Closed product calls stand. Eval identity is specified in [§9.5](#95-marker-is-the-udprop--in-memory-map) (was not closed by the uniqueness draft). Rejected alternatives are listed so they are not reopened.
 
 ### 9.1 Precedent-only (not value-in-`data`, not IDL)
 
@@ -282,7 +289,7 @@ A trailing A1 field is enough **if** we strip it via the map, not a 1×1 heurist
 
 **Rejected:** hide the checkbox when Isolated is selected (couples two settings; looks like a bug when the box disappears).
 
-Precedent-only strip means Isolated `data` is unchanged.
+Precedent-only strip means Isolated `data` is unchanged. Isolated is a no-op for **Python globals**, not for the strip: `workbook_session_id` returns `None` when mode ≠ `shared`, but Isolated still needs strip (else arity breaks). Record `workbook_key` on the UI-thread path even in Isolated ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
 
 ### 9.4 Flag turned off — leave refs
 
@@ -292,7 +299,7 @@ Precedent-only strip means Isolated `data` is unchanged.
 
 ### 9.5 Marker is the UDProp / in-memory map
 
-**Decision: C (required), used to implement A’s rewrite table.** Not a reserved suffix. Not IDL. Not a 1×1 / “last arg is a PY cell” heuristic.
+**Decision: C (required), used to implement A’s rewrite table.** Not a reserved suffix. Not IDL. Not a 1×1 / “last arg is a PY cell” heuristic. **Eval identity was not closed** by the uniqueness draft — it is **unanimous-ours** plus `workbook_key`, below.
 
 Copy the spill pattern — do not invent a second subsystem:
 
@@ -301,17 +308,43 @@ Copy the spill pattern — do not invent a second subsystem:
 | UDProp `WriterAgentSpillRegistry` | A sibling document property (e.g. `WriterAgentGeometricRegistry`) |
 | `SPILL_REGISTRY` in memory | In-memory map, loaded on the UI thread |
 | `load_spill_registry_for_doc` / `save_spill_registry_for_doc` | Same load/save shape via `udprops` |
-| Keyed by `(doc_url, sheet, row, col)` | Same: cells **we** attached, plus the predecessor we wrote |
+| Keyed by `(doc_url, sheet, row, col)` | Per-cell attach record (addresses on the UI thread) **plus** `workbook_key` even in Isolated |
 
 **Rewrite** (UI thread) always has addresses. The map is the ours-vs-user marker: append / replace / remove using the table below.
 
-**Eval-time strip** cannot look up `(sheet, row, col)` unless it already knows the origin. `execute_python_addin` does not receive the calling address. Do **not** call `locate_formula_cell_in_doc` to recover it (None on 0 or 2+ matches; cannot tell user-data-is-previous-PY from our field). Do **not** query the desktop / document from a recalc worker.
+**Eval-time strip** cannot look up `(sheet, row, col)`. `PythonFunction.python` / `execute_python_addin` never get a calling address (`addin_impl.py`). Do **not** call `locate_formula_cell_in_doc` (None on 0 or 2+ matches; cannot tell user-data-is-previous-PY from our field). Do **not** query the desktop / document from a recalc worker. Off-main, `doc` stays `None` (`_execute_python_addin_impl` fills `doc` only on main).
 
-**Eval index (least extra complexity):** when attaching or repairing on the UI thread, also maintain a uniqueness-filtered view of the same map, keyed by `(doc_url, code, n_args)` → “strip last.” `n_args` is `len(split_python_addin_data_args(...))` **including** the geometric field. At eval, if that triple hits a **unique** strip entry, drop `args[-1]`. If the triple is missing or not unique, **do not strip** (leave user data; log the collision). Never fall back to 1×1. `doc_url` at eval: use `doc` when already passed, or the same unambiguous cached session `get_python_init_kwargs` already uses off-main — no new UNO walk.
+#### Eval index — unanimous-ours (not uniqueness, not ≥1-hit)
 
-Typical pipelines have distinct `code` strings, so the triple is unique. Duplicate identical formulas are the leftover hole (same as locate); fail safe = no strip.
+At **repair time** (UI thread, we have addresses), compute an eval-index bool per `(workbook_key, resolved_code, n_args)`:
 
-**Remove-field primitive:** parse → drop the last geometric data arg → rebuild → drop the map record. Needed when a successor becomes first after delete. Same primitive strip-on-disable ([§9.4](#94-flag-turned-off-leave-refs) B) would use later. **Idempotent:** first cell with a trailing geometric field → strip that field.
+- **strip-safe** iff **every** discovered PY cell with that triple is in the map (ours-only / unanimous).
+- **Eval:** if that triple is marked strip-safe, drop `args[-1]` before the index heuristic and before `calc_addin_args_from_split`. Unconditional on both branches including `data[]` / `ranges[]`.
+- **Mixed** same-code/arity (a non-mapped user cell, e.g. matrix-index `=PY("f"; range; i)` next to a chain of `=PY("f"; range; pred)`) → do **not** mark strip-safe → **no-strip for the whole triple** (chain included) until the user cell is gone or attached. Residual to name: **mixed poisons the chain**, not “user cell also loses last arg.” Do **not** use a ≥1-hit rule; that would strip the matrix-index neighbor.
+- **Cap-hit** → skip the entire sheet, do **not** mark any triple strip-safe, do not write a partial chain. You cannot prove unanimous on a truncated list.
+- **Rejected:** uniqueness / “fail-safe = no strip” / “typical pipelines have distinct code strings.” That kills fill-down of identical `=PY("np.mean(data)"; B1:B10)`: after attach every successor has the same `resolved_code` and `n_args=2`, non-unique → no-strip → `calc_addin_args_from_split` flips `data` to a list, then the index heuristic peels the predecessor **value** as `index_arg` — silent wrong numbers.
+
+Optional (not instead of unanimous, not the primary key): a fingerprint of `args[:-1]` so two chains with the same snippet and **different ranges** do not share a triple. Does not save mixed same-range. Do **not** fingerprint the last-arg value (first recalc is empty/0).
+
+#### Three must-gets (easy to get wrong)
+
+**1. Key `code` is what `execute_python_addin` receives, not the formula token.** `PythonFunction.python` passes Calc’s first argument through as `code` (`addin_impl.py`). For `=PY($A$1; B1:B10; pred)` that is the **cell contents of `$A$1`** (resolved source), not the token `$A$1`. Repair must **read that cell** when building the eval index (`formula_edit.py` unquoted branch vs `addin_impl.py`). Keying the token `$A$1` misses every script-bank cell. Detect / splice with `py_formula_has_unquoted_code_ref` / `py_code_arg_is_cell_ref` / `rebuild_python_formula_with_code_ref` (exist on master). `PythonFormulaParts` has no quoted flag (`prefix` / `code` / `data_suffix` only) — splice code-in-cell from the **raw formula**, not `parts.code` alone, or `$A$1` gets quoted by `rebuild_python_formula_with_data`. Cells that share resolved source collide on this triple; same unanimous rule.
+
+**2. `n_args` at eval is `len(split_python_addin_data_args(data))`** (`calc_addin_data.py`). Repair arity **must** match that splitter, not a naive semicolon count. A pair `(range, 1×1 pred)` does **not** collapse under `_is_legacy_single_column_range`: the inner of the 1×1 is a sequence, so two varargs stay two args (`n_args=2` after attach).
+
+**3. Cap-hit:** `list_python_cells_on_sheet` returns 100 with **no** truncated flag (`cell_discovery.py`). You cannot prove unanimous. Already-decided skip-sheet is the fail-safe; do **not** mark those triples strip-safe. Phase 1 treats `len >= _MAX_PYTHON_CELLS_FOUND` as cap-hit (over-skips exact 100). A real truncated flag is Phase 3.
+
+#### `workbook_key` (blocking — do not cite `get_python_init_kwargs`)
+
+`get_python_init_kwargs` does **not** carry `doc_url`. `build_python_eval_init_kwargs` is init-script / hash only. `session_key` leaves `doc_url=""` off-main (fills `doc` only on main). Isolated: `workbook_session_id` returns `None` when mode ≠ `shared`, but Isolated still needs strip.
+
+**Eval `workbook_key` = `get_cached_calc_session_id()` only when `off_main_calc_session_is_unambiguous()`** (`session_manager.py`: `len(_RECORDED_CALC_SESSION_IDS) == 1`). Else do not strip (two open workbooks).
+
+On the **UI-thread** load / repair path, record that workbook key in the geometric map **even in Isolated** (sibling of `load_spill_registry_for_doc`). Unsaved files must not use empty URL — same #402 hole as `session_key` / `_workbook_session_key` (URL, else a persisted unsaved id, never `""`).
+
+#### Remove-field
+
+Parse → drop the last geometric data arg → rebuild → drop the map record. Needed when a successor becomes first after delete. Same primitive strip-on-disable ([§9.4](#94-flag-turned-off-leave-refs) B) would use later. **Idempotent:** first cell with a trailing geometric field → strip that field. After remove-field, recompute unanimous-ours for the affected triples.
 
 **Rewrite table** (desired predecessor A1 unless noted). “Ours” means the map has a record for this cell.
 
@@ -319,13 +352,15 @@ Typical pipelines have distinct `code` strings, so the triple is unique. Duplica
 |----------|----------|-----|--------|
 | No args | — | none | Append `;A1`; record |
 | User range `B1:B10` | range | none | Append (`;B1:B10;A1`); record |
+| Fill-down of identical `=PY("np.mean(data)"; B1:B10)` | range + pred | **all** successors ours | Append each; triple is strip-safe (unanimous) |
 | Already correct | single cell = desired | ours, pred A1 | No-op |
 | Stale predecessor after insert | single cell = old pred | ours, old pred A1, desired A2 | Replace `;A1` → `;A2`; update record |
 | User single-cell data `C5` | single cell ≠ desired | none | Append (`;C5;A1`); do not overwrite `C5` |
-| User already passed the previous PY cell as **real data** | single cell = desired | **none** (we did not attach) | **No-op. Do not record. Do not strip at eval.** |
-| Successor became first (delete) | geometric field | ours | **Remove-field**; drop record |
+| User already passed the previous PY cell as **real data** | single cell = desired | **none** (we did not attach) | **No-op. Do not record.** If this cell shares a triple with mapped cells, the triple is **not** strip-safe (mixed poisons the chain). |
+| Mixed matrix-index neighbor `=PY("f"; range; i)` next to `=PY("f"; range; pred)` | 1×1 | one ours, one not | Do **not** mark strip-safe; **neither** strips |
+| Successor became first (delete) | geometric field | ours | **Remove-field**; drop record; recompute index |
 | First cell still has a leftover field | geometric field | ours | Remove-field (idempotent) |
-| Cap hit on this sheet | — | — | Skip the sheet; log; do not write a partial chain |
+| Cap hit on this sheet | — | — | Skip the sheet; log; no partial chain; **do not** mark triples strip-safe |
 
 ### 9.6 Flag-on / document-open — all sheets
 
@@ -339,22 +374,26 @@ Typical pipelines have distinct `code` strings, so the triple is unique. Duplica
 
 **Unit (`tests/calc/python/`, match the new module name; splice cases can extend `test_formula_edit.py`):**
 
-Phase 1 — list-diff + splice (encode [§9.5](#95-marker-is-the-udprop--in-memory-map)):
+Phase 1 — list-diff + splice + eval-index bools (encode [§9.5](#95-marker-is-the-udprop--in-memory-map)):
 
 - Empty, one cell, two cells, insert in middle, delete middle, delete first (remove-field), reorder.
 - Formula splice: no args; existing range args preserved; already-correct predecessor; stale predecessor replaced; user extra cell-ref appended not overwritten when it is not ours.
-- **Code-in-cell:** `=PY($A$1; B1:B10)` → attach / replace / remove via `rebuild_python_formula_with_code_ref`; result stays an unquoted `$A$1` (or the original ref token), not `=PY("$A$1"; …)`.
+- **Code-in-cell:** splice `=PY($A$1; B1:B10)` from the **raw formula** via `rebuild_python_formula_with_code_ref`; result stays an unquoted `$A$1`, not `=PY("$A$1"; …)`. Eval-index `code` is the **resolved source** (cell contents of `$A$1`), not the token.
+- Repair `n_args` matches `len(split_python_addin_data_args(...))`, not a semicolon count. `(range, 1×1 pred)` stays `n_args=2`.
 - Remove-field: first cell with a trailing geometric field → field gone; second call is a no-op.
-- Cap: `len == _MAX_PYTHON_CELLS_FOUND` → skip sheet, no patch for that sheet.
+- Cap: `len >= _MAX_PYTHON_CELLS_FOUND` → skip sheet, no patch, **no strip-safe marks**. No truncated-flag helper in Phase 1.
 
 Phase 4 — `data` strip (inject the in-memory map; no UNO):
 
 - `=PY("np.mean(data)"; B1:B10)` after attach still packs a single `CalcRange` (not a list).
 - `=PY("ranges[-1].shape"; B1:B10)` after attach: `ranges[-1]` is `B1:B10`, not the predecessor (indexed multi-data branch).
 - Strip runs before the matrix-index peel: last geometric 1-cell must **not** become `index_arg`.
-- User 1×1 last arg **not** in the map: no strip (do not drop real data).
-- User already passed previous PY cell as data (not in the map): no strip.
-- Missing / non-unique `(doc_url, code, n_args)`: no strip, no 1×1 fallback.
+- **Fill-down:** two identical `=PY("np.mean(data)"; B1:B10)` after attach → **both** strip (unanimous-ours, same resolved code, `n_args=2`).
+- **Mixed:** matrix-index neighbor `=PY("f"; range; i)` next to a chain of `=PY("f"; range; pred)` → **neither** strips (mixed poisons the triple).
+- **Two open workbooks / `off_main_calc_session_is_unambiguous()` false** → no strip.
+- **Isolated** still records a `workbook_key` and strips when unambiguous.
+- User 1×1 last arg **not** in the map, and no mixed poison of a chain: no strip of that user cell.
+- Never fall back to 1×1, uniqueness, or ≥1-hit.
 
 **UNO (`test_*_uno.py`):**
 
@@ -362,11 +401,11 @@ Phase 4 — `data` strip (inject the in-memory map; no UNO):
 - Insert a PY row between two chained cells; after the deferred pass, successor formula names the new cell; values update on next recalc.
 - Delete middle cell: successor retargets or remove-field if it is now first.
 - Flag off: no new attaches; existing refs stay.
-- Isolated + flag on: no-op for Python semantics; no `data` breakage.
+- Isolated + flag on: no-op for Python **globals**; strip still runs when `workbook_key` is unambiguous (no `data` breakage).
 - Undo: user types a new PY cell, geometric rewrite does not add a second undo step when `isUndoPossible()` (hidden context). Flag-on reconcile with no prior edit is one locked unit (`test_calc_spill_undo_lock` is the spill analogue).
 - `#SPILL!` / auto-spill still works on a chained origin cell.
 - Re-entrancy: repair `setFormula` does not nest a second repair.
-- Cap-hit sheet: no chain, log emitted.
+- Cap-hit sheet: no chain, log emitted, no strip-safe marks.
 
 Do not run the full suite until this is implemented. Phase 1 is mockable without soffice.
 
