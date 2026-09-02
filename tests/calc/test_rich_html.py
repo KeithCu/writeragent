@@ -16,9 +16,8 @@ from plugin.framework.errors import ToolExecutionError
 
 def _cell_and_docs():
     """Minimal Calc + hidden Writer mocks for ``insert_cell_html_rich``."""
-    cell_text = MagicMock()
     cell = MagicMock()
-    cell.getText.return_value = cell_text
+    cell.getText.return_value = MagicMock()
 
     calc_ctrl = MagicMock()
     calc_doc = MagicMock()
