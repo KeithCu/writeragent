@@ -92,6 +92,12 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
     except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
         fd = None
     if isinstance(fd, int):
+        # os.set_blocking is POSIX-only. PR 545 attached leftover stdout after a
+        # bad length prefix (header=Erro / envwrap). The unguarded call was the
+        # Windows ty hole; skip the non-blocking peek there. BytesIO/mocks still
+        # fall through to stream.read below (no real fileno).
+        if sys.platform == "win32" or not hasattr(os, "set_blocking"):
+            return b""
         try:
             os.set_blocking(fd, False)
             return os.read(fd, n)

@@ -92,6 +92,41 @@ def test_text_error_prefix_is_invalid_frame_with_header_repr():
         )
 
 
+def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch):
+    """Windows/ty: os.set_blocking is POSIX-only; skip the non-blocking peek."""
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc.sys, "platform", "win32")
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("os.set_blocking must not run on win32")
+
+    monkeypatch.setattr(ipc.os, "set_blocking", boom)
+    stream = MagicMock()
+    stream.fileno.return_value = 3
+    assert ipc._unread_pipe_bytes(stream) == b""
+    stream.read.assert_not_called()
+
+
+def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
+    """Unix leftover peek still uses set_blocking; mock so Windows pytest can run it."""
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc.sys, "platform", "linux")
+    seen: list[tuple[int, bool]] = []
+
+    def fake_set_blocking(fd: int, blocking: bool) -> None:
+        seen.append((fd, blocking))
+
+    monkeypatch.setattr(ipc.os, "set_blocking", fake_set_blocking)
+    monkeypatch.setattr(ipc.os, "read", lambda fd, n: b"rest")
+    stream = MagicMock()
+    stream.fileno.return_value = 7
+    assert ipc._unread_pipe_bytes(stream) == b"rest"
+    assert seen == [(7, False)]
+    stream.read.assert_not_called()
+
+
 def test_json_line_roundtrip():
     buf = io.StringIO()
     write_json_line(buf, {"status": "ready"})

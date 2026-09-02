@@ -267,6 +267,7 @@ Fill this in as you go. Do not delete failed experiments.
 | 2026-09-01 | `2f96c06a` + local | H2 | log `_stderr_snippet()` + `returncode` on spawn `TimeoutExpired`; test `test_spawn_timeout_logs_stderr_snippet` | Diagnostic only (no root-cause fix). Did not raise 15s timeout or cap workers. |
 | 2026-09-02 | Keith laptop full `make test` | H1 / H2 | PR 538 logging on full xdist | 38 failed, 6407 passed in 385s. Every compute timeout: `returncode=None stderr=<empty>`. Venv: size `1165128303` (= `b'Erro'`). Flood worker too (not Cython). |
 | 2026-09-02 | after #543 | H1 | full `make test` with handshake cap | 37 failed, 6412 passed in **28s**. No 15s timeouts. Every spawn: `Invalid IPC frame size: 1165128303 (header=b'Erro') stderr=<empty>`. Still missing the rest of the stdout line. |
+| 2026-09-02 | after #545 | Windows ty | `ty check --python-platform win32 plugin/scripting/ipc.py` | `#545` leftover peek (`stdout_rest`) is useful on Linux, but `os.set_blocking` is POSIX-only. Guard the call; keep the BytesIO/mock fallback. Do not drop `stdout_rest`. |
 | 2026-09-02 | after #545 | H1 | leftover stdout on full `make test` | Same 37 fails. `stdout_rest` reconstructs: `Error importing huggingface_hub.hf_api: No module named 'envwrap' (or 'envwrap.envwrap' is unknown)`. Cause: `smolagents/__init__.py` star-imported `tools` → `huggingface_hub` on every `plugin.contrib.smolagents.*` import, including compute-worker `sandbox.py`. |
 
 When the flake is gone, set **Status** at the top to Fixed, name the commit, and point at the tests that lock the behavior.
