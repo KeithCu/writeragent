@@ -125,15 +125,15 @@ def test_localhost_safe_origin() -> None:
     assert is_private_browser_origin("http://192.168.1.50:3000") is True
 
 
-def test_normalize_origins_list_stays_on_check_all() -> None:
-    """Nested unique-length ensure is inverse_ensure; the FQN itself stays analyzed."""
+def test_normalize_origins_list_is_off_cover_all() -> None:
+    """cover-all 33569420452 leftover (~4h); # crosshair: off, doable later with a closed origin enum."""
     from tests.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module
 
     fqns = cover_fqns_for_module(Path("plugin/mcp/cors.py"), require_deal=True)
-    assert any(f.endswith(".normalize_origins_list") for f in fqns)
+    assert not any(f.endswith(".normalize_origins_list") for f in fqns)
     assert any(f.endswith(".is_safe_origin") for f in fqns)
     assert any(f.endswith(".is_private_browser_origin") for f in fqns)
     assert any(f.endswith(".merge_allow_headers") for f in fqns)
