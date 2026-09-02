@@ -115,8 +115,20 @@ def test_call_tool_request_params_from_params():
 
 
 def test_call_tool_request_params_missing_name():
-    with pytest.raises(ValueError, match="params.name"):
-        wire_types.CallToolRequestParams.from_params({})
+    # check-all 33668189572: deal.pre now requires non-empty name (avoids ValueError CHECK FAIL).
+    # Release bundles strip @deal.pre; body still raises ValueError.
+    from tests.strip_bundle import deal_pre_present
+
+    if deal_pre_present(wire_types._call_tool_request_params_from_dict):
+        import deal
+
+        with pytest.raises(deal.PreContractError):
+            wire_types.CallToolRequestParams.from_params({})
+        with pytest.raises(deal.PreContractError):
+            wire_types.CallToolRequestParams.from_params({"name": ""})
+    else:
+        with pytest.raises(ValueError, match="params.name"):
+            wire_types.CallToolRequestParams.from_params({})
 
 
 def test_progress_notification_shape():
