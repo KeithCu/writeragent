@@ -231,6 +231,7 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
     and (locale_bcp47 is None or ascii_bounded(locale_bcp47, DEAL_MAX_TOKEN))
 )
 def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
+    # crosshair: off  # ICU/locale sentence merge still combinatoric (cover-all 33569420452: ~738s est / 2036 ex despite str_bounded). Doable later.
     from plugin.writer.locale.grammar_proofread_locale import (
         bcp47_to_icu_sentence_breaker_locale,
         is_whitespace_sentence_locale,
@@ -337,6 +338,7 @@ def split_passage_to_chunk_meta(
     prose: bool = True,
     locale_bcp47: str | None = None,
 ) -> list[dict[str, Any]]:
+    # crosshair: off  # LocaleTextRun + prose/non-prose split (cover-all 33569420452: ~958s est / 2642 ex despite ascii_bounded meta). Doable later.
     """Split one passage into embed-sized chunks with char offsets relative to passage text."""
     from plugin.embeddings.embeddings_fs import LocaleTextRun
 

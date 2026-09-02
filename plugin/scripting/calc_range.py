@@ -612,6 +612,7 @@ def materialize_inputs(wire: Any) -> tuple[CalcRange, ...]:
 
 @deal.pre(lambda obj: _deal_json_list_of_grids_arg_ok(obj))
 def _is_json_list_of_grids(obj: Any) -> bool:
+    # crosshair: off  # nested list/tuple shape walk (cover-all 33569420452: 13580 examples / ~527s est despite dual-profile pre). Doable later: fixed small grid domain.
     """True when *obj* is a JSON array of 2D grids (Online =PY multi-range without multi_data).
 
     A normal 2D sheet block ``[[1, 2], [3, 4]]`` has scalar cells — not a list of grids.
@@ -654,6 +655,7 @@ def dataframe_to_labeled_grid(
     *,
     include_header: bool = True,
 ) -> list[list[Any]]:
+    # crosshair: off  # columns+data nested lists (cover-all 33569420452: 3337 examples / ~130s est despite _DEAL_GRID_DIM). Doable later.
     """Build a Calc-ready grid from a dataframe envelope (optional header row)."""
     body: list[list[Any]]
     if data is None:

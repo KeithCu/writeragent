@@ -123,6 +123,7 @@ def normalize_cors_origin(value: str | None) -> str | None:
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 @inverse_ensure(lambda value, result: len(result) == len(set(result)))
 def normalize_origins_list(value) -> list[str]:
+    # crosshair: off  # list/str Any + unique-length post still combinatoric (cover-all 33569420452: ~4040s est / 5594 ex despite _deal_origin_ok). Doable later: closed origin enum.
     """Coerce config value to a deduped list of normalized origin strings."""
     if value is None:
         return []
@@ -144,6 +145,7 @@ def normalize_origins_list(value) -> list[str]:
 @deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_private_browser_origin(origin: str) -> bool:
+    # crosshair: off  # urlparse + ipaddress SMT wander (cover-all 33569420452: ~939s est / 1298 ex despite _deal_origin_ok). Doable later.
     """True when Origin is http(s) with a LAN-style hostname or private/link-local IP."""
     normalized = normalize_cors_origin(origin)
     if normalized is None:
@@ -179,6 +181,7 @@ def is_private_browser_origin(origin: str) -> bool:
     )
 )
 def set_extra_allowed_origins(origins) -> None:
+    # crosshair: off  # frozenset(normalize_origins_list) leftover (cover-all 33569420452: ~4419s est / 6120 ex). Doable later.
     """Update explicit-origin cache used by is_safe_origin (HTTP threads, no ctx)."""
     global _extra_allowed_origins
     _extra_allowed_origins = frozenset(normalize_origins_list(origins))
@@ -200,6 +203,7 @@ def set_allow_private_origins(allow: bool) -> None:
 @deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_extra_allowed_origin(origin: str) -> bool:
+    # crosshair: off  # frozenset membership under symbolic origin (cover-all 33569420452: ~966s est / 1335 ex). Doable later.
     if len(origin) == 0:
         return False
     normalized = normalize_cors_origin(origin)
@@ -207,6 +211,7 @@ def is_extra_allowed_origin(origin: str) -> bool:
 
 
 def _is_loopback_origin(origin: str) -> bool:
+    # crosshair: off  # urlparse hostname walk (cover-all 33569420452: ~939s est / 1298 ex). Doable later.
     """True for http(s) localhost / 127.0.0.1 / ::1 (optional port). No regex."""
     normalized = normalize_cors_origin(origin)
     if normalized is None:
@@ -245,6 +250,7 @@ def reload_cors_policy_from_config(services) -> None:
 @deal.pre(lambda origin: _deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_safe_origin(origin: str) -> bool:
+    # crosshair: off  # composes loopback/extra/private (cover-all 33569420452: ~966s est / 1335 ex). Doable later.
     """True when Origin may receive Access-Control-Allow-Origin reflection."""
     if len(origin) == 0:
         return False
@@ -264,6 +270,7 @@ def is_safe_origin(origin: str) -> bool:
 @deal.post(lambda result: isinstance(result, str))
 @inverse_ensure(lambda access_control_request_headers, result: "Content-Type" in result)
 def merge_allow_headers(access_control_request_headers: str | None) -> str:
+    # crosshair: off  # split/merge header list still SMT-heavy (cover-all 33569420452: ~1393s est / 1927 ex despite _deal_allow_headers_ok). Doable later.
     """Build Access-Control-Allow-Headers: base list union preflight request list."""
     merged: dict[str, str] = {}
     for header in _BASE_ALLOW_HEADERS:

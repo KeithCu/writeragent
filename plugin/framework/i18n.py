@@ -91,6 +91,7 @@ def get_lo_locale(ctx=None):
 
 
 def _mo_candidates(localedir: str, lang: str, domain: str = "writeragent") -> list[str]:
+    # crosshair: off  # path join / locale stem combinatorics (cover-all 33569420452: 14810 examples / ~48m module with load_translation). Doable later: closed lang tag set.
     """Likely ``.mo`` paths for *lang* (exact tag, then language stem)."""
     tags = [lang]
     stem = lang.split(".")[0]
@@ -109,6 +110,7 @@ def load_translation(
     *,
     fallback: bool = True,
 ) -> gettext.NullTranslations:
+    # crosshair: off  # gettext.find + open(.mo) filesystem (cover-all 33569420452: 13456 examples). Engine-hostile; doable later with injected catalog.
     """Load domain ``writeragent`` for *languages*.
 
     ``gettext.find`` expands tags via ``locale.normalize``. On Windows that

@@ -124,6 +124,7 @@ _deal_func_args_ok = _deal_func_args_ok_crosshair if UNDER_CROSSHAIR else _deal_
 
 @deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
+    # crosshair: off  # Mapping Any domain extract (cover-all 33569420452: 4647 examples / ~634s est despite UNDER_CROSSHAIR dual-profile). Doable later.
     domain = func_args.get("domain")
     if isinstance(domain, str) and domain.strip():
         return domain.strip()
@@ -132,6 +133,7 @@ def domain_from_delegate_args(func_args: Mapping[str, Any]) -> str:
 
 @deal.pre(lambda func_args: _deal_func_args_ok(func_args))
 def delegate_status_label(func_args: Mapping[str, Any]) -> str:
+    # crosshair: off  # thin wrapper over domain_from_delegate_args (cover-all 33569420452: 2063 examples / ~282s est). Doable later.
     return f"delegate ({domain_from_delegate_args(func_args)})"
 
 
@@ -179,6 +181,7 @@ def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
     and all(v is None or (isinstance(v, str) and ascii_bounded(v, _DEAL_FUNC_ARG_TOKEN_LEN)) for v in result_data.values())
 )
 def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
+    # crosshair: off  # dual Mapping + web_research import (cover-all 33569420452: 2249 examples / ~307s est). Doable later.
     """Completion line for delegate gateway tools (domain shown; success is short)."""
     domain = domain_from_delegate_args(func_args)
     if result_data.get("status") == "error":

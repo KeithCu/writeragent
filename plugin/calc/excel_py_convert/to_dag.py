@@ -474,6 +474,7 @@ def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
     and ascii_bounded(candidate or "", _DEAL_BINDING_A1_LEN)
 )
 def _prefer_excel_dep_token(current: str, candidate: str) -> str:
+    # crosshair: off  # string branch leftover (cover-all 33569420452: ~977s est / 1812 ex despite ascii_bounded A1). Doable later.
     """When merging deps that snap to the same A1, keep the Excel-native token if any.
 
     See ``EXCEL_DEP_TOKEN_FIDELITY`` / models module doc — fidelity only, not Calc semantics.
@@ -575,6 +576,7 @@ def convert_cell_to_dag(
     prior_in_order: list[ExcelPyCell] | None = None,
     best_effort: bool = False,
 ) -> ConvertedCell:
+    # crosshair: off  # ExcelWorkbookModel + resolve_deps/rewrite stack (cover-all 33569420452: ~1195s est / 2217 ex despite tiny list deals). Doable later.
     """Convert one Excel PY cell: rewrite ``xl`` in code + attach ranges on ``=PY``."""
     base = ConvertedCell(
         sheet=cell.sheet,

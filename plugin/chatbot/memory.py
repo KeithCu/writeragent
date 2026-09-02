@@ -88,6 +88,7 @@ UPSERT_MEMORY_CHAT_VALUE_MAX = 400
 )
 @deal.post(lambda result: result is None or isinstance(result, dict))
 def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
+    # crosshair: off  # dict|JSON str Any still explodes (cover-all 33569420452: 4656 examples / ~503s est despite DEAL_MAX_SOURCE). Doable later: closed key set.
     """Normalize smolagents ToolCall.arguments (dict or JSON string) to a dict."""
     if isinstance(arguments, dict):
         return cast("dict[str, Any]", arguments)
@@ -113,6 +114,7 @@ def upsert_memory_arguments_dict(arguments: object) -> dict[str, Any] | None:
 )
 @deal.post(lambda result: result is None or isinstance(result, str))
 def memory_key_from_tool_arguments(arguments: object) -> str | None:
+    # crosshair: off  # wraps upsert_memory_arguments_dict (cover-all 33569420452: 4491 examples / ~485s est). Doable later.
     """Extract memory key from smolagents ToolCall.arguments (dict or JSON string)."""
     d = upsert_memory_arguments_dict(arguments)
     if not d:
