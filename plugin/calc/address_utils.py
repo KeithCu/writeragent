@@ -49,7 +49,8 @@ def index_to_column(index: int) -> str:
     Returns:
         Column letter (e.g. "A", "AB").
     """
-    # crosshair: off  # while+chr combinatoric leftover (cover-all 33451622787: 16405s / 59700 examples despite DEAL_MAX_COL_INDEX=25). Doable later: closed A-Z table instead of divmod/chr.
+    # crosshair: off
+    # while+chr combinatoric leftover (cover-all 33451622787: 16405s / 59700 examples despite DEAL_MAX_COL_INDEX=25). Doable later: closed A-Z table instead of divmod/chr.
     result = []
     index += 1
     while index > 0:
@@ -109,7 +110,8 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
     >>> split_sheet_prefix("A1:C5")
     (None, 'A1:C5')
     """
-    # crosshair: off  # _SHEET_PREFIX regex (cover-all 33418536119: address_utils in-flight leftover, no COVER TIMING). Engine-hostile; keep off.
+    # crosshair: off
+    # _SHEET_PREFIX regex (cover-all 33418536119: address_utils in-flight leftover, no COVER TIMING). Engine-hostile; keep off.
     if not ref:
         return None, ref
     match = _SHEET_PREFIX.match(ref)

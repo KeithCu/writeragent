@@ -276,7 +276,7 @@ def _p_num_from_arg(arg0: ast.AST) -> tuple[int | None, str | None, bool]:
     return None, None, True
 
 
-@deal.pre(lambda code, *_unused, **__: str_bounded(code or "", _DEAL_REWRITE_SRC))
+@deal.pre(lambda code, *_unused, **__: _deal_excel_src_ok(code or ""))
 def _find_xl_calls(code: str) -> tuple[list[_XlCall], list[str]]:
     """Locate direct ``xl(...)`` call expressions via AST after placeholder normalization."""
     issues: list[str] = []
@@ -371,7 +371,7 @@ def ast_source_offset(src: str, lineno: int, col: int) -> int:
 
 
 @deal.pre(
-    lambda code, num_deps, index_map=None, *_unused, **__: str_bounded(code or "", _DEAL_REWRITE_SRC)
+    lambda code, num_deps, index_map=None, *_unused, **__: _deal_excel_src_ok(code or "")
     and type(num_deps) is int
     and 0 <= num_deps <= _DEAL_CONVERT_LIST
     and (
@@ -474,7 +474,8 @@ def _excel_execution_order(model: ExcelWorkbookModel) -> list[ExcelPyCell]:
     and ascii_bounded(candidate or "", _DEAL_BINDING_A1_LEN)
 )
 def _prefer_excel_dep_token(current: str, candidate: str) -> str:
-    # crosshair: off  # string branch leftover (cover-all 33569420452: ~977s est / 1812 ex despite ascii_bounded A1). Doable later.
+    # crosshair: off
+    # string branch leftover (cover-all 33569420452: ~977s est / 1812 ex despite ascii_bounded A1). Doable later.
     """When merging deps that snap to the same A1, keep the Excel-native token if any.
 
     See ``EXCEL_DEP_TOKEN_FIDELITY`` / models module doc — fidelity only, not Calc semantics.
@@ -519,7 +520,8 @@ def _normalize_bindings(
     ``excel_deps`` is parallel to ``data_args`` (original Excel tokens for export fidelity).
     Unresolved deps produce issues and an empty a1 — caller must fail-closed.
     """
-    # crosshair: off  # ResolvedDep objects still explode SMT; tiny pre is not enough (cover-all 33258921875: 255k lines). Doable later.
+    # crosshair: off
+    # ResolvedDep objects still explode SMT; tiny pre is not enough (cover-all 33258921875: 255k lines). Doable later.
     issues: list[str] = []
     bindings: list[BindingInfo] = []
     index_map: dict[int, int] = {}
@@ -576,7 +578,8 @@ def convert_cell_to_dag(
     prior_in_order: list[ExcelPyCell] | None = None,
     best_effort: bool = False,
 ) -> ConvertedCell:
-    # crosshair: off  # ExcelWorkbookModel + resolve_deps/rewrite stack (cover-all 33569420452: ~1195s est / 2217 ex despite tiny list deals). Doable later.
+    # crosshair: off
+    # ExcelWorkbookModel + resolve_deps/rewrite stack (cover-all 33569420452: ~1195s est / 2217 ex despite tiny list deals). Doable later.
     """Convert one Excel PY cell: rewrite ``xl`` in code + attach ranges on ``=PY``."""
     base = ConvertedCell(
         sheet=cell.sheet,

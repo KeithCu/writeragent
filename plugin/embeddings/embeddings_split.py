@@ -21,6 +21,21 @@ _DEAL_SENT_TEXT_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 _DEAL_PASSAGE_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
+# ascii_bounded(locale) admits control chars (e.g. \x01) that ICU SentenceBreaker rejects.
+# CrossHair: default locale only. Pytest: keep prior DEFAULT-or-ascii_bounded bound.
+def _deal_sentence_locale_ok_pytest(locale: object) -> bool:
+    return locale == DEFAULT_SENTENCE_LOCALE or ascii_bounded(locale, DEAL_MAX_TOKEN)
+
+
+def _deal_sentence_locale_ok_crosshair(locale: object) -> bool:
+    return locale == DEFAULT_SENTENCE_LOCALE
+
+
+_deal_sentence_locale_ok = (
+    _deal_sentence_locale_ok_crosshair if UNDER_CROSSHAIR else _deal_sentence_locale_ok_pytest
+)
+
+
 def _embeddings_pip_install_hint() -> str:
     from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
 
@@ -46,7 +61,7 @@ def _import_splitter() -> Any:
 
 @deal.pre(
     lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: str_bounded(text, _DEAL_PASSAGE_LEN)
-    and (locale == DEFAULT_SENTENCE_LOCALE or ascii_bounded(locale, DEAL_MAX_TOKEN))
+    and _deal_sentence_locale_ok(locale)
 )
 def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
     """Split *text* into ``(char_start, char_end, sentence)`` relative to *text*."""
@@ -119,7 +134,8 @@ def _sentences_spans_ok(sentences: object) -> bool:
 
     Successive starts must be ``>=`` the previous end (production splitters are sequential).
     """
-    # crosshair: off  # deal.pre predicate; covering it is circular (cover-all 33258921875: 267k lines). Doable later.
+    # crosshair: off
+    # deal.pre predicate; covering it is circular (cover-all 33258921875: 267k lines). Doable later.
     if not isinstance(sentences, list) or len(sentences) > DEAL_MAX_SHAPE_DIM:
         return False
     prev_end: int | None = None
@@ -231,7 +247,8 @@ def _split_passage_whitespace_to_sentences(passage: str) -> list[tuple[int, int,
     and (locale_bcp47 is None or ascii_bounded(locale_bcp47, DEAL_MAX_TOKEN))
 )
 def _split_prose_passage_to_spans(passage: str, locale_bcp47: str | None = None) -> list[tuple[int, int]]:
-    # crosshair: off  # ICU/locale sentence merge still combinatoric (cover-all 33569420452: ~738s est / 2036 ex despite str_bounded). Doable later.
+    # crosshair: off
+    # ICU/locale sentence merge still combinatoric (cover-all 33569420452: ~738s est / 2036 ex despite str_bounded). Doable later.
     from plugin.writer.locale.grammar_proofread_locale import (
         bcp47_to_icu_sentence_breaker_locale,
         is_whitespace_sentence_locale,
@@ -277,7 +294,7 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
 
 
 @deal.pre(
-    lambda text, runs, base_meta, *_unused, **__: str_bounded(text, _DEAL_PASSAGE_LEN)
+    lambda text, runs, base_meta, *_unused, **__: ascii_bounded(text, _DEAL_PASSAGE_LEN)
     and isinstance(runs, list)
     and len(runs) <= _DEAL_SENT_LIST_LEN
     and isinstance(base_meta, dict)
@@ -338,7 +355,8 @@ def split_passage_to_chunk_meta(
     prose: bool = True,
     locale_bcp47: str | None = None,
 ) -> list[dict[str, Any]]:
-    # crosshair: off  # LocaleTextRun + prose/non-prose split (cover-all 33569420452: ~958s est / 2642 ex despite ascii_bounded meta). Doable later.
+    # crosshair: off
+    # LocaleTextRun + prose/non-prose split (cover-all 33569420452: ~958s est / 2642 ex despite ascii_bounded meta). Doable later.
     """Split one passage into embed-sized chunks with char offsets relative to passage text."""
     from plugin.embeddings.embeddings_fs import LocaleTextRun
 
