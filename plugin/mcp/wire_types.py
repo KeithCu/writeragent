@@ -222,9 +222,17 @@ _DEAL_CALL_VAL_LEN = 4 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 def _deal_call_tool_params_ok(params: object) -> bool:
     # cover-all 33180040863: unbounded params → 3400 examples on from_params.
+    # check-all 33668189572: missing/empty name → ValueError CHECK FAIL on {}.
     return (
         type(params) is dict
         and len(params) <= _DEAL_CALL_DICT_LEN
+        and isinstance(params.get("name"), str)
+        and ascii_bounded(params["name"], _DEAL_CALL_VAL_LEN, min_len=1)
+        and (
+            "arguments" not in params
+            or params["arguments"] is None
+            or type(params["arguments"]) is dict
+        )
         and all(type(k) is str and ascii_bounded(k, _DEAL_CALL_KEY_LEN) for k in params)
         and all(
             v is None
