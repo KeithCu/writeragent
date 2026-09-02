@@ -238,6 +238,22 @@ def test_normalize_delta_ignores_non_list_tool_calls() -> None:
     assert delta["tool_calls"] == 2
 
 
+def test_normalize_delta_no_crash_on_non_dict() -> None:
+    """deal.pre must not reject None/str/list; body no-ops (MiniMax eval crash)."""
+    for junk in (None, "x", [], 2):
+        _normalize_delta(junk)
+
+
+def test_normalize_delta_no_crash_on_ordered_dict() -> None:
+    """Dict subclasses are isinstance(dict) but type() is not dict; skip, don't raise."""
+    from collections import OrderedDict
+
+    delta: OrderedDict[str, object] = OrderedDict({"role": None, "content": "hi"})
+    _normalize_delta(delta)
+    assert delta["role"] is None
+    assert delta["content"] == "hi"
+
+
 def test_merge_reasoning_details_overflow_pre_fails_closed() -> None:
     if not deal_pre_present(_merge_reasoning_details):
         pytest.skip("@deal.pre stripped in release bundle")

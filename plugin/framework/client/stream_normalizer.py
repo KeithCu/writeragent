@@ -337,23 +337,27 @@ def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
 
 
 @deal.pre(
-    lambda delta: type(delta) is dict
-    and len(delta) <= DEAL_MAX_SHAPE_DIM
-    and (
-        not isinstance(delta.get("tool_calls"), list)
-        or len(delta["tool_calls"]) <= DEAL_MAX_SHAPE_DIM
+    lambda delta: type(delta) is not dict
+    or (
+        len(delta) <= DEAL_MAX_SHAPE_DIM
+        and (
+            not isinstance(delta.get("tool_calls"), list)
+            or len(delta["tool_calls"]) <= DEAL_MAX_SHAPE_DIM
+        )
     )
 )
-@deal.ensure(lambda delta, result: "role" not in delta or delta.get("role") is not None)
-@deal.ensure(lambda delta, result: _normalize_delta_tool_calls_ok(delta))
-def _normalize_delta(delta: dict[str, Any]) -> None:  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
+@deal.ensure(lambda delta, result: type(delta) is not dict or "role" not in delta or delta.get("role") is not None)
+@deal.ensure(lambda delta, result: type(delta) is not dict or _normalize_delta_tool_calls_ok(delta))
+def _normalize_delta(delta: object) -> None:  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
     """Normalize delta for Mistral/Azure compat before accumulate_delta.
     LiteLLM: streaming_handler.py ~L847 (role), ~L853 (type), ~L820 (arguments).
     """
-    # Shim path (deal absent): keep the old non-dict no-op. With deal installed, pre rejects.
-    # Plain dict only — CrossHair AttrDict is isinstance(dict) but field access can crash.
+    # Plain dict only. Non-dicts and dict subclasses (OrderedDict, CrossHair AttrDict)
+    # no-op: pre used to require `type is dict` and crashed MiniMax/OpenRouter eval
+    # (`expected type(delta) is dict`). See docs/eval/stream-normalizer-delta-crash.md.
     if type(delta) is not dict:
         return
+    delta = cast("dict[str, Any]", delta)
     # LiteLLM: streaming_handler.py ~L847 "mistral's api returns role as None"
     if "role" in delta and delta["role"] is None:
         delta["role"] = "assistant"
