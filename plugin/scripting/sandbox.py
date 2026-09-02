@@ -16,7 +16,16 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     import subprocess
 
-from plugin.framework.deal_shim import DEAL_MAX_ARGV, DEAL_MAX_CMD_ARGS, DEAL_MAX_PATH, DEAL_MAX_TOKEN, deal, inverse_ensure, str_bounded
+from plugin.framework.deal_shim import (
+    DEAL_MAX_ARGV,
+    DEAL_MAX_CMD_ARGS,
+    DEAL_MAX_PATH,
+    DEAL_MAX_TOKEN,
+    UNDER_CROSSHAIR,
+    deal,
+    inverse_ensure,
+    str_bounded,
+)
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
@@ -185,16 +194,22 @@ _cached_sandbox: str | None = _NOT_SET  # type: ignore[assignment]  # sentinel
 _PIPE_BUF_TARGET = 1024 * 1024
 
 
+# check-all 33668189572: scrub_subprocess_env ~6m under DEAL_MAX_ARGV=32; keep pytest wide.
+_DEAL_SCRUB_DICT = 2 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
+_DEAL_SCRUB_KEY = 4 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
+_DEAL_SCRUB_VAL = 8 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
+
+
 @deal.pre(
     lambda base: base is None
     or (
         isinstance(base, dict)
-        and len(base) <= DEAL_MAX_ARGV
+        and len(base) <= _DEAL_SCRUB_DICT
         and all(
             isinstance(k, str)
-            and str_bounded(k, DEAL_MAX_TOKEN)
+            and str_bounded(k, _DEAL_SCRUB_KEY)
             and isinstance(v, str)
-            and str_bounded(v, DEAL_MAX_ARGV)
+            and str_bounded(v, _DEAL_SCRUB_VAL)
             for k, v in base.items()
         )
     )
@@ -319,6 +334,7 @@ def _reset_cache() -> None:  # pyright: ignore[reportUnusedFunction]  # test hel
 @deal.pre(lambda path: str_bounded(path, DEAL_MAX_PATH))
 def _strip_surrounding_quotes(path: str) -> str:
     """Strip one layer of matching quotes (Windows Explorer \"Copy as path\")."""
+    # crosshair: off  # strip/quote SMT leftover (check-all 33668189572: Prev 8:33 despite DEAL_MAX_PATH). Doable later: tiny quoted-path alphabet.
     s = path.strip()
     if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
         return s[1:-1].strip()
