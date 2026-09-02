@@ -20,7 +20,7 @@ def test_out_path_relative_is_cwd(monkeypatch, tmp_path) -> None:
     args = type("A", (), {"out": "scripts/prompt_optimization/eval_results_17task.csv"})()
     got = run_eval_multi._out_path(args)
     assert got == tmp_path / "scripts/prompt_optimization/eval_results_17task.csv"
-    # /tmp/eval.csv is not a drive-absolute path on Windows (Path.cwd() / p
+    # A Unix-only abs path is not drive-absolute on Windows (Path.cwd() / p
     # becomes C:/tmp/eval.csv). Use a real filesystem abs path like _out_path.
     abs_out = str(tmp_path / "abs_eval.csv")
     abs_args = type("A", (), {"out": abs_out})()
