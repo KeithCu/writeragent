@@ -196,6 +196,7 @@ class PreTool:
     repo_id: str
 
 
+'''WriterAgent: unused HuggingFace Hub API (not called).
 class PythonInterpreterTool(Tool):
     name = "python_interpreter"
     description = "This is a tool that evaluates python code. It can be used to perform calculations."
@@ -240,6 +241,8 @@ class PythonInterpreterTool(Tool):
         return f"Stdout:\n{str(state['_print_outputs'])}\nOutput: {output}"
 
 
+'''
+
 class FinalAnswerTool(Tool):
     name = "final_answer"
     description = "Provides a final answer to the given problem."
@@ -251,6 +254,7 @@ class FinalAnswerTool(Tool):
         return answer
 
 
+'''WriterAgent: unused HuggingFace Hub API (not called).
 class UserInputTool(Tool):
     name = "user_input"
     description = "Asks for user's input on a specific question"
@@ -261,9 +265,9 @@ class UserInputTool(Tool):
         user_input = input(f"{question} => Type your answer here:")
         return user_input
 
+'''
 
 _RECENCY_TO_DF = {"day": "d", "week": "w", "month": "m", "year": "y"}
-
 
 def _norm_recency(value):
     """Normalize recency to a cache-key token. Unknown or unset values are 'any'."""
@@ -550,16 +554,13 @@ class VisitWebpageTool(Tool):
 TOOL_MAPPING = {
     tool_class.name: tool_class
     for tool_class in [
-        PythonInterpreterTool,
         DuckDuckGoSearchTool,
         VisitWebpageTool,
     ]
 }
 
 __all__ = [
-    "PythonInterpreterTool",
     "FinalAnswerTool",
-    "UserInputTool",
     "DuckDuckGoSearchTool",
     "VisitWebpageTool",
 ]

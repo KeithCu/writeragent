@@ -632,6 +632,7 @@ class Model:
         return cls(**{k: v for k, v in model_dictionary.items()})
 
 
+'''WriterAgent: unused HuggingFace Hub API (not called).
 class VLLMModel(Model):
     """Model to use [vLLM](https://docs.vllm.ai/) for fast LLM inference and serving.
 
@@ -1815,19 +1816,13 @@ class AmazonBedrockModel(ApiModel):
 AmazonBedrockServerModel = AmazonBedrockModel
 
 
+'''
+
 # Model Registry for secure deserialization
 # This registry maps model class names to their actual classes.
 # Only classes listed here can be instantiated during deserialization (from_dict).
 # This prevents arbitrary code execution via importlib-based dynamic loading.
-MODEL_REGISTRY = {
-    "VLLMModel": VLLMModel,
-    "MLXModel": MLXModel,
-    "TransformersModel": TransformersModel,
-    "InferenceClientModel": InferenceClientModel,
-    "OpenAIModel": OpenAIModel,
-    "AzureOpenAIModel": AzureOpenAIModel,
-    "AmazonBedrockModel": AmazonBedrockModel,
-}
+MODEL_REGISTRY = {"Model": Model}
 
 __all__ = [
     "REMOVE_PARAMETER",
@@ -1835,16 +1830,5 @@ __all__ = [
     "tool_role_conversions",
     "get_clean_message_list",
     "Model",
-    "MLXModel",
-    "TransformersModel",
-    "ApiModel",
-    "InferenceClientModel",
-    "OpenAIServerModel",
-    "OpenAIModel",
-    "VLLMModel",
-    "AzureOpenAIServerModel",
-    "AzureOpenAIModel",
-    "AmazonBedrockServerModel",
-    "AmazonBedrockModel",
     "ChatMessage",
 ]

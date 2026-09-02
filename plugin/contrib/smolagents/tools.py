@@ -601,6 +601,7 @@ class Tool(BaseTool):
 
         return tool_class(**kwargs)
 
+    '''WriterAgent: unused HuggingFace Hub API (not called).
     @staticmethod
     def from_space(
         space_id: str,
@@ -796,6 +797,9 @@ class Tool(BaseTool):
         return LangChainToolWrapper(langchain_tool)
 
 
+    '''
+
+'''WriterAgent: unused HuggingFace Hub API (not called).
 def launch_gradio_demo(tool: Tool):
     """
     Launches a gradio demo for a tool. The corresponding tool class needs to properly implement the class attributes
@@ -841,6 +845,8 @@ def launch_gradio_demo(tool: Tool):
         api_name=tool.name,
     ).launch()
 
+
+'''
 
 '''WriterAgent: unused HuggingFace Hub API (not called).
 def load_tool(
@@ -957,6 +963,7 @@ class ToolCollection:
 
     '''
 
+    '''WriterAgent: unused HuggingFace Hub API (not called).
     @classmethod
     @contextmanager
     def from_mcp(
@@ -1069,6 +1076,8 @@ class ToolCollection:
             yield cls(tools)
 
 
+    '''
+
 def tool(tool_function: Callable) -> Tool:
     """
     Convert a function into an instance of a dynamically created Tool subclass.
@@ -1179,6 +1188,7 @@ def tool(tool_function: Callable) -> Tool:
     return simple_tool
 
 
+'''WriterAgent: unused HuggingFace Hub API (not called).
 class PipelineTool(Tool):
     """
     A [`Tool`] tailored towards Transformer models. On top of the class attributes of the base class [`Tool`], you will
@@ -1343,6 +1353,8 @@ class PipelineTool(Tool):
         return decoded_outputs
 
 
+'''
+
 def get_tools_definition_code(tools: dict[str, Tool]) -> str:
     tool_codes = []
     for tool in tools.values():
@@ -1427,7 +1439,5 @@ __all__ = [
     "AUTHORIZED_TYPES",
     "Tool",
     "tool",
-    "load_tool",
-    "launch_gradio_demo",
     "ToolCollection",
 ]
