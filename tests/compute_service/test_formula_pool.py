@@ -170,6 +170,35 @@ class TestFormulaPoolSupervisor:
         finally:
             worker.kill()
 
+    def test_spawn_stdout_garbage_fails_fast(self, tmp_path, caplog) -> None:
+        """Text on stdout (Keith 2026-09-02: frame size 1165128303 == b'Erro') must not wait 15s."""
+        from compute_service.worker_base import BaseProcessWorker
+
+        script = tmp_path / "garbage_worker.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import sys, time",
+                    "sys.stdout.write('Error: boom\\n')",
+                    "sys.stdout.flush()",
+                    "time.sleep(30)",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        t0 = time.monotonic()
+        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+            worker = BaseProcessWorker(1, str(script), worker_name="Garbage worker")
+        elapsed = time.monotonic() - t0
+        try:
+            joined = "\n".join(r.getMessage() for r in caplog.records)
+            assert elapsed < 3.0, elapsed
+            assert "header=b'Erro'" in joined or "Invalid IPC frame size" in joined
+            assert "spawn handshake timed out" not in joined
+            assert not worker.is_alive()
+        finally:
+            worker.kill()
+
     def test_shared_and_isolated_exclusive_occupancy(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:

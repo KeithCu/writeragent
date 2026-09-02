@@ -64,7 +64,10 @@ class IpcFrameError(ValueError):
 
 def _validate_frame_size(size: int, *, max_payload_bytes: int | None, frame_label: str) -> None:
     if size <= 0 or (max_payload_bytes is not None and size > max_payload_bytes):
-        raise IpcFrameError(f"Invalid {frame_label} size: {size}")
+        header = struct.pack("!I", size & 0xFFFFFFFF)
+        raise IpcFrameError(
+            f"Invalid {frame_label} size: {size} (header={header!r})"
+        )
 
 
 def pack_pickle_frame(message: Any, *, max_payload_bytes: int | None = None) -> bytes:

@@ -120,6 +120,8 @@ class BaseProcessWorker:
                     proc.stdout,
                     _SPAWN_READY_TIMEOUT_SEC,
                     is_alive=self.is_alive,
+                    max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+                    require_dict=True,
                 )
                 if isinstance(ready_data, dict):
                     log.info(
@@ -146,7 +148,15 @@ class BaseProcessWorker:
             )
             self.kill()
         except Exception as exc:
-            log.error("Failed to spawn %s #%d: %s", self.worker_name, self.worker_id, exc)
+            snippet = self._stderr_snippet()
+            extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
+            log.error(
+                "Failed to spawn %s #%d: %s%s",
+                self.worker_name,
+                self.worker_id,
+                exc,
+                extra,
+            )
             self.kill()
 
     def is_alive(self) -> bool:
