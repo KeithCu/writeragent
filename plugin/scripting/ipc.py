@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import builtins
 import io
+import os
 import json
 import pickle
 import select
@@ -84,6 +85,25 @@ def write_pickle_frame(stream: IO[bytes], message: Any, *, max_payload_bytes: in
     stream.flush()
 
 
+def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
+    """Best-effort leftover bytes after a bad length prefix (non-blocking on real pipes)."""
+    try:
+        fd = stream.fileno()
+    except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
+        fd = None
+    if isinstance(fd, int):
+        try:
+            os.set_blocking(fd, False)
+            return os.read(fd, n)
+        except (BlockingIOError, OSError, AttributeError, ValueError):
+            return b""
+    try:
+        data = stream.read(n)
+    except Exception:
+        return b""
+    return data if isinstance(data, (bytes, bytearray)) else b""
+
+
 def read_frame_payload(
     stream: IO[bytes],
     *,
@@ -97,7 +117,13 @@ def read_frame_payload(
     if not header or len(header) < FRAME_HEADER_SIZE:
         return None
     size = struct.unpack("!I", header)[0]
-    _validate_frame_size(size, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
+    try:
+        _validate_frame_size(size, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
+    except IpcFrameError as exc:
+        rest = _unread_pipe_bytes(stream)
+        if rest:
+            raise IpcFrameError(f"{exc} stdout_rest={rest!r}") from None
+        raise
     payload = reader(size)
     if len(payload) < size:
         return None

@@ -85,7 +85,7 @@ def test_pickle_frame_default_cap_rejects_oversized_header():
 
 def test_text_error_prefix_is_invalid_frame_with_header_repr():
     """1165128303 == b'Erro' from Keith's 2026-09-02 full-suite venv failures."""
-    with pytest.raises(IpcFrameError, match=r"header=b'Erro'"):
+    with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b'r: boom\\n'"):
         read_pickle_frame(
             io.BytesIO(b"Error: boom\n"),
             max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,

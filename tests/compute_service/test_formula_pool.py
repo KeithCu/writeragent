@@ -193,7 +193,8 @@ class TestFormulaPoolSupervisor:
         try:
             joined = "\n".join(r.getMessage() for r in caplog.records)
             assert elapsed < 3.0, elapsed
-            assert "header=b'Erro'" in joined or "Invalid IPC frame size" in joined
+            assert "header=b'Erro'" in joined
+            assert "stdout_rest=" in joined
             assert "spawn handshake timed out" not in joined
             assert not worker.is_alive()
         finally:
