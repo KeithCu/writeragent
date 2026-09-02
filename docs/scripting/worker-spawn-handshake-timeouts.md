@@ -263,6 +263,7 @@ Fill this in as you go. Do not delete failed experiments.
 | Date | SHA | Hypothesis | Command | Result |
 |------|-----|------------|---------|--------|
 | 2026-09-01 | tree at investigation | CPU / `-n 8` | `make pytest`; then isolated `-n 6` on compute/venv | Full suite 38 fail (handshake 15s). Isolated 138 pass. 12-way idle handshake OK. CPU headroom. |
-| | | | | |
+| 2026-09-01 | `2f96c06a` | Control A / C / D | isolated compute/venv `-n 6`; idle `formula_worker` ×3; 12-child contention + parent `load_cython_accelerator` | A: 138 passed in 22s, no handshake timeouts. C: ready in 0.25–0.30s. D: 12/12 ready, max 0.45s. Env had no `PYTHON_COMPUTE`/`PYTEST`/`COV_`/`WRITERAGENT_*` leak. Flake not reproduced outside full suite. |
+| 2026-09-01 | `2f96c06a` + local | H2 | log `_stderr_snippet()` + `returncode` on spawn `TimeoutExpired`; test `test_spawn_timeout_logs_stderr_snippet` | Diagnostic only (no root-cause fix). Did not raise 15s timeout or cap workers. |
 
 When the flake is gone, set **Status** at the top to Fixed, name the commit, and point at the tests that lock the behavior.

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import threading
@@ -137,6 +138,35 @@ class TestFormulaPoolSupervisor:
             res = worker.execute({"ping": True}, timeout_sec=10)
             assert res.get("status") == "ok"
             assert res.get("result") == 1
+        finally:
+            worker.kill()
+
+    def test_spawn_timeout_logs_stderr_snippet(self, tmp_path, caplog, monkeypatch) -> None:
+        """Handshake TimeoutExpired must log child stderr (H2), not a bare one-liner."""
+        from compute_service import worker_base
+        from compute_service.worker_base import BaseProcessWorker
+
+        monkeypatch.setattr(worker_base, "_SPAWN_READY_TIMEOUT_SEC", 0.5)
+        script = tmp_path / "hang_worker.py"
+        script.write_text(
+            "\n".join(
+                [
+                    "import sys, time",
+                    "sys.stderr.write('hang-before-ready\\n')",
+                    "sys.stderr.flush()",
+                    "time.sleep(30)",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.ERROR, logger="compute_service.worker"):
+            worker = BaseProcessWorker(1, str(script), worker_name="Hang worker")
+        try:
+            joined = "\n".join(r.getMessage() for r in caplog.records)
+            assert "spawn handshake timed out" in joined
+            assert "returncode=" in joined
+            assert "hang-before-ready" in joined
+            assert not worker.is_alive()
         finally:
             worker.kill()
 

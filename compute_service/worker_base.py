@@ -131,7 +131,19 @@ class BaseProcessWorker:
                     )
             self.tasks_executed = 0
         except subprocess.TimeoutExpired:
-            log.error("%s #%d spawn handshake timed out", self.worker_name, self.worker_id)
+            # Handshake hang: child may still be importing, or stdout was not pickle.
+            # Execute-path timeouts already attach _stderr_snippet(); spawn must too.
+            snippet = self._stderr_snippet()
+            spawned = self.process
+            rc = spawned.poll() if spawned is not None else None
+            extra = f" stderr={snippet!r}" if snippet else " stderr=<empty>"
+            log.error(
+                "%s #%d spawn handshake timed out (returncode=%s)%s",
+                self.worker_name,
+                self.worker_id,
+                rc,
+                extra,
+            )
             self.kill()
         except Exception as exc:
             log.error("Failed to spawn %s #%d: %s", self.worker_name, self.worker_id, exc)
