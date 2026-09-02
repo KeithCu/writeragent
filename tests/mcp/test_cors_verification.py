@@ -133,10 +133,18 @@ def test_normalize_origins_list_is_off_cover_all() -> None:
     from scripts.crosshair_stream import cover_fqns_for_module
 
     fqns = cover_fqns_for_module(Path("plugin/mcp/cors.py"), require_deal=True)
-    assert not any(f.endswith(".normalize_origins_list") for f in fqns)
-    assert any(f.endswith(".is_safe_origin") for f in fqns)
-    assert any(f.endswith(".is_private_browser_origin") for f in fqns)
-    assert any(f.endswith(".merge_allow_headers") for f in fqns)
+    # cover-all 33569420452 leftover offs (doable later with a closed origin enum).
+    offed = (
+        "normalize_origins_list",
+        "is_safe_origin",
+        "is_private_browser_origin",
+        "merge_allow_headers",
+        "set_extra_allowed_origins",
+        "is_extra_allowed_origin",
+        "_is_loopback_origin",
+    )
+    for name in offed:
+        assert not any(f.endswith(f".{name}") for f in fqns), name
 
 
 def test_cors_origin_overflow_pre_fails_closed() -> None:
