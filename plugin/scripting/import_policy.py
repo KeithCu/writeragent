@@ -127,6 +127,7 @@ def _deal_auto_import_alias_ok(module_name: object, import_stmt: object) -> bool
 @deal.pre(lambda module_name, import_stmt: _deal_auto_import_alias_ok(module_name, import_stmt))
 @deal.post(lambda result: isinstance(result, str))
 def _auto_import_alias(module_name: str, import_stmt: str) -> str:
+    # crosshair: off  # rsplit/" as " walk still slow (check-all 33668189572: Prev 8:35 despite 32/48 ascii bounds). Doable later: closed AUTO_IMPORTS enum.
     marker = " as "
     if marker in import_stmt:
         return import_stmt.rsplit(marker, 1)[-1].strip()
