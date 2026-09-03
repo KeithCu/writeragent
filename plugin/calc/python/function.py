@@ -1206,8 +1206,21 @@ def _execute_python_addin_impl(
         # Geometric predecessor is a Calc-only DAG token. Strip it before
         # calc_addin_args_from_split (1 vs N flips `data` to a list) and
         # before the matrix-index peel (a leftover 1×1 pred becomes index_arg).
-        from plugin.calc.python.geometric_recalc import maybe_strip_geometric_eval_args
+        target_doc = doc
+        if target_doc is None:
+            from plugin.framework.thread_guard import on_main_thread
 
+            if on_main_thread():
+                from plugin.scripting.session_manager import _calc_document
+
+                target_doc = _calc_document(ctx)
+        from plugin.calc.python.geometric_recalc import (
+            ensure_geometric_strip_index_for_eval,
+            maybe_strip_geometric_eval_args,
+        )
+
+        # Same-process hydrate: client/URP attach cannot fill soffice's map.
+        ensure_geometric_strip_index_for_eval(target_doc, ctx)
         args = maybe_strip_geometric_eval_args(code, args)
         py_data = calc_addin_args_from_split(args, true_strings, false_strings)
         log.debug("PYTHON parsed py_data: %r", py_data)
@@ -1250,14 +1263,7 @@ def _execute_python_addin_impl(
             pack_ms = int(round((time.perf_counter() - t_pack) * 1000))
         # Synchronous: =PY() runs during Calc recalc; UI event pumping from
         # run_blocking_in_thread can re-enter the formula engine and yield #VALUE!.
-        target_doc = doc
-        if target_doc is None:
-            from plugin.framework.thread_guard import on_main_thread
-
-            if on_main_thread():
-                from plugin.scripting.session_manager import _calc_document
-
-                target_doc = _calc_document(ctx)
+        # target_doc was resolved above (strip hydrate + worker session).
 
         tid = threading.get_ident()
         sk = session_key(ctx, code, doc=target_doc)

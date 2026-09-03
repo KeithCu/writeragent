@@ -172,31 +172,6 @@ def _settle_soffice_config() -> None:
     time.sleep(2.1)
 
 
-def _save_reopen_calc(ctx, doc):
-    """Reload so soffice ``OnLoadFinished`` rebuilds ``_STRIP_SAFE`` from UDProp.
-
-    Client ``_flush`` writes formulas and the geometric UDProp over URP, but
-    eval-time strip reads soffice's in-memory map. Document-open is the
-    product path that loads that map in the process that runs ``=PY()``.
-    """
-    import os
-    import tempfile
-
-    import uno
-
-    from plugin.framework.uno_context import get_desktop
-
-    tmp = tempfile.mkdtemp(prefix="wa_geo_eval_")
-    path = os.path.join(tmp, "geo.ods")
-    file_url = uno.systemPathToFileUrl(os.path.abspath(path))
-    doc.storeAsURL(file_url, ())
-    hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
-    reopened = get_desktop(ctx).loadComponentFromURL(file_url, "_blank", 0, (hidden,))
-    # OnLoadFinished → maybe_geometric_on_document_open (flag off still rebuilds).
-    time.sleep(1.0)
-    return reopened
-
-
 def _wait_cell_value(doc, cell, expected: float, timeout: float = 8.0) -> bool:
     """True if *cell* reaches *expected*. False if sheet =PY is #NAME? (no add-in)."""
     deadline = time.monotonic() + timeout
@@ -320,15 +295,14 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
 
 
 @native_test
-@with_native_doc("calc", reuse=False)
+@with_native_doc("calc")
 def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     """§10 leftover: Shared kernel, flag on — A3 reads A1's name; F9-stable; strip.
 
     A1 assigns ``x_geo_live = 41``. A2 stays empty so A3's predecessor is A1.
     A3 is ``=PY("result = x_geo_live if data is None else -999")`` with no
-    user-typed ``;A1``. After deferred attach, A3's formula names A1. Reload
-    so soffice rebuilds the strip-safe map, then ``calculateAll`` must yield
-    41 (geometric order + strip, not leftover kernel state). A second
+    user-typed ``;A1``. After deferred attach, A3's formula names A1.
+    ``calculateAll`` must yield 41 (geometric order + strip). A second
     ``calculateAll`` must stay 41. ``-999`` means strip failed and A1's
     return was packed as ``data``.
     """
@@ -338,7 +312,6 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     reset_geometric_runtime_for_tests()
     _cold_kernel()
     previous = _enable_geometric_flag()
-    reopened = None
     try:
         set_config("scripting.python_session_mode", "shared")
         _settle_soffice_config()
@@ -352,56 +325,45 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
         assert _pred(str(a1.getFormula() or "")) is None
 
-        reopened = _save_reopen_calc(ctx, doc)
-        rsheet = reopened.getSheets().getByIndex(0)
-        ra1 = rsheet.getCellByPosition(0, 0)
-        ra3 = rsheet.getCellByPosition(0, 2)
-        assert _pred(str(ra3.getFormula() or "")) == "A1", ra3.getFormula()
-
-        if not _wait_cell_value(reopened, ra3, 41.0):
+        if not _wait_cell_value(doc, a3, 41.0):
             if _skip_if_py_unregistered(
-                ra1, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
+                a1, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
             ):
                 return
             raise AssertionError(
-                "A3 did not become 41 after attach+reload+F9: "
+                "A3 did not become 41 after attach+F9: "
                 "value=%r error=%r string=%r formula=%r"
-                % (ra3.getValue(), ra3.getError(), ra3.getString(), ra3.getFormula())
+                % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
             )
-        assert ra3.getValue() == 41.0, (
-            ra3.getValue(),
-            ra3.getString(),
-            ra3.getFormula(),
+        assert a3.getValue() == 41.0, (
+            a3.getValue(),
+            a3.getString(),
+            a3.getFormula(),
         )
 
         # Second F9. Same value — geometric edge stays, Shared name persists.
-        reopened.calculateAll()
-        assert ra3.getValue() == 41.0, (
-            ra3.getValue(),
-            ra3.getString(),
-            ra3.getFormula(),
+        doc.calculateAll()
+        assert a3.getValue() == 41.0, (
+            a3.getValue(),
+            a3.getString(),
+            a3.getFormula(),
         )
     finally:
-        if reopened is not None:
-            try:
-                reopened.close(True)
-            except Exception:
-                pass
         set_config("scripting.python_session_mode", "isolated")
         _restore_geometric_flag(previous)
 
 
 @native_test
-@with_native_doc("calc", reuse=False)
+@with_native_doc("calc")
 def test_geometric_chained_origin_still_auto_spills(ctx, doc):
     """§10 leftover: attaching ``;pred`` must not collapse an auto-spill origin to 1×1.
 
     Unchained live spill is already covered by ``test_calc_spill_undo_lock``
     (direct ``perform_deferred_spill``) and ``test_function`` DummyTimer cases.
-    This adds the chained origin next to those. Reload so soffice strip runs:
-    origin value must stay 10 (2×2 first cell), not 20 (pred ``1`` as
-    ``index_arg``). Neighbors use the same ``perform_deferred_spill`` path —
-    soffice's 0.1s spill timer no-ops under ``WRITERAGENT_TESTING``.
+    This adds the chained origin next to those. Live eval: origin value must
+    stay 10 (2×2 first cell), not 20 (pred ``1`` as ``index_arg``). Neighbors
+    use the same ``perform_deferred_spill`` path — soffice's 0.1s spill timer
+    no-ops under ``WRITERAGENT_TESTING``.
     """
     from plugin.calc.python.formula_locator_cache import is_matching_py_formula
     from plugin.calc.python.function import perform_deferred_spill
@@ -411,7 +373,6 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
     assert get_config_bool("scripting.python_auto_spill") is True
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag()
-    reopened = None
     try:
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
@@ -425,46 +386,33 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
         # Attaching ;pred must not break spill's origin match (code arg only).
         assert is_matching_py_formula(stored, spill_code), stored
 
-        reopened = _save_reopen_calc(ctx, doc)
-        rsheet = reopened.getSheets().getByIndex(0)
-        ra1 = rsheet.getCellByPosition(0, 0)
-        ra3 = rsheet.getCellByPosition(0, 2)
-        stored = str(ra3.getFormula() or "")
-        assert _pred(stored) == "A1", stored
-        assert is_matching_py_formula(stored, spill_code), stored
-
         # Live eval: strip must keep the 2×2. Pred value 1 as index_arg → 20.
-        if not _wait_cell_value(reopened, ra3, 10.0):
+        if not _wait_cell_value(doc, a3, 10.0):
             if _skip_if_py_unregistered(
-                ra1, test_name="test_geometric_chained_origin_still_auto_spills"
+                a1, test_name="test_geometric_chained_origin_still_auto_spills"
             ):
                 return
             raise AssertionError(
                 "chained origin collapsed or did not eval 2×2: "
                 "value=%r error=%r string=%r formula=%r"
-                % (ra3.getValue(), ra3.getError(), ra3.getString(), ra3.getFormula())
+                % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
             )
-        assert ra3.getValue() == 10.0, (ra3.getValue(), ra3.getFormula())
+        assert a3.getValue() == 10.0, (a3.getValue(), a3.getFormula())
 
-        doc_url = getattr(reopened, "getURL", lambda: "")() or ""
+        doc_url = getattr(doc, "getURL", lambda: "")() or ""
         perform_deferred_spill(
             ctx,
             doc_url,
-            rsheet.Name,
+            sheet.Name,
             2,
             0,
             [[10, 20], [30, 40]],
-            doc=reopened,
+            doc=doc,
             code=spill_code,
         )
-        assert ra3.getString() != "#SPILL!", ra3.getString()
-        assert rsheet.getCellByPosition(1, 2).getValue() == 20.0
-        assert rsheet.getCellByPosition(0, 3).getValue() == 30.0
-        assert rsheet.getCellByPosition(1, 3).getValue() == 40.0
+        assert a3.getString() != "#SPILL!", a3.getString()
+        assert sheet.getCellByPosition(1, 2).getValue() == 20.0
+        assert sheet.getCellByPosition(0, 3).getValue() == 30.0
+        assert sheet.getCellByPosition(1, 3).getValue() == 40.0
     finally:
-        if reopened is not None:
-            try:
-                reopened.close(True)
-            except Exception:
-                pass
         _restore_geometric_flag(previous)

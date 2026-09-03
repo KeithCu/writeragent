@@ -25,6 +25,7 @@ from plugin.calc.python.geometric_recalc import (
     compute_sheet_repair,
     current_geometric_strip_safe,
     discovery_cap_hit,
+    ensure_geometric_strip_index_for_eval,
     eval_n_args_from_data,
     formula_data_args,
     geometric_cap_hit_user_message,
@@ -822,6 +823,46 @@ def test_isolated_unambiguous_session_strips():
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(sid, frozenset({_key("np.mean(data)", 2, sid)}))
     assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred]) == [col]
+
+
+def test_ensure_strip_index_hydrates_from_udprop():
+    """UI-thread eval rebuilds ``_STRIP_SAFE`` from UDProp (late attach / URP)."""
+    import json
+
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc = CalcDocStub(url="file:///hydrate-geo.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("x = 41")')
+    sheet.getCellByPosition(0, 2).setFormula('=PY("x";A1)')
+    payload = json.dumps(
+        {
+            "workbook_key": "calc:file:///hydrate-geo.ods",
+            "sheets": {"Sheet1": {"A3": "A1"}},
+        }
+    )
+    with (
+        patch(
+            "plugin.doc.udprops.get_document_property",
+            lambda _doc, name, default=None: (
+                payload if name == GEOMETRIC_REGISTRY_PROP else default
+            ),
+        ),
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+    ):
+        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+    assert maybe_strip_geometric_eval_args("x", [((41.0,),)]) == []
+
+
+def test_ensure_strip_index_off_main_is_noop():
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    doc = CalcDocStub(url="file:///hydrate-off.ods")
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        ensure_geometric_strip_index_for_eval(doc, ctx=None)
+    assert current_geometric_strip_safe() == frozenset()
 
 
 def test_user_1x1_not_in_map_no_strip():

@@ -905,6 +905,28 @@ def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
         _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
 
 
+def ensure_geometric_strip_index_for_eval(doc: Any, ctx: Any = None) -> None:
+    """UI-thread only: rebuild ``_STRIP_SAFE`` from UDProp before packing ``data``.
+
+    Eval-time strip is memory-only (no UNO from a recalc worker). Attach often
+    runs in a different process than ``=PY()`` (URP ``testing_runner`` client
+    vs soffice add-in). ``OnLoadFinished`` can also rebuild against an empty
+    UDProp (factory doc) and then never see a later attach. On the UI thread
+    this is the same hydrate as document-open (§9.4 leftover refs still strip).
+    Off-main is a no-op — do not query UNO from the recalc worker.
+    """
+    if doc is None:
+        return
+    from plugin.framework.thread_guard import on_main_thread
+
+    if not on_main_thread():
+        return
+    workbook_key = load_geometric_registry_for_doc(doc)
+    if any(key.workbook_key == workbook_key for key in current_geometric_strip_safe()):
+        return
+    _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
+
+
 def _on_geometric_config_changed(**kwargs: Any) -> None:
     """Flag-on walks all sheets. Flag-off leaves refs and the map."""
     global _LAST_GEOMETRIC_FLAG
