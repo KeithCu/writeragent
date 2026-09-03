@@ -29,6 +29,10 @@ _busy_paths: set[str] = set()
 
 # Only *Done* events — OnSave/OnSaveAs also fire and would double-patch the file.
 _SAVE_DONE_EVENTS = frozenset({"OnSaveDone", "OnSaveAsDone", "OnSaveToDone"})
+# Factory ``private:factory/scalc`` fires OnNew, not OnLoadFinished. Geometric
+# strip / Shared kernel need ``record_active_calc_session`` in the evaluating
+# process before the first off-main ``=PY()`` (headless URP: session_id=None).
+_GEOMETRIC_OPEN_EVENTS = frozenset({"OnLoadFinished", "OnNew", "OnLoad", "OnCreate"})
 
 
 def _is_calc_doc(doc: Any) -> bool:
@@ -245,6 +249,9 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                                 "collabora PY rewrite on open failed",
                                 exc_info=True,
                             )
+                    if name in _GEOMETRIC_OPEN_EVENTS:
+                        from plugin.framework.queue_executor import execute_on_main_thread
+
                         try:
                             from plugin.calc.python.geometric_recalc import (
                                 maybe_geometric_on_document_open,
@@ -256,7 +263,8 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                                 "geometric recalc on open failed",
                                 exc_info=True,
                             )
-                        return
+                        if name == "OnLoadFinished":
+                            return
                     if name in _SAVE_DONE_EVENTS:
                         maybe_export_excel_py_on_save(ctx, doc)
                 except Exception:

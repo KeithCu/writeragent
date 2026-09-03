@@ -172,6 +172,39 @@ def _settle_soffice_config() -> None:
     time.sleep(2.1)
 
 
+def _set_session_mode(ctx, mode: str) -> None:
+    """Write session mode where soffice ``get_config`` will see it.
+
+    Client ``set_config`` can use a cached path that is not the throwaway
+    ``UserInstallation`` profile. Soffice reads PathSettings ``UserConfig``.
+    """
+    import os
+
+    from plugin.framework.config import (
+        _invalidate_config_cache,
+        _load_config_dict,
+        _resolve_config_path_from_ctx,
+        _write_config_file,
+        set_config,
+    )
+
+    set_config("scripting.python_session_mode", mode)
+    path = _resolve_config_path_from_ctx(ctx)
+    data: dict = {}
+    if os.path.exists(path):
+        loaded = _load_config_dict(path, allow_repair=True, persist_repair=False)
+        if isinstance(loaded, dict):
+            data = loaded
+    if mode == "isolated":
+        data.pop("scripting.python_session_mode", None)
+        data.pop("python_session_mode", None)
+    else:
+        data["scripting.python_session_mode"] = mode
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    _write_config_file(path, data)
+    _invalidate_config_cache()
+
+
 def _wait_cell_value(doc, cell, expected: float, timeout: float = 8.0) -> bool:
     """True if *cell* reaches *expected*. False if sheet =PY is #NAME? (no add-in)."""
     deadline = time.monotonic() + timeout
@@ -307,13 +340,12 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     is off Python MainThread so live ``data is None`` cannot be observed.
     """
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
-    from plugin.framework.config import set_config
 
     reset_geometric_runtime_for_tests()
     _cold_kernel()
     previous = _enable_geometric_flag()
     try:
-        set_config("scripting.python_session_mode", "shared")
+        _set_session_mode(ctx, "shared")
         _settle_soffice_config()
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
@@ -349,7 +381,7 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
             a3.getFormula(),
         )
     finally:
-        set_config("scripting.python_session_mode", "isolated")
+        _set_session_mode(ctx, "isolated")
         _restore_geometric_flag(previous)
 
 

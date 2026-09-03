@@ -347,6 +347,36 @@ def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
         warn.assert_not_called()
 
 
+def test_onnew_records_geometric_session_via_execute_on_main_thread():
+    """Factory Calc fires OnNew; Shared-kernel leftover UNO needs that record."""
+    import plugin.calc.excel_py_convert.auto_open as mod
+    from plugin.calc.python.geometric_recalc import maybe_geometric_on_document_open
+
+    ctx = MagicMock()
+    smgr = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = broadcaster
+    mod._doc_listener = None
+    install_excel_py_auto_convert(ctx)
+    listener = broadcaster.addDocumentEventListener.call_args[0][0]
+    doc = CalcDocStub()
+
+    class _NewEvent:
+        EventName = "OnNew"
+        Source = doc
+
+    with (
+        patch.object(mod, "maybe_convert_excel_py_document") as convert,
+        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
+    ):
+        listener.on_document_event(_NewEvent())
+        convert.assert_not_called()
+        assert marshal.call_count == 1
+        assert marshal.call_args_list[0][0][0] is maybe_geometric_on_document_open
+        assert marshal.call_args_list[0][0][1:] == (ctx, doc)
+
+
 def test_excel_py_listener_disposed_view_controller_does_not_warn():
     """Listener must not hit the outer warning path when ViewController is disposed."""
     import plugin.calc.excel_py_convert.auto_open as mod
