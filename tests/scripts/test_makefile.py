@@ -54,10 +54,31 @@ def test_makefile_darwin_lo_python_uses_bundled_interpreter() -> None:
     """macOS must not fall through to the project venv (CI 33447724981)."""
     text = MAKEFILE.read_text(encoding="utf-8")
     darwin = text.split("ifeq ($(UNAME_S),Darwin)", 1)[1].split("else", 1)[0]
+    assert "Contents/Resources/python" in darwin
     assert "LibreOfficePython.framework" in darwin
     assert "Versions/Current/bin/python3" in darwin
     assert "Caskroom/libreoffice" in darwin
+    assert "URE_BOOTSTRAP" in darwin
+    assert "UNO_PATH" in darwin
     assert "echo $(PYTHON)" not in darwin
+    # Official wrapper before the raw framework python3 (CI 33708366478).
+    assert darwin.find("Contents/Resources/python") < darwin.find(
+        "LibreOfficePython.framework/Versions/Current/bin/python3"
+    )
+
+
+def test_makefile_check_lo_python_probes_officehelper_import() -> None:
+    """Non-empty LO_PYTHON is not enough — brew-cask framework python3 failed import."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    recipe = text.split("_check-lo-python:", 1)[1].split("test-uno:", 1)[0]
+    assert "import officehelper, uno" in recipe
+    assert "LO_PYTHON_ENV" in recipe
+    assert "LO_PYTHON_UNSET" in recipe
+    assert "echo $(PYTHON)" not in recipe
+    for target in ("test-uno:", "test-mock-sidebar:", "test-visible:"):
+        block = text.split(target, 1)[1].split("\n\n", 1)[0]
+        assert "LO_PYTHON_ENV" in block
+        assert "LO_PYTHON_UNSET" in block
 
 
 def test_makefile_lo_python_probe_does_not_silently_use_venv() -> None:
@@ -133,6 +154,30 @@ def test_test_uno_empty_lo_python_fails_loudly() -> None:
     combined = proc.stdout + proc.stderr
     assert proc.returncode != 0, combined
     assert "LO_PYTHON is empty" in combined
+    assert "Contents/Resources/python" in combined
     assert "LibreOfficePython.framework" in combined
     assert "/usr/bin/python3" in combined
     assert "plugin.testing_runner" not in combined
+
+
+@pytest.mark.skipif(shutil.which("make") is None, reason="make not on PATH")
+def test_check_lo_python_rejects_interpreter_without_officehelper(tmp_path: Path) -> None:
+    """Do not launch testing_runner when the selected python cannot import UNO.
+
+    Uses a stub executable, not the project .venv: hosting pyuno in that
+    CPython segfaults on macOS (CI 33447724981).
+    """
+    fake = tmp_path / "not-lo-python"
+    fake.write_text("#!/bin/sh\necho 'stub interpreter: no officehelper' >&2\nexit 1\n", encoding="utf-8")
+    fake.chmod(0o755)
+    proc = subprocess.run(
+        ["make", "-C", str(PROJECT_ROOT), "_check-lo-python", f"LO_PYTHON={fake}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    combined = proc.stdout + proc.stderr
+    assert proc.returncode != 0, combined
+    assert "cannot import officehelper" in combined
+    assert "project .venv" in combined
+    assert "-m plugin.testing_runner" not in combined

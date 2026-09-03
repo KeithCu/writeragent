@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import plugin.testing_runner as tr
 
@@ -19,6 +20,34 @@ def test_parse_cli_user_profile_sets_flags(monkeypatch) -> None:
     assert tr.show_window is True
     assert rest == ["tests/chatbot/test_mock_llm_sidebar_uno.py"]
     assert os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1"
+
+
+def test_main_prints_officehelper_importerror_detail(monkeypatch, capsys) -> None:
+    """CI 33708366478 swallowed the real ImportError (often nested ``import uno``)."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name: str, *args: object, **kwargs: object):
+        if name == "officehelper":
+            raise ImportError("simulated missing uno")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.setattr(tr, "_ensure_libreoffice_python_path", lambda: None)
+    assert tr.main() == 1
+    out = capsys.readouterr().out
+    assert "officehelper module is not available" in out
+    assert "simulated missing uno" in out
+
+
+def test_ensure_libreoffice_python_path_includes_macos_resources() -> None:
+    """officehelper.py is in Contents/Resources, not the framework python3 dir."""
+    src = Path(tr.__file__).read_text(encoding="utf-8")
+    fn = src.split("def _ensure_libreoffice_python_path", 1)[1].split("\ndef ", 1)[0]
+    assert "Contents/Resources" in fn
+    assert "Caskroom/libreoffice" in fn
+    assert "Contents/Frameworks" in fn
 
 
 def test_soffice_strip_env_names() -> None:

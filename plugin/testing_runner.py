@@ -1039,20 +1039,35 @@ def run_all_tests(ctx: Any) -> str:
 
 
 def _ensure_libreoffice_python_path() -> None:
-    """Add standard LibreOffice installation directories to sys.path if not present."""
+    """Add standard LibreOffice installation directories to sys.path if not present.
+
+    On macOS, ``officehelper.py`` / ``uno.py`` live in ``Contents/Resources``
+    (LibreOffice ``LIBO_LIB_PYUNO_FOLDER``), not next to the framework
+    ``python3`` that Makefile used to pick (CI 33708366478). Homebrew Caskroom
+    copies of the same app bundle are included so a non-``/Applications``
+    install still resolves.
+    """
     candidates = [
         # Linux standard paths
         Path("/usr/lib/libreoffice/program"),
         Path("/usr/lib/python3/dist-packages"),
         Path("/usr/lib64/libreoffice/program"),
         Path("/opt/libreoffice/program"),
-        # macOS standard paths
+        # macOS standard paths (officehelper.py is here, not in the framework)
         Path("/Applications/LibreOffice.app/Contents/Resources"),
         Path("/Applications/LibreOffice.app/Contents/Frameworks"),
         Path("/Applications/LibreOffice.app/Contents/MacOS"),
         # Windows standard paths
         Path(os.environ.get("PROGRAMFILES", "C:\\Program Files") + "\\LibreOffice\\program"),
     ]
+    for cask_root in (
+        Path("/opt/homebrew/Caskroom/libreoffice"),
+        Path("/usr/local/Caskroom/libreoffice"),
+    ):
+        if cask_root.is_dir():
+            candidates.extend(cask_root.glob("*/LibreOffice.app/Contents/Resources"))
+            candidates.extend(cask_root.glob("*/LibreOffice.app/Contents/Frameworks"))
+            candidates.extend(cask_root.glob("*/LibreOffice.app/Contents/MacOS"))
     for p in candidates:
         if p.is_dir() and str(p) not in sys.path:
             sys.path.append(str(p))
@@ -1076,8 +1091,11 @@ def main() -> int:
     _ensure_libreoffice_python_path()
     try:
         import officehelper
-    except ImportError:
+    except ImportError as exc:
+        # ImportError is also raised when officehelper.py is found but its
+        # ``import uno`` fails (missing PYTHONPATH / URE_BOOTSTRAP on Darwin).
         print("ERROR: officehelper module is not available; run with LibreOffice's Python.", flush=True)
+        print("  (%s: %s)" % (type(exc).__name__, exc), flush=True)
         return 1
 
     _parse_cli_args(sys.argv[1:])

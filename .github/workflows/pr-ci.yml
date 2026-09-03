@@ -94,6 +94,26 @@ jobs:
           echo "/Applications/LibreOffice.app/Contents/MacOS" >> $GITHUB_PATH
           echo "/opt/homebrew/opt/gettext/bin" >> $GITHUB_PATH
           echo "$HOME/.local/bin" >> $GITHUB_PATH
+          # officehelper.py is in Contents/Resources (not the framework python3).
+          # Dump the brew-cask layout so a future UNO bootstrap miss is diagnosable.
+          APP="/Applications/LibreOffice.app"
+          if [ -d "$APP" ]; then
+            echo "=== LibreOffice macOS Python layout ==="
+            "$APP/Contents/MacOS/soffice" --version || true
+            ls -l "$APP/Contents/Resources/python" \
+              "$APP/Contents/Resources/officehelper.py" \
+              "$APP/Contents/Resources/uno.py" 2>&1 || true
+            find "$APP/Contents" \( -name officehelper.py -o -name uno.py -o -name pyuno.so \) 2>/dev/null | head -20 || true
+            if [ -x "$APP/Contents/Resources/python" ]; then
+              "$APP/Contents/Resources/python" -c \
+                "import officehelper, uno; print('wrapper officehelper', officehelper.__file__); print('wrapper uno', uno.__file__)" \
+                || echo "Resources/python wrapper could not import officehelper/uno"
+            else
+              echo "Contents/Resources/python wrapper missing"
+            fi
+          else
+            echo "LibreOffice.app not found under /Applications"
+          fi
 
       - name: Install LibreOffice and system tools (Windows)
         if: runner.os == 'Windows'
