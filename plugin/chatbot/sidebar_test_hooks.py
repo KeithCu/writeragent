@@ -966,9 +966,9 @@ def _urp_slash_controller() -> Any:
     query = controls.get("query")
     if ctrl is None or query is None:
         return None
-    existing = _URP_SLASH_POPUP
-    if existing is not None and getattr(existing, "control", None) is ctrl:
-        return existing
+    # URP getControl returns a new proxy each time; do not compare with ``is``.
+    if _URP_SLASH_POPUP is not None:
+        return _URP_SLASH_POPUP
     from plugin.chatbot.slash_popup import SlashPopupController
 
     response = controls.get("response_rich") or controls.get("response")
