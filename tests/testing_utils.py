@@ -533,6 +533,7 @@ class CalcSheetStub:
     def __init__(self, name="Sheet1", data=None):
         self._name = name
         self._cells = {}
+        self._modify_listeners: list = []
         self.DrawPage = MagicMock(name=f"{name}.DrawPage")
         if data is not None:
             self._seed_data(data)
@@ -574,11 +575,14 @@ class CalcSheetStub:
             return self.getCellByPosition(start_col, start_row)
         return self.getCellRangeByPosition(start_col, start_row, end_col, end_row)
 
-    def addModifyListener(self, _listener):
-        pass
+    def addModifyListener(self, listener):
+        self._modify_listeners.append(listener)
 
-    def removeModifyListener(self, _listener):
-        pass
+    def removeModifyListener(self, listener):
+        try:
+            self._modify_listeners.remove(listener)
+        except ValueError:
+            pass
 
     def queryContentCells(self, _flags=0):
         """Return formula cells as a UNO-like enum (CellFlags.FORMULA = 16 in production).

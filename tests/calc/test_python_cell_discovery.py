@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 from plugin.calc.python.cell_discovery import (
+    _MAX_PYTHON_CELLS_FOUND,
     canonicalize_py_formula_for_parse,
+    discover_python_cells_on_sheet,
     extract_code_from_formula,
     is_py_formula_text,
     list_python_cells_on_sheet,
@@ -71,3 +73,22 @@ def test_list_python_cells_on_sheet_bulk_get_formulas():
     assert found[0].code == "result = 1"
     assert found[1].address == "Sheet1.B2"
     assert found[1].code == "result = 2"
+
+
+def test_discover_exact_100_is_not_truncated():
+    rows = tuple((f'=PY("x{i}")',) for i in range(_MAX_PYTHON_CELLS_FOUND))
+    doc = CalcDocStub(data=rows)
+    sheet = doc.getSheets().getByName("Sheet1")
+    discovery = discover_python_cells_on_sheet(sheet)
+    assert len(discovery.cells) == _MAX_PYTHON_CELLS_FOUND
+    assert discovery.truncated is False
+    assert list_python_cells_on_sheet(sheet) == discovery.cells
+
+
+def test_discover_101st_sets_truncated():
+    rows = tuple((f'=PY("x{i}")',) for i in range(_MAX_PYTHON_CELLS_FOUND + 1))
+    doc = CalcDocStub(data=rows)
+    sheet = doc.getSheets().getByName("Sheet1")
+    discovery = discover_python_cells_on_sheet(sheet)
+    assert len(discovery.cells) == _MAX_PYTHON_CELLS_FOUND
+    assert discovery.truncated is True

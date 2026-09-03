@@ -362,7 +362,9 @@ _PENDING_SPILL_TIMERS: list[tuple[str, threading.Timer]] = []
 import unohelper
 from com.sun.star.util import XModifyListener
 
-SHEET_MODIFY_LISTENERS: dict[tuple[str, str], CalcSpillModifyListener] = {}
+# One listener per sheet — SheetModifyDispatcher (Phase 3) or the legacy
+# CalcSpillModifyListener when a test constructs it directly.
+SHEET_MODIFY_LISTENERS: dict[tuple[str, str], Any] = {}
 
 
 @contextmanager
@@ -419,7 +421,12 @@ def _undo_lock(doc: Any):
 
 
 class CalcSpillModifyListener(unohelper.Base, XModifyListener):
-    """Listens to sheet changes to automatically clean up orphaned spilled cells."""
+    """Orphaned-spill cleanup. Walks ``SPILL_REGISTRY`` only.
+
+    Geometric repair must not piggyback on this walk (it does not scan
+    formula cells). The registered listener is ``SheetModifyDispatcher``;
+    this class stays the spill job. Do not add ``CalcGeometricModifyListener``.
+    """
     def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
         self.ctx = ctx
         self.doc_url = doc_url
@@ -885,15 +892,15 @@ def finalize_python_return(
                             load_spill_registry_for_doc(target_doc)
                             LOADED_DOCUMENTS.add(doc_url)
 
-                        # Register sheet modify listener for auto-cleanup of spills
-                        sheet_key = (doc_url, sheet_name)
-                        if sheet_key not in SHEET_MODIFY_LISTENERS:
-                            try:
-                                listener = CalcSpillModifyListener(ctx, doc_url, sheet_name)
-                                sheet.addModifyListener(listener)
-                                SHEET_MODIFY_LISTENERS[sheet_key] = listener
-                            except Exception:
-                                log.exception("Failed to register modify listener on sheet")
+                        # One dispatcher per sheet (spill cleanup + geometric repair).
+                        try:
+                            from plugin.calc.python.sheet_modify import (
+                                ensure_sheet_modify_listener,
+                            )
+
+                            ensure_sheet_modify_listener(ctx, target_doc, sheet)
+                        except Exception:
+                            log.exception("Failed to register modify listener on sheet")
 
                         num_rows = len(grid_to_spill)
                         num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0

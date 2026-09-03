@@ -52,6 +52,20 @@ class PythonCellInfo:
     formula: str
 
 
+@dataclass(frozen=True)
+class PythonSheetDiscovery:
+    """Row-major PY cells on one sheet, plus whether the scan stopped early.
+
+    Phase 1 treated ``len(cells) >= 100`` as cap-hit and over-skipped an exact
+    100. ``truncated`` is True only when the 100-cell find cap or the 50k
+    scan cap stopped discovery before the sheet was fully scanned — a
+    completed scan of exactly 100 is ``truncated=False``.
+    """
+
+    cells: list[PythonCellInfo]
+    truncated: bool
+
+
 def canonicalize_py_formula_for_parse(formula: str) -> str:
     """Map LO add-in formula text to ``=PYTHON(…)`` for ``parse_python_formula``."""
     from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
@@ -82,9 +96,24 @@ def _cell_address(sheet_name: str, row: int, column: int) -> str:
 
 
 def list_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None) -> list[PythonCellInfo]:
-    """Return Python formula cells on *sheet*, sorted by row then column."""
+    """Return Python formula cells on *sheet*, sorted by row then column.
+
+    Cap / completeness live on :func:`discover_python_cells_on_sheet` (``truncated``).
+    """
+    return discover_python_cells_on_sheet(sheet, sheet_name=sheet_name).cells
+
+
+def discover_python_cells_on_sheet(
+    sheet: Any, *, sheet_name: str | None = None
+) -> PythonSheetDiscovery:
+    """Discover PY cells and report whether the 100 / 50k caps truncated the list.
+
+    After 100 PY cells we keep scanning for one more. Finding #101 (or hitting
+    the 50k scan cap) sets ``truncated=True``. An exact 100 that finishes the
+    formula-cell walk is complete.
+    """
     if sheet is None:
-        return []
+        return PythonSheetDiscovery([], False)
     name = sheet_name
     if not name:
         try:
@@ -95,23 +124,49 @@ def list_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None) -> 
         name = "Sheet"
 
     found: list[PythonCellInfo] = []
+    truncated = False
     try:
         formula_cells = sheet.queryContentCells(_CELL_FLAG_FORMULA)
     except Exception:
         log.debug("list_python_cells_on_sheet: queryContentCells failed", exc_info=True)
-        return []
+        return PythonSheetDiscovery([], False)
 
     if formula_cells is None:
-        return []
+        return PythonSheetDiscovery([], False)
 
     try:
         count = int(formula_cells.getCount())
     except Exception:
-        return []
+        return PythonSheetDiscovery([], False)
 
     scanned_count = 0
+
+    def _consider(formula: str, row: int, col: int) -> bool:
+        """Add a PY cell, or mark truncated on the 101st. False means stop."""
+        nonlocal truncated
+        if not formula or not is_py_formula_text(str(formula)):
+            return True
+        if len(found) >= _MAX_PYTHON_CELLS_FOUND:
+            # 101st PY cell: the returned list of 100 is incomplete.
+            truncated = True
+            return False
+        code = extract_code_from_formula(str(formula))
+        found.append(
+            PythonCellInfo(
+                sheet=name,
+                row=row,
+                column=col,
+                address=_cell_address(name, row, col),
+                code=code,
+                formula=str(formula),
+            )
+        )
+        return True
+
     for i in range(count):
-        if len(found) >= _MAX_PYTHON_CELLS_FOUND or scanned_count >= _MAX_CELLS_TO_SCAN:
+        if truncated or scanned_count >= _MAX_CELLS_TO_SCAN:
+            if scanned_count >= _MAX_CELLS_TO_SCAN:
+                truncated = True
             break
         try:
             cell_range = formula_cells.getByIndex(i)
@@ -121,59 +176,50 @@ def list_python_cells_on_sheet(sheet: Any, *, sheet_name: str | None = None) -> 
             continue
 
         if formula_matrix is not None and len(formula_matrix) > 0:
+            stop = False
             for r_idx, row_formulas in enumerate(formula_matrix):
                 row = addr.StartRow + r_idx
                 for c_idx, formula in enumerate(row_formulas):
                     scanned_count += 1
-                    col = addr.StartColumn + c_idx
-                    if not formula or not is_py_formula_text(str(formula)):
-                        continue
-                    code = extract_code_from_formula(str(formula))
-                    found.append(
-                        PythonCellInfo(
-                            sheet=name,
-                            row=row,
-                            column=col,
-                            address=_cell_address(name, row, col),
-                            code=code,
-                            formula=str(formula),
-                        )
-                    )
-                    if len(found) >= _MAX_PYTHON_CELLS_FOUND:
+                    if scanned_count > _MAX_CELLS_TO_SCAN:
+                        truncated = True
+                        stop = True
                         break
-                if len(found) >= _MAX_PYTHON_CELLS_FOUND:
+                    col = addr.StartColumn + c_idx
+                    if not _consider(str(formula), row, col):
+                        stop = True
+                        break
+                if stop:
                     break
         else:
+            stop = False
             for row in range(addr.StartRow, addr.EndRow + 1):
-                if len(found) >= _MAX_PYTHON_CELLS_FOUND or scanned_count >= _MAX_CELLS_TO_SCAN:
+                if truncated or scanned_count >= _MAX_CELLS_TO_SCAN:
+                    if scanned_count >= _MAX_CELLS_TO_SCAN:
+                        truncated = True
+                    stop = True
                     break
                 for col in range(addr.StartColumn, addr.EndColumn + 1):
                     scanned_count += 1
                     if scanned_count > _MAX_CELLS_TO_SCAN:
+                        truncated = True
+                        stop = True
                         break
                     try:
                         cell = sheet.getCellByPosition(col, row)
                         formula = str(cell.getFormula() or "")
                     except Exception:
                         continue
-                    if not is_py_formula_text(formula):
-                        continue
-                    code = extract_code_from_formula(formula)
-                    found.append(
-                        PythonCellInfo(
-                            sheet=name,
-                            row=row,
-                            column=col,
-                            address=_cell_address(name, row, col),
-                            code=code,
-                            formula=formula,
-                        )
-                    )
-                    if len(found) >= _MAX_PYTHON_CELLS_FOUND:
+                    if not _consider(formula, row, col):
+                        stop = True
                         break
+                if stop:
+                    break
+        if truncated:
+            break
 
     found.sort(key=lambda c: (c.row, c.column))
-    return found
+    return PythonSheetDiscovery(found, truncated)
 
 
 def list_python_cells_in_doc(doc: Any, *, active_sheet_only: bool = True) -> list[PythonCellInfo]:

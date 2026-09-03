@@ -115,3 +115,113 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     assert after_ref_parts.code.replace("$", "").upper().endswith("A1"), after_ref
     if "$" in ref_parts.code:
         assert "$" in after_ref_parts.code, after_ref
+
+
+def _pred(formula: str) -> str | None:
+    from plugin.calc.python.geometric_recalc import formula_data_args, local_a1
+
+    args = formula_data_args(formula)
+    if not args:
+        return None
+    return local_a1(args[-1])
+
+
+def _enable_geometric_flag():
+    import plugin.calc.python.geometric_recalc as geo
+
+    previous = geo.geometric_flag_enabled
+    geo.geometric_flag_enabled = lambda: True
+    return previous
+
+
+def _restore_geometric_flag(previous) -> None:
+    import plugin.calc.python.geometric_recalc as geo
+
+    geo.geometric_flag_enabled = previous
+    geo.reset_geometric_runtime_for_tests()
+
+
+def _flush(ctx, doc, sheet) -> None:
+    from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
+
+    flush_sheet_modify_pass_for_tests(ctx, doc, sheet)
+
+
+@native_test
+@with_native_doc("calc")
+def test_geometric_insert_delete_undo_three_cell_column(ctx, doc):
+    """Phase 3: insert/delete retargets; successor-becomes-first removes the field; undo restores."""
+    from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
+
+    reset_geometric_runtime_for_tests()
+    previous = _enable_geometric_flag()
+    try:
+        sheet = doc.getSheets().getByIndex(0)
+        a1 = sheet.getCellByPosition(0, 0)
+        a2 = sheet.getCellByPosition(0, 1)
+        a3 = sheet.getCellByPosition(0, 2)
+        a1.setFormula('=PY("first")')
+        a3.setFormula('=PY("third")')
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        assert _pred(str(a1.getFormula() or "")) is None
+
+        # 1) Insert PY in the middle → successor names the new predecessor.
+        a2.setFormula('=PY("mid")')
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a2.getFormula() or "")) == "A1", a2.getFormula()
+        assert _pred(str(a3.getFormula() or "")) == "A2", a3.getFormula()
+
+        # 2) Delete middle → successor retargets to A1.
+        a2.setFormula("")
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+
+        # 3) Undo restores the inserted cell and A3's ;A2 (hidden under the delete).
+        um = doc.getUndoManager()
+        assert um is not None
+        if um.isUndoPossible():
+            um.undo()
+            # Either one undo restores both (hidden) or the user cell is back.
+            restored = str(a2.getFormula() or "")
+            if "PY" in restored.upper() or "PYTHON" in restored.upper():
+                _flush(ctx, doc, sheet)
+                assert _pred(str(a3.getFormula() or "")) == "A2", (
+                    a2.getFormula(),
+                    a3.getFormula(),
+                )
+
+        # Successor-becomes-first → remove-field.
+        a2.setFormula("")
+        a1.setFormula("")
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a3.getFormula() or "")) is None, a3.getFormula()
+    finally:
+        _restore_geometric_flag(previous)
+
+
+@native_test
+@with_native_doc("calc")
+def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
+    """Cap-hit: skip the whole sheet, do not chain the first 100, one msgbox."""
+    from unittest.mock import patch
+
+    from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
+    from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
+
+    reset_geometric_runtime_for_tests()
+    previous = _enable_geometric_flag()
+    try:
+        sheet = doc.getSheets().getByIndex(0)
+        for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
+            sheet.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
+        with patch("plugin.chatbot.dialogs.msgbox") as mock_box:
+            _flush(ctx, doc, sheet)
+            assert mock_box.call_count == 1
+        # First successor stays unchained (whole sheet skipped).
+        a2 = str(sheet.getCellByPosition(0, 1).getFormula() or "")
+        assert _pred(a2) is None, a2
+        a101 = str(sheet.getCellByPosition(0, _MAX_PYTHON_CELLS_FOUND).getFormula() or "")
+        assert _pred(a101) is None, a101
+    finally:
+        _restore_geometric_flag(previous)

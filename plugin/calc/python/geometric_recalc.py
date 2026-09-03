@@ -8,14 +8,15 @@ Phase 1 helpers stay pure (no UNO): given a row-major list of PY cells plus the
 in-memory attach map, compute formula patches and unanimous-ours strip-safe
 triples. Phase 2/4 add the Settings flag, UDProp / in-memory map, attach on
 save and flag-on, Isolated session record, and worker-ingress strip.
+Phase 3 shares the sheet modify trigger (0.1s debounce) and rebuilds the
+strip-safe index on insert/delete/clear and on a data-edit of the PY list.
 
-See ``docs/calc/geometric-recalc-order.md`` §8 Phase 2 + Phase 4 and §9.5.
+See ``docs/calc/geometric-recalc-order.md`` §8 and §9.5.
 Eval identity is unanimous-ours on ``(workbook_key, resolved_code, n_args)``
-only — a value fingerprint of ``args[:-1]`` was rejected (data edits miss
-the key without Phase 3). The strip-safe index is a frozenset snapshot
-rebound on the UI thread (§3.5); workers only read.
-Cap-hit skip uses ``len(cells) >= _MAX_PYTHON_CELLS_FOUND`` (no truncated flag).
-A skipped sheet must also show a user-visible error — callers use
+only — a value fingerprint of ``args[:-1]`` was rejected. The strip-safe
+index is a frozenset snapshot rebound on the UI thread (§3.5); workers only
+read. Cap-hit skip uses the discovery ``truncated`` flag (exact 100 is not
+a skip). A skipped sheet must also show a user-visible error — callers use
 :func:`notify_geometric_cap_hit` on the UI thread (one box per sheet).
 """
 
@@ -82,11 +83,10 @@ class GeometricPatch:
 class EvalIndexKey:
     """Eval-time strip key. ``code`` is resolved source, not a ``$A$1`` token.
 
-    Value fingerprint of ``args[:-1]`` was dropped: without a Phase 3
-    modify-listener the index is not rebuilt on data edits, so a live-value
-    hash missed after the user changed a range and strip skipped (arity
-    flip). Unanimous-ours on ``(workbook_key, resolved_code, n_args)`` never
-    produces wrong numbers — mixed same-triple only widens no-strip.
+    Value fingerprint of ``args[:-1]`` was dropped. Phase 3 rebuilds this
+    index on sheet modify (insert/delete/clear and data-edits that change
+    the PY list). Unanimous-ours on ``(workbook_key, resolved_code, n_args)``
+    never produces wrong numbers — mixed same-triple only widens no-strip.
     """
 
     workbook_key: str
@@ -151,8 +151,17 @@ def eval_n_args_from_data(data: Any) -> int:
     return len(split_python_addin_data_args(data))
 
 
-def discovery_cap_hit(n_found: int) -> bool:
-    """Phase 1: treat ``len >= 100`` as cap-hit (over-skips an exact 100)."""
+def discovery_cap_hit(n_found: int, *, truncated: bool | None = None) -> bool:
+    """True when discovery was truncated — skip the whole sheet.
+
+    Phase 1 used ``len >= 100`` and over-skipped an exact 100. Pass
+    *truncated* from :func:`discover_python_cells_on_sheet`. ``truncated=False``
+    with 100 cells is complete. ``truncated=True`` skips even when fewer
+    than 100 (50k scan cap). Omitting *truncated* keeps the Phase 1
+    ``len >= 100`` fallback for callers that only have a count.
+    """
+    if truncated is not None:
+        return truncated
     return n_found >= GEOMETRIC_DISCOVERY_CAP
 
 
@@ -328,14 +337,16 @@ def compute_sheet_repair(
     *,
     workbook_key: str,
     sheet_name: str = "",
+    truncated: bool = False,
 ) -> SheetRepairResult:
     """List-diff + splice + eval-index for one sheet. No UNO.
 
-    *cells* must already be row-major. Cap-hit skips the whole sheet: no
-    patches, no strip-safe marks, and a user-visible message string.
+    *cells* must already be row-major. Cap-hit (*truncated*) skips the whole
+    sheet: no patches, no strip-safe marks, and a user-visible message string.
+    An exact 100 with ``truncated=False`` is chained.
     """
     incoming = {cell_map_key(k): v for k, v in dict(records or {}).items()}
-    if discovery_cap_hit(len(cells)):
+    if discovery_cap_hit(len(cells), truncated=truncated):
         message = geometric_cap_hit_user_message(sheet_name or "?")
         return SheetRepairResult(
             skipped=True,
@@ -408,6 +419,11 @@ _LAST_GEOMETRIC_FLAG: bool | None = None
 _CONFIG_SUBSCRIBED = False
 
 
+def is_geometric_repairing() -> bool:
+    """Re-entrancy: ``setFormula`` during repair must not schedule another pass."""
+    return _GEOMETRIC_REPAIRING
+
+
 def reset_geometric_runtime_for_tests() -> None:
     """Drop in-memory maps. Tests only."""
     global _STRIP_SAFE, _GEOMETRIC_REPAIRING, _LAST_GEOMETRIC_FLAG
@@ -416,6 +432,12 @@ def reset_geometric_runtime_for_tests() -> None:
         GEOMETRIC_LOADED.clear()
     _STRIP_SAFE = frozenset()
     _GEOMETRIC_REPAIRING = False
+    try:
+        from plugin.calc.python.sheet_modify import reset_sheet_modify_runtime_for_tests
+
+        reset_sheet_modify_runtime_for_tests()
+    except Exception:
+        pass
 
 
 def geometric_flag_enabled() -> bool:
@@ -631,11 +653,17 @@ def _resolved_code_for_discovered(doc: Any, sheet: Any, formula: str) -> str:
     return resolved_code_for_formula(canon)
 
 
-def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell], str]:
-    """Discover one sheet as Phase 1 cells. Address is local A1 (per-sheet map)."""
-    from plugin.calc.python.cell_discovery import list_python_cells_on_sheet
+def geometric_cells_on_sheet(
+    doc: Any, sheet: Any
+) -> tuple[list[GeometricCell], str, bool]:
+    """Discover one sheet as Phase 1 cells. Address is local A1 (per-sheet map).
 
-    infos = list_python_cells_on_sheet(sheet)
+    Third value is discovery ``truncated`` — cap-hit skip uses this, not
+    ``len >= 100``.
+    """
+    from plugin.calc.python.cell_discovery import discover_python_cells_on_sheet
+
+    discovery = discover_python_cells_on_sheet(sheet)
     try:
         name = str(sheet.getName() or "") or "Sheet"
     except Exception:
@@ -646,9 +674,9 @@ def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell],
             formula=info.formula,
             resolved_code=_resolved_code_for_discovered(doc, sheet, info.formula),
         )
-        for info in infos
+        for info in discovery.cells
     ]
-    return cells, name
+    return cells, name, discovery.truncated
 
 
 def _iter_sheets(doc: Any) -> list[Any]:
@@ -727,8 +755,8 @@ def _rebuild_strip_safe_from_doc(
     all_records: dict[str, GeometricRecord] = {}
     notified = already_notified if already_notified is not None else set()
     for sheet in _iter_sheets(doc):
-        cells, name = geometric_cells_on_sheet(doc, sheet)
-        if discovery_cap_hit(len(cells)):
+        cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
+        if discovery_cap_hit(len(cells), truncated=truncated):
             notify_geometric_cap_hit(ctx, name, already_notified=notified)
             continue
         for cell in cells:
@@ -754,12 +782,13 @@ def _repair_one_sheet(
     apply_patches: bool,
     already_notified: set[str] | None = None,
 ) -> SheetRepairResult:
-    cells, name = geometric_cells_on_sheet(doc, sheet)
+    cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
     result = compute_sheet_repair(
         cells,
         records_for_sheet(workbook_key, name),
         workbook_key=workbook_key,
         sheet_name=name,
+        truncated=truncated,
     )
     if result.skipped:
         notify_geometric_cap_hit(ctx, name, already_notified=already_notified)
@@ -785,8 +814,11 @@ def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = F
         from plugin.calc.python.function import _undo_lock
 
         notified: set[str] = set()
+        from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
+
         with _undo_lock(doc):
             for sheet in _iter_sheets(doc):
+                ensure_sheet_modify_listener(ctx, doc, sheet)
                 _repair_one_sheet(
                     ctx,
                     doc,
@@ -814,6 +846,9 @@ def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any) -> None:
         from plugin.calc.python.function import _undo_lock
 
         notified: set[str] = set()
+        from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
+
+        ensure_sheet_modify_listener(ctx, doc, sheet)
         with _undo_lock(doc):
             _repair_one_sheet(
                 ctx,

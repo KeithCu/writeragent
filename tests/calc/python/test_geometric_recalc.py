@@ -62,9 +62,14 @@ def _repair(
     *,
     workbook_key: str = WB,
     sheet_name: str = "Sheet1",
+    truncated: bool = False,
 ):
     return compute_sheet_repair(
-        cells, records, workbook_key=workbook_key, sheet_name=sheet_name
+        cells,
+        records,
+        workbook_key=workbook_key,
+        sheet_name=sheet_name,
+        truncated=truncated,
     )
 
 
@@ -418,8 +423,8 @@ def test_two_workbooks_unambiguous_false_no_strip():
 
 def test_cap_hit_skips_sheet_no_patches_no_strip_safe():
     cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(GEOMETRIC_DISCOVERY_CAP)]
-    result = _repair(cells, sheet_name="Data")
-    assert discovery_cap_hit(len(cells))
+    result = _repair(cells, sheet_name="Data", truncated=True)
+    assert discovery_cap_hit(len(cells), truncated=True)
     assert result.skipped is True
     assert result.skip_reason == "discovery_cap"
     assert result.patches == ()
@@ -429,7 +434,21 @@ def test_cap_hit_skips_sheet_no_patches_no_strip_safe():
     assert str(GEOMETRIC_DISCOVERY_CAP) in result.user_message
 
 
-def test_cap_hit_over_skips_exact_100():
+def test_exact_100_without_truncated_is_chained():
+    """Phase 3: an exact 100 that finished the scan is not a cap-hit."""
+    cells = [_cell(f"A{i + 1}", '=PY("x")') for i in range(GEOMETRIC_DISCOVERY_CAP)]
+    result = _repair(cells, sheet_name="Data", truncated=False)
+    assert result.skipped is False
+    assert result.patches  # A2..A100 get a predecessor
+    assert discovery_cap_hit(len(cells), truncated=False) is False
+
+
+def test_discovery_cap_hit_uses_truncated_flag():
+    assert discovery_cap_hit(99, truncated=False) is False
+    assert discovery_cap_hit(100, truncated=False) is False
+    assert discovery_cap_hit(100, truncated=True) is True
+    assert discovery_cap_hit(50, truncated=True) is True
+    # Count-only fallback (no truncated) still treats len >= 100 as cap-hit.
     assert discovery_cap_hit(99) is False
     assert discovery_cap_hit(100) is True
     assert discovery_cap_hit(101) is True
@@ -660,7 +679,7 @@ def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
     _reset_geo()
     doc = CalcDocStub(url="file:///cap-geo.ods")
     sheet = doc.getSheets().getByName("Sheet1")
-    for i in range(GEOMETRIC_DISCOVERY_CAP):
+    for i in range(GEOMETRIC_DISCOVERY_CAP + 1):
         sheet.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
@@ -867,9 +886,9 @@ def test_mixed_same_code_n_args_overpoisons_other_range():
 def test_data_value_edit_still_strips():
     """Strip-safe from a formula; eval args have different live range values.
 
-    B2-edit case: Phase 3 does not rebuild the index on data edit. A value
-    fingerprint of args[:-1] missed after the edit. 3-field key still strips.
-    Do not inject a fingerprint.
+    A value fingerprint of args[:-1] missed after a range edit. The 3-field
+    key still strips. Phase 3 rebuilds the index on modify; do not inject
+    a fingerprint.
     """
     from plugin.scripting import session_manager as sm
 
@@ -908,3 +927,245 @@ def test_strip_safe_snapshot_is_rebound_not_mutated():
     assert EvalIndexKey(WB, "a", 2) in old
     assert EvalIndexKey(WB, "a", 2) not in new
     assert EvalIndexKey(WB, "b", 2) in new
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — shared sheet-modify dispatcher / debounce
+# ---------------------------------------------------------------------------
+
+
+class _DeferredTimer:
+    """Timer that records the callback and fires only when asked."""
+
+    instances: list["_DeferredTimer"] = []
+
+    def __init__(self, interval, function, args=(), kwargs=None):
+        self.interval = interval
+        self.function = function
+        self.args = args
+        self.kwargs = kwargs or {}
+        self.cancelled = False
+        self.started = False
+        _DeferredTimer.instances.append(self)
+
+    def start(self) -> None:
+        self.started = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def fire(self) -> None:
+        if not self.cancelled:
+            self.function(*self.args, **self.kwargs)
+
+
+def _install_deferred_timer(monkeypatch):
+    _DeferredTimer.instances.clear()
+    monkeypatch.setattr("plugin.calc.python.sheet_modify.threading.Timer", _DeferredTimer)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
+    monkeypatch.setattr(
+        "plugin.framework.thread_guard.on_main_thread", lambda: True
+    )
+
+
+def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
+    from types import SimpleNamespace
+
+    from plugin.calc.python.sheet_modify import (
+        dispatch_sheet_modified,
+        reset_sheet_modify_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    reset_sheet_modify_runtime_for_tests()
+    _install_deferred_timer(monkeypatch)
+    doc = CalcDocStub(url="file:///debounce-geo.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
+    )
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+
+    event = SimpleNamespace(Source=sheet)
+    dispatch_sheet_modified("ctx", "file:///debounce-geo.ods", "Sheet1", event)
+    dispatch_sheet_modified("ctx", "file:///debounce-geo.ods", "Sheet1", event)
+    live = [t for t in _DeferredTimer.instances if t.started and not t.cancelled]
+    assert len(live) == 1
+    assert live[0].interval == 0.1
+    cancelled = [t for t in _DeferredTimer.instances if t.cancelled]
+    assert len(cancelled) == 1
+
+
+def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
+    from plugin.calc.python.sheet_modify import (
+        flush_sheet_modify_pass_for_tests,
+        reset_sheet_modify_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    reset_sheet_modify_runtime_for_tests()
+    doc = CalcDocStub(url="file:///flag-off-mod.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("first")')
+    sheet.getCellByPosition(0, 1).setFormula('=PY("second")')
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
+    )
+    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
+    assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("second")'
+
+
+def test_dispatcher_insert_retargets_successor(monkeypatch):
+    from plugin.calc.python.formula_edit import parse_python_formula
+    from plugin.calc.python.geometric_recalc import formula_data_args, same_cell_ref
+    from plugin.calc.python.sheet_modify import (
+        flush_sheet_modify_pass_for_tests,
+        reset_sheet_modify_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    reset_sheet_modify_runtime_for_tests()
+    doc = CalcDocStub(url="file:///insert-geo.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("first")')
+    sheet.getCellByPosition(0, 2).setFormula('=PY("third")')
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
+    )
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
+    third = sheet.getCellByPosition(0, 2).getFormula()
+    args = formula_data_args(third)
+    assert args and same_cell_ref(args[-1], "A1")
+
+    sheet.getCellByPosition(0, 1).setFormula('=PY("mid")')
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
+    mid = sheet.getCellByPosition(0, 1).getFormula()
+    mid_args = formula_data_args(mid)
+    assert mid_args and same_cell_ref(mid_args[-1], "A1")
+    third_after = sheet.getCellByPosition(0, 2).getFormula()
+    third_args = formula_data_args(third_after)
+    assert third_args and same_cell_ref(third_args[-1], "A2")
+    assert parse_python_formula(mid) is not None
+
+
+def test_dispatcher_delete_first_removes_field(monkeypatch):
+    from plugin.calc.python.geometric_recalc import formula_data_args
+    from plugin.calc.python.sheet_modify import (
+        flush_sheet_modify_pass_for_tests,
+        reset_sheet_modify_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    reset_sheet_modify_runtime_for_tests()
+    doc = CalcDocStub(url="file:///delete-first.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("first")')
+    sheet.getCellByPosition(0, 1).setFormula('=PY("second")')
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
+    )
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
+    assert formula_data_args(sheet.getCellByPosition(0, 1).getFormula())
+
+    sheet.getCellByPosition(0, 0).setFormula("")
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
+    leftover = formula_data_args(sheet.getCellByPosition(0, 1).getFormula())
+    assert leftover == []
+
+
+def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
+    from types import SimpleNamespace
+
+    from plugin.calc.python import geometric_recalc as geo
+    from plugin.calc.python.sheet_modify import (
+        _PENDING_TIMERS,
+        dispatch_sheet_modified,
+        reset_sheet_modify_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    reset_sheet_modify_runtime_for_tests()
+    _install_deferred_timer(monkeypatch)
+    doc = CalcDocStub(url="file:///reenter-mod.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    geo._GEOMETRIC_REPAIRING = True
+    try:
+        dispatch_sheet_modified(
+            "ctx", "file:///reenter-mod.ods", "Sheet1", SimpleNamespace(Source=sheet)
+        )
+        assert _PENDING_TIMERS == {}
+        assert _DeferredTimer.instances == []
+    finally:
+        geo._GEOMETRIC_REPAIRING = False
+
+
+def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
+    """A data-edit that changes the PY list must rebuild unanimous-ours."""
+    from plugin.calc.python.geometric_recalc import (
+        current_geometric_strip_safe,
+        geometric_workbook_key,
+    )
+    from plugin.calc.python.sheet_modify import (
+        flush_sheet_modify_pass_for_tests,
+        reset_sheet_modify_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    _reset_geo()
+    reset_sheet_modify_runtime_for_tests()
+    doc = CalcDocStub(url="file:///data-edit-idx.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PY("np.mean(data)"; B1:B10)')
+    sheet.getCellByPosition(0, 1).setFormula('=PY("np.mean(data)"; B1:B10)')
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
+    )
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
+    wk = geometric_workbook_key(doc)
+    assert _key("np.mean(data)", 2, wk) in current_geometric_strip_safe()
+
+    # User already passed the previous PY cell as real data — do not record.
+    # Same (code, n_args=2) triple, mixed, poisons the chain.
+    sheet.getCellByPosition(0, 2).setFormula('=PY("np.mean(data)"; B1:B10; A2)')
+    flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
+    assert _key("np.mean(data)", 2, wk) not in current_geometric_strip_safe()
+
+
+def test_ensure_listener_is_idempotent(monkeypatch):
+    from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
+    from plugin.calc.python.sheet_modify import (
+        ensure_sheet_modify_listener,
+        reset_sheet_modify_runtime_for_tests,
+    )
+    from plugin.tests.testing_utils import CalcDocStub
+
+    reset_sheet_modify_runtime_for_tests()
+    SHEET_MODIFY_LISTENERS.clear()
+    doc = CalcDocStub(url="file:///one-listener.ods")
+    sheet = doc.getSheets().getByName("Sheet1")
+    first = ensure_sheet_modify_listener("ctx", doc, sheet)
+    second = ensure_sheet_modify_listener("ctx", doc, sheet)
+    assert first is second
+    assert len(sheet._modify_listeners) == 1
+    SHEET_MODIFY_LISTENERS.clear()
