@@ -127,6 +127,8 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
         "stub_start_count": int(getattr(rec, "_stub_start_count", 0) or 0),
         "history_user_tail": _history_user_tail(sl) if sl is not None else "",
         "approval_active": bool(getattr(sl, "_approval_event", None)) if sl is not None else False,
+        **_slash_snapshot_fields(sl),
+        "slash_lru": _slash_lru_names(),
     }
     with open(debug_sidebar_snapshot_path(), "w", encoding="utf-8") as handle:
         json.dump(data, handle)
@@ -199,6 +201,12 @@ def handle_debug_sidebar_command(command: str) -> None:
                 from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
 
                 apply_fn(CHAT_MODE_CHAT)
+        elif op == "SLASH_REFRESH":
+            _slash_refresh_in_soffice(sl)
+        elif op == "SLASH_ENTER":
+            _slash_key_in_soffice(sl, 1280, 0)
+        elif op == "SLASH_ESC":
+            _slash_key_in_soffice(sl, 1281, 0)
         else:
             log.warning("debug_sidebar unknown op %s", op)
         _write_debug_snapshot(sl)
@@ -776,6 +784,9 @@ def set_query_text(text: str, *, listener: Any = None) -> None:
     if ctx is not None:
         controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
         set_query_text_via_controls(controls, text)
+        # QueryTextListener may not fire over URP setText; refresh inside soffice.
+        if (text or "").lstrip().startswith("/") or not (text or "").strip():
+            execute_debug_sidebar_op("SLASH_REFRESH")
 
 
 def query_text(*, listener: Any = None) -> str:
@@ -786,6 +797,96 @@ def query_text(*, listener: Any = None) -> str:
     from plugin.chatbot.dialogs import get_control_text
 
     return get_control_text(getattr(sl, "query_control", None), default="") or ""
+
+
+def _slash_control_near_query(query: Any) -> Any:
+    if query is None:
+        return None
+    for getter_name in ("getContext", "getPeer"):
+        getter = getattr(query, getter_name, None)
+        if not callable(getter):
+            continue
+        try:
+            cur = getter()
+        except Exception:
+            continue
+        for unused in range(6):
+            if cur is None:
+                break
+            if hasattr(cur, "getControl"):
+                try:
+                    ctrl = cur.getControl("slash_popup")
+                except Exception:
+                    ctrl = None
+                if ctrl is not None:
+                    return ctrl
+            parent = getattr(cur, "getParent", None)
+            cur = parent() if callable(parent) else None
+    return None
+
+
+def _attach_slash_popup_on_listener(sl: Any) -> Any:
+    if sl is None:
+        return None
+    popup = getattr(sl, "slash_popup", None)
+    if popup is not None:
+        return popup
+    query = getattr(sl, "query_control", None)
+    ctrl = _slash_control_near_query(query)
+    if ctrl is None:
+        return None
+    from plugin.chatbot.slash_popup import SlashPopupController
+
+    popup = SlashPopupController(ctrl, sl, query)
+    sl.slash_popup = popup
+    return popup
+
+
+def _slash_lru_names() -> list[str]:
+    try:
+        from plugin.chatbot.slash_commands import load_slash_lru
+
+        return list(load_slash_lru())
+    except Exception:
+        return []
+
+
+def _slash_state_from_snapshot(data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "visible": bool(data.get("slash_visible")),
+        "items": list(data.get("slash_items") or []),
+        "selected": data.get("slash_selected"),
+        "available": bool(data.get("slash_available")),
+        "lru": list(data.get("slash_lru") or []),
+    }
+
+
+def _slash_snapshot_fields(sl: Any) -> dict[str, Any]:
+    popup = _attach_slash_popup_on_listener(sl) if sl is not None else None
+    if popup is None:
+        return {"slash_available": False, "slash_visible": False, "slash_items": [], "slash_selected": None}
+    return {
+        "slash_available": True,
+        "slash_visible": bool(getattr(popup, "is_open", False)),
+        "slash_items": list(getattr(popup, "visible_names", None) or []),
+        "slash_selected": getattr(popup, "selected_name", None),
+    }
+
+
+def _slash_refresh_in_soffice(sl: Any) -> None:
+    from plugin.chatbot.dialogs import get_control_text
+
+    popup = _attach_slash_popup_on_listener(sl)
+    if popup is None:
+        return
+    popup.on_query_text(get_control_text(getattr(sl, "query_control", None), default="") or "")
+
+
+def _slash_key_in_soffice(sl: Any, key_code: int, modifiers: int) -> None:
+    popup = _attach_slash_popup_on_listener(sl)
+    if popup is None:
+        return
+    popup.handle_key(int(key_code), int(modifiers))
 
 
 def ensure_slash_popup(*, listener: Any = None) -> Any:
@@ -822,7 +923,8 @@ def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:
     sl = listener if listener is not None else send_listener()
     popup = getattr(sl, "slash_popup", None) if sl is not None else None
     if popup is None:
-        return {"visible": False, "items": [], "selected": None}
+        # Out-of-process mock-sidebar: checkout gc cannot see soffice's listener.
+        return _slash_state_from_snapshot(execute_debug_sidebar_op("SNAPSHOT"))
     visible = bool(getattr(popup, "is_open", False))
     items = list(getattr(popup, "visible_names", None) or [])
     selected = getattr(popup, "selected_name", None)
@@ -834,7 +936,13 @@ def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:
                 items = [str(ctrl.getItem(i)) for i in range(count)]
             except Exception:
                 items = []
-    return {"visible": visible, "items": items, "selected": selected}
+    return {
+        "visible": visible,
+        "items": items,
+        "selected": selected,
+        "available": True,
+        "lru": _slash_lru_names(),
+    }
 
 
 def press_query_key(key_code: int, modifiers: int = 0, *, listener: Any = None) -> None:
@@ -842,6 +950,13 @@ def press_query_key(key_code: int, modifiers: int = 0, *, listener: Any = None) 
     _require_debug()
     sl = listener if listener is not None else send_listener()
     if sl is None:
+        # URP mock-sidebar: Enter/Esc on the slash popup run inside soffice.
+        if int(key_code) == 1280 and int(modifiers) == 0:
+            execute_debug_sidebar_op("SLASH_ENTER")
+            return
+        if int(key_code) == 1281:
+            execute_debug_sidebar_op("SLASH_ESC")
+            return
         raise RuntimeError("no live SendButtonListener")
     from plugin.chatbot.panel import QueryKeyListener
 
