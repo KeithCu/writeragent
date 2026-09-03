@@ -10,6 +10,9 @@ triples. Phase 2/4 add the Settings flag, UDProp / in-memory map, attach on
 save and flag-on, Isolated session record, and worker-ingress strip.
 
 See ``docs/calc/geometric-recalc-order.md`` §8 Phase 2 + Phase 4 and §9.5.
+Eval identity is unanimous-ours plus ``workbook_key`` plus a recommended
+fingerprint of ``args[:-1]`` (not the last-arg value). The strip-safe index
+is a frozenset snapshot rebound on the UI thread (§3.5); workers only read.
 Cap-hit skip uses ``len(cells) >= _MAX_PYTHON_CELLS_FOUND`` (no truncated flag).
 A skipped sheet must also show a user-visible error — callers use
 :func:`notify_geometric_cap_hit` on the UI thread (one box per sheet).
@@ -17,12 +20,13 @@ A skipped sheet must also show a user-visible error — callers use
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, Sequence
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.calc_addin_data import split_python_addin_data_args
@@ -56,6 +60,10 @@ class GeometricCell:
     address: str
     formula: str
     resolved_code: str
+    # Eval-index fingerprint of user args (``args[:-1]``). Empty → derive
+    # from formula tokens. Production rebuild sets a value fingerprint so
+    # worker strip can match without addresses.
+    args_fingerprint: str = ""
 
 
 @dataclass(frozen=True)
@@ -78,11 +86,17 @@ class GeometricPatch:
 
 @dataclass(frozen=True)
 class EvalIndexKey:
-    """Eval-time strip key. ``code`` is resolved source, not a ``$A$1`` token."""
+    """Eval-time strip key. ``code`` is resolved source, not a ``$A$1`` token.
+
+    ``args_fingerprint`` is ``fingerprint(args[:-1])`` — user ranges, never the
+    last-arg value (first pred recalc is empty/0). Two chains that reuse the
+    same snippet on different ranges must not share a triple.
+    """
 
     workbook_key: str
     resolved_code: str
     n_args: int
+    args_fingerprint: str = ""
 
 
 @dataclass(frozen=True)
@@ -140,6 +154,66 @@ def repair_n_args(formula: str) -> int:
 def eval_n_args_from_data(data: Any) -> int:
     """Eval-time arity: ``len(split_python_addin_data_args(data))``."""
     return len(split_python_addin_data_args(data))
+
+
+def _jsonable_for_fingerprint(obj: Any) -> Any:
+    """Canonical JSON form so UNO tuples and lists hash the same."""
+    if isinstance(obj, tuple):
+        return [_jsonable_for_fingerprint(item) for item in obj]
+    if isinstance(obj, list):
+        return [_jsonable_for_fingerprint(item) for item in obj]
+    if isinstance(obj, float) and obj.is_integer() and abs(obj) < 2**53:
+        return int(obj)
+    if isinstance(obj, (int, str, bool)) or obj is None:
+        return obj
+    return str(obj)
+
+
+def fingerprint_arg_values(values: Sequence[Any]) -> str:
+    """Stable hash of user-arg values (or normalized formula tokens)."""
+    if not values:
+        return ""
+    try:
+        blob = json.dumps(
+            _jsonable_for_fingerprint(list(values)),
+            sort_keys=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError):
+        blob = repr(values)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def fingerprint_eval_user_args(args: Sequence[Any]) -> str:
+    """Eval-time fingerprint of ``args[:-1]``. Never hashes the last arg."""
+    if not args:
+        return ""
+    return fingerprint_arg_values(args[:-1])
+
+
+def fingerprint_formula_user_args(formula: str) -> str:
+    """Repair-time token fingerprint of data args except the last (pred)."""
+    parsed = formula_data_args(formula)
+    if not parsed:
+        return ""
+    user = parsed[:-1]
+    if not user:
+        return ""
+    normalized = tuple(_normalize_arg_token(tok) for tok in user)
+    return fingerprint_arg_values(normalized)
+
+
+def _normalize_arg_token(arg: str) -> str:
+    _sheet, rest = split_sheet_prefix(arg or "")
+    return rest.replace("$", "").strip().upper()
+
+
+def _eval_index_fingerprint(cell: GeometricCell, formula: str) -> str:
+    """Prefer an explicit value fingerprint; else tokens of ``args[:-1]``."""
+    if cell.args_fingerprint:
+        return cell.args_fingerprint
+    return fingerprint_formula_user_args(formula)
 
 
 def discovery_cap_hit(n_found: int) -> bool:
@@ -260,7 +334,12 @@ def compute_eval_index(
     groups: dict[EvalIndexKey, list[str]] = {}
     for cell in cells:
         formula = formulas.get(cell.address, cell.formula)
-        key = EvalIndexKey(workbook_key, cell.resolved_code, repair_n_args(formula))
+        key = EvalIndexKey(
+            workbook_key,
+            cell.resolved_code,
+            repair_n_args(formula),
+            _eval_index_fingerprint(cell, formula),
+        )
         groups.setdefault(key, []).append(cell_map_key(cell.address))
 
     safe: set[EvalIndexKey] = set()
@@ -277,11 +356,12 @@ def should_strip_eval_args(
     n_args: int,
     strip_safe: Mapping[EvalIndexKey, bool] | frozenset[EvalIndexKey],
     unambiguous: bool,
+    args_fingerprint: str = "",
 ) -> bool:
     """Eval gate: strip only when the session is unambiguous and the triple is ours."""
     if not unambiguous or not workbook_key:
         return False
-    key = EvalIndexKey(workbook_key, resolved_code, n_args)
+    key = EvalIndexKey(workbook_key, resolved_code, n_args, args_fingerprint)
     if isinstance(strip_safe, frozenset):
         return key in strip_safe
     return bool(strip_safe.get(key, False))
@@ -379,7 +459,7 @@ def reset_geometric_runtime_for_tests() -> None:
     with _GEOMETRIC_LOCK:
         GEOMETRIC_RECORDS.clear()
         GEOMETRIC_LOADED.clear()
-        _STRIP_SAFE = frozenset()
+    _STRIP_SAFE = frozenset()
     _GEOMETRIC_REPAIRING = False
 
 
@@ -411,16 +491,20 @@ def record_geometric_calc_session(doc: Any) -> str:
 
 
 def current_geometric_strip_safe() -> frozenset[EvalIndexKey]:
-    with _GEOMETRIC_LOCK:
-        return _STRIP_SAFE
+    """Worker-safe read: return the current snapshot name (do not copy-mutate)."""
+    return _STRIP_SAFE
 
 
 def replace_geometric_strip_safe(workbook_key: str, safe: frozenset[EvalIndexKey]) -> None:
-    """Replace eval-index bools for one workbook. Other workbooks stay."""
+    """Rebind the strip-safe snapshot for one workbook. Other workbooks stay.
+
+    Written on the UI thread, read from the recalc worker. Frozenset is
+    immutable; assigning ``_STRIP_SAFE = …`` is GIL-atomic (§3.5). Do not
+    mutate a live set in place like ``SPILL_REGISTRY``.
+    """
     global _STRIP_SAFE
-    with _GEOMETRIC_LOCK:
-        kept = frozenset(k for k in _STRIP_SAFE if k.workbook_key != workbook_key)
-        _STRIP_SAFE = kept | frozenset(safe)
+    kept = frozenset(k for k in _STRIP_SAFE if k.workbook_key != workbook_key)
+    _STRIP_SAFE = kept | frozenset(safe)
 
 
 def records_for_sheet(workbook_key: str, sheet_name: str) -> dict[str, GeometricRecord]:
@@ -520,11 +604,13 @@ def clear_in_memory_geometric_state(*, workbook_key: str = "") -> None:
             for key in [k for k in GEOMETRIC_RECORDS if k[0] == workbook_key]:
                 GEOMETRIC_RECORDS.pop(key, None)
             GEOMETRIC_LOADED.discard(workbook_key)
-            _STRIP_SAFE = frozenset(k for k in _STRIP_SAFE if k.workbook_key != workbook_key)
         else:
             GEOMETRIC_RECORDS.clear()
             GEOMETRIC_LOADED.clear()
-            _STRIP_SAFE = frozenset()
+    if workbook_key:
+        _STRIP_SAFE = frozenset(k for k in _STRIP_SAFE if k.workbook_key != workbook_key)
+    else:
+        _STRIP_SAFE = frozenset()
 
 
 def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any]) -> list[Any]:
@@ -549,9 +635,55 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any]) -> list
         n_args=len(args),
         strip_safe=current_geometric_strip_safe(),
         unambiguous=unambiguous,
+        args_fingerprint=fingerprint_eval_user_args(args),
     ):
         return args
     return args[:-1]
+
+
+_UNREADABLE = object()
+
+
+def _read_formula_arg_value(doc: Any, default_sheet: Any, token: str) -> Any:
+    """UI-thread range/cell values for one formula data arg. ``_UNREADABLE`` on miss."""
+    from plugin.calc.address_utils import parse_range_string
+
+    sheet_name, rest = split_sheet_prefix(token)
+    local = (rest or token).replace("$", "").strip()
+    sheet = default_sheet
+    if sheet_name and doc is not None:
+        try:
+            sheet = doc.getSheets().getByName(sheet_name)
+        except Exception:
+            pass
+    if sheet is None or not local:
+        return _UNREADABLE
+    try:
+        (start_col, start_row), (end_col, end_row) = parse_range_string(local)
+        rng = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
+        getter = getattr(rng, "getDataArray", None)
+        if callable(getter):
+            return getter()
+        # 1×1 stub cells have getValue, not getDataArray.
+        if hasattr(rng, "getValue"):
+            return ((rng.getValue(),),)
+    except Exception:
+        return _UNREADABLE
+    return _UNREADABLE
+
+
+def value_fingerprint_for_formula(doc: Any, sheet: Any, formula: str) -> str:
+    """Fingerprint ``args[:-1]`` by reading user ranges. Empty on miss (no strip)."""
+    parsed = formula_data_args(formula)
+    if not parsed or len(parsed) < 2:
+        return ""
+    values: list[Any] = []
+    for tok in parsed[:-1]:
+        val = _read_formula_arg_value(doc, sheet, tok)
+        if val is _UNREADABLE:
+            return ""
+        values.append(val)
+    return fingerprint_arg_values(values)
 
 
 def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
@@ -691,7 +823,12 @@ def _rebuild_strip_safe_from_doc(
         for cell in cells:
             scoped = f"{name}:{cell_map_key(cell.address)}"
             all_cells.append(
-                GeometricCell(scoped, cell.formula, cell.resolved_code)
+                GeometricCell(
+                    scoped,
+                    cell.formula,
+                    cell.resolved_code,
+                    value_fingerprint_for_formula(doc, sheet, cell.formula),
+                )
             )
             all_formulas[scoped] = cell.formula
         for addr, rec in records_for_sheet(workbook_key, name).items():

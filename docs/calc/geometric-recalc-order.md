@@ -1,6 +1,6 @@
 # Geometric Recalc Order — implementation plan
 
-**Status:** Implementation in progress. **Phase 1 landed.** **Phase 2 + Phase 4 are in this PR** (Settings flag default off, attach on save / flag-on, UDProp load/save, Isolated `record_active_calc_session`, eval strip before the index heuristic). **Phase 3 is still open** (sheet modify-listener / insert-delete deferred repair / truncated-flag API). Closed calls in [§9](#9-decisions) stand (no IDL, no 1×1 value-shape strip, no `locate_formula_cell_in_doc` for eval identity, precedent-only, cap skip-sheet, no strip-on-disable, Isolated checkbox visible / no-op). **Eval identity** is **unanimous-ours** plus an off-main `workbook_key` ([§9.5](#95-marker-is-the-udprop--in-memory-map)). **Cap-hit UI:** skip the sheet, log, **and** show one message box per skipped sheet (`notify_geometric_cap_hit`) — do not only `log.error`.
+**Status:** Implementation in progress. **Phase 1 landed.** **Phase 2 + Phase 4 are in this PR** (Settings flag default off, attach on save / flag-on, UDProp load/save, Isolated `record_active_calc_session`, eval strip before the index heuristic, recommended `args[:-1]` fingerprint). **Phase 3 is still open** (sheet modify-listener / insert-delete deferred repair / truncated-flag API). Closed calls in [§9](#9-decisions) stand (no IDL, no 1×1 value-shape strip, no `locate_formula_cell_in_doc` for eval identity, precedent-only, cap skip-sheet, no strip-on-disable, Isolated checkbox visible / no-op). **Eval identity** is **unanimous-ours** plus an off-main `workbook_key` and a recommended fingerprint of `args[:-1]` ([§9.5](#95-marker-is-the-udprop--in-memory-map)). **Cap-hit UI:** skip the sheet, log, **and** show one message box per skipped sheet (`notify_geometric_cap_hit`) — do not only `log.error`.
 
 **Related:** [Enabling NumPy & Python](../enabling_numpy_in_libreoffice.md) (session modes, auto-spill), [Microsoft `=PY` design stance](../scripting/ms-py-compatibility.md) (why we refuse Excel co-volatility), [Calc `=PY()` data shapes](py-data-shapes.md) (`data` / `ranges` arity).
 
@@ -135,7 +135,7 @@ Geometric rewrites use that same shape:
 4. **Apply** `setFormula` under `_undo_lock`. `_undo_lock` calls `enterHiddenUndoContext` only when `um.isUndoPossible()`; otherwise `um.lock()`. User edits hide under the existing undo action. Flag-on / document-open reconcile with no prior edit is **one locked unit**, not a hidden-under-nothing no-op.
 5. **Guard** like spill: same doc URL / lifecycle key; skip if the origin formula is no longer what we expected. **Re-entrancy:** an explicit flag so `setFormula` → `modified` cannot run repair inside repair. A rewrite pass that finds nothing to do is a no-op.
 
-Yellow recalc / off-main formula groups: same contract as spill and session lookup — **no UNO desktop/document queries from a recalc worker**. Discovery + rewrite only on the UI thread after the pass. Eval-time strip reads the already-loaded in-memory map only.
+Yellow recalc / off-main formula groups: same contract as spill and session lookup — **no UNO desktop/document queries from a recalc worker**. Discovery + rewrite only on the UI thread after the pass. Eval-time strip reads the already-loaded in-memory map only. The strip-safe index is written on the UI thread and read from the recalc worker. Do not mutate it in place like `SPILL_REGISTRY` (unlocked). Swap in an immutable snapshot (frozenset). GIL-atomic bind is enough; no UNO, no per-cell lookup. A dedicated lock is optional, not required if you only rebind the name.
 
 ### 3.6 When to run the repair pass
 
@@ -177,7 +177,7 @@ The last-row idea “user already passed the previous PY cell as real data → n
 In `_execute_python_addin_impl` ([`function.py`](../../plugin/calc/python/function.py)):
 
 1. `args = split_python_addin_data_args(data)`
-2. **Strip here** if the eval index marks this `(workbook_key, resolved_code, n_args)` **strip-safe** (unanimous-ours — [§9.5](#95-marker-is-the-udprop--in-memory-map)). Unconditional across **both** branches — including `_code_uses_indexed_multi_data` (`"data["` / `"ranges["` in the source). If the geometric field stays, it becomes `data[-1]` / `ranges[-1]`.
+2. **Strip here** if the eval index marks this `(workbook_key, resolved_code, n_args, fingerprint(args[:-1]))` **strip-safe** (unanimous-ours — [§9.5](#95-marker-is-the-udprop--in-memory-map)). Unconditional across **both** branches — including `_code_uses_indexed_multi_data` (`"data["` / `"ranges["` in the source). If the geometric field stays, it becomes `data[-1]` / `ranges[-1]`.
 3. Then `py_data = calc_addin_args_from_split(...)` and the existing trailing-single-cell **matrix-index** heuristic (the `is_multi and not _code_uses_indexed_multi_data(code)` block that peels a last 1-cell arg as `index_arg`, after which `finalize_python_return` slices `flat[value]`).
 
 If strip is skipped on a fill-down of identical `=PY("np.mean(data)"; B1:B10; pred)`, `calc_addin_args_from_split` flips `data` to a list, then the index heuristic peels the predecessor **value** as `index_arg` — silent wrong numbers. Strip must run first, and fill-down must be strip-safe when every cell with that triple is ours. Phase 4 must test both `=PY("np.mean(data)"; B1:B10)` and `=PY("ranges[-1].shape"; B1:B10)`, plus fill-down and mixed neighbors.
@@ -231,7 +231,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 | ≥1-hit strip | **Rejected** — would strip a mixed matrix-index neighbor |
 | Mixed ours + user same triple | Do not mark strip-safe; residual is “chain loses strip,” not “user cell loses last arg” |
 | Two open workbooks | `off_main_calc_session_is_unambiguous()` false → no strip |
-| Isolated still needs strip | Isolated never enters `workbook_session_id`; UI load/repair must `record_active_calc_session("calc:" + _workbook_session_key)` so the unambiguous check can pass |
+| Isolated still needs strip | Isolated never enters `workbook_session_id`. Init-non-empty already records via `build_python_eval_init_kwargs` → `calc_init_session_id`. Isolated + no init still never records. UI load/repair must `record_active_calc_session("calc:" + _workbook_session_key)` (same string, idempotent) so the no-init case can pass the unambiguous check |
 | Keying the token `$A$1` | Eval `code` is resolved source (`execute_python_addin`); repair must read the code cell |
 | Naive `;` arity | Repair `n_args` must match `split_python_addin_data_args`, not a semicolon count |
 | Rewrite during recalc | Same ban as spill; deferred only |
@@ -258,7 +258,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 
 **Phase 3 — Deferred repair on insert/delete.** **Still open.** Shared trigger + spill-like timer + re-entrancy flag. UNO tests: three-cell column, insert PY in the middle, successor’s field updates; delete (including successor-becomes-first → remove-field); undo. Cap-hit sheet is left unchained. A real discovery `truncated` flag belongs here if needed — not Phase 1.
 
-**Phase 4 — Strip geometric arg from worker ingress.** **Landed in this PR** (with Phase 2 — attach without strip is the arity footgun). After `split_python_addin_data_args`, if the triple is strip-safe, drop `args[-1]` **before** the index heuristic and `calc_addin_args_from_split`. Tests in [§10](#10-test-plan-when-implemented).
+**Phase 4 — Strip geometric arg from worker ingress.** **Landed in this PR** (with Phase 2 — attach without strip is the arity footgun). After `split_python_addin_data_args`, if the triple is strip-safe, drop `args[-1]` **before** the index heuristic and `calc_addin_args_from_split`. Key includes the recommended `args[:-1]` fingerprint so two chains that reuse a snippet on different ranges do not share a triple. Tests in [§10](#10-test-plan-when-implemented).
 
 **Non-goals until someone asks:** cross-sheet chains, workbook-global order, Isolated value-piping, sidebar annotations, Excel export special-case, raising the 100-cell cap, strip-on-disable, spatial clustering of independent PY groups, a dedicated IDL arg.
 
@@ -291,7 +291,7 @@ A trailing A1 field is enough **if** we strip it via the map, not a 1×1 heurist
 
 **Rejected:** hide the checkbox when Isolated is selected (couples two settings; looks like a bug when the box disappears).
 
-Precedent-only strip means Isolated `data` is unchanged. Isolated is a no-op for **Python globals**, not for the strip: `workbook_session_id` returns `None` when mode ≠ `shared`, but Isolated still needs strip (else arity breaks). Isolated UI load/repair must `record_active_calc_session` with `calc:` + `_workbook_session_key` so yellow eval can see one recorded id ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
+Precedent-only strip means Isolated `data` is unchanged. Isolated is a no-op for **Python globals**, not for the strip: `workbook_session_id` returns `None` when mode ≠ `shared`, but Isolated still needs strip (else arity breaks). Isolated does **not** “never enter `record_active_calc_session`”: a non-empty init script records via `build_python_eval_init_kwargs` → `calc_init_session_id` → `calc_workbook_base_session_id`. Isolated + no init still never records. Geometric UI load/repair must `record_active_calc_session("calc:" + _workbook_session_key)` (same string, idempotent) so the no-init case can pass the unambiguous check ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
 
 ### 9.4 Flag turned off — leave refs
 
@@ -318,19 +318,19 @@ Copy the spill pattern — do not invent a second subsystem:
 
 #### Eval index — unanimous-ours (not uniqueness, not ≥1-hit)
 
-At **repair time** (UI thread, we have addresses), compute an eval-index bool per `(workbook_key, resolved_code, n_args)`:
+At **repair time** (UI thread, we have addresses), compute an eval-index bool per `(workbook_key, resolved_code, n_args, fingerprint(args[:-1]))`:
 
 - **strip-safe** iff **every** discovered PY cell with that triple is in the map (ours-only / unanimous).
 - **Eval:** if that triple is marked strip-safe, drop `args[-1]` before the index heuristic and before `calc_addin_args_from_split`. Unconditional on both branches including `data[]` / `ranges[]`.
-- **Mixed** same-code/arity (a non-mapped user cell, e.g. matrix-index `=PY("f"; range; i)` next to a chain of `=PY("f"; range; pred)`) → do **not** mark strip-safe → **no-strip for the whole triple** (chain included) until the user cell is gone or attached. Residual to name: **mixed poisons the chain**, not “user cell also loses last arg.” Do **not** use a ≥1-hit rule; that would strip the matrix-index neighbor.
+- **Mixed** same-code/arity/**user-args** (a non-mapped user cell, e.g. matrix-index `=PY("f"; range; i)` next to a chain of `=PY("f"; range; pred)`) → do **not** mark strip-safe → **no-strip for the whole triple** (chain included) until the user cell is gone or attached. Residual to name: **mixed poisons the chain**, not “user cell also loses last arg.” Do **not** use a ≥1-hit rule; that would strip the matrix-index neighbor. A stray on range A must **not** poison a distinct chain on range B.
 - **Cap-hit** → skip the entire sheet, do **not** mark any triple strip-safe, do not write a partial chain. You cannot prove unanimous on a truncated list.
 - **Rejected:** uniqueness / “fail-safe = no strip” / “typical pipelines have distinct code strings.” That kills fill-down of identical `=PY("np.mean(data)"; B1:B10)`: after attach every successor has the same `resolved_code` and `n_args=2`, non-unique → no-strip → `calc_addin_args_from_split` flips `data` to a list, then the index heuristic peels the predecessor **value** as `index_arg` — silent wrong numbers.
 
-Optional (not instead of unanimous, not the primary key): a fingerprint of `args[:-1]` so two chains with the same snippet and **different ranges** do not share a triple. Does not save mixed same-range. Do **not** fingerprint the last-arg value (first recalc is empty/0).
+**Recommended** (not instead of unanimous, not a replacement for `workbook_key` / `resolved_code` / `n_args`): fingerprint `args[:-1]` so two chains with the same snippet and **different ranges** do not share a triple. Without it, one non-mapped user cell poisons every chain that reuses `np.mean(data)` on any range. Residual of a coarse key is safe (no strip → no wrong numbers), just degraded. Does not save mixed same-range. Do **not** fingerprint the last-arg value (first recalc is empty/0).
 
 #### Three must-gets (easy to get wrong)
 
-**1. Key `code` is what `execute_python_addin` receives, not the formula token.** `PythonFunction.python` passes Calc’s first argument through as `code` (`addin_impl.py`). For `=PY($A$1; B1:B10; pred)` that is the **cell contents of `$A$1`** (resolved source), not the token `$A$1`. Repair must **read that cell** when building the eval index (`formula_edit.py` unquoted branch vs `addin_impl.py`). Keying the token `$A$1` misses every script-bank cell. Detect / splice with `py_formula_has_unquoted_code_ref` / `py_code_arg_is_cell_ref` / `rebuild_python_formula_with_code_ref` (exist on master). `PythonFormulaParts` has no quoted flag (`prefix` / `code` / `data_suffix` only) — splice code-in-cell from the **raw formula**, not `parts.code` alone, or `$A$1` gets quoted by `rebuild_python_formula_with_data`. Cells that share resolved source collide on this triple; same unanimous rule.
+**1. Key `code` is what `execute_python_addin` receives, not the formula token.** `PythonFunction.python` passes Calc’s first argument through as `code` (`addin_impl.py`). For `=PY($A$1; B1:B10; pred)` that is the **cell contents of `$A$1`** (resolved source), not the token `$A$1`. Repair must **read that cell** when building the eval index (`formula_edit.py` unquoted branch vs `addin_impl.py`). Keying the token `$A$1` misses every script-bank cell. Detect / splice with `py_formula_has_unquoted_code_ref` / `py_code_arg_is_cell_ref` / `rebuild_python_formula_with_code_ref` (exist on master). `PythonFormulaParts` has no quoted flag (`prefix` / `code` / `data_suffix` only) — splice code-in-cell from the **raw formula**, not `parts.code` alone, or `$A$1` gets quoted by `rebuild_python_formula_with_data`. Cells that share resolved source collide on `(code, n_args)` unless the recommended `args[:-1]` fingerprint splits them; same unanimous rule per finer key.
 
 **2. `n_args` at eval is `len(split_python_addin_data_args(data))`** (`calc_addin_data.py`). Repair arity **must** match that splitter, not a naive semicolon count. A pair `(range, 1×1 pred)` does **not** collapse under `_is_legacy_single_column_range`: the inner of the 1×1 is a sequence, so two varargs stay two args (`n_args=2` after attach).
 
@@ -338,11 +338,11 @@ Optional (not instead of unanimous, not the primary key): a fingerprint of `args
 
 #### `workbook_key` (blocking — do not cite `get_python_init_kwargs`)
 
-`get_python_init_kwargs` does **not** carry `doc_url`. `build_python_eval_init_kwargs` is init-script / hash only. `session_key` leaves `doc_url=""` off-main (fills `doc` only on main). Isolated: `workbook_session_id` returns `None` when mode ≠ `shared` (`session_manager.py`) and **never enters** that function’s `record_active_calc_session` path, so `_RECORDED_CALC_SESSION_IDS` can stay empty and `off_main_calc_session_is_unambiguous()` stays false. Isolated still needs strip off-main (else arity breaks).
+`get_python_init_kwargs` does **not** carry `doc_url`. `build_python_eval_init_kwargs` (`document_scripts.py`) returns `{}` with **no** session record when the init script is empty. When init is non-empty it calls `calc_init_session_id(doc)` → `calc_workbook_base_session_id` → `record_active_calc_session("calc:" + _workbook_session_key)` (`session_manager.py`). `set_calc_init_script` and on-main `get_python_init_kwargs` both go through that builder. `record_active_calc_session(None, kwargs)` itself does **not** add to `_RECORDED_CALC_SESSION_IDS` (`None` is ignored); the add is the side effect of building kwargs. Isolated does **not** “never enter `record_active_calc_session`.” Isolated + no init still never records. `workbook_session_id` still returns `None` when mode ≠ `shared`. Isolated still needs strip off-main (else arity breaks). Do **not** write a unit test that asserts Isolated always leaves `_RECORDED_CALC_SESSION_IDS` empty.
 
 **Eval `workbook_key` = `get_cached_calc_session_id()` only when `off_main_calc_session_is_unambiguous()`** (`session_manager.py`: `len(_RECORDED_CALC_SESSION_IDS) == 1`). Else do not strip (two open workbooks, or Isolated that never recorded).
 
-On the **UI-thread** load / repair path, write that key into the geometric map **and** call `record_active_calc_session` with the **same string eval will read**: `calc:` + `_workbook_session_key` (never `""`). Do this **even in Isolated**. Do **not** invent a second Isolated key. Then one open file makes `len(_RECORDED_CALC_SESSION_IDS) == 1` and yellow Isolated can strip. Sibling of `load_spill_registry_for_doc`. Unsaved files must not use empty URL — same #402 hole as `session_key` / `_workbook_session_key` (URL, else a persisted unsaved id, never `""`).
+On the **UI-thread** load / repair path, write that key into the geometric map **and** call `record_active_calc_session` with the **same string eval will read**: `calc:` + `_workbook_session_key` (never `""`). Do this **even in Isolated**. Same string as the init-kwargs path; idempotent; **required for the no-init case**. Do **not** invent a second Isolated key. Then one open file makes `len(_RECORDED_CALC_SESSION_IDS) == 1` and yellow Isolated can strip. Sibling of `load_spill_registry_for_doc`. Unsaved files must not use empty URL — same #402 hole as `session_key` / `_workbook_session_key` (URL, else a persisted unsaved id, never `""`).
 
 #### Remove-field
 
@@ -392,8 +392,9 @@ Phase 4 — `data` strip (inject the in-memory map; no UNO):
 - Strip runs before the matrix-index peel: last geometric 1-cell must **not** become `index_arg`.
 - **Fill-down:** two identical `=PY("np.mean(data)"; B1:B10)` after attach → **both** strip (unanimous-ours, same resolved code, `n_args=2`).
 - **Mixed:** matrix-index neighbor `=PY("f"; range; i)` next to a chain of `=PY("f"; range; pred)` → **neither** strips (mixed poisons the triple).
+- **Fingerprint:** same snippet, two ranges; one stray matrix-index neighbor on range A must **not** poison range B.
 - **Two open workbooks / `off_main_calc_session_is_unambiguous()` false** → no strip.
-- **Isolated** UI load/repair calls `record_active_calc_session("calc:" + _workbook_session_key)` (same string eval reads) and strips when unambiguous.
+- **Isolated** UI load/repair calls `record_active_calc_session("calc:" + _workbook_session_key)` (same string eval reads) and strips when unambiguous. Do not assert Isolated always leaves `_RECORDED_CALC_SESSION_IDS` empty.
 - User 1×1 last arg **not** in the map, and no mixed poison of a chain: no strip of that user cell.
 - Never fall back to 1×1, uniqueness, or ≥1-hit.
 

@@ -26,6 +26,8 @@ from plugin.calc.python.geometric_recalc import (
     current_geometric_strip_safe,
     discovery_cap_hit,
     eval_n_args_from_data,
+    fingerprint_eval_user_args,
+    fingerprint_formula_user_args,
     formula_data_args,
     geometric_cap_hit_user_message,
     geometric_workbook_key,
@@ -70,6 +72,18 @@ def _repair(
 
 def _patch_map(result):
     return {p.address: p for p in result.patches}
+
+
+def _formula_key(code: str, n_args: int, formula: str, workbook_key: str = WB) -> EvalIndexKey:
+    return EvalIndexKey(
+        workbook_key, code, n_args, fingerprint_formula_user_args(formula)
+    )
+
+
+def _eval_key(code: str, args: list, workbook_key: str = WB) -> EvalIndexKey:
+    return EvalIndexKey(
+        workbook_key, code, len(args), fingerprint_eval_user_args(args)
+    )
 
 
 def test_constants_match_discovery_and_spill_pattern():
@@ -270,7 +284,7 @@ def test_code_in_cell_repair_and_resolved_source():
     assert formula_data_args(new) == ["C1:C10", "B1"]
     assert resolved_code_for_formula("=PY($A$1; C1:C10)", code_cell_text=source) == source
     assert resolved_code_for_formula('=PY("df = clean(df)")') == "df = clean(df)"
-    key = EvalIndexKey(WB, source, 2)
+    key = _formula_key(source, 2, new)
     assert key in result.strip_safe
 
 
@@ -302,7 +316,8 @@ def test_fill_down_unanimous_ours_is_strip_safe():
     )
     assert formula_data_args(_patch_map(result)["A2"].new_formula) == ["B1:B10", "A1"]
     assert formula_data_args(_patch_map(result)["A3"].new_formula) == ["B1:B10", "A2"]
-    key = EvalIndexKey(WB, code, 2)
+    attached = _patch_map(result)["A2"].new_formula
+    key = _formula_key(code, 2, attached)
     assert key in result.strip_safe
     assert should_strip_eval_args(
         workbook_key=WB,
@@ -310,8 +325,9 @@ def test_fill_down_unanimous_ours_is_strip_safe():
         n_args=2,
         strip_safe=result.strip_safe,
         unambiguous=True,
+        args_fingerprint=fingerprint_formula_user_args(attached),
     )
-    first_key = EvalIndexKey(WB, code, 1)
+    first_key = _formula_key(code, 1, f'=PY("{code}"; B1:B10)')
     assert first_key not in result.strip_safe
 
 
@@ -327,13 +343,15 @@ def test_mixed_matrix_index_poisons_the_triple():
     records = {"A2": GeometricRecord(predecessor="A1")}
     formulas = {c.address: c.formula for c in cells}
     safe = compute_eval_index(cells, formulas, records, WB)
-    assert EvalIndexKey(WB, code, 2) not in safe
+    mixed_key = _formula_key(code, 2, cells[0].formula)
+    assert mixed_key not in safe
     assert not should_strip_eval_args(
         workbook_key=WB,
         resolved_code=code,
         n_args=2,
         strip_safe=safe,
         unambiguous=True,
+        args_fingerprint=fingerprint_formula_user_args(cells[0].formula),
     )
 
 
@@ -346,7 +364,7 @@ def test_user_passed_previous_mixed_with_mapped_poisons():
     ]
     result = _repair(cells, {"A3": GeometricRecord(predecessor="A2")})
     # A2 last==desired, not ours → not recorded. A3 ours n_args=1. A2 n_args=1.
-    key = EvalIndexKey(WB, code, 1)
+    key = _formula_key(code, 1, cells[2].formula)
     assert "A2" not in result.records
     assert "A3" in result.records
     assert key not in result.strip_safe
@@ -359,13 +377,16 @@ def test_two_workbooks_unambiguous_false_no_strip():
             _cell("A2", '=PY("np.mean(data)"; B1:B10)'),
         ]
     )
-    assert EvalIndexKey(WB, "np.mean(data)", 2) in result.strip_safe
+    attached = result.patches[0].new_formula
+    fp = fingerprint_formula_user_args(attached)
+    assert _formula_key("np.mean(data)", 2, attached) in result.strip_safe
     assert not should_strip_eval_args(
         workbook_key=WB,
         resolved_code="np.mean(data)",
         n_args=2,
         strip_safe=result.strip_safe,
         unambiguous=False,
+        args_fingerprint=fp,
     )
     assert not should_strip_eval_args(
         workbook_key="",
@@ -373,6 +394,7 @@ def test_two_workbooks_unambiguous_false_no_strip():
         n_args=2,
         strip_safe=result.strip_safe,
         unambiguous=True,
+        args_fingerprint=fp,
     )
 
 
@@ -437,7 +459,13 @@ def _reset_geo(monkeypatch=None):
 
 
 def test_isolated_record_active_calc_session_never_empty():
-    """Isolated UI load/repair records calc:+_workbook_session_key (same string eval reads)."""
+    """Isolated UI load/repair records calc:+_workbook_session_key (same string eval reads).
+
+    Isolated + no init still never records on its own — this geometric call is
+    required for that case. Do not assert Isolated always leaves
+    ``_RECORDED_CALC_SESSION_IDS`` empty: a non-empty init script already
+    records via ``build_python_eval_init_kwargs`` → ``calc_init_session_id``.
+    """
     from plugin.scripting import session_manager as sm
     from plugin.tests.testing_utils import CalcDocStub
 
@@ -652,8 +680,8 @@ def test_strip_np_mean_data_stays_single_range():
 
     _reset_geo()
     sm.record_active_calc_session(WB)
-    replace_geometric_strip_safe(WB, frozenset({EvalIndexKey(WB, "np.mean(data)", 2)}))
     col, pred = _mean_range_and_pred()
+    replace_geometric_strip_safe(WB, frozenset({_eval_key("np.mean(data)", [col, pred])}))
     with patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": 2.0}
         out = execute_python_addin(object(), "np.mean(data)", (col, pred))
@@ -673,8 +701,8 @@ def test_strip_ranges_minus_one_is_user_range_not_pred():
     _reset_geo()
     sm.record_active_calc_session(WB)
     code = "ranges[-1].shape"
-    replace_geometric_strip_safe(WB, frozenset({EvalIndexKey(WB, code, 2)}))
     col, pred = _mean_range_and_pred()
+    replace_geometric_strip_safe(WB, frozenset({_eval_key(code, [col, pred])}))
     with patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": (3, 1)}
         execute_python_addin(object(), code, (col, pred))
@@ -694,8 +722,8 @@ def test_strip_runs_before_matrix_index_peel():
 
     _reset_geo()
     sm.record_active_calc_session(WB)
-    replace_geometric_strip_safe(WB, frozenset({EvalIndexKey(WB, "np.mean(data)", 2)}))
     col, pred = _mean_range_and_pred()
+    replace_geometric_strip_safe(WB, frozenset({_eval_key("np.mean(data)", [col, pred])}))
     with patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": [10, 20, 30]}
         out = execute_python_addin(object(), "np.mean(data)", (col, pred))
@@ -714,8 +742,8 @@ def test_fill_down_both_strip():
     _reset_geo()
     sm.record_active_calc_session(WB)
     code = "np.mean(data)"
-    replace_geometric_strip_safe(WB, frozenset({EvalIndexKey(WB, code, 2)}))
     col, pred = _mean_range_and_pred()
+    replace_geometric_strip_safe(WB, frozenset({_eval_key(code, [col, pred])}))
     stripped = maybe_strip_geometric_eval_args(code, [col, pred])
     assert stripped == [col]
     assert maybe_strip_geometric_eval_args(code, [col, ((1.0,),)]) == [col]
@@ -737,11 +765,11 @@ def test_two_workbooks_unambiguous_false_no_strip_at_eval():
     _reset_geo()
     sm.record_active_calc_session("calc:file:///a.ods")
     sm.record_active_calc_session("calc:file:///b.ods")
+    col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(
         "calc:file:///a.ods",
-        frozenset({EvalIndexKey("calc:file:///a.ods", "np.mean(data)", 2)}),
+        frozenset({_eval_key("np.mean(data)", [col, pred], "calc:file:///a.ods")}),
     )
-    col, pred = _mean_range_and_pred()
     assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred]) == [col, pred]
 
 
@@ -754,8 +782,8 @@ def test_isolated_unambiguous_session_strips():
         "plugin.scripting.session_manager.python_session_mode", return_value="isolated"
     ):
         sid = record_geometric_calc_session(doc)
-    replace_geometric_strip_safe(sid, frozenset({EvalIndexKey(sid, "np.mean(data)", 2)}))
     col, pred = _mean_range_and_pred()
+    replace_geometric_strip_safe(sid, frozenset({_eval_key("np.mean(data)", [col, pred], sid)}))
     assert maybe_strip_geometric_eval_args("np.mean(data)", [col, pred]) == [col]
 
 
@@ -783,3 +811,49 @@ def test_strip_helper_does_not_use_1x1_or_uniqueness():
 
     GEOMETRIC_RECORDS[(WB, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
     assert maybe_strip_geometric_eval_args("f", [col, pred]) == [col, pred]
+
+
+def test_fingerprint_stray_on_range_a_does_not_poison_range_b():
+    """Same snippet, two ranges: mixed neighbor on A must not poison chain B."""
+    from plugin.calc.python.geometric_recalc import compute_eval_index
+    from plugin.scripting import session_manager as sm
+
+    _reset_geo()
+    sm.record_active_calc_session(WB)
+    code = "np.mean(data)"
+    range_a = ((1.0,), (2.0,), (3.0,))
+    range_b = ((10.0,), (20.0,), (30.0,))
+    pred = ((0.0,),)
+    fp_a = fingerprint_eval_user_args([range_a, pred])
+    fp_b = fingerprint_eval_user_args([range_b, pred])
+    assert fp_a != fp_b
+    cells = [
+        GeometricCell("A2", f'=PY("{code}"; B1:B10; A1)', code, fp_a),
+        GeometricCell("A3", f'=PY("{code}"; B1:B10; C5)', code, fp_a),
+        GeometricCell("D2", f'=PY("{code}"; C1:C10; D1)', code, fp_b),
+    ]
+    records = {
+        "A2": GeometricRecord(predecessor="A1"),
+        "D2": GeometricRecord(predecessor="D1"),
+    }
+    formulas = {cell.address: cell.formula for cell in cells}
+    safe = compute_eval_index(cells, formulas, records, WB)
+    assert EvalIndexKey(WB, code, 2, fp_a) not in safe
+    assert EvalIndexKey(WB, code, 2, fp_b) in safe
+    replace_geometric_strip_safe(WB, safe)
+    assert maybe_strip_geometric_eval_args(code, [range_a, pred]) == [range_a, pred]
+    assert maybe_strip_geometric_eval_args(code, [range_b, pred]) == [range_b]
+
+
+def test_strip_safe_snapshot_is_rebound_not_mutated():
+    """§3.5: swap in a new frozenset; the previous snapshot stays unchanged."""
+    _reset_geo()
+    first = frozenset({EvalIndexKey(WB, "a", 2, "fp1")})
+    replace_geometric_strip_safe(WB, first)
+    old = current_geometric_strip_safe()
+    replace_geometric_strip_safe(WB, frozenset({EvalIndexKey(WB, "b", 2, "fp2")}))
+    new = current_geometric_strip_safe()
+    assert new is not old
+    assert EvalIndexKey(WB, "a", 2, "fp1") in old
+    assert EvalIndexKey(WB, "a", 2, "fp1") not in new
+    assert EvalIndexKey(WB, "b", 2, "fp2") in new
