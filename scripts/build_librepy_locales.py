@@ -5,16 +5,22 @@ Writes build/generated/librepy.pot and filtered locale trees under
 build/generated/locales/<lang>/LC_MESSAGES/writeragent.{po,mo}.
 
 Run via ``make compile-translations-core`` (part of ``make build-core``).
+
+GNU ``xgettext`` / ``msgfmt`` are not required. Windows PR CI installs
+gettext via chocolatey with ``|| true`` and does not put those tools on
+PATH (same reason ``compile_translations.py`` uses polib — GHA 33453184665
+/ 33780509372). Extract ``_()`` with ast and compile ``.mo`` with polib.
 """
 
 from __future__ import annotations
 
+import ast
 import glob
 import os
 import re
 import shutil
-import subprocess
 import sys
+from pathlib import Path
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -26,10 +32,11 @@ from scripts.build_librepy_oxt import LIBREPY_DIALOG_FILES
 from scripts.generate_manifest import _filter_librepy_config
 from scripts.librepy_bundle_paths import collect_librepy_plugin_paths
 
+from scripts.compile_translations import compile_po
+
 LIBREPY_POT = os.path.join(PROJECT_ROOT, "build", "generated", "librepy.pot")
 LIBREPY_LOCALES_OUT = os.path.join(PROJECT_ROOT, "build", "generated", "locales")
 SOURCE_LOCALES = os.path.join(PROJECT_ROOT, "locales")
-XDL_STUB = os.path.join(PROJECT_ROOT, "plugin", "xdl_strings_librepy.py")
 
 _LIBREPY_MODULE_YAMLS = (
     os.path.join(PROJECT_ROOT, "plugin", "scripting", "module.yaml"),
@@ -73,12 +80,70 @@ def _extract_xdl_strings(xdl_files: list[str]) -> set[str]:
     return strings
 
 
-def _write_xdl_stub(strings: set[str]) -> None:
-    with open(XDL_STUB, "w", encoding="utf-8") as fh:
-        fh.write("# Auto-generated for LibrePy xgettext extraction. Do not commit.\n\n")
-        for text in sorted(strings):
-            escaped = text.replace('"', '\\"')
-            fh.write(f'_("{escaped}")\n')
+def _joined_string_constant(node: ast.AST) -> str | None:
+    """Return a static string from a Constant or implicit ``"a" "b"`` join."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return None
+    parts: list[str] = []
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _joined_string_constant(node.left)
+        right = _joined_string_constant(node.right)
+        if left is None or right is None:
+            return None
+        return left + right
+    values = getattr(node, "values", None)
+    if values:
+        for item in values:
+            if isinstance(item, ast.Constant) and isinstance(item.value, str):
+                parts.append(item.value)
+            else:
+                return None
+        if parts:
+            return "".join(parts)
+    return None
+
+
+def _extract_python_msgids(py_files: list[str]) -> set[str]:
+    """Collect ``_()`` string arguments. Same keyword xgettext used by default."""
+    msgids: set[str] = set()
+    for filepath in py_files:
+        try:
+            with open(filepath, encoding="utf-8") as fh:
+                source = fh.read()
+        except OSError as exc:
+            print(f"Warning: could not read {filepath}: {exc}", file=sys.stderr)
+            continue
+        try:
+            tree = ast.parse(source, filename=filepath)
+        except SyntaxError as exc:
+            print(f"Warning: could not parse {filepath}: {exc}", file=sys.stderr)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Name) and func.id == "_"):
+                continue
+            if not node.args:
+                continue
+            msgid = _joined_string_constant(node.args[0])
+            if msgid:
+                msgids.add(msgid)
+    return msgids
+
+
+def _write_pot(msgids: set[str], pot_path: str) -> None:
+    pot = polib.POFile()
+    pot.metadata = {
+        "Content-Type": "text/plain; charset=UTF-8",
+        "Language": "",
+    }
+    for msgid in sorted(msgids):
+        pot.append(polib.POEntry(msgid=msgid, msgstr=""))
+    os.makedirs(os.path.dirname(pot_path), exist_ok=True)
+    pot.save(pot_path)
 
 
 def _merge_librepy_yaml_into_pot(pot_path: str) -> int:
@@ -140,20 +205,6 @@ def _collect_strings_from_module_yaml_from_data(data: dict) -> list[str]:
     return results
 
 
-def _run_xgettext(py_files: list[str], pot_path: str) -> None:
-    os.makedirs(os.path.dirname(pot_path), exist_ok=True)
-    cmd = [
-        "xgettext",
-        "--add-location=file",
-        "-d",
-        "writeragent",
-        "-o",
-        pot_path,
-        *py_files,
-    ]
-    subprocess.run(cmd, cwd=PROJECT_ROOT, check=True)
-
-
 def _pot_msgids(pot_path: str) -> set[str]:
     pot = polib.pofile(pot_path)
     return {e.msgid for e in pot if e.msgid}
@@ -184,41 +235,24 @@ def _filter_and_compile_locales(allow_msgids: set[str]) -> int:
         po_out = os.path.join(out_dir, "writeragent.po")
         mo_out = os.path.join(out_dir, "writeragent.mo")
         out_po.save(po_out)
-        subprocess.run(["msgfmt", "-o", mo_out, po_out], check=True)
+        compile_po(Path(po_out), Path(mo_out))
         compiled += 1
 
     return compiled
 
 
 def build_librepy_locales() -> int:
-    if not shutil.which("xgettext") or not shutil.which("msgfmt"):
-        print(
-            "error: xgettext and msgfmt required (install gettext)",
-            file=sys.stderr,
-        )
-        return 1
-
     py_files = [
         os.path.join(PROJECT_ROOT, rel)
         for rel in collect_librepy_plugin_paths(PROJECT_ROOT)
         if rel.endswith(".py")
     ]
-    xdl_files = _xdl_paths()
-    xdl_strings = _extract_xdl_strings(xdl_files)
-    stub_written = False
-    if xdl_strings:
-        _write_xdl_stub(xdl_strings)
-        py_files.append(XDL_STUB)
-        stub_written = True
-
-    try:
-        _run_xgettext(py_files, LIBREPY_POT)
-        yaml_added = _merge_librepy_yaml_into_pot(LIBREPY_POT)
-        allow = _pot_msgids(LIBREPY_POT)
-        locale_count = _filter_and_compile_locales(allow)
-    finally:
-        if stub_written and os.path.isfile(XDL_STUB):
-            os.remove(XDL_STUB)
+    xdl_strings = _extract_xdl_strings(_xdl_paths())
+    py_msgids = _extract_python_msgids(py_files)
+    _write_pot(py_msgids | xdl_strings, LIBREPY_POT)
+    yaml_added = _merge_librepy_yaml_into_pot(LIBREPY_POT)
+    allow = _pot_msgids(LIBREPY_POT)
+    locale_count = _filter_and_compile_locales(allow)
 
     pot_count = len(allow)
     print(

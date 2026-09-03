@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import glob
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -15,15 +14,13 @@ _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO) not in sys.path:
     sys.path.insert(0, str(_REPO))
 
+from scripts.build_librepy_locales import _extract_python_msgids
+
 LIBREPY_POT = _REPO / "build" / "generated" / "librepy.pot"
 FULL_POT = _REPO / "locales" / "writeragent.pot"
 LIBREPY_LOCALES = _REPO / "build" / "generated" / "locales"
 
 pytestmark = [
-    pytest.mark.skipif(
-        shutil.which("xgettext") is None or shutil.which("msgfmt") is None,
-        reason="gettext tools (xgettext/msgfmt) required; install gettext (e.g. choco install gettext.install)",
-    ),
     pytest.mark.xdist_group("serial_build"),
 ]
 
@@ -84,3 +81,24 @@ def test_librepy_locales_compile_mo_files() -> None:
     _ensure_librepy_locales()
     mo_files = glob.glob(str(LIBREPY_LOCALES / "*" / "LC_MESSAGES" / "writeragent.mo"))
     assert mo_files, "expected filtered writeragent.mo under build/generated/locales/"
+
+
+def test_build_librepy_locales_does_not_invoke_gnu_gettext() -> None:
+    """GHA 33780509372: Windows CI has no xgettext/msgfmt on PATH after choco || true."""
+    text = (_REPO / "scripts" / "build_librepy_locales.py").read_text(encoding="utf-8")
+    assert "subprocess" not in text
+    assert "shutil.which" not in text
+    assert '["xgettext"' not in text
+    assert '["msgfmt"' not in text
+
+
+def test_extract_python_msgids_reads_underscore_calls(tmp_path: Path) -> None:
+    src = tmp_path / "sample.py"
+    src.write_text(
+        '_( "Plain" )\n'
+        "_('BoldBit')\n"
+        '_(\n    "multiline"\n)\n'
+        'other("skip")\n',
+        encoding="utf-8",
+    )
+    assert _extract_python_msgids([str(src)]) == {"Plain", "BoldBit", "multiline"}

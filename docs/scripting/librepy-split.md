@@ -27,7 +27,7 @@ Build / install targets and the prototype tree live under [Prototype extension](
 | **Bootstrap** | **Shipped** — [`plugin/main_core.py`](../../plugin/main_core.py), Python-only Settings ([`plugin/librepy/settings.py`](../../plugin/librepy/settings.py)) |
 | **Weekly update check** | **Shipped** — same helper as WriterAgent ([`extension_update_check.py`](../../plugin/chatbot/extension_update_check.py)); feed [`update-librepy.xml`](../update-librepy.xml); scheduled from LibrePy `StartupJob` after `init_logging` |
 | **Layers 0–6 feature set** | **Shipped in LibrePy.oxt** — `=PY()` / `=PYTHON()`, warm venv, Run Python Script, Reset Session, Monaco, domain helpers, Vision/OCR, TeX/Math (see [Feature bundles](#feature-bundles-layers)); user guide: [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoffice.md) |
-| **Filtered locales / slim vendor** | **Shipped** — `make compile-translations-core`; vendor limited to `isodate` + `json_repair` + `latex2mathml` |
+| **Filtered locales / slim vendor** | **Shipped** — `make compile-translations-core` (ast + polib; no GNU gettext); vendor limited to `isodate` + `json_repair` + `latex2mathml` |
 | **`xl` Calc-parity helpers** | **Deferred** — excluded from LibrePy ([§ below](#calc-parity-xl-helpers-deferred-from-librepy)) |
 | **WriterAgent AI overlay on top of LibrePy** (both OXTs installed, shared `plugin/` via `extend_path`) | **Not shipped** — goal in [Coexistence](#coexistence-options) / prototype §7; **today install only one OXT at a time** |
 | **WriterAgent stripped of duplicate `=PY()` / menus** | **Not shipped** — full WriterAgent OXT still bundles its own Python stack |
