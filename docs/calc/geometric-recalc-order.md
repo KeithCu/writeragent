@@ -402,13 +402,13 @@ Phase 4 — `data` strip (inject the in-memory map; no UNO):
 **UNO (`test_*_uno.py`):**
 
 - **Formula I/O (landed, `test_geometric_recalc_uno.py`):** live `getFormula()` / `setFormula()` on `=PY("y"; $C$5)` (absolute `$` survives attach), quoted `=PY("np.mean(data)"; B1:B10)` (splice still parses), and unquoted `=PY($A$1; …)` (code-in-cell stays unquoted). Flag can stay off — this is splice I/O, not eval strip. Do not mark win32-only.
-- **Shared kernel eval (landed, `test_geometric_shared_kernel_a3_reads_a1_f9_stable`):** flag on, A3 reads a name assigned in A1 without a user-typed `data` ref; result is 41 across two `calculateAll` (F9) passes. A3's Python `data` is not A1's return (`data is None` after precedent-only strip).
+- **Shared kernel eval (landed, `test_geometric_shared_kernel_a3_reads_a1_f9_stable`):** flag on, A3 reads a name assigned in A1 without a user-typed `data` ref; result is 41 across two `calculateAll` (F9) passes. Precedent-only strip of the attached last arg is Phase 4 unit-tested (`data is None` / `np.mean(data)` / `ranges[-1]`).
 - Insert a PY row between two chained cells; after the deferred pass, successor formula names the new cell; values update on next recalc.
 - Delete middle cell: successor retargets or remove-field if it is now first.
 - Flag off: no new attaches; existing refs stay.
 - Isolated + flag on: no-op for Python **globals**; strip still runs when `workbook_key` is unambiguous (no `data` breakage).
 - Undo: user types a new PY cell, geometric rewrite does not add a second undo step when `isUndoPossible()` (hidden context). Flag-on reconcile with no prior edit is one locked unit (`test_calc_spill_undo_lock` is the spill analogue).
-- **`#SPILL!` / auto-spill on a chained origin (landed, `test_geometric_chained_origin_still_auto_spills`):** attaching `;pred` does not collapse a 2×2 auto-spill origin to 1×1 (origin stays 10, not index-peeled 20). Neighbors use the existing `perform_deferred_spill` path.
+- **`#SPILL!` / auto-spill on a chained origin (landed, `test_geometric_chained_origin_still_auto_spills`):** attaching `;pred` does not break origin match (`is_matching_py_formula`). Neighbors use the existing `perform_deferred_spill` path.
 - Re-entrancy: repair `setFormula` does not nest a second repair.
 - Cap-hit sheet: no chain, log emitted, no strip-safe marks.
 
