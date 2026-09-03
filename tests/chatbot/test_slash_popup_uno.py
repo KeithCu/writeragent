@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Native UNO coverage for the Ask-box slash ListBox (no Packet G audio)."""
+"""Native UNO coverage for the Ask-peer toolkit slash overlay (no Packet G audio)."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ from plugin.testing_runner import native_test
 
 @native_test
 def test_slash_popup_listbox_filter_and_keys(ctx):
-    """Drive SlashPopupController on a live UnoControlListBox (throwaway dialog)."""
+    """Drive SlashPopupController on a live toolkit listbox parented to Ask."""
     from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN
-    from plugin.chatbot.slash_popup import SlashPopupController
+    from plugin.chatbot.slash_popup import SlashPopupController, uses_toolkit_overlay
 
     smgr = ctx.getServiceManager()
     dlg_model = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialogModel", ctx)
@@ -31,16 +31,6 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     query_model.Height = 24
     dlg_model.insertByName("query", query_model)
 
-    list_model = dlg_model.createInstance("com.sun.star.awt.UnoControlListBoxModel")
-    list_model.Name = "slash_popup"
-    list_model.PositionX = 4
-    list_model.PositionY = 4
-    list_model.Width = 150
-    list_model.Height = 14
-    list_model.Dropdown = True
-    list_model.LineCount = 6
-    dlg_model.insertByName("slash_popup", list_model)
-
     dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
     dlg.setModel(dlg_model)
     toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
@@ -48,22 +38,24 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     dlg.setVisible(True)
     try:
         query = dlg.getControl("query")
-        box = dlg.getControl("slash_popup")
-        assert query is not None and box is not None
+        assert query is not None
         send = type("Host", (), {"query_control": query, "slash_popup": None, "dispatch": lambda *a, **k: None})()
-        popup = SlashPopupController(box, send, query)
+        popup = None
+        popup = SlashPopupController(None, send, query)
         send.slash_popup = popup
+        assert uses_toolkit_overlay(popup) is True
+        box = popup.control
+        assert box is not None
 
         popup.on_query_text("/")
         assert popup.is_open is True
         assert popup.selected_name == "help"
+        assert "clear" in popup.visible_names
         assert "mock-alpha" in popup.visible_names
         assert int(box.getItemCount()) >= 5
-        model = box.getModel()
-        assert bool(getattr(model, "Dropdown", False)) is True
-        assert int(getattr(model, "LineCount", 0) or 0) >= 1
-        assert int(box.getPosSize().Height) <= 20
-        assert int(box.getDropDownLineCount()) >= 1
+        ps = box.getPosSize()
+        assert int(ps.Height) > 20
+        assert int(ps.Y) < 0
 
         popup.on_query_text("/he")
         assert popup.visible_names == ["help"]
@@ -71,9 +63,15 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
 
         assert popup.handle_key(KEY_ESCAPE) is True
         assert popup.is_open is False
+        assert box.isVisible() is False
 
         popup.on_query_text("/")
         assert popup.handle_key(KEY_RETURN, 0) is True
         assert popup.is_open is False
     finally:
+        if getattr(popup, "_popup_window", None) is not None:
+            try:
+                popup._popup_window.dispose()
+            except Exception:
+                pass
         dlg.dispose()

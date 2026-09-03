@@ -5,17 +5,16 @@
 """Steerable slash-command completion menu attached to the sidebar Ask field.
 
 A native ``PopupMenu`` is modal — the user could not keep typing. The XDL
-placeholder is ``dlg:menulist`` (LibreOffice dialog.dtd has no ``listbox``;
-a ``listbox`` tag can crash the sidebar). That control is a ComboBox — one
-line plus a dropdown — so it does not look like a completion menu.
+placeholder is ``dlg:menulist`` (LibreOffice dialog.dtd has no ``listbox``).
 
-PR 564 inserted a runtime ``UnoControlListBox`` with ``Dropdown=False`` and
-``setPosSize`` just above Ask. Sibling dialog controls do not paint over the
-rich-text transcript, so the list was crushed into the Ready/Ask gap. This
-controller still inserts a ListBox (same key contract) but sets
-``Dropdown=True`` so VCL draws its own floating dropdown window — a real
-overlay — and parks only a one-line closed combo in the transcript, not a
-multi-row list in the bottom band.
+PR 564 parked an in-dialog ListBox in the Ready/Ask gap (siblings cannot
+paint over the rich-text transcript). PR 575 tried ``Dropdown=True`` plus
+accessible ``togglePopup`` so VCL would drop a floating list. Headed
+sign-off: typing ``/`` left a one-line closed combo in the transcript
+(``togglePopup`` did not open), and clicking the combo arrow ran ``/help``
+into the chat. This controller hides that placeholder and shows a toolkit
+``listbox`` window parented to the Ask field's peer — a tall overlay above
+Ask, opened by the slash prefix, not by a click.
 """
 
 from __future__ import annotations
@@ -40,10 +39,7 @@ log = logging.getLogger("writeragent.slash_popup")
 
 _POPUP_MAX_ROWS = 6
 _POPUP_ROW_PX = 14
-# Closed dropdown combo is one line. The item list is VCL's overlay window.
-_POPUP_CLOSED_PX = 14
 _POS_SIZE_FLAGS = 15  # X + Y + WIDTH + HEIGHT
-_RUNTIME_LIST_NAME = "slash_popup_list"
 
 
 def _supported_services(ctrl: Any) -> str:
@@ -62,162 +58,131 @@ def _is_combo_box(ctrl: Any) -> bool:
     return "ComboBox" in names or "UnoControlComboBox" in names
 
 
-def _control_model(ctrl: Any) -> Any:
-    get_model = getattr(ctrl, "getModel", None) if ctrl is not None else None
-    if callable(get_model):
-        try:
-            return get_model()
-        except Exception:
-            return None
-    return None
-
-
-def _apply_dropdown_model(list_model: Any) -> None:
-    """Mark the ListBox as a VCL dropdown overlay, not an in-layout multi-row list."""
-    if list_model is None:
-        return
-    list_model.Dropdown = True
-    if hasattr(list_model, "LineCount"):
-        list_model.LineCount = _POPUP_MAX_ROWS
-    list_model.Tabstop = False
-    if hasattr(list_model, "Border"):
-        list_model.Border = 1
-    try:
-        list_model.MultiSelection = False
-    except Exception:
-        pass
-
-
-def is_dropdown_overlay(ctrl: Any) -> bool:
-    """True when the completion control uses VCL's dropdown window."""
-    model = _control_model(ctrl)
-    if model is None:
-        model = ctrl
-    return bool(getattr(model, "Dropdown", False))
-
-
-def _apply_dropdown_overlay(ctrl: Any) -> None:
-    """Force Dropdown=True on an already-created ListBox (tests + reused runtime)."""
-    model = _control_model(ctrl)
-    if model is not None:
-        _apply_dropdown_model(model)
-    if ctrl is not None and hasattr(ctrl, "setDropDownLineCount"):
-        try:
-            ctrl.setDropDownLineCount(_POPUP_MAX_ROWS)
-        except Exception:
-            log.debug("slash popup setDropDownLineCount failed", exc_info=True)
-
-
-def _toggle_list_popup(ctrl: Any) -> bool:
-    """Open or close the VCL dropdown via the ListBox accessible ``togglePopup`` action."""
-    if ctrl is None or not hasattr(ctrl, "getAccessibleContext"):
-        return False
-    try:
-        acc = ctrl.getAccessibleContext()
-    except Exception:
-        return False
-    if acc is None or not hasattr(acc, "doAccessibleAction"):
-        return False
-    try:
-        count = int(acc.getAccessibleActionCount() or 0) if hasattr(acc, "getAccessibleActionCount") else 0
-        for idx in range(count):
-            desc = ""
-            if hasattr(acc, "getAccessibleActionDescription"):
-                desc = str(acc.getAccessibleActionDescription(idx) or "").lower()
-            if "popup" in desc or "dropdown" in desc or count == 1:
-                return bool(acc.doAccessibleAction(idx))
-    except Exception:
-        log.debug("slash popup togglePopup failed", exc_info=True)
-    return False
-
-
-def _dialog_for(ctrl: Any) -> Any:
-    cur = ctrl
-    hops = 0
-    while cur is not None and hops < 8:
-        hops += 1
-        get_model = getattr(cur, "getModel", None)
-        if callable(get_model) and hasattr(cur, "getControl"):
-            model = None
-            try:
-                model = get_model()
-            except Exception:
-                model = None
-            if model is not None and hasattr(model, "insertByName"):
-                return cur
-        getter = getattr(cur, "getContext", None) or getattr(cur, "getPeer", None)
-        try:
-            cur = getter() if callable(getter) else None
-        except Exception:
-            return None
-    return None
-
-
-def _ensure_listbox(control: Any, query_control: Any) -> Any:
-    """Replace the XDL ComboBox placeholder with a dropdown ListBox overlay."""
-    if control is not None and not _is_combo_box(control):
-        _apply_dropdown_overlay(control)
-        return control
-    dlg = _dialog_for(query_control) or _dialog_for(control)
-    if dlg is None:
-        log.warning("slash popup: no dialog to insert ListBox; using XDL control")
-        _apply_dropdown_overlay(control)
-        return control
-    try:
-        if hasattr(dlg, "getControl"):
-            existing = dlg.getControl(_RUNTIME_LIST_NAME)
-            if existing is not None:
-                set_control_visible(control, False)
-                _apply_dropdown_overlay(existing)
-                return existing
-    except Exception:
-        existing = None
-    model = dlg.getModel()
-    list_model = model.createInstance("com.sun.star.awt.UnoControlListBoxModel")
-    list_model.Name = _RUNTIME_LIST_NAME
-    _apply_dropdown_model(list_model)
-    qr = query_control.getPosSize() if query_control is not None and hasattr(query_control, "getPosSize") else None
-    if qr is not None:
-        list_model.PositionX = int(qr.X)
-        # Closed combo only. Park in the transcript so VCL's downward
-        # dropdown covers Ready / history instead of the Ready/Ask gap.
-        list_model.PositionY = max(16, int(qr.Y) - _overlay_height(_POPUP_MAX_ROWS) - _POPUP_CLOSED_PX - 2)
-        list_model.Width = int(qr.Width)
-        list_model.Height = _POPUP_CLOSED_PX
-    else:
-        list_model.PositionX = 4
-        list_model.PositionY = 80
-        list_model.Width = 142
-        list_model.Height = _POPUP_CLOSED_PX
-    model.insertByName(_RUNTIME_LIST_NAME, list_model)
-    created = dlg.getControl(_RUNTIME_LIST_NAME)
-    if created is None:
-        log.warning("slash popup: ListBox insertByName succeeded but getControl is None")
-        _apply_dropdown_overlay(control)
-        return control
-    set_control_visible(control, False)
-    log.info("slash popup: runtime dropdown ListBox attached (VCL overlay)")
-    return created
-
-
 def _overlay_height(rows: int) -> int:
-    return max(24, min(rows, _POPUP_MAX_ROWS) * _POPUP_ROW_PX + 6)
+    return max(24, min(max(rows, 1), _POPUP_MAX_ROWS) * _POPUP_ROW_PX + 6)
+
+
+def _popup_bounds(query_width: int, rows: int) -> tuple[int, int, int, int]:
+    """Ask-peer-relative rectangle: tall list just above the field (Y negative)."""
+    height = _overlay_height(rows)
+    return (0, -height - 2, max(20, int(query_width)), height)
+
+
+def _row_index_at_y(y: int, n_rows: int) -> int | None:
+    """List row under a mouse Y, or None when the click is not on a row."""
+    if y < 0 or n_rows <= 0:
+        return None
+    row = int(y) // _POPUP_ROW_PX
+    if 0 <= row < n_rows:
+        return row
+    return None
+
+
+def uses_toolkit_overlay(popup: Any) -> bool:
+    """True when the visible menu is a toolkit window, not an in-dialog control."""
+    return getattr(popup, "_popup_window", None) is not None
+
+
+def _query_peer(query_control: Any) -> Any:
+    get_peer = getattr(query_control, "getPeer", None)
+    if not callable(get_peer):
+        return None
+    try:
+        return get_peer()
+    except Exception:
+        return None
+
+
+def _toolkit_for_peer(peer: Any) -> Any:
+    if peer is not None and hasattr(peer, "getToolkit"):
+        try:
+            toolkit = peer.getToolkit()
+            if toolkit is not None:
+                return toolkit
+        except Exception:
+            pass
+    return None
+
+
+def _awt_window_constants() -> tuple[Any, Any, int, int, int] | None:
+    """WindowClass / WindowAttribute as IDL integers (enum modules are untyped)."""
+    try:
+        from com.sun.star.awt import Rectangle, WindowDescriptor
+    except ImportError:
+        return None
+    # com.sun.star.awt.WindowClass: TOP=0, SIMPLE=3
+    # com.sun.star.awt.WindowAttribute: SHOW=1, BORDER=16
+    return Rectangle, WindowDescriptor, 0, 3, 1 | 16
+
+
+def _create_ask_peer_listbox(query_control: Any) -> Any:
+    """Native VCL ListBox window parented to Ask. None when there is no peer (unit tests)."""
+    parent = _query_peer(query_control)
+    if parent is None:
+        return None
+    toolkit = _toolkit_for_peer(parent)
+    if toolkit is None or not hasattr(toolkit, "createWindow"):
+        return None
+    consts = _awt_window_constants()
+    if consts is None:
+        return None
+    rectangle_cls, descriptor_cls, top, simple, attrs = consts
+    qr = query_control.getPosSize() if hasattr(query_control, "getPosSize") else None
+    width = int(qr.Width) if qr is not None else 142
+    x, y, w, h = _popup_bounds(width, _POPUP_MAX_ROWS)
+    # TOP/listbox floats over the rich-text transcript. SIMPLE is the clip fallback.
+    for wtype in (top, simple):
+        desc = descriptor_cls()
+        desc.Type = wtype
+        desc.WindowServiceName = "listbox"
+        desc.Parent = parent
+        desc.ParentIndex = 1
+        desc.Bounds = rectangle_cls(x, y, w, h)
+        desc.WindowAttributes = attrs
+        try:
+            win = toolkit.createWindow(desc)
+        except Exception:
+            log.debug("slash popup: createWindow %s/listbox failed", wtype, exc_info=True)
+            continue
+        if win is None:
+            continue
+        set_control_visible(win, False)
+        log.info("slash popup: toolkit listbox overlay parented to Ask peer (%s)", wtype)
+        return win
+    log.warning("slash popup: toolkit listbox overlay could not be created")
+    return None
 
 
 class SlashPopupController:
-    """Show, filter, and accept slash commands on the Ask-field ListBox."""
+    """Show, filter, and accept slash commands on the Ask-field overlay list."""
 
     def __init__(self, control: Any, send_listener: Any, query_control: Any) -> None:
         self.query_control = query_control
         self.send_listener = send_listener
-        self.control = _ensure_listbox(control, query_control)
+        self._placeholder = control
+        # Never leave the XDL menulist / closed combo visible in the transcript.
+        set_control_visible(control, False)
+        self._popup_window: Any = None
+        self.control: Any = None
         self._open = False
-        self._overlay_open = False
         self._matches: list[SlashCommand] = []
         self._selected = 0
+        self._bind_overlay()
+        if self.control is None and control is not None and not _is_combo_box(control):
+            # Unit tests pass a mock list (no Ask peer / toolkit).
+            self.control = control
         self.hide()
         self._attach_click()
         self._attach_keys()
+
+    def _bind_overlay(self) -> None:
+        if self._popup_window is not None:
+            return
+        win = _create_ask_peer_listbox(self.query_control)
+        if win is None:
+            return
+        self._popup_window = win
+        self.control = win
 
     @property
     def is_open(self) -> bool:
@@ -237,8 +202,8 @@ class SlashPopupController:
         self._open = False
         self._matches = []
         self._selected = 0
-        self._close_overlay()
         set_control_visible(self.control, False)
+        set_control_visible(self._placeholder, False)
 
     def on_query_text(self, text: str) -> None:
         """Open or narrow the popup from the current Ask-box contents."""
@@ -249,14 +214,18 @@ class SlashPopupController:
         if not matches:
             self.hide()
             return
+        self._bind_overlay()
+        if self.control is None:
+            log.warning("slash popup: no overlay list; slash prefix ignored")
+            return
         self._matches = matches
         self._selected = 0
         self._refresh_list()
         self._open = True
         self.reposition()
+        # Hide the XDL/closed combo every show — it is not the menu.
+        set_control_visible(self._placeholder, False)
         set_control_visible(self.control, True)
-        self._open_overlay()
-        # Dropdown can steal focus; Esc/arrows / further typing must stay on Ask.
         set_focus = getattr(self.query_control, "setFocus", None)
         if callable(set_focus):
             with suppress_disposed("slash popup return focus", logger=log):
@@ -305,14 +274,18 @@ class SlashPopupController:
             return
         run_slash_command(name, self.send_listener)
 
-    def reposition(self) -> None:
-        """Park the one-line closed combo in the transcript, not the Ready/Ask gap.
+    def accept_row_at_y(self, y: int) -> bool:
+        """Accept the command under mouse Y. Ignores chrome / off-list clicks."""
+        row = _row_index_at_y(y, len(self._matches))
+        if row is None or not self._open:
+            return False
+        self._selected = row
+        self._select_row(row)
+        self.accept_selected()
+        return True
 
-        The visible menu is VCL's dropdown window (``Dropdown=True``). The closed
-        combo is only an anchor: sit it ``overlay_height`` above Ask so a
-        downward dropdown covers Ready / lower history instead of squeezing
-        into leftover layout space.
-        """
+    def reposition(self) -> None:
+        """Size the overlay to the match rows and park it above Ask."""
         query = self.query_control
         ctrl = self.control
         if query is None or ctrl is None or not hasattr(query, "getPosSize"):
@@ -320,37 +293,16 @@ class SlashPopupController:
         with suppress_disposed("slash popup reposition", logger=log):
             qr = query.getPosSize()
             rows = min(len(self._matches) or 1, _POPUP_MAX_ROWS)
-            if hasattr(ctrl, "setDropDownLineCount"):
-                try:
-                    ctrl.setDropDownLineCount(rows)
-                except Exception:
-                    log.debug("slash popup setDropDownLineCount failed", exc_info=True)
-            model = _control_model(ctrl)
-            if model is not None and hasattr(model, "LineCount"):
-                try:
-                    model.LineCount = rows
-                except Exception:
-                    pass
-            # Closed height stays one line — never the multi-row in-layout size
-            # that collapsed into the Ready/Ask strip (Keith screenshot).
-            closed_h = _POPUP_CLOSED_PX
-            y = int(qr.Y) - _overlay_height(rows) - closed_h - 2
-            if y < 16:
-                y = 16
-            ctrl.setPosSize(int(qr.X), y, int(qr.Width), closed_h, _POS_SIZE_FLAGS)
-
-    def _open_overlay(self) -> None:
-        """Drop the VCL list if it is not already the floating overlay."""
-        if self._overlay_open:
-            return
-        if _toggle_list_popup(self.control):
-            self._overlay_open = True
-
-    def _close_overlay(self) -> None:
-        if not self._overlay_open:
-            return
-        _toggle_list_popup(self.control)
-        self._overlay_open = False
+            x, y, w, h = _popup_bounds(int(qr.Width), rows)
+            if self._popup_window is not None:
+                # Coordinates are relative to the Ask peer: Y is above the field.
+                ctrl.setPosSize(x, y, w, h, _POS_SIZE_FLAGS)
+                return
+            # Mock list in unit tests: tall rectangle above Ask, never 14px closed.
+            above_y = int(qr.Y) + y
+            if above_y < 16:
+                above_y = 16
+            ctrl.setPosSize(int(qr.X), above_y, w, h, _POS_SIZE_FLAGS)
 
     def _selected_name_from_control(self) -> str | None:
         ctrl = self.control
@@ -407,8 +359,9 @@ class SlashPopupController:
                 return
 
             def mouseReleased(self, e):  # noqa: N802 -- UNO signature
-                if host.is_open:
-                    host.accept_selected()
+                # Row click only. A closed-combo arrow used to fire this with
+                # /help already selected and dump the help list into chat.
+                host.accept_row_at_y(int(getattr(e, "Y", -1) or -1))
 
             def mouseEntered(self, e):  # noqa: N802 -- UNO signature
                 return
@@ -422,7 +375,7 @@ class SlashPopupController:
             log.debug("slash popup mouse listener attach failed", exc_info=True)
 
     def _attach_keys(self) -> None:
-        """Forward Esc/Enter/arrows when the ListBox stole focus from Ask."""
+        """Forward Esc/Enter/arrows when the list stole focus from Ask."""
         ctrl = self.control
         if ctrl is None or not hasattr(ctrl, "addKeyListener"):
             return

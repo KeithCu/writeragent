@@ -6,7 +6,7 @@
 
 **Current state:** The sidebar panel is **working**. "Chat with Document" appears in the WriterAgent deck in Writer's sidebar with Response area, Ask field, and Send button. The menu item can remain as fallback.
 
-In-chat `/` **popup** is a VCL dropdown ListBox overlay on the Ask field (prefix filter, LRU, Esc/arrows/Tab/Enter) — not an in-layout list in the Ready/Ask strip. Commands are still mostly stubs. The consider-list (Aider-based, including new WriterAgent features) lives in [slash-commands.md](slash-commands.md).
+In-chat `/` **popup** is a toolkit listbox window parented to the Ask peer (prefix filter, LRU, Esc/arrows/Tab/Enter) — not an in-dialog combo in the transcript. Commands are still mostly stubs. The consider-list (Aider-based, including new WriterAgent features) lives in [slash-commands.md](slash-commands.md).
 
 ### Main chat: sidebar reply vs document edit
 
