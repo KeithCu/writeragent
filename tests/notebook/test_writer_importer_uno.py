@@ -78,6 +78,21 @@ def _paragraphs_with_numbering(doc) -> list[tuple[str, str, str]]:
     return out
 
 
+def _is_leftover_list_numbering(numbering: str) -> bool:
+    """True when NumberingStyleName is a list style, not heading Outline.
+
+    Heading 2 keeps chapter ``Outline`` from the paragraph style. That is not
+    leftover ``insertDocumentFromURL`` list NumberingRules.
+    """
+    name = (numbering or "").strip()
+    if not name:
+        return False
+    lowered = name.lower()
+    if lowered == "outline" or "outline" in lowered:
+        return False
+    return True
+
+
 def _style_is_heading(style: str, level: int) -> bool:
     compact = (style or "").lower().replace(" ", "")
     return compact == f"heading{level}"
@@ -920,7 +935,7 @@ def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
         if "Where can I get help?" in text
     ]
     assert help_heading, f"help heading missing: {numbered_paras!r}"
-    assert help_heading[0][1] == "", (
+    assert not _is_leftover_list_numbering(help_heading[0][1]), (
         f"help heading inherited leftover numbering: {help_heading!r}"
     )
     ask = [
@@ -939,7 +954,7 @@ def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
         if "After the list" in text
     ]
     assert after_list, f"After the list heading missing: {numbered_paras!r}"
-    assert after_list[0][1] == "", (
+    assert not _is_leftover_list_numbering(after_list[0][1]), (
         f"list-then-h2 leaked numbering onto After the list: {after_list!r}"
     )
     unique_quote = [
