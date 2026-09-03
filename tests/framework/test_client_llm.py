@@ -1437,6 +1437,148 @@ def test_stream_http_500_does_not_retry(client, _fast_retry_waits):
     _fast_retry_waits["llm"].assert_not_called()
 
 
+def _http_500_diag_body(*, stream, tools, prompt, model="gpt-4o"):
+    payload = {
+        "model": model,
+        "stream": stream,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    if tools is not None:
+        payload["tools"] = tools
+    return json.dumps(payload).encode("utf-8")
+
+
+def _raise_http_error(client, status, reason, body, err_json, path="/v1/chat/completions"):
+    resp = create_mock_http_response(status, json_data=err_json, reason=reason)
+    with pytest.raises(NetworkError) as err:
+        client._retry_or_raise_http_error(
+            resp,
+            body,
+            path,
+            retries_left=2,
+            emitted_any=False,
+            stop_checker=None,
+        )
+    return err
+
+
+def _assert_http_500_diag_safe(joined, *, prompt, api_key, model, stream, n_messages, n_tools, payload_bytes, reason):
+    assert "HTTP 500 request diagnostic:" in joined
+    assert "provider=openai" in joined
+    assert "request_model=%r" % model in joined
+    assert "full_url='https://api.openai.com/v1/chat/completions'" in joined
+    assert "status=500" in joined
+    assert "reason=%r" % reason in joined
+    assert "stream=%s" % stream in joined
+    assert "messages=%s" % n_messages in joined
+    assert "tools=%s" % n_tools in joined
+    assert "payload_bytes=%s" % payload_bytes in joined
+    assert prompt not in joined
+    assert api_key not in joined
+    assert "Authorization" not in joined
+    assert "Bearer " not in joined
+
+
+def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
+    import logging
+
+    from plugin.framework.client.errors import _format_http_error_response
+
+    prompt = "UNIQUE_PROMPT_BLOB_FOR_500_DIAG_TOOLS"
+    api_key = "sk-UNIQUE-SECRET-KEY-500-DIAG"
+    client.config["api_key"] = api_key
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup_secret",
+                "description": "SECRET_TOOL_SCHEMA_SHOULD_NOT_APPEAR",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    body = _http_500_diag_body(stream=True, tools=tools, prompt=prompt)
+    err_json = {"error": {"message": "boom echoed %s" % api_key}}
+    caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
+    err = _raise_http_error(client, 500, "Internal Server Error", body, err_json)
+    assert err.value.code == "HTTP_ERROR"
+    assert err.value.details["status"] == 500
+    expected_user = _format_http_error_response(
+        500, "Internal Server Error", json.dumps(err_json)
+    )
+    assert str(err.value) == expected_user
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    _assert_http_500_diag_safe(
+        joined,
+        prompt=prompt,
+        api_key=api_key,
+        model="gpt-4o",
+        stream=True,
+        n_messages=1,
+        n_tools=1,
+        payload_bytes=len(body),
+        reason="Internal Server Error",
+    )
+    assert "SECRET_TOOL_SCHEMA_SHOULD_NOT_APPEAR" not in joined
+    assert "lookup_secret" not in joined
+    assert "Provider API Error 500:" in joined
+    assert "boom echoed <redacted>" in joined
+    assert joined.count("HTTP 500 request diagnostic:") == 1
+
+
+def test_http_500_logs_safe_request_diag_without_tools(client, caplog):
+    import logging
+
+    prompt = "UNIQUE_PROMPT_BLOB_FOR_500_DIAG_NO_TOOLS"
+    api_key = "sk-UNIQUE-SECRET-KEY-500-DIAG-NO-TOOLS"
+    client.config["api_key"] = api_key
+    body = _http_500_diag_body(stream=False, tools=None, prompt=prompt, model="llama3.2")
+    caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
+    err = _raise_http_error(
+        client, 500, "Internal Server Error", body, {"error": {"message": "boom"}}
+    )
+    assert err.value.code == "HTTP_ERROR"
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    _assert_http_500_diag_safe(
+        joined,
+        prompt=prompt,
+        api_key=api_key,
+        model="llama3.2",
+        stream=False,
+        n_messages=1,
+        n_tools=0,
+        payload_bytes=len(body),
+        reason="Internal Server Error",
+    )
+    assert "Provider API Error 500:" in joined
+
+
+def test_http_429_does_not_log_500_request_diag(client, caplog, _fast_retry_waits):
+    import logging
+
+    body = _http_500_diag_body(
+        stream=False,
+        tools=None,
+        prompt="UNIQUE_PROMPT_BLOB_FOR_429_NO_500_DIAG",
+    )
+    resp = create_mock_http_response(
+        429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests"
+    )
+    caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
+    action = client._retry_or_raise_http_error(
+        resp,
+        body,
+        "/v1/chat/completions",
+        retries_left=2,
+        emitted_any=False,
+        stop_checker=None,
+    )
+    assert action == "retry"
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert "HTTP 500 request diagnostic:" not in joined
+    assert "UNIQUE_PROMPT_BLOB_FOR_429_NO_500_DIAG" not in joined
+
+
 def test_stream_http_429_retries_until_max_attempts(client):
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:

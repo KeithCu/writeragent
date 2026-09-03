@@ -121,27 +121,51 @@ from .requests import sync_request
 log = logging.getLogger(__name__)
 
 
-def _request_model_from_body(body):
-    """Extract model field from encoded chat request body for error diagnostics."""
+def _chat_request_payload_from_body(body):
+    """Parse encoded chat JSON for diagnostics. Empty dict if unreadable."""
     if not body:
-        return None
+        return {}
     try:
         payload = json.loads(body.decode("utf-8") if isinstance(body, bytes) else body)
     except (ValueError, TypeError, UnicodeDecodeError):
-        return None
-    if isinstance(payload, dict):
-        return payload.get("model")
-    return None
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _request_model_from_body(body):
+    """Extract model field from encoded chat request body for error diagnostics."""
+    return _chat_request_payload_from_body(body).get("model")
+
+
+def _request_payload_byte_length(body):
+    """Byte length of the encoded request body for size diagnostics."""
+    if isinstance(body, (bytes, bytearray)):
+        return len(body)
+    if isinstance(body, str):
+        return len(body.encode("utf-8"))
+    return 0
+
+
+def _redact_secret_from_log_text(text, secret):
+    """Remove a configured credential from a log string. Empty secret is a no-op."""
+    if not text or not secret:
+        return text
+    return text.replace(secret, "<redacted>")
 
 
 def _full_url_for_request_path(endpoint, path):
-    """Join stored endpoint host with relative API path for debug logs."""
+    """Join stored endpoint host with relative API path for debug logs.
+
+    Query string is dropped so a leftover ``?key=`` never appears in logs
+    (Google image used to put the API key on the URL).
+    """
     if not path or not str(path).startswith("/"):
         return path
     try:
         parsed = urllib.parse.urlparse(endpoint or "")
         if parsed.scheme and parsed.netloc:
-            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+            path_only = urllib.parse.urlparse(str(path)).path or str(path)
+            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, path_only, "", "", ""))
     except ValueError:
         pass
     return path
@@ -149,12 +173,7 @@ def _full_url_for_request_path(endpoint, path):
 
 def _log_chat_request_body_diag(client, path, body, headers, tools):
     """Log wire-level chat fields (no secrets) for provider debugging."""
-    try:
-        payload = json.loads(body.decode("utf-8")) if body else {}
-    except (ValueError, TypeError, UnicodeDecodeError):
-        payload = {}
-    if not isinstance(payload, dict):
-        payload = {}
+    payload = _chat_request_payload_from_body(body)
     api_key = str(client.config.get("api_key") or "").strip()
     n_tools = len(tools) if isinstance(tools, list) else len(payload.get("tools") or [])
     log.debug(
@@ -165,6 +184,31 @@ def _log_chat_request_body_diag(client, path, body, headers, tools):
         _full_url_for_request_path(client._endpoint(), path),
         bool(api_key),
         len(api_key),
+    )
+
+
+def _log_http_500_request_diag(client, response, path, body):
+    """One ERROR-level safe request shape for HTTP 500. No prompts or secrets.
+
+    Local llama-server / Ollama 500 bodies are often opaque. This is the
+    request *shape* (counts, host/path, model) so a debug log can be compared
+    with the reporter's server log without dumping the prompt or tool schemas.
+    """
+    payload = _chat_request_payload_from_body(body)
+    messages = payload.get("messages")
+    tools = payload.get("tools")
+    log.error(
+        "HTTP 500 request diagnostic: provider=%s request_model=%r full_url=%r "
+        "status=%s reason=%r stream=%s messages=%s tools=%s payload_bytes=%s",
+        client._get_provider(),
+        payload.get("model"),
+        _full_url_for_request_path(client._endpoint(), path),
+        response.status,
+        getattr(response, "reason", ""),
+        payload.get("stream"),
+        len(messages) if isinstance(messages, list) else 0,
+        len(tools) if isinstance(tools, list) else 0,
+        _request_payload_byte_length(body),
     )
 
 
@@ -243,14 +287,19 @@ class LlmClient:
         """
         err_body = response.read().decode("utf-8", errors="replace")
         request_model = _request_model_from_body(body)
+        api_key = str(self.config.get("api_key") or "").strip()
+        # Keep the existing response-body ERROR line, but never echo the key if
+        # a provider (or proxy) reflected it in the error text.
         log.error(
             "Provider API Error %d: %s (provider=%s path=%s request_model=%r)",
             response.status,
-            err_body,
+            _redact_secret_from_log_text(err_body, api_key),
             self._get_provider(),
             path,
             request_model,
         )
+        if response.status == 500:
+            _log_http_500_request_diag(self, response, path, body)
         self._close_connection()
         if response.status in RETRYABLE_HTTP_STATUS and retries_left > 0 and not emitted_any:
             retry_after = parse_retry_after(response.getheader("Retry-After"))
