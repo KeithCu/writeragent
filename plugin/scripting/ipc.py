@@ -127,9 +127,10 @@ def read_frame_payload(
         _validate_frame_size(size, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
     except IpcFrameError as exc:
         rest = _unread_pipe_bytes(stream)
-        if rest:
-            raise IpcFrameError(f"{exc} stdout_rest={rest!r}") from None
-        raise
+        # Always include stdout_rest= (b'' when the POSIX leftover peek is
+        # skipped on win32). Dropping the field broke the Windows log contract
+        # (CI 33697174793 / test_spawn_stdout_garbage_fails_fast).
+        raise IpcFrameError(f"{exc} stdout_rest={rest!r}") from None
     payload = reader(size)
     if len(payload) < size:
         return None

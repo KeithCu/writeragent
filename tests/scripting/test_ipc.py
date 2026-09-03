@@ -108,6 +108,24 @@ def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch):
     stream.read.assert_not_called()
 
 
+def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch):
+    """PR 548 skip still keeps stdout_rest= on the IpcFrameError (CI 33697174793)."""
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc.sys, "platform", "win32")
+
+    def boom(*_args, **_kwargs):
+        raise AssertionError("os.set_blocking must not run on win32")
+
+    monkeypatch.setattr(ipc.os, "set_blocking", boom)
+    stream = MagicMock()
+    stream.fileno.return_value = 3
+    stream.read.return_value = b"Erro"
+    with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b''"):
+        read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    stream.read.assert_called_once_with(4)
+
+
 def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
     """Unix leftover peek still uses set_blocking; mock so Windows pytest can run it."""
     from plugin.scripting import ipc
