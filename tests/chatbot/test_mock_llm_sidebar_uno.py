@@ -2342,7 +2342,9 @@ def _slash_prep():
     if not state.get("available"):
         raise unittest.SkipTest(
             "slash popup ListBox not on the live chat dialog — deploy the "
-            "Ask-field OXT (ChatPanelDialog slash_popup). Pure filter/LRU tests still run."
+            "Ask-field OXT (ChatPanelDialog slash_popup). Pure filter/LRU tests still run. "
+            "snapshot=%r controls=%s"
+            % (state, sorted((getattr(_session, "controls", None) or {}).keys()))
         )
     return None
 

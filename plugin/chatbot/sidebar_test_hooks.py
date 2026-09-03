@@ -159,8 +159,23 @@ def handle_debug_sidebar_command(command: str) -> None:
     adopt_runtime_send_listeners()
     rest = command[len(_DEBUG_SIDEBAR_PREFIX) :].lstrip(".")
     op = (rest or "SNAPSHOT").upper().replace("-", "_")
-    sl = send_listener()
+    sl = _listener_with_slash_popup(send_listener())
     if op == "SNAPSHOT":
+        _write_debug_snapshot(sl)
+        return
+    # Slash ops only touch the Ask ListBox. Run inline like SNAPSHOT —
+    # queue_executor.post is not drained on this URP path (no AsyncCallback).
+    if op in ("SLASH_REFRESH", "SLASH_ENTER", "SLASH_ESC"):
+        if sl is None:
+            log.warning("debug_sidebar %s: no SendButtonListener", op)
+            _write_debug_snapshot(None)
+            return
+        if op == "SLASH_REFRESH":
+            _slash_refresh_in_soffice(sl)
+        elif op == "SLASH_ENTER":
+            _slash_key_in_soffice(sl, 1280, 0)
+        else:
+            _slash_key_in_soffice(sl, 1281, 0)
         _write_debug_snapshot(sl)
         return
     if sl is None:
@@ -201,12 +216,6 @@ def handle_debug_sidebar_command(command: str) -> None:
                 from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
 
                 apply_fn(CHAT_MODE_CHAT)
-        elif op == "SLASH_REFRESH":
-            _slash_refresh_in_soffice(sl)
-        elif op == "SLASH_ENTER":
-            _slash_key_in_soffice(sl, 1280, 0)
-        elif op == "SLASH_ESC":
-            _slash_key_in_soffice(sl, 1281, 0)
         else:
             log.warning("debug_sidebar unknown op %s", op)
         _write_debug_snapshot(sl)
@@ -500,7 +509,12 @@ def send_listener(frame: Any = None) -> Any:
     panel = sidebar_panel(frame)
     if panel is not None:
         sl = getattr(panel, "send_listener", None)
+        if sl is not None and getattr(sl, "slash_popup", None) is not None:
+            return sl
         if sl is not None:
+            found = _listener_with_slash_popup(sl)
+            if found is not None:
+                return found
             return sl
     with_popup = [obj for obj in _LIVE_SEND_LISTENERS if getattr(obj, "slash_popup", None) is not None]
     if with_popup:
@@ -508,6 +522,24 @@ def send_listener(frame: Any = None) -> Any:
     if _LIVE_SEND_LISTENERS:
         return _LIVE_SEND_LISTENERS[-1]
     return None
+
+
+def _listener_with_slash_popup(sl: Any) -> Any:
+    """Prefer a SendButtonListener that already has the Ask-box controller."""
+    if sl is not None and getattr(sl, "slash_popup", None) is not None:
+        return sl
+    for obj in list(_LIVE_SEND_LISTENERS):
+        if getattr(obj, "slash_popup", None) is not None:
+            return obj
+    try:
+        panels = iter_live_chat_panels()
+    except Exception:
+        panels = []
+    for panel in panels:
+        cand = getattr(panel, "send_listener", None)
+        if cand is not None and getattr(cand, "slash_popup", None) is not None:
+            return cand
+    return sl
 
 
 def adopt_runtime_send_listeners() -> int:
