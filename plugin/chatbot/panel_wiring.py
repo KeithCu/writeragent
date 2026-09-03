@@ -155,7 +155,10 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
                         from plugin.chatbot.slash_popup import SlashPopupController
 
                         self.send_listener.slash_popup = SlashPopupController(
-                            slash_ctrl, self.send_listener, query_ctrl
+                            slash_ctrl,
+                            self.send_listener,
+                            query_ctrl,
+                            overlay_parent=root_window,
                         )
                         log.info("slash popup attached to Ask field")
 

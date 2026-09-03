@@ -197,6 +197,13 @@ class QueryTextListener(BaseTextListener):
         self.send_listener = send_listener
 
     def on_text_changed(self, rEvent):
+        log.info("[SLASH-OV] query_text entered")
+        try:
+            with open("/tmp/slash-ov.txt", "a", encoding="utf-8") as fh:
+                fh.write("query_text entered\n")
+                fh.flush()
+        except Exception:
+            pass
         model = getattr(rEvent.Source, "Model", None)
         if not model:
             model = rEvent.Source.getModel()
@@ -213,12 +220,23 @@ class QueryTextListener(BaseTextListener):
         except Exception:
             log.info("[LAYOUT] source=query_text has_text=%s", bool(text))
 
-        # Dispatch event to the state machine
-        self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(text)}))
+        # Overlay first. TEXT_UPDATED UpdateUI has hung before on_query_text ran.
         popup = getattr(self.send_listener, "slash_popup", None)
         on_text = getattr(popup, "on_query_text", None) if popup is not None else None
+        log.info(
+            "[SLASH-OV] query_text popup=%s call_show=%s raw=%r",
+            popup is not None,
+            callable(on_text),
+            (raw[:40] if isinstance(raw, str) else raw),
+        )
         if callable(on_text):
-            on_text(raw)
+            try:
+                on_text(raw)
+            except Exception:
+                log.exception("[SLASH-OV] query_text on_query_text raised")
+        log.info("[SLASH-OV] query_text before dispatch")
+        self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(text)}))
+        log.info("[SLASH-OV] query_text after dispatch")
 
 
 # UNO Key.RETURN / KeyModifier.SHIFT (test-friendly integer codes)
@@ -245,6 +263,12 @@ class QueryKeyListener(BaseKeyListener):
         # (MagicMock hosts in unit tests return a mock, which is not True).
         popup = getattr(self.send_listener, "slash_popup", None)
         handle = getattr(popup, "handle_key", None) if popup is not None else None
+        log.info(
+            "[SLASH-OV] query_key code=%s mods=%s has_handle=%s",
+            int(getattr(e, "KeyCode", -1) or -1),
+            int(getattr(e, "Modifiers", 0) or 0),
+            callable(handle),
+        )
         if callable(handle) and handle(e.KeyCode, e.Modifiers) is True:
             with suppress_disposed("QueryKeyListener slash Consume", logger=log):
                 if hasattr(e, "Consume"):
