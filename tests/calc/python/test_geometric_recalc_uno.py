@@ -159,7 +159,7 @@ def _flush(ctx, doc, sheet) -> None:
 
 
 def _cold_kernel() -> None:
-    """Drop leftover worker state so F9 cannot succeed on a warm Shared name."""
+    """Drop this process's worker. Soffice's worker is a different process."""
     from plugin.calc.python.function import clear_python_addin_cache
     from plugin.scripting.venv_worker import PythonWorkerManager
 
@@ -167,18 +167,34 @@ def _cold_kernel() -> None:
     clear_python_addin_cache()
 
 
-def _record_this_workbook_only(doc) -> None:
-    """Strip needs exactly one recorded Calc session (unanimous-ours + unambiguous).
+def _settle_soffice_config() -> None:
+    """``get_config`` in soffice is mtime-cached for 2s. Client ``set_config`` is not enough."""
+    time.sleep(2.1)
 
-    Other UNO tests may have left ids in ``_RECORDED_CALC_SESSION_IDS``. Clear
-    those, then record this doc the same way repair / Shared-kernel eval do.
+
+def _save_reopen_calc(ctx, doc):
+    """Reload so soffice ``OnLoadFinished`` rebuilds ``_STRIP_SAFE`` from UDProp.
+
+    Client ``_flush`` writes formulas and the geometric UDProp over URP, but
+    eval-time strip reads soffice's in-memory map. Document-open is the
+    product path that loads that map in the process that runs ``=PY()``.
     """
-    import plugin.scripting.session_manager as sm
-    from plugin.calc.python.geometric_recalc import record_geometric_calc_session
+    import os
+    import tempfile
 
-    sm.clear_active_calc_session()
-    record_geometric_calc_session(doc)
-    sm.calc_workbook_base_session_id(doc)
+    import uno
+
+    from plugin.framework.uno_context import get_desktop
+
+    tmp = tempfile.mkdtemp(prefix="wa_geo_eval_")
+    path = os.path.join(tmp, "geo.ods")
+    file_url = uno.systemPathToFileUrl(os.path.abspath(path))
+    doc.storeAsURL(file_url, ())
+    hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="Hidden", Value=True)
+    reopened = get_desktop(ctx).loadComponentFromURL(file_url, "_blank", 0, (hidden,))
+    # OnLoadFinished → maybe_geometric_on_document_open (flag off still rebuilds).
+    time.sleep(1.0)
+    return reopened
 
 
 def _wait_cell_value(doc, cell, expected: float, timeout: float = 8.0) -> bool:
@@ -221,136 +237,6 @@ def _skip_if_py_unregistered(cell, *, test_name: str) -> bool:
         cell.getFormula(),
     )
     return True
-
-
-# User-script body. Runs in soffice's Python (OXT), not the URP client.
-# Client-side reconcile updates the client's _STRIP_SAFE; sheet =PY() strip
-# reads soffice's map. Same for Shared-kernel worker shutdown.
-_SOFFICE_GEO_SCRIPT = '''
-def reconcile():
-    import plugin.calc.python.geometric_recalc as geo
-    ctx = XSCRIPTCONTEXT.getComponentContext()
-    doc = XSCRIPTCONTEXT.getDocument()
-    geo.geometric_flag_enabled = lambda: True
-    geo.reset_geometric_runtime_for_tests()
-    geo.record_geometric_calc_session(doc)
-    geo.reconcile_geometric_document(ctx, doc)
-
-
-def cold_kernel():
-    from plugin.calc.python.function import clear_python_addin_cache
-    from plugin.scripting.venv_worker import PythonWorkerManager
-    PythonWorkerManager.shutdown_all()
-    clear_python_addin_cache()
-
-
-def restore_flag():
-    import plugin.calc.python.geometric_recalc as geo
-    geo.reset_geometric_runtime_for_tests()
-'''
-
-
-def _user_scripts_python_dirs(ctx) -> list[str]:
-    """Candidate ``$(user)/Scripts/python`` dirs (testing_runner throwaway profile)."""
-    import glob
-    import os
-
-    import uno
-
-    dirs: list[str] = []
-
-    def _add_user_dir(raw: str) -> None:
-        path = (raw or "").strip()
-        if path.startswith("file://"):
-            path = uno.fileUrlToSystemPath(path)
-        if not path:
-            return
-        user_dir = path
-        steps = 0
-        while steps < 4 and os.path.basename(user_dir) != "user":
-            parent = os.path.dirname(user_dir)
-            if parent == user_dir:
-                break
-            user_dir = parent
-            steps += 1
-        if os.path.basename(user_dir) != "user":
-            user_dir = path
-        candidate = os.path.join(user_dir, "Scripts", "python")
-        if candidate not in dirs:
-            dirs.append(candidate)
-
-    smgr = ctx.getServiceManager()
-    try:
-        subst = smgr.createInstanceWithContext(
-            "com.sun.star.util.PathSubstitution", ctx
-        )
-        _add_user_dir(str(subst.substituteVariables("$(user)", True) or ""))
-    except Exception:
-        pass
-    try:
-        ps = smgr.createInstanceWithContext("com.sun.star.util.PathSettings", ctx)
-        _add_user_dir(str(getattr(ps, "UserConfig", "") or ""))
-    except Exception:
-        pass
-    try:
-        from plugin.framework.config import _config_path
-
-        _add_user_dir(os.path.dirname(_config_path()))
-    except Exception:
-        pass
-    for match in glob.glob("/tmp/writeragent-lo-test-profile-*/user"):
-        _add_user_dir(match)
-    # pythonscript location=user expands bootstraprc UserInstallation, not
-    # the testing_runner -env:UserInstallation= throwaway profile.
-    for match in (
-        os.path.expanduser("~/.config/libreoffice/4/user"),
-        os.path.expanduser("~/.config/libreoffice/3/user"),
-    ):
-        if os.path.isdir(match):
-            _add_user_dir(match)
-    return dirs
-
-
-def _invoke_soffice_python(ctx, doc, func_name: str) -> None:
-    """Run a user Python macro inside soffice so eval sees the same in-memory maps."""
-    import os
-
-    script_dirs = _user_scripts_python_dirs(ctx)
-    if not script_dirs:
-        raise AssertionError("could not resolve $(user)/Scripts/python")
-    for scripts_dir in script_dirs:
-        os.makedirs(scripts_dir, exist_ok=True)
-        script_path = os.path.join(scripts_dir, "wa_geo_eval.py")
-        with open(script_path, "w", encoding="utf-8") as handle:
-            handle.write(_SOFFICE_GEO_SCRIPT)
-        print("wa_geo_eval wrote", script_path, flush=True)
-
-    smgr = ctx.getServiceManager()
-    factory = smgr.createInstanceWithContext(
-        "com.sun.star.script.provider.MasterScriptProviderFactory", ctx
-    )
-    provider = factory.createScriptProvider(doc)
-    uri = (
-        "vnd.sun.star.script:wa_geo_eval.%s?language=Python&location=user"
-        % func_name
-    )
-    script = provider.getScript(uri)
-    script.invoke((), (), ())
-
-
-def _soffice_reconcile(ctx, doc) -> None:
-    _invoke_soffice_python(ctx, doc, "reconcile")
-
-
-def _soffice_cold_kernel(ctx, doc) -> None:
-    _invoke_soffice_python(ctx, doc, "cold_kernel")
-
-
-def _soffice_restore_flag(ctx, doc) -> None:
-    try:
-        _invoke_soffice_python(ctx, doc, "restore_flag")
-    except Exception:
-        pass
 
 
 @native_test
@@ -434,16 +320,17 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
 
 
 @native_test
-@with_native_doc("calc")
+@with_native_doc("calc", reuse=False)
 def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     """§10 leftover: Shared kernel, flag on — A3 reads A1's name; F9-stable; strip.
 
-    A1 assigns ``x = 41``. A2 stays empty so A3's predecessor is A1. A3 is
-    ``=PY("result = x if data is None else -999")`` with no user-typed ``;A1``.
-    After deferred attach, A3's formula names A1. A cold worker + calculateAll
-    must yield 41 (geometric order, not leftover kernel state). A second
-    calculateAll must stay 41. ``-999`` means strip failed and A1's return
-    was packed as ``data``.
+    A1 assigns ``x_geo_live = 41``. A2 stays empty so A3's predecessor is A1.
+    A3 is ``=PY("result = x_geo_live if data is None else -999")`` with no
+    user-typed ``;A1``. After deferred attach, A3's formula names A1. Reload
+    so soffice rebuilds the strip-safe map, then ``calculateAll`` must yield
+    41 (geometric order + strip, not leftover kernel state). A second
+    ``calculateAll`` must stay 41. ``-999`` means strip failed and A1's
+    return was packed as ``data``.
     """
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
     from plugin.framework.config import set_config
@@ -451,106 +338,133 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     reset_geometric_runtime_for_tests()
     _cold_kernel()
     previous = _enable_geometric_flag()
+    reopened = None
     try:
         set_config("scripting.python_session_mode", "shared")
-        _record_this_workbook_only(doc)
+        _settle_soffice_config()
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
         a3 = sheet.getCellByPosition(0, 2)
-        # A2 left empty — A3's row-major predecessor is A1.
-        a1.setFormula('=PY("x = 41")')
-        a3.setFormula('=PY("result = x if data is None else -999")')
+        # Unique name: leftover ``x`` from other tests cannot fake the first F9.
+        a1.setFormula('=PY("x_geo_live = 41")')
+        a3.setFormula('=PY("result = x_geo_live if data is None else -999")')
         _flush(ctx, doc, sheet)
-        # Client flush writes the formula; soffice reconcile fills soffice's
-        # strip-safe index + recorded session (eval runs in that process).
-        _soffice_reconcile(ctx, doc)
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
         assert _pred(str(a1.getFormula() or "")) is None
 
-        # Cold soffice worker after attach so the first F9 cannot succeed
-        # because setFormula already left ``x`` in the Shared namespace.
-        _soffice_cold_kernel(ctx, doc)
-        _record_this_workbook_only(doc)
-        if not _wait_cell_value(doc, a3, 41.0):
+        reopened = _save_reopen_calc(ctx, doc)
+        rsheet = reopened.getSheets().getByIndex(0)
+        ra1 = rsheet.getCellByPosition(0, 0)
+        ra3 = rsheet.getCellByPosition(0, 2)
+        assert _pred(str(ra3.getFormula() or "")) == "A1", ra3.getFormula()
+
+        if not _wait_cell_value(reopened, ra3, 41.0):
             if _skip_if_py_unregistered(
-                a1, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
+                ra1, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
             ):
                 return
             raise AssertionError(
-                "A3 did not become 41 after attach+F9: value=%r error=%r string=%r formula=%r"
-                % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
+                "A3 did not become 41 after attach+reload+F9: "
+                "value=%r error=%r string=%r formula=%r"
+                % (ra3.getValue(), ra3.getError(), ra3.getString(), ra3.getFormula())
             )
-        assert a3.getValue() == 41.0, (
-            a3.getValue(),
-            a3.getString(),
-            a3.getFormula(),
+        assert ra3.getValue() == 41.0, (
+            ra3.getValue(),
+            ra3.getString(),
+            ra3.getFormula(),
         )
 
-        # Second F9 (warm kernel is fine here — first pass already proved order).
-        doc.calculateAll()
-        assert a3.getValue() == 41.0, (
-            a3.getValue(),
-            a3.getString(),
-            a3.getFormula(),
+        # Second F9. Same value — geometric edge stays, Shared name persists.
+        reopened.calculateAll()
+        assert ra3.getValue() == 41.0, (
+            ra3.getValue(),
+            ra3.getString(),
+            ra3.getFormula(),
         )
     finally:
+        if reopened is not None:
+            try:
+                reopened.close(True)
+            except Exception:
+                pass
         set_config("scripting.python_session_mode", "isolated")
-        _soffice_restore_flag(ctx, doc)
         _restore_geometric_flag(previous)
 
 
 @native_test
-@with_native_doc("calc")
+@with_native_doc("calc", reuse=False)
 def test_geometric_chained_origin_still_auto_spills(ctx, doc):
     """§10 leftover: attaching ``;pred`` must not collapse an auto-spill origin to 1×1.
 
     Unchained live spill is already covered by ``test_calc_spill_undo_lock``
     (direct ``perform_deferred_spill``) and ``test_function`` DummyTimer cases.
-    This adds the chained origin next to those, using the same spill path.
+    This adds the chained origin next to those. Reload so soffice strip runs:
+    origin value must stay 10 (2×2 first cell), not 20 (pred ``1`` as
+    ``index_arg``). Neighbors use the same ``perform_deferred_spill`` path —
+    soffice's 0.1s spill timer no-ops under ``WRITERAGENT_TESTING``.
     """
+    from plugin.calc.python.formula_locator_cache import is_matching_py_formula
+    from plugin.calc.python.function import perform_deferred_spill
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
     from plugin.framework.config import get_config_bool
 
     assert get_config_bool("scripting.python_auto_spill") is True
     reset_geometric_runtime_for_tests()
-    _cold_kernel()
     previous = _enable_geometric_flag()
+    reopened = None
     try:
-        _record_this_workbook_only(doc)
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
         a3 = sheet.getCellByPosition(0, 2)
-        b3 = sheet.getCellByPosition(1, 2)
-        a4 = sheet.getCellByPosition(0, 3)
-        b4 = sheet.getCellByPosition(1, 3)
+        spill_code = "result = [[10, 20], [30, 40]]"
         a1.setFormula('=PY("result = 1")')
-        # 2×2 list — origin A3, neighbors B3 / A4 / B4. Distinct code from A1
-        # so locate_formula_cell_in_doc stays unique after attach.
-        a3.setFormula('=PY("result = [[10, 20], [30, 40]]")')
+        a3.setFormula('=PY("%s")' % spill_code)
         _flush(ctx, doc, sheet)
-        _soffice_reconcile(ctx, doc)
-        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        stored = str(a3.getFormula() or "")
+        assert _pred(stored) == "A1", stored
+        # Attaching ;pred must not break spill's origin match (code arg only).
+        assert is_matching_py_formula(stored, spill_code), stored
 
-        if not _wait_cell_value(doc, a3, 10.0):
+        reopened = _save_reopen_calc(ctx, doc)
+        rsheet = reopened.getSheets().getByIndex(0)
+        ra1 = rsheet.getCellByPosition(0, 0)
+        ra3 = rsheet.getCellByPosition(0, 2)
+        stored = str(ra3.getFormula() or "")
+        assert _pred(stored) == "A1", stored
+        assert is_matching_py_formula(stored, spill_code), stored
+
+        # Live eval: strip must keep the 2×2. Pred value 1 as index_arg → 20.
+        if not _wait_cell_value(reopened, ra3, 10.0):
             if _skip_if_py_unregistered(
-                a1, test_name="test_geometric_chained_origin_still_auto_spills"
+                ra1, test_name="test_geometric_chained_origin_still_auto_spills"
             ):
                 return
             raise AssertionError(
-                "chained origin did not become 10: value=%r error=%r string=%r formula=%r"
-                % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
+                "chained origin collapsed or did not eval 2×2: "
+                "value=%r error=%r string=%r formula=%r"
+                % (ra3.getValue(), ra3.getError(), ra3.getString(), ra3.getFormula())
             )
+        assert ra3.getValue() == 10.0, (ra3.getValue(), ra3.getFormula())
 
-        assert a3.getValue() == 10.0, (a3.getValue(), a3.getString(), a3.getFormula())
-        assert a3.getString() != "#SPILL!", a3.getString()
-        # Deferred spill writes neighbors from soffice (0.1s timer). Poll.
-        if not _wait_cell_value(doc, b3, 20.0):
-            raise AssertionError(
-                "chained origin did not spill to B3: value=%r string=%r origin=%r"
-                % (b3.getValue(), b3.getString(), a3.getFormula())
-            )
-        assert a4.getValue() == 30.0, (a4.getValue(), a4.getString())
-        assert b4.getValue() == 40.0, (b4.getValue(), b4.getString())
+        doc_url = getattr(reopened, "getURL", lambda: "")() or ""
+        perform_deferred_spill(
+            ctx,
+            doc_url,
+            rsheet.Name,
+            2,
+            0,
+            [[10, 20], [30, 40]],
+            doc=reopened,
+            code=spill_code,
+        )
+        assert ra3.getString() != "#SPILL!", ra3.getString()
+        assert rsheet.getCellByPosition(1, 2).getValue() == 20.0
+        assert rsheet.getCellByPosition(0, 3).getValue() == 30.0
+        assert rsheet.getCellByPosition(1, 3).getValue() == 40.0
     finally:
-        _soffice_restore_flag(ctx, doc)
+        if reopened is not None:
+            try:
+                reopened.close(True)
+            except Exception:
+                pass
         _restore_geometric_flag(previous)
