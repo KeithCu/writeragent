@@ -398,17 +398,22 @@ def test_clear_sidebar_chat_falls_back_to_response_control(fake_listener: _FakeL
     assert fake_listener.response_control.getText() == ""
 
 
-def test_packet_g_requires_in_process_listener() -> None:
-    from tests.chatbot.test_mock_llm_sidebar_uno import (
-        _PACKET_G_LISTENER_SKIP,
-        _require_in_process_g_listener,
-    )
+def test_clear_sidebar_chat_urp_clicks_clear(monkeypatch) -> None:
+    import plugin.chatbot.sidebar_test_hooks as hooks
 
-    _require_in_process_g_listener(object())
-    with pytest.raises(unittest.SkipTest, match="in-process SendButtonListener") as caught:
-        _require_in_process_g_listener(None)
-    assert str(caught.value) == _PACKET_G_LISTENER_SKIP
-    assert "E8b" in str(caught.value)
+    clicked: list[object] = []
+    clear_btn = object()
+    monkeypatch.setattr(hooks, "send_listener", lambda frame=None: None)
+    monkeypatch.setattr(hooks, "chat_dialog_controls", lambda ctx, doc: {"clear": clear_btn})
+    monkeypatch.setattr(hooks, "current_component", lambda ctx: object())
+    monkeypatch.setattr(hooks, "uno_click", lambda ctrl: clicked.append(ctrl))
+    saved_ctx = hooks._HOOK_CTX
+    hooks._HOOK_CTX = object()
+    try:
+        clear_sidebar_chat(listener=None)
+    finally:
+        hooks._HOOK_CTX = saved_ctx
+    assert clicked == [clear_btn]
 
 
 def test_g_require_stop_rec_skips_when_label_stays_send(fake_listener: _FakeListener) -> None:
@@ -425,6 +430,36 @@ def test_g_require_stop_rec_ok_when_label_is_stop_rec(fake_listener: _FakeListen
 
     fake_listener.send_control.getModel().Label = "Stop Rec"
     _g_require_stop_rec(fake_listener, timeout=0.0)
+
+
+def test_g_require_stop_rec_urp_skips_when_session_send_stays_send(monkeypatch) -> None:
+    """URP-only: no in-process listener — skip after live Send label stays Send."""
+    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
+
+    class _Btn:
+        def __init__(self) -> None:
+            self._model = SimpleNamespace(Label="Send")
+
+        def getModel(self):
+            return self._model
+
+    monkeypatch.setattr(gmod, "_session", SimpleNamespace(controls={"send": _Btn()}))
+    with pytest.raises(unittest.SkipTest, match="Record no-op"):
+        gmod._g_require_stop_rec(None, timeout=0.0)
+
+
+def test_g_require_stop_rec_urp_ok_when_session_send_is_stop_rec(monkeypatch) -> None:
+    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
+
+    class _Btn:
+        def __init__(self) -> None:
+            self._model = SimpleNamespace(Label="Stop Rec")
+
+        def getModel(self):
+            return self._model
+
+    monkeypatch.setattr(gmod, "_session", SimpleNamespace(controls={"send": _Btn()}))
+    gmod._g_require_stop_rec(None, timeout=0.0)
 
 
 def test_mock_config_mutates_flags() -> None:

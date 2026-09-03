@@ -804,24 +804,43 @@ def clear_sidebar_chat(*, listener: Any = None) -> None:
 
     Packet G canned-string asserts must not see leftover Packet E/F body
     (``hello``, ``look up cats``, ``document_research``). Same path as Clear.
-    Requires an in-process ``SendButtonListener`` — URP-only callers skip.
+    In-process listener uses ``session.clear``; URP clicks the Clear control.
     """
     _require_debug()
     sl = listener if listener is not None else send_listener()
-    if sl is None:
+    if sl is not None:
+        session = getattr(sl, "session", None)
+        clearer = getattr(session, "clear", None) if session is not None else None
+        if callable(clearer):
+            clearer()
+        widget = getattr(sl, "rich_text_widget", None)
+        greet = getattr(widget, "clear_and_greeting", None) if widget is not None else None
+        if callable(greet):
+            greet("")
+            return
+        from plugin.chatbot.dialogs import set_control_text
+
+        response = getattr(sl, "response_control", None)
+        if response is not None:
+            set_control_text(response, "")
         return
-    session = getattr(sl, "session", None)
-    clearer = getattr(session, "clear", None) if session is not None else None
-    if callable(clearer):
-        clearer()
-    widget = getattr(sl, "rich_text_widget", None)
-    greet = getattr(widget, "clear_and_greeting", None) if widget is not None else None
-    if callable(greet):
-        greet("")
+    ctx = _HOOK_CTX
+    if ctx is None:
         return
+    try:
+        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+    except Exception:
+        return
+    clear_btn = controls.get("clear")
+    if clear_btn is not None:
+        try:
+            uno_click(clear_btn)
+            return
+        except Exception:
+            log.debug("clear_sidebar_chat URP Clear click failed", exc_info=True)
     from plugin.chatbot.dialogs import set_control_text
 
-    response = getattr(sl, "response_control", None)
+    response = controls.get("response_rich") or controls.get("response")
     if response is not None:
         set_control_text(response, "")
 
