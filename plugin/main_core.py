@@ -107,6 +107,12 @@ def bootstrap(ctx=None) -> None:
         except Exception:
             log.debug("Excel PY auto-convert on open install failed", exc_info=True)
         try:
+            from plugin.calc.python.geometric_recalc import install_geometric_recalc
+
+            install_geometric_recalc()
+        except Exception:
+            log.debug("Geometric recalc install failed", exc_info=True)
+        try:
             from plugin.notebook.notebook_controls import install_notebook_run_button_wiring
 
             install_notebook_run_button_wiring(ctx)

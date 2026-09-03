@@ -166,6 +166,7 @@ def test_json_only_settings_absent_from_settings_xdl(tmp_path: Path) -> None:
     assert "mcp__mcp_enabled" in tops
     assert "scripting__python_venv_path" in tops
     assert "scripting__xl_static_rewrite" in tops
+    assert "scripting__python_geometric_recalc_order" in tops
 
 
 def test_xl_static_rewrite_checkbox_beside_auto_spill(tmp_path: Path) -> None:

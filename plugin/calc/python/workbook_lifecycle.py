@@ -97,6 +97,12 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         except Exception:
             log.debug("python_workbook_lifecycle: spill state clear failed", exc_info=True)
         try:
+            from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
+
+            clear_in_memory_geometric_state(workbook_key=self._workbook_session_id)
+        except Exception:
+            log.debug("python_workbook_lifecycle: geometric state clear failed", exc_info=True)
+        try:
             from plugin.scripting.session_manager import clear_active_calc_session
 
             clear_active_calc_session(self._workbook_session_id)

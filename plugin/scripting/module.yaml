@@ -80,6 +80,14 @@ config:
       - value: shared
         label: Shared kernel
 
+  python_geometric_recalc_order:
+    type: bool
+    default: false
+    widget: checkbox
+    label: Geometric Recalc Order
+    helper: Ensures PY cells evaluate in sheet order. Most useful with Shared kernel.
+    public: true
+
   python_auto_spill:
     type: bool
     default: true

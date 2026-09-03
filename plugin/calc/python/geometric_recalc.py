@@ -2,20 +2,25 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Geometric Recalc Order — Phase 1: list-diff, formula splice, eval-index bools.
+"""Geometric Recalc Order — list-diff, attach, UDProp map, eval-time strip.
 
-Pure helpers. No UNO. Given a row-major list of PY cells plus the in-memory
-attach map, compute formula patches and unanimous-ours strip-safe triples.
+Phase 1 helpers stay pure (no UNO): given a row-major list of PY cells plus the
+in-memory attach map, compute formula patches and unanimous-ours strip-safe
+triples. Phase 2/4 add the Settings flag, UDProp / in-memory map, attach on
+save and flag-on, Isolated session record, and worker-ingress strip.
 
-See ``docs/calc/geometric-recalc-order.md`` §8 Phase 1 and §9.5.
-Cap-hit skip uses ``len(cells) >= _MAX_PYTHON_CELLS_FOUND`` (no truncated flag
-in this phase). A skipped sheet must also show a user-visible error — callers
-use :func:`notify_geometric_cap_hit` on the UI thread (one box per sheet).
+See ``docs/calc/geometric-recalc-order.md`` §8 Phase 2 + Phase 4 and §9.5.
+Cap-hit skip uses ``len(cells) >= _MAX_PYTHON_CELLS_FOUND`` (no truncated flag).
+A skipped sheet must also show a user-visible error — callers use
+:func:`notify_geometric_cap_hit` on the UI thread (one box per sheet).
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import threading
+import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
@@ -351,3 +356,499 @@ def compute_sheet_repair(
         strip_safe=strip_safe,
         sheet_name=sheet_name,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 / 4 — UDProp map, UI attach, eval-time strip
+# ---------------------------------------------------------------------------
+# Copy the spill pattern (function.py WriterAgentSpillRegistry / SPILL_REGISTRY).
+# Eval identity is unanimous-ours + workbook_key, not a 1×1 / uniqueness heuristic.
+
+GEOMETRIC_RECORDS: dict[tuple[str, str, str], GeometricRecord] = {}
+_STRIP_SAFE: frozenset[EvalIndexKey] = frozenset()
+GEOMETRIC_LOADED: set[str] = set()
+_GEOMETRIC_LOCK = threading.Lock()
+_GEOMETRIC_REPAIRING = False
+_LAST_GEOMETRIC_FLAG: bool | None = None
+_CONFIG_SUBSCRIBED = False
+
+
+def reset_geometric_runtime_for_tests() -> None:
+    """Drop in-memory maps. Tests only."""
+    global _STRIP_SAFE, _GEOMETRIC_REPAIRING, _LAST_GEOMETRIC_FLAG
+    with _GEOMETRIC_LOCK:
+        GEOMETRIC_RECORDS.clear()
+        GEOMETRIC_LOADED.clear()
+        _STRIP_SAFE = frozenset()
+    _GEOMETRIC_REPAIRING = False
+
+
+def geometric_flag_enabled() -> bool:
+    """Settings flag. Default false; missing schema is off, not an exception."""
+    from plugin.framework.config import get_config_bool_safe
+
+    return get_config_bool_safe(CONFIG_KEY)
+
+
+def geometric_workbook_key(doc: Any) -> str:
+    """``calc:`` + ``_workbook_session_key`` — never empty (unsaved uses a persisted id)."""
+    from plugin.scripting.session_manager import _workbook_session_key
+
+    key = (_workbook_session_key(doc) or "").strip()
+    if not key:
+        # _workbook_session_key already avoids "". This is the #402 last resort.
+        key = f"unsaved:{uuid.uuid4()}"
+    return f"calc:{key}"
+
+
+def record_geometric_calc_session(doc: Any) -> str:
+    """Isolated UI load/repair must record the same string eval reads."""
+    from plugin.scripting.session_manager import record_active_calc_session
+
+    sid = geometric_workbook_key(doc)
+    record_active_calc_session(sid)
+    return sid
+
+
+def current_geometric_strip_safe() -> frozenset[EvalIndexKey]:
+    with _GEOMETRIC_LOCK:
+        return _STRIP_SAFE
+
+
+def replace_geometric_strip_safe(workbook_key: str, safe: frozenset[EvalIndexKey]) -> None:
+    """Replace eval-index bools for one workbook. Other workbooks stay."""
+    global _STRIP_SAFE
+    with _GEOMETRIC_LOCK:
+        kept = frozenset(k for k in _STRIP_SAFE if k.workbook_key != workbook_key)
+        _STRIP_SAFE = kept | frozenset(safe)
+
+
+def records_for_sheet(workbook_key: str, sheet_name: str) -> dict[str, GeometricRecord]:
+    with _GEOMETRIC_LOCK:
+        return {
+            addr: rec
+            for (wk, sheet, addr), rec in GEOMETRIC_RECORDS.items()
+            if wk == workbook_key and sheet == sheet_name
+        }
+
+
+def replace_records_for_sheet(
+    workbook_key: str,
+    sheet_name: str,
+    records: Mapping[str, GeometricRecord],
+) -> None:
+    with _GEOMETRIC_LOCK:
+        stale = [
+            key
+            for key in GEOMETRIC_RECORDS
+            if key[0] == workbook_key and key[1] == sheet_name
+        ]
+        for key in stale:
+            GEOMETRIC_RECORDS.pop(key, None)
+        for addr, rec in records.items():
+            GEOMETRIC_RECORDS[(workbook_key, sheet_name, cell_map_key(addr))] = rec
+
+
+def load_geometric_registry_for_doc(doc: Any) -> str:
+    """Load UDProp into the in-memory map. Returns the live workbook_key."""
+    workbook_key = record_geometric_calc_session(doc)
+    try:
+        from plugin.doc.udprops import get_document_property
+
+        raw = get_document_property(doc, GEOMETRIC_REGISTRY_PROP, None)
+        if not isinstance(raw, str) or not raw.strip():
+            GEOMETRIC_LOADED.add(workbook_key)
+            return workbook_key
+        payload = json.loads(raw)
+        sheets = payload.get("sheets") if isinstance(payload, dict) else None
+        if not isinstance(sheets, dict):
+            # Flat spill-like fallback: "Sheet1:A2" -> "A1"
+            sheets = {}
+            if isinstance(payload, dict):
+                for key, pred in payload.items():
+                    if key in ("workbook_key", "sheets") or not isinstance(pred, str):
+                        continue
+                    if ":" not in key:
+                        continue
+                    sheet, addr = key.split(":", 1)
+                    sheets.setdefault(sheet, {})[addr] = pred
+        with _GEOMETRIC_LOCK:
+            for sheet_name, addrs in sheets.items():
+                if not isinstance(addrs, dict):
+                    continue
+                for addr, pred in addrs.items():
+                    predecessor = pred
+                    if isinstance(pred, dict):
+                        predecessor = pred.get("predecessor", "")
+                    if not predecessor:
+                        continue
+                    GEOMETRIC_RECORDS[
+                        (workbook_key, str(sheet_name), cell_map_key(str(addr)))
+                    ] = GeometricRecord(predecessor=local_a1(str(predecessor)))
+        GEOMETRIC_LOADED.add(workbook_key)
+    except Exception:
+        log.exception("Failed to load geometric registry from document property")
+        GEOMETRIC_LOADED.add(workbook_key)
+    return workbook_key
+
+
+def save_geometric_registry_for_doc(doc: Any, workbook_key: str) -> None:
+    """Persist this workbook's attach records. Sibling of save_spill_registry_for_doc."""
+    try:
+        from plugin.doc.udprops import set_document_property
+
+        sheets: dict[str, dict[str, str]] = {}
+        with _GEOMETRIC_LOCK:
+            for (wk, sheet, addr), rec in GEOMETRIC_RECORDS.items():
+                if wk != workbook_key:
+                    continue
+                sheets.setdefault(sheet, {})[addr] = rec.predecessor
+        set_document_property(
+            doc,
+            GEOMETRIC_REGISTRY_PROP,
+            json.dumps({"workbook_key": workbook_key, "sheets": sheets}),
+        )
+    except Exception:
+        log.exception("Failed to save geometric registry to document property")
+
+
+def clear_in_memory_geometric_state(*, workbook_key: str = "") -> None:
+    """Drop instance-scoped geometric maps. UDProp is left for a later open."""
+    global _STRIP_SAFE
+    with _GEOMETRIC_LOCK:
+        if workbook_key:
+            for key in [k for k in GEOMETRIC_RECORDS if k[0] == workbook_key]:
+                GEOMETRIC_RECORDS.pop(key, None)
+            GEOMETRIC_LOADED.discard(workbook_key)
+            _STRIP_SAFE = frozenset(k for k in _STRIP_SAFE if k.workbook_key != workbook_key)
+        else:
+            GEOMETRIC_RECORDS.clear()
+            GEOMETRIC_LOADED.clear()
+            _STRIP_SAFE = frozenset()
+
+
+def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any]) -> list[Any]:
+    """Drop the last split arg when the triple is strip-safe. No UNO.
+
+    Must run after ``split_python_addin_data_args`` and before
+    ``calc_addin_args_from_split`` / the matrix-index heuristic. Two open
+    workbooks (unambiguous false) → no strip.
+    """
+    if not args:
+        return args
+    from plugin.scripting.session_manager import (
+        get_cached_calc_session_id,
+        off_main_calc_session_is_unambiguous,
+    )
+
+    unambiguous = off_main_calc_session_is_unambiguous()
+    workbook_key = get_cached_calc_session_id() if unambiguous else None
+    if not should_strip_eval_args(
+        workbook_key=workbook_key,
+        resolved_code=resolved_code,
+        n_args=len(args),
+        strip_safe=current_geometric_strip_safe(),
+        unambiguous=unambiguous,
+    ):
+        return args
+    return args[:-1]
+
+
+def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
+    """Cell contents of an unquoted ``=PY($A$1)`` code ref (resolved source)."""
+    from plugin.calc.address_utils import parse_address
+
+    sheet_name, rest = split_sheet_prefix(ref)
+    local = rest.replace("$", "").strip()
+    sheet = default_sheet
+    if sheet_name and doc is not None:
+        try:
+            sheet = doc.getSheets().getByName(sheet_name)
+        except Exception:
+            pass
+    if sheet is None or not local:
+        return ""
+    try:
+        col, row = parse_address(local)
+        cell = sheet.getCellByPosition(col, row)
+        return str(cell.getString() or "")
+    except Exception:
+        return ""
+
+
+def _resolved_code_for_discovered(doc: Any, sheet: Any, formula: str) -> str:
+    from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse
+
+    canon = canonicalize_py_formula_for_parse(formula)
+    if py_formula_has_unquoted_code_ref(canon):
+        parts = parse_python_formula(canon)
+        if parts is None:
+            return ""
+        return _read_code_ref_text(doc, sheet, parts.code)
+    return resolved_code_for_formula(canon)
+
+
+def geometric_cells_on_sheet(doc: Any, sheet: Any) -> tuple[list[GeometricCell], str]:
+    """Discover one sheet as Phase 1 cells. Address is local A1 (per-sheet map)."""
+    from plugin.calc.python.cell_discovery import list_python_cells_on_sheet
+
+    infos = list_python_cells_on_sheet(sheet)
+    try:
+        name = str(sheet.getName() or "") or "Sheet"
+    except Exception:
+        name = "Sheet"
+    cells = [
+        GeometricCell(
+            address=local_a1(info.address),
+            formula=info.formula,
+            resolved_code=_resolved_code_for_discovered(doc, sheet, info.formula),
+        )
+        for info in infos
+    ]
+    return cells, name
+
+
+def _iter_sheets(doc: Any) -> list[Any]:
+    out: list[Any] = []
+    try:
+        sheets = doc.getSheets()
+        for i in range(int(sheets.getCount())):
+            out.append(sheets.getByIndex(i))
+    except Exception:
+        log.debug("geometric_recalc: sheet walk failed", exc_info=True)
+    return out
+
+
+def _sheet_of_cell(cell: Any, doc: Any) -> Any | None:
+    if cell is not None and hasattr(cell, "getSpreadsheet"):
+        try:
+            sheet = cell.getSpreadsheet()
+            if sheet is not None:
+                return sheet
+        except Exception:
+            pass
+    try:
+        ctrl = doc.getCurrentController()
+        if ctrl is not None:
+            return ctrl.getActiveSheet()
+    except Exception:
+        pass
+    return None
+
+
+def _cell_on_sheet(sheet: Any, address: str) -> Any | None:
+    from plugin.calc.address_utils import parse_address
+
+    local = local_a1(address)
+    if not local:
+        return None
+    try:
+        col, row = parse_address(local)
+        return sheet.getCellByPosition(col, row)
+    except Exception:
+        return None
+
+
+def _apply_patches_to_sheet(sheet: Any, patches: tuple[GeometricPatch, ...]) -> int:
+    """``setFormula`` for each patch. Caller holds ``_undo_lock`` + re-entrancy."""
+    applied = 0
+    for patch in patches:
+        cell = _cell_on_sheet(sheet, patch.address)
+        if cell is None:
+            continue
+        try:
+            current = str(cell.getFormula() or "")
+        except Exception:
+            continue
+        if current != patch.old_formula:
+            # Stale: user or Calc changed the cell since we computed the patch.
+            continue
+        try:
+            cell.setFormula(patch.new_formula)
+            applied += 1
+        except Exception:
+            log.debug("geometric_recalc: setFormula failed at %s", patch.address, exc_info=True)
+    return applied
+
+
+def _rebuild_strip_safe_from_doc(
+    ctx: Any,
+    doc: Any,
+    workbook_key: str,
+    *,
+    already_notified: set[str] | None = None,
+) -> None:
+    """Workbook-wide unanimous-ours. Cap-hit sheets are omitted (cannot prove)."""
+    all_cells: list[GeometricCell] = []
+    all_formulas: dict[str, str] = {}
+    all_records: dict[str, GeometricRecord] = {}
+    notified = already_notified if already_notified is not None else set()
+    for sheet in _iter_sheets(doc):
+        cells, name = geometric_cells_on_sheet(doc, sheet)
+        if discovery_cap_hit(len(cells)):
+            notify_geometric_cap_hit(ctx, name, already_notified=notified)
+            continue
+        for cell in cells:
+            scoped = f"{name}:{cell_map_key(cell.address)}"
+            all_cells.append(
+                GeometricCell(scoped, cell.formula, cell.resolved_code)
+            )
+            all_formulas[scoped] = cell.formula
+        for addr, rec in records_for_sheet(workbook_key, name).items():
+            all_records[f"{name}:{addr}"] = rec
+    replace_geometric_strip_safe(
+        workbook_key,
+        compute_eval_index(all_cells, all_formulas, all_records, workbook_key),
+    )
+
+
+def _repair_one_sheet(
+    ctx: Any,
+    doc: Any,
+    sheet: Any,
+    workbook_key: str,
+    *,
+    apply_patches: bool,
+    already_notified: set[str] | None = None,
+) -> SheetRepairResult:
+    cells, name = geometric_cells_on_sheet(doc, sheet)
+    result = compute_sheet_repair(
+        cells,
+        records_for_sheet(workbook_key, name),
+        workbook_key=workbook_key,
+        sheet_name=name,
+    )
+    if result.skipped:
+        notify_geometric_cap_hit(ctx, name, already_notified=already_notified)
+        return result
+    if apply_patches and result.patches:
+        _apply_patches_to_sheet(sheet, result.patches)
+    replace_records_for_sheet(workbook_key, name, result.records)
+    return result
+
+
+def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = False) -> None:
+    """Flag-on / document-open: attach every sheet, one locked undo unit."""
+    global _GEOMETRIC_REPAIRING
+    if doc is None or _GEOMETRIC_REPAIRING:
+        return
+    workbook_key = (
+        record_geometric_calc_session(doc)
+        if already_loaded
+        else load_geometric_registry_for_doc(doc)
+    )
+    _GEOMETRIC_REPAIRING = True
+    try:
+        from plugin.calc.python.function import _undo_lock
+
+        notified: set[str] = set()
+        with _undo_lock(doc):
+            for sheet in _iter_sheets(doc):
+                _repair_one_sheet(
+                    ctx,
+                    doc,
+                    sheet,
+                    workbook_key,
+                    apply_patches=True,
+                    already_notified=notified,
+                )
+            save_geometric_registry_for_doc(doc, workbook_key)
+        _rebuild_strip_safe_from_doc(
+            ctx, doc, workbook_key, already_notified=notified
+        )
+    finally:
+        _GEOMETRIC_REPAIRING = False
+
+
+def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any) -> None:
+    """Save-path attach for one sheet. Neighbors on this sheet may retarget."""
+    global _GEOMETRIC_REPAIRING
+    if doc is None or sheet is None or _GEOMETRIC_REPAIRING:
+        return
+    workbook_key = load_geometric_registry_for_doc(doc)
+    _GEOMETRIC_REPAIRING = True
+    try:
+        from plugin.calc.python.function import _undo_lock
+
+        notified: set[str] = set()
+        with _undo_lock(doc):
+            _repair_one_sheet(
+                ctx,
+                doc,
+                sheet,
+                workbook_key,
+                apply_patches=True,
+                already_notified=notified,
+            )
+            save_geometric_registry_for_doc(doc, workbook_key)
+        _rebuild_strip_safe_from_doc(
+            ctx, doc, workbook_key, already_notified=notified
+        )
+    finally:
+        _GEOMETRIC_REPAIRING = False
+
+
+def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
+    """Primary attach path: Monaco / native Save is already outside recalc."""
+    if not geometric_flag_enabled() or doc is None:
+        return
+    if ctx is None:
+        try:
+            from plugin.framework.uno_context import get_ctx
+
+            ctx = get_ctx()
+        except Exception:
+            ctx = None
+    sheet = _sheet_of_cell(cell, doc)
+    if sheet is None:
+        return
+    reconcile_geometric_sheet(ctx, doc, sheet)
+
+
+def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
+    """Load UDProp; reconcile when the flag is on. Always record Isolated session."""
+    if doc is None:
+        return
+    try:
+        if not doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+            return
+    except Exception:
+        return
+    record_geometric_calc_session(doc)
+    load_geometric_registry_for_doc(doc)
+    if geometric_flag_enabled():
+        reconcile_geometric_document(ctx, doc, already_loaded=True)
+    else:
+        workbook_key = geometric_workbook_key(doc)
+        _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
+
+
+def _on_geometric_config_changed(**kwargs: Any) -> None:
+    """Flag-on walks all sheets. Flag-off leaves refs and the map."""
+    global _LAST_GEOMETRIC_FLAG
+    now = geometric_flag_enabled()
+    was = _LAST_GEOMETRIC_FLAG
+    _LAST_GEOMETRIC_FLAG = now
+    if not now or was is not False:
+        return
+    ctx = kwargs.get("ctx")
+    if ctx is None:
+        return
+    from plugin.scripting.session_manager import _calc_document
+
+    doc = _calc_document(ctx)
+    if doc is None:
+        return
+    reconcile_geometric_document(ctx, doc)
+
+
+def install_geometric_recalc() -> None:
+    """Subscribe to Settings so flag-on can attach. Idempotent."""
+    global _CONFIG_SUBSCRIBED, _LAST_GEOMETRIC_FLAG
+    if _CONFIG_SUBSCRIBED:
+        return
+    _LAST_GEOMETRIC_FLAG = geometric_flag_enabled()
+    from plugin.framework.event_bus import global_event_bus
+
+    global_event_bus.subscribe("config:changed", _on_geometric_config_changed)
+    _CONFIG_SUBSCRIBED = True

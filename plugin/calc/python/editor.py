@@ -321,6 +321,9 @@ def _apply_formula_save(
     if isinstance(new_formula, dict):
         return new_formula
     cell.setFormula(new_formula)
+    from plugin.calc.python.geometric_recalc import after_py_cell_save
+
+    after_py_cell_save(doc, cell)
     _recalculate_after_save(doc)
     return {"type": "saved", "ok": True, "save_as_plain": False}
 
@@ -367,6 +370,9 @@ def _apply_followed_ref_save(
             formula_cell.setFormula(
                 f"={CALC_PYTHON_FN}({code_ref.strip()}{build_data_suffix(data_args)}"
             )
+    from plugin.calc.python.geometric_recalc import after_py_cell_save
+
+    after_py_cell_save(doc, formula_cell)
     _recalculate_after_save(doc)
     return {
         "type": "saved",

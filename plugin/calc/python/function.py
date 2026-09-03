@@ -1177,6 +1177,12 @@ def _execute_python_addin_impl(
     try:
         t_pack = time.perf_counter() if timings else 0.0
         args = split_python_addin_data_args(data)
+        # Geometric predecessor is a Calc-only DAG token. Strip it before
+        # calc_addin_args_from_split (1 vs N flips `data` to a list) and
+        # before the matrix-index peel (a leftover 1×1 pred becomes index_arg).
+        from plugin.calc.python.geometric_recalc import maybe_strip_geometric_eval_args
+
+        args = maybe_strip_geometric_eval_args(code, args)
         py_data = calc_addin_args_from_split(args, true_strings, false_strings)
         log.debug("PYTHON parsed py_data: %r", py_data)
         is_multi = len(args) > 1

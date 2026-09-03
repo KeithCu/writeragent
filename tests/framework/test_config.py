@@ -365,6 +365,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config('scripting.python_max_data_cells'), 250000)
         self.assertEqual(get_config('scripting.python_venv_path'), '')
         self.assertEqual(get_config_bool('scripting.python_auto_spill'), True)
+        self.assertEqual(get_config_bool('scripting.python_geometric_recalc_order'), False)
         self.assertEqual(get_config('doc.agent_edit_review_mode'), 'off')
         self.assertEqual(get_config_int('chatbot.max_tool_rounds'), 15)
         self.assertEqual(get_config_int('web_research_cache_jaccard_percent'), 60)

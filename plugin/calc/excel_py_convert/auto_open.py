@@ -244,6 +244,17 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                                 "collabora PY rewrite on open failed",
                                 exc_info=True,
                             )
+                        try:
+                            from plugin.calc.python.geometric_recalc import (
+                                maybe_geometric_on_document_open,
+                            )
+
+                            execute_on_main_thread(maybe_geometric_on_document_open, ctx, doc)
+                        except Exception:
+                            log.warning(
+                                "geometric recalc on open failed",
+                                exc_info=True,
+                            )
                         return
                     if name in _SAVE_DONE_EVENTS:
                         maybe_export_excel_py_on_save(ctx, doc)

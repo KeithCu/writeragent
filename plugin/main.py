@@ -279,6 +279,12 @@ def _register_core_handlers():
         install_excel_py_auto_convert(get_ctx())
     except Exception:
         log.debug("Excel PY auto-convert on open install failed", exc_info=True)
+    try:
+        from plugin.calc.python.geometric_recalc import install_geometric_recalc
+
+        install_geometric_recalc()
+    except Exception:
+        log.debug("Geometric recalc install failed", exc_info=True)
 
     def _open_search_dialog():
         from plugin.embeddings.search_ui import show_search_dialog

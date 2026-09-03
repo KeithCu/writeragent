@@ -58,6 +58,34 @@ def test_unload_clears_in_memory_spill_state():
     assert "file:///gone.ods" not in python_function.LOADED_DOCUMENTS
 
 
+def test_unload_clears_in_memory_geometric_state():
+    from plugin.calc.python.geometric_recalc import (
+        EvalIndexKey,
+        GeometricRecord,
+        GEOMETRIC_LOADED,
+        GEOMETRIC_RECORDS,
+        clear_in_memory_geometric_state,
+        current_geometric_strip_safe,
+        replace_geometric_strip_safe,
+        reset_geometric_runtime_for_tests,
+    )
+
+    reset_geometric_runtime_for_tests()
+    key = "calc:file:///gone-geo.ods"
+    GEOMETRIC_RECORDS[(key, "Sheet1", "A2")] = GeometricRecord(predecessor="A1")
+    GEOMETRIC_LOADED.add(key)
+    replace_geometric_strip_safe(key, frozenset({EvalIndexKey(key, "x", 2)}))
+    ctx = MagicMock()
+    listener = _CalcPythonUnloadListener(ctx, key, "key-geo", doc_url="file:///gone-geo.ods")
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+        mock_reset.return_value = {"status": "ok"}
+        listener.on_document_event(MagicMock(EventName="OnUnload"))
+    assert (key, "Sheet1", "A2") not in GEOMETRIC_RECORDS
+    assert key not in GEOMETRIC_LOADED
+    assert current_geometric_strip_safe() == frozenset()
+    clear_in_memory_geometric_state()
+
+
 def test_unload_clears_formula_location_cache():
     from plugin.calc.python.formula_locator_cache import FORMULA_LOCATION_CACHE
 
