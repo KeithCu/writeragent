@@ -10,9 +10,10 @@ triples. Phase 2/4 add the Settings flag, UDProp / in-memory map, attach on
 save and flag-on, Isolated session record, and worker-ingress strip.
 
 See ``docs/calc/geometric-recalc-order.md`` §8 Phase 2 + Phase 4 and §9.5.
-Eval identity is unanimous-ours plus ``workbook_key`` plus a recommended
-fingerprint of ``args[:-1]`` (not the last-arg value). The strip-safe index
-is a frozenset snapshot rebound on the UI thread (§3.5); workers only read.
+Eval identity is unanimous-ours on ``(workbook_key, resolved_code, n_args)``
+only — a value fingerprint of ``args[:-1]`` was rejected (data edits miss
+the key without Phase 3). The strip-safe index is a frozenset snapshot
+rebound on the UI thread (§3.5); workers only read.
 Cap-hit skip uses ``len(cells) >= _MAX_PYTHON_CELLS_FOUND`` (no truncated flag).
 A skipped sheet must also show a user-visible error — callers use
 :func:`notify_geometric_cap_hit` on the UI thread (one box per sheet).
@@ -20,27 +21,24 @@ A skipped sheet must also show a user-visible error — callers use
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Literal, Mapping
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import (
-    CALC_PYTHON_FN,
-    build_data_suffix,
+    escape_code_for_formula,
     format_data_binding_display,
+    format_py_data_range,
     parse_data_binding_text,
     parse_python_formula,
     py_code_arg_is_cell_ref,
     py_formula_has_unquoted_code_ref,
-    rebuild_python_formula_with_code_ref,
-    rebuild_python_formula_with_data,
 )
 from plugin.framework.i18n import _
 
@@ -60,10 +58,6 @@ class GeometricCell:
     address: str
     formula: str
     resolved_code: str
-    # Eval-index fingerprint of user args (``args[:-1]``). Empty → derive
-    # from formula tokens. Production rebuild sets a value fingerprint so
-    # worker strip can match without addresses.
-    args_fingerprint: str = ""
 
 
 @dataclass(frozen=True)
@@ -88,15 +82,16 @@ class GeometricPatch:
 class EvalIndexKey:
     """Eval-time strip key. ``code`` is resolved source, not a ``$A$1`` token.
 
-    ``args_fingerprint`` is ``fingerprint(args[:-1])`` — user ranges, never the
-    last-arg value (first pred recalc is empty/0). Two chains that reuse the
-    same snippet on different ranges must not share a triple.
+    Value fingerprint of ``args[:-1]`` was dropped: without a Phase 3
+    modify-listener the index is not rebuilt on data edits, so a live-value
+    hash missed after the user changed a range and strip skipped (arity
+    flip). Unanimous-ours on ``(workbook_key, resolved_code, n_args)`` never
+    produces wrong numbers — mixed same-triple only widens no-strip.
     """
 
     workbook_key: str
     resolved_code: str
     n_args: int
-    args_fingerprint: str = ""
 
 
 @dataclass(frozen=True)
@@ -156,66 +151,6 @@ def eval_n_args_from_data(data: Any) -> int:
     return len(split_python_addin_data_args(data))
 
 
-def _jsonable_for_fingerprint(obj: Any) -> Any:
-    """Canonical JSON form so UNO tuples and lists hash the same."""
-    if isinstance(obj, tuple):
-        return [_jsonable_for_fingerprint(item) for item in obj]
-    if isinstance(obj, list):
-        return [_jsonable_for_fingerprint(item) for item in obj]
-    if isinstance(obj, float) and obj.is_integer() and abs(obj) < 2**53:
-        return int(obj)
-    if isinstance(obj, (int, str, bool)) or obj is None:
-        return obj
-    return str(obj)
-
-
-def fingerprint_arg_values(values: Sequence[Any]) -> str:
-    """Stable hash of user-arg values (or normalized formula tokens)."""
-    if not values:
-        return ""
-    try:
-        blob = json.dumps(
-            _jsonable_for_fingerprint(list(values)),
-            sort_keys=True,
-            allow_nan=False,
-            separators=(",", ":"),
-        )
-    except (TypeError, ValueError):
-        blob = repr(values)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
-
-
-def fingerprint_eval_user_args(args: Sequence[Any]) -> str:
-    """Eval-time fingerprint of ``args[:-1]``. Never hashes the last arg."""
-    if not args:
-        return ""
-    return fingerprint_arg_values(args[:-1])
-
-
-def fingerprint_formula_user_args(formula: str) -> str:
-    """Repair-time token fingerprint of data args except the last (pred)."""
-    parsed = formula_data_args(formula)
-    if not parsed:
-        return ""
-    user = parsed[:-1]
-    if not user:
-        return ""
-    normalized = tuple(_normalize_arg_token(tok) for tok in user)
-    return fingerprint_arg_values(normalized)
-
-
-def _normalize_arg_token(arg: str) -> str:
-    _sheet, rest = split_sheet_prefix(arg or "")
-    return rest.replace("$", "").strip().upper()
-
-
-def _eval_index_fingerprint(cell: GeometricCell, formula: str) -> str:
-    """Prefer an explicit value fingerprint; else tokens of ``args[:-1]``."""
-    if cell.args_fingerprint:
-        return cell.args_fingerprint
-    return fingerprint_formula_user_args(formula)
-
-
 def discovery_cap_hit(n_found: int) -> bool:
     """Phase 1: treat ``len >= 100`` as cap-hit (over-skips an exact 100)."""
     return n_found >= GEOMETRIC_DISCOVERY_CAP
@@ -234,25 +169,45 @@ def resolved_code_for_formula(formula: str, *, code_cell_text: str | None = None
     return parts.code if parts is not None else ""
 
 
-def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | None:
-    """Spliced formula. Code-in-cell keeps the unquoted ref (``$A$1``), not a quoted token.
+def _geometric_data_suffix(old_args: list[str], new_args: list[str]) -> str:
+    """Join existing user args verbatim; format only a new/replaced last pred.
 
-    ``rebuild_python_formula_with_data`` would quote ``$A$1``.
-    ``rebuild_python_formula_with_code_ref`` is the code-ref builder, but it
-    runs the ref through ``format_py_data_range`` which strips ``$``. Emit the
-    parsed token + ``build_data_suffix`` so ``=PY($A$1; …)`` stays ``$A$1``.
+    ``build_data_suffix`` / ``_format_py_data_range_body`` strip ``$`` from
+    every token. That turned ``=PY("y"; $C$5)`` into ``=PY("y"; C5; A1)`` on
+    attach — a relative copy of an absolute user data ref. Keep the parsed
+    original spelling; only the appended/replaced predecessor is formatted.
+    """
+    if not new_args:
+        return ")"
+    emitted: list[str] = []
+    for i, tok in enumerate(new_args):
+        if i < len(old_args) and (tok == old_args[i] or same_cell_ref(tok, old_args[i])):
+            emitted.append(old_args[i])
+            continue
+        if i == len(new_args) - 1:
+            emitted.append(format_py_data_range(tok))
+        else:
+            emitted.append(tok)
+    return f";{';'.join(emitted)})"
+
+
+def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | None:
+    """Spliced formula. Existing user args stay verbatim (including ``$``).
+
+    Code-in-cell keeps the unquoted ref (``$A$1``), not a quoted token.
+    ``rebuild_python_formula_with_data`` would reformat every data arg
+    (strips ``$``) and quote ``$A$1``. Geometric splice uses the parsed
+    prefix + first-arg spelling and :func:`_geometric_data_suffix`.
     """
     parts = parse_python_formula(formula)
     if parts is None:
         return None
+    old_args = formula_data_args(formula) or []
+    suffix = _geometric_data_suffix(old_args, data_args)
     if py_formula_has_unquoted_code_ref(formula):
-        # rebuild_python_formula_with_code_ref strips $ via format_py_data_range.
         # Keep the parsed token so =PY($A$1; …) stays $A$1, not A1 and not "$A$1".
-        ref = parts.code
-        if ref != ref.replace("$", ""):
-            return f"={CALC_PYTHON_FN}({ref}{build_data_suffix(data_args)}"
-        return rebuild_python_formula_with_code_ref(ref, data_args)
-    return rebuild_python_formula_with_data(parts.code, data_args)
+        return f"{parts.prefix}{parts.code}{suffix}"
+    return f'{parts.prefix}"{escape_code_for_formula(parts.code)}"{suffix}'
 
 
 def geometric_cap_hit_user_message(sheet_name: str) -> str:
@@ -334,12 +289,7 @@ def compute_eval_index(
     groups: dict[EvalIndexKey, list[str]] = {}
     for cell in cells:
         formula = formulas.get(cell.address, cell.formula)
-        key = EvalIndexKey(
-            workbook_key,
-            cell.resolved_code,
-            repair_n_args(formula),
-            _eval_index_fingerprint(cell, formula),
-        )
+        key = EvalIndexKey(workbook_key, cell.resolved_code, repair_n_args(formula))
         groups.setdefault(key, []).append(cell_map_key(cell.address))
 
     safe: set[EvalIndexKey] = set()
@@ -356,12 +306,11 @@ def should_strip_eval_args(
     n_args: int,
     strip_safe: Mapping[EvalIndexKey, bool] | frozenset[EvalIndexKey],
     unambiguous: bool,
-    args_fingerprint: str = "",
 ) -> bool:
     """Eval gate: strip only when the session is unambiguous and the triple is ours."""
     if not unambiguous or not workbook_key:
         return False
-    key = EvalIndexKey(workbook_key, resolved_code, n_args, args_fingerprint)
+    key = EvalIndexKey(workbook_key, resolved_code, n_args)
     if isinstance(strip_safe, frozenset):
         return key in strip_safe
     return bool(strip_safe.get(key, False))
@@ -618,7 +567,9 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any]) -> list
 
     Must run after ``split_python_addin_data_args`` and before
     ``calc_addin_args_from_split`` / the matrix-index heuristic. Two open
-    workbooks (unambiguous false) → no strip.
+    workbooks (unambiguous false) → no strip. Does **not** consult
+    ``geometric_flag_enabled`` — §9.4 flag-off leaves leftover refs, so
+    leftover attached last args must still strip.
     """
     if not args:
         return args
@@ -635,55 +586,9 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any]) -> list
         n_args=len(args),
         strip_safe=current_geometric_strip_safe(),
         unambiguous=unambiguous,
-        args_fingerprint=fingerprint_eval_user_args(args),
     ):
         return args
     return args[:-1]
-
-
-_UNREADABLE = object()
-
-
-def _read_formula_arg_value(doc: Any, default_sheet: Any, token: str) -> Any:
-    """UI-thread range/cell values for one formula data arg. ``_UNREADABLE`` on miss."""
-    from plugin.calc.address_utils import parse_range_string
-
-    sheet_name, rest = split_sheet_prefix(token)
-    local = (rest or token).replace("$", "").strip()
-    sheet = default_sheet
-    if sheet_name and doc is not None:
-        try:
-            sheet = doc.getSheets().getByName(sheet_name)
-        except Exception:
-            pass
-    if sheet is None or not local:
-        return _UNREADABLE
-    try:
-        (start_col, start_row), (end_col, end_row) = parse_range_string(local)
-        rng = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
-        getter = getattr(rng, "getDataArray", None)
-        if callable(getter):
-            return getter()
-        # 1×1 stub cells have getValue, not getDataArray.
-        if hasattr(rng, "getValue"):
-            return ((rng.getValue(),),)
-    except Exception:
-        return _UNREADABLE
-    return _UNREADABLE
-
-
-def value_fingerprint_for_formula(doc: Any, sheet: Any, formula: str) -> str:
-    """Fingerprint ``args[:-1]`` by reading user ranges. Empty on miss (no strip)."""
-    parsed = formula_data_args(formula)
-    if not parsed or len(parsed) < 2:
-        return ""
-    values: list[Any] = []
-    for tok in parsed[:-1]:
-        val = _read_formula_arg_value(doc, sheet, tok)
-        if val is _UNREADABLE:
-            return ""
-        values.append(val)
-    return fingerprint_arg_values(values)
 
 
 def _read_code_ref_text(doc: Any, default_sheet: Any, ref: str) -> str:
@@ -823,12 +728,7 @@ def _rebuild_strip_safe_from_doc(
         for cell in cells:
             scoped = f"{name}:{cell_map_key(cell.address)}"
             all_cells.append(
-                GeometricCell(
-                    scoped,
-                    cell.formula,
-                    cell.resolved_code,
-                    value_fingerprint_for_formula(doc, sheet, cell.formula),
-                )
+                GeometricCell(scoped, cell.formula, cell.resolved_code)
             )
             all_formulas[scoped] = cell.formula
         for addr, rec in records_for_sheet(workbook_key, name).items():
@@ -953,7 +853,6 @@ def maybe_geometric_on_document_open(ctx: Any, doc: Any) -> None:
             return
     except Exception:
         return
-    record_geometric_calc_session(doc)
     load_geometric_registry_for_doc(doc)
     if geometric_flag_enabled():
         reconcile_geometric_document(ctx, doc, already_loaded=True)
