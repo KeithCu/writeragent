@@ -934,7 +934,7 @@ class _UrpSlashHost:
     def __init__(self, query: Any, response: Any, clear: Any, stop: Any) -> None:
         self.query_control = query
         self.response_control = response
-        self.slash_popup = None
+        self.slash_popup: Any = None
         self.clear_listener = type(
             "ClearProxy",
             (),
