@@ -122,15 +122,24 @@ def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
 
 def test_writer_chat_prompt_section_order_matches_assembly():
     """Writer system prompt sections appear in model-facing order (persona → format → tools → HTML last)."""
+    from plugin.framework.prompts import (
+        CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+        SIDEBAR_VS_DOCUMENT,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+        WRITER_CHAT_TOOLS_SECTION,
+    )
+
     model = MagicMock()
     model.supportsService.return_value = False
     prompt = get_chat_system_prompt_for_document(model)
     chat_fmt = prompt.index("CHAT RESPONSE FORMAT")
-    tools = prompt.index("TOOLS:")
-    html_rules = prompt.index("APPLY_DOCUMENT_CONTENT AND HTML")
-    sidebar = prompt.index("SIDEBAR CHAT")
-    assert chat_fmt < tools < html_rules
-    assert tools < sidebar < html_rules
+    tools = prompt.index(WRITER_CHAT_TOOLS_SECTION)
+    # Use the full apply-HTML block — "APPLY_DOCUMENT_CONTENT AND HTML" also appears
+    # as a forward reference inside WRITER_CHAT_TOOLS_SECTION.
+    html_rules = prompt.index(WRITER_APPLY_DOCUMENT_HTML_RULES)
+    sidebar = prompt.index(SIDEBAR_VS_DOCUMENT)
+    confirm = prompt.index(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS)
+    assert chat_fmt < tools < sidebar < html_rules < confirm
     assert prompt.index("LibreOffice Writer assistant") < chat_fmt
 
 
