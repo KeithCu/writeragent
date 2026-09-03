@@ -244,8 +244,52 @@ def test_user_authored_previous_py_is_not_recorded():
     assert "A3" not in result.records
 
 
+def test_unmatched_orphan_does_not_record_user_authored_cell():
+    """Orphan A2 whose pred is not desired must not be stolen onto user-authored A3.
+
+    A2 is gone; A3 already has ``;A1`` because the user typed it (§9.5), not
+    because we attached A2. ``orphans[0]`` used to record A3 anyway.
+    A matching pred (A2→A1) is the row-insert rehome case, not this one.
+    """
+    result = _repair(
+        [
+            _cell("A1", '=PY("a")'),
+            _cell("A3", '=PY("c";A1)'),
+        ],
+        {"A2": GeometricRecord(predecessor="Z9")},
+    )
+    assert result.patches == ()
+    assert "A3" not in result.records
+    assert "A2" not in result.records
+
+
+def test_only_matching_orphan_rehomes_unmatched_is_dropped():
+    """Two orphans: only the pred that equals desired may rehome; the other drops."""
+    result = _repair(
+        [
+            _cell("A1", '=PY("a")'),
+            _cell("A3", '=PY("b";A1)'),
+            _cell("C1", '=PY("user";A3)'),
+        ],
+        {
+            "A2": GeometricRecord(predecessor="A1"),
+            "B9": GeometricRecord(predecessor="Z9"),
+        },
+    )
+    assert result.patches == ()
+    assert result.records["A3"].predecessor == "A1"
+    assert "A2" not in result.records
+    assert "B9" not in result.records
+    assert "C1" not in result.records
+
+
 def test_row_insert_three_cell_chain_rehomes_all_keys():
-    """A1,A2,A3 shifted to A1,A3,A4; formulas already correct; map keys follow."""
+    """A1,A2,A3 shifted to A1,A3,A4; only a pred-matching orphan may rehome.
+
+    Incoming A3 is still a live key, so A3 is updated in place (pred A1).
+    Orphan A2 pred A1 matches A3's desired — not A4's (desired A3). Stealing
+    A2 onto A4 is the same ``orphans[0]`` bug as recording a user ``;prev``.
+    """
     result = _repair(
         [
             _cell("A1", '=PY("a")'),
@@ -259,8 +303,8 @@ def test_row_insert_three_cell_chain_rehomes_all_keys():
     )
     assert result.patches == ()
     assert result.records["A3"].predecessor == "A1"
-    assert result.records["A4"].predecessor == "A3"
     assert "A2" not in result.records
+    assert "A4" not in result.records
 
 
 def test_already_correct_dollar_ref_is_noop():
@@ -521,6 +565,23 @@ def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
         shown = notify_geometric_cap_hit("ctx", "Other", already_notified=set())
         assert shown is False
         mock_box.assert_not_called()
+
+
+def test_notify_geometric_cap_hit_off_main_does_not_persist():
+    """Off-main logs and returns False; it must not swallow the later UI box."""
+    reset_geometric_runtime_for_tests()
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_box,
+    ):
+        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb1") is False
+        mock_box.assert_not_called()
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_box,
+    ):
+        assert notify_geometric_cap_hit("ctx", "Sheet1", workbook_key="wb1")
+        assert mock_box.call_count == 1
 
 
 def test_cap_hit_user_message_names_the_sheet():

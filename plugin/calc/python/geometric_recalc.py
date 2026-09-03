@@ -260,16 +260,15 @@ def notify_geometric_cap_hit(
     ``(workbook_key, sheet_name)`` persists across reconcile / 0.1s debounce
     / save / open — a fresh local ``set()`` per call was the cap-hit spam.
     """
+    persist_key = (workbook_key, sheet_name)
     if already_notified is not None:
         if sheet_name in already_notified:
             return False
         already_notified.add(sheet_name)
     else:
-        persist_key = (workbook_key, sheet_name)
         with _GEOMETRIC_LOCK:
             if persist_key in _CAP_HIT_NOTIFIED:
                 return False
-            _CAP_HIT_NOTIFIED.add(persist_key)
 
     message = geometric_cap_hit_user_message(sheet_name)
     log.error("Geometric Recalc Order: %s", message)
@@ -277,12 +276,17 @@ def notify_geometric_cap_hit(
     from plugin.framework.thread_guard import on_main_thread
 
     if not on_main_thread():
+        # Off-main still logs. Do not persist — a later UI-thread call
+        # must still be able to show the first box.
         return False
 
     from plugin.chatbot.dialogs import msgbox
 
     # Msgid matches the Settings checkbox label in module.yaml.
     msgbox(ctx, _(FEATURE_TITLE), message, box_type=3)
+    if already_notified is None:
+        with _GEOMETRIC_LOCK:
+            _CAP_HIT_NOTIFIED.add(persist_key)
     return True
 
 
@@ -327,13 +331,14 @@ def _rehome_or_keep_record(
     desired: str | None,
     data_args: list[str],
 ) -> None:
-    """Keep/update a live record, or rehome an orphan after a row move.
+    """Keep/update a live record, or rehome a pred-matching orphan after a move.
 
     ``last == desired`` is a formula no-op. If we already have a record at
-    *key*, the predecessor must match the formula (Calc may have adjusted
-    it onto a key that still exists). If *key* is new and an incoming key
-    is gone from the sheet, that is a moved attach — rehome one orphan.
-    If we never attached, leave the map alone (§9.5: do not record).
+    *key*, keep it and align the predecessor with the formula. If *key* is
+    new, rehome only when a gone incoming key's predecessor equals *desired*
+    (Calc shifted a cell we attached). An unmatched orphan must not be
+    stolen onto a user-authored previous-PY last arg (§9.5: do not record).
+    Dead keys drop at the end of ``compute_sheet_repair``.
     """
     if desired is None:
         return
@@ -343,16 +348,22 @@ def _rehome_or_keep_record(
     if key in working:
         working[key] = GeometricRecord(predecessor=desired)
         return
-    orphans = [old for old in incoming if old not in live_keys and old in working]
-    if not orphans:
-        return
     chosen = None
-    for old in orphans:
-        if same_cell_ref(incoming[old].predecessor, desired):
+    for old, rec in incoming.items():
+        if old in live_keys or old not in working:
+            continue
+        if same_cell_ref(rec.predecessor, desired):
             chosen = old
             break
     if chosen is None:
-        chosen = orphans[0]
+        # Unmatched leftover (deleted cell, or a later cell after a multi-row
+        # shift whose incoming pred is stale). Do not invent a record — §9.5.
+        log.debug(
+            "geometric_recalc: no pred-matching orphan for %s (desired %s); not recording",
+            key,
+            desired,
+        )
+        return
     working.pop(chosen, None)
     working[key] = GeometricRecord(predecessor=desired)
     log.debug(
