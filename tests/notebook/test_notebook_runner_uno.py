@@ -758,13 +758,13 @@ def test_run_all_stop_skips_remaining_cells(ctx, doc):
             patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
         ):
             result = run_all_for_doc(ctx, doc)
-        assert result is not None
-        assert result.status == "stopped"
-        assert result.cells_run == 1
+        assert result is not None, "run_all_for_doc returned None"
+        assert result.status == "stopped", f"expected stopped, got {result!r}"
+        assert result.cells_run == 1, f"expected 1 cell, got {result!r}"
         body = doc.getText().getString() or ""
         assert "WA_NB_FIRST" in body
-        assert "WA_NB_LONG" not in body
-        assert "WA_NB_SKIPPED" not in body
+        assert "WA_NB_LONG" not in body, f"long cell ran after Stop: {body!r}"
+        assert "WA_NB_SKIPPED" not in body, f"later cell ran after Stop: {body!r}"
         state = load_registry(doc)
         assert state is not None
         assert state.code_cells[0].execution_count == 1

@@ -866,7 +866,7 @@ def _three_cells():
     ]
 
 
-def _code_for_field(field_name: str) -> str:
+def _code_for_field(_doc: object, field_name: str) -> str:
     return {
         "nb_cell_0_code": "x = 1",
         "nb_cell_1_code": "y = x + 1",
@@ -999,6 +999,39 @@ def test_run_cells_stop_skips_remainder():
     assert cells[2].execution_count is None
 
 
+def test_run_cells_stop_during_between_cell_drain_skips_next():
+    """Stop delivered at flush_ui_idle must not start the next cell."""
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    ran: list[str] = []
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _flush(_ctx, **_k):
+        request_stop(doc)
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert ran == ["x = 1"]
+    assert apply.call_count == 1
+
+
 def test_run_cells_busy_guard_skips_play_but_stop_works():
     ctx = MagicMock()
     cells = _three_cells()
@@ -1041,7 +1074,7 @@ def test_run_cells_skips_empty_and_continues():
     def _read(_doc, field_name):
         if field_name == "nb_cell_1_code":
             return "   "
-        return _code_for_field(field_name)
+        return _code_for_field(_doc, field_name)
 
     def _exec(_ctx, _doc, code):
         ran.append(code)

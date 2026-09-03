@@ -1267,9 +1267,13 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                 continue
             if need_drain:
                 # LayoutIdle livelock is during execute, not this between-cell pump.
+                # Stop clicks are delivered here; check the flag before the next cell.
                 from plugin.notebook.writer_importer import flush_ui_idle
 
                 flush_ui_idle(ctx)
+            if _is_stop_requested(busy_key):
+                stopped = True
+                break
             one = _execute_and_apply(ctx, doc, state, cell, code)
             if one.status == "stopped":
                 stopped = True
