@@ -312,9 +312,10 @@ def test_doc_from_event_disposed_view_controller_falls_back_to_calc_source():
 
 
 def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
-    """OnLoadFinished must marshal maybe_rewrite_collabora_py_formulas(doc), not ctx."""
+    """OnLoadFinished marshals Collabora rewrite (doc only) then geometric open (ctx, doc)."""
     import plugin.calc.excel_py_convert.auto_open as mod
     from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
+    from plugin.calc.python.geometric_recalc import maybe_geometric_on_document_open
 
     ctx = MagicMock()
     smgr = MagicMock()
@@ -338,9 +339,11 @@ def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
     ):
         listener.on_document_event(event)
         convert.assert_called_once()
-        marshal.assert_called_once()
-        assert marshal.call_args[0][0] is maybe_rewrite_collabora_py_formulas
-        assert marshal.call_args[0][1:] == (doc,)
+        assert marshal.call_count == 2
+        assert marshal.call_args_list[0][0][0] is maybe_rewrite_collabora_py_formulas
+        assert marshal.call_args_list[0][0][1:] == (doc,)
+        assert marshal.call_args_list[1][0][0] is maybe_geometric_on_document_open
+        assert marshal.call_args_list[1][0][1:] == (ctx, doc)
         warn.assert_not_called()
 
 
