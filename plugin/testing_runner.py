@@ -319,6 +319,36 @@ def _user_writeragent_uno_packages() -> Path | None:
     return None
 
 
+def _seed_worker_python_path() -> str | None:
+    """Interpreter for throwaway ``scripting.python_venv_path``.
+
+    Headless soffice on macOS often has ``sys.executable`` empty or pointing
+    at soffice (not ``Contents/Resources/python``). Sheet ``=PY()`` and
+    notebook ``execute_code`` then fail inside soffice. Prefer the checkout
+    ``.venv`` (CI ``uv sync`` / numpy UNO). Fall back to this process's
+    ``sys.executable`` when it is a real ``python*`` file.
+    """
+    root = Path(__file__).resolve().parents[1]
+    for candidate in (
+        root / ".venv" / "bin" / "python",
+        root / ".venv" / "bin" / "python3",
+        root / ".venv" / "Scripts" / "python.exe",
+    ):
+        if candidate.is_file():
+            return str(root / ".venv")
+    exe = (getattr(sys, "executable", None) or "").strip()
+    if not exe:
+        return None
+    path = Path(exe)
+    if not path.is_file():
+        return None
+    if not path.name.lower().startswith("python"):
+        return None
+    if os.name != "nt" and not os.access(exe, os.X_OK):
+        return None
+    return exe
+
+
 def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
     """Copy user-level WriterAgent into the throwaway ``UserInstallation``.
 
@@ -364,11 +394,18 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
     # tests that care must write Isolated after bootstrap.
     cfg = profile_dir / "user" / "config"
     cfg.mkdir(parents=True, exist_ok=True)
-    (cfg / "writeragent.json").write_text(
-        '{\n  "scripting.python_session_mode": "shared"\n}\n',
-        encoding="utf-8",
+    seeded: dict[str, str] = {"scripting.python_session_mode": "shared"}
+    worker = _seed_worker_python_path()
+    if worker:
+        # macOS soffice ``sys.executable`` is not a usable python (GHA
+        # 33749078050). Name a real interpreter before soffice starts.
+        seeded["scripting.python_venv_path"] = worker
+    cfg_path = cfg / "writeragent.json"
+    cfg_path.write_text(json.dumps(seeded, indent=2) + "\n", encoding="utf-8")
+    _progress(
+        "BOOTSTRAP throwaway writeragent.json session_mode=shared venv=%s path=%s"
+        % (worker, cfg_path)
     )
-    _progress("BOOTSTRAP throwaway writeragent.json session_mode=shared path=%s" % (cfg / "writeragent.json"))
 
 
 def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
@@ -377,21 +414,24 @@ def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
     Default: headless + throwaway ``UserInstallation`` (never recovery UI).
     ``--user-profile``: visible, real user install. ``--norestore`` skips the
     crash-recovery dialog; tests open WriterAgentDeck over UNO instead.
+
+    Discover soffice with ``_resolve_soffice_bin`` (not only next to
+    ``officehelper``). On macOS ``officehelper.py`` lives in
+    ``Contents/Resources`` and ``soffice`` in ``Contents/MacOS`` (PR #561);
+    looking only beside the helper returned ``None`` and skipped throwaway
+    seed / GITHUB_ACTIONS leftover hard-fail (GHA 33749075233 / 33749078050).
+    Windows unit tests must create ``soffice.exe``, not a bare ``soffice``.
     """
-    try:
-        program_dir = Path(officehelper_module.__file__).resolve().parent
-        soffice = program_dir / ("soffice.exe" if __import__("sys").platform.startswith("win") else "soffice")
-        if not soffice.exists():
-            return None
-        quoted = '"%s"' % soffice
-        if use_user_profile:
-            # Keep the developer's UserInstallation (extension + writeragent.json).
-            # Actual GUI start is ``_user_profile_soffice_argv`` (adds --writer, no --nodefault).
-            return "%s --norestore --nofirststartwizard --nocrashreport --writer" % quoted
-        profile_dir = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-"))
-    except Exception:
+    soffice = _resolve_soffice_bin(officehelper_module)
+    if soffice is None:
         return None
-    # Seed after the lookup try so a missing user OXT on GitHub Actions
+    quoted = '"%s"' % soffice
+    if use_user_profile:
+        # Keep the developer's UserInstallation (extension + writeragent.json).
+        # Actual GUI start is ``_user_profile_soffice_argv`` (adds --writer, no --nodefault).
+        return "%s --norestore --nofirststartwizard --nocrashreport --writer" % quoted
+    profile_dir = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-"))
+    # Seed after the lookup so a missing user OXT on GitHub Actions
     # raises instead of becoming a silent None command.
     global _throwaway_profile_dir
     _throwaway_profile_dir = profile_dir

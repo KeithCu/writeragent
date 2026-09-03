@@ -6,16 +6,28 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import plugin.testing_runner as tr
+
+
+def _soffice_name() -> str:
+    """Windows LO ships ``soffice.exe`` next to officehelper; POSIX is ``soffice``."""
+    return "soffice.exe" if sys.platform.startswith("win") else "soffice"
+
+
+def _touch_soffice_next_to_helper(tmp_path: Path, *, name: str | None = None) -> Path:
+    binary = tmp_path / (name or _soffice_name())
+    binary.write_text("", encoding="utf-8")
+    return binary
 
 
 def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) -> None:
     seeded: list[Path] = []
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
-    (tmp_path / "soffice").write_text("", encoding="utf-8")
+    _touch_soffice_next_to_helper(tmp_path)
     helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
     cmd = tr._soffice_bootstrap_command(helper)
     assert cmd is not None
@@ -32,7 +44,7 @@ def test_soffice_bootstrap_command_github_actions_requires_user_oxt(
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setattr(tr, "_user_writeragent_uno_packages", lambda: None)
     monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path)
-    (tmp_path / "soffice").write_text("", encoding="utf-8")
+    _touch_soffice_next_to_helper(tmp_path)
     helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
     try:
         tr._soffice_bootstrap_command(helper)
@@ -40,6 +52,43 @@ def test_soffice_bootstrap_command_github_actions_requires_user_oxt(
         assert "register-built-oxt" in str(exc)
     else:
         raise AssertionError("expected RuntimeError when GitHub Actions has no user OXT")
+
+
+def test_soffice_bootstrap_command_seeds_throwaway_win32_exe(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """GHA 33749075233: Windows lookup is soffice.exe; a bare ``soffice`` is ignored."""
+    seeded: list[Path] = []
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
+    monkeypatch.setattr(tr.sys, "platform", "win32")
+    _touch_soffice_next_to_helper(tmp_path, name="soffice.exe")
+    helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
+    cmd = tr._soffice_bootstrap_command(helper)
+    assert cmd is not None
+    assert "soffice.exe" in cmd
+    assert "--headless" in cmd
+    assert len(seeded) == 1
+
+
+def test_soffice_bootstrap_command_uses_resolve_when_not_beside_helper(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """macOS: officehelper is in Contents/Resources, soffice in Contents/MacOS."""
+    seeded: list[Path] = []
+    found = tmp_path / "MacOS" / "soffice"
+    found.parent.mkdir()
+    found.write_text("", encoding="utf-8")
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
+    monkeypatch.setattr(tr, "_resolve_soffice_bin", lambda _helper: found)
+    helper = type("Helper", (), {"__file__": str(tmp_path / "Resources" / "officehelper.py")})()
+    cmd = tr._soffice_bootstrap_command(helper)
+    assert cmd is not None
+    assert str(found) in cmd
+    assert "--headless" in cmd
+    assert "-env:UserInstallation=" in cmd
+    assert len(seeded) == 1
 
 
 def test_on_github_actions_reads_env(monkeypatch) -> None:
@@ -72,7 +121,11 @@ def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) ->
     copied = dest_root / "user" / "uno_packages" / "cache" / "uno_packages" / "lu9.tmp_" / "WriterAgent.oxt" / "addin.py"
     assert copied.read_text(encoding="utf-8") == "ok"
     seeded_cfg = dest_root / "user" / "config" / "writeragent.json"
-    assert '"scripting.python_session_mode": "shared"' in seeded_cfg.read_text(encoding="utf-8")
+    seeded_text = seeded_cfg.read_text(encoding="utf-8")
+    assert '"scripting.python_session_mode": "shared"' in seeded_text
+    worker = tr._seed_worker_python_path()
+    if worker:
+        assert worker in seeded_text
 
 
 def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_path: Path) -> None:
@@ -84,6 +137,30 @@ def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_pa
         assert "register-built-oxt" in str(exc)
     else:
         raise AssertionError("expected RuntimeError on GitHub Actions without user OXT")
+
+
+def test_seed_worker_python_path_prefers_checkout_venv(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fake_root = tmp_path / "repo"
+    venv_py = fake_root / ".venv" / "bin" / "python"
+    venv_py.parent.mkdir(parents=True)
+    venv_py.write_text("", encoding="utf-8")
+    monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
+    assert tr._seed_worker_python_path() == str(fake_root / ".venv")
+
+
+def test_seed_worker_python_path_falls_back_to_sys_executable(
+    monkeypatch, tmp_path: Path
+) -> None:
+    fake_root = tmp_path / "repo"
+    (fake_root / "plugin").mkdir(parents=True)
+    monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
+    exe = tmp_path / "python3"
+    exe.write_text("", encoding="utf-8")
+    exe.chmod(0o755)
+    monkeypatch.setattr(tr.sys, "executable", str(exe))
+    assert tr._seed_worker_python_path() == str(exe)
 
 
 def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path) -> None:
