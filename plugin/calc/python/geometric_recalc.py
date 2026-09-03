@@ -338,6 +338,27 @@ def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
         return None
 
 
+def _rule2_candidate_score(
+    old: str,
+    rec: GeometricRecord,
+    live: str,
+    desired: str,
+) -> tuple[int, int] | None:
+    """``pred + (live − old)`` equals *desired* — the cell moved with its formula."""
+    try:
+        ocol, orow = parse_address(local_a1(old))
+        lcol, lrow = parse_address(local_a1(live))
+    except (TypeError, ValueError):
+        return None
+    dcol, drow = lcol - ocol, lrow - orow
+    if not (dcol or drow):
+        return None
+    shifted = _a1_shift(rec.predecessor, dcol, drow)
+    if shifted is not None and same_cell_ref(shifted, desired):
+        return (0, abs(dcol) + abs(drow))
+    return None
+
+
 def _rehome_candidate_score(
     old: str,
     rec: GeometricRecord,
@@ -354,36 +375,85 @@ def _rehome_candidate_score(
     it — otherwise undo's stale ``{A3: A1}`` is stolen onto A2 and
     successor-becomes-first cannot remove-field.
     """
-    rule1 = same_cell_ref(rec.predecessor, desired) and old not in live_keys
-    try:
-        ocol, orow = parse_address(local_a1(old))
-        lcol, lrow = parse_address(local_a1(live))
-    except (TypeError, ValueError):
-        return (1, 0) if rule1 else None
-    dcol, drow = lcol - ocol, lrow - orow
-    if dcol or drow:
-        shifted = _a1_shift(rec.predecessor, dcol, drow)
-        if shifted is not None and same_cell_ref(shifted, desired):
-            return (0, abs(dcol) + abs(drow))
-    if rule1:
+    rule2 = _rule2_candidate_score(old, rec, live, desired)
+    if rule2 is not None:
+        return rule2
+    if same_cell_ref(rec.predecessor, desired) and old not in live_keys:
         return (1, 0)
     return None
 
 
-def _record_is_homeless(
+def _incoming_is_displaced(
     old: str,
     rec: GeometricRecord,
     live_keys: set[str],
     desired_by_key: Mapping[str, str | None],
-    evicted: set[str],
 ) -> bool:
-    """Gone from the sheet, pred does not match that live cell, or overwritten."""
-    if old in evicted or old not in live_keys:
+    """True when *old* is gone, first in the list, or pred ≠ that cell's desired."""
+    if old not in live_keys:
         return True
     live_desired = desired_by_key.get(old)
     if live_desired is None:
         return True
     return not same_cell_ref(rec.predecessor, live_desired)
+
+
+def _collect_rule2_claimed(
+    cells: list[GeometricCell],
+    incoming: Mapping[str, GeometricRecord],
+    live_keys: set[str],
+    desired_by_key: Mapping[str, str | None],
+) -> set[str]:
+    """Incoming keys a row/col delta will move. Assigned in sheet order.
+
+    Only gone / pred-mismatched records are eligible. A live successor whose
+    pred already matches (mixed-poisons A3→A2) can satisfy ``pred+(A2-A3)==A1``
+    — that is not a move, and must not be pre-claimed.
+    """
+    claimed: set[str] = set()
+    for cell in cells:
+        key = cell_map_key(cell.address)
+        desired = desired_by_key.get(key)
+        if desired is None:
+            continue
+        data_args = formula_data_args(cell.formula)
+        if not data_args:
+            continue
+        last = data_args[-1]
+        if not is_single_cell_arg(last) or not same_cell_ref(last, desired):
+            continue
+        best: tuple[int, int] | None = None
+        chosen: str | None = None
+        for old, rec in incoming.items():
+            if old in claimed:
+                continue
+            if not _incoming_is_displaced(old, rec, live_keys, desired_by_key):
+                continue
+            score = _rule2_candidate_score(old, rec, key, desired)
+            if score is None:
+                continue
+            if best is None or score < best:
+                chosen, best = old, score
+        if chosen is not None:
+            claimed.add(chosen)
+    return claimed
+
+
+def _record_is_homeless(
+    old: str,
+    live_keys: set[str],
+    evicted: set[str],
+    rule2_claimed: set[str],
+) -> bool:
+    """Gone, rule-2 moved, or overwritten. Live unclaimed keys stay for in-place.
+
+    Stale incoming pred (undo ``A3→A1`` while the formula is already ``;A2``)
+    used to count as homeless because pred ≠ desired. Rule 1 then stole that
+    record onto A2 (same pred A1). Unclaimed live keys are not homeless.
+    """
+    if old in evicted or old not in live_keys:
+        return True
+    return old in rule2_claimed
 
 
 def _rehome_or_keep_record(
@@ -396,17 +466,19 @@ def _rehome_or_keep_record(
     *,
     consumed: set[str],
     evicted: set[str],
-    desired_by_key: Mapping[str, str | None],
+    rule2_claimed: set[str],
 ) -> None:
     """Keep a true live record, or rehome a homeless one after a row/col move.
 
     ``last == desired`` is a formula no-op. Do **not** bind ``working[key]``
     just because the key is live — after a 3+ chain shift that address is
     often the *moved* cell's old record (wrong occupant). Homeless: key not
-    in *live_keys*, live but incoming pred ≠ that cell's desired, or evicted
-    when another record was written onto its address. Match via pred==desired
-    or pred+delta. Never ``orphans[0]``. No matching homeless record → do
-    not invent one (§9.5 user-authored ``;prev``).
+    in *live_keys*, rule-2 claimed (row/col delta), or evicted when another
+    record was written onto its address. A live key that rule 2 did not
+    take is updated in place — do not leave it homeless for rule 1 (undo
+    ``{A3: A1}`` must not be stolen onto A2). Match via pred==desired
+    (true orphan only) or pred+delta. Never ``orphans[0]``. No matching
+    homeless record → do not invent one (§9.5 user-authored ``;prev``).
     """
     if desired is None:
         return
@@ -418,7 +490,7 @@ def _rehome_or_keep_record(
     for old, rec in incoming.items():
         if old in consumed:
             continue
-        if not _record_is_homeless(old, rec, live_keys, desired_by_key, evicted):
+        if not _record_is_homeless(old, live_keys, evicted, rule2_claimed):
             continue
         score = _rehome_candidate_score(old, rec, key, desired, live_keys)
         if score is None:
@@ -541,6 +613,11 @@ def compute_sheet_repair(
         )
     consumed: set[str] = set()
     evicted: set[str] = set()
+    # Rule-2 targets first so a live stale pred (undo A3→A1) is not left
+    # homeless for rule 1. 3+/4-cell row insert still moves claimed keys.
+    rule2_claimed = _collect_rule2_claimed(
+        cells, incoming, live_keys, desired_by_key
+    )
 
     for i, cell in enumerate(cells):
         data_args = formula_data_args(cell.formula)
@@ -558,8 +635,8 @@ def compute_sheet_repair(
             # formula (A2 with ;A1 became A3 with ;A1). last==desired so we
             # used to continue without writing working[new_key]; the record
             # stayed at A2 (orphan) and unanimous-ours / replace went wrong.
-            # Rehome when the old key is gone or displaced. Do not invent a
-            # record when the user authored the previous PY as real data (§9.5).
+            # Rehome when the old key is gone or rule-2 claimed. Do not invent
+            # a record when the user authored the previous PY as real data (§9.5).
             _rehome_or_keep_record(
                 working,
                 incoming,
@@ -569,7 +646,7 @@ def compute_sheet_repair(
                 data_args,
                 consumed=consumed,
                 evicted=evicted,
-                desired_by_key=desired_by_key,
+                rule2_claimed=rule2_claimed,
             )
             continue
         new_formula = rebuild_formula_with_data_args(cell.formula, new_args)

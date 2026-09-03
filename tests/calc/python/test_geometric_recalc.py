@@ -303,21 +303,25 @@ def test_row_insert_three_cell_chain_rehomes_all_keys():
 
 
 def test_undo_stale_map_keeps_live_successor_record():
-    """Undo restores A2 and A3's ``;A2`` while the map still has A3→A1.
+    """Undo after delete-middle: stale ``{A3: A1}`` must not be stolen onto A2.
 
-    Rule 1 must not steal A3 onto A2 (A3 is live). A3 keeps its record so
-    successor-becomes-first can still remove-field.
+    Live sheet is A1/A2/A3 (formulas already correct). Incoming pred A1 ≠
+    A3's desired A2 used to mark A3 homeless; rule 1 then moved that record
+    onto A2 (pred A1 == A2's desired). A3 left unrecorded with ``;A2`` so
+    successor-becomes-first remove-field was a noop.
     """
     result = _repair(
         [
+            _cell("A1", '=PY("first")'),
             _cell("A2", '=PY("mid";A1)'),
             _cell("A3", '=PY("third";A2)'),
         ],
         {"A3": GeometricRecord(predecessor="A1")},
     )
     assert result.patches == ()
-    assert "A3" in result.records
     assert result.records["A3"].predecessor == "A2"
+    # Do not move A3's record onto A2. A2 has last==desired but no incoming
+    # key (delete dropped it); inventing one is §9.5 user-authored ``;A1``.
     assert "A2" not in result.records
 
     first_only = _repair(
