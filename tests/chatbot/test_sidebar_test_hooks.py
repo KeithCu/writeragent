@@ -28,6 +28,7 @@ from plugin.chatbot.sidebar_test_hooks import (
     chat_dialog_controls,
     control_enabled,
     debug_hooks_available,
+    ensure_slash_popup,
     fire_audio_auto_stop,
     inject_wav,
     iter_live_chat_panels,
@@ -226,6 +227,13 @@ def test_slash_popup_hooks_read_state_and_consume_enter(fake_listener: _FakeList
     assert state["available"] is True
     press_query_key(1280, listener=fake_listener)
     assert not any(isinstance(e, tuple) and e and e[0] == "action" for e in fake_listener.events)
+
+
+def test_ensure_slash_popup_none_without_ctx_or_listener(monkeypatch) -> None:
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks._HOOK_CTX", None)
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: None)
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks._URP_SLASH_POPUP", None)
+    assert ensure_slash_popup() is None
 
 
 def test_press_send_uses_on_action_performed(fake_listener: _FakeListener) -> None:

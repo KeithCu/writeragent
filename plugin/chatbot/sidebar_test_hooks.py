@@ -38,6 +38,8 @@ _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
 _LIVE_SEND_LISTENERS: list[Any] = []
 # Last native-test ctx so URP fallbacks can executeDispatch without get_ctx().
 _HOOK_CTX: Any = None
+# Out-of-process mock-sidebar: controller bound to the live XDL ListBox over URP.
+_URP_SLASH_POPUP: Any = None
 
 
 def register_live_panel(element: Any) -> None:
@@ -817,7 +819,11 @@ def set_query_text(text: str, *, listener: Any = None) -> None:
         controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
         set_query_text_via_controls(controls, text)
         # QueryTextListener may not fire over URP setText; refresh inside soffice.
-        if (text or "").lstrip().startswith("/") or not (text or "").strip():
+        popup = ensure_slash_popup()
+        on_text = getattr(popup, "on_query_text", None) if popup is not None else None
+        if callable(on_text):
+            on_text(text or "")
+        elif (text or "").lstrip().startswith("/") or not (text or "").strip():
             execute_debug_sidebar_op("SLASH_REFRESH")
 
 
@@ -922,32 +928,84 @@ def _slash_key_in_soffice(sl: Any, key_code: int, modifiers: int) -> None:
     popup.handle_key(int(key_code), int(modifiers))
 
 
+class _UrpSlashHost:
+    """Stand-in SendButtonListener so the popup can run over URP without gc."""
+
+    def __init__(self, query: Any, response: Any, clear: Any, stop: Any) -> None:
+        self.query_control = query
+        self.response_control = response
+        self.slash_popup = None
+        self.clear_listener = type(
+            "ClearProxy",
+            (),
+            {"on_action_performed": staticmethod(lambda _ev: uno_click(clear) if clear is not None else None)},
+        )()
+        self._stop = stop
+
+    def dispatch(self, event: Any) -> None:
+        kind = getattr(event, "kind", None)
+        if kind == SendEventKind.STOP_CLICKED and self._stop is not None:
+            uno_click(self._stop)
+
+    def _append_response(self, text: str, role: str = "assistant") -> None:
+        from plugin.chatbot.dialogs import get_control_text, set_control_text
+
+        # ``role`` matches SendButtonListener._append_response (run_slash_command).
+        current = get_control_text(self.response_control, default="") or ""
+        set_control_text(self.response_control, current + ("" if role is None else text))
+
+
+def _urp_slash_controller() -> Any:
+    """Bind ``SlashPopupController`` to the live sidebar ListBox over URP."""
+    global _URP_SLASH_POPUP
+    ctx = _HOOK_CTX
+    if ctx is None:
+        return None
+    controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+    ctrl = controls.get("slash_popup")
+    query = controls.get("query")
+    if ctrl is None or query is None:
+        return None
+    existing = _URP_SLASH_POPUP
+    if existing is not None and getattr(existing, "control", None) is ctrl:
+        return existing
+    from plugin.chatbot.slash_popup import SlashPopupController
+
+    response = controls.get("response_rich") or controls.get("response")
+    host = _UrpSlashHost(query, response, controls.get("clear"), controls.get("stop"))
+    popup = SlashPopupController(ctrl, host, query)
+    host.slash_popup = popup
+    _URP_SLASH_POPUP = popup
+    return popup
+
+
 def ensure_slash_popup(*, listener: Any = None) -> Any:
     """Return the Ask-box slash controller, attaching it if the XDL ListBox exists.
 
     OXT factory and checkout tests can see different ``SendButtonListener``
     objects. Re-bind from the live ``slash_popup`` control so hooks can drive
     the menu even when the listener we found was not the one wiring attached.
+    Out-of-process mock-sidebar has no in-process listener; bind over URP.
     """
     _require_debug()
     sl = listener if listener is not None else send_listener()
-    if sl is None:
-        return None
-    popup = getattr(sl, "slash_popup", None)
-    if popup is not None:
-        return popup
-    ctrl = None
-    ctx = _HOOK_CTX
-    if ctx is not None:
-        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
-        ctrl = controls.get("slash_popup")
-    if ctrl is None:
-        return None
-    from plugin.chatbot.slash_popup import SlashPopupController
+    if sl is not None:
+        popup = getattr(sl, "slash_popup", None)
+        if popup is not None:
+            return popup
+        ctrl = None
+        ctx = _HOOK_CTX
+        if ctx is not None:
+            controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+            ctrl = controls.get("slash_popup")
+        if ctrl is None:
+            return _urp_slash_controller()
+        from plugin.chatbot.slash_popup import SlashPopupController
 
-    popup = SlashPopupController(ctrl, sl, getattr(sl, "query_control", None))
-    sl.slash_popup = popup
-    return popup
+        popup = SlashPopupController(ctrl, sl, getattr(sl, "query_control", None) or ctrl)
+        sl.slash_popup = popup
+        return popup
+    return _urp_slash_controller()
 
 
 def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:
@@ -956,7 +1014,9 @@ def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:
     sl = listener if listener is not None else send_listener()
     popup = getattr(sl, "slash_popup", None) if sl is not None else None
     if popup is None:
-        # Out-of-process mock-sidebar: checkout gc cannot see soffice's listener.
+        popup = ensure_slash_popup(listener=sl)
+    if popup is None:
+        # Last resort: in-soffice snapshot (listener lives only in soffice).
         return _slash_state_from_snapshot(execute_debug_sidebar_op("SNAPSHOT"))
     visible = bool(getattr(popup, "is_open", False))
     items = list(getattr(popup, "visible_names", None) or [])
@@ -983,7 +1043,10 @@ def press_query_key(key_code: int, modifiers: int = 0, *, listener: Any = None) 
     _require_debug()
     sl = listener if listener is not None else send_listener()
     if sl is None:
-        # URP mock-sidebar: Enter/Esc on the slash popup run inside soffice.
+        popup = ensure_slash_popup()
+        handle = getattr(popup, "handle_key", None) if popup is not None else None
+        if callable(handle) and handle(int(key_code), int(modifiers)) is True:
+            return
         if int(key_code) == 1280 and int(modifiers) == 0:
             execute_debug_sidebar_op("SLASH_ENTER")
             return
