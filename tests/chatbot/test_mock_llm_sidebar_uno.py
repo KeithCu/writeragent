@@ -2281,15 +2281,21 @@ def test_g29_native_400_then_stt_same_drain(ctx):
 
 def _slash_prep():
     """Clear Ask + LRU. Skip if this soffice still has a pre-popup OXT."""
-    from plugin.chatbot.sidebar_test_hooks import send_listener, set_query_text
+    from plugin.chatbot.sidebar_test_hooks import (
+        adopt_runtime_send_listeners,
+        ensure_slash_popup,
+        send_listener,
+        set_query_text,
+    )
     from plugin.framework.config import set_config
 
+    adopt_runtime_send_listeners()
     sl = getattr(_session, "listener", None) or send_listener()
-    popup = getattr(sl, "slash_popup", None) if sl is not None else None
+    popup = ensure_slash_popup(listener=sl)
     if sl is None or popup is None:
         raise unittest.SkipTest(
-            "slash popup not on live SendButtonListener — deploy the Ask-field "
-            "ListBox OXT (ChatPanelDialog slash_popup). Pure filter/LRU tests still run."
+            "slash popup ListBox not on the live chat dialog — deploy the "
+            "Ask-field OXT (ChatPanelDialog slash_popup). Pure filter/LRU tests still run."
         )
     set_config("slash_command_lru", [])
     set_query_text("", listener=sl)

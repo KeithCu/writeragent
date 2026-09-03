@@ -494,6 +494,9 @@ def send_listener(frame: Any = None) -> Any:
         sl = getattr(panel, "send_listener", None)
         if sl is not None:
             return sl
+    with_popup = [obj for obj in _LIVE_SEND_LISTENERS if getattr(obj, "slash_popup", None) is not None]
+    if with_popup:
+        return with_popup[-1]
     if _LIVE_SEND_LISTENERS:
         return _LIVE_SEND_LISTENERS[-1]
     return None
@@ -783,6 +786,34 @@ def query_text(*, listener: Any = None) -> str:
     from plugin.chatbot.dialogs import get_control_text
 
     return get_control_text(getattr(sl, "query_control", None), default="") or ""
+
+
+def ensure_slash_popup(*, listener: Any = None) -> Any:
+    """Return the Ask-box slash controller, attaching it if the XDL ListBox exists.
+
+    OXT factory and checkout tests can see different ``SendButtonListener``
+    objects. Re-bind from the live ``slash_popup`` control so hooks can drive
+    the menu even when the listener we found was not the one wiring attached.
+    """
+    _require_debug()
+    sl = listener if listener is not None else send_listener()
+    if sl is None:
+        return None
+    popup = getattr(sl, "slash_popup", None)
+    if popup is not None:
+        return popup
+    ctrl = None
+    ctx = _HOOK_CTX
+    if ctx is not None:
+        controls = chat_dialog_controls(ctx, current_component(ctx)) or {}
+        ctrl = controls.get("slash_popup")
+    if ctrl is None:
+        return None
+    from plugin.chatbot.slash_popup import SlashPopupController
+
+    popup = SlashPopupController(ctrl, sl, getattr(sl, "query_control", None))
+    sl.slash_popup = popup
+    return popup
 
 
 def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:

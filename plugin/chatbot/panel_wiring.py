@@ -157,6 +157,7 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
                         self.send_listener.slash_popup = SlashPopupController(
                             slash_ctrl, self.send_listener, query_ctrl
                         )
+                        log.info("slash popup attached to Ask field")
 
                     # The label update logic is now handled correctly by the state machine
                     # so we can just trigger a fake text update event to sync the state
