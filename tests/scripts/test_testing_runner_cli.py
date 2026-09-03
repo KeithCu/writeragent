@@ -11,6 +11,86 @@ from pathlib import Path
 import plugin.testing_runner as tr
 
 
+def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) -> None:
+    seeded: list[Path] = []
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
+    (tmp_path / "soffice").write_text("", encoding="utf-8")
+    helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
+    cmd = tr._soffice_bootstrap_command(helper)
+    assert cmd is not None
+    assert "--headless" in cmd
+    assert "-env:UserInstallation=" in cmd
+    assert len(seeded) == 1
+    assert seeded[0].name.startswith("writeragent-lo-test-profile-")
+
+
+def test_soffice_bootstrap_command_github_actions_requires_user_oxt(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(tr, "_user_writeragent_uno_packages", lambda: None)
+    monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path)
+    (tmp_path / "soffice").write_text("", encoding="utf-8")
+    helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
+    try:
+        tr._soffice_bootstrap_command(helper)
+    except RuntimeError as exc:
+        assert "register-built-oxt" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError when GitHub Actions has no user OXT")
+
+
+def test_on_github_actions_reads_env(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert tr.on_github_actions() is False
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert tr.on_github_actions() is True
+    monkeypatch.setenv("GITHUB_ACTIONS", "1")
+    assert tr.on_github_actions() is False
+
+
+def test_writeragent_oxt_in_uno_packages(tmp_path: Path) -> None:
+    empty = tmp_path / "uno_packages"
+    empty.mkdir()
+    assert tr._writeragent_oxt_in_uno_packages(empty) is False
+    packed = tmp_path / "packed" / "cache" / "uno_packages" / "lu1.tmp_" / "WriterAgent.oxt"
+    packed.mkdir(parents=True)
+    (packed / "plugin").mkdir()
+    assert tr._writeragent_oxt_in_uno_packages(tmp_path / "packed") is True
+
+
+def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) -> None:
+    src = tmp_path / "user-profile" / "user" / "uno_packages"
+    oxt = src / "cache" / "uno_packages" / "lu9.tmp_" / "WriterAgent.oxt"
+    oxt.mkdir(parents=True)
+    (oxt / "addin.py").write_text("ok", encoding="utf-8")
+    monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path / "user-profile")
+    dest_root = tmp_path / "throwaway"
+    tr._seed_throwaway_profile_with_user_oxt(dest_root)
+    copied = dest_root / "user" / "uno_packages" / "cache" / "uno_packages" / "lu9.tmp_" / "WriterAgent.oxt" / "addin.py"
+    assert copied.read_text(encoding="utf-8") == "ok"
+
+
+def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path / "missing")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    try:
+        tr._seed_throwaway_profile_with_user_oxt(tmp_path / "throwaway")
+    except RuntimeError as exc:
+        assert "register-built-oxt" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError on GitHub Actions without user OXT")
+
+
+def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(tr, "_libreoffice_user_profile_dir", lambda: tmp_path / "missing")
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    tr._seed_throwaway_profile_with_user_oxt(tmp_path / "throwaway")
+    assert not (tmp_path / "throwaway" / "user" / "uno_packages").exists()
+
+
 def test_parse_cli_user_profile_sets_flags(monkeypatch) -> None:
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setattr(tr, "show_window", False)
@@ -312,3 +392,44 @@ def test_clear_stale_user_profile_ipc_globs_os_tempdir(monkeypatch, tmp_path) ->
         ]
     else:
         assert seen == []
+
+
+def test_geometric_leftover_525_fails_on_github_actions(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from tests.calc.python import test_geometric_recalc_uno as geo_uno
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    cell = SimpleNamespace(
+        getError=lambda: 525,
+        getValue=lambda: 0.0,
+        getFormula=lambda: '=py("x_geo_live = 41")',
+    )
+    try:
+        geo_uno._skip_if_py_unregistered(
+            cell, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
+        )
+    except AssertionError as exc:
+        assert "GitHub Actions" in str(exc)
+        assert "525" in str(exc)
+    else:
+        raise AssertionError("525 on GitHub Actions must not skip")
+
+
+def test_geometric_leftover_525_skips_locally(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from tests.calc.python import test_geometric_recalc_uno as geo_uno
+
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    cell = SimpleNamespace(
+        getError=lambda: 525,
+        getValue=lambda: 0.0,
+        getFormula=lambda: '=py("x_geo_live = 41")',
+    )
+    assert (
+        geo_uno._skip_if_py_unregistered(
+            cell, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
+        )
+        is True
+    )

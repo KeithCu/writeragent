@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import time
 
-from plugin.testing_runner import native_test
+from plugin.testing_runner import native_test, on_github_actions
 from plugin.tests.testing_utils import with_native_doc
 
-# Isolated testing_runner profiles do not unopkg the OXT, so sheet =PY() is
-# #NAME? (504/525). Linux PR CI installs the extension — those runs must
-# assert values, not skip. Direct PythonFunction calls are not a substitute
-# (they bypass Calc order). Same codes as test_py_dag_chain_uno.py.
+# Isolated testing_runner profiles do not inherit user-level unopkg, so sheet
+# =PY() is #NAME? (504/525) unless the runner seeds ``user/uno_packages``
+# from ``make register-built-oxt``. Linux PR CI must assert values, not skip.
+# Direct PythonFunction calls are not a substitute (they bypass Calc order).
+# Same codes as test_py_dag_chain_uno.py.
 _PY_UNREGISTERED = frozenset({504, 525})
 
 
@@ -232,9 +233,16 @@ def _wait_cell_value(doc, cell, expected: float, timeout: float = 8.0) -> bool:
 
 
 def _skip_if_py_unregistered(cell, *, test_name: str) -> bool:
-    """Log-and-skip on blank-profile #NAME?. Return True when the caller should return."""
+    """Log-and-skip on local blank-profile #NAME?. GitHub Actions must assert values."""
     if cell.getError() not in _PY_UNREGISTERED:
         return False
+    if on_github_actions():
+        raise AssertionError(
+            "[%s] sheet =PY() is #NAME? on GitHub Actions (error=%r value=%r formula=%r). "
+            "testing_runner must seed WriterAgent into the throwaway UserInstallation "
+            "from the user-level uno_packages that register-built-oxt wrote."
+            % (test_name, cell.getError(), cell.getValue(), cell.getFormula())
+        )
     from plugin.framework.logging import log
 
     log.warning(
