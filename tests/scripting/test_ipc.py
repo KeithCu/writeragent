@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import os
 import pickle
 import subprocess
@@ -92,7 +93,7 @@ def test_text_error_prefix_is_invalid_frame_with_header_repr():
         )
 
 
-def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch):
+def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch, caplog):
     """Windows/ty: os.set_blocking is POSIX-only; skip the non-blocking peek."""
     from plugin.scripting import ipc
 
@@ -104,12 +105,14 @@ def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch):
     monkeypatch.setattr(ipc.os, "set_blocking", boom)
     stream = MagicMock()
     stream.fileno.return_value = 3
-    assert ipc._unread_pipe_bytes(stream) == b""
+    with caplog.at_level(logging.INFO, logger="writeragent.scripting.ipc"):
+        assert ipc._unread_pipe_bytes(stream) == b""
+    assert "leftover peek skipped" not in caplog.text
     stream.read.assert_not_called()
 
 
-def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch):
-    """PR 548 skip still keeps stdout_rest= on the IpcFrameError (CI 33697174793)."""
+def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch, caplog, capsys):
+    """Win32 skip still attaches stdout_rest= (empty) on IpcFrameError."""
     from plugin.scripting import ipc
 
     monkeypatch.setattr(ipc.sys, "platform", "win32")
@@ -121,25 +124,14 @@ def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch)
     stream = MagicMock()
     stream.fileno.return_value = 3
     stream.read.return_value = b"Erro"
-    with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b''"):
-        read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-    stream.read.assert_called_once_with(4)
-
-
-def test_invalid_frame_prints_platform_and_peek_skipped(monkeypatch, capsys):
-    """GHA UNO hang: say whether leftover peek ran before a later insert_cell_html stall."""
-    from plugin.scripting import ipc
-
-    monkeypatch.setattr(ipc.sys, "platform", "win32")
-    monkeypatch.setattr(ipc.os, "set_blocking", lambda *_a, **_k: None)
-    stream = MagicMock()
-    stream.fileno.return_value = 3
-    stream.read.return_value = b"Erro"
-    with pytest.raises(IpcFrameError):
-        read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):
+        with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b''"):
+            read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    assert "stdout_rest=b''" in caplog.text
     err = capsys.readouterr().err
-    assert "ipc invalid frame platform=win32 peek_skipped=True" in err
-    assert "stdout_rest=b''" in err
+    assert "ipc leftover peek" not in err
+    assert "peek_skipped" not in err
+    stream.read.assert_called_once_with(4)
 
 
 def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):

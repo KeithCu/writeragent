@@ -1,6 +1,6 @@
 # Investigate: worker spawn handshake timeouts in full pytest
 
-**Status:** Open — intermittent on `make pytest` / `make test-run` (2026-09-01)  
+**Status:** Leftover-stdout cause fixed in #546 (`smolagents` `__init__` no longer imports `huggingface_hub` on worker spawn). Hunt-only IPC breadcrumbs stripped after that. Do not reopen Hub/smolagents.  
 **Severity:** Unit-test flake that can fail ~30–40 tests at once; production spawn path is the same code  
 **Do not:** raise `_SPAWN_READY_TIMEOUT_SEC`, permanently cap `PYTEST_WORKERS`, or “fix” it by skipping tests
 
@@ -270,5 +270,6 @@ Fill this in as you go. Do not delete failed experiments.
 | 2026-09-02 | after #545 | Windows ty | `ty check --python-platform win32 plugin/scripting/ipc.py` | `#545` leftover peek (`stdout_rest`) is useful on Linux, but `os.set_blocking` is POSIX-only. Guard the call; keep the BytesIO/mock fallback. Do not drop `stdout_rest`. |
 | 2026-09-03 | after #548 | Windows pytest | CI 33697174793 `test_spawn_stdout_garbage_fails_fast` | `#548` skip returns `b""` on win32 pipes, so `if rest:` omitted `stdout_rest=` from `IpcFrameError`. Fail-fast still worked (`header=b'Erro'`, no 15s timeout). Always attach `stdout_rest=` (empty when peek skipped). Do not re-enable `set_blocking` on Windows. |
 | 2026-09-02 | after #545 | H1 | leftover stdout on full `make test` | Same 37 fails. `stdout_rest` reconstructs: `Error importing huggingface_hub.hf_api: No module named 'envwrap' (or 'envwrap.envwrap' is unknown)`. Cause: `smolagents/__init__.py` star-imported `tools` → `huggingface_hub` on every `plugin.contrib.smolagents.*` import, including compute-worker `sandbox.py`. |
+| 2026-09-03 | after #546 | hunt-log strip | leftover peek / `stdout_rest` stay; drop Windows `log.info` peek-skip and stderr hang breadcrumbs | Invalid frames keep `stdout_rest=` on `IpcFrameError` (empty when POSIX peek is skipped) and log at error. No `print(..., file=sys.stderr)` hunt line. Do not reopen Hub/smolagents. |
 
-When the flake is gone, set **Status** at the top to Fixed, name the commit, and point at the tests that lock the behavior.
+Invalid length prefix still raises `IpcFrameError` with `stdout_rest=` (empty `b''` when the POSIX leftover peek is skipped on win32). POSIX peek uses `os.set_blocking`; skip on win32. That is the error contract, not debug.

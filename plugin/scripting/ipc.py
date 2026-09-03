@@ -95,16 +95,10 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
     except (AttributeError, OSError, ValueError, io.UnsupportedOperation):
         fd = None
     if isinstance(fd, int):
-        # os.set_blocking is POSIX-only. PR 545 attached leftover stdout after a
-        # bad length prefix (header=Erro / envwrap). The unguarded call was the
-        # Windows ty hole; skip the non-blocking peek there. BytesIO/mocks still
-        # fall through to stream.read below (no real fileno).
+        # os.set_blocking is POSIX-only; skip the non-blocking peek on win32.
+        # BytesIO/mocks still fall through to stream.read (no real fileno).
         if sys.platform == "win32" or not hasattr(os, "set_blocking"):
-            # Peek skipped (POSIX-only set_blocking). Do not stream.read()
-            # here — that can block. Return empty; caller always attaches
-            # stdout_rest= (PR 549). One breadcrumb so a later hang can
-            # show whether leftover peek ran on this process.
-            log.info("ipc leftover peek skipped platform=%s", sys.platform)
+            # Do not stream.read() here — that can block on a live pipe.
             return b""
         try:
             os.set_blocking(fd, False)
@@ -135,20 +129,10 @@ def read_frame_payload(
         _validate_frame_size(size, max_payload_bytes=max_payload_bytes, frame_label=frame_label)
     except IpcFrameError as exc:
         rest = _unread_pipe_bytes(stream)
-        # Always include stdout_rest= (b'' when the POSIX leftover peek is
-        # skipped on win32). Dropping the field broke the Windows log contract
-        # (CI 33697174793 / test_spawn_stdout_garbage_fails_fast).
-        # stderr so GHA names an invalid-frame fail if UNO hangs later
-        # (33699746211: three PY tests FAIL then insert_cell_html hung).
-        peek_skipped = sys.platform == "win32" or not hasattr(os, "set_blocking")
+        # stdout_rest= is leftover pipe bytes after a garbage length prefix
+        # (empty when the POSIX peek is skipped on win32).
         msg = f"{exc} stdout_rest={rest!r}"
-        print(
-            "ipc invalid frame platform=%s peek_skipped=%s %s"
-            % (sys.platform, peek_skipped, msg),
-            file=sys.stderr,
-            flush=True,
-        )
-        log.info("ipc invalid frame platform=%s peek_skipped=%s %s", sys.platform, peek_skipped, msg)
+        log.error("%s", msg)
         raise IpcFrameError(msg) from None
     payload = reader(size)
     if len(payload) < size:
