@@ -203,18 +203,10 @@ class QueryTextListener(BaseTextListener):
             model = rEvent.Source.getModel()
         raw = model.Text or ""
         text = raw.strip()
-        try:
-            src = rEvent.Source
-            ps = src.getPosSize() if hasattr(src, "getPosSize") else None
-            log.info(
-                "[LAYOUT] source=query_text query=%s has_text=%s",
-                ("%sx%s@%s" % (ps.Width, ps.Height, ps.X)) if ps else "?",
-                bool(text),
-            )
-        except Exception:
-            log.info("[LAYOUT] source=query_text has_text=%s", bool(text))
+        log.info("[SLASH-OV] query_text raw=%r", (raw[:40] if isinstance(raw, str) else raw))
 
         # Overlay first. TEXT_UPDATED UpdateUI has hung before on_query_text ran.
+        # Do not getPosSize Ask here: after the TOP overlay exists it deadlocks VCL.
         popup = getattr(self.send_listener, "slash_popup", None)
         on_text = getattr(popup, "on_query_text", None) if popup is not None else None
         log.info(
@@ -228,6 +220,11 @@ class QueryTextListener(BaseTextListener):
                 on_text(raw)
             except Exception:
                 log.exception("[SLASH-OV] query_text on_query_text raised")
+        # UpdateUI after creating/mapping a TOP overlay deadlocks VCL.
+        from plugin.chatbot.slash_commands import slash_typed_prefix
+        if slash_typed_prefix(raw) is not None:
+            log.info("[SLASH-OV] query_text skip TEXT_UPDATED slash prefix")
+            return
         log.info("[SLASH-OV] query_text before dispatch")
         self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(text)}))
         log.info("[SLASH-OV] query_text after dispatch")

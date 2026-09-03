@@ -16,8 +16,10 @@ from plugin.chatbot.slash_popup import (
     _POPUP_ROW_PX,
     _create_ask_peer_listbox,
     _is_combo_box,
+    _is_parent_local,
     _overlay_height,
     _popup_bounds,
+    _printable_key_char,
     _row_index_at_y,
     uses_toolkit_overlay,
 )
@@ -247,3 +249,37 @@ def test_click_row_accepts_command_chrome_does_not_dump_help():
             assert popup.accept_row_at_y(0) is True
     send._append_response.assert_called_once()
     assert "Slash commands:" in send._append_response.call_args[0][0]
+
+
+def test_arch_parent_local_screen_is_rejected():
+    assert _is_parent_local((8, 419), 8, 419, 453) is True
+    assert _is_parent_local((786, 559), 8, 419, 453) is False
+    assert _is_parent_local((0, 0), 0, 0, 1280) is False
+
+
+def test_printable_key_char_skips_controls():
+    assert _printable_key_char("h") == "h"
+    assert _printable_key_char("\n") is None
+    assert _printable_key_char(None) is None
+
+
+def test_overlay_printable_feeds_ask_and_filters_to_help():
+    popup, _box = _controller()
+    query = popup.query_control
+    query.text = "/"
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/")
+        assert popup.handle_key(0, 0, "h", from_overlay=True) is True
+        assert popup.handle_key(0, 0, "e", from_overlay=True) is True
+    assert query.text == "/he"
+    assert popup.visible_names == ["help"]
+
+
+def test_ask_path_printable_does_not_insert():
+    popup, _box = _controller()
+    query = popup.query_control
+    query.text = "/"
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/")
+        assert popup.handle_key(0, 0, "h") is False
+    assert query.text == "/"
