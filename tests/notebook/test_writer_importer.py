@@ -30,12 +30,15 @@ from plugin.notebook.writer_importer import (
     _ensure_notebook_import_styles,
     _FIELD_HEIGHT_PAD,
     _format_in_prompt,
+    _format_outputs_for_body,
     _height_for_text,
     _inline_backticks_to_html,
     _iter_markdown_blocks,
     _LINE_HEIGHT,
     _looks_like_html,
+    _max_field_height_units,
     _notebook_image_payload,
+    _page_style,
     _png_pixel_size,
     _prepare_display_text,
     _resolve_para_style,
@@ -139,6 +142,27 @@ def test_format_all_outputs_joins():
     ]
     text = format_all_outputs(outputs)
     assert "a" in text and "b" in text
+
+
+def test_format_outputs_for_body_interleaves_image_then_stream():
+    """Mixed [display image, print] must stay image-then-text, not text-then-images."""
+    outputs = [
+        {"output_type": "display_data", "data": {"image/png": "abc"}},
+        {"output_type": "stream", "name": "stdout", "text": "hello printed\n"},
+    ]
+    segments, n_text = _format_outputs_for_body(outputs, 0)
+    assert n_text == 1
+    assert [kind for kind, _payload in segments] == ["image", "text"]
+    assert segments[1][1] == "hello printed\n"
+
+
+def test_import_cells_does_not_reformat_outputs_for_stats():
+    from plugin.notebook import writer_importer as wi
+
+    src = inspect.getsource(wi._import_cells)
+    assert "format_output_text" not in src
+    assert "_format_outputs_for_body" in src
+    assert 'stats["outputs"] += n_text' in src
 
 
 def test_trim_trailing_empty_paragraph_deletes_when_empty():
@@ -291,6 +315,35 @@ def test_code_field_uses_full_text_area_width():
     assert "_text_area_width_units(doc)" in src
     assert "_RUN_BUTTON_SIZE" not in src
     assert _text_area_width_units(None) == _DEFAULT_WIDTH
+
+
+def test_page_style_shared_by_width_and_height():
+    from plugin.notebook.writer_importer import _MAX_FIELD_HEIGHT, _MIN_FIELD_HEIGHT
+
+    assert _page_style(None) is None
+    assert "_page_style(doc)" in inspect.getsource(_text_area_width_units)
+    assert "_page_style(doc)" in inspect.getsource(_max_field_height_units)
+
+    style = MagicMock()
+    style.getPropertyValue.side_effect = lambda name: {
+        "Width": 21000,
+        "LeftMargin": 2000,
+        "RightMargin": 2000,
+        "Height": 29700,
+        "TopMargin": 2000,
+        "BottomMargin": 2000,
+    }[name]
+    families = MagicMock()
+    families.hasByName.side_effect = lambda name: name == "Standard"
+    families.getByName.return_value = style
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = families
+    doc.getPropertyValue.return_value = ""
+
+    assert _page_style(doc) is style
+    assert _text_area_width_units(doc) == 17000
+    assert _max_field_height_units(doc) == max(_MIN_FIELD_HEIGHT, 29700 - 2000 - 2000 - 1500)
+    assert _max_field_height_units(None) == _MAX_FIELD_HEIGHT
 
 
 def test_unglue_last_paragraph_clears_keep_with_next():
@@ -609,6 +662,49 @@ def test_import_ipynb_inserts_image_output(tmp_path, monkeypatch):
     assert stats["images"] == 1
     assert stats["shapes"] == 2
     assert len(insert_calls) == 2  # run button + code field; image via insert_image_at_locator
+
+
+def test_import_image_then_stream_keeps_notebook_order(tmp_path, monkeypatch):
+    png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    ipynb = tmp_path / "mixed.ipynb"
+    ipynb.write_text(
+        '{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":['
+        '{"cell_type":"code","metadata":{},"source":"plot(); print(1)","outputs":['
+        '{"output_type":"display_data","data":{"image/png":"' + png_b64 + '"}},'
+        '{"output_type":"stream","name":"stdout","text":"hello printed\\n"}'
+        "]}]}",
+        encoding="utf-8",
+    )
+
+    doc, body_text, _ = _writer_doc_mock()
+    order: list[str] = []
+
+    class FakeSize:
+        def __init__(self, w, h):
+            self.Width = w
+            self.Height = h
+
+    def tracking_insert_string(_cursor, content, _absorb=False):
+        if content == "hello printed\n":
+            order.append("text")
+
+    def tracking_insert_image(*_args, **_kwargs):
+        order.append("image")
+        return MagicMock()
+
+    body_text.insertString.side_effect = tracking_insert_string
+    doc.createInstance.side_effect = lambda service: MagicMock()
+    monkeypatch.setattr("plugin.notebook.writer_importer.Size", FakeSize)
+    monkeypatch.setattr(
+        "plugin.notebook.writer_importer.insert_image_at_locator",
+        tracking_insert_image,
+    )
+
+    stats = import_ipynb_to_writer(doc, str(ipynb), ctx=MagicMock())
+
+    assert order == ["image", "text"]
+    assert stats["outputs"] == 1
+    assert stats["images"] == 1
 
 
 def test_import_code_cell_without_outputs_has_no_output_heading(tmp_path, monkeypatch):

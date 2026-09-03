@@ -17,13 +17,6 @@ Future work (do not forget — leave these until the matching phase, not drive-b
   Safe today because File → Open always targets a fresh doc. Phase 3
   append/merge must use notebook-owned styles so a user's styles keep
   spellcheck.
-- Code-cell outputs append all text then all images, so a cell whose outputs
-  are ``[display image, print(...)]`` renders out of order. Interleave per
-  output when rewriting ``_import_cells``.
-- ``stats["outputs"]`` calls ``format_output_text`` a second time; derive the
-  count from ``_format_outputs_for_body`` instead.
-- ``_text_area_width_units`` / ``_max_field_height_units`` duplicate page-style
-  lookup — extract a small ``_page_style(doc)`` helper.
 - ``notebook_controls._form_and_container`` uses ``forms.getByIndex(0)``. Fine
   while import owns the first form; iterate forms (or find ``nb_run_*``) if
   the document can already have other forms.
@@ -227,7 +220,21 @@ def format_all_outputs(outputs: list[Any]) -> str:
     return "\n\n".join(p for p in parts if p.strip())
 
 
-def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_count: Any | None = None) -> str:
+def _format_outputs_for_body(
+    outputs: list[Any], cell_index: int, execution_count: Any | None = None
+) -> tuple[list[tuple[str, Any]], int]:
+    """Interleave text and image outputs in notebook order.
+
+    Previously appended all text, then all images, so ``[display image,
+    print(...)]`` rendered print-then-image. Walk each output once: flush
+    consecutive text before an image, then the image. Caps at
+    ``_MAX_OUTPUTS_PER_CELL``.
+
+    Returns ``(segments, text_output_count)``. Each segment is
+    ``("text", joined_str)`` or ``("image", output)``. ``text_output_count`` is
+    the number of outputs that produced non-empty text (same meaning as the
+    old ``stats["outputs"]`` increment, without a second ``format_output_text``).
+    """
     out_list = outputs or []
     if len(out_list) > _MAX_OUTPUTS_PER_CELL:
         log.warning(
@@ -237,12 +244,25 @@ def _format_outputs_for_body(outputs: list[Any], cell_index: int, execution_coun
             _MAX_OUTPUTS_PER_CELL,
         )
         out_list = out_list[:_MAX_OUTPUTS_PER_CELL]
-    parts: list[str] = []
+    segments: list[tuple[str, Any]] = []
+    text_parts: list[str] = []
+    text_count = 0
+
+    def flush_text() -> None:
+        if text_parts:
+            segments.append(("text", "\n\n".join(text_parts)))
+            text_parts.clear()
+
     for output in out_list:
         text = format_output_text(output, execution_count)
         if text.strip():
-            parts.append(text)
-    return "\n\n".join(parts)
+            text_parts.append(text)
+            text_count += 1
+        if _outputs_contain_image([output]):
+            flush_text()
+            segments.append(("image", output))
+    flush_text()
+    return segments, text_count
 
 
 def _notebook_image_payload(data: dict[str, Any]) -> tuple[str, str] | None:
@@ -320,10 +340,10 @@ def _image_mime_from_bytes(raw: bytes, path: str) -> str:
     return "image/png"
 
 
-def _text_area_width_units(doc: Any | None) -> int:
-    """Page width minus left/right margins (1/100 mm), for code fields and images."""
+def _page_style(doc: Any | None) -> Any | None:
+    """Current page style, or Standard/Default fallback. None if unavailable."""
     if doc is None:
-        return _DEFAULT_WIDTH
+        return None
     try:
         families = doc.getStyleFamilies().getByName("PageStyles")
         name = ""
@@ -331,16 +351,22 @@ def _text_area_width_units(doc: Any | None) -> int:
             name = str(doc.getPropertyValue("PageDescName") or "")
         except Exception:
             name = ""
-        style = None
         if name and families.hasByName(name):
-            style = families.getByName(name)
-        else:
-            for candidate in ("Standard", "Default", "Default Page Style"):
-                if families.hasByName(candidate):
-                    style = families.getByName(candidate)
-                    break
-        if style is None:
-            return _DEFAULT_WIDTH
+            return families.getByName(name)
+        for candidate in ("Standard", "Default", "Default Page Style"):
+            if families.hasByName(candidate):
+                return families.getByName(candidate)
+    except Exception:
+        log.debug("notebook import could not read page style", exc_info=True)
+    return None
+
+
+def _text_area_width_units(doc: Any | None) -> int:
+    """Page width minus left/right margins (1/100 mm), for code fields and images."""
+    style = _page_style(doc)
+    if style is None:
+        return _DEFAULT_WIDTH
+    try:
         page_w = int(style.getPropertyValue("Width"))
         left = int(style.getPropertyValue("LeftMargin"))
         right = int(style.getPropertyValue("RightMargin"))
@@ -352,25 +378,10 @@ def _text_area_width_units(doc: Any | None) -> int:
 
 def _max_field_height_units(doc: Any | None) -> int:
     """Cap AS_CHARACTER code fields at roughly the page body height."""
-    if doc is None:
+    style = _page_style(doc)
+    if style is None:
         return _MAX_FIELD_HEIGHT
     try:
-        families = doc.getStyleFamilies().getByName("PageStyles")
-        name = ""
-        try:
-            name = str(doc.getPropertyValue("PageDescName") or "")
-        except Exception:
-            name = ""
-        style = None
-        if name and families.hasByName(name):
-            style = families.getByName(name)
-        else:
-            for candidate in ("Standard", "Default", "Default Page Style"):
-                if families.hasByName(candidate):
-                    style = families.getByName(candidate)
-                    break
-        if style is None:
-            return _MAX_FIELD_HEIGHT
         page_h = int(style.getPropertyValue("Height"))
         top = int(style.getPropertyValue("TopMargin"))
         bottom = int(style.getPropertyValue("BottomMargin"))
@@ -1775,18 +1786,20 @@ def _import_cells(
             if registry_state is not None and registry_state.code_cells:
                 bm_name = registry_state.code_cells[-1].output_start_bookmark
                 insert_output_start_bookmark(doc, bm_name)
-            out_text = _format_outputs_for_body(outputs, idx, execution_count=ec)
-            if out_text.strip():
-                stats["outputs"] += len(
-                    [o for o in outputs if format_output_text(o, ec).strip()]
-                )
-                _append_body_text_block(doc, out_text, _STYLE_OUTPUT, lead_break=True)
-            if _outputs_contain_image(outputs):
-                _append_paragraph_break_at_end(doc)
-                images_added = _import_image_outputs_in_flow(
-                    doc, outputs, idx, images_before=stats["images"], ctx=ctx
-                )
-                stats["images"] += images_added
+            # Interleave in notebook order. Used to dump all text, then all
+            # images, so [display image, print(...)] rendered print-then-image.
+            segments, n_text = _format_outputs_for_body(outputs, idx, execution_count=ec)
+            stats["outputs"] += n_text
+            for kind, payload in segments:
+                if kind == "text":
+                    if str(payload).strip():
+                        _append_body_text_block(doc, str(payload), _STYLE_OUTPUT, lead_break=True)
+                else:
+                    _append_paragraph_break_at_end(doc)
+                    images_added = _import_image_outputs_in_flow(
+                        doc, [payload], idx, images_before=stats["images"], ctx=ctx
+                    )
+                    stats["images"] += images_added
         else:
             stats["raw"] += 1
             _append_body_text_block(doc, source, _STYLE_BODY, lead_break=lead)
