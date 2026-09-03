@@ -75,7 +75,9 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     writer_ctrl.getTransferable.assert_called_once()
     calc_ctrl.select.assert_called_once_with(cell)
     calc_ctrl.insertTransferable.assert_called_once()
-    temp_doc.close.assert_called_once_with(True)
+    # GHA 33771766524: close after a live paste hung the next desktop enum.
+    temp_doc.close.assert_not_called()
+    temp_doc.getText.return_value.setString.assert_called_with("")
     for step in (
         "loadComponentFromURL",
         "HTML insert",
@@ -83,14 +85,13 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
         "select cell",
         "insertTransferable",
         "clipboard release",
-        "close",
     ):
         assert f"insert_cell_html_rich: {step} start" in caplog.text
         assert f"insert_cell_html_rich: {step} done" in caplog.text
     assert "target=_wa_calc_html" in caplog.text
     assert "reused_existing=" in caplog.text
     assert "close_temp=" in caplog.text
-    assert "writers_after_close=" in caplog.text
+    assert "close skipped pasted=True" in caplog.text
     assert "xfer_id=" in caplog.text
 
 
@@ -118,8 +119,8 @@ def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
     assert "insert_cell_html_rich: insertTransferable start" in err
     assert "insert_cell_html_rich: clipboard release start" in err
     assert "insert_cell_html_rich: clipboard release done" in err
-    assert "insert_cell_html_rich: close done" in err
-    assert "insert_cell_html_rich: writers_after_close=" in err
+    assert "insert_cell_html_rich: close skipped pasted=True" in err
+    assert "insert_cell_html_rich: close done" not in err
 
 
 def test_desktop_writer_uids_stops_on_mock_enumeration():
@@ -199,8 +200,12 @@ def test_release_clipboard_if_holds_only_when_ours():
     clip.setContents.assert_not_called()
 
 
-def test_insert_cell_html_rich_releases_clipboard_before_close():
-    """SwTransferable must not still be clipboard owner when the Writer closes."""
+def test_insert_cell_html_rich_releases_clipboard_and_keeps_writer():
+    """#572: drop SwTransferable from SystemClipboard. #572-followup: do not close after paste.
+
+    GHA 33771766524: clipboard was empty (release no-op) and close() returned, then
+    teardown hung at getComponents. Keep the release; reuse _wa_calc_html instead.
+    """
     from plugin.calc.rich_html import insert_cell_html_rich
 
     calc_doc, cell, desktop, temp_doc, _calc_ctrl, writer_ctrl = _cell_and_docs()
@@ -229,7 +234,32 @@ def test_insert_cell_html_rich_releases_clipboard_before_close():
         mock_fmt.create_property_value.return_value = object()
         insert_cell_html_rich(calc_doc, uno_ctx, "Z99", "<b>x</b>")
 
-    assert order == ["setContents", "close"]
+    assert order == ["setContents"]
+    temp_doc.close.assert_not_called()
+
+
+def test_insert_cell_html_rich_closes_writer_when_paste_never_happened():
+    """Failed insert before paste may close — Calc does not hold a SwTransferable."""
+    from plugin.calc.rich_html import insert_cell_html_rich
+    from plugin.framework.errors import ToolExecutionError as ToolErr
+
+    calc_doc, cell, desktop, temp_doc, _calc_ctrl, writer_ctrl = _cell_and_docs()
+    writer_ctrl.getTransferable.side_effect = RuntimeError("no transferable")
+
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+        pytest.raises(ToolErr, match="Failed to insert HTML"),
+    ):
+        mock_bridge = mock_bridge_cls.return_value
+        mock_bridge.get_active_sheet.return_value = MagicMock()
+        mock_bridge.get_cell.return_value = cell
+        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.create_property_value.return_value = object()
+        insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
+
+    temp_doc.close.assert_called_once_with(True)
 
 
 def _portion_cell(blocks):

@@ -857,33 +857,15 @@ def _remove_all_calc_charts(doc) -> None:
         pass
 
 
-def _probe_soffice_before_udprops(doc, ctx) -> None:
-    """Name whether soffice/desktop/clipboard is already wedged before the udprop write.
+def _probe_soffice_before_udprops(doc, _ctx=None) -> None:
+    """Name whether the Calc model is already wedged before the udprop write.
 
     GHA 33763078357: sheet-level reset returned, then getDocumentProperties blocked.
-    Each probe logs start *before* the UNO call so the last stderr line names it.
+    GHA 33771766524: #572's desktop.getComponents / SystemClipboard probe became
+    the hang — do not call those here. RuntimeUID is a cheap attribute read that
+    returned on that run; keep it so the last stderr line still names a UNO step
+    before set_document_property. *ctx* is kept so callers stay unchanged.
     """
-    _native_teardown_progress("udprops probe: desktop getComponents start")
-    try:
-        from plugin.calc.rich_html import _desktop_writer_uids
-        from plugin.framework.uno_context import get_desktop
-
-        desktop = get_desktop(ctx)
-        uids = _desktop_writer_uids(desktop)
-        _native_teardown_progress(
-            "udprops probe: desktop getComponents done writers=%s uids=%s"
-            % (len(uids), uids)
-        )
-    except Exception as exc:
-        _native_teardown_progress("udprops probe: desktop getComponents failed %r" % (exc,))
-    _native_teardown_progress("udprops probe: clipboard start")
-    try:
-        from plugin.calc.rich_html import _clipboard_snapshot
-
-        snap = _clipboard_snapshot(ctx)
-        _native_teardown_progress("udprops probe: clipboard done %s" % snap)
-    except Exception as exc:
-        _native_teardown_progress("udprops probe: clipboard failed %r" % (exc,))
     _native_teardown_progress("udprops probe: RuntimeUID start")
     try:
         uid = getattr(doc, "RuntimeUID", None)

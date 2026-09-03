@@ -198,7 +198,7 @@ def test_reset_calc_doc_logs_when_teardown_flag_set(capsys):
     assert "native_doc: _reset_calc_doc start" in err
     assert "native_doc: _reset_calc_doc clearContents start" in err
     assert "native_doc: _reset_calc_doc clearContents done" in err
-    assert "udprops probe: desktop getComponents start" in err
+    assert "udprops probe: RuntimeUID start" in err
     assert "udprops clear: DOCUMENT_SCRIPTS start" in err
     assert "native_doc: _reset_calc_doc done" in err
 
