@@ -6,7 +6,7 @@
 
 **Current state:** The sidebar panel is **working**. "Chat with Document" appears in the WriterAgent deck in Writer's sidebar with Response area, Ask field, and Send button. The menu item can remain as fallback.
 
-In-chat `/` commands are **not implemented**. A research candidate list (Aider-based, including new WriterAgent features) lives in [slash-commands.md](slash-commands.md).
+In-chat `/` **popup** is wired on the Ask field (prefix filter, LRU, Esc/arrows/Tab/Enter). Commands are still mostly stubs. The consider-list (Aider-based, including new WriterAgent features) lives in [slash-commands.md](slash-commands.md).
 
 ### Main chat: sidebar reply vs document edit
 

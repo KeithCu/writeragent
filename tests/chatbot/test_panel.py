@@ -231,6 +231,15 @@ class QueryKeyListenerDisposeTests(unittest.TestCase):
             listener.on_key_pressed(event)
         send_listener.on_action_performed.assert_called_once_with(event)
 
+    def test_open_slash_popup_enter_does_not_send(self) -> None:
+        send_listener = MagicMock()
+        send_listener.slash_popup.handle_key.return_value = True
+        listener = QueryKeyListener(send_listener)
+        event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
+        listener.on_key_pressed(event)
+        send_listener.on_action_performed.assert_not_called()
+        self.assertTrue(event.Consume)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,8 @@
 # Sidebar slash commands (research)
 
-**Status:** not implemented. Candidate list only. WriterAgent has no `/` parser today.
+**UI status:** The Ask-box `/` completion popup is wired. Typing `/` opens a ListBox just above (or below) the field; further typing filters; Esc dismisses; Up/Down moves the selection; Tab completes the selected name; Enter accepts it without sending a chat turn. Ranking uses LRU persisted as `slash_command_lru` in `writeragent.json`. **Commands are still mostly stubs** — mocks echo `slash: /name` in the response pane. `/help` prints the static list; `/clear` wipes the active transcript; `/stop` cancels an in-flight send. Keith will pick the real set later. Do not treat the consider-list below as shipped behavior.
+
+**Status:** product command implementations are not done. Candidate list only.
 
 Typed in the **chat sidebar** Ask box (Aider/Cursor style). Not a LibreOffice menu, not LibrePy, not a skills system.
 

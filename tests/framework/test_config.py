@@ -350,6 +350,7 @@ class TestConfigSyncFileIO(unittest.TestCase):
         from plugin.framework.errors import ConfigError
         self.assertEqual(get_config('calc_prompt_max_tokens'), 4096)
         self.assertEqual(get_config('prompt_lru'), [])
+        self.assertEqual(get_config('slash_command_lru'), [])
         self.assertEqual(get_config('endpoint'), 'http://localhost:11434')
         self.assertEqual(get_config('model_lru@http://localhost:11434'), [])
         self.assertEqual(get_config_int('extension_update_check_epoch'), 0)

@@ -34,6 +34,7 @@ from plugin.chatbot.sidebar_test_hooks import (
     unregister_live_panel,
     press_accept,
     press_change,
+    press_query_key,
     press_record,
     press_reject,
     press_send,
@@ -49,6 +50,7 @@ from plugin.chatbot.sidebar_test_hooks import (
     sidebar_deck_names,
     sidebar_panel,
     sidebar_provider,
+    slash_popup_state,
     stub_recorder_child,
     transcript_contains,
     transcript_text,
@@ -207,6 +209,19 @@ def test_set_query_text_dispatches_text_updated(fake_listener: _FakeListener) ->
     kinds = [e.kind for e in fake_listener.events if hasattr(e, "kind")]
     assert SendEventKind.TEXT_UPDATED in kinds
     assert fake_listener.sidebar_state.send.has_text is True
+
+
+def test_slash_popup_hooks_read_state_and_consume_enter(fake_listener: _FakeListener) -> None:
+    fake_listener.slash_popup = SimpleNamespace(
+        is_open=True,
+        visible_names=["help", "clear"],
+        selected_name="help",
+        handle_key=lambda *a, **k: True,
+    )
+    state = slash_popup_state(listener=fake_listener)
+    assert state == {"visible": True, "items": ["help", "clear"], "selected": "help"}
+    press_query_key(1280, listener=fake_listener)
+    assert not any(isinstance(e, tuple) and e and e[0] == "action" for e in fake_listener.events)
 
 
 def test_press_send_uses_on_action_performed(fake_listener: _FakeListener) -> None:

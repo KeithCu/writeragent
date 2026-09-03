@@ -200,7 +200,8 @@ class QueryTextListener(BaseTextListener):
         model = getattr(rEvent.Source, "Model", None)
         if not model:
             model = rEvent.Source.getModel()
-        text = model.Text.strip()
+        raw = model.Text or ""
+        text = raw.strip()
         try:
             src = rEvent.Source
             ps = src.getPosSize() if hasattr(src, "getPosSize") else None
@@ -214,6 +215,10 @@ class QueryTextListener(BaseTextListener):
 
         # Dispatch event to the state machine
         self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(text)}))
+        popup = getattr(self.send_listener, "slash_popup", None)
+        on_text = getattr(popup, "on_query_text", None) if popup is not None else None
+        if callable(on_text):
+            on_text(raw)
 
 
 # UNO Key.RETURN / KeyModifier.SHIFT (test-friendly integer codes)
@@ -236,6 +241,15 @@ class QueryKeyListener(BaseKeyListener):
         self.send_listener = send_listener
 
     def on_key_pressed(self, e):
+        # Popup Enter must not also Send. Consume only when handle_key is True
+        # (MagicMock hosts in unit tests return a mock, which is not True).
+        popup = getattr(self.send_listener, "slash_popup", None)
+        handle = getattr(popup, "handle_key", None) if popup is not None else None
+        if callable(handle) and handle(e.KeyCode, e.Modifiers) is True:
+            with suppress_disposed("QueryKeyListener slash Consume", logger=log):
+                if hasattr(e, "Consume"):
+                    setattr(e, "Consume", True)
+            return
         if not query_enter_triggers_primary_send(e.KeyCode, e.Modifiers):
             return
         try:
@@ -328,6 +342,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         self._approval_ui_backup = None
         self._approval_query_for_engine = None
         self._dispatch_reenter: list[Any] | None = None
+        self.slash_popup = None
+        self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
         self.queue_executor = QueueExecutor(ctx=ctx)

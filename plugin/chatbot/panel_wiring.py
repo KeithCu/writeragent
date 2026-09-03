@@ -1,6 +1,6 @@
 import logging
 
-from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, translate_dialog
+from plugin.chatbot.dialogs import get_optional as get_optional_control, get_control_text, set_control_text, set_control_visible, translate_dialog
 from plugin.chatbot.panel_resize import _PanelResizeListener
 from plugin.framework.config import get_config
 from plugin.framework.errors import suppress_disposed
@@ -79,7 +79,12 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
         "response_label": get_optional("response_label"),
         "query_label": get_optional("query_label"),
         "backend_indicator": get_optional("backend_indicator"),
+        "slash_popup": get_optional("slash_popup"),
     }
+
+    # Overlay completion menu — hide until `/` is typed (not a permanent widget).
+    if controls.get("slash_popup"):
+        set_control_visible(controls["slash_popup"], False)
 
     # Helper to show errors visibly in the response area
     def _show_init_error(msg):
@@ -144,6 +149,14 @@ def _wireControls(self, root_window, has_recording, ensure_extension_on_path):  
                     from plugin.chatbot.panel import QueryKeyListener
 
                     query_ctrl.addKeyListener(QueryKeyListener(self.send_listener))
+
+                    slash_ctrl = controls.get("slash_popup")
+                    if slash_ctrl is not None:
+                        from plugin.chatbot.slash_popup import SlashPopupController
+
+                        self.send_listener.slash_popup = SlashPopupController(
+                            slash_ctrl, self.send_listener, query_ctrl
+                        )
 
                     # The label update logic is now handled correctly by the state machine
                     # so we can just trigger a fake text update event to sync the state

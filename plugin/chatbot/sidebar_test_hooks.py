@@ -438,6 +438,7 @@ _CHAT_CONTROL_NAMES = (
     "status",
     "model_selector",
     "chat_mode_selector",
+    "slash_popup",
 )
 
 
@@ -763,6 +764,10 @@ def set_query_text(text: str, *, listener: Any = None) -> None:
         set_control_text(query, text)
         stripped = (text or "").strip()
         sl.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, {"has_text": bool(stripped)}))
+        popup = getattr(sl, "slash_popup", None)
+        on_text = getattr(popup, "on_query_text", None) if popup is not None else None
+        if callable(on_text):
+            on_text(text or "")
         return
     ctx = _HOOK_CTX
     if ctx is not None:
@@ -778,6 +783,39 @@ def query_text(*, listener: Any = None) -> str:
     from plugin.chatbot.dialogs import get_control_text
 
     return get_control_text(getattr(sl, "query_control", None), default="") or ""
+
+
+def slash_popup_state(*, listener: Any = None) -> dict[str, Any]:
+    """Visible names and selection for the Ask-box slash completion menu."""
+    _require_debug()
+    sl = listener if listener is not None else send_listener()
+    popup = getattr(sl, "slash_popup", None) if sl is not None else None
+    if popup is None:
+        return {"visible": False, "items": [], "selected": None}
+    visible = bool(getattr(popup, "is_open", False))
+    items = list(getattr(popup, "visible_names", None) or [])
+    selected = getattr(popup, "selected_name", None)
+    if not items:
+        ctrl = getattr(popup, "control", None)
+        if ctrl is not None and hasattr(ctrl, "getItemCount"):
+            try:
+                count = int(ctrl.getItemCount() or 0)
+                items = [str(ctrl.getItem(i)) for i in range(count)]
+            except Exception:
+                items = []
+    return {"visible": visible, "items": items, "selected": selected}
+
+
+def press_query_key(key_code: int, modifiers: int = 0, *, listener: Any = None) -> None:
+    """Drive ``QueryKeyListener`` (Enter / Esc / arrows / Tab) on the Ask field."""
+    _require_debug()
+    sl = listener if listener is not None else send_listener()
+    if sl is None:
+        raise RuntimeError("no live SendButtonListener")
+    from plugin.chatbot.panel import QueryKeyListener
+
+    event = type("KeyEvent", (), {"KeyCode": int(key_code), "Modifiers": int(modifiers), "Consume": False})()
+    QueryKeyListener(sl).on_key_pressed(event)
 
 
 def transcript_text(*, listener: Any = None) -> str:

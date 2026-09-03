@@ -169,6 +169,13 @@ class TestPanelResizeListenerIntegration:
         assert rh == expected["response"].height
         assert rich.getPosSize().Height == rh - 16
 
+    def test_slash_popup_overlay_is_not_laid_out(self):
+        snapshot = _xdl_snapshot()
+        snapshot["slash_popup"] = (4, 80, 142, 60)
+        layouts = compute_chat_panel_layout(900, 500, snapshot)
+        assert "slash_popup" not in layouts
+        assert "query" in layouts
+
     def test_narrow_panel_stretches_response_to_margin(self):
         layouts = compute_chat_panel_layout(180, 500, _xdl_snapshot())
         response = layouts["response"]

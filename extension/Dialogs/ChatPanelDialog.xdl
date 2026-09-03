@@ -14,6 +14,7 @@
   <dlg:textfield dlg:id="status" dlg:left="4" dlg:top="128" dlg:width="142" dlg:height="10" dlg:value="" dlg:readonly="true" dlg:border="none" dlg:tabstop="false"/>
   
   <dlg:text dlg:id="query_label" dlg:left="4" dlg:top="140" dlg:width="142" dlg:height="10" dlg:value="Ask / instruct:" dlg:align="left"/>
+  <dlg:menulist dlg:id="slash_popup" dlg:left="4" dlg:top="80" dlg:width="142" dlg:height="60" dlg:tabstop="false"/>
   <dlg:textfield dlg:id="query" dlg:left="4" dlg:top="152" dlg:width="142" dlg:height="30" dlg:tabstop="true" dlg:value="" dlg:multiline="true" dlg:vscroll="true"/>
   
   <dlg:button dlg:id="send" dlg:left="4" dlg:top="186" dlg:width="50" dlg:height="15" dlg:value="Send" dlg:tabstop="true"/>

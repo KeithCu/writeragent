@@ -101,7 +101,7 @@ set_manifest_modules(_DEFAULT_MODULES)
 
 
 # Keys used by populate_combobox_with_lru / update_lru_history (including endpoint-scoped "name@url").
-_LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_lru", "image_model_lru", "audio_model_lru", "endpoint_lru", "image_base_size_lru"})
+_LRU_LIST_CONFIG_KEY_PREFIXES: frozenset[str] = frozenset({"model_lru", "prompt_lru", "image_model_lru", "audio_model_lru", "endpoint_lru", "image_base_size_lru", "slash_command_lru"})
 
 
 @deal.post(lambda result: isinstance(result, bool))

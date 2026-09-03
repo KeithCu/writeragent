@@ -20,7 +20,7 @@ Product overview lives in the root [README](../README.md). This page maps each a
 | Styles / LLM HTML | [writer/llm-styles.md](writer/llm-styles.md) · [LLM_STYLES.md](../LLM_STYLES.md) |
 | Reviewable edits | [writer/reviewable-agent-edits.md](writer/reviewable-agent-edits.md) |
 | Rich-text sidebar | [chat/rich-text-control-sidebar.md](chat/rich-text-control-sidebar.md) |
-| Chat sidebar | [chat/sidebar-implementation.md](chat/sidebar-implementation.md) · slash `/` candidates (not implemented): [chat/slash-commands.md](chat/slash-commands.md) |
+| Chat sidebar | [chat/sidebar-implementation.md](chat/sidebar-implementation.md) · slash `/` popup (commands mostly stubs): [chat/slash-commands.md](chat/slash-commands.md) |
 
 ## Calc
 

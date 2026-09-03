@@ -2275,3 +2275,97 @@ def test_g29_native_400_then_stt_same_drain(ctx):
         time.sleep(2.1)
     _hello_ok()
 
+
+# --- Slash-command Ask-box popup (UI-first; isolates from Packet G audio) ---
+
+
+def _slash_prep():
+    """Clear Ask + LRU. Skip if this soffice still has a pre-popup OXT."""
+    from plugin.chatbot.sidebar_test_hooks import send_listener, set_query_text
+    from plugin.framework.config import set_config
+
+    sl = getattr(_session, "listener", None) or send_listener()
+    popup = getattr(sl, "slash_popup", None) if sl is not None else None
+    if sl is None or popup is None:
+        raise unittest.SkipTest(
+            "slash popup not on live SendButtonListener — deploy the Ask-field "
+            "ListBox OXT (ChatPanelDialog slash_popup). Pure filter/LRU tests still run."
+        )
+    set_config("slash_command_lru", [])
+    set_query_text("", listener=sl)
+    if popup.is_open:
+        popup.hide()
+    return sl
+
+
+@native_test
+def test_slash_popup_opens_on_slash(ctx):
+    from plugin.chatbot.sidebar_test_hooks import set_query_text, slash_popup_state
+
+    sl = _slash_prep()
+    set_query_text("/", listener=sl)
+    state = slash_popup_state(listener=sl)
+    assert state["visible"], "typing / should show the slash popup: %r" % state
+    assert "help" in state["items"], state
+    assert "mock-alpha" in state["items"], state
+    set_query_text("", listener=sl)
+
+
+@native_test
+def test_slash_popup_he_selects_help_and_enter_accepts(ctx):
+    from plugin.chatbot.sidebar_test_hooks import (
+        press_query_key,
+        query_text,
+        set_query_text,
+        slash_popup_state,
+        transcript_text,
+    )
+    from plugin.chatbot.slash_commands import KEY_RETURN
+
+    sl = _slash_prep()
+    before = transcript_text(listener=sl)
+    set_query_text("/he", listener=sl)
+    state = slash_popup_state(listener=sl)
+    assert state["visible"], state
+    assert state["selected"] == "help", state
+    press_query_key(KEY_RETURN, listener=sl)
+    after = slash_popup_state(listener=sl)
+    assert after["visible"] is False, after
+    assert query_text(listener=sl).strip() == "", query_text(listener=sl)
+    body = transcript_text(listener=sl)
+    suffix = body[len(before) :] if body.startswith(before) else body
+    assert "Slash commands:" in suffix or "/help" in suffix, body[-500:]
+
+
+@native_test
+def test_slash_popup_esc_dismisses(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_query_key, set_query_text, slash_popup_state
+    from plugin.chatbot.slash_commands import KEY_ESCAPE
+
+    sl = _slash_prep()
+    set_query_text("/", listener=sl)
+    assert slash_popup_state(listener=sl)["visible"]
+    press_query_key(KEY_ESCAPE, listener=sl)
+    assert slash_popup_state(listener=sl)["visible"] is False
+    set_query_text("", listener=sl)
+
+
+@native_test
+def test_slash_popup_mock_records_lru(ctx):
+    from plugin.chatbot.sidebar_test_hooks import press_query_key, set_query_text, slash_popup_state
+    from plugin.chatbot.slash_commands import KEY_RETURN
+    from plugin.framework.config import get_config
+
+    sl = _slash_prep()
+    set_query_text("/mock-bravo", listener=sl)
+    state = slash_popup_state(listener=sl)
+    assert state["selected"] == "mock-bravo", state
+    press_query_key(KEY_RETURN, listener=sl)
+    lru = get_config("slash_command_lru")
+    assert isinstance(lru, list) and lru and lru[0] == "mock-bravo", lru
+    set_query_text("/", listener=sl)
+    ranked = slash_popup_state(listener=sl)
+    assert ranked["visible"], ranked
+    assert ranked["items"][0] == "mock-bravo", ranked
+    set_query_text("", listener=sl)
+

@@ -26,6 +26,9 @@ _STRETCH_CONTROLS = frozenset({
     "aspect_ratio_selector",
 })
 
+# Completion menu overlays the transcript; do not park it in the bottom band.
+_OVERLAY_CONTROLS = frozenset({"slash_popup"})
+
 # ChatPanelDialog.xdl: response top=16 height=110, status top=128 -> gap=2.
 _XDL_GAP_BELOW_RESPONSE = 2
 _BOTTOM_MARGIN = 10
@@ -96,6 +99,9 @@ def compute_chat_panel_layout(
     layouts: dict[str, ControlRect] = {}
     for name, (ox, oy, ow, oh) in snapshot.items():
         if name == "response":
+            continue
+
+        if name in _OVERLAY_CONTROLS:
             continue
 
         if name in _STRETCH_CONTROLS:

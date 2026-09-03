@@ -975,6 +975,8 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             try:
                 clear_listener = ClearButtonListener(self.session, controls["response"], controls["status"], greeting=active_greeting, send_listener=send_listener)
                 controls["clear"].addActionListener(clear_listener)
+                if send_listener is not None:
+                    send_listener.clear_listener = clear_listener
             except Exception:
                 log.exception("Clear button wiring failed")
 
