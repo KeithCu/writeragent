@@ -118,7 +118,7 @@ def test_shared_pieces_are_identical_in_both_channels():
     # subdivision, editing-html). The pointer to the subdivision is appended ONLY when the topic
     # is served alone (get_section) — in full_manual the editing-html section follows inline, so
     # a "go read that topic" sentence would dangle there.
-    for piece in (c.TOOL_USAGE_PATTERNS, c.TRANSLATION_RULES):
+    for piece in (c.CONFIRM_EDITS_FROM_STRUCTURED_FIELDS, c.TOOL_USAGE_PATTERNS, c.TRANSLATION_RULES):
         assert piece.strip() in MANUAL_SECTIONS["editing"]
     assert "editing-html" in get_section("editing", "writer")      # on-demand: pointer present
     assert "read the editing-html topic" not in full_manual("writer")  # concatenated: no dangler
@@ -144,6 +144,8 @@ def test_sidebar_hybrid_prompt_composition():
         c.WRITER_APPLY_DOCUMENT_HTML_RULES,
         c.TRANSLATION_RULES,
         c.WRITER_REVIEW_MODES_RULES,
+        c.CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+        c.SIDEBAR_VS_DOCUMENT,
     ):
         assert template.count(piece) == 1
     for piece in (c.WRITER_SEARCH_RULES, c.WRITER_NAVIGATION_RULES, c.WRITER_IMAGES_RULES):

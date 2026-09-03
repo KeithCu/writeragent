@@ -32,7 +32,7 @@ See [../framework/streaming-and-threading.md](../framework/streaming-and-threadi
 
 ## Chat prompt constants
 
-File layout in [`prompts.py`](../../plugin/framework/prompts.py) is Generic, then Writer, Calc, Draw, then Assembly. Writer main-chat blocks in the Writer section still follow runtime assembly in `get_chat_system_prompt_for_document` (persona → chat format → sidebar routing → core directives → tools → translation → usage patterns → review modes → `apply_document_content` HTML rules → specialized delegation → memory); shared format and memory live in Generic. The delivery is hybrid: the reference pieces (search, navigation, images) are NOT ambient — the sidebar pulls them on demand via the `get_guidance` tool (topics mapped in `plugin/chatbot/agent_manual.py`, the same single source the MCP serves).
+File layout in [`prompts.py`](../../plugin/framework/prompts.py) is Generic, then Writer, Calc, Draw, then Assembly. Writer main-chat blocks in the Writer section still follow runtime assembly in `get_chat_system_prompt_for_document` (persona → chat format → core directives → tools → translation → usage patterns → review modes → specialized delegation → memory → sidebar routing → `apply_document_content` HTML rules → confirm-from-fields). Apply-HTML and confirm-from-fields sit last on purpose (recency); do not copy the research tool-result trailer into this ambient prompt. Shared format and memory live in Generic. The delivery is hybrid: the reference pieces (search, navigation, images) are NOT ambient — the sidebar pulls them on demand via the `get_guidance` tool (topics mapped in `plugin/chatbot/agent_manual.py`, the same single source the MCP serves).
 
 Design notes for prompt authors live in this section so the source file stays scannable.
 

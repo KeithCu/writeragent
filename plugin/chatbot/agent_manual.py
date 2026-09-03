@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 
 from plugin.framework.prompts import (
+    CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
     GENERIC_EDIT_CONFIRMATION_RULES,
     TOOL_USAGE_PATTERNS,
     TRANSLATION_RULES,
@@ -80,6 +81,8 @@ MANUAL_SECTIONS: dict[str, str] = {
     # own subdivision (editing-html) so a model can pull just the part it needs.
     "editing": (
         "Change the document with tools, not chat.\n\n"
+        + CONFIRM_EDITS_FROM_STRUCTURED_FIELDS.strip()
+        + "\n\n"
         + TOOL_USAGE_PATTERNS.strip()
         + "\n\n"
         + TRANSLATION_RULES.strip()

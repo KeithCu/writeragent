@@ -121,7 +121,7 @@ def test_writer_chat_prompt_opens_with_persona_and_color_guidance():
 
 
 def test_writer_chat_prompt_section_order_matches_assembly():
-    """Writer system prompt sections appear in model-facing order (persona → format → tools → HTML rules)."""
+    """Writer system prompt sections appear in model-facing order (persona → format → tools → HTML last)."""
     model = MagicMock()
     model.supportsService.return_value = False
     prompt = get_chat_system_prompt_for_document(model)
@@ -130,8 +130,34 @@ def test_writer_chat_prompt_section_order_matches_assembly():
     html_rules = prompt.index("APPLY_DOCUMENT_CONTENT AND HTML")
     sidebar = prompt.index("SIDEBAR CHAT")
     assert chat_fmt < tools < html_rules
-    assert sidebar < tools
+    assert tools < sidebar < html_rules
     assert prompt.index("LibreOffice Writer assistant") < chat_fmt
+
+
+def test_writer_chat_template_ends_with_apply_html_then_confirm():
+    """Recency: apply-HTML then confirm-from-fields are the last two ambient pieces."""
+    from plugin.framework.prompts import (
+        CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+        DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE,
+        MEMORY_GUIDANCE,
+        RESEARCH_COMPLETION_INSTRUCTION_WRITER,
+        SIDEBAR_VS_DOCUMENT,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+    )
+
+    template = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE
+    specialized = template.index("{specialized_delegation}")
+    memory = template.index(MEMORY_GUIDANCE)
+    sidebar = template.index(SIDEBAR_VS_DOCUMENT)
+    apply_html = template.index(WRITER_APPLY_DOCUMENT_HTML_RULES)
+    confirm = template.index(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS)
+    assert specialized < memory < sidebar < apply_html < confirm
+    assert template.rstrip().endswith(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS.rstrip())
+    after_apply = template[apply_html + len(WRITER_APPLY_DOCUMENT_HTML_RULES):].lstrip()
+    assert after_apply.startswith(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS.lstrip())
+    # Confirm bullet is not also left inside TOOL_USAGE_PATTERNS (would bury recency).
+    assert template.count(CONFIRM_EDITS_FROM_STRUCTURED_FIELDS) == 1
+    assert RESEARCH_COMPLETION_INSTRUCTION_WRITER not in template
 
 
 def test_writer_chat_prompt_includes_sidebar_vs_document_routing():
@@ -173,6 +199,8 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert r"\[" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Math (display):" not in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Math (CRITICAL)" not in HTML_FRAGMENT_RULES
+    assert "Local edits use target='search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "target='full_document' is rewrite/translation only" in WRITER_APPLY_DOCUMENT_HTML_RULES
 
     model = MagicMock()
     model.supportsService.return_value = False

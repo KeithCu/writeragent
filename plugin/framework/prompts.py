@@ -241,11 +241,16 @@ Do not use old_content or target='search' for whole-document translation.
 Never refuse."""
 
 
+# Pulled out of TOOL_USAGE_PATTERNS so the Writer ambient prompt can put it last (recency)
+# without duplicating the bullet. MCP editing topic still includes this same object.
+CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields, not message wording: apply_document_content search replace → replaced_count > 0; inserts (target='beginning'/'end'/'selection', position='before'/'after') → status='ok' (also inserted=true); apply_style → applied is true; add_comment → comment_added is true.
+  No-op (text not found) is status="error"."""
+
+
 # Tool-usage workflow patterns (no repeat of apply_document_content targets; see WRITER_APPLY_DOCUMENT_HTML_RULES).
 # Shared piece: sidebar system prompt + MCP manual (agent_manual topic "editing").
+# Confirm-from-fields is CONFIRM_EDITS_FROM_STRUCTURED_FIELDS (appended last for recency).
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
-- Confirm edits from structured fields, not message wording: apply_document_content search replace → replaced_count > 0; inserts (target='beginning'/'end'/'selection', position='before'/'after') → status='ok' (also inserted=true); apply_style → applied is true; add_comment → comment_added is true.
-  No-op (text not found) is status="error".
 - Earlier document text may be a partial/truncated snapshot — call get_document_content before a targeted edit that needs the exact current text.
 - Successful apply_document_content returns edited_context (touched paragraphs plus neighbors; in record/wait including the pending change).
   Use it to confirm placement instead of an immediate re-read; full_document rewrites have no echo.
@@ -270,7 +275,8 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 # apply_document_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
 WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - Required: `content` and `target`.
-  Targets: 'beginning', 'end', 'selection', 'full_document' (preferred for rewrites/translations), 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
+  Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
+- Local edits use target='search' + old_content as a substring; target='full_document' is rewrite/translation only.
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
 - target='search': old_content may span paragraphs, but each interior line must match a WHOLE paragraph.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
@@ -340,19 +346,26 @@ def _build_writer_chat_system_prompt_template() -> str:
     (search, navigation, images) are pulled on demand through the get_guidance tool, so every
     turn stays lean. The MCP-only extras (e.g. the HTTP 429 concurrency contract) stay out of
     this ambient prompt — the sidebar runs in-process; if a sidebar model pulls the concurrency
-    topic anyway it just reads an inert rule."""
+    topic anyway it just reads an inert rule.
+
+    Apply-HTML and confirm-from-fields sit last on purpose (recency): last tokens in the
+    ambient prompt are what the model attends to. Same lesson as attaching
+    RESEARCH_COMPLETION_INSTRUCTION_WRITER to the web-research *tool result* instead of the
+    system prompt — do not paste that trailer into this ambient text. SIDEBAR_VS_DOCUMENT
+    sits with the apply block for the same reason (drafts go in the document)."""
     return "\n\n".join([
         WRITER_CHAT_PERSONA,
         CHAT_RESPONSE_FORMAT,
-        SIDEBAR_VS_DOCUMENT,
         "{core_directives}",
         WRITER_CHAT_TOOLS_SECTION,
         TRANSLATION_RULES,
         TOOL_USAGE_PATTERNS,
         WRITER_REVIEW_MODES_RULES,
-        WRITER_APPLY_DOCUMENT_HTML_RULES,
         "{specialized_delegation}",
         MEMORY_GUIDANCE,
+        SIDEBAR_VS_DOCUMENT,
+        WRITER_APPLY_DOCUMENT_HTML_RULES,
+        CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
     ])
 
 
