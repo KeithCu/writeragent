@@ -94,6 +94,7 @@ def test_librepy_bundle_includes_xl_static_rewrite():
     assert "plugin/scripting/native_binaries.py" in paths
     assert "plugin/scripting/audio_recorder_service.py" not in paths
     assert "plugin/calc/python/workbook_lifecycle.py" in paths
+    assert "plugin/calc/python/geometric_recalc.py" in paths
 
 
 def test_librepy_bundle_includes_notebook_and_nbformat():

@@ -82,6 +82,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/calc/python/image_egress.py",
     "plugin/calc/python/formula_locator_cache.py",
     "plugin/calc/python/cell_discovery.py",
+    "plugin/calc/python/geometric_recalc.py",
     "plugin/calc/python/collabora_formula.py",
     "plugin/calc/python/diagnostics.py",
     "plugin/calc/python/init_script_editor.py",

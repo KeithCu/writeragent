@@ -1,6 +1,6 @@
 # Geometric Recalc Order — implementation plan
 
-**Status:** Decided — ready to implement. **Not implemented.** Closed calls in [§9](#9-decisions) stand (no IDL, no 1×1 value-shape strip, no `locate_formula_cell_in_doc` for eval identity, precedent-only, cap skip-sheet, no strip-on-disable, Isolated checkbox visible / no-op). **Eval identity was not closed** in the previous draft — this revision specifies it as **unanimous-ours** plus an off-main `workbook_key` ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
+**Status:** Decided — implementation in progress. **Phase 1 landed** (`plugin/calc/python/geometric_recalc.py`, unit tests only). Phases 2–4 are not implemented. Closed calls in [§9](#9-decisions) stand (no IDL, no 1×1 value-shape strip, no `locate_formula_cell_in_doc` for eval identity, precedent-only, cap skip-sheet, no strip-on-disable, Isolated checkbox visible / no-op). **Eval identity** is **unanimous-ours** plus an off-main `workbook_key` ([§9.5](#95-marker-is-the-udprop--in-memory-map)). **Cap-hit UI:** skip the sheet, log, **and** show one message box per skipped sheet (`notify_geometric_cap_hit`) — do not only `log.error`.
 
 **Related:** [Enabling NumPy & Python](../enabling_numpy_in_libreoffice.md) (session modes, auto-spill), [Microsoft `=PY` design stance](../scripting/ms-py-compatibility.md) (why we refuse Excel co-volatility), [Calc `=PY()` data shapes](py-data-shapes.md) (`data` / `ranges` arity).
 
@@ -82,7 +82,7 @@ Do **not** add a dedicated IDL ordering argument. That rebuilds `.rdb`s for both
 
 **Cross-cluster chaining (decided):** two independent PY clusters on one sheet (A1:A5 and D1:D5) become one chain — D1 waits on A5. That slightly over-dirties the D column when A3 changes. Correctness is fine; users who care can turn the flag off and write explicit `data` refs. Do not add spatial clustering.
 
-**Cap (decided):** `list_python_cells_on_sheet` stops at `_MAX_PYTHON_CELLS_FOUND = 100` (also `_MAX_CELLS_TO_SCAN = 50000`) and returns a list with **no truncated flag** (`cell_discovery.py`). **If a cap is hit, skip geometric chaining for that entire sheet and show a user-visible notice** (desktop message box; Online infobar — [§12](#12-collabora--libreoffice-core-living-sketch-not-final)). Do not chain the first 100 and leave #101 with no predecessor. Do not raise the cap. Do not mark any eval-index triple strip-safe for that sheet — you cannot prove unanimous-ours on a truncated list ([§9.5](#95-marker-is-the-udprop--in-memory-map)). Phase 1 treats `len(found) >= _MAX_PYTHON_CELLS_FOUND` as cap-hit (over-skips an exact 100). A real `truncated` flag is **Phase 3**, not Phase 1. If the 50k scan cap fires with fewer than 100 PY cells, that list is also incomplete — same skip.
+**Cap (decided):** `list_python_cells_on_sheet` stops at `_MAX_PYTHON_CELLS_FOUND = 100` (also `_MAX_CELLS_TO_SCAN = 50000`) and returns a list with **no truncated flag** (`cell_discovery.py`). **If a cap is hit, skip geometric chaining for that entire sheet, log it, and show one user-visible error** (`notify_geometric_cap_hit` → existing `msgbox`, UI thread only, one box per skipped sheet; Online infobar — [§12](#12-collabora--libreoffice-core-living-sketch-not-final)). Do not only `log.error`. Do not chain the first 100 and leave #101 with no predecessor. Do not raise the cap. Do not mark any eval-index triple strip-safe for that sheet — you cannot prove unanimous-ours on a truncated list ([§9.5](#95-marker-is-the-udprop--in-memory-map)). Phase 1 treats `len(found) >= _MAX_PYTHON_CELLS_FOUND` as cap-hit (over-skips an exact 100). A real `truncated` flag is **Phase 3**, not Phase 1. If the 50k scan cap fires with fewer than 100 PY cells, that list is also incomplete — same skip.
 
 A 100-cell chain is serial (venv IPC per dirty cell); that is the price of order, not a new cliff.
 
@@ -252,7 +252,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 
 **Phase 0 — Review (this doc).** Closed product calls stand. Eval identity is specified in [§9.5](#95-marker-is-the-udprop--in-memory-map) (unanimous-ours + `workbook_key`) — do not treat the previous uniqueness draft as closed. Do not reopen [§9.1](#91-precedent-only-not-value-in-data-not-idl) C (IDL) or a value-shape strip.
 
-**Phase 1 — Pure list + formula splice.** Unit tests only: given a list of addresses + current formulas + the in-memory record, compute the patch and the eval-index bools. No UNO. Encode the [§9.5](#95-marker-is-the-udprop--in-memory-map) table, including **remove-field**, code-in-cell splice from the raw formula (`rebuild_python_formula_with_code_ref`), fill-down unanimous-ours, mixed poison, and “`len >= 100` → skip sheet, do not mark strip-safe.” No truncated-flag API in this phase.
+**Phase 1 — Pure list + formula splice.** **Landed** in `plugin/calc/python/geometric_recalc.py` (`tests/calc/python/test_geometric_recalc.py`). Unit tests only: given a list of addresses + current formulas + the in-memory record, compute the patch and the eval-index bools. No UNO. Encodes the [§9.5](#95-marker-is-the-udprop--in-memory-map) table, including **remove-field**, code-in-cell splice from the raw formula (`rebuild_python_formula_with_code_ref`), fill-down unanimous-ours, mixed poison, and “`len >= 100` → skip sheet, do not mark strip-safe.” Cap-hit also returns a user-visible message; `notify_geometric_cap_hit` shows one `msgbox` per skipped sheet on the UI thread. No truncated-flag API in this phase.
 
 **Phase 2 — Flag + attach on save / flag-on.** Monaco and native cell save call the splicer; apply on the UI thread after save (save is already outside recalc). Settings default off. Flag-on walks **all sheets**. Persist / load the UDProp like spill. Isolated UI load/repair must `record_active_calc_session` with `calc:` + `_workbook_session_key` (same string eval reads; never `""`).
 
@@ -362,7 +362,7 @@ Parse → drop the last geometric data arg → rebuild → drop the map record. 
 | Mixed matrix-index neighbor `=PY("f"; range; i)` next to `=PY("f"; range; pred)` | 1×1 | one ours, one not | Do **not** mark strip-safe; **neither** strips |
 | Successor became first (delete) | geometric field | ours | **Remove-field**; drop record; recompute index |
 | First cell still has a leftover field | geometric field | ours | Remove-field (idempotent) |
-| Cap hit on this sheet | — | — | Skip the sheet; log; no partial chain; **do not** mark triples strip-safe |
+| Cap hit on this sheet | — | — | Skip the sheet; log **and** one message box; no partial chain; **do not** mark triples strip-safe |
 
 ### 9.6 Flag-on / document-open — all sheets
 
