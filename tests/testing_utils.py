@@ -854,16 +854,18 @@ def _remove_all_calc_charts(doc) -> None:
 
 
 def _clear_writeragent_udprops(doc) -> None:
-    try:
-        from plugin.scripting.document_scripts import set_document_scripts
-
-        set_document_scripts(doc, {})
-    except Exception:
-        pass
+    # GHA 33707990007: after insert_cell_html, Windows hung in
+    # set_document_scripts → is_document_readonly_for_scripts → doc.isReadonly()
+    # during calc native-doc wipe (remove_charts + clearContents had already
+    # returned). A harness wipe is never a user-readonly save; write the
+    # scripts UDProp the same way as the session ids so we never call
+    # isReadonly(). Empty string is missing to get_document_scripts.
     try:
         from plugin.doc.udprops import set_document_property
+        from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP
         from plugin.scripting.session_manager import PYTHON_WORKBOOK_SESSION_PROP
 
+        set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, "")
         set_document_property(doc, PYTHON_WORKBOOK_SESSION_PROP, "")
         set_document_property(doc, "WriterAgentSessionID", "")
     except Exception:

@@ -211,6 +211,31 @@ def test_reset_calc_doc_silent_by_default(capsys):
     assert "native_doc:" not in err
 
 
+def test_clear_writeragent_udprops_skips_set_document_scripts():
+    """GHA 33707990007: wipe must not call isReadonly via set_document_scripts."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP
+    from plugin.scripting.session_manager import PYTHON_WORKBOOK_SESSION_PROP
+    from plugin.tests import testing_utils as tu
+
+    doc = MagicMock()
+    doc.isReadonly = MagicMock(side_effect=AssertionError("isReadonly must not run"))
+
+    with (
+        patch("plugin.scripting.document_scripts.set_document_scripts") as set_scripts,
+        patch("plugin.doc.udprops.set_document_property") as set_prop,
+    ):
+        tu._clear_writeragent_udprops(doc)
+
+    set_scripts.assert_not_called()
+    doc.isReadonly.assert_not_called()
+    written = {call.args[1]: call.args[2] for call in set_prop.call_args_list}
+    assert written[DOCUMENT_SCRIPTS_UDPROP] == ""
+    assert written[PYTHON_WORKBOOK_SESSION_PROP] == ""
+    assert written["WriterAgentSessionID"] == ""
+
+
 def test_testing_factory_execute_tool_unknown_name():
     from unittest.mock import MagicMock, patch
 
