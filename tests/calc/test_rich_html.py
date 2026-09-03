@@ -200,6 +200,40 @@ def test_release_clipboard_if_holds_only_when_ours():
     clip.setContents.assert_not_called()
 
 
+def test_insert_cell_html_rich_enumerates_desktop_only_before_load():
+    """Product must not call _desktop_writer_uids after closing a post-paste Writer.
+
+    GHA 33772063173: writers_after_close returned in ~10ms, then teardown
+    getComponents ~450ms later hung forever on Windows. Enumeration after close
+    is unsafe; success path should only count writers before loadComponentFromURL.
+    """
+    from plugin.calc import rich_html as rh
+
+    calc_doc, cell, desktop, temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
+    enum_calls: list[str] = []
+    real_enum = rh._desktop_writer_uids
+
+    def _counting_enum(desk):
+        enum_calls.append("enum")
+        return real_enum(desk)
+
+    with (
+        patch.object(rh, "_desktop_writer_uids", side_effect=_counting_enum),
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+    ):
+        mock_bridge = mock_bridge_cls.return_value
+        mock_bridge.get_active_sheet.return_value = MagicMock()
+        mock_bridge.get_cell.return_value = cell
+        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.create_property_value.return_value = object()
+        rh.insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "<b>x</b>")
+
+    assert enum_calls == ["enum"]
+    temp_doc.close.assert_not_called()
+
+
 def test_insert_cell_html_rich_releases_clipboard_and_keeps_writer():
     """#572: drop SwTransferable from SystemClipboard. #572-followup: do not close after paste.
 

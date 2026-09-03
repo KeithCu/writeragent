@@ -60,7 +60,17 @@ def _writer_runtime_uid(doc: Any) -> str:
 
 
 def _desktop_writer_uids(desktop: Any) -> list[str]:
-    """RuntimeUIDs of open Writer docs. Read-only; must not load or close anything."""
+    """RuntimeUIDs of open Writer docs. Read-only; must not load or close anything.
+
+    Safe only **before** loading/closing the temp Writer on the insert path
+    (``writers_open=`` logging). On Windows, ``desktop.getComponents()`` can
+    block indefinitely **after** ``temp_doc.close()`` when Calc still holds a
+    live ``insertTransferable`` paste — GHA 33771766524 / 33772063173: the
+    in-function ``writers_after_close`` call returned in ~10ms, then teardown
+    ``getComponents`` ~450ms later hung forever. Do not call this after closing
+    a post-paste Writer; ``insert_cell_html_rich`` reuses ``_wa_calc_html``
+    instead of closing on success.
+    """
     uids: list[str] = []
     try:
         enum = desktop.getComponents().createEnumeration()
@@ -285,12 +295,12 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
             except Exception:
                 pass
             transferable = None
-        # GHA 33771766524: release returned empty (insertTransferable never
-        # put SwTransferable on SystemClipboard), close() returned, then
-        # teardown hung at desktop.getComponents(). GHA 33763078357: the
-        # same insert + undo + teardown completes; the hang is the insert
-        # that *leaves* the paste and then closes the source Writer. Reuse
-        # the named frame instead of closing while Calc still holds the paste.
+        # Windows (GHA 33771766524, 33772063173): after a live paste,
+        # temp_doc.close() returns and an immediate writers_after_close enum
+        # can still return — but ~450ms later desktop.getComponents() blocks
+        # forever while Calc holds the paste. Do not close on success; reuse
+        # _wa_calc_html (CREATE|GLOBAL) and clear the body on the next call.
+        # Keep #572: release SystemClipboard only when it owns our transferable.
         if temp_doc is not None and close_temp and not pasted:
             try:
                 _step("insert_cell_html_rich: close start")

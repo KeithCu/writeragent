@@ -861,10 +861,10 @@ def _probe_soffice_before_udprops(doc, _ctx=None) -> None:
     """Name whether the Calc model is already wedged before the udprop write.
 
     GHA 33763078357: sheet-level reset returned, then getDocumentProperties blocked.
-    GHA 33771766524: #572's desktop.getComponents / SystemClipboard probe became
-    the hang — do not call those here. RuntimeUID is a cheap attribute read that
-    returned on that run; keep it so the last stderr line still names a UNO step
-    before set_document_property. *ctx* is kept so callers stay unchanged.
+    GHA 33771766524 / 33772063173: #572's desktop.getComponents probe became
+    the Windows hang site after close+paste (deterministic). Product fix is in
+    rich_html.py (reuse Writer, do not enumerate after close). Test harness
+    keeps only a cheap RuntimeUID attribute read here.
     """
     _native_teardown_progress("udprops probe: RuntimeUID start")
     try:
