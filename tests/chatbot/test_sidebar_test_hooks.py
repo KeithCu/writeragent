@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import sys
+import unittest
 from types import SimpleNamespace
 
 import pytest
@@ -45,6 +46,7 @@ from plugin.chatbot.sidebar_test_hooks import (
     send_state,
     set_audio_supported,
     set_query_text,
+    clear_sidebar_chat,
     show_writeragent_chat_deck,
     sidebar_deck_names,
     sidebar_panel,
@@ -367,6 +369,62 @@ def test_stub_recorder_child_hang_ready(fake_listener: _FakeListener) -> None:
         assert read_stub_recorder_control().get("hang_ready") is True
     finally:
         clear_stub_recorder_control()
+
+
+def test_clear_sidebar_chat_resets_session_and_widget(fake_listener: _FakeListener) -> None:
+    """Packet G must wipe leftover E/F transcript before canned-string asserts."""
+    cleared: list[str] = []
+
+    class _Session:
+        def clear(self) -> None:
+            cleared.append("session")
+
+    class _Widget:
+        def clear_and_greeting(self, greeting: str = "") -> None:
+            cleared.append("widget:%s" % greeting)
+
+    fake_listener.session = _Session()
+    fake_listener.rich_text_widget = _Widget()
+    fake_listener.response_control.setText("You: look up cats\nAssistant: leftover")
+    clear_sidebar_chat(listener=fake_listener)
+    assert cleared == ["session", "widget:"]
+
+
+def test_clear_sidebar_chat_falls_back_to_response_control(fake_listener: _FakeListener) -> None:
+    fake_listener.session = None
+    fake_listener.rich_text_widget = None
+    fake_listener.response_control.setText("You: hello\nAssistant: leftover")
+    clear_sidebar_chat(listener=fake_listener)
+    assert fake_listener.response_control.getText() == ""
+
+
+def test_packet_g_requires_in_process_listener() -> None:
+    from tests.chatbot.test_mock_llm_sidebar_uno import (
+        _PACKET_G_LISTENER_SKIP,
+        _require_in_process_g_listener,
+    )
+
+    _require_in_process_g_listener(object())
+    with pytest.raises(unittest.SkipTest, match="in-process SendButtonListener") as caught:
+        _require_in_process_g_listener(None)
+    assert str(caught.value) == _PACKET_G_LISTENER_SKIP
+    assert "E8b" in str(caught.value)
+
+
+def test_g_require_stop_rec_skips_when_label_stays_send(fake_listener: _FakeListener) -> None:
+    from tests.chatbot.test_mock_llm_sidebar_uno import _PACKET_G_RECORD_SKIP, _g_require_stop_rec
+
+    fake_listener.send_control.getModel().Label = "Send"
+    with pytest.raises(unittest.SkipTest, match="Stop Rec") as caught:
+        _g_require_stop_rec(fake_listener, timeout=0.0)
+    assert str(caught.value) == _PACKET_G_RECORD_SKIP
+
+
+def test_g_require_stop_rec_ok_when_label_is_stop_rec(fake_listener: _FakeListener) -> None:
+    from tests.chatbot.test_mock_llm_sidebar_uno import _g_require_stop_rec
+
+    fake_listener.send_control.getModel().Label = "Stop Rec"
+    _g_require_stop_rec(fake_listener, timeout=0.0)
 
 
 def test_mock_config_mutates_flags() -> None:

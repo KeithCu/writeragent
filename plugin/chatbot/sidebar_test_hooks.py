@@ -799,6 +799,33 @@ def transcript_contains(needle: str, *, listener: Any = None) -> bool:
     return needle in transcript_text(listener=listener)
 
 
+def clear_sidebar_chat(*, listener: Any = None) -> None:
+    """New-chat: wipe session history and the visible transcript.
+
+    Packet G canned-string asserts must not see leftover Packet E/F body
+    (``hello``, ``look up cats``, ``document_research``). Same path as Clear.
+    Requires an in-process ``SendButtonListener`` — URP-only callers skip.
+    """
+    _require_debug()
+    sl = listener if listener is not None else send_listener()
+    if sl is None:
+        return
+    session = getattr(sl, "session", None)
+    clearer = getattr(session, "clear", None) if session is not None else None
+    if callable(clearer):
+        clearer()
+    widget = getattr(sl, "rich_text_widget", None)
+    greet = getattr(widget, "clear_and_greeting", None) if widget is not None else None
+    if callable(greet):
+        greet("")
+        return
+    from plugin.chatbot.dialogs import set_control_text
+
+    response = getattr(sl, "response_control", None)
+    if response is not None:
+        set_control_text(response, "")
+
+
 def press_send(*, listener: Any = None) -> None:
     """Primary Send button path (also Accept when HITL owns the label)."""
     _require_debug()
