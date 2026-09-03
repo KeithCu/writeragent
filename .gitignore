@@ -2,6 +2,7 @@
 localwriter.json
 
 # Build artifacts
+_site/
 build/
 bin/opengrep
 vendor/

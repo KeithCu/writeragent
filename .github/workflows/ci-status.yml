@@ -1,0 +1,64 @@
+# Static CI status table for https://keithcu.github.io/writeragent/
+# (or the URL GitHub Pages assigns). Generated from the Actions API — do not
+# scrape keithcu.com. First deploy needs Pages source = GitHub Actions and
+# often a one-time github-pages environment approval.
+name: CI Status Pages
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Cheap weekly refresh if a trigger was missed (Monday 08:15 UTC).
+    - cron: "15 8 * * 1"
+  workflow_run:
+    workflows:
+      - "PR CI"
+      - "CrossHair Verification (Deep / On-Demand)"
+    types:
+      - completed
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/ci-status.yml"
+      - "scripts/generate_ci_status.py"
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate status HTML
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/generate_ci_status.py --out _site
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
