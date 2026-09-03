@@ -59,10 +59,11 @@ def _dialog_for(ctrl: Any) -> Any:
     hops = 0
     while cur is not None and hops < 8:
         hops += 1
-        if hasattr(cur, "getModel") and hasattr(cur, "getControl"):
+        get_model = getattr(cur, "getModel", None)
+        if callable(get_model) and hasattr(cur, "getControl"):
             model = None
             try:
-                model = cur.getModel()
+                model = get_model()
             except Exception:
                 model = None
             if model is not None and hasattr(model, "insertByName"):
