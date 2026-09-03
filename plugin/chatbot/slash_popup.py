@@ -4,9 +4,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Steerable slash-command completion menu attached to the sidebar Ask field.
 
-A native ``PopupMenu`` is modal — the user could not keep typing. This is a
-hidden XDL ``menulist`` shown just above (or below) the query field, updated
-from ``QueryTextListener`` as they type.
+A native ``PopupMenu`` is modal — the user could not keep typing. The XDL
+placeholder is ``dlg:menulist`` (LibreOffice dialog.dtd has no ``listbox``;
+a ``listbox`` tag can crash the sidebar). That control is a ComboBox — one
+line plus a dropdown — so it does not look like a completion menu. This
+controller inserts a real ``UnoControlListBox`` on the dialog and parks it
+just above (or below) the Ask field while the user types.
 """
 
 from __future__ import annotations
@@ -30,17 +33,102 @@ from plugin.framework.errors import suppress_disposed
 log = logging.getLogger("writeragent.slash_popup")
 
 _POPUP_MAX_ROWS = 6
-_POPUP_ROW_PX = 12
+_POPUP_ROW_PX = 14
 _POS_SIZE_FLAGS = 15  # X + Y + WIDTH + HEIGHT
+_RUNTIME_LIST_NAME = "slash_popup_list"
+
+
+def _supported_services(ctrl: Any) -> str:
+    try:
+        model = ctrl.getModel() if ctrl is not None else None
+        if model is not None and hasattr(model, "getSupportedServiceNames"):
+            return " ".join(str(s) for s in model.getSupportedServiceNames())
+    except Exception:
+        return ""
+    return ""
+
+
+def _is_combo_box(ctrl: Any) -> bool:
+    """True for the XDL ``menulist`` placeholder (ComboBox), not a ListBox."""
+    names = _supported_services(ctrl)
+    return "ComboBox" in names or "UnoControlComboBox" in names
+
+
+def _dialog_for(ctrl: Any) -> Any:
+    cur = ctrl
+    hops = 0
+    while cur is not None and hops < 8:
+        hops += 1
+        if hasattr(cur, "getModel") and hasattr(cur, "getControl"):
+            model = None
+            try:
+                model = cur.getModel()
+            except Exception:
+                model = None
+            if model is not None and hasattr(model, "insertByName"):
+                return cur
+        getter = getattr(cur, "getContext", None) or getattr(cur, "getPeer", None)
+        try:
+            cur = getter() if callable(getter) else None
+        except Exception:
+            return None
+    return None
+
+
+def _ensure_listbox(control: Any, query_control: Any) -> Any:
+    """Replace the XDL ComboBox placeholder with a multi-row ListBox."""
+    if control is not None and not _is_combo_box(control):
+        return control
+    dlg = _dialog_for(query_control) or _dialog_for(control)
+    if dlg is None:
+        log.warning("slash popup: no dialog to insert ListBox; using XDL control")
+        return control
+    try:
+        if hasattr(dlg, "getControl"):
+            existing = dlg.getControl(_RUNTIME_LIST_NAME)
+            if existing is not None:
+                set_control_visible(control, False)
+                return existing
+    except Exception:
+        existing = None
+    model = dlg.getModel()
+    list_model = model.createInstance("com.sun.star.awt.UnoControlListBoxModel")
+    list_model.Name = _RUNTIME_LIST_NAME
+    list_model.Dropdown = False
+    list_model.Tabstop = False
+    list_model.Border = 1
+    try:
+        list_model.MultiSelection = False
+    except Exception:
+        pass
+    qr = query_control.getPosSize() if query_control is not None and hasattr(query_control, "getPosSize") else None
+    if qr is not None:
+        list_model.PositionX = int(qr.X)
+        list_model.PositionY = max(16, int(qr.Y) - 90)
+        list_model.Width = int(qr.Width)
+        list_model.Height = 80
+    else:
+        list_model.PositionX = 4
+        list_model.PositionY = 80
+        list_model.Width = 142
+        list_model.Height = 60
+    model.insertByName(_RUNTIME_LIST_NAME, list_model)
+    created = dlg.getControl(_RUNTIME_LIST_NAME)
+    if created is None:
+        log.warning("slash popup: ListBox insertByName succeeded but getControl is None")
+        return control
+    set_control_visible(control, False)
+    log.info("slash popup: runtime ListBox attached (XDL menulist is ComboBox)")
+    return created
 
 
 class SlashPopupController:
     """Show, filter, and accept slash commands on the Ask-field ListBox."""
 
     def __init__(self, control: Any, send_listener: Any, query_control: Any) -> None:
-        self.control = control
-        self.send_listener = send_listener
         self.query_control = query_control
+        self.send_listener = send_listener
+        self.control = _ensure_listbox(control, query_control)
         self._open = False
         self._matches: list[SlashCommand] = []
         self._selected = 0

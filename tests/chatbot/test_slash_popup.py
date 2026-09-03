@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP
-from plugin.chatbot.slash_popup import SlashPopupController
+from plugin.chatbot.slash_popup import SlashPopupController, _ensure_listbox, _is_combo_box
 
 
 class _ListBox:
@@ -149,6 +149,14 @@ def test_closed_popup_does_not_steal_enter():
     popup, _box = _controller()
     assert popup.is_open is False
     assert popup.handle_key(KEY_RETURN, 0) is False
+
+
+def test_xdl_menulist_is_treated_as_combo_not_listbox():
+    combo = SimpleNamespace(getModel=lambda: SimpleNamespace(getSupportedServiceNames=lambda: ("com.sun.star.awt.UnoControlComboBoxModel",)))
+    box = SimpleNamespace(getModel=lambda: SimpleNamespace(getSupportedServiceNames=lambda: ("com.sun.star.awt.UnoControlListBoxModel",)))
+    assert _is_combo_box(combo) is True
+    assert _is_combo_box(box) is False
+    assert _ensure_listbox(box, None) is box
 
 
 def test_chat_panel_xdl_uses_menulist_for_slash_popup():
