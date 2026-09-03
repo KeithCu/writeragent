@@ -9,6 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP
 from plugin.chatbot.slash_popup import (
     SlashPopupController,
@@ -72,6 +74,17 @@ class _Query:
 
     def getModel(self):
         return SimpleNamespace(Text=self.text)
+
+
+@pytest.fixture(autouse=True)
+def _inline_idle_overlay_show():
+    """CI has UNO AsyncCallback so post_to_main_thread queues; unit tests need inline."""
+
+    def _run(fn, *args, **kwargs):
+        fn(*args, **kwargs)
+
+    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_run):
+        yield
 
 
 def _controller(lru: list[str] | None = None) -> tuple[SlashPopupController, _ListBox]:
