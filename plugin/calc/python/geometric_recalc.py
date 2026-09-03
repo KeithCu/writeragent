@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Geometric Recalc Order — list-diff, attach, UDProp map, eval-time strip.
+"""Geometric Recalc Order (Experimental) — list-diff, attach, UDProp map, eval-time strip.
 
 Phase 1 helpers stay pure (no UNO): given a row-major list of PY cells plus the
 in-memory attach map, compute formula patches and unanimous-ours strip-safe
@@ -11,13 +11,23 @@ save and flag-on, Isolated session record, and worker-ingress strip.
 Phase 3 shares the sheet modify trigger (0.1s debounce) and rebuilds the
 strip-safe index on insert/delete/clear and on a data-edit of the PY list.
 
+TODO (parked — not this revision):
+- Multi-workbook strip: today no-strip when more than one Calc session is
+  recorded; a future keyed strip would need a real eval-time workbook id,
+  not ``len==1``.
+- Cycle / Err:522: attaching the previous list entry can cycle if the user
+  already had a reverse ref; detect before splice.
+- Workbook-global PY order and spatial clustering (later options in the doc).
+- Collabora extra-listen path (doc §12) remains a living sketch.
+
 See ``docs/calc/geometric-recalc-order.md`` §8 and §9.5.
 Eval identity is unanimous-ours on ``(workbook_key, resolved_code, n_args)``
 only — a value fingerprint of ``args[:-1]`` was rejected. The strip-safe
 index is a frozenset snapshot rebound on the UI thread (§3.5); workers only
 read. Cap-hit skip uses the discovery ``truncated`` flag (exact 100 is not
 a skip). A skipped sheet must also show a user-visible error — callers use
-:func:`notify_geometric_cap_hit` on the UI thread (one box per sheet).
+:func:`notify_geometric_cap_hit` on the UI thread (one first box per sheet,
+persisted across reconcile so the 0.1s debounce cannot storm).
 """
 
 from __future__ import annotations
@@ -48,6 +58,7 @@ log = logging.getLogger(__name__)
 GEOMETRIC_DISCOVERY_CAP = _MAX_PYTHON_CELLS_FOUND
 GEOMETRIC_REGISTRY_PROP = "WriterAgentGeometricRegistry"
 CONFIG_KEY = "scripting.python_geometric_recalc_order"
+FEATURE_TITLE = "Geometric Recalc Order (Experimental)"
 
 GeometricAction = Literal["append", "replace", "remove"]
 
@@ -239,16 +250,26 @@ def notify_geometric_cap_hit(
     sheet_name: str,
     *,
     already_notified: set[str] | None = None,
+    workbook_key: str = "",
 ) -> bool:
     """Log the skip and show one message box per sheet. UI thread only.
 
     Returns True when a box was shown. A second call for the same sheet name
-    in *already_notified* is a no-op so repair cannot storm the user.
+    in *already_notified* is a no-op so one repair pass cannot storm the user.
+    When *already_notified* is omitted, a process-wide set keyed by
+    ``(workbook_key, sheet_name)`` persists across reconcile / 0.1s debounce
+    / save / open — a fresh local ``set()`` per call was the cap-hit spam.
     """
-    if already_notified is not None and sheet_name in already_notified:
-        return False
     if already_notified is not None:
+        if sheet_name in already_notified:
+            return False
         already_notified.add(sheet_name)
+    else:
+        persist_key = (workbook_key, sheet_name)
+        with _GEOMETRIC_LOCK:
+            if persist_key in _CAP_HIT_NOTIFIED:
+                return False
+            _CAP_HIT_NOTIFIED.add(persist_key)
 
     message = geometric_cap_hit_user_message(sheet_name)
     log.error("Geometric Recalc Order: %s", message)
@@ -260,7 +281,8 @@ def notify_geometric_cap_hit(
 
     from plugin.chatbot.dialogs import msgbox
 
-    msgbox(ctx, _("Geometric Recalc Order"), message, box_type=3)
+    # Msgid matches the Settings checkbox label in module.yaml.
+    msgbox(ctx, _(FEATURE_TITLE), message, box_type=3)
     return True
 
 
@@ -281,6 +303,9 @@ def _plan_action(
     if last_is_cell and last is not None and same_cell_ref(last, desired):
         # Already correct (ours) or user already passed the previous PY cell
         # as real data (not ours). Either way the formula is satisfied.
+        # Caller must still rehome / keep the map key — a row insert that
+        # only moves PY cells hits this branch with the record still at
+        # the old address.
         return "noop", data_args
 
     if (
@@ -292,6 +317,50 @@ def _plan_action(
         return "replace", data_args[:-1] + [desired]
 
     return "append", data_args + [desired]
+
+
+def _rehome_or_keep_record(
+    working: dict[str, GeometricRecord],
+    incoming: Mapping[str, GeometricRecord],
+    live_keys: set[str],
+    key: str,
+    desired: str | None,
+    data_args: list[str],
+) -> None:
+    """Keep/update a live record, or rehome an orphan after a row move.
+
+    ``last == desired`` is a formula no-op. If we already have a record at
+    *key*, the predecessor must match the formula (Calc may have adjusted
+    it onto a key that still exists). If *key* is new and an incoming key
+    is gone from the sheet, that is a moved attach — rehome one orphan.
+    If we never attached, leave the map alone (§9.5: do not record).
+    """
+    if desired is None:
+        return
+    last = data_args[-1] if data_args else None
+    if last is None or not is_single_cell_arg(last) or not same_cell_ref(last, desired):
+        return
+    if key in working:
+        working[key] = GeometricRecord(predecessor=desired)
+        return
+    orphans = [old for old in incoming if old not in live_keys and old in working]
+    if not orphans:
+        return
+    chosen = None
+    for old in orphans:
+        if same_cell_ref(incoming[old].predecessor, desired):
+            chosen = old
+            break
+    if chosen is None:
+        chosen = orphans[0]
+    working.pop(chosen, None)
+    working[key] = GeometricRecord(predecessor=desired)
+    log.debug(
+        "geometric_recalc: rehomed attach record %s -> %s (pred %s)",
+        chosen,
+        key,
+        desired,
+    )
 
 
 def compute_eval_index(
@@ -364,6 +433,7 @@ def compute_sheet_repair(
     working = dict(incoming)
     patches: list[GeometricPatch] = []
     new_formulas = {cell.address: cell.formula for cell in cells}
+    live_keys = {cell_map_key(cell.address) for cell in cells}
 
     for i, cell in enumerate(cells):
         data_args = formula_data_args(cell.formula)
@@ -377,6 +447,13 @@ def compute_sheet_repair(
             record=working.get(key),
         )
         if action == "noop":
+            # Row insert that only moves PY cells: Calc already rewrote the
+            # formula (A2 with ;A1 became A3 with ;A1). last==desired so we
+            # used to continue without writing working[new_key]; the record
+            # stayed at A2 (orphan) and unanimous-ours / replace went wrong.
+            # Rehome when the old key is gone. Do not invent a record when
+            # the user authored the previous PY as real data (§9.5).
+            _rehome_or_keep_record(working, incoming, live_keys, key, desired, data_args)
             continue
         new_formula = rebuild_formula_with_data_args(cell.formula, new_args)
         if new_formula is None or new_formula == cell.formula:
@@ -395,6 +472,9 @@ def compute_sheet_repair(
             working.pop(key, None)
         elif desired is not None:
             working[key] = GeometricRecord(predecessor=desired)
+
+    # Drop keys that are no longer on the sheet (moved or deleted).
+    working = {addr: rec for addr, rec in working.items() if addr in live_keys}
 
     strip_safe = compute_eval_index(cells, new_formulas, working, workbook_key)
     return SheetRepairResult(
@@ -420,6 +500,9 @@ _GEOMETRIC_LOCK = threading.Lock()
 _GEOMETRIC_REPAIRING = False
 _LAST_GEOMETRIC_FLAG: bool | None = None
 _CONFIG_SUBSCRIBED = False
+# One first cap-hit box per (workbook, sheet) until reset. A per-call set()
+# re-showed the modal on every 0.1s debounce / save / open reconcile.
+_CAP_HIT_NOTIFIED: set[tuple[str, str]] = set()
 
 
 def is_geometric_repairing() -> bool:
@@ -433,6 +516,7 @@ def reset_geometric_runtime_for_tests() -> None:
     with _GEOMETRIC_LOCK:
         GEOMETRIC_RECORDS.clear()
         GEOMETRIC_LOADED.clear()
+        _CAP_HIT_NOTIFIED.clear()
     _STRIP_SAFE = frozenset()
     _GEOMETRIC_REPAIRING = False
     try:
@@ -756,11 +840,12 @@ def _rebuild_strip_safe_from_doc(
     all_cells: list[GeometricCell] = []
     all_formulas: dict[str, str] = {}
     all_records: dict[str, GeometricRecord] = {}
-    notified = already_notified if already_notified is not None else set()
     for sheet in _iter_sheets(doc):
         cells, name, truncated = geometric_cells_on_sheet(doc, sheet)
         if discovery_cap_hit(len(cells), truncated=truncated):
-            notify_geometric_cap_hit(ctx, name, already_notified=notified)
+            notify_geometric_cap_hit(
+                ctx, name, already_notified=already_notified, workbook_key=workbook_key
+            )
             continue
         for cell in cells:
             scoped = f"{name}:{cell_map_key(cell.address)}"
@@ -794,7 +879,9 @@ def _repair_one_sheet(
         truncated=truncated,
     )
     if result.skipped:
-        notify_geometric_cap_hit(ctx, name, already_notified=already_notified)
+        notify_geometric_cap_hit(
+            ctx, name, already_notified=already_notified, workbook_key=workbook_key
+        )
         return result
     if apply_patches and result.patches:
         _apply_patches_to_sheet(sheet, result.patches)
@@ -815,8 +902,6 @@ def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = F
     _GEOMETRIC_REPAIRING = True
     try:
         from plugin.calc.python.function import _undo_lock
-
-        notified: set[str] = set()
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
 
         with _undo_lock(doc):
@@ -828,12 +913,9 @@ def reconcile_geometric_document(ctx: Any, doc: Any, *, already_loaded: bool = F
                     sheet,
                     workbook_key,
                     apply_patches=True,
-                    already_notified=notified,
                 )
             save_geometric_registry_for_doc(doc, workbook_key)
-        _rebuild_strip_safe_from_doc(
-            ctx, doc, workbook_key, already_notified=notified
-        )
+        _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
     finally:
         _GEOMETRIC_REPAIRING = False
 
@@ -847,8 +929,6 @@ def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any) -> None:
     _GEOMETRIC_REPAIRING = True
     try:
         from plugin.calc.python.function import _undo_lock
-
-        notified: set[str] = set()
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
 
         ensure_sheet_modify_listener(ctx, doc, sheet)
@@ -859,12 +939,9 @@ def reconcile_geometric_sheet(ctx: Any, doc: Any, sheet: Any) -> None:
                 sheet,
                 workbook_key,
                 apply_patches=True,
-                already_notified=notified,
             )
             save_geometric_registry_for_doc(doc, workbook_key)
-        _rebuild_strip_safe_from_doc(
-            ctx, doc, workbook_key, already_notified=notified
-        )
+        _rebuild_strip_safe_from_doc(ctx, doc, workbook_key)
     finally:
         _GEOMETRIC_REPAIRING = False
 

@@ -1,6 +1,8 @@
-# Geometric Recalc Order — implementation plan
+# Geometric Recalc Order (Experimental) — implementation plan
 
-**Status:** Implementation in progress. **Phases 1–4 landed on master** (Settings flag default off, attach on save / flag-on, UDProp load/save, Isolated `record_active_calc_session`, eval strip before the index heuristic, sheet modify-listener / insert-delete deferred repair, discovery `truncated` flag). When the flag is on, insert/delete/clear of `=PY()` cells retargets geometric predecessor fields without waiting for save; a data-edit that changes the PY list rebuilds the strip-safe eval index the same way. Closed calls in [§9](#9-decisions) stand (no IDL, no 1×1 value-shape strip, no `locate_formula_cell_in_doc` for eval identity, precedent-only, cap skip-sheet, no strip-on-disable, Isolated checkbox visible / no-op). **Eval identity** is **unanimous-ours** on `(workbook_key, resolved_code, n_args)` only ([§9.5](#95-marker-is-the-udprop--in-memory-map)). **Cap-hit UI:** skip the sheet, log, **and** show one message box per skipped sheet (`notify_geometric_cap_hit`) — do not only `log.error`.
+**Status:** **(Experimental).** Phases 1–4 landed on master (Settings flag default off, attach on save / flag-on, UDProp load/save, Isolated `record_active_calc_session`, eval strip before the index heuristic, sheet modify-listener / insert-delete deferred repair, discovery `truncated` flag). This revision repairs Gemini **B** (cap-hit modal persists across reconcile so debounce / save / open cannot storm) and **C** (row-insert rehomes the attach-map key onto the current address). Gemini **A** (two open workbooks → no strip) is **by design**, not a blackout bug: eval-time strip runs only when `off_main_calc_session_is_unambiguous()` is true (`len(_RECORDED_CALC_SESSION_IDS)==1`). Flag-off leftover `;predecessor` fields are also **by design** ([§9.4](#94-flag-turned-off-leave-refs)). Closed calls in [§9](#9-decisions) stand (no IDL, no 1×1 value-shape strip, no `locate_formula_cell_in_doc` for eval identity, precedent-only, cap skip-sheet, no strip-on-disable, Isolated checkbox visible / no-op). **Eval identity** is **unanimous-ours** on `(workbook_key, resolved_code, n_args)` only ([§9.5](#95-marker-is-the-udprop--in-memory-map)). **Cap-hit UI:** skip the sheet, log, **and** show one first message box per skipped sheet (`notify_geometric_cap_hit`, persisted across reconcile) — do not only `log.error`.
+
+**Parked (not this revision):** multi-workbook keyed strip (needs a real eval-time workbook id, not `len==1`); cycle / Err:522 detection before splice; workbook-global PY order and spatial clustering; Collabora extra-listen path ([§12](#12-collabora--libreoffice-core-living-sketch-not-final)).
 
 **Related:** [Enabling NumPy & Python](../enabling_numpy_in_libreoffice.md) (session modes, auto-spill), [Microsoft `=PY` design stance](../scripting/ms-py-compatibility.md) (why we refuse Excel co-volatility), [Calc `=PY()` data shapes](py-data-shapes.md) (`data` / `ranges` arity).
 
@@ -54,7 +56,7 @@ Do **not** add a dedicated IDL ordering argument. That rebuilds `.rdb`s for both
 
 ## 2. Product definition
 
-**Flag name (UI):** Geometric Recalc Order  
+**Flag name (UI):** Geometric Recalc Order (Experimental)  
 **Config key (proposed):** `scripting.python_geometric_recalc_order`  
 **Type:** bool, default **false**  
 **Surface:** Settings → Python, next to session mode / auto-spill (`plugin/scripting/module.yaml`). Same checkbox path as `python_auto_spill`. LibrePy **and** WriterAgent.
@@ -117,7 +119,7 @@ Example: list is A1, A3. A3 has `;A1`. User inserts a PY cell at A2.
 
 Delete A2: A3’s predecessor must become A1 again, or **remove-field** if A3 is now first.
 
-Row insert that only **moves** existing PY cells: Calc’s own reference adjust may already be correct. The deferred pass should be **idempotent**: recompute desired predecessor per cell, rewrite only when the geometric field differs.
+Row insert that only **moves** existing PY cells: Calc’s own reference adjust may already be correct. The deferred pass should be **idempotent**: recompute desired predecessor per cell, rewrite only when the geometric field differs. **Also rehome the attach-map key** onto the cell’s current discovery address and drop keys that are no longer on the sheet — formula-only idempotence left an orphan at the old address after Calc shifted the cell (Gemini C).
 
 ### 3.5 Writes must be outside recalc (same as auto-spill)
 
@@ -230,7 +232,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 | Uniqueness / “fail-safe = no strip” | **Rejected** — kills fill-down of identical `=PY("np.mean(data)"; B1:B10)` |
 | ≥1-hit strip | **Rejected** — would strip a mixed matrix-index neighbor |
 | Mixed ours + user same triple | Do not mark strip-safe; residual is “chain loses strip,” not “user cell loses last arg” |
-| Two open workbooks | `off_main_calc_session_is_unambiguous()` false → no strip |
+| Two open workbooks | **By design (Gemini A):** `off_main_calc_session_is_unambiguous()` false → no strip. Eval cannot pick `workbook_key` when more than one Calc session is recorded. Not a blackout bug. |
 | Isolated still needs strip | Isolated never enters `workbook_session_id`. Init-non-empty already records via `build_python_eval_init_kwargs` → `calc_init_session_id`. Isolated + no init still never records. UI load/repair must `record_active_calc_session("calc:" + _workbook_session_key)` (same string, idempotent) so the no-init case can pass the unambiguous check |
 | Keying the token `$A$1` | Eval `code` is resolved source (`execute_python_addin`); repair must read the code cell |
 | Naive `;` arity | Repair `n_args` must match `split_python_addin_data_args`, not a semicolon count |
@@ -295,7 +297,7 @@ Precedent-only strip means Isolated `data` is unchanged. Isolated is a no-op for
 
 ### 9.4 Flag turned off — leave refs
 
-**Decision: A.** Stop attaching and stop repairing. The refs stay as valid DAG edges. After a precedent-only strip they do not change Python behavior.
+**Decision: A.** Stop attaching and stop repairing. The refs stay as valid DAG edges. After a precedent-only strip they do not change Python behavior. **By design**, not a missing strip-on-disable: leftover `;predecessor` fields remain when the flag is off.
 
 **Rejected for this feature: B — strip-on-disable.** The marker now exists ([§9.5](#95-marker-is-the-udprop--in-memory-map)), so B is implementable later with the same remove-field primitive. Do not build it here.
 
@@ -340,7 +342,7 @@ At **repair time** (UI thread, we have addresses), compute an eval-index bool pe
 
 `get_python_init_kwargs` does **not** carry `doc_url`. `build_python_eval_init_kwargs` (`document_scripts.py`) returns `{}` with **no** session record when the init script is empty. When init is non-empty it calls `calc_init_session_id(doc)` → `calc_workbook_base_session_id` → `record_active_calc_session("calc:" + _workbook_session_key)` (`session_manager.py`). `set_calc_init_script` and on-main `get_python_init_kwargs` both go through that builder. `record_active_calc_session(None, kwargs)` itself does **not** add to `_RECORDED_CALC_SESSION_IDS` (`None` is ignored); the add is the side effect of building kwargs. Isolated does **not** “never enter `record_active_calc_session`.” Isolated + no init still never records. `workbook_session_id` still returns `None` when mode ≠ `shared`. Isolated still needs strip off-main (else arity breaks). Do **not** write a unit test that asserts Isolated always leaves `_RECORDED_CALC_SESSION_IDS` empty.
 
-**Eval `workbook_key` = `get_cached_calc_session_id()` only when `off_main_calc_session_is_unambiguous()`** (`session_manager.py`: `len(_RECORDED_CALC_SESSION_IDS) == 1`). Else do not strip (two open workbooks, or Isolated that never recorded).
+**Eval `workbook_key` = `get_cached_calc_session_id()` only when `off_main_calc_session_is_unambiguous()`** (`session_manager.py`: `len(_RECORDED_CALC_SESSION_IDS) == 1`). Else do not strip (two open workbooks, or Isolated that never recorded). **By design (Gemini A):** eval cannot pick `workbook_key` when more than one session is recorded. Two open workbooks → no strip is not a blackout bug.
 
 On the **UI-thread** load / repair path, write that key into the geometric map **and** call `record_active_calc_session` with the **same string eval will read**: `calc:` + `_workbook_session_key` (never `""`). Do this **even in Isolated**. Same string as the init-kwargs path; idempotent; **required for the no-init case**. Do **not** invent a second Isolated key. Then one open file makes `len(_RECORDED_CALC_SESSION_IDS) == 1` and yellow Isolated can strip. Sibling of `load_spill_registry_for_doc`. Unsaved files must not use empty URL — same #402 hole as `session_key` / `_workbook_session_key` (URL, else a persisted unsaved id, never `""`).
 
@@ -394,7 +396,7 @@ Phase 4 — `data` strip (inject the in-memory map; no UNO):
 - **Fill-down:** two identical `=PY("np.mean(data)"; B1:B10)` after attach → **both** strip (unanimous-ours, same resolved code, `n_args=2`).
 - **Mixed:** matrix-index neighbor `=PY("f"; range; i)` next to a chain of `=PY("f"; range; pred)` → **neither** strips (mixed poisons the triple).
 - **Over-poison (fingerprint dropped):** same snippet + `n_args` on two ranges; mixed on A also poisons B. Residual is safe (no strip). Data-value edit after attach must still strip (3-field key). Flag-off leftover attached last arg must still strip.
-- **Two open workbooks / `off_main_calc_session_is_unambiguous()` false** → no strip.
+- **Two open workbooks / `off_main_calc_session_is_unambiguous()` false** → no strip (**by design**, Gemini A — eval cannot pick `workbook_key`).
 - **Isolated** UI load/repair calls `record_active_calc_session("calc:" + _workbook_session_key)` (same string eval reads) and strips when unambiguous. Do not assert Isolated always leaves `_RECORDED_CALC_SESSION_IDS` empty.
 - User 1×1 last arg **not** in the map, and no mixed poison of a chain: no strip of that user cell.
 - Never fall back to 1×1, uniqueness, or ≥1-hit.

@@ -218,6 +218,51 @@ def test_already_correct_predecessor_is_noop():
     assert result.records["A2"].predecessor == "A1"
 
 
+def test_row_insert_move_rehomes_orphan_record():
+    """Calc already adjusted A2→A3; leftover map key A2 must move to A3."""
+    result = _repair(
+        [
+            _cell("A1", '=PY("a")'),
+            _cell("A3", '=PY("c";A1)'),
+        ],
+        {"A2": GeometricRecord(predecessor="A1")},
+    )
+    assert result.patches == ()
+    assert result.records["A3"].predecessor == "A1"
+    assert "A2" not in result.records
+
+
+def test_user_authored_previous_py_is_not_recorded():
+    """§9.5: last==desired with no incoming record must stay unrecorded."""
+    result = _repair(
+        [
+            _cell("A1", '=PY("a")'),
+            _cell("A3", '=PY("c";A1)'),
+        ]
+    )
+    assert result.patches == ()
+    assert "A3" not in result.records
+
+
+def test_row_insert_three_cell_chain_rehomes_all_keys():
+    """A1,A2,A3 shifted to A1,A3,A4; formulas already correct; map keys follow."""
+    result = _repair(
+        [
+            _cell("A1", '=PY("a")'),
+            _cell("A3", '=PY("b";A1)'),
+            _cell("A4", '=PY("c";A3)'),
+        ],
+        {
+            "A2": GeometricRecord(predecessor="A1"),
+            "A3": GeometricRecord(predecessor="A2"),
+        },
+    )
+    assert result.patches == ()
+    assert result.records["A3"].predecessor == "A1"
+    assert result.records["A4"].predecessor == "A3"
+    assert "A2" not in result.records
+
+
 def test_already_correct_dollar_ref_is_noop():
     result = _repair(
         [
@@ -466,7 +511,7 @@ def test_notify_geometric_cap_hit_one_box_per_sheet_ui_thread_only():
         assert notify_geometric_cap_hit("ctx", "Sheet2", already_notified=notified)
         assert mock_box.call_count == 2
         titles = [c.args[1] for c in mock_box.call_args_list]
-        assert all(t == "Geometric Recalc Order" or "Geometric" in t for t in titles)
+        assert all("Geometric Recalc Order" in t and "Experimental" in t for t in titles)
         assert mock_box.call_args_list[0].kwargs.get("box_type") == 3
 
     with (
@@ -696,6 +741,44 @@ def test_cap_hit_sheet_skipped_on_reconcile(monkeypatch):
     # First two cells stay unchained (whole sheet skipped).
     assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("x1")'
     assert current_geometric_strip_safe() == frozenset()
+
+
+def test_cap_hit_msgbox_persists_across_reconcile_without_shared_set(monkeypatch):
+    """Two document reconciles on truncated sheets must not show a second box."""
+    from plugin.tests.testing_utils import CalcDocStub, CalcSheetStub
+
+    _reset_geo()
+    sheet1 = CalcSheetStub("Sheet1")
+    sheet2 = CalcSheetStub("Data")
+    for i in range(GEOMETRIC_DISCOVERY_CAP + 1):
+        sheet1.getCellByPosition(0, i).setFormula(f'=PY("x{i}")')
+        sheet2.getCellByPosition(0, i).setFormula(f'=PY("y{i}")')
+    doc = CalcDocStub(sheets=[sheet1, sheet2], url="file:///cap-persist.ods")
+    monkeypatch.setattr(
+        "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
+    )
+    monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
+    monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_box,
+    ):
+        reconcile_geometric_document("ctx", doc)
+        reconcile_geometric_document("ctx", doc)
+        assert mock_box.call_count == 2
+        titles = [c.args[1] for c in mock_box.call_args_list]
+        assert all("Experimental" in t for t in titles)
+        bodies = " ".join(str(c.args[2]) for c in mock_box.call_args_list)
+        assert "Sheet1" in bodies
+        assert "Data" in bodies
+
+    _reset_geo()
+    with (
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.chatbot.dialogs.msgbox") as mock_box,
+    ):
+        reconcile_geometric_document("ctx", doc)
+        assert mock_box.call_count == 2
 
 
 # ---------------------------------------------------------------------------
