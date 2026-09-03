@@ -201,3 +201,12 @@ def test_insert_cell_html(ctx, doc):
     )
     _progress("insert_cell_html: bold assert done")
     _progress("insert_cell_html: assertions done")
+    # GHA 33763078357 hung in teardown getDocumentProperties after clearContents.
+    # Probe the same SfxObjectShell call *before* wipe so the next Windows
+    # timeout says whether the model is already wedged after insert+close.
+    _progress("insert_cell_html: getDocumentProperties probe start")
+    props = doc.getDocumentProperties()
+    _progress(
+        "insert_cell_html: getDocumentProperties probe done props=%s"
+        % (props is not None,)
+    )

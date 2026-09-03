@@ -82,6 +82,7 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
         "getTransferable",
         "select cell",
         "insertTransferable",
+        "clipboard release",
         "close",
     ):
         assert f"insert_cell_html_rich: {step} start" in caplog.text
@@ -89,6 +90,8 @@ def test_insert_cell_html_rich_loads_temp_writer_on_named_frame(caplog):
     assert "target=_wa_calc_html" in caplog.text
     assert "reused_existing=" in caplog.text
     assert "close_temp=" in caplog.text
+    assert "writers_after_close=" in caplog.text
+    assert "xfer_id=" in caplog.text
 
 
 def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
@@ -113,7 +116,10 @@ def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
     assert "insert_cell_html_rich: loadComponentFromURL done" in err
     assert "reused_existing=" in err
     assert "insert_cell_html_rich: insertTransferable start" in err
+    assert "insert_cell_html_rich: clipboard release start" in err
+    assert "insert_cell_html_rich: clipboard release done" in err
     assert "insert_cell_html_rich: close done" in err
+    assert "insert_cell_html_rich: writers_after_close=" in err
 
 
 def test_desktop_writer_uids_stops_on_mock_enumeration():
@@ -172,6 +178,60 @@ def test_insert_cell_html_rich_empty_html_raises():
         insert_cell_html_rich(MagicMock(), MagicMock(), "A1", "   ")
 
 
+def test_release_clipboard_if_holds_only_when_ours():
+    from plugin.calc.rich_html import _release_clipboard_if_holds
+
+    xfer = object()
+    clip = MagicMock()
+    clip.getContents.return_value = xfer
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = clip
+    ctx = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    ctx.ServiceManager = smgr
+
+    assert "released" in _release_clipboard_if_holds(ctx, xfer)
+    clip.setContents.assert_called_once_with(None, None)
+
+    clip.reset_mock()
+    clip.getContents.return_value = object()
+    assert _release_clipboard_if_holds(ctx, xfer).startswith("not_ours")
+    clip.setContents.assert_not_called()
+
+
+def test_insert_cell_html_rich_releases_clipboard_before_close():
+    """SwTransferable must not still be clipboard owner when the Writer closes."""
+    from plugin.calc.rich_html import insert_cell_html_rich
+
+    calc_doc, cell, desktop, temp_doc, _calc_ctrl, writer_ctrl = _cell_and_docs()
+    xfer = object()
+    writer_ctrl.getTransferable.return_value = xfer
+    order: list[str] = []
+    temp_doc.close.side_effect = lambda *_a, **_k: order.append("close")
+    clip = MagicMock()
+    clip.getContents.return_value = xfer
+    clip.setContents.side_effect = lambda *_a, **_k: order.append("setContents")
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = clip
+    uno_ctx = MagicMock()
+    uno_ctx.getServiceManager.return_value = smgr
+    uno_ctx.ServiceManager = smgr
+
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+    ):
+        mock_bridge = mock_bridge_cls.return_value
+        mock_bridge.get_active_sheet.return_value = MagicMock()
+        mock_bridge.get_cell.return_value = cell
+        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.create_property_value.return_value = object()
+        insert_cell_html_rich(calc_doc, uno_ctx, "Z99", "<b>x</b>")
+
+    assert order == ["setContents", "close"]
+
+
 def _portion_cell(blocks):
     """Build a cell whose text enumeration yields *blocks* (each a portion or nest)."""
     top = MagicMock()
@@ -227,6 +287,8 @@ def test_insert_cell_html_post_execute_breadcrumbs_present():
         "bold assert start",
         "bold assert done",
         "assertions done",
+        "getDocumentProperties probe start",
+        "getDocumentProperties probe done",
     ):
         assert needle in src, needle
 

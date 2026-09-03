@@ -11,6 +11,7 @@ Grammar persistence and other light callers need get/set udprops without pulling
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Any
 
 import uno
@@ -18,6 +19,19 @@ import uno
 from plugin.framework.errors import UnoObjectError, check_disposed, safe_call
 
 log = logging.getLogger(__name__)
+
+# GHA 33763078357: hang dump named safe_call at getDocumentProperties. When
+# True, each UNO step is also printed to stderr so the last line names the
+# exact call. _clear_writeragent_udprops turns this on for insert_cell_html
+# teardown only (production saves stay quiet).
+_TRACE_UDPROPS = False
+
+
+def _udprops_step(msg: str) -> None:
+    """log.debug always; stderr only when teardown tracing is on."""
+    log.debug(msg)
+    if _TRACE_UDPROPS:
+        print(msg, file=sys.stderr, flush=True)
 
 
 def _user_defined_property_exists(props: Any, name: str) -> bool:
@@ -96,22 +110,37 @@ def set_document_property(model: Any, name: str, value: Any) -> None:
         raw_model = _unwrap_uno(model)
         check_disposed(raw_model, "Document Model")
         if hasattr(raw_model, "getDocumentProperties"):
+            # One statement per UNO call so a hang dump names the blocker
+            # (GHA 33763078357: previous dump only said safe_call line 99).
+            _udprops_step("set_document_property: getDocumentProperties start name=%s" % name)
             doc_props = safe_call(raw_model.getDocumentProperties, "Get document properties")
+            _udprops_step("set_document_property: getDocumentProperties done")
             if doc_props is None:
                 return
+            _udprops_step("set_document_property: UserDefinedProperties start")
             props = _unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
+            _udprops_step("set_document_property: UserDefinedProperties done")
             if props is not None:
                 check_disposed(props, "UserDefinedProperties")
 
                 exists = _user_defined_property_exists(props, name)
 
                 if exists and hasattr(props, "setPropertyValue"):
+                    _udprops_step("set_document_property: setPropertyValue start name=%s" % name)
                     safe_call(props.setPropertyValue, "Set property value", name, str(value))
+                    _udprops_step("set_document_property: setPropertyValue done")
                 elif hasattr(props, "addProperty"):
                     REMOVABLE = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.REMOVABLE")
+                    _udprops_step("set_document_property: addProperty start name=%s" % name)
                     safe_call(props.addProperty, "Add property", name, REMOVABLE, str(value))
+                    _udprops_step("set_document_property: addProperty done")
                 elif hasattr(props, "setPropertyValue"):
+                    _udprops_step(
+                        "set_document_property: setPropertyValue start (no addProperty) name=%s"
+                        % name
+                    )
                     safe_call(props.setPropertyValue, "Set property value (no addProperty)", name, str(value))
+                    _udprops_step("set_document_property: setPropertyValue done")
 
     except UnoObjectError:
         doc_url = ""

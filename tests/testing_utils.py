@@ -857,23 +857,74 @@ def _remove_all_calc_charts(doc) -> None:
         pass
 
 
-def _clear_writeragent_udprops(doc) -> None:
+def _probe_soffice_before_udprops(doc, ctx) -> None:
+    """Name whether soffice/desktop/clipboard is already wedged before the udprop write.
+
+    GHA 33763078357: sheet-level reset returned, then getDocumentProperties blocked.
+    Each probe logs start *before* the UNO call so the last stderr line names it.
+    """
+    _native_teardown_progress("udprops probe: desktop getComponents start")
+    try:
+        from plugin.calc.rich_html import _desktop_writer_uids
+        from plugin.framework.uno_context import get_desktop
+
+        desktop = get_desktop(ctx)
+        uids = _desktop_writer_uids(desktop)
+        _native_teardown_progress(
+            "udprops probe: desktop getComponents done writers=%s uids=%s"
+            % (len(uids), uids)
+        )
+    except Exception as exc:
+        _native_teardown_progress("udprops probe: desktop getComponents failed %r" % (exc,))
+    _native_teardown_progress("udprops probe: clipboard start")
+    try:
+        from plugin.calc.rich_html import _clipboard_snapshot
+
+        snap = _clipboard_snapshot(ctx)
+        _native_teardown_progress("udprops probe: clipboard done %s" % snap)
+    except Exception as exc:
+        _native_teardown_progress("udprops probe: clipboard failed %r" % (exc,))
+    _native_teardown_progress("udprops probe: RuntimeUID start")
+    try:
+        uid = getattr(doc, "RuntimeUID", None)
+        _native_teardown_progress("udprops probe: RuntimeUID done uid=%s" % uid)
+    except Exception as exc:
+        _native_teardown_progress("udprops probe: RuntimeUID failed %r" % (exc,))
+
+
+def _clear_writeragent_udprops(doc, ctx=None) -> None:
     # GHA 33707990007: after insert_cell_html, Windows hung in
     # set_document_scripts → is_document_readonly_for_scripts → doc.isReadonly()
     # during calc native-doc wipe (remove_charts + clearContents had already
     # returned). A harness wipe is never a user-readonly save; write the
     # scripts UDProp the same way as the session ids so we never call
     # isReadonly(). Empty string is missing to get_document_scripts.
+    # GHA 33763078357: that workaround relocated the hang to
+    # getDocumentProperties() — do not skip this write; probe first, then
+    # trace each UNO step inside set_document_property.
+    from plugin.doc import udprops as udprops_mod
+
+    prev_trace = udprops_mod._TRACE_UDPROPS
+    # Keep suite noise low: desktop/clipboard probe + per-UNO-step stderr
+    # only when with_native_doc armed teardown logs (test_insert_cell_html).
+    if _LOG_NATIVE_DOC_TEARDOWN:
+        if ctx is not None:
+            _probe_soffice_before_udprops(doc, ctx)
+        udprops_mod._TRACE_UDPROPS = True
     try:
-        from plugin.doc.udprops import set_document_property
         from plugin.scripting.document_scripts import DOCUMENT_SCRIPTS_UDPROP
         from plugin.scripting.session_manager import PYTHON_WORKBOOK_SESSION_PROP
 
-        set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, "")
-        set_document_property(doc, PYTHON_WORKBOOK_SESSION_PROP, "")
-        set_document_property(doc, "WriterAgentSessionID", "")
+        _native_teardown_progress("udprops clear: DOCUMENT_SCRIPTS start")
+        udprops_mod.set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, "")
+        _native_teardown_progress("udprops clear: DOCUMENT_SCRIPTS done")
+        udprops_mod.set_document_property(doc, PYTHON_WORKBOOK_SESSION_PROP, "")
+        udprops_mod.set_document_property(doc, "WriterAgentSessionID", "")
+        _native_teardown_progress("udprops clear: all done")
     except Exception:
         pass
+    finally:
+        udprops_mod._TRACE_UDPROPS = prev_trace
 
 
 def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer reset
@@ -925,9 +976,10 @@ def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer r
         controller = doc.getCurrentController()
         controller.setActiveSheet(sheet)
         controller.select(sheet.getCellByPosition(0, 0))
+        _native_teardown_progress("native_doc: _reset_calc_doc select done")
     except Exception:
         pass
-    _clear_writeragent_udprops(doc)
+    _clear_writeragent_udprops(doc, ctx)
     _clear_undo(doc)
     _native_teardown_progress("native_doc: _reset_calc_doc done")
 

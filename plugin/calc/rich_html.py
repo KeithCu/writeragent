@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import gc
 import html as html_std
 import logging
 import sys
@@ -111,6 +112,79 @@ def _controller_insert_transferable(controller: Any, transferable: Any) -> None:
     ins(transferable)
 
 
+def _service_manager(uno_ctx: Any) -> Any:
+    """ServiceManager from a UNO context. Best-effort; never raises."""
+    getter = getattr(uno_ctx, "getServiceManager", None)
+    if callable(getter):
+        try:
+            smgr = getter()
+            if smgr is not None:
+                return smgr
+        except Exception:
+            pass
+    return getattr(uno_ctx, "ServiceManager", None)
+
+
+def _system_clipboard(uno_ctx: Any) -> Any:
+    """SystemClipboard or None. Must not import chatbot (LibrePy ships this module)."""
+    smgr = _service_manager(uno_ctx)
+    if smgr is None:
+        return None
+    try:
+        return smgr.createInstanceWithContext(
+            "com.sun.star.datatransfer.clipboard.SystemClipboard", uno_ctx
+        )
+    except Exception:
+        return None
+
+
+def _clipboard_snapshot(uno_ctx: Any) -> str:
+    """Best-effort clipboard contents id for hang logs. Never raises."""
+    try:
+        clip = _system_clipboard(uno_ctx)
+        if clip is None:
+            return "no_clipboard"
+        contents = clip.getContents()
+        if contents is None:
+            return "empty"
+        return "id=%s type=%s" % (id(contents), type(contents).__name__)
+    except Exception as exc:
+        return "error:%s" % exc
+
+
+def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> str:
+    """If SystemClipboard still owns *transferable*, replace it before the Writer close.
+
+    SwXTextView.getTransferable() builds a SwTransferable bound to that Writer
+    shell (PrepareForCopy). On Windows the OLE clipboard thread can keep that
+    transferable as owner after insertTransferable. Closing the Writer while it
+    is still the OLE owner is the remaining mechanism that matches GHA
+    33763078357 / 33731356375: sheet-level Calc calls still return, but the
+    next SfxObjectShell call (isReadonly, then getDocumentProperties) blocks
+    forever. Only touch the clipboard when it actually holds *our* transferable
+    so a normal paste does not clobber an unrelated user copy.
+    """
+    try:
+        clip = _system_clipboard(uno_ctx)
+        if clip is None:
+            return "no_clipboard"
+        contents = clip.getContents()
+        if contents is None:
+            return "empty"
+        same = contents is transferable
+        try:
+            equal = contents == transferable
+        except Exception:
+            equal = False
+        if not (same or equal):
+            return "not_ours contents_id=%s xfer_id=%s" % (id(contents), id(transferable))
+        # None, None drops the previous owner (lostOwnership) without a new OLE source.
+        clip.setContents(None, None)
+        return "released contents_id=%s xfer_id=%s" % (id(contents), id(transferable))
+    except Exception as exc:
+        return "error:%s" % exc
+
+
 def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, *, config_svc: Any = None) -> None:
     """Replace one cell's text with rich content parsed from *html* (active sheet).
 
@@ -131,7 +205,10 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
     prepared = format_support._ensure_html_linebreaks(content)
 
     temp_doc = None
+    desktop = None
     close_temp = True
+    temp_uid = "-"
+    transferable: Any = None
     try:
         desktop = get_desktop(uno_ctx)
         hidden = format_support.create_property_value("Hidden", True)
@@ -182,7 +259,10 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         w_ctrl.select(sel)
         _step("insert_cell_html_rich: getTransferable start")
         transferable = _controller_get_transferable(w_ctrl)
-        _step("insert_cell_html_rich: getTransferable done")
+        _step(
+            "insert_cell_html_rich: getTransferable done "
+            "xfer_id=%s clipboard=%s" % (id(transferable), _clipboard_snapshot(uno_ctx))
+        )
 
         cell.getText().setString("")
 
@@ -192,13 +272,36 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         _step("insert_cell_html_rich: select cell done")
         _step("insert_cell_html_rich: insertTransferable start")
         _controller_insert_transferable(c_ctrl, transferable)
-        _step("insert_cell_html_rich: insertTransferable done")
+        _step(
+            "insert_cell_html_rich: insertTransferable done clipboard=%s"
+            % _clipboard_snapshot(uno_ctx)
+        )
+        # Drop SwTransferable *before* close: it holds the Writer shell
+        # (SwXTextView.getTransferable / PrepareForCopy). GHA 33763078357 hung
+        # the next SfxObjectShell call after this close while the Python proxy
+        # was still alive. Release clipboard ownership first if we are the owner.
+        _step("insert_cell_html_rich: clipboard release start")
+        released = _release_clipboard_if_holds(uno_ctx, transferable)
+        transferable = None
+        gc.collect()
+        _step(
+            "insert_cell_html_rich: clipboard release done "
+            "released=%s clipboard=%s" % (released, _clipboard_snapshot(uno_ctx))
+        )
     except ToolExecutionError:
         raise
     except Exception as e:
         log.debug("insert_cell_html_rich failed", exc_info=True)
         raise ToolExecutionError(f"Failed to insert HTML into cell: {e}") from e
     finally:
+        if transferable is not None:
+            # Error path: still drop the proxy so close is not racing OLE.
+            try:
+                _release_clipboard_if_holds(uno_ctx, transferable)
+            except Exception:
+                pass
+            transferable = None
+            gc.collect()
         if temp_doc is not None and close_temp:
             try:
                 _step("insert_cell_html_rich: close start")
@@ -206,5 +309,23 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
                 _step("insert_cell_html_rich: close done")
             except Exception:
                 log.debug("temp Writer close failed", exc_info=True)
+            leftover: list[str] = []
+            if desktop is not None:
+                leftover = _desktop_writer_uids(desktop)
+            _step(
+                "insert_cell_html_rich: writers_after_close=%s uids=%s clipboard=%s"
+                % (len(leftover), leftover, _clipboard_snapshot(uno_ctx))
+            )
+            # close() can return before dispose on Windows. If the RuntimeUID
+            # is still on the desktop, an explicit dispose names that leftover.
+            if temp_uid != "-" and temp_uid in leftover:
+                try:
+                    _step("insert_cell_html_rich: dispose start (still open after close)")
+                    disposer = getattr(temp_doc, "dispose", None)
+                    if callable(disposer):
+                        disposer()
+                    _step("insert_cell_html_rich: dispose done")
+                except Exception:
+                    log.debug("temp Writer dispose failed", exc_info=True)
         elif temp_doc is not None:
             _step("insert_cell_html_rich: close skipped reused_existing=True")
