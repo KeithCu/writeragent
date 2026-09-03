@@ -7,6 +7,9 @@
 [![LibreOffice 7.0+](https://img.shields.io/badge/LibreOffice-7.0%2B-green.svg)](https://www.libreoffice.org/)
 [![Release](https://img.shields.io/github/v/release/KeithCu/writeragent)](https://github.com/KeithCu/writeragent/releases)
 
+![CI status](https://keithcu.github.io/writeragent/status.svg)
+[CI status page](https://keithcu.github.io/writeragent/)
+
 **Python, NumPy, and Agentic AI for LibreOffice (Writer, Calc, and Draw)**
 
 Run Python and scientific compute directly in spreadsheet formulas, edit documents with private local-first AI, conduct autonomous web research, generate diagrams, and automate office workflows — without cloud lock-in.

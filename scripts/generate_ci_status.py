@@ -7,8 +7,10 @@
 """Build a static CI status table from the GitHub Actions API.
 
 Used by ``.github/workflows/ci-status-pages.yml`` to publish
-https://keithcu.github.io/writeragent/ . Auth is ``GITHUB_TOKEN`` only
-(optional for this public repo). The token is never written into HTML.
+https://keithcu.github.io/writeragent/ (``index.html`` + ``status.svg``).
+Auth is ``GITHUB_TOKEN`` only (optional for this public repo). The token
+is never written into HTML or SVG. The SVG is a drawn table (not a
+screenshot) so the repo README can embed it as an image.
 """
 
 from __future__ import annotations
@@ -227,6 +229,138 @@ def _cell(value: str) -> str:
     return html.escape(value, quote=True)
 
 
+# Drawn table for README ``<img>`` / Camo. No Run column: markdown images
+# are not clickable, and the HTML page already has the links.
+_SVG_COLS: tuple[tuple[str, int], ...] = (
+    ("Suite", 168),
+    ("OS", 118),
+    ("Conclusion", 100),
+    ("SHA", 72),
+    ("When", 172),
+)
+_SVG_PAD_X = 12
+_SVG_PAD_Y = 10
+_SVG_TITLE_H = 20
+_SVG_SUB_H = 16
+_SVG_GAP = 8
+_SVG_ROW_H = 22
+# class, light fill, light text — CSS overrides fills in dark mode.
+_CONCLUSION_STYLE: dict[str, tuple[str, str, str]] = {
+    "success": ("ok", "#cfc", "#1a7f37"),
+    "failure": ("fail", "#fcc", "#cf222e"),
+    "cancelled": ("cancel", "#eee", "#6e7781"),
+    "in_progress": ("prog", "#ffc", "#9a6700"),
+    "in-progress": ("prog", "#ffc", "#9a6700"),
+    "no run": ("norun", "#f6f8fa", "#6e7781"),
+}
+_DEFAULT_CONCLUSION_STYLE = ("unk", "#fff", "#111")
+
+
+def _svg_table_size(row_count: int) -> tuple[int, int, int]:
+    table_w = sum(width for _label, width in _SVG_COLS)
+    table_top = _SVG_PAD_Y + _SVG_TITLE_H + _SVG_SUB_H + _SVG_GAP
+    height = table_top + _SVG_ROW_H * (1 + row_count) + _SVG_PAD_Y
+    return table_w, table_top, height
+
+
+def _conclusion_style(conclusion: str) -> tuple[str, str, str]:
+    return _CONCLUSION_STYLE.get(conclusion, _DEFAULT_CONCLUSION_STYLE)
+
+
+def render_svg(
+    rows: list[StatusRow],
+    *,
+    repo: str,
+    generated_at: str,
+) -> str:
+    """Same suite/OS/conclusion/SHA/when table as HTML, as an SVG image."""
+    table_w, table_top, height = _svg_table_size(len(rows))
+    width = table_w + 2 * _SVG_PAD_X
+    parts: list[str] = [
+        '<?xml version="1.0" encoding="UTF-8"?>\n',
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
+        f'height="{height}" viewBox="0 0 {width} {height}" role="img">\n',
+        "<title>WriterAgent CI status</title>\n",
+        "<style>\n",
+        "text { font-family: sans-serif; font-size: 12px; }\n",
+        "text.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }\n",
+        "@media (prefers-color-scheme: dark) {\n",
+        "  .bg { fill: #0d1117; }\n",
+        "  .grid { stroke: #8b949e; }\n",
+        "  .ink { fill: #e6edf3; }\n",
+        "  .hdr { fill: #161b22; }\n",
+        "  .ok { fill: #1a3d2a; } .okt { fill: #3fb950; }\n",
+        "  .fail { fill: #3d1a1a; } .failt { fill: #f85149; }\n",
+        "  .cancel { fill: #21262d; } .cancelt { fill: #8b949e; }\n",
+        "  .prog { fill: #3d2f0a; } .progt { fill: #d29922; }\n",
+        "  .norun { fill: #161b22; } .norunt { fill: #8b949e; }\n",
+        "  .unk { fill: #0d1117; } .unkt { fill: #e6edf3; }\n",
+        "}\n",
+        "</style>\n",
+        f'<rect class="bg" width="{width}" height="{height}" fill="#fff"/>\n',
+        f'<text class="ink" x="{_SVG_PAD_X}" y="{_SVG_PAD_Y + 14}" '
+        f'fill="#111" font-weight="bold">WriterAgent CI status</text>\n',
+        f'<text class="ink" x="{_SVG_PAD_X}" y="{_SVG_PAD_Y + _SVG_TITLE_H + 12}" '
+        f'fill="#333" font-size="11">{_cell(repo)} · {_cell(generated_at)}</text>\n',
+    ]
+
+    def _x_at(col: int) -> int:
+        return _SVG_PAD_X + sum(width for _label, width in _SVG_COLS[:col])
+
+    def _row_rect(y: int, fill: str, css: str) -> str:
+        return (
+            f'<rect class="{css}" x="{_SVG_PAD_X}" y="{y}" '
+            f'width="{table_w}" height="{_SVG_ROW_H}" fill="{fill}"/>\n'
+        )
+
+    def _grid(y: int) -> str:
+        lines = [
+            f'<rect class="grid" x="{_SVG_PAD_X}" y="{y}" width="{table_w}" '
+            f'height="{_SVG_ROW_H}" fill="none" stroke="#333"/>\n'
+        ]
+        for col in range(1, len(_SVG_COLS)):
+            x = _x_at(col)
+            lines.append(
+                f'<line class="grid" x1="{x}" y1="{y}" x2="{x}" '
+                f'y2="{y + _SVG_ROW_H}" stroke="#333"/>\n'
+            )
+        return "".join(lines)
+
+    def _cell_text(col: int, y: int, value: str, *, css: str = "ink", fill: str = "#111",
+                   mono: bool = False) -> str:
+        text_y = y + _SVG_ROW_H - 6
+        extra = ' class="mono ink"' if mono else f' class="{css}"'
+        return (
+            f"<text{extra} x=\"{_x_at(col) + 6}\" y=\"{text_y}\" "
+            f'fill="{fill}">{_cell(value)}</text>\n'
+        )
+
+    header_y = table_top
+    parts.append(_row_rect(header_y, "#f6f8fa", "hdr"))
+    parts.append(_grid(header_y))
+    for col, (label, _width) in enumerate(_SVG_COLS):
+        parts.append(_cell_text(col, header_y, label, fill="#111"))
+
+    for index, row in enumerate(rows):
+        y = table_top + _SVG_ROW_H * (index + 1)
+        css, bg, ink = _conclusion_style(row.conclusion)
+        parts.append(_row_rect(y, "#fff", "bg"))
+        # Conclusion tint only on that cell so the row stays readable.
+        parts.append(
+            f'<rect class="{css}" x="{_x_at(2)}" y="{y}" '
+            f'width="{_SVG_COLS[2][1]}" height="{_SVG_ROW_H}" fill="{bg}"/>\n'
+        )
+        parts.append(_grid(y))
+        parts.append(_cell_text(0, y, row.suite))
+        parts.append(_cell_text(1, y, row.os))
+        parts.append(_cell_text(2, y, row.conclusion, css=f"{css}t", fill=ink))
+        parts.append(_cell_text(3, y, row.sha, mono=True))
+        parts.append(_cell_text(4, y, row.when))
+
+    parts.append("</svg>\n")
+    return "".join(parts)
+
+
 def render_html(
     rows: list[StatusRow],
     *,
@@ -286,11 +420,13 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def write_site(out_dir: Path, html_text: str) -> Path:
+def write_site(out_dir: Path, html_text: str, svg_text: str) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     index = out_dir / "index.html"
+    svg = out_dir / "status.svg"
     index.write_text(html_text, encoding="utf-8")
-    return index
+    svg.write_text(svg_text, encoding="utf-8")
+    return index, svg
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -298,7 +434,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--out",
         default="_site",
-        help="Directory to write index.html into (default: _site)",
+        help="Directory to write index.html and status.svg into (default: _site)",
     )
     parser.add_argument(
         "--repo",
@@ -313,11 +449,13 @@ def main(argv: list[str] | None = None) -> int:
     repo = (args.repo or os.environ.get("GITHUB_REPOSITORY") or DEFAULT_REPO).strip()
     token = os.environ.get("GITHUB_TOKEN", "")
     rows = collect_status(make_fetcher(token), repo)
-    page = render_html(rows, repo=repo, generated_at=utc_now())
-    if token and token in page:
-        raise RuntimeError("refusing to write HTML that contains GITHUB_TOKEN")
-    path = write_site(Path(args.out), page)
-    print(f"Wrote {path} ({len(rows)} rows)")
+    generated_at = utc_now()
+    page = render_html(rows, repo=repo, generated_at=generated_at)
+    svg = render_svg(rows, repo=repo, generated_at=generated_at)
+    if token and (token in page or token in svg):
+        raise RuntimeError("refusing to write output that contains GITHUB_TOKEN")
+    index, svg_path = write_site(Path(args.out), page, svg)
+    print(f"Wrote {index} and {svg_path} ({len(rows)} rows)")
     return 0
 
 

@@ -18,6 +18,7 @@ from scripts.generate_ci_status import (
     job_matches,
     main,
     render_html,
+    render_svg,
     short_sha,
     suite_specs,
 )
@@ -160,6 +161,75 @@ def test_collect_status_empty_is_no_run_not_fake_sha() -> None:
     assert all(row.sha == "" for row in rows)
 
 
+def _sample_rows() -> list[StatusRow]:
+    return [
+        StatusRow("CrossHair check-all", "ubuntu-latest", "failure", "ce0da96", "2026-09-02T21:21:27Z", ""),
+        StatusRow("CrossHair cover-all", "ubuntu-latest", "cancelled", "6045c1b", "2026-09-03T04:19:58Z", ""),
+        StatusRow("Test & Typecheck", "ubuntu-latest", "success", "12a7676", "2026-09-03T19:01:28Z", ""),
+        StatusRow("Test & Typecheck", "macos-latest", "success", "589df34", "2026-09-03T16:54:58Z", ""),
+        StatusRow("Test & Typecheck", "windows-latest", "success", "96912c4", "2026-09-03T18:15:33Z", ""),
+        StatusRow("Mock LLM Sidebar", "ubuntu-latest", "success", "85f7a76", "2026-09-03T15:32:33Z", ""),
+        StatusRow("Mock LLM Sidebar", "macos-latest", "success", "85f7a76", "2026-09-03T15:41:00Z", ""),
+        StatusRow("Mock LLM Sidebar", "windows-latest", "success", "85f7a76", "2026-09-03T15:25:02Z", ""),
+    ]
+
+
+def test_render_svg_contains_suite_names() -> None:
+    svg = render_svg(_sample_rows(), repo="KeithCu/writeragent", generated_at="2026-09-03T19:01:48Z")
+    assert svg.startswith("<?xml")
+    assert "<svg" in svg
+    assert "CrossHair check-all" in svg
+    assert "CrossHair cover-all" in svg
+    assert "Test &amp; Typecheck" in svg
+    assert "Mock LLM Sidebar" in svg
+    assert "ubuntu-latest" in svg
+    assert "macos-latest" in svg
+    assert "windows-latest" in svg
+    assert "success" in svg
+    assert "failure" in svg
+    assert "cancelled" in svg
+    assert "ce0da96" in svg
+    assert "2026-09-03T19:01:48Z" in svg
+    assert "ghs_" not in svg
+
+
+def test_render_svg_empty_runs_does_not_crash() -> None:
+    empty_rows = [
+        StatusRow(spec.suite, spec.os, "no run", "", "", "") for spec in suite_specs()
+    ]
+    svg = render_svg(empty_rows, repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
+    assert "<svg" in svg
+    assert "CrossHair check-all" in svg
+    assert "Test &amp; Typecheck" in svg
+    assert "Mock LLM Sidebar" in svg
+    assert "no run" in svg
+    header_only = render_svg([], repo="KeithCu/writeragent", generated_at="2026-09-03T00:00:00Z")
+    assert "<svg" in header_only
+    assert "</svg>" in header_only
+
+
+def test_render_svg_escapes_xml() -> None:
+    rows = [
+        StatusRow(
+            suite="<script>alert(1)</script>",
+            os="ubuntu-latest",
+            conclusion="success",
+            sha="96912c4",
+            when="2026-09-03T18:15:33Z",
+            run_url="",
+        )
+    ]
+    svg = render_svg(rows, repo="KeithCu/writeragent", generated_at="2026-09-03T18:30:00Z")
+    assert "<script>alert(1)</script>" not in svg
+    assert "&lt;script&gt;" in svg
+
+
+def test_readme_embeds_pages_svg() -> None:
+    text = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "![CI status](https://keithcu.github.io/writeragent/status.svg)" in text
+    assert "[CI status page](https://keithcu.github.io/writeragent/)" in text
+
+
 def test_render_html_escapes_and_omits_token() -> None:
     rows = [
         StatusRow(
@@ -209,10 +279,15 @@ def test_main_writes_index_and_never_embeds_token(tmp_path: Path, monkeypatch: p
     out = tmp_path / "site"
     assert main(["--out", str(out)]) == 0
     text = (out / "index.html").read_text(encoding="utf-8")
+    svg = (out / "status.svg").read_text(encoding="utf-8")
     assert "ghs_this_must_not_appear_in_html" not in text
+    assert "ghs_this_must_not_appear_in_html" not in svg
     assert "ce0da96" in text
+    assert "ce0da96" in svg
     assert "CrossHair check-all" in text
+    assert "CrossHair check-all" in svg
     assert "no run" in text
+    assert "no run" in svg
 
 
 def test_workflow_deploys_pages_from_actions_api() -> None:
@@ -229,6 +304,7 @@ def test_workflow_deploys_pages_from_actions_api() -> None:
     assert "actions/deploy-pages" in text
     assert "secrets.GITHUB_TOKEN" in text
     assert "scripts/generate_ci_status.py" in text
+    assert "status.svg" in text
     assert "docs/" not in text
 
 

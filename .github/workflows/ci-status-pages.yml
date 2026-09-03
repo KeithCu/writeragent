@@ -1,4 +1,5 @@
-# Static CI status table for https://keithcu.github.io/writeragent/
+# Static CI status table (index.html + status.svg) for
+# https://keithcu.github.io/writeragent/
 # Pages Source must be GitHub Actions (Settings → Pages). First deploy
 # may need approval of the github-pages environment.
 name: CI Status Pages
@@ -29,7 +30,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Generate CI status HTML
+      - name: Generate CI status HTML and SVG
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
