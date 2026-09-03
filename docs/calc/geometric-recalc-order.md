@@ -119,7 +119,7 @@ Example: list is A1, A3. A3 has `;A1`. User inserts a PY cell at A2.
 
 Delete A2: A3’s predecessor must become A1 again, or **remove-field** if A3 is now first.
 
-Row insert that only **moves** existing PY cells: Calc’s own reference adjust may already be correct. The deferred pass should be **idempotent**: recompute desired predecessor per cell, rewrite only when the geometric field differs. **Also rehome the attach-map key** onto the cell’s current discovery address and drop keys that are no longer on the sheet — formula-only idempotence left an orphan at the old address after Calc shifted the cell (Gemini C).
+Row insert that only **moves** existing PY cells: Calc’s own reference adjust may already be correct. The deferred pass should be **idempotent**: recompute desired predecessor per cell, rewrite only when the geometric field differs. **Also rehome the attach-map key** onto the cell’s current discovery address and drop keys that are no longer on the sheet — formula-only idempotence left an orphan at the old address after Calc shifted the cell (Gemini C). Rehome uses pred-match only for a **true orphan** (old key gone) or a row/col delta (`pred + (live − old)`); a live-key record stays unless the delta claims it. Undo after delete-middle often leaves `{A3: A1}` while formulas are again A2 `;A1` / A3 `;A2` — matching A3 onto A2 drops the successor from the map so the later successor-becomes-first remove-field is a noop.
 
 ### 3.5 Writes must be outside recalc (same as auto-spill)
 

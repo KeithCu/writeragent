@@ -302,6 +302,32 @@ def test_row_insert_three_cell_chain_rehomes_all_keys():
     assert "A2" not in result.records
 
 
+def test_undo_stale_map_keeps_live_successor_record():
+    """Undo restores A2 and A3's ``;A2`` while the map still has A3→A1.
+
+    Rule 1 must not steal A3 onto A2 (A3 is live). A3 keeps its record so
+    successor-becomes-first can still remove-field.
+    """
+    result = _repair(
+        [
+            _cell("A2", '=PY("mid";A1)'),
+            _cell("A3", '=PY("third";A2)'),
+        ],
+        {"A3": GeometricRecord(predecessor="A1")},
+    )
+    assert result.patches == ()
+    assert "A3" in result.records
+    assert result.records["A3"].predecessor == "A2"
+    assert "A2" not in result.records
+
+    first_only = _repair(
+        [_cell("A3", '=PY("third";A2)')],
+        result.records,
+    )
+    assert _patch_map(first_only)["A3"].action == "remove"
+    assert "A3" not in first_only.records
+
+
 def test_row_insert_four_cell_chain_rehomes_all_keys():
     """A1–A4 shifted +1 row; all three successors rehome, no formula patches."""
     result = _repair(

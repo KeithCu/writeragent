@@ -343,32 +343,31 @@ def _rehome_candidate_score(
     rec: GeometricRecord,
     live: str,
     desired: str,
+    live_keys: set[str],
 ) -> tuple[int, int] | None:
     """Match a homeless incoming record to a live noop cell. Lower is better.
 
     Rule 2 (0, absdelta): ``pred + (live - old)`` equals *desired* — the cell
     moved and Calc already shifted the formula pred. Rule 1 (1, 0): pred
-    already equals *desired* and *old* is a different address (first
-    successor; pred sat above the insert). Bind-in-place (2, 0) is last —
-    a live key whose stale pred happens to equal the new occupant's desired
-    is the 4-cell collision, not a keep.
+    already equals *desired*, but **only** when *old* is gone from the
+    sheet (true orphan). A live-key record stays put unless rule 2 claims
+    it — otherwise undo's stale ``{A3: A1}`` is stolen onto A2 and
+    successor-becomes-first cannot remove-field.
     """
-    rule1 = same_cell_ref(rec.predecessor, desired)
+    rule1 = same_cell_ref(rec.predecessor, desired) and old not in live_keys
     try:
         ocol, orow = parse_address(local_a1(old))
         lcol, lrow = parse_address(local_a1(live))
     except (TypeError, ValueError):
-        if not rule1:
-            return None
-        return (2, 0) if local_a1(old) == local_a1(live) else (1, 0)
+        return (1, 0) if rule1 else None
     dcol, drow = lcol - ocol, lrow - orow
     if dcol or drow:
         shifted = _a1_shift(rec.predecessor, dcol, drow)
         if shifted is not None and same_cell_ref(shifted, desired):
             return (0, abs(dcol) + abs(drow))
-    if not rule1:
-        return None
-    return (2, 0) if local_a1(old) == local_a1(live) else (1, 0)
+    if rule1:
+        return (1, 0)
+    return None
 
 
 def _record_is_homeless(
@@ -421,7 +420,7 @@ def _rehome_or_keep_record(
             continue
         if not _record_is_homeless(old, rec, live_keys, desired_by_key, evicted):
             continue
-        score = _rehome_candidate_score(old, rec, key, desired)
+        score = _rehome_candidate_score(old, rec, key, desired, live_keys)
         if score is None:
             continue
         if best is None or score < best:
@@ -432,8 +431,10 @@ def _rehome_or_keep_record(
             incoming_here is not None
             and key not in consumed
             and key not in evicted
-            and same_cell_ref(incoming_here.predecessor, desired)
         ):
+            # Live-key record stays (pred may be stale after undo). Align
+            # pred with the already-correct formula so later remove-field
+            # still sees an ours marker.
             working[key] = GeometricRecord(predecessor=desired)
         else:
             log.debug(
