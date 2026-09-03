@@ -469,6 +469,73 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     assert data["Sheet1:1,1"] == [[2, 1], [3, 1], [4, 1]]
 
 
+def test_spill_target_overwrite_produces_spill_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Overwriting a spilled cell produces #SPILL! on formula re-evaluation (B8 QA requirement)."""
+    doc = CalcDocStub(url="file:///repro_b8.ods", selection="J8")
+    sheet = doc.getSheets().getByName("Sheet1")
+    # Formula cell J8 is col 9, row 7 (0-indexed)
+    sheet.getCellByPosition(9, 7).setFormula('=PYTHON("result = [10, 20, 30]")')
+    ctx = _ctx_with_doc(doc)
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.SPILL_VALUE_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+
+    class DummyTimer:
+        def __init__(self, interval, function, args=(), kwargs={}):
+            self.function = function
+            self.args = args
+            self.kwargs = kwargs
+
+        def start(self):
+            self.function(*self.args, **self.kwargs)
+
+    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
+
+    code = "result = [10, 20, 30]"
+    result = [10.0, 20.0, 30.0]
+
+    # 1. Initial evaluation: J8 auto-spills J9 (20) and J10 (30)
+    val1 = finalize_python_return(ctx, code, result)
+    assert val1 == 10.0
+    assert sheet.getCellByPosition(9, 8).getValue() == 20.0  # J9
+    assert sheet.getCellByPosition(9, 9).getValue() == 30.0  # J10
+
+    key = ("file:///repro_b8.ods", "Sheet1", 7, 9)
+    assert key in python_function.SPILL_REGISTRY
+    assert python_function.SPILL_REGISTRY[key] == [(8, 9), (9, 9)]
+    assert python_function.SPILL_VALUE_REGISTRY[key] == {(8, 9): 20.0, (9, 9): 30.0}
+
+    # 2. Simulate user typing "BLOCK" into J9 (col 9, row 8)
+    sheet.getCellByPosition(9, 8).setString("BLOCK")
+
+    # 3. Re-evaluate J8 formula
+    val2 = finalize_python_return(ctx, code, result)
+    assert val2 == "#SPILL!"
+
+    # J9 must retain user text "BLOCK", while unmodified J10 (30) must be cleared
+    assert sheet.getCellByPosition(9, 8).getString() == "BLOCK"
+    EMPTY = 0
+    assert sheet.getCellByPosition(9, 9).getType() == EMPTY
+    assert key not in python_function.SPILL_REGISTRY
+    assert key not in python_function.SPILL_VALUE_REGISTRY
+
+    # 4. User clears J9
+    sheet.getCellByPosition(9, 8).clearContents(23)
+
+    # 5. Re-evaluate J8 formula again -> successfully spills 10, 20, 30
+    val3 = finalize_python_return(ctx, code, result)
+    assert val3 == 10.0
+    assert sheet.getCellByPosition(9, 8).getValue() == 20.0
+    assert sheet.getCellByPosition(9, 9).getValue() == 30.0
+    assert key in python_function.SPILL_REGISTRY
+    assert python_function.SPILL_REGISTRY[key] == [(8, 9), (9, 9)]
+
+
 def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     # Set WRITERAGENT_TESTING to 1 to force inline execution in queue_executor
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
