@@ -200,7 +200,8 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     ref (``$A$1``), not a quoted token. ``rebuild_python_formula_with_data``
     would sanitize the code, reformat every data arg (strips ``$``), and
     quote ``$A$1``. Uses the parsed prefix + first-arg spelling and
-    :func:`_geometric_data_suffix`.
+    :func:`_geometric_data_suffix`. Live Classic ``getFormula()`` stores
+    ``=py(`` (lowercase), not ``=PY(`` — keep ``parts.prefix``.
     """
     parts = parse_python_formula(formula)
     if parts is None:

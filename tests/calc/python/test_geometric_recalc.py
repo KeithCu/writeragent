@@ -260,6 +260,13 @@ def test_splice_quoted_code_skips_calc_sanitizer():
     assert "+0.0" not in new
     assert "$C$5" in new
     assert formula_data_args(new) == ["$C$5", "A1"]
+    # Live Classic getFormula() stores =py( (lowercase), not =PY( or OriginalName.
+    # parts.prefix must round-trip that spelling — do not force CALC_PYTHON_FN.
+    live = rebuild_formula_with_data_args('=py("float(1)"; $C$5)', ["$C$5", "A1"])
+    assert live is not None
+    assert live.startswith('=py("')
+    assert "float(1)" in live
+    assert "$C$5" in live
 
 
 def test_user_already_passed_previous_py_not_recorded():

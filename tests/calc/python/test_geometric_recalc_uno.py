@@ -40,6 +40,8 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     c5.setValue(5)
 
     # --- Probe: what does getFormula actually store? ---
+    # Confirmed on Classic (Linux): =py("…"; $C$5) — has '=', lowercase py,
+    # keeps $, no sheet prefix, not OriginalName. Splice uses parts.prefix.
     samples = {
         "quoted_abs": _store(a2, '=PY("y"; $C$5)'),
         "quoted_range": _store(b1, '=PY("np.mean(data)"; B1:B10)'),
