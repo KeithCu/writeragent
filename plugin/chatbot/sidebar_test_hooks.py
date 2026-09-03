@@ -810,12 +810,13 @@ def _slash_control_near_query(query: Any) -> Any:
             cur = getter()
         except Exception:
             continue
-        for unused in range(6):
-            if cur is None:
-                break
-            if hasattr(cur, "getControl"):
+        hops = 0
+        while cur is not None and hops < 6:
+            hops += 1
+            get_control = getattr(cur, "getControl", None)
+            if callable(get_control):
                 try:
-                    ctrl = cur.getControl("slash_popup")
+                    ctrl = get_control("slash_popup")
                 except Exception:
                     ctrl = None
                 if ctrl is not None:
