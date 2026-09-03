@@ -17,6 +17,7 @@ import urllib.parse
 import json
 import ipaddress
 import logging
+import re
 from typing import Any
 
 from plugin.framework.constants import ModelCapability
@@ -60,7 +61,14 @@ ENDPOINT_PRESETS = [
 _model_fetch_cache: dict[str, list[str] | None] = {}
 _model_fetch_image_cache: dict[str, list[str] | None] = {}
 _model_fetch_vision_cache: dict[str, list[str] | None] = {}
-_ollama_capabilities_cache: dict[str, list[str]] = {}
+# POST /api/show, once per process. Value is {capabilities: list[str], num_ctx: int|None}.
+# Vision probes and the #570 crash sentence share this so the first probe pays for both.
+_ollama_show_cache: dict[str, dict[str, Any]] = {}
+# Older tests clear this name; keep it as an alias of the same dict.
+_ollama_capabilities_cache = _ollama_show_cache
+
+# Runtime PARAMETER / Modelfile line. Do not use this on model_info context_length.
+_OLLAMA_NUM_CTX_LINE = re.compile(r"(?im)^\s*(?:PARAMETER\s+)?num_ctx\s+(\d+)\s*$")
 
 # /v1/models response shapes (GET {endpoint}/v1/models):
 # - Together (api.together.xyz): top-level JSON array [{id, type, ...}, ...]; image rows use type="image".
@@ -596,12 +604,65 @@ def set_native_vision_support(model_id, endpoint, supported):
     set_config("vision_support_map", cache)
 
 
-def query_ollama_model_capabilities(endpoint: str, model_id: str) -> bool | None:
-    """Query POST /api/show to check if an Ollama model supports vision."""
+def parse_ollama_runtime_num_ctx(show_body: Any) -> int | None:
+    """Runtime ``num_ctx`` from Ollama ``/api/show`` parameters or Modelfile.
+
+    Trained ``model_info["*.context_length"]`` is ignored on purpose: issue #570
+    crashed with live ``n_ctx=4096`` while ``qwen2.context_length`` was 32768.
+    A missing or unparsable ``num_ctx`` returns None (crash copy stays generic).
+    """
+    if not isinstance(show_body, dict):
+        return None
+    parsed = _num_ctx_from_parameters(show_body.get("parameters"))
+    if parsed is not None:
+        return parsed
+    return _num_ctx_from_modelfile(show_body.get("modelfile"))
+
+
+def _parse_positive_ctx(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed <= 0:
+        return None
+    return parsed
+
+
+def _num_ctx_from_parameters(parameters: Any) -> int | None:
+    if isinstance(parameters, dict):
+        for key, val in parameters.items():
+            if str(key).strip().lower() == "num_ctx":
+                return _parse_positive_ctx(val)
+        return None
+    if isinstance(parameters, str):
+        for line in parameters.splitlines():
+            matched = _OLLAMA_NUM_CTX_LINE.match(line)
+            if matched:
+                return _parse_positive_ctx(matched.group(1))
+    return None
+
+
+def _num_ctx_from_modelfile(modelfile: Any) -> int | None:
+    if not isinstance(modelfile, str):
+        return None
+    last: int | None = None
+    for line in modelfile.splitlines():
+        matched = _OLLAMA_NUM_CTX_LINE.match(line)
+        if matched:
+            last = _parse_positive_ctx(matched.group(1))
+    return last
+
+
+def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
+    """POST ``/api/show`` once per process. Returns capabilities + runtime num_ctx."""
+    if not endpoint or not model_id:
+        return None
     endpoint = normalize_endpoint_url(endpoint)
     cache_key = f"{endpoint}@{model_id}"
-    if cache_key in _ollama_capabilities_cache:
-        return "vision" in _ollama_capabilities_cache[cache_key]
+    cached = _ollama_show_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     url = f"{endpoint}/api/show"
     req_body = {"model": model_id}
@@ -614,7 +675,7 @@ def query_ollama_model_capabilities(endpoint: str, model_id: str) -> bool | None
             if not isinstance(caps, list):
                 caps = []
 
-            # fallback: look inside model_info
+            # fallback: look inside model_info (vision projector keys only)
             model_info = res.get("model_info") or {}
             if isinstance(model_info, dict):
                 for k in model_info.keys():
@@ -623,10 +684,44 @@ def query_ollama_model_capabilities(endpoint: str, model_id: str) -> bool | None
                             caps.append("vision")
                         break
 
-            _ollama_capabilities_cache[cache_key] = caps
-            return "vision" in caps
+            info = {
+                "capabilities": caps,
+                "num_ctx": parse_ollama_runtime_num_ctx(res),
+            }
+            _ollama_show_cache[cache_key] = info
+            return info
+    except Exception as e:
+        log.debug("query_ollama_show failed: %s", e)
+    return None
+
+
+def query_ollama_model_capabilities(endpoint: str, model_id: str) -> bool | None:
+    """Query POST /api/show to check if an Ollama model supports vision."""
+    try:
+        info = query_ollama_show(endpoint, model_id)
     except Exception as e:
         log.debug("query_ollama_model_capabilities failed: %s", e)
+        return None
+    if info is None:
+        return None
+    caps = info.get("capabilities") or []
+    return "vision" in caps if isinstance(caps, list) else False
+
+
+def query_ollama_runtime_num_ctx(endpoint: str, model_id: str) -> int | None:
+    """Live Ollama ``num_ctx`` from the cached ``/api/show`` body, or None."""
+    if not endpoint or not model_id:
+        return None
+    try:
+        info = query_ollama_show(endpoint, model_id)
+    except Exception as e:
+        log.debug("query_ollama_runtime_num_ctx failed: %s", e)
+        return None
+    if not info:
+        return None
+    num_ctx = info.get("num_ctx")
+    if isinstance(num_ctx, int) and num_ctx > 0:
+        return num_ctx
     return None
 
 

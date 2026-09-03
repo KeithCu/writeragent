@@ -14,8 +14,56 @@ from plugin.framework.errors import format_error_message
 
 _ZAI_CODING_PLAN_ENDPOINT = "https://api.z.ai/api/coding/paas/v4"
 
+# Issue #570: Ollama/llama.cpp died at prefill (Windows AV or prompt overflow).
+_LLAMA_SERVER_CRASH_MARKERS = (
+    "llama-server process has terminated",
+    "0xc0000005",
+    "truncating input prompt",
+    "prompt overflow",
+)
 
-def _format_http_error_response(status, reason, err_body):  # pyright: ignore[reportUnusedFunction]  # shared by llm client tests and modality helpers
+
+def format_context_window_label(num_ctx) -> str | None:
+    """Human window size for the crash sentence (4096 → 4K). None if unknown."""
+    try:
+        window = int(num_ctx)
+    except (TypeError, ValueError):
+        return None
+    if window <= 0:
+        return None
+    if window % 1024 == 0:
+        return f"{window // 1024}K"
+    return str(window)
+
+
+def local_model_overflow_message(context_window=None) -> str:
+    """Plain sidebar sentence: local llama-server died because the prompt overflowed."""
+    label = format_context_window_label(context_window)
+    if label:
+        return _(
+            "The local Ollama/llama.cpp process crashed because the prompt overflowed a {0} context window."
+        ).format(label)
+    return _(
+        "The local Ollama/llama.cpp process crashed because the prompt overflowed a too-small context window."
+    )
+
+
+def is_local_model_server_crash(text) -> bool:
+    """True for llama-server death / access violation / prompt-overflow 500 bodies."""
+    blob = str(text or "")
+    if not blob:
+        return False
+    lower = blob.lower()
+    if any(marker in lower for marker in _LLAMA_SERVER_CRASH_MARKERS):
+        return True
+    if "llama.cpp" in lower and "overflow" in lower:
+        return True
+    if "overflowed a" in lower and "context window" in lower:
+        return True
+    return False
+
+
+def _format_http_error_response(status, reason, err_body, context_window=None):  # pyright: ignore[reportUnusedFunction]  # shared by llm client tests and modality helpers
     """Build error message including response body for display in chat/UI.
 
     This remains client-specific because it parses provider error JSON bodies
@@ -25,7 +73,13 @@ def _format_http_error_response(status, reason, err_body):  # pyright: ignore[re
     Persistent ``http.client`` (``LlmClient``) never raises ``urllib``
     ``HTTPError``, so ``format_error_message()``'s 429 branch never runs on
     the chat drain. Map 429 here so Packet F2 shows a rate-limit sentence.
+
+    HTTP 500 bodies that show llama-server died or the prompt overflowed
+    become a plain sentence (issue #570). The raw dict stays in ERROR logs.
+    Missing ``context_window`` is fine — the sentence still explains overflow.
     """
+    if status == 500 and err_body and is_local_model_server_crash(err_body):
+        return local_model_overflow_message(context_window)
     if status == 429:
         base = _("Rate limited (429). Wait a moment and try again.")
     else:

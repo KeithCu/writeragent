@@ -1553,6 +1553,74 @@ def test_http_500_logs_safe_request_diag_without_tools(client, caplog):
     assert "Provider API Error 500:" in joined
 
 
+def test_http_500_llama_overflow_friendly_sentence_logs_stay_loud(caplog, mock_ctx):
+    """Issue #570: chat sentence is plain; ERROR logs keep body + PR 571 shape."""
+    import logging
+
+    from plugin.framework.client.errors import local_model_overflow_message
+
+    prompt = "UNIQUE_PROMPT_BLOB_FOR_570_OVERFLOW"
+    api_key = "sk-UNIQUE-SECRET-KEY-570"
+    ollama = LlmClient(
+        {"endpoint": "http://localhost:11434", "api_key": api_key, "model": "qwen2.5:7b"},
+        mock_ctx,
+    )
+    body = _http_500_diag_body(stream=True, tools=None, prompt=prompt, model="qwen2.5:7b")
+    err_json = {
+        "error": {
+            "message": (
+                "llama-server process has terminated: exit status 0xc0000005: "
+                "The instruction at 0xp referenced memory at 0xp."
+            )
+        }
+    }
+    caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
+    with patch(
+        "plugin.framework.client.llm_client._peek_live_ollama_num_ctx",
+        return_value=4096,
+    ):
+        err = _raise_http_error(ollama, 500, "Internal Server Error", body, err_json)
+    assert err.value.code == "HTTP_ERROR"
+    assert err.value.details["status"] == 500
+    assert str(err.value) == local_model_overflow_message(4096)
+    assert "4K" in str(err.value)
+    assert "HTTP Error 500" not in str(err.value)
+    assert "0xc0000005" not in str(err.value)
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert "HTTP 500 request diagnostic:" in joined
+    assert "provider=ollama" in joined
+    assert "request_model='qwen2.5:7b'" in joined
+    assert "messages=1" in joined
+    assert "tools=0" in joined
+    assert "payload_bytes=%s" % len(body) in joined
+    assert "n_ctx=4096" in joined
+    assert "prompt_chars=%s" % len(prompt) in joined
+    assert "exit_code='0xc0000005'" in joined
+    assert "Provider API Error 500:" in joined
+    assert "llama-server process has terminated" in joined
+    assert prompt not in joined
+    assert api_key not in joined
+    assert joined.count("HTTP 500 request diagnostic:") == 1
+
+
+def test_http_500_llama_overflow_without_num_ctx_still_friendly(client, caplog):
+    """Missing /api/show must not fail closed — still explain overflow."""
+    import logging
+
+    from plugin.framework.client.errors import local_model_overflow_message
+
+    body = _http_500_diag_body(stream=False, tools=None, prompt="hi", model="gpt-4o")
+    err_json = {"error": {"message": "llama-server process has terminated"}}
+    caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
+    err = _raise_http_error(client, 500, "Internal Server Error", body, err_json)
+    assert str(err.value) == local_model_overflow_message()
+    assert "too-small context" in str(err.value)
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert "HTTP 500 request diagnostic:" in joined
+    assert "Provider API Error 500:" in joined
+    assert "llama-server process has terminated" in joined
+
+
 def test_http_429_does_not_log_500_request_diag(client, caplog, _fast_retry_waits):
     import logging
 

@@ -145,4 +145,19 @@ Tests: [`tests/calc/test_prompt_function.py`](../../tests/calc/test_prompt_funct
 
 ---
 
+## 11. Ollama / llama.cpp prompt overflow (HTTP 500)
+
+**Problem**: A WriterAgent chat request can exceed Ollama's *live* `n_ctx` (often a VRAM-based 4096 on small GPUs) even when the model's trained `context_length` is 32K. Ollama logs `truncating input prompt` and llama.cpp can die at first prefill (`llama-server process has terminated`, Windows `0xc0000005`). The sidebar used to dump the raw `{status, code, message, details}` HTTP 500 dict.
+
+**What this is not:** WriterAgent does not silently trim document/history, refuse the send, or enforce a minimum context floor. Those are later product decisions.
+
+**Workaround** (issue #570):
+
+- [`_format_http_error_response`](../../plugin/framework/client/errors.py) and [`_handle_stream_error`](../../plugin/chatbot/tool_loop.py) detect llama-server terminated / `0xc0000005` / prompt overflow and show a plain sentence that the local Ollama/llama.cpp process crashed because the prompt overflowed a too-small context. Live `num_ctx` from cached Ollama `POST /api/show` (`parameters` / Modelfile only) is named when known (e.g. 4K). Missing `/api/show` still emits the generic overflow sentence.
+- ERROR logs stay loud: the existing provider-body line plus [`_log_http_500_request_diag`](../../plugin/framework/client/llm_client.py) (PR 571 shape: provider, model, host/path, stream, message/tool counts, payload bytes — plus `n_ctx`, `prompt_chars`, `max_tokens`, `exit_code`). No prompt text or tool schemas.
+
+Tests: [`tests/framework/client/test_client_errors.py`](../../tests/framework/client/test_client_errors.py), [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py), [`tests/framework/client/test_model_fetcher.py`](../../tests/framework/client/test_model_fetcher.py).
+
+---
+
 *This document should be updated as new hacks are discovered or as improvements in models allow us to remove them.*

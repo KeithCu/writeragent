@@ -27,7 +27,11 @@ if TYPE_CHECKING:
 from plugin.framework.async_stream import run_stream_drain_loop, StreamQueueKind, BatchingStreamQueue
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.errors import format_error_message, is_disposed_exception, suppress_disposed, UnoObjectError
-from plugin.framework.client.errors import is_audio_unsupported_error
+from plugin.framework.client.errors import (
+    is_audio_unsupported_error,
+    is_local_model_server_crash,
+    local_model_overflow_message,
+)
 from plugin.framework.config import (
     get_api_config,
     get_config,
@@ -621,11 +625,27 @@ class ToolCallingMixin:
         # not Exception — format_error_message() requires Exception (deal.pre).
         if isinstance(e, dict):
             err_msg = str(e.get("message") or e.get("code") or e)
+            crash_blob = "%s %s" % (err_msg, e)
         elif isinstance(e, Exception):
             err_msg = format_error_message(e)
+            crash_blob = err_msg
         else:
             err_msg = str(e)
-        self._append_response("\n[API error: %s]\n" % err_msg)
+            crash_blob = err_msg
+        # Issue #570: llama-server died / prompt overflow. Plain sentence only —
+        # never dump the format_error_payload dict into the sidebar.
+        if is_local_model_server_crash(crash_blob):
+            display = err_msg
+            if (
+                not isinstance(display, str)
+                or display.lstrip()[:1] in "{["
+                or "HTTP Error" in display
+                or not is_local_model_server_crash(display)
+            ):
+                display = local_model_overflow_message()
+            self._append_response("\n%s\n" % display)
+        else:
+            self._append_response("\n[API error: %s]\n" % err_msg)
         self._terminal_status = "Error"
         self._set_status("Error")
         # Cleanup audio if we aren't falling back

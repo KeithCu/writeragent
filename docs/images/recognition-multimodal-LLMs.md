@@ -48,7 +48,7 @@ Status as of PR #364 and related multimodal work. Code paths below are live; do 
 |------|----------|-------|
 | `has_native_vision(model_id, endpoint)` | [`model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | Tiered: `vision_support_map` cache → `DEFAULT_MODELS` `ModelCapability.VISION` → OpenRouter/Together `input_modalities` cache → Ollama `POST /api/show` → **no name heuristics yet** (returns `False` if nothing matches) |
 | `set_native_vision_support(model_id, endpoint, supported)` | same | Persists to `vision_support_map` |
-| `query_ollama_model_capabilities` | same | Cached Ollama `/api/show` probe |
+| `query_ollama_model_capabilities` | same | Cached Ollama `/api/show` probe (shared cache also keeps runtime `num_ctx` for the #570 crash sentence; never trained `model_info["*.context_length"]`) |
 | Vision models in catalog | [`default_models.py`](../../plugin/framework/default_models.py) | e.g. Gemini 3.1 Flash Lite, Mistral Large 3 declare `ModelCapability.VISION` |
 
 **Doc correction:** `has_native_vision` takes `(model_id, endpoint)` — **not** `ctx`. Callers use `get_text_model()` and `get_current_endpoint()` (no component context on the config path).

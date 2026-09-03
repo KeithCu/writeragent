@@ -328,6 +328,63 @@ class TestHasNativeVision(unittest.TestCase):
             self.assertFalse(has_native_vision('unknown-vision-model', 'https://api.openai.com/v1'))
 
 
+class TestParseOllamaRuntimeNumCtx(unittest.TestCase):
+    """Issue #570: live PARAMETER num_ctx wins over trained context_length."""
+
+    def test_parameters_num_ctx_wins_over_trained_context_length(self):
+        from plugin.framework.client.model_fetcher import parse_ollama_runtime_num_ctx
+
+        body = {
+            "parameters": "num_ctx                      4096\nstop                        \"<|im_end|>\"\n",
+            "modelfile": "FROM qwen2.5:7b\nPARAMETER num_ctx 8192\n",
+            "model_info": {
+                "qwen2.context_length": 32768,
+                "general.architecture": "qwen2",
+            },
+        }
+        self.assertEqual(parse_ollama_runtime_num_ctx(body), 4096)
+
+    def test_modelfile_used_when_parameters_omit_num_ctx(self):
+        from plugin.framework.client.model_fetcher import parse_ollama_runtime_num_ctx
+
+        body = {
+            "parameters": "stop                        \"<|im_end|>\"\n",
+            "modelfile": "FROM qwen2.5:7b\nPARAMETER num_ctx 4096\n",
+            "model_info": {"qwen2.context_length": 32768},
+        }
+        self.assertEqual(parse_ollama_runtime_num_ctx(body), 4096)
+
+    def test_trained_context_length_is_not_a_fallback(self):
+        from plugin.framework.client.model_fetcher import parse_ollama_runtime_num_ctx
+
+        body = {
+            "parameters": "stop \"<|im_end|>\"",
+            "modelfile": "FROM qwen2.5:7b\n",
+            "model_info": {"qwen2.context_length": 32768},
+        }
+        self.assertIsNone(parse_ollama_runtime_num_ctx(body))
+
+    def test_query_reuses_show_cache_and_survives_missing_show(self):
+        from plugin.framework.client import model_fetcher as mf
+
+        mf._ollama_show_cache.clear()
+        show = {
+            "capabilities": ["completion"],
+            "parameters": "num_ctx 4096\n",
+            "model_info": {"qwen2.context_length": 32768},
+        }
+        with patch("plugin.framework.client.requests.sync_request", return_value=show) as mock_sync:
+            self.assertEqual(
+                mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b"),
+                4096,
+            )
+            self.assertFalse(mf.query_ollama_model_capabilities("http://localhost:11434", "qwen2.5:7b"))
+            self.assertEqual(mock_sync.call_count, 1)
+        mf._ollama_show_cache.clear()
+        with patch("plugin.framework.client.requests.sync_request", side_effect=OSError("down")):
+            self.assertIsNone(mf.query_ollama_runtime_num_ctx("http://localhost:11434", "qwen2.5:7b"))
+
+
 class TestFilterFetchedModels(unittest.TestCase):
     def test_audio_filter_includes_asr_models(self):
         from plugin.framework.client.model_fetcher import _filter_fetched_models

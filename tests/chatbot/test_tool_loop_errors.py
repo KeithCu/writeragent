@@ -285,3 +285,48 @@ def test_handle_stream_error_payload_dict_missing_message(test_instance):
     assert "[API error:" in joined
     assert "HTTP_ERROR" in joined
     assert test_instance._terminal_status == "Error"
+
+
+def test_handle_stream_error_llama_overflow_plain_sentence(test_instance):
+    """Issue #570: do not dump the HTTP 500 payload dict into the sidebar."""
+    from plugin.framework.client.errors import local_model_overflow_message
+
+    payload = {
+        "status": "error",
+        "code": "HTTP_ERROR",
+        "message": (
+            "HTTP Error 500 from AI Provider: Internal Server Error. "
+            "llama-server process has terminated: exit status 0xc0000005"
+        ),
+        "details": {"url": "/v1/chat/completions", "status": 500},
+    }
+    with (
+        patch("plugin.chatbot.tool_loop.get_text_model", return_value="qwen2.5:7b"),
+        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="http://localhost:11434"),
+        patch("plugin.chatbot.tool_loop.get_stt_model", return_value=""),
+    ):
+        recovered = test_instance._handle_stream_error(payload)
+    assert recovered is None
+    joined = "".join(test_instance.responses)
+    assert local_model_overflow_message() in joined
+    assert "[API error:" not in joined
+    assert "{'status'" not in joined
+    assert "0xc0000005" not in joined
+    assert test_instance._terminal_status == "Error"
+
+
+def test_handle_stream_error_keeps_named_window_sentence(test_instance):
+    named = (
+        "The local Ollama/llama.cpp process crashed because the prompt "
+        "overflowed a 4K context window."
+    )
+    payload = {"status": "error", "code": "HTTP_ERROR", "message": named}
+    with (
+        patch("plugin.chatbot.tool_loop.get_text_model", return_value="qwen2.5:7b"),
+        patch("plugin.chatbot.tool_loop.get_current_endpoint", return_value="http://localhost:11434"),
+        patch("plugin.chatbot.tool_loop.get_stt_model", return_value=""),
+    ):
+        test_instance._handle_stream_error(payload)
+    joined = "".join(test_instance.responses)
+    assert named in joined
+    assert "[API error:" not in joined

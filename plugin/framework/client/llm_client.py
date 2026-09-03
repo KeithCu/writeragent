@@ -44,6 +44,7 @@ import copy
 import datetime
 import json
 import logging
+import re
 import urllib.parse
 from typing import TYPE_CHECKING, Any, cast
 
@@ -187,19 +188,72 @@ def _log_chat_request_body_diag(client, path, body, headers, tools):
     )
 
 
-def _log_http_500_request_diag(client, response, path, body):
+def _prompt_char_count(messages) -> int:
+    """Sum of message text lengths for 500 diagnostics. Never logs the text."""
+    if not isinstance(messages, list):
+        return 0
+    total = 0
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            total += len(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    total += len(part["text"])
+                elif isinstance(part, str):
+                    total += len(part)
+    return total
+
+
+def _exit_code_from_provider_body(err_body: str) -> str | None:
+    """Best-effort native exit code from an Ollama / llama-server 500 body."""
+    if not err_body:
+        return None
+    matched = re.search(r"0x[0-9a-fA-F]+", err_body)
+    if matched:
+        return matched.group(0)
+    matched = re.search(r"exit status ([^:\s]+)", err_body, flags=re.IGNORECASE)
+    if matched:
+        return matched.group(1)
+    return None
+
+
+def _peek_live_ollama_num_ctx(client) -> int | None:
+    """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises."""
+    try:
+        if client._get_provider() != "ollama":
+            return None
+        model_name = str(client.config.get("model") or "").strip()
+        if not model_name:
+            return None
+        from plugin.framework.client.model_fetcher import query_ollama_runtime_num_ctx
+
+        return query_ollama_runtime_num_ctx(client._endpoint(), model_name)
+    except Exception:
+        log.debug("HTTP 500: live num_ctx lookup failed", exc_info=True)
+        return None
+
+
+def _log_http_500_request_diag(client, response, path, body, err_body=""):
     """One ERROR-level safe request shape for HTTP 500. No prompts or secrets.
 
     Local llama-server / Ollama 500 bodies are often opaque. This is the
     request *shape* (counts, host/path, model) so a debug log can be compared
     with the reporter's server log without dumping the prompt or tool schemas.
+    Extra fields (n_ctx, prompt_chars, exit_code, max_tokens) stay on this
+    same line — do not thin the PR 571 fields when adding overflow context.
+    The raw provider body stays on the separate ``Provider API Error 500`` line.
     """
     payload = _chat_request_payload_from_body(body)
     messages = payload.get("messages")
     tools = payload.get("tools")
     log.error(
         "HTTP 500 request diagnostic: provider=%s request_model=%r full_url=%r "
-        "status=%s reason=%r stream=%s messages=%s tools=%s payload_bytes=%s",
+        "status=%s reason=%r stream=%s messages=%s tools=%s payload_bytes=%s "
+        "n_ctx=%s prompt_chars=%s max_tokens=%s exit_code=%r",
         client._get_provider(),
         payload.get("model"),
         _full_url_for_request_path(client._endpoint(), path),
@@ -209,6 +263,10 @@ def _log_http_500_request_diag(client, response, path, body):
         len(messages) if isinstance(messages, list) else 0,
         len(tools) if isinstance(tools, list) else 0,
         _request_payload_byte_length(body),
+        _peek_live_ollama_num_ctx(client),
+        _prompt_char_count(messages),
+        payload.get("max_tokens"),
+        _exit_code_from_provider_body(err_body),
     )
 
 
@@ -299,7 +357,7 @@ class LlmClient:
             request_model,
         )
         if response.status == 500:
-            _log_http_500_request_diag(self, response, path, body)
+            _log_http_500_request_diag(self, response, path, body, err_body)
         self._close_connection()
         if response.status in RETRYABLE_HTTP_STATUS and retries_left > 0 and not emitted_any:
             retry_after = parse_retry_after(response.getheader("Retry-After"))
@@ -318,7 +376,12 @@ class LlmClient:
                 self._stopped = True
                 return "stop"
             return "retry"
-        err_msg = _format_http_error_response(response.status, response.reason, err_body)
+        err_msg = _format_http_error_response(
+            response.status,
+            response.reason,
+            err_body,
+            context_window=_peek_live_ollama_num_ctx(self),
+        )
         err_msg = append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
         raise NetworkError(err_msg, code="HTTP_ERROR", details={"url": path, "status": response.status})
 
