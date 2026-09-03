@@ -229,7 +229,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 | ≥1-hit strip | **Rejected** — would strip a mixed matrix-index neighbor |
 | Mixed ours + user same triple | Do not mark strip-safe; residual is “chain loses strip,” not “user cell loses last arg” |
 | Two open workbooks | `off_main_calc_session_is_unambiguous()` false → no strip |
-| Isolated still needs strip | Record `workbook_key` on the UI-thread path even when `workbook_session_id` is `None` |
+| Isolated still needs strip | Isolated never enters `workbook_session_id`; UI load/repair must `record_active_calc_session("calc:" + _workbook_session_key)` so the unambiguous check can pass |
 | Keying the token `$A$1` | Eval `code` is resolved source (`execute_python_addin`); repair must read the code cell |
 | Naive `;` arity | Repair `n_args` must match `split_python_addin_data_args`, not a semicolon count |
 | Rewrite during recalc | Same ban as spill; deferred only |
@@ -252,7 +252,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 
 **Phase 1 — Pure list + formula splice.** Unit tests only: given a list of addresses + current formulas + the in-memory record, compute the patch and the eval-index bools. No UNO. Encode the [§9.5](#95-marker-is-the-udprop--in-memory-map) table, including **remove-field**, code-in-cell splice from the raw formula (`rebuild_python_formula_with_code_ref`), fill-down unanimous-ours, mixed poison, and “`len >= 100` → skip sheet, do not mark strip-safe.” No truncated-flag API in this phase.
 
-**Phase 2 — Flag + attach on save / flag-on.** Monaco and native cell save call the splicer; apply on the UI thread after save (save is already outside recalc). Settings default off. Flag-on walks **all sheets**. Persist / load the UDProp like spill. Record `workbook_key` even in Isolated (unsaved files must not use empty URL).
+**Phase 2 — Flag + attach on save / flag-on.** Monaco and native cell save call the splicer; apply on the UI thread after save (save is already outside recalc). Settings default off. Flag-on walks **all sheets**. Persist / load the UDProp like spill. Isolated UI load/repair must `record_active_calc_session` with `calc:` + `_workbook_session_key` (same string eval reads; never `""`).
 
 **Phase 3 — Deferred repair on insert/delete.** Shared trigger + spill-like timer + re-entrancy flag. UNO tests: three-cell column, insert PY in the middle, successor’s field updates; delete (including successor-becomes-first → remove-field); undo. Cap-hit sheet is left unchained. A real discovery `truncated` flag belongs here if needed — not Phase 1.
 
@@ -289,7 +289,7 @@ A trailing A1 field is enough **if** we strip it via the map, not a 1×1 heurist
 
 **Rejected:** hide the checkbox when Isolated is selected (couples two settings; looks like a bug when the box disappears).
 
-Precedent-only strip means Isolated `data` is unchanged. Isolated is a no-op for **Python globals**, not for the strip: `workbook_session_id` returns `None` when mode ≠ `shared`, but Isolated still needs strip (else arity breaks). Record `workbook_key` on the UI-thread path even in Isolated ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
+Precedent-only strip means Isolated `data` is unchanged. Isolated is a no-op for **Python globals**, not for the strip: `workbook_session_id` returns `None` when mode ≠ `shared`, but Isolated still needs strip (else arity breaks). Isolated UI load/repair must `record_active_calc_session` with `calc:` + `_workbook_session_key` so yellow eval can see one recorded id ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
 
 ### 9.4 Flag turned off — leave refs
 
@@ -336,11 +336,11 @@ Optional (not instead of unanimous, not the primary key): a fingerprint of `args
 
 #### `workbook_key` (blocking — do not cite `get_python_init_kwargs`)
 
-`get_python_init_kwargs` does **not** carry `doc_url`. `build_python_eval_init_kwargs` is init-script / hash only. `session_key` leaves `doc_url=""` off-main (fills `doc` only on main). Isolated: `workbook_session_id` returns `None` when mode ≠ `shared`, but Isolated still needs strip.
+`get_python_init_kwargs` does **not** carry `doc_url`. `build_python_eval_init_kwargs` is init-script / hash only. `session_key` leaves `doc_url=""` off-main (fills `doc` only on main). Isolated: `workbook_session_id` returns `None` when mode ≠ `shared` (`session_manager.py`) and **never enters** that function’s `record_active_calc_session` path, so `_RECORDED_CALC_SESSION_IDS` can stay empty and `off_main_calc_session_is_unambiguous()` stays false. Isolated still needs strip off-main (else arity breaks).
 
-**Eval `workbook_key` = `get_cached_calc_session_id()` only when `off_main_calc_session_is_unambiguous()`** (`session_manager.py`: `len(_RECORDED_CALC_SESSION_IDS) == 1`). Else do not strip (two open workbooks).
+**Eval `workbook_key` = `get_cached_calc_session_id()` only when `off_main_calc_session_is_unambiguous()`** (`session_manager.py`: `len(_RECORDED_CALC_SESSION_IDS) == 1`). Else do not strip (two open workbooks, or Isolated that never recorded).
 
-On the **UI-thread** load / repair path, record that workbook key in the geometric map **even in Isolated** (sibling of `load_spill_registry_for_doc`). Unsaved files must not use empty URL — same #402 hole as `session_key` / `_workbook_session_key` (URL, else a persisted unsaved id, never `""`).
+On the **UI-thread** load / repair path, write that key into the geometric map **and** call `record_active_calc_session` with the **same string eval will read**: `calc:` + `_workbook_session_key` (never `""`). Do this **even in Isolated**. Do **not** invent a second Isolated key. Then one open file makes `len(_RECORDED_CALC_SESSION_IDS) == 1` and yellow Isolated can strip. Sibling of `load_spill_registry_for_doc`. Unsaved files must not use empty URL — same #402 hole as `session_key` / `_workbook_session_key` (URL, else a persisted unsaved id, never `""`).
 
 #### Remove-field
 
@@ -391,7 +391,7 @@ Phase 4 — `data` strip (inject the in-memory map; no UNO):
 - **Fill-down:** two identical `=PY("np.mean(data)"; B1:B10)` after attach → **both** strip (unanimous-ours, same resolved code, `n_args=2`).
 - **Mixed:** matrix-index neighbor `=PY("f"; range; i)` next to a chain of `=PY("f"; range; pred)` → **neither** strips (mixed poisons the triple).
 - **Two open workbooks / `off_main_calc_session_is_unambiguous()` false** → no strip.
-- **Isolated** still records a `workbook_key` and strips when unambiguous.
+- **Isolated** UI load/repair calls `record_active_calc_session("calc:" + _workbook_session_key)` (same string eval reads) and strips when unambiguous.
 - User 1×1 last arg **not** in the map, and no mixed poison of a chain: no strip of that user cell.
 - Never fall back to 1×1, uniqueness, or ≥1-hit.
 
