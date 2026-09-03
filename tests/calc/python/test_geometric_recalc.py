@@ -247,6 +247,21 @@ def test_splice_preserves_absolute_user_data_ref():
     assert formula_data_args(new) == ["$C$5", "A1"]
 
 
+def test_splice_quoted_code_skips_calc_sanitizer():
+    """Geometric splice must not rewrite hand-written float( inside quotes."""
+    result = _repair(
+        [
+            _cell("A1", '=PY("x")'),
+            _cell("A2", '=PY("float(1)"; $C$5)'),
+        ]
+    )
+    new = _patch_map(result)["A2"].new_formula
+    assert "float(1)" in new
+    assert "+0.0" not in new
+    assert "$C$5" in new
+    assert formula_data_args(new) == ["$C$5", "A1"]
+
+
 def test_user_already_passed_previous_py_not_recorded():
     result = _repair(
         [

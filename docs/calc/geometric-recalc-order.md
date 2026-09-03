@@ -95,7 +95,7 @@ A2:  =PY("df = clean(df)")          →  =PY("df = clean(df)"; A1)
 A3:  =PY("result = df.describe()")   →  =PY("result = df.describe()"; A2)
 ```
 
-Reuse [`parse_python_formula`](../../plugin/calc/python/formula_edit.py) / `parse_data_binding_text` / `build_data_suffix`. Quoted-code cells: `rebuild_python_formula_with_data`. Code-in-cell (`=PY($A$1; B1:B10)`): detect with `py_formula_has_unquoted_code_ref` / `py_code_arg_is_cell_ref` and rebuild with `rebuild_python_formula_with_code_ref` — **not** `rebuild_python_formula_with_data` (that quotes the code-ref as a string). `PythonFormulaParts` has no quoted flag (`prefix` / `code` / `data_suffix` only) — splice code-in-cell from the **raw formula**, not `parts.code` alone. Eval-index `code` is the **resolved source** (contents of `$A$1`), not the token `$A$1` ([§9.5](#95-marker-is-the-udprop--in-memory-map)). Do not invent a second formula serializer.
+Reuse [`parse_python_formula`](../../plugin/calc/python/formula_edit.py) / `parse_data_binding_text` / `rebuild_formula_with_data_args`. Quoted-code cells: keep `parts.prefix` and quote-escape the code only (`"` → `""`, same as `escape_code_for_excel_formula`). Do **not** run `sanitize_inline_py_code` on geometric splice — hand-written `=PY("float(1)")` must stay `float(1)` on attach. Code-in-cell (`=PY($A$1; B1:B10)`): detect with `py_formula_has_unquoted_code_ref` / `py_code_arg_is_cell_ref` and splice the unquoted token — **not** `rebuild_python_formula_with_data` (that quotes the code-ref as a string and sanitizes). `PythonFormulaParts` has no quoted flag (`prefix` / `code` / `data_suffix` only) — splice code-in-cell from the **raw formula**, not `parts.code` alone. Eval-index `code` is the **resolved source** (contents of `$A$1`), not the token `$A$1` ([§9.5](#95-marker-is-the-udprop--in-memory-map)). Do not invent a second formula serializer. Live `getFormula()` / `setFormula()` spelling is covered by `tests/calc/python/test_geometric_recalc_uno.py` — do not paper over prefix / `$` / `=` differences in `CalcDocStub`.
 
 The first cell in the list gets **no** predecessor. Cycles cannot appear if we only ever attach the previous entry in a total order. If a first cell still has a trailing geometric field (successor became first after delete), run the **remove-field** primitive ([§9.5](#95-marker-is-the-udprop--in-memory-map)).
 
@@ -380,7 +380,8 @@ Phase 1 — list-diff + splice + eval-index bools (encode [§9.5](#95-marker-is-
 
 - Empty, one cell, two cells, insert in middle, delete middle, delete first (remove-field), reorder.
 - Formula splice: no args; existing range args preserved; already-correct predecessor; stale predecessor replaced; user extra cell-ref appended not overwritten when it is not ours.
-- **Code-in-cell:** splice `=PY($A$1; B1:B10)` from the **raw formula** via `rebuild_python_formula_with_code_ref`; result stays an unquoted `$A$1`, not `=PY("$A$1"; …)`. Eval-index `code` is the **resolved source** (cell contents of `$A$1`), not the token.
+- **Quoted code stays verbatim:** `=PY("float(1)"; $C$5)` attach keeps `float(1)` (quote-escape only; no Calc sanitizer).
+- **Code-in-cell:** splice `=PY($A$1; B1:B10)` from the **raw formula**; result stays an unquoted `$A$1`, not `=PY("$A$1"; …)`. Eval-index `code` is the **resolved source** (cell contents of `$A$1`), not the token.
 - Repair `n_args` matches `len(split_python_addin_data_args(...))`, not a semicolon count. `(range, 1×1 pred)` stays `n_args=2`.
 - Remove-field: first cell with a trailing geometric field → field gone; second call is a no-op.
 - Cap: `len >= _MAX_PYTHON_CELLS_FOUND` → skip sheet, no patch, **no strip-safe marks**. No truncated-flag helper in Phase 1.
@@ -400,6 +401,7 @@ Phase 4 — `data` strip (inject the in-memory map; no UNO):
 
 **UNO (`test_*_uno.py`):**
 
+- **Formula I/O (landed, `test_geometric_recalc_uno.py`):** live `getFormula()` / `setFormula()` on `=PY("y"; $C$5)` (absolute `$` survives attach), quoted `=PY("np.mean(data)"; B1:B10)` (splice still parses), and unquoted `=PY($A$1; …)` (code-in-cell stays unquoted). Flag can stay off — this is splice I/O, not eval strip. Do not mark win32-only.
 - Shared kernel, flag on: A3 reads a name assigned in A1 without a user-typed `data` ref; result is stable across F9.
 - Insert a PY row between two chained cells; after the deferred pass, successor formula names the new cell; values update on next recalc.
 - Delete middle cell: successor retargets or remove-field if it is now first.

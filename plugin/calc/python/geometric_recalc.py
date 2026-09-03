@@ -32,7 +32,7 @@ from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import (
-    escape_code_for_formula,
+    escape_code_for_excel_formula,
     format_data_binding_display,
     format_py_data_range,
     parse_data_binding_text,
@@ -194,10 +194,13 @@ def _geometric_data_suffix(old_args: list[str], new_args: list[str]) -> str:
 def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | None:
     """Spliced formula. Existing user args stay verbatim (including ``$``).
 
-    Code-in-cell keeps the unquoted ref (``$A$1``), not a quoted token.
-    ``rebuild_python_formula_with_data`` would reformat every data arg
-    (strips ``$``) and quote ``$A$1``. Geometric splice uses the parsed
-    prefix + first-arg spelling and :func:`_geometric_data_suffix`.
+    Quoted code is quote-escaped only (``"`` → ``""``), same as
+    ``escape_code_for_excel_formula`` — do not run the Calc sanitizer
+    (``float(`` → ``(…)+0.0``) on attach. Code-in-cell keeps the unquoted
+    ref (``$A$1``), not a quoted token. ``rebuild_python_formula_with_data``
+    would sanitize the code, reformat every data arg (strips ``$``), and
+    quote ``$A$1``. Uses the parsed prefix + first-arg spelling and
+    :func:`_geometric_data_suffix`.
     """
     parts = parse_python_formula(formula)
     if parts is None:
@@ -207,7 +210,9 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     if py_formula_has_unquoted_code_ref(formula):
         # Keep the parsed token so =PY($A$1; …) stays $A$1, not A1 and not "$A$1".
         return f"{parts.prefix}{parts.code}{suffix}"
-    return f'{parts.prefix}"{escape_code_for_formula(parts.code)}"{suffix}'
+    # Quote-escape only. escape_code_for_formula runs sanitize_inline_py_code
+    # (float( → (…)+0.0). Hand-written =PY("float(1)") must survive attach.
+    return f'{parts.prefix}"{escape_code_for_excel_formula(parts.code)}"{suffix}'
 
 
 def geometric_cap_hit_user_message(sheet_name: str) -> str:
