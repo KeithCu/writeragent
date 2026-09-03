@@ -252,17 +252,56 @@ def restore_flag():
 
 def _user_scripts_python_dir(ctx) -> str:
     """``$(user)/Scripts/python`` in the live UserInstallation."""
+    import os
+
     import uno
 
-    subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
-    user_url = str(subst.substituteVariables("$(user)", True) or "")
-    if user_url.startswith("file://"):
-        user_dir = uno.fileUrlToSystemPath(user_url)
-    else:
-        user_dir = user_url
-    from os.path import join
+    user_dir = ""
+    smgr = ctx.getServiceManager()
+    try:
+        subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
+        if subst is not None:
+            user_url = str(subst.substituteVariables("$(user)", True) or "")
+            if user_url.startswith("file://"):
+                user_dir = uno.fileUrlToSystemPath(user_url)
+            else:
+                user_dir = user_url
+    except Exception:
+        user_dir = ""
+    if not user_dir:
+        try:
+            subst = smgr.createInstanceWithContext(
+                "com.sun.star.util.PathSubstitution", ctx
+            )
+            user_url = str(subst.substituteVariables("$(user)", True) or "")
+            if user_url.startswith("file://"):
+                user_dir = uno.fileUrlToSystemPath(user_url)
+            else:
+                user_dir = user_url
+        except Exception:
+            user_dir = ""
+    if not user_dir:
+        try:
+            ps = smgr.createInstanceWithContext("com.sun.star.util.PathSettings", ctx)
+            raw = str(getattr(ps, "UserConfig", "") or "")
+            if raw.startswith("file://"):
+                raw = uno.fileUrlToSystemPath(raw)
+            # UserConfig is often …/user or …/user/registry/data.
+            user_dir = raw
+            for idx in range(3):
+                if os.path.basename(user_dir) == "user":
+                    break
+                parent = os.path.dirname(user_dir)
+                if parent == user_dir:
+                    break
+                user_dir = parent
+        except Exception:
+            user_dir = ""
+    if not user_dir:
+        from plugin.framework.config import _config_path
 
-    return join(user_dir, "Scripts", "python")
+        user_dir = os.path.dirname(_config_path())
+    return os.path.join(user_dir, "Scripts", "python")
 
 
 def _invoke_soffice_python(ctx, doc, func_name: str) -> None:
