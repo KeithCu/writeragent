@@ -135,6 +135,7 @@ class SlashPopupController:
         self._selected = 0
         self.hide()
         self._attach_click()
+        self._attach_keys()
 
     @property
     def is_open(self) -> bool:
@@ -171,6 +172,11 @@ class SlashPopupController:
         self._open = True
         self.reposition()
         set_control_visible(self.control, True)
+        # ListBox can steal focus; Esc/arrows must stay on the Ask field.
+        set_focus = getattr(self.query_control, "setFocus", None)
+        if callable(set_focus):
+            with suppress_disposed("slash popup return focus", logger=log):
+                set_focus()
 
     def handle_key(self, key_code: int, modifiers: int = 0) -> bool:
         """True when the popup consumed the key (do not Send / insert newline)."""
@@ -297,3 +303,35 @@ class SlashPopupController:
             ctrl.addMouseListener(_Click())
         except Exception:
             log.debug("slash popup mouse listener attach failed", exc_info=True)
+
+    def _attach_keys(self) -> None:
+        """Forward Esc/Enter/arrows when the ListBox stole focus from Ask."""
+        ctrl = self.control
+        if ctrl is None or not hasattr(ctrl, "addKeyListener"):
+            return
+        try:
+            import unohelper
+            from com.sun.star.awt import XKeyListener
+        except ImportError:
+            return
+
+        host = self
+
+        class _Keys(unohelper.Base, XKeyListener):  # type: ignore[misc]
+            def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+                return
+
+            def keyPressed(self, e):  # noqa: N802 -- UNO signature
+                if host.handle_key(int(getattr(e, "KeyCode", 0) or 0), int(getattr(e, "Modifiers", 0) or 0)):
+                    with suppress_disposed("slash list Consume", logger=log):
+                        if hasattr(e, "Consume"):
+                            setattr(e, "Consume", True)
+                return
+
+            def keyReleased(self, e):  # noqa: N802 -- UNO signature
+                return
+
+        try:
+            ctrl.addKeyListener(_Keys())
+        except Exception:
+            log.debug("slash popup key listener attach failed", exc_info=True)
