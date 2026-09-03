@@ -146,6 +146,7 @@ def test_seed_worker_python_path_prefers_checkout_venv(
     venv_py = fake_root / ".venv" / "bin" / "python"
     venv_py.parent.mkdir(parents=True)
     venv_py.write_text("", encoding="utf-8")
+    monkeypatch.setattr(tr.sys, "platform", "darwin")
     monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
     assert tr._seed_worker_python_path() == str(fake_root / ".venv")
 
@@ -155,12 +156,24 @@ def test_seed_worker_python_path_falls_back_to_sys_executable(
 ) -> None:
     fake_root = tmp_path / "repo"
     (fake_root / "plugin").mkdir(parents=True)
+    monkeypatch.setattr(tr.sys, "platform", "darwin")
     monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
     exe = tmp_path / "python3"
     exe.write_text("", encoding="utf-8")
     exe.chmod(0o755)
     monkeypatch.setattr(tr.sys, "executable", str(exe))
     assert tr._seed_worker_python_path() == str(exe)
+
+
+def test_seed_worker_python_path_skipped_off_darwin(monkeypatch, tmp_path: Path) -> None:
+    """Linux leftover Shared broke when venv was seeded (GHA 33751116865)."""
+    fake_root = tmp_path / "repo"
+    venv_py = fake_root / ".venv" / "bin" / "python"
+    venv_py.parent.mkdir(parents=True)
+    venv_py.write_text("", encoding="utf-8")
+    monkeypatch.setattr(tr.sys, "platform", "linux")
+    monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
+    assert tr._seed_worker_python_path() is None
 
 
 def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path) -> None:

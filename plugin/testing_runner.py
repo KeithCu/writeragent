@@ -324,10 +324,16 @@ def _seed_worker_python_path() -> str | None:
 
     Headless soffice on macOS often has ``sys.executable`` empty or pointing
     at soffice (not ``Contents/Resources/python``). Sheet ``=PY()`` and
-    notebook ``execute_code`` then fail inside soffice. Prefer the checkout
-    ``.venv`` (CI ``uv sync`` / numpy UNO). Fall back to this process's
-    ``sys.executable`` when it is a real ``python*`` file.
+    notebook ``execute_code`` then fail inside soffice (GHA 33749078050).
+    Prefer the checkout ``.venv`` (CI ``uv sync`` / numpy UNO). Fall back
+    to this process's ``sys.executable`` when it is a real ``python*`` file.
+
+    Linux leftover Shared (GHA 33751116865) failed with Isolated semantics
+    (``x_geo_live`` undefined) when this path was seeded — sheet ``=PY()``
+    is off-main and must keep using soffice ``sys.executable``. Darwin only.
     """
+    if sys.platform != "darwin":
+        return None
     root = Path(__file__).resolve().parents[1]
     for candidate in (
         root / ".venv" / "bin" / "python",
