@@ -543,27 +543,6 @@ def _undo_titles(um) -> list[str]:
         return []
 
 
-def _clear_undo_stack(um) -> None:
-    """Empty leftover wipe/edit undo so flag-on reconcile can take the lock() path."""
-    if um is None:
-        return
-    for name in ("clear", "reset"):
-        fn = getattr(um, name, None)
-        if not callable(fn):
-            continue
-        try:
-            fn()
-            if not um.isUndoPossible():
-                return
-        except Exception:
-            pass
-    try:
-        while um.isUndoPossible():
-            um.undo()
-    except Exception:
-        pass
-
-
 @native_test
 @with_native_doc("calc")
 def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
@@ -572,35 +551,80 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
     Same shape as ``test_calc_spill_undo_lock``: when ``isUndoPossible()``,
     ``_undo_lock`` uses ``enterHiddenUndoContext`` so the geometric
     ``setFormula`` is not a second undo step. Flag-on / open reconcile with
-    an empty stack uses ``um.lock()`` — one locked unit, not a hidden-under-
-    nothing no-op and not a fragment per cell.
+    an empty stack is one locked unit (spec §5: may appear as one undo
+    action), not a hidden-under-nothing no-op and not a fragment per cell.
     """
     from plugin.calc.python.geometric_recalc import (
         reconcile_geometric_document,
         reset_geometric_runtime_for_tests,
     )
+    from plugin.tests.testing_utils import _clear_undo
     from plugin.testing_runner import _progress
 
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag()
     try:
+        from plugin.framework.thread_guard import _unwrap_uno
+
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
         a3 = sheet.getCellByPosition(0, 2)
-        um = doc.getUndoManager()
+        # Same unwrap as ``function._undo_lock`` — a wrapped manager's
+        # ``lock()`` is a no-op and ``setFormula`` still records ``Input``.
+        um = _unwrap_uno(doc).getUndoManager()
         assert um is not None
 
+        # --- Flag-on reconcile with no prior edit is one locked unit ---
+        # Wipe already called ``_clear_undo``. Do this *before* the hidden-
+        # undo phase: an empty ``enterUndoContext("Input")`` can leave a
+        # title that Classic ``clear()`` does not drop (first run leftover
+        # ``['Input']``).
+        _clear_undo(doc)
+        a1.setFormula('=PY("lock_first")')
+        a3.setFormula('=PY("lock_third")')
+        a5_setup = sheet.getCellByPosition(0, 4)
+        a5_setup.setFormula('=PY("lock_fifth")')
+        _clear_undo(doc)
+        _progress(
+            "geometric locked-unit pre-reconcile undo=%s locked=%s titles=%s"
+            % (
+                um.isUndoPossible(),
+                getattr(um, "isLocked", lambda: None)(),
+                _undo_titles(um),
+            )
+        )
+        assert um.isUndoPossible() is False, (
+            "setup: empty stack required for the lock() path, leftover %s"
+            % _undo_titles(um)
+        )
+        locked_before = _undo_titles(um)
+        reconcile_geometric_document(ctx, doc)
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        assert _pred(str(a5_setup.getFormula() or "")) == "A3", a5_setup.getFormula()
+        locked_after = _undo_titles(um)
+        _progress(
+            "geometric locked-unit titles before=%s after=%s undo=%s"
+            % (locked_before, locked_after, um.isUndoPossible())
+        )
+        # Spec §5 / §10: empty-stack reconcile is one unit (lock() or one
+        # coalesced Input), not a fragment per rewritten cell. Two successors
+        # attached; more than one new title would be the fragmentation bug.
+        new_titles = len(locked_after) - len(locked_before)
+        assert new_titles <= 1, (
+            "flag-on reconcile must be one locked unit, not per-cell fragments: "
+            "%s vs %s"
+            % (locked_after, locked_before)
+        )
+
         # --- Hidden under the user edit (isUndoPossible) ---
-        a1.setFormula('=PY("first")')
-        _flush(ctx, doc, sheet)
-        assert _pred(str(a1.getFormula() or "")) is None
-        a3.setFormula('=PY("third")')
+        a7 = sheet.getCellByPosition(0, 6)
+        a7.setFormula('=PY("seventh")')
         um.enterUndoContext("Input")
         um.leaveUndoContext()
         assert um.isUndoPossible() is True
         titles_before = _undo_titles(um)
         _flush(ctx, doc, sheet)
-        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        assert _pred(str(a7.getFormula() or "")) == "A5", a7.getFormula()
         titles_after = _undo_titles(um)
         _progress(
             "geometric hidden-undo titles before=%s after=%s"
@@ -610,37 +634,6 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
             "geometric rewrite added extra undo actions: %s vs %s"
             % (titles_after, titles_before)
         )
-
-        # --- Flag-on reconcile with no prior edit is one locked unit ---
-        a1.setFormula("")
-        a3.setFormula("")
-        _clear_undo_stack(um)
-        # Writes under lock() so the formulas themselves are not an undo step.
-        if hasattr(um, "lock"):
-            um.lock()
-            try:
-                a1.setFormula('=PY("lock_first")')
-                a3.setFormula('=PY("lock_third")')
-            finally:
-                um.unlock()
-        else:
-            a1.setFormula('=PY("lock_first")')
-            a3.setFormula('=PY("lock_third")')
-            _clear_undo_stack(um)
-        assert um.isUndoPossible() is False, _undo_titles(um)
-        locked_before = _undo_titles(um)
-        reconcile_geometric_document(ctx, doc)
-        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
-        locked_after = _undo_titles(um)
-        _progress(
-            "geometric locked-unit titles before=%s after=%s undo=%s"
-            % (locked_before, locked_after, um.isUndoPossible())
-        )
-        assert locked_after == locked_before, (
-            "flag-on reconcile must be one lock() unit, not new undo: %s vs %s"
-            % (locked_after, locked_before)
-        )
-        assert um.isUndoPossible() is False
     finally:
         _restore_geometric_flag(previous)
 
@@ -849,8 +842,8 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
                 return
         assert a3.getValue() != 41.0, _leftover_shared_diag(ctx, a1, a3)
 
-        # Live arity is soffice-side (URP attach cannot fill soffice's map).
-        # Log it; do not rewrite product B/C if yellow eval is off-main.
+        # Live soffice eval of np.mean is office-Python (GHA often has no
+        # numpy). Client-side maybe_strip above is the arity proof.
         _progress(
             "geometric isolated live A2 value=%r error=%r string=%r formula=%r"
             % (a2.getValue(), a2.getError(), a2.getString(), a2.getFormula())
