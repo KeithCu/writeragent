@@ -6,6 +6,8 @@
 
 **Current state:** The sidebar panel is **working**. "Chat with Document" appears in the WriterAgent deck in Writer's sidebar with Response area, Ask field, and Send button. The menu item can remain as fallback.
 
+In-chat `/` commands are **not implemented**. A research candidate list (Aider-based, including new WriterAgent features) lives in [slash-commands.md](slash-commands.md).
+
 ### Main chat: sidebar reply vs document edit
 
 The sidebar is a **chat window**: assistant text is stored in session history and shown in the Response area (HTML when `rich_text_control_sidebar` is on). That is separate from **editing the open document**, which the **main** Writer agent does with **`apply_document_content`** (and related read/search tools).
