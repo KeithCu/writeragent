@@ -1280,11 +1280,127 @@ def _anchor_control_as_character(shape: Any) -> None:
         log.debug("notebook import TextWrap not applied", exc_info=True)
 
 
-def _clear_para_numbering(cursor: Any) -> None:
+def _dbg_safe(val: Any) -> Any:
+    if val is None or isinstance(val, (bool, int, float)):
+        return val
+    if isinstance(val, str):
+        return val[:160]
+    try:
+        text = str(val)
+    except Exception:
+        return type(val).__name__
+    if "MagicMock" in text:
+        return "MagicMock"
+    return text[:120]
+
+
+def _dbg_agent_log(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    # #region agent log
+    try:
+        import json as _json
+
+        with open("/opt/cursor/logs/debug.log", "a", encoding="utf-8") as fh:
+            fh.write(
+                _json.dumps(
+                    {
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    default=str,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
+
+
+def _dbg_cursor_num(obj: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name in (
+        "NumberingStyleName",
+        "NumberingIsNumber",
+        "NumberingLevel",
+        "NumberingStartValue",
+        "ParaIsNumberingRestart",
+        "ParaStyleName",
+    ):
+        try:
+            out[name] = _dbg_safe(obj.getPropertyValue(name))
+        except Exception as exc:
+            out[name] = "err:" + type(exc).__name__
+    try:
+        rules = obj.getPropertyValue("NumberingRules")
+        if rules is None:
+            out["NumberingRules"] = None
+        else:
+            rname = type(rules).__name__
+            out["NumberingRules"] = "MagicMock" if "MagicMock" in rname else rname
+    except Exception as exc:
+        out["NumberingRules"] = "err:" + type(exc).__name__
+    try:
+        text_obj = obj.getText() if hasattr(obj, "getText") else None
+        if text_obj is not None:
+            rng = text_obj.createTextCursorByRange(obj)
+            rng.gotoStartOfParagraph(False)
+            rng.gotoEndOfParagraph(True)
+            out["para_text"] = _dbg_safe(rng.getString() or "")
+        else:
+            out["para_text"] = _dbg_safe(obj.getString() or "")
+    except Exception as exc:
+        try:
+            out["para_text"] = _dbg_safe(obj.getString() or "")
+        except Exception:
+            out["para_text"] = "err:" + type(exc).__name__
+    return out
+
+
+def _dbg_doc_paras(doc: Any, *, limit: int = 30) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    try:
+        enum = doc.getText().createEnumeration()
+    except Exception:
+        return rows
+    i = 0
+    steps = 0
+    while steps < 64 and i < limit:
+        steps += 1
+        try:
+            more = enum.hasMoreElements()
+            if more is not True and more != 1:
+                break
+            el = enum.nextElement()
+        except Exception:
+            break
+        try:
+            if hasattr(el, "supportsService") and not el.supportsService("com.sun.star.text.Paragraph"):
+                continue
+        except Exception:
+            continue
+        row = _dbg_cursor_num(el)
+        row["i"] = i
+        rows.append(row)
+        i += 1
+    return rows
+
+
+def _clear_para_numbering(cursor: Any, *, reason: str = "") -> None:
     """Drop inherited list numbering so the next block is not a leftover bullet."""
     # StarWriter insertDocumentFromURL leaves NumberingRules on the trailing
     # para. The next heading, body, blockquote, or resumed <ol> then inherits
     # leftover bullets. Clear both properties on the insertion cursor.
+    # #region agent log
+    before = _dbg_cursor_num(cursor)
+    _dbg_agent_log(
+        "A",
+        "writer_importer.py:_clear_para_numbering:before",
+        "clear numbering enter",
+        {"reason": reason, "before": before},
+    )
+    # #endregion
     try:
         cursor.setPropertyValue("NumberingStyleName", "")
     except Exception:
@@ -1293,6 +1409,15 @@ def _clear_para_numbering(cursor: Any) -> None:
         cursor.setPropertyValue("NumberingRules", None)
     except Exception:
         log.debug("notebook import NumberingRules clear failed", exc_info=True)
+    # #region agent log
+    after = _dbg_cursor_num(cursor)
+    _dbg_agent_log(
+        "A",
+        "writer_importer.py:_clear_para_numbering:after",
+        "clear numbering exit",
+        {"reason": reason, "after": after},
+    )
+    # #endregion
 
 
 def _append_body_paragraph(
@@ -1313,7 +1438,7 @@ def _append_body_paragraph(
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.gotoEnd(False)
     # Always: leftover empty list para must not infect h2/body.
-    _clear_para_numbering(cursor)
+    _clear_para_numbering(cursor, reason="append_body")
     resolved = _resolve_para_style(doc, para_style)
     if resolved:
         try:
@@ -1396,19 +1521,93 @@ def _insert_html_at_body_end(
     text = doc.getText()
     cursor = text.createTextCursor()
     cursor.gotoEnd(False)
+    did_lead = False
     if lead_break and _doc_body_nonempty(doc):
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.gotoEnd(False)
-    _clear_para_numbering(cursor)
+        did_lead = True
+    html_s = html or ""
+    # #region agent log
+    _dbg_agent_log(
+        "E",
+        "writer_importer.py:_insert_html_at_body_end:pre_clear",
+        "before pre-insert numbering clear",
+        {
+            "html": html_s[:240],
+            "has_start": "start=" in html_s,
+            "is_ol": "<ol" in html_s.lower(),
+            "is_ul": "<ul" in html_s.lower(),
+            "is_bq": "<blockquote" in html_s.lower(),
+            "exit_list": exit_list,
+            "lead_break": lead_break,
+            "did_lead": did_lead,
+            "cursor": _dbg_cursor_num(cursor),
+            "paras": _dbg_doc_paras(doc),
+        },
+    )
+    # #endregion
+    _clear_para_numbering(cursor, reason="pre_insert")
+    # #region agent log
+    _dbg_agent_log(
+        "A",
+        "writer_importer.py:_insert_html_at_body_end:after_pre_clear",
+        "after pre-insert numbering clear, before HTML insert",
+        {
+            "html": html_s[:240],
+            "has_start": "start=" in html_s,
+            "cursor": _dbg_cursor_num(cursor),
+        },
+    )
+    # #endregion
     from plugin.writer.html_import import insert_html_fragment_at_cursor
 
     try:
         insert_html_fragment_at_cursor(cursor, _wrap_html_fragment(html), wrap=False)
+        # #region agent log
+        _dbg_agent_log(
+            "B",
+            "writer_importer.py:_insert_html_at_body_end:after_insert",
+            "immediately after insertDocumentFromURL, before exit_list",
+            {
+                "html": html_s[:240],
+                "has_start": "start=" in html_s,
+                "exit_list": exit_list,
+                "cursor": _dbg_cursor_num(cursor),
+                "paras": _dbg_doc_paras(doc),
+            },
+        )
+        # #endregion
         if exit_list:
             end = text.createTextCursor()
             end.gotoEnd(False)
-            _clear_para_numbering(end)
+            _clear_para_numbering(end, reason="exit_list")
+            # #region agent log
+            _dbg_agent_log(
+                "C",
+                "writer_importer.py:_insert_html_at_body_end:after_exit_list",
+                "after exit_list clear",
+                {
+                    "html": html_s[:240],
+                    "has_start": "start=" in html_s,
+                    "end": _dbg_cursor_num(end),
+                    "paras": _dbg_doc_paras(doc),
+                },
+            )
+            # #endregion
         _trim_trailing_empty_paragraph(doc)
+        # #region agent log
+        _dbg_agent_log(
+            "D",
+            "writer_importer.py:_insert_html_at_body_end:after_trim",
+            "after trailing empty trim",
+            {
+                "html": html_s[:240],
+                "has_start": "start=" in html_s,
+                "exit_list": exit_list,
+                "paras": _dbg_doc_paras(doc),
+            },
+        )
+        # #endregion
         return True
     except Exception:
         log.exception("notebook import HTML insert failed; falling back to plain text")
