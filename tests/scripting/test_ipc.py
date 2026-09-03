@@ -84,13 +84,18 @@ def test_pickle_frame_default_cap_rejects_oversized_header():
         read_pickle_frame(io.BytesIO(oversized), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
 
 
-def test_text_error_prefix_is_invalid_frame_with_header_repr():
-    """1165128303 == b'Erro' from Keith's 2026-09-02 full-suite venv failures."""
-    with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b'r: boom\\n'"):
-        read_pickle_frame(
-            io.BytesIO(b"Error: boom\n"),
-            max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
-        )
+def test_text_error_prefix_is_invalid_frame_with_header_repr(caplog, capsys):
+    """Garbage length prefix keeps stdout_rest= and logs at error, not stderr."""
+    with caplog.at_level(logging.ERROR, logger="writeragent.scripting.ipc"):
+        with pytest.raises(IpcFrameError, match=r"header=b'Erro'.*stdout_rest=b'r: boom\\n'"):
+            read_pickle_frame(
+                io.BytesIO(b"Error: boom\n"),
+                max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+            )
+    assert "stdout_rest=b'r: boom\\n'" in caplog.text
+    err = capsys.readouterr().err
+    assert "ipc leftover peek" not in err
+    assert "peek_skipped" not in err
 
 
 def test_unread_pipe_bytes_skips_set_blocking_on_win32(monkeypatch, caplog):
