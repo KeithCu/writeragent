@@ -1280,6 +1280,21 @@ def _anchor_control_as_character(shape: Any) -> None:
         log.debug("notebook import TextWrap not applied", exc_info=True)
 
 
+def _clear_para_numbering(cursor: Any) -> None:
+    """Drop inherited list numbering so the next block is not a leftover bullet."""
+    # StarWriter insertDocumentFromURL leaves NumberingRules on the trailing
+    # para. The next heading, body, blockquote, or resumed <ol> then inherits
+    # leftover bullets. Clear both properties on the insertion cursor.
+    try:
+        cursor.setPropertyValue("NumberingStyleName", "")
+    except Exception:
+        log.debug("notebook import NumberingStyleName clear failed", exc_info=True)
+    try:
+        cursor.setPropertyValue("NumberingRules", None)
+    except Exception:
+        log.debug("notebook import NumberingRules clear failed", exc_info=True)
+
+
 def _append_body_paragraph(
     doc: Any,
     content: str,
@@ -1297,6 +1312,8 @@ def _append_body_paragraph(
     if lead_break and _doc_body_nonempty(doc):
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.gotoEnd(False)
+    # Always: leftover empty list para must not infect h2/body.
+    _clear_para_numbering(cursor)
     resolved = _resolve_para_style(doc, para_style)
     if resolved:
         try:
@@ -1372,7 +1389,9 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
         log.debug("notebook import: trim trailing empty paragraph failed", exc_info=True)
 
 
-def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool) -> bool:
+def _insert_html_at_body_end(
+    doc: Any, html: str, *, lead_break: bool, exit_list: bool = False
+) -> bool:
     """Insert an HTML fragment at the document end. Returns False on failure."""
     text = doc.getText()
     cursor = text.createTextCursor()
@@ -1380,10 +1399,15 @@ def _insert_html_at_body_end(doc: Any, html: str, *, lead_break: bool) -> bool:
     if lead_break and _doc_body_nonempty(doc):
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.gotoEnd(False)
+    _clear_para_numbering(cursor)
     from plugin.writer.html_import import insert_html_fragment_at_cursor
 
     try:
         insert_html_fragment_at_cursor(cursor, _wrap_html_fragment(html), wrap=False)
+        if exit_list:
+            end = text.createTextCursor()
+            end.gotoEnd(False)
+            _clear_para_numbering(end)
         _trim_trailing_empty_paragraph(doc)
         return True
     except Exception:
@@ -1426,7 +1450,7 @@ def _append_markdown_cell(
         elif kind in ("ul", "ol"):
             items = payload if isinstance(payload, list) else [payload]
             html = _list_block_to_html(items)
-            if not _insert_html_at_body_end(doc, html, lead_break=block_lead):
+            if not _insert_html_at_body_end(doc, html, lead_break=block_lead, exit_list=True):
                 for i, item in enumerate(items):
                     if isinstance(item, tuple) and len(item) >= 4:
                         text = str(item[3])

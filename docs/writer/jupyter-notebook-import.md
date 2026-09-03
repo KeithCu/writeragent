@@ -56,7 +56,7 @@ Addons.xcu cannot gate on a user-defined document property, so there is no nativ
 |-------------------|----------|
 | **Vendored nbformat v4 read** — [`plugin/contrib/nbformat/`](../../plugin/contrib/nbformat/): `read_ipynb(path)`, `reads(json_string)` → `NotebookNode` with `rejoin_lines` | **nbformat v3** upgrade path |
 | **File → Open** — native `.ipynb` import filter ([`import_filter.py`](../../plugin/notebook/import_filter.py)); TypeDetection registry | Append-into-open-document menu (Phase 3) |
-| **Import engine** — [`writer_importer.py`](../../plugin/notebook/writer_importer.py): ATX `#`/`##` headings, `* `/`- ` lists (nested + `<ol start=N>`), `>` blockquotes, `**bold**` / `*italic*`, `[text](url)` hyperlinks, HTML `<img>`/`<a>`, in-flow code fields, output text + images; `zxx` spellcheck-off locale | GFM tables, hover-only play, collapsible cells |
+| **Import engine** — [`writer_importer.py`](../../plugin/notebook/writer_importer.py): ATX `#`/`##` headings, `* `/`- ` lists (nested + `<ol start=N>`), `>` blockquotes, `**bold**` / `*italic*`, `[text](url)` hyperlinks, HTML `<img>`/`<a>`, in-flow code fields, output text + images; `zxx` spellcheck-off locale; leftover list `NumberingRules` cleared after HTML list insert | GFM tables, hover-only play, collapsible cells |
 | **Notebook registry (Phase 0)** — [`cell_registry.py`](../../plugin/notebook/cell_registry.py): `WriterAgentNotebookJson`, stable `cell_id` (UUID), output bookmarks `nb_out_*`, `WriterAgentNotebookSourcePath` | Export back to `.ipynb` (Phase 5 roadmap) |
 | **Run code cell (Phase 1)** — in-flow ▶ **push** button + [`notebook_controls.py`](../../plugin/notebook/notebook_controls.py) + [`notebook_runner.py`](../../plugin/notebook/notebook_runner.py); shared `notebook:…` kernel; re-run **replaces** output (`setString("")`); no VCL pump during execute (LayoutIdle livelock) | Cell CRUD, sidebar (Phases 3–4 roadmap) |
 | **Run All / Run From Here / Stop (Phase 2)** — sidebar hamburger only, and only when `load_registry(doc)` is set (not ordinary Writer / Calc / Draw; not menubar or review toolbar); registry-order sequence; drain **between** cells only; Stop skips the remainder (busy guard does not block Stop) | — |
@@ -214,6 +214,7 @@ Native test suite execution:
 - **Wire Timing:** Attach a single form-level `XActionListener` on the form controller container after import; do not query control views per button click.
 - **Paragraph Mutations:** Never use `setString()` on paragraph ranges containing `AS_CHARACTER` controls, as this deletes the form shapes. Rewrite text portions specifically.
 - **Spellcheck:** Set locale to `zxx` (no linguistic content) on imported notebook paragraphs to prevent spellcheck squiggles on code blocks.
+- **HTML list insert:** StarWriter `insertDocumentFromURL` leaves `NumberingRules` on the trailing paragraph. Clear `NumberingStyleName` and `NumberingRules` after list HTML insert (`exit_list=True`) and on body/h2 paras so the next heading, blockquote, or resumed `<ol>` is not a leftover bullet.
 
 ---
 
