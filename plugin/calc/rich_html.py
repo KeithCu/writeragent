@@ -31,11 +31,15 @@ import plugin.writer.format as format_support
 
 log = logging.getLogger("writeragent.calc")
 
-# Same target testing_runner uses for the Windows keeper. Do not change it
-# here — GHA 33699746211 hung after 542 switched _default → _blank; we do
-# not know which UNO call blocked. These lines exist so the next dispatch
-# names the last step (file log never reached the Actions log).
-_HTML_WRITER_TARGET = "_blank"
+# Not "_blank" and not "_default". testing_runner's Windows keeper loads
+# Hidden Writer on "_blank" (542 used the same target and 33699746211 still
+# hung). Linux UNO probe: a second "_blank" gets a new RuntimeUID (not
+# document reuse) but Hidden frame names stay empty, so a Windows
+# frame-manager collision on the shared "_blank" target is still the
+# remaining hunch. CREATE|GLOBAL = FrameSearchFlag 8|55 — named target
+# with flags 0 can search instead of creating.
+_HTML_WRITER_TARGET = "_wa_calc_html"
+_HTML_WRITER_SEARCH_FLAGS = 8 | 55
 
 
 def _step(msg: str) -> None:
@@ -127,18 +131,15 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
     prepared = format_support._ensure_html_linebreaks(content)
 
     temp_doc = None
+    close_temp = True
     try:
         desktop = get_desktop(uno_ctx)
         hidden = format_support.create_property_value("Hidden", True)
-        # "_blank" (same target as testing_runner's Windows keeper) opens a
-        # new frame. "_default" can reuse that hidden keeper and deadlock
-        # headless Windows (GHA 33667530529 hung in test_insert_cell_html).
         # Do not import chatbot.create_hidden_html_writer — this module ships
         # in LibrePy without chatbot.
-        # Print target first so a hang inside getComponents still names _blank.
         _step(
             "insert_cell_html_rich: loadComponentFromURL start "
-            "target=%s hidden=True" % _HTML_WRITER_TARGET
+            "target=%s hidden=True flags=%s" % (_HTML_WRITER_TARGET, _HTML_WRITER_SEARCH_FLAGS)
         )
         writers_before = _desktop_writer_uids(desktop)
         _step(
@@ -146,14 +147,19 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
             % (len(writers_before), writers_before)
         )
         temp_doc = desktop.loadComponentFromURL(
-            "private:factory/swriter", _HTML_WRITER_TARGET, 0, (hidden,)
+            "private:factory/swriter",
+            _HTML_WRITER_TARGET,
+            _HTML_WRITER_SEARCH_FLAGS,
+            (hidden,),
         )
         temp_uid = _writer_runtime_uid(temp_doc) if temp_doc is not None else "-"
         reused_existing = bool(temp_uid != "-" and temp_uid in writers_before)
+        # If Windows still handed back the keeper, do not close it.
+        close_temp = not reused_existing
         _step(
             "insert_cell_html_rich: loadComponentFromURL done "
-            "target=%s temp_uid=%s reused_existing=%s"
-            % (_HTML_WRITER_TARGET, temp_uid, reused_existing)
+            "target=%s temp_uid=%s reused_existing=%s close_temp=%s"
+            % (_HTML_WRITER_TARGET, temp_uid, reused_existing, close_temp)
         )
         if temp_doc is None or not hasattr(temp_doc, "getText"):
             raise ToolExecutionError("Could not create temporary Writer document")
@@ -193,10 +199,12 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str, 
         log.debug("insert_cell_html_rich failed", exc_info=True)
         raise ToolExecutionError(f"Failed to insert HTML into cell: {e}") from e
     finally:
-        if temp_doc is not None:
+        if temp_doc is not None and close_temp:
             try:
                 _step("insert_cell_html_rich: close start")
                 temp_doc.close(True)
                 _step("insert_cell_html_rich: close done")
             except Exception:
                 log.debug("temp Writer close failed", exc_info=True)
+        elif temp_doc is not None:
+            _step("insert_cell_html_rich: close skipped reused_existing=True")
