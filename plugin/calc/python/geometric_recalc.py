@@ -305,7 +305,10 @@ def compute_eval_index(
     for cell in cells:
         formula = formulas.get(cell.address, cell.formula)
         key = EvalIndexKey(workbook_key, cell.resolved_code, repair_n_args(formula))
-        groups.setdefault(key, []).append(cell_map_key(cell.address))
+        # Use the caller's address as-is so a workbook-wide rebuild can key
+        # ``Sheet1:A2`` the same way in *cells* and *records*. cell_map_key
+        # strips a colon-scoped prefix and broke unanimous-ours after modify.
+        groups.setdefault(key, []).append(cell.address)
 
     safe: set[EvalIndexKey] = set()
     for key, addrs in groups.items():
