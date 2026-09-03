@@ -334,7 +334,8 @@ def _reset_cache() -> None:  # pyright: ignore[reportUnusedFunction]  # test hel
 @deal.pre(lambda path: str_bounded(path, DEAL_MAX_PATH))
 def _strip_surrounding_quotes(path: str) -> str:
     """Strip one layer of matching quotes (Windows Explorer \"Copy as path\")."""
-    # crosshair: off  # strip/quote SMT leftover (check-all 33668189572: Prev 8:33 despite DEAL_MAX_PATH). Doable later: tiny quoted-path alphabet.
+    # crosshair: off
+    # strip/quote SMT leftover (check-all 33668189572: Prev 8:33 despite DEAL_MAX_PATH). Doable later: tiny quoted-path alphabet.
     s = path.strip()
     if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
         return s[1:-1].strip()
@@ -343,7 +344,8 @@ def _strip_surrounding_quotes(path: str) -> str:
 
 def _path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
-    # crosshair: off  # urlparse/unquote/url2pathname combinatorics on free strings (cover-all 33293627157: ~2.0h, 190k lines / 108k examples). Doable later with a tiny file-URL alphabet.
+    # crosshair: off
+    # urlparse/unquote/url2pathname combinatorics on free strings (cover-all 33293627157: ~2.0h, 190k lines / 108k examples). Doable later with a tiny file-URL alphabet.
     from urllib.parse import unquote, urlparse
 
     text = raw.strip()
@@ -368,7 +370,8 @@ def _path_from_file_url(raw: str) -> str | None:
 
 def _normalize_venv_path_input(venv_dir: str) -> str:
     """Strip quotes, convert file URLs, then expand ``~`` and env vars."""
-    # crosshair: off  # expandvars/file-URL path still combinatoric as an entry (cover-all 33293627157: ~4.5m, 139k lines). Doable later with DEAL_MAX_PATH + opaque URL helper.
+    # crosshair: off
+    # expandvars/file-URL path still combinatoric as an entry (cover-all 33293627157: ~4.5m, 139k lines). Doable later with DEAL_MAX_PATH + opaque URL helper.
     cleaned = _strip_surrounding_quotes(venv_dir.strip())
     if cleaned.lower().startswith("file:"):
         from_url = _path_from_file_url(cleaned)
@@ -377,6 +380,7 @@ def _normalize_venv_path_input(venv_dir: str) -> str:
     return os.path.expanduser(os.path.expandvars(cleaned))
 
 
+@deal.pre(lambda base: str_bounded(base, DEAL_MAX_PATH))
 def _is_acceptable_python_basename(base: str) -> bool:
     """True for python / python3 / python.exe; false for pythonw (no console I/O)."""
     lower = base.lower()
@@ -386,6 +390,8 @@ def _is_acceptable_python_basename(base: str) -> bool:
 
 
 def _is_usable_python_file(path: str) -> bool:
+    # crosshair: off
+    # cover-all 33689813185 leftover: os.path.isfile/access combinatorics. Doable later: closed path alphabet.
     """True when *path* is a usable console Python interpreter file."""
     if not os.path.isfile(path):
         return False
@@ -398,6 +404,8 @@ def _is_usable_python_file(path: str) -> bool:
 
 
 def _python_beside_soffice(soffice_path: str) -> Optional[str]:
+    # crosshair: off
+    # cover-all 33689813185 leftover cluster: filesystem walk beside soffice. Doable later.
     """Office-bundled interpreter next to soffice (not checkout ``.venv``).
 
     Windows ``sys.executable`` is often ``soffice.exe``; Darwin is empty or
@@ -422,6 +430,8 @@ def _python_beside_soffice(soffice_path: str) -> Optional[str]:
 
 
 def _bundled_lo_python_candidates() -> list[str]:
+    # crosshair: off
+    # cover-all 33689813185 leftover cluster: os.listdir install-layout walk. Doable later.
     """Install-layout fallbacks when ``sys.executable`` is empty (Darwin soffice)."""
     out: list[str] = []
     if os.name == "nt":
@@ -486,6 +496,8 @@ def resolve_libreoffice_python() -> Optional[str]:
 
 
 def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
+    # crosshair: off
+    # cover-all 33689813185 leftover: os.listdir python3.* combinatorics (~313 ex). Doable later: closed bin names.
     """Return candidate interpreter paths under a venv ``bin/`` or ``Scripts/`` directory."""
     candidates: list[str] = []
     if os.name == "nt":
@@ -507,6 +519,8 @@ def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
 
 
 def _python_candidates_at_env_root(env_dir: str) -> list[str]:
+    # crosshair: off
+    # cover-all 33689813185 leftover: env-root path combinatorics. Doable later.
     """Return interpreter candidates at the env root (conda / pyenv-win layout)."""
     if os.name == "nt":
         return [
@@ -521,6 +535,8 @@ def _python_candidates_at_env_root(env_dir: str) -> list[str]:
 
 
 def _first_executable_python(candidates: list[str]) -> str | None:
+    # crosshair: off
+    # cover-all 33689813185 leftover: isfile walk (~473 ex). Doable later: closed candidate list.
     seen: set[str] = set()
     for candidate in candidates:
         if candidate in seen:

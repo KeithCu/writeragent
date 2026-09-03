@@ -212,6 +212,8 @@ class CallToolRequestParams:
 
     @classmethod
     def from_params(cls, params: dict[str, Any]) -> CallToolRequestParams:
+        # crosshair: off
+        # cover-all 33689813185 leftover: thin wrapper (~3186 ex) despite _deal_call_tool_params_ok. Doable later.
         return _call_tool_request_params_from_dict(params)
 
 
@@ -254,6 +256,8 @@ def _deal_call_tool_params_ok(params: object) -> bool:
 
 @deal.pre(lambda params: _deal_call_tool_params_ok(params))
 def _call_tool_request_params_from_dict(params: dict[str, Any]) -> CallToolRequestParams:
+    # crosshair: off
+    # cover-all 33689813185 leftover: dict Any (~3110 ex) despite dual-profile pre. Doable later: closed name/args enum.
     name = params.get("name")
     if not isinstance(name, str) or not name:
         raise ValueError("tools/call requires params.name")

@@ -126,7 +126,7 @@ def test_localhost_safe_origin() -> None:
 
 
 def test_normalize_origins_list_is_off_cover_all() -> None:
-    """cover-all 33569420452 leftover (~4h); # crosshair: off, doable later with a closed origin enum."""
+    """cover-all leftover offs (33569420452 ~4h plus 33689813185 normalize_cors_origin)."""
     from tests.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
@@ -136,6 +136,7 @@ def test_normalize_origins_list_is_off_cover_all() -> None:
     # cover-all 33569420452 leftover offs (doable later with a closed origin enum).
     offed = (
         "normalize_origins_list",
+        "normalize_cors_origin",
         "is_safe_origin",
         "is_private_browser_origin",
         "merge_allow_headers",

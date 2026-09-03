@@ -94,6 +94,8 @@ def _deal_allow_headers_ok(value: object) -> bool:
     )
 )
 def normalize_cors_origin(value: str | None) -> str | None:
+    # crosshair: off
+    # cover-all 33689813185 leftover (~32m / 1289 ex) despite _deal_origin_ok. Doable later: closed origin enum.
     """Return a canonical origin URL or None if empty/invalid."""
     if value is None:
         return None

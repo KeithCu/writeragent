@@ -41,7 +41,7 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.framework.thread_guard import assert_main_thread
 from plugin.framework.queue_executor import execute_on_main_thread
 
-from plugin.framework.deal_shim import deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
 
 
 _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
@@ -62,6 +62,15 @@ def _collapse_union_type(types: list) -> str | list:
     return non_null[0] if non_null else "string"
 
 
+@deal.pre(
+    lambda type_val: type_val is None
+    or isinstance(type_val, str)
+    or (
+        isinstance(type_val, list)
+        and len(type_val) <= DEAL_MAX_CMD_ARGS
+        and all(isinstance(x, str) and ascii_bounded(x, DEAL_MAX_TOKEN) for x in type_val)
+    )
+)
 def _type_allows_null(type_val: Any) -> bool:
     return isinstance(type_val, list) and "null" in type_val
 
@@ -273,6 +282,7 @@ _READ_NAME_TOKENS = frozenset(
 )
 
 
+@deal.pre(lambda name: isinstance(name, str) and ascii_bounded(name, DEAL_MAX_TOKEN))
 def _name_looks_readonly(name: str) -> bool:
     """True when the tool name implies a non-mutating read (prefix or domain_verb)."""
     if name.startswith(_READ_PREFIXES):

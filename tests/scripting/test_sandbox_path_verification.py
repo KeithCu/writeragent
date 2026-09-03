@@ -62,3 +62,25 @@ def test_safe_workspace_path_overflow_pre_fails_closed() -> None:
     with pytest.raises(deal.PreContractError):
         is_safe_workspace_path(too_long, "/home/user")
     assert is_safe_workspace_path("José.txt", "/home/user/workspace") is True
+
+
+def test_sandbox_filesystem_helpers_are_off_cover_all() -> None:
+    """cover-all 33689813185 leftover (~48m sandbox); filesystem walkers off, doable later."""
+    from pathlib import Path
+
+    from tests.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("scripts/ not in stripped release tree")
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    fqns = cover_fqns_for_module(Path("plugin/scripting/sandbox.py"))
+    offed = (
+        "_is_usable_python_file",
+        "_python_beside_soffice",
+        "_bundled_lo_python_candidates",
+        "_python_candidates_in_bin_dir",
+        "_python_candidates_at_env_root",
+        "_first_executable_python",
+    )
+    for name in offed:
+        assert not any(f.endswith(f".{name}") for f in fqns), name
