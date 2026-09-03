@@ -972,7 +972,7 @@ def test_import_nested_lists_and_blockquotes_fixture(monkeypatch):
 
     monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", fake_insert_html)
     stats = import_ipynb_to_writer(doc, str(ipynb))
-    assert stats["markdown"] == 3
+    assert stats["markdown"] == 4
     joined = "\n".join(html_calls)
     assert "<ul>" in joined
     assert "<li>" in joined
