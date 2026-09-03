@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any
 
 from plugin.chatbot.dialogs import msgbox
 from plugin.doc.doc_type import is_writer
-from plugin.framework.async_stream import run_blocking_in_thread
+from plugin.framework.async_stream import BlockingWaitStopped, run_blocking_in_thread
 from plugin.framework.i18n import _
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.uno_context import get_active_document
@@ -50,7 +51,13 @@ NOTEBOOK_RUN_CELL_URL_PREFIX = f"{EXTENSION_ID_WRITERAGENT}:notebook.run_cell."
 # Per-document re-entrancy guard. Shared ``notebook:…`` kernel must not run two
 # cells at once; a second ▶ used to interleave registry/output mutation when
 # execute_code pumped VCL. Keyed like notebook_controls._doc_key (RuntimeUID).
+# Run All holds this key for the whole sequence so a ▶ mid-batch is skipped.
 _running_docs: set[str] = set()
+
+# Stop is a separate signal so the busy guard never blocks it. Set from the
+# menu/toolbar; execute_code's wait polls it without processEventsToIdle.
+_stop_flags: dict[str, threading.Event] = {}
+_stop_lock = threading.Lock()
 
 
 @dataclass
@@ -58,6 +65,7 @@ class RunResult:
     status: str
     execution_count: int | None
     message: str = ""
+    cells_run: int = 0
 
 
 def format_run_output_text(result: dict[str, Any], execution_count: int | None = None) -> str:
@@ -113,8 +121,9 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
 
     ``pump_idle=False``: ``processEventsToIdle`` waits for ``LayoutIdle``, which
     livelocks (92% CPU, never returns) on notebooks with many in-flow form
-    controls — the same bug ``flush_ui_idle`` documents after import. Phase 1
-    has no Stop button; Phase 2 should drain *between* cells, not during execute.
+    controls — the same bug ``flush_ui_idle`` documents after import. Drain
+    *between* cells in Run All, never here. Stop polls ``stop_checker`` on the
+    wait (no VCL pump); the worker may finish the in-flight cell.
     """
     session_id = notebook_session_id(ctx, doc)
     if not session_id:
@@ -123,7 +132,17 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     def _run() -> dict[str, Any]:
         return run_code_in_user_venv(ctx, code, session_id=session_id)
 
-    return run_blocking_in_thread(ctx, _run, pump_idle=False)
+    busy_key = _doc_busy_key(doc)
+
+    def _stopped() -> bool:
+        return _is_stop_requested(busy_key)
+
+    try:
+        return run_blocking_in_thread(
+            ctx, _run, pump_idle=False, stop_checker=_stopped
+        )
+    except BlockingWaitStopped:
+        return {"status": "interrupted", "message": "Stopped."}
 
 
 def _doc_busy_key(doc: Any) -> str:
@@ -134,6 +153,34 @@ def _doc_busy_key(doc: Any) -> str:
     if uid:
         return f"uid:{uid}"
     return f"id:{id(doc)}"
+
+
+def _stop_event(busy_key: str) -> threading.Event:
+    with _stop_lock:
+        ev = _stop_flags.get(busy_key)
+        if ev is None:
+            ev = threading.Event()
+            _stop_flags[busy_key] = ev
+        return ev
+
+
+def _is_stop_requested(busy_key: str) -> bool:
+    with _stop_lock:
+        ev = _stop_flags.get(busy_key)
+    return bool(ev is not None and ev.is_set())
+
+
+def _clear_stop(busy_key: str) -> None:
+    _stop_event(busy_key).clear()
+
+
+def request_stop(doc: Any) -> None:
+    """Ask the in-flight cell / remaining Run All sequence to stop.
+
+    Must not check ``_running_docs`` — the busy guard skips a second ▶, but
+    Stop has to land while that key is held.
+    """
+    _stop_event(_doc_busy_key(doc)).set()
 
 
 def _plain_text(value: Any) -> str:
@@ -1025,6 +1072,46 @@ def _restore_view_to_cell(doc: Any, cell: NotebookCodeCell, saved: Any | None = 
         log.debug("notebook run: restore view to cell failed", exc_info=True)
 
 
+def _execute_and_apply(
+    ctx: Any, doc: Any, state: NotebookDocState, cell: NotebookCodeCell, code: str
+) -> RunResult:
+    """Run *code* for *cell* and write outputs. Caller holds the busy key."""
+    saved_view = _save_view_cursor(doc)
+    result = execute_code(ctx, doc, code)
+    # After execute so live smoke can tell ok from a sandbox dunder deny.
+    log.info(
+        "notebook run cell index=%d field=%s status=%s",
+        cell.index,
+        cell.code_field_name,
+        result.get("status"),
+    )
+    if result.get("status") == "interrupted":
+        # In [n] / outputs only for cells that actually finished.
+        return RunResult("stopped", None, "Stopped.", cells_run=0)
+
+    if result.get("status") == "ok":
+        cell.last_run_status = "ok"
+    else:
+        cell.last_run_status = "error"
+
+    execution_count = state.next_execution_count
+    cell.execution_count = execution_count
+    state.next_execution_count = execution_count + 1
+
+    clear_cell_output(doc, cell)
+    apply_run_result(doc, cell, result, ctx=ctx)
+    update_in_prompt(doc, cell, execution_count)
+    save_registry(doc, state)
+    # Skip processEventsToIdle: same LayoutIdle livelock as post-import flush
+    # on notebooks with many in-flow form controls.
+    _restore_view_to_cell(doc, cell, saved_view)
+
+    if result.get("status") != "ok":
+        msg = result.get("message") or _("Cell execution failed.")
+        return RunResult("error", execution_count, str(msg), cells_run=1)
+    return RunResult("ok", execution_count, cells_run=1)
+
+
 def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
     """Execute one code cell on the main thread (venv work blocks without a VCL pump)."""
     state = load_registry(doc)
@@ -1047,37 +1134,8 @@ def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
         return RunResult("busy", None, "A cell is already running.")
     _running_docs.add(busy_key)
     try:
-        saved_view = _save_view_cursor(doc)
-        result = execute_code(ctx, doc, code)
-        # After execute so live smoke can tell ok from a sandbox dunder deny.
-        log.info(
-            "notebook run cell index=%d field=%s status=%s",
-            cell.index,
-            cell.code_field_name,
-            result.get("status"),
-        )
-        execution_count: int | None = None
-        if result.get("status") == "ok":
-            cell.last_run_status = "ok"
-        else:
-            cell.last_run_status = "error"
-
-        execution_count = state.next_execution_count
-        cell.execution_count = execution_count
-        state.next_execution_count = execution_count + 1
-
-        clear_cell_output(doc, cell)
-        apply_run_result(doc, cell, result, ctx=ctx)
-        update_in_prompt(doc, cell, execution_count)
-        save_registry(doc, state)
-        # Skip processEventsToIdle: same LayoutIdle livelock as post-import flush
-        # on notebooks with many in-flow form controls.
-        _restore_view_to_cell(doc, cell, saved_view)
-
-        if result.get("status") != "ok":
-            msg = result.get("message") or _("Cell execution failed.")
-            return RunResult("error", execution_count, str(msg))
-        return RunResult("ok", execution_count)
+        _clear_stop(busy_key)
+        return _execute_and_apply(ctx, doc, state, cell, code)
     finally:
         _running_docs.discard(busy_key)
 
@@ -1117,6 +1175,178 @@ def run_cell_by_hex(ctx: Any, hex_id: str) -> None:
 def run_cell_target_url(cell_id: str) -> str:
     """Build the protocol URL for a play button on a code cell."""
     return f"{NOTEBOOK_RUN_CELL_URL_PREFIX}{cell_id_to_hex(cell_id)}"
+
+
+def _selection_start_range(doc: Any) -> Any | None:
+    """Collapsed start of the view cursor / selection, or None if unavailable."""
+    try:
+        vc = doc.getCurrentController().getViewCursor()
+        text = doc.getText()
+        cur = text.createTextCursorByRange(vc)
+        cur.collapseToStart()
+        return cur
+    except Exception:
+        log.debug("notebook run from here: no view selection", exc_info=True)
+        return None
+
+
+def _cell_end_range(doc: Any, cell: NotebookCodeCell) -> Any | None:
+    """Range at or after this cell's code field (bookmark, else ControlShape)."""
+    cur = _cursor_after_bookmark(doc, cell.output_start_bookmark)
+    if cur is not None:
+        return cur
+    return _code_field_paragraph_end(doc, cell)
+
+
+def find_run_from_here_index(doc: Any, state: NotebookDocState) -> int:
+    """Index of the first code cell at or after the view selection.
+
+    A cell matches when the selection starts at or before that cell's
+    ``nb_out_*`` bookmark (or code-field paragraph). Selection before the
+    first cell is index 0 (same as Run All). After the last cell's end
+    returns ``len(code_cells)`` (nothing left to run).
+    """
+    cells = state.code_cells
+    if not cells:
+        return 0
+    sel = _selection_start_range(doc)
+    if sel is None:
+        return 0
+    try:
+        text = doc.getText()
+    except Exception:
+        return 0
+    found_end = False
+    for i, cell in enumerate(cells):
+        end = _cell_end_range(doc, cell)
+        if end is None:
+            continue
+        found_end = True
+        try:
+            cmp = int(text.compareRegionStarts(sel, end))
+        except Exception:
+            log.debug("notebook run from here: compareRegionStarts failed", exc_info=True)
+            continue
+        if cmp >= 0:
+            return i
+    if not found_end:
+        return 0
+    return len(cells)
+
+
+def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
+    """Execute code cells from *start_index* in registry order.
+
+    Holds the busy key for the whole sequence so a ▶ is skipped (``busy``).
+    Stop still works: it does not take this guard. Empty fields are skipped
+    (single-cell ▶ still errors). A traceback is written under the cell and
+    the batch continues unless Stop was requested. Drain between cells only.
+    """
+    state = load_registry(doc)
+    if state is None:
+        return RunResult("error", None, "No notebook registry on document.")
+
+    busy_key = _doc_busy_key(doc)
+    if busy_key in _running_docs:
+        log.info("notebook run skipped: a cell is already running on this document")
+        return RunResult("busy", None, "A cell is already running.")
+    _running_docs.add(busy_key)
+    _clear_stop(busy_key)
+    executed = 0
+    last_count: int | None = None
+    stopped = False
+    try:
+        cells = list(state.code_cells[max(0, start_index) :])
+        need_drain = False
+        for cell in cells:
+            if _is_stop_requested(busy_key):
+                stopped = True
+                break
+            code = read_code_from_field(doc, cell.code_field_name)
+            if not (code or "").strip():
+                continue
+            if need_drain:
+                # LayoutIdle livelock is during execute, not this between-cell pump.
+                from plugin.notebook.writer_importer import flush_ui_idle
+
+                flush_ui_idle(ctx)
+            one = _execute_and_apply(ctx, doc, state, cell, code)
+            if one.status == "stopped":
+                stopped = True
+                break
+            executed += 1
+            last_count = one.execution_count
+            need_drain = True
+            if _is_stop_requested(busy_key):
+                stopped = True
+                break
+        if stopped:
+            return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
+        return RunResult("ok", last_count, cells_run=executed)
+    finally:
+        _running_docs.discard(busy_key)
+
+
+def _notebook_doc_or_msgbox(ctx: Any, doc: Any) -> NotebookDocState | None:
+    """Shared setup for Run All / Run From Here. Msgbox only for setup failures."""
+    if doc is None:
+        msgbox(ctx, "WriterAgent", _("Open a Writer document first."))
+        return None
+    if not is_writer(doc):
+        msgbox(ctx, "WriterAgent", _("Notebook run is only supported in LibreOffice Writer."))
+        return None
+    state = load_registry(doc)
+    if state is None or not state.code_cells:
+        msgbox(
+            ctx,
+            "WriterAgent",
+            _("This document has no imported notebook. File → Open a Jupyter notebook (.ipynb) first."),
+        )
+        return None
+    return state
+
+
+def run_all_for_doc(ctx: Any, doc: Any) -> RunResult | None:
+    """Menu/toolbar: execute every code cell in registry order."""
+    if _notebook_doc_or_msgbox(ctx, doc) is None:
+        return None
+    return run_cells(ctx, doc, start_index=0)
+
+
+def run_from_here_for_doc(ctx: Any, doc: Any) -> RunResult | None:
+    """Menu/toolbar: execute from the code cell at or after the selection."""
+    state = _notebook_doc_or_msgbox(ctx, doc)
+    if state is None:
+        return None
+    return run_cells(ctx, doc, start_index=find_run_from_here_index(doc, state))
+
+
+def stop_for_doc(doc: Any) -> None:
+    """Menu/toolbar Stop. Never blocked by the busy guard."""
+    if doc is None:
+        return
+    request_stop(doc)
+
+
+def run_all_from_menu(ctx: Any | None = None) -> None:
+    from plugin.framework.uno_context import get_ctx
+
+    resolved = ctx if ctx is not None else get_ctx()
+    run_all_for_doc(resolved, get_active_document(resolved))
+
+
+def run_from_here_from_menu(ctx: Any | None = None) -> None:
+    from plugin.framework.uno_context import get_ctx
+
+    resolved = ctx if ctx is not None else get_ctx()
+    run_from_here_for_doc(resolved, get_active_document(resolved))
+
+
+def stop_from_menu(ctx: Any | None = None) -> None:
+    from plugin.framework.uno_context import get_ctx
+
+    resolved = ctx if ctx is not None else get_ctx()
+    stop_for_doc(get_active_document(resolved))
 
 
 def init_registry_execution_counter(state: NotebookDocState) -> None:

@@ -117,6 +117,9 @@ def test_writeragent_writer_only_top_level_items():
     for url in (
         _PROTOCOL + "textanalytics.open_dialog",
         _PROTOCOL + "writer.insert_latex_dialog",
+        _PROTOCOL + "notebook.run_all",
+        _PROTOCOL + "notebook.run_from_here",
+        _PROTOCOL + "notebook.stop",
     ):
         assert url in items, f"missing menu item {url}"
         ctx = _prop_text(items[url], "Context")
@@ -166,6 +169,9 @@ def test_writeragent_menu_order():
         _PROTOCOL + "mcp.toggle_server",
         _PROTOCOL + "mcp.server_status",
         _PROTOCOL + "scripting.reset_python_session",
+        _PROTOCOL + "notebook.run_all",
+        _PROTOCOL + "notebook.run_from_here",
+        _PROTOCOL + "notebook.stop",
         _PROTOCOL + "main.NoOp",
         _PROTOCOL + "main.report_bug",
     ]
@@ -186,6 +192,31 @@ def test_writeragent_mcp_items_reserve_icon_slot():
     items = _submenu_items(_find_menubar(root))
     assert _has_image_identifier(items[_PROTOCOL + "mcp.server_status"])
     assert not _has_image_identifier(items[_PROTOCOL + "mcp.toggle_server"])
+
+
+def test_writeragent_toolbar_has_notebook_run_actions():
+    root = ET.parse(_ADDONS_XCU).getroot()
+    toolbar = None
+    for node in root.iter("node"):
+        if node.get(_OOR_NAME) == "org.extension.writeragent.toolbar":
+            toolbar = node
+            break
+    assert toolbar is not None
+    urls = []
+    for item in toolbar.findall("node"):
+        url = _prop_text(item, "URL")
+        if url:
+            urls.append(url)
+    assert _PROTOCOL + "notebook.run_all" in urls
+    assert _PROTOCOL + "notebook.run_from_here" in urls
+    assert _PROTOCOL + "notebook.stop" in urls
+    for url in (
+        _PROTOCOL + "notebook.run_all",
+        _PROTOCOL + "notebook.run_from_here",
+        _PROTOCOL + "notebook.stop",
+    ):
+        item = next(n for n in toolbar.findall("node") if _prop_text(n, "URL") == url)
+        assert _prop_text(item, "Context") == _WRITER_SVC
 
 
 def test_writeragent_mcp_images_section_points_at_assets():

@@ -99,6 +99,24 @@ def register_common_handlers() -> None:
 
     register_action_handler("scripting", "reset_python_session", _reset_python_session)
 
+    def _notebook_run_all() -> None:
+        from plugin.notebook.notebook_runner import run_all_from_menu
+        run_all_from_menu(get_ctx())
+
+    register_action_handler("notebook", "run_all", _notebook_run_all)
+
+    def _notebook_run_from_here() -> None:
+        from plugin.notebook.notebook_runner import run_from_here_from_menu
+        run_from_here_from_menu(get_ctx())
+
+    register_action_handler("notebook", "run_from_here", _notebook_run_from_here)
+
+    def _notebook_stop() -> None:
+        from plugin.notebook.notebook_runner import stop_from_menu
+        stop_from_menu(get_ctx())
+
+    register_action_handler("notebook", "stop", _notebook_stop)
+
     def _edit_init_script() -> None:
         from plugin.calc.python.init_script_editor import open_init_script_editor
         open_init_script_editor(get_ctx())

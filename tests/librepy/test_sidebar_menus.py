@@ -19,6 +19,9 @@ _CORE_ACTIONS = {
     "scripting.run_python_dialog",
     "scripting.edit_python_cell",
     "scripting.reset_python_session",
+    "notebook.run_all",
+    "notebook.run_from_here",
+    "notebook.stop",
     "main.settings",
     "vision.open_settings",
     "main.report_bug",
@@ -52,6 +55,22 @@ def test_calc_hamburger_includes_python_and_cell_not_search():
     assert "chatbot.extend_selection" not in actions
     assert "calc.convert_spreadsheet_to_python" not in actions
     assert "writer.insert_latex_dialog" not in actions
+    assert "notebook.run_all" not in actions
+    assert "notebook.stop" not in actions
+
+
+def test_writer_hamburger_includes_notebook_run_actions():
+    rows = librepy_hamburger_actions(
+        is_calc_doc=False,
+        is_writer_doc=True,
+        is_draw_doc=False,
+        handler_lookup=_lookup,
+    )
+    actions = [a for _label, a, _icon in rows]
+    assert "notebook.run_all" in actions
+    assert "notebook.run_from_here" in actions
+    assert "notebook.stop" in actions
+    assert actions.index("scripting.reset_python_session") < actions.index("notebook.run_all")
 
 
 def test_skips_unregistered_handlers():

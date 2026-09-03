@@ -40,10 +40,11 @@ WriterAgent and LibrePy can **read** Jupyter notebooks (nbformat v4) and **impor
 | Shipped (2026-08) | Deferred |
 |-------------------|----------|
 | **Vendored nbformat v4 read** — [`plugin/contrib/nbformat/`](../../plugin/contrib/nbformat/): `read_ipynb(path)`, `reads(json_string)` → `NotebookNode` with `rejoin_lines` | **nbformat v3** upgrade path |
-| **File → Open** — native `.ipynb` import filter ([`import_filter.py`](../../plugin/notebook/import_filter.py)); TypeDetection registry | Run All / Stop (Phase 2 roadmap); append-into-open-document menu |
+| **File → Open** — native `.ipynb` import filter ([`import_filter.py`](../../plugin/notebook/import_filter.py)); TypeDetection registry | Append-into-open-document menu (Phase 3) |
 | **Import engine** — [`writer_importer.py`](../../plugin/notebook/writer_importer.py): ATX `#`/`##` headings, `* `/`- ` lists (nested + `<ol start=N>`), `>` blockquotes, `**bold**` / `*italic*`, `[text](url)` hyperlinks, HTML `<img>`/`<a>`, in-flow code fields, output text + images; `zxx` spellcheck-off locale | GFM tables, hover-only play, collapsible cells |
 | **Notebook registry (Phase 0)** — [`cell_registry.py`](../../plugin/notebook/cell_registry.py): `WriterAgentNotebookJson`, stable `cell_id` (UUID), output bookmarks `nb_out_*`, `WriterAgentNotebookSourcePath` | Export back to `.ipynb` (Phase 5 roadmap) |
 | **Run code cell (Phase 1)** — in-flow ▶ **push** button + [`notebook_controls.py`](../../plugin/notebook/notebook_controls.py) + [`notebook_runner.py`](../../plugin/notebook/notebook_runner.py); shared `notebook:…` kernel; re-run **replaces** output (`setString("")`); no VCL pump during execute (LayoutIdle livelock) | Cell CRUD, sidebar (Phases 3–4 roadmap) |
+| **Run All / Run From Here / Stop (Phase 2)** — Writer menu/toolbar next to Reset Python Session; registry-order sequence; drain **between** cells only; Stop skips the remainder (busy guard does not block Stop) | — |
 | **Control lookup** — [`form_lookup.py`](../../plugin/notebook/form_lookup.py) indexes `ControlShape` models on the document draw page (required for wiring ▶ buttons) | Batched background image decode |
 | **Reset Python Session** — clears `notebook:…` kernel for Writer docs with a registry ([`session_manager.py`](../../plugin/scripting/session_manager.py)) | `notebook.enable_interactive` / Settings UI keys |
 | **Output images** — `image/png`, `image/jpeg` in `display_data` / `execute_result` | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
@@ -55,7 +56,7 @@ WriterAgent and LibrePy can **read** Jupyter notebooks (nbformat v4) and **impor
 
 **File → Open** — **File → Open…**, desktop double-click, Open Recent, or `soffice notebook.ipynb` creates a new Writer document and imports the notebook (no FilePicker, no completion dialog). There is no menu entry to append into an already-open document.
 
-Click **▶** beside any code cell to execute it.
+Click **▶** beside any code cell to execute it. **LibrePy / WriterAgent → Run All** runs every code cell in registry order. **Run From Here** starts at the code cell at or after the view cursor. **Stop** skips any cells that have not started (the in-flight cell may finish or abort).
 
 ---
 
@@ -64,6 +65,9 @@ Click **▶** beside any code cell to execute it.
 | Action | Behavior & Rules |
 |--------|------------------|
 | **Run one cell** | Click the in-flow **▶** push button immediately preceding the code `TextField`. |
+| **Run All** | **LibrePy / WriterAgent → Run All** (also on the Writer toolbar). Executes code cells in `state.code_cells` order. Empty fields are skipped. A traceback is written under the failing cell and the batch continues (Jupyter). |
+| **Run From Here** | **LibrePy / WriterAgent → Run From Here**. Starts at the code cell at or after the current selection (code field or `nb_out_*` bookmark). Selection before the first code cell is the same as Run All. |
+| **Stop** | **LibrePy / WriterAgent → Stop**. Interrupts the remainder of a Run All / Run From Here sequence. A ▶ during Run All is skipped (`busy`); Stop is not blocked by that guard. |
 | **Shared variables** | All code cells in the document share one `notebook:…` Python namespace (like a Jupyter kernel). Variables assigned in earlier cells are available in later cells. |
 | **Execution count** | Resets to 1 on document load or **Reset Python Session**. Each execution (including re-clicks and errors) increments the counter by 1 (`In [n]`). |
 | **Reset kernel** | **LibrePy / WriterAgent → Reset Python Session** clears kernel variables and resets the counter to 1. |
@@ -130,10 +134,10 @@ flowchart TB
 - Per-document re-entrancy guard so a second ▶ cannot interleave registry/output mutation.
 - In-place output clearing (`clear_cell_output`) and replacement without paragraph leakage.
 
-### Phase 2: Run All, Run From Here, Stop — **Planned**
+### Phase 2: Run All, Run From Here, Stop — **Shipped**
 - **Run All** menu/toolbar action to execute code cells in sequence with UI event drains **between** cells — never `processEventsToIdle` during `execute_code` (same `LayoutIdle` livelock as post-import flush on notebooks with many in-flow form controls).
 - **Run From Here** execution from current selection.
-- **Stop** execution controller with interruption signal to worker thread.
+- **Stop** sets a per-document flag that `execute_code`'s wait polls (`stop_checker`, no VCL pump). Remaining cells do not start. In `[n]` / outputs update only for cells that finished.
 
 ### Phase 3: Cell CRUD & Re-import Merge — **Planned**
 - Interactive addition, deletion, and reordering of code and markdown cells.
@@ -273,9 +277,9 @@ g_ImplementationHelper.addImplementation(
 | `writer_importer.py` | [`plugin/notebook/writer_importer.py`](../../plugin/notebook/writer_importer.py) | Core import loop, nbformat processing, Writer DOM insertion |
 | `import_filter.py` | [`plugin/notebook/import_filter.py`](../../plugin/notebook/import_filter.py) | Native File Open XFilter+XImporter (no FilePicker / no completion msgbox) |
 | `notebook_controls.py` | [`plugin/notebook/notebook_controls.py`](../../plugin/notebook/notebook_controls.py) | ▶ button wiring and PyUNO form listener management |
-| `notebook_runner.py` | [`plugin/notebook/notebook_runner.py`](../../plugin/notebook/notebook_runner.py) | Field reading, execution, output replacement |
+| `notebook_runner.py` | [`plugin/notebook/notebook_runner.py`](../../plugin/notebook/notebook_runner.py) | Field reading, single-cell ▶, Run All / Run From Here / Stop, output replacement |
 | `form_lookup.py` | [`plugin/notebook/form_lookup.py`](../../plugin/notebook/form_lookup.py) | Draw page indexer: control models by name, ``ControlShape`` by name (`getAnchor`) |
 
 Entry Points:
-- [`plugin/main.py`](../../plugin/main.py) / [`plugin/main_core.py`](../../plugin/main_core.py): `notebook.run_cell.*` protocol dispatch and bootstrap listener wiring.
+- [`plugin/main.py`](../../plugin/main.py) / [`plugin/main_core.py`](../../plugin/main_core.py): `notebook.run_cell.*` protocol dispatch, `notebook.run_all` / `run_from_here` / `stop` action handlers, and bootstrap listener wiring.
 - [`plugin/scripting/session_manager.py`](../../plugin/scripting/session_manager.py): `notebook_session_id` management and **Reset Python Session** implementation.

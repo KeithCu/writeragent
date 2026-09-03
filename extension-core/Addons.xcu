@@ -117,6 +117,48 @@
               <value>_self</value>
             </prop>
           </node>
+          <node oor:name="M08a" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Run All</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:notebook.run_all</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.text.TextDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M08b" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Run From Here</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:notebook.run_from_here</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.text.TextDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
+          <node oor:name="M08c" oor:op="replace">
+            <prop oor:name="Title">
+              <value xml:lang="en-US">Stop</value>
+            </prop>
+            <prop oor:name="URL">
+              <value>org.extension.librepy:notebook.stop</value>
+            </prop>
+            <prop oor:name="Context" oor:type="xs:string">
+              <value>com.sun.star.text.TextDocument</value>
+            </prop>
+            <prop oor:name="Target" oor:type="xs:string">
+              <value>_self</value>
+            </prop>
+          </node>
           <node oor:name="M09" oor:op="replace">
             <prop oor:name="Title">
               <value xml:lang="en-US">Report bug...</value>

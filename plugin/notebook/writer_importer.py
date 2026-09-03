@@ -20,7 +20,7 @@ Future work (do not forget — leave these until the matching phase, not drive-b
 - ``notebook_controls._form_and_container`` uses ``forms.getByIndex(0)``. Fine
   while import owns the first form; iterate forms (or find ``nb_run_*``) if
   the document can already have other forms.
-- Phase 2 Run All / Stop: drain **between** cells, never
+- Phase 2 Run All / Stop is shipped: drain **between** cells, never
   ``processEventsToIdle`` during ``execute_code`` (LayoutIdle livelock on
   notebooks with many in-flow form controls).
 """

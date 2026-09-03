@@ -61,6 +61,10 @@ class TestHamburgerMenu:
         assert any(c.args[-1] == "gear_32.png" for c in load_g.call_args_list)
         labels = [c.args[1] for c in popup.insertItem.call_args_list]
         assert not any("Jupyter" in str(label) for label in labels)
+        assert "Run All" in labels
+        assert "Run From Here" in labels
+        assert "Stop" in labels
+        assert labels.index("Reset Python Session") < labels.index("Run All")
 
     def test_show_hamburger_menu_calc_includes_calc_items(self):
         ctx = MagicMock()

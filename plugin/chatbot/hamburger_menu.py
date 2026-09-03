@@ -135,6 +135,13 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
 
         add_item(popup, _("Reset Python Session"), "scripting.reset_python_session", pos)
         pos += 1
+        if is_writer_doc:
+            add_item(popup, _("Run All"), "notebook.run_all", pos)
+            pos += 1
+            add_item(popup, _("Run From Here"), "notebook.run_from_here", pos)
+            pos += 1
+            add_item(popup, _("Stop"), "notebook.stop", pos)
+            pos += 1
 
         # 6. Separator
         popup.insertSeparator(pos)

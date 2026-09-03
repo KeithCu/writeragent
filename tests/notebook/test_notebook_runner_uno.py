@@ -640,6 +640,143 @@ def test_run_cell_execution_error_no_msgbox(ctx, doc):
             pass
 
 
+def _two_cell_kernel_ipynb_path() -> Path:
+    payload = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": "wa_nb_runall_x = 41\n",
+            },
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": "print(wa_nb_runall_x + 1)\n",
+            },
+        ],
+    }
+    handle = tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False, mode="w", encoding="utf-8")
+    with handle as fh:
+        json.dump(payload, fh)
+    return Path(handle.name)
+
+
+def _three_cell_stop_ipynb_path() -> Path:
+    payload = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {},
+        "cells": [
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": "print('WA_NB_FIRST')\n",
+            },
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": "print('WA_NB_LONG')\n",
+            },
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": "print('WA_NB_SKIPPED')\n",
+            },
+        ],
+    }
+    handle = tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False, mode="w", encoding="utf-8")
+    with handle as fh:
+        json.dump(payload, fh)
+    return Path(handle.name)
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_run_all_two_cells_share_kernel(ctx, doc):
+    """Run All: cell 2 sees cell 1's binding on the shared notebook kernel."""
+    from plugin.notebook.cell_registry import load_registry
+    from plugin.notebook.notebook_runner import run_all_for_doc
+    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+
+    ipynb = _two_cell_kernel_ipynb_path()
+    try:
+        import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
+        flush_ui_idle(ctx)
+        state = load_registry(doc)
+        assert state is not None and len(state.code_cells) == 2
+        with patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None):
+            result = run_all_for_doc(ctx, doc)
+        assert result is not None
+        assert result.status == "ok"
+        assert result.cells_run == 2
+        body = doc.getText().getString() or ""
+        assert "42" in body, f"cell 2 did not see cell 1 binding: {body!r}"
+        state = load_registry(doc)
+        assert state is not None
+        assert state.code_cells[0].execution_count == 1
+        assert state.code_cells[1].execution_count == 2
+    finally:
+        try:
+            ipynb.unlink()
+        except OSError:
+            pass
+
+
+@native_test
+@with_native_doc("writer", hidden=not show_window)
+def test_run_all_stop_skips_remaining_cells(ctx, doc):
+    """Stop after the first cell must not start the long / later cells."""
+    from plugin.notebook.cell_registry import load_registry
+    from plugin.notebook.notebook_runner import request_stop, run_all_for_doc
+    from plugin.notebook.writer_importer import import_ipynb_to_writer, flush_ui_idle
+
+    ipynb = _three_cell_stop_ipynb_path()
+    try:
+        import_ipynb_to_writer(doc, str(ipynb), ctx=ctx)
+        flush_ui_idle(ctx)
+        state = load_registry(doc)
+        assert state is not None and len(state.code_cells) == 3
+
+        def _flush(_ctx, **_k):
+            request_stop(doc)
+
+        with (
+            patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
+            patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        ):
+            result = run_all_for_doc(ctx, doc)
+        assert result is not None
+        assert result.status == "stopped"
+        assert result.cells_run == 1
+        body = doc.getText().getString() or ""
+        assert "WA_NB_FIRST" in body
+        assert "WA_NB_LONG" not in body
+        assert "WA_NB_SKIPPED" not in body
+        state = load_registry(doc)
+        assert state is not None
+        assert state.code_cells[0].execution_count == 1
+        assert state.code_cells[1].execution_count is None
+        assert state.code_cells[2].execution_count is None
+    finally:
+        try:
+            ipynb.unlink()
+        except OSError:
+            pass
+
+
 def _tiny_failing_ipynb_path() -> Path:
     payload = {
         "nbformat": 4,

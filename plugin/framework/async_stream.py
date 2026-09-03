@@ -81,6 +81,10 @@ class BlockingPumpKind(str, Enum):
     ERROR = "error"
 
 
+class BlockingWaitStopped(Exception):
+    """``stop_checker`` fired while waiting for a background func (no VCL pump)."""
+
+
 @deal.pre(lambda prefix, data: ascii_bounded(prefix, DEAL_MAX_TOKEN, min_len=1))
 @deal.post(lambda result: isinstance(result, str) and result.startswith("\n") and result.endswith("\n"))
 @deal.ensure(lambda prefix, data, result=None: result is not None and prefix in result)
@@ -749,7 +753,14 @@ def run_stream_async(ctx, client, messages, tools=None, apply_chunk_fn=None, on_
     _run_client_stream(ctx, client_call, apply_chunk_fn=apply_chunk_fn, on_done_fn=on_done_fn, on_error_fn=on_error_fn, stop_checker=stop_checker, name="stream-async", include_status=False)
 
 
-def run_blocking_in_thread(ctx, func, *args, pump_idle: bool = True, **kwargs):
+def run_blocking_in_thread(
+    ctx,
+    func,
+    *args,
+    pump_idle: bool = True,
+    stop_checker: Callable[[], bool] | None = None,
+    **kwargs,
+):
     """
     Run a blocking function in a background thread.
 
@@ -760,6 +771,10 @@ def run_blocking_in_thread(ctx, func, *args, pump_idle: bool = True, **kwargs):
     cell execute because ``LayoutIdle`` livelocks on documents with many
     in-flow form controls. ``=PY()`` already avoids this helper for the recalc
     reason.
+
+    *stop_checker* (notebook Stop): poll the queue with a short timeout and
+    return via :class:`BlockingWaitStopped` when the predicate is true. Never
+    pumps VCL for that poll — same LayoutIdle livelock as ``pump_idle=False``.
 
     Never runs *func* on the caller thread: a missing Toolkit used to fall back
     to a synchronous call, which blocked recalc with no worker isolation.
@@ -789,9 +804,10 @@ def run_blocking_in_thread(ctx, func, *args, pump_idle: bool = True, **kwargs):
 
     # Do not take drain_owner_scope here: this helper may run under an active stream
     # drain. pump_ui_idle remains the owner-safe VCL pump path.
+    poll = (pump_idle and toolkit is not None) or stop_checker is not None
     while True:
         try:
-            item = q.get(timeout=0.1 if (pump_idle and toolkit is not None) else None)
+            item = q.get(timeout=0.1 if poll else None)
             kind, data = item
             if not isinstance(kind, BlockingPumpKind):
                 ek = TypeError("blocking pump queue item kind must be BlockingPumpKind, got %s" % (type(kind).__name__,))
@@ -802,6 +818,8 @@ def run_blocking_in_thread(ctx, func, *args, pump_idle: bool = True, **kwargs):
             if kind == BlockingPumpKind.ERROR:
                 raise data
         except queue.Empty:
+            if stop_checker is not None and stop_checker():
+                raise BlockingWaitStopped("stopped")
             if pump_idle and toolkit is not None:
                 pump_ui_idle(toolkit)
 

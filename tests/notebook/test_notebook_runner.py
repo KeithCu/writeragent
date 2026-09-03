@@ -13,14 +13,18 @@ from plugin.notebook.notebook_runner import (
     _gutter_text_cursor,
     _is_next_cell_boundary,
     _paragraph_string,
+    _execute_and_apply,
     apply_run_result,
     clear_cell_output,
     execute_code,
+    find_run_from_here_index,
     format_run_output_text,
     init_registry_execution_counter,
     read_code_from_field,
+    request_stop,
     run_cell,
     run_cell_for_doc_hex,
+    run_cells,
     update_in_prompt,
     run_cell_target_url,
 )
@@ -111,7 +115,27 @@ def test_execute_code_does_not_pump_idle():
         assert out == worker_result
         pump.assert_called_once()
         assert pump.call_args.kwargs.get("pump_idle") is False
+        assert callable(pump.call_args.kwargs.get("stop_checker"))
         run_venv.assert_not_called()
+
+
+def test_execute_code_stop_returns_interrupted_without_venv():
+    from plugin.framework.async_stream import BlockingWaitStopped
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
+        patch(
+            "plugin.notebook.notebook_runner.run_blocking_in_thread",
+            side_effect=BlockingWaitStopped("stopped"),
+        ) as pump,
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
+    ):
+        out = execute_code(ctx, doc, "x = 1")
+    assert out["status"] == "interrupted"
+    assert pump.call_args.kwargs.get("pump_idle") is False
+    run_venv.assert_not_called()
 
 
 def test_run_cell_updates_registry_and_execution_count():
@@ -145,13 +169,13 @@ def test_run_cell_logs_status_after_execute():
     from tests.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.info stripped in release bundle")
-    src = inspect.getsource(run_cell)
+    src = inspect.getsource(_execute_and_apply)
     assert "status=%s" in src
     assert src.find("execute_code(") < src.find("status=%s")
 
 
 def test_run_cell_restores_view_to_cell():
-    src = inspect.getsource(run_cell)
+    src = inspect.getsource(_execute_and_apply)
     assert "_restore_view_to_cell" in src
     assert src.find("apply_run_result") < src.find("_restore_view_to_cell")
 
@@ -832,3 +856,295 @@ def test_clear_cell_output_preserves_spacer_before_next_heading():
 
     walker.gotoRange.assert_called_once_with(spacer_copy, False)
     sel.setString.assert_called_once_with("")
+
+
+def _three_cells():
+    return [
+        new_code_cell_entry(0, None, "nb_cell_0_code"),
+        new_code_cell_entry(1, None, "nb_cell_1_code"),
+        new_code_cell_entry(2, None, "nb_cell_2_code"),
+    ]
+
+
+def _code_for_field(field_name: str) -> str:
+    return {
+        "nb_cell_0_code": "x = 1",
+        "nb_cell_1_code": "y = x + 1",
+        "nb_cell_2_code": "z = y + 1",
+    }.get(field_name, "pass")
+
+
+def test_run_cells_sequence_in_registry_order():
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    order: list[str] = []
+
+    def _exec(_ctx, _doc, code):
+        order.append(code)
+        return {"status": "ok", "result": None, "stdout": code}
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result"),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle") as flush,
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "ok"
+    assert result.cells_run == 3
+    assert order == ["x = 1", "y = x + 1", "z = y + 1"]
+    assert state.next_execution_count == 4
+    assert flush.call_count == 2
+
+
+def test_run_from_here_start_index():
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    ran: list[str] = []
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result"),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+    ):
+        result = run_cells(ctx, doc, start_index=1)
+
+    assert result.status == "ok"
+    assert result.cells_run == 2
+    assert ran == ["y = x + 1", "z = y + 1"]
+    assert cells[0].execution_count is None
+    assert cells[1].execution_count == 1
+
+
+def test_find_run_from_here_index_before_first_is_zero():
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells)
+    doc = MagicMock()
+    text = MagicMock()
+    # Selection starts before every cell end (compareRegionStarts(sel, end) == 1).
+    text.compareRegionStarts.return_value = 1
+    doc.getText.return_value = text
+    ends = [MagicMock(name=f"end{i}") for i in range(3)]
+    with (
+        patch("plugin.notebook.notebook_runner._selection_start_range", return_value=MagicMock()),
+        patch("plugin.notebook.notebook_runner._cell_end_range", side_effect=ends),
+    ):
+        assert find_run_from_here_index(doc, state) == 0
+
+
+def test_find_run_from_here_index_skips_cells_before_selection():
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells)
+    doc = MagicMock()
+    text = MagicMock()
+    # First two cell ends are before the selection (-1); third is at/after (1).
+    text.compareRegionStarts.side_effect = [-1, -1, 1]
+    doc.getText.return_value = text
+    ends = [MagicMock(name=f"end{i}") for i in range(3)]
+    with (
+        patch("plugin.notebook.notebook_runner._selection_start_range", return_value=MagicMock()),
+        patch("plugin.notebook.notebook_runner._cell_end_range", side_effect=ends),
+    ):
+        assert find_run_from_here_index(doc, state) == 2
+
+
+def test_run_cells_stop_skips_remainder():
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    ran: list[str] = []
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        if code == "x = 1":
+            request_stop(doc)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert ran == ["x = 1"]
+    assert apply.call_count == 1
+    assert cells[1].execution_count is None
+    assert cells[2].execution_count is None
+
+
+def test_run_cells_busy_guard_skips_play_but_stop_works():
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    nested: list[object] = []
+
+    def _reenter(*_a, **_k):
+        nested.append(run_cell(ctx, doc, cells[1].cell_id))
+        request_stop(doc)
+        return {"status": "ok", "result": None, "stdout": "1\n"}
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_reenter),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "stopped"
+    assert result.cells_run == 1
+    assert len(nested) == 1
+    assert getattr(nested[0], "status") == "busy"
+    assert apply.call_count == 1
+    assert cells[1].execution_count is None
+
+
+def test_run_cells_skips_empty_and_continues():
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    ran: list[str] = []
+
+    def _read(_doc, field_name):
+        if field_name == "nb_cell_1_code":
+            return "   "
+        return _code_for_field(field_name)
+
+    def _exec(_ctx, _doc, code):
+        ran.append(code)
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", side_effect=_read),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result") as apply,
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    assert result.status == "ok"
+    assert result.cells_run == 2
+    assert ran == ["x = 1", "z = y + 1"]
+    assert apply.call_count == 2
+    assert cells[1].execution_count is None
+
+
+def test_run_cells_error_continues_unless_stopped():
+    ctx = MagicMock()
+    cells = _three_cells()
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    apply_status: list[str] = []
+
+    def _exec(_ctx, _doc, code):
+        if code == "y = x + 1":
+            return {"status": "error", "message": "ValueError", "stdout": "", "traceback": "ValueError"}
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _apply(_doc, _cell, result, *, ctx=None):
+        apply_status.append(str(result.get("status")))
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=_apply),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle"),
+        patch("plugin.notebook.notebook_runner.msgbox") as boxed,
+    ):
+        result = run_cells(ctx, doc, start_index=0)
+
+    boxed.assert_not_called()
+    assert result.status == "ok"
+    assert result.cells_run == 3
+    assert apply_status == ["ok", "error", "ok"]
+    assert state.next_execution_count == 4
+
+
+def test_run_cells_does_not_pump_idle_during_execute():
+    ctx = MagicMock()
+    cells = _three_cells()[:2]
+    state = NotebookDocState(code_cells=cells, next_execution_count=1)
+    doc = MagicMock()
+    pumps: list[str] = []
+
+    def _exec(*_a, **_k):
+        pumps.append("execute")
+        return {"status": "ok", "result": None, "stdout": ""}
+
+    def _flush(*_a, **_k):
+        pumps.append("flush")
+
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_runner.read_code_from_field", side_effect=_code_for_field),
+        patch("plugin.notebook.notebook_runner.execute_code", side_effect=_exec),
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result"),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+        patch("plugin.notebook.writer_importer.flush_ui_idle", side_effect=_flush),
+        patch("plugin.framework.uno_context.process_events_to_idle") as idle,
+    ):
+        run_cells(ctx, doc, start_index=0)
+
+    assert pumps == ["execute", "flush", "execute"]
+    idle.assert_not_called()
+    src = inspect.getsource(execute_code)
+    assert "pump_idle=False" in src
+    assert "processEventsToIdle" not in src or "never" in src.lower() or "not" in src.lower()
+
+
+def test_run_all_for_doc_hex_setup_msgbox_only():
+    from plugin.notebook.notebook_runner import run_all_for_doc
+
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.notebook.notebook_runner.is_writer", return_value=False),
+        patch("plugin.notebook.notebook_runner.msgbox") as boxed,
+        patch("plugin.notebook.notebook_runner.run_cells") as run,
+    ):
+        assert run_all_for_doc(ctx, doc) is None
+    boxed.assert_called_once()
+    run.assert_not_called()

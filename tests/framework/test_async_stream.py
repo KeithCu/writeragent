@@ -276,6 +276,29 @@ def test_run_blocking_in_thread_pump_idle_false_does_not_pump():
     pump.assert_not_called()
 
 
+def test_run_blocking_in_thread_stop_checker_returns_without_pump():
+    import threading
+    import time
+    from unittest.mock import MagicMock, patch
+    from plugin.framework.async_stream import BlockingWaitStopped, run_blocking_in_thread
+
+    ctx = MagicMock()
+    stop = threading.Event()
+
+    def _slow():
+        time.sleep(2)
+        return "done"
+
+    def _checker():
+        return stop.is_set()
+
+    stop.set()
+    with patch("plugin.framework.async_stream.pump_ui_idle") as pump:
+        with pytest.raises(BlockingWaitStopped):
+            run_blocking_in_thread(ctx, _slow, pump_idle=False, stop_checker=_checker)
+    pump.assert_not_called()
+
+
 def test_run_blocking_in_thread_toolkit_fail_runs_off_caller():
     import threading
     from unittest.mock import MagicMock

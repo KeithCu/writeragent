@@ -40,6 +40,9 @@ def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
         (_("Settings"), "main.settings", "gear_32.png", "always"),
         (_("Vision OCR Settings..."), "vision.open_settings", None, "always"),
         (_("Reset Python Session"), "scripting.reset_python_session", None, "always"),
+        (_("Run All"), "notebook.run_all", None, "writer"),
+        (_("Run From Here"), "notebook.run_from_here", None, "writer"),
+        (_("Stop"), "notebook.stop", None, "writer"),
         (_("Report bug..."), "main.report_bug", None, "always"),
     )
 
