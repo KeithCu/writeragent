@@ -36,8 +36,9 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     list_model.PositionX = 4
     list_model.PositionY = 4
     list_model.Width = 150
-    list_model.Height = 40
-    list_model.Dropdown = False
+    list_model.Height = 14
+    list_model.Dropdown = True
+    list_model.LineCount = 6
     dlg_model.insertByName("slash_popup", list_model)
 
     dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
@@ -58,6 +59,11 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
         assert popup.selected_name == "help"
         assert "mock-alpha" in popup.visible_names
         assert int(box.getItemCount()) >= 5
+        model = box.getModel()
+        assert bool(getattr(model, "Dropdown", False)) is True
+        assert int(getattr(model, "LineCount", 0) or 0) >= 1
+        assert int(box.getPosSize().Height) <= 20
+        assert int(box.getDropDownLineCount()) >= 1
 
         popup.on_query_text("/he")
         assert popup.visible_names == ["help"]

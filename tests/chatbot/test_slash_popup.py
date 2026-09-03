@@ -10,7 +10,18 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP
-from plugin.chatbot.slash_popup import SlashPopupController, _ensure_listbox, _is_combo_box
+from plugin.chatbot.slash_popup import (
+    SlashPopupController,
+    _POPUP_CLOSED_PX,
+    _POPUP_MAX_ROWS,
+    _RUNTIME_LIST_NAME,
+    _apply_dropdown_model,
+    _ensure_listbox,
+    _is_combo_box,
+    _overlay_height,
+    _toggle_list_popup,
+    is_dropdown_overlay,
+)
 
 
 class _ListBox:
@@ -43,6 +54,9 @@ class _ListBox:
 
     def setVisible(self, visible: bool) -> None:
         self.visible = visible
+
+    def setDropDownLineCount(self, n: int) -> None:
+        self.line_count = n
 
 
 class _Query:
@@ -168,3 +182,113 @@ def test_chat_panel_xdl_uses_menulist_for_slash_popup():
     assert "dlg:listbox" not in text
     assert 'dlg:id="slash_popup"' in text
     assert "dlg:menulist" in text
+
+
+def test_apply_dropdown_model_is_overlay_not_in_layout_list():
+    """Completion control must be a VCL dropdown overlay, not a multi-row dialog list."""
+    model = SimpleNamespace(Dropdown=False, LineCount=0, Tabstop=True, Border=0, MultiSelection=True)
+    _apply_dropdown_model(model)
+    assert model.Dropdown is True
+    assert model.LineCount == _POPUP_MAX_ROWS
+    assert model.Tabstop is False
+    assert model.MultiSelection is False
+    assert is_dropdown_overlay(SimpleNamespace(getModel=lambda: model)) is True
+    assert is_dropdown_overlay(SimpleNamespace(Dropdown=False)) is False
+
+
+def test_open_slash_parks_closed_combo_not_multirow_in_gap():
+    """The dialog control is one line in the transcript, not a crushed Ready/Ask list."""
+    popup, box = _controller()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/")
+    assert popup.is_open is True
+    assert box.pos.Height == _POPUP_CLOSED_PX
+    # Ask field is at Y=152. A multi-row in-flow list sat at ~118 in the gap.
+    # The closed combo anchors above the overlay so VCL drops over the chat.
+    assert box.pos.Y < 128
+    assert box.pos.Y == 152 - _overlay_height(min(len(popup.visible_names), _POPUP_MAX_ROWS)) - _POPUP_CLOSED_PX - 2
+
+
+def test_ensure_listbox_inserts_dropdown_overlay():
+    created: dict[str, object] = {}
+
+    class _DlgModel:
+        def createInstance(self, _name: str):
+            model = SimpleNamespace(
+                Name="",
+                Dropdown=False,
+                LineCount=0,
+                Tabstop=True,
+                Border=0,
+                PositionX=0,
+                PositionY=0,
+                Width=0,
+                Height=0,
+            )
+            created["model"] = model
+            return model
+
+        def insertByName(self, name: str, model: object) -> None:
+            created["inserted"] = name
+            created["model"] = model
+
+    class _Dlg:
+        def __init__(self) -> None:
+            self._model = _DlgModel()
+
+        def getModel(self):
+            return self._model
+
+        def getControl(self, name: str):
+            if name == _RUNTIME_LIST_NAME and created.get("inserted"):
+                return SimpleNamespace(getModel=lambda: created["model"], setVisible=lambda _v: None)
+            return None
+
+    dlg = _Dlg()
+    combo = SimpleNamespace(
+        getModel=lambda: SimpleNamespace(
+            getSupportedServiceNames=lambda: ("com.sun.star.awt.UnoControlComboBoxModel",)
+        ),
+        setVisible=lambda _v: None,
+    )
+    query = _Query()
+    query.getContext = lambda: dlg  # type: ignore[method-assign]
+    created_ctrl = _ensure_listbox(combo, query)
+    assert created.get("inserted") == _RUNTIME_LIST_NAME
+    model = created["model"]
+    assert getattr(model, "Dropdown") is True
+    assert getattr(model, "Height") == _POPUP_CLOSED_PX
+    assert is_dropdown_overlay(created_ctrl) is True
+
+
+def test_toggle_list_popup_uses_accessible_togglepopup():
+    calls: list[int] = []
+
+    class _Acc:
+        def getAccessibleActionCount(self) -> int:
+            return 1
+
+        def getAccessibleActionDescription(self, idx: int) -> str:
+            return "togglePopup"
+
+        def doAccessibleAction(self, idx: int) -> bool:
+            calls.append(idx)
+            return True
+
+    ctrl = SimpleNamespace(getAccessibleContext=lambda: _Acc())
+    assert _toggle_list_popup(ctrl) is True
+    assert calls == [0]
+
+
+def test_on_query_text_opens_dropdown_overlay():
+    popup, _box = _controller()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        with patch("plugin.chatbot.slash_popup._toggle_list_popup", return_value=True) as toggle:
+            popup.on_query_text("/")
+            assert toggle.called
+    assert popup.is_open is True
+    assert popup._overlay_open is True
+    with patch("plugin.chatbot.slash_popup._toggle_list_popup", return_value=True) as toggle_hide:
+        popup.hide()
+        assert toggle_hide.called
+    assert popup._overlay_open is False
