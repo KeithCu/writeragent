@@ -269,11 +269,11 @@ def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     """
     doc, _body_text, body_cursor = _writer_doc_mock()
     body_cursor.getString.return_value = ""
-    cleared: list[str] = []
+    cleared: list[int] = []
     promoted: list[int] = []
 
-    def fake_clear(cursor, *, reason=""):
-        cleared.append(reason)
+    def fake_clear(cursor):
+        cleared.append(1)
 
     def fake_promote(cursor, *, start):
         promoted.append(start)
@@ -290,8 +290,7 @@ def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     wi._insert_html_at_body_end(
         doc, '<ol start="3"><li>Ask for help</li></ol>', lead_break=False, exit_list=True
     )
-    assert "pre_insert" not in cleared
-    assert "exit_list" in cleared
+    assert len(cleared) == 1
     assert 3 in promoted
 
 
@@ -324,10 +323,10 @@ def test_insert_html_blockquote_still_pre_clears(monkeypatch):
     """Non-list HTML still pre-clears so a quote does not inherit leftover bullets."""
     doc, _body_text, body_cursor = _writer_doc_mock()
     body_cursor.getString.return_value = ""
-    cleared: list[str] = []
+    cleared: list[int] = []
 
-    def fake_clear(cursor, *, reason=""):
-        cleared.append(reason)
+    def fake_clear(cursor):
+        cleared.append(1)
 
     monkeypatch.setattr("plugin.notebook.writer_importer._clear_para_numbering", fake_clear)
     monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", lambda *a, **k: None)
@@ -336,7 +335,7 @@ def test_insert_html_blockquote_still_pre_clears(monkeypatch):
     import plugin.notebook.writer_importer as wi
 
     wi._insert_html_at_body_end(doc, "<blockquote><p>Note</p></blockquote>", lead_break=False)
-    assert cleared == ["pre_insert"]
+    assert len(cleared) == 1
 
 
 def _writer_doc_mock(*, with_bookmarks: bool = False):
