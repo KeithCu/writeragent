@@ -2,16 +2,27 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO: geometric splice round-trips live getFormula / setFormula.
+"""UNO: geometric splice, insert/delete repair, and live Shared-kernel eval.
 
-Probe + assertions. Confirms Calc's stored spelling (equals, $ , prefix)
-so rebuild_formula_with_data_args does not guess from CalcDocStub.
+Formula I/O confirms Calc's stored spelling (equals, $, prefix) so
+rebuild_formula_with_data_args does not guess from CalcDocStub. Phase 3
+covers insert/delete/undo and cap-hit skip. Leftover §10 product proofs:
+Shared-kernel A3 reads a name assigned in A1 (F9-stable, strip), and
+auto-spill still writes neighbors on a chained origin.
 """
 
 from __future__ import annotations
 
+import time
+
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
+
+# Isolated testing_runner profiles do not unopkg the OXT, so sheet =PY() is
+# #NAME? (504/525). Linux PR CI installs the extension — those runs must
+# assert values, not skip. Direct PythonFunction calls are not a substitute
+# (they bypass Calc order). Same codes as test_py_dag_chain_uno.py.
+_PY_UNREGISTERED = frozenset({504, 525})
 
 
 def _store(cell, formula: str) -> str:
@@ -147,6 +158,92 @@ def _flush(ctx, doc, sheet) -> None:
     flush_sheet_modify_pass_for_tests(ctx, doc, sheet)
 
 
+def _cold_kernel() -> None:
+    """Drop leftover worker state so F9 cannot succeed on a warm Shared name."""
+    from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.scripting.venv_worker import PythonWorkerManager
+
+    PythonWorkerManager.shutdown_all()
+    clear_python_addin_cache()
+
+
+def _record_this_workbook_only(doc) -> None:
+    """Strip needs exactly one recorded Calc session (unanimous-ours + unambiguous).
+
+    Other UNO tests may have left ids in ``_RECORDED_CALC_SESSION_IDS``. Clear
+    those, then record this doc the same way repair / Shared-kernel eval do.
+    """
+    import plugin.scripting.session_manager as sm
+    from plugin.calc.python.geometric_recalc import record_geometric_calc_session
+
+    sm.clear_active_calc_session()
+    record_geometric_calc_session(doc)
+    sm.calc_workbook_base_session_id(doc)
+
+
+def _wait_cell_value(doc, cell, expected: float, timeout: float = 8.0) -> bool:
+    """True if *cell* reaches *expected*. False if sheet =PY is #NAME? (no add-in)."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        doc.calculateAll()
+        if cell.getValue() == expected:
+            return True
+        if cell.getError() in _PY_UNREGISTERED:
+            return False
+        time.sleep(0.05)
+    if cell.getValue() == expected:
+        return True
+    if cell.getError() in _PY_UNREGISTERED:
+        return False
+    raise AssertionError(
+        "cell did not become %r: value=%r error=%r string=%r formula=%r"
+        % (
+            expected,
+            cell.getValue(),
+            cell.getError(),
+            cell.getString(),
+            cell.getFormula(),
+        )
+    )
+
+
+def _skip_if_py_unregistered(cell, *, test_name: str) -> bool:
+    """Log-and-skip on blank-profile #NAME?. Return True when the caller should return."""
+    if cell.getError() not in _PY_UNREGISTERED:
+        return False
+    from plugin.framework.logging import log
+
+    log.warning(
+        "[%s] skip live sheet eval — value=%r error=%r formula=%r (add-in not registered)",
+        test_name,
+        cell.getValue(),
+        cell.getError(),
+        cell.getFormula(),
+    )
+    return True
+
+
+class _ImmediateTimer:
+    """Collapse the 0.1s spill Timer onto the caller (UI) thread.
+
+    ``testing_runner`` sets ``WRITERAGENT_TESTING=1``, so ``post_to_main_thread``
+    already inlines. A real ``threading.Timer`` would fire off-main, and
+    ``perform_deferred_spill`` then no-ops (``on_main_thread`` is false).
+    Same DummyTimer shape as ``test_function.test_finalize_python_return_triggers_spill``.
+    """
+
+    def __init__(self, _interval, function, args=(), kwargs=None):
+        self.function = function
+        self.args = args
+        self.kwargs = kwargs or {}
+
+    def start(self) -> None:
+        self.function(*self.args, **self.kwargs)
+
+    def cancel(self) -> None:
+        return None
+
+
 @native_test
 @with_native_doc("calc")
 def test_geometric_insert_delete_undo_three_cell_column(ctx, doc):
@@ -223,5 +320,121 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
         assert _pred(a2) is None, a2
         a101 = str(sheet.getCellByPosition(0, _MAX_PYTHON_CELLS_FOUND).getFormula() or "")
         assert _pred(a101) is None, a101
+    finally:
+        _restore_geometric_flag(previous)
+
+
+@native_test
+@with_native_doc("calc")
+def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
+    """§10 leftover: Shared kernel, flag on — A3 reads A1's name; F9-stable; strip.
+
+    A1 assigns ``x = 41``. A2 stays empty so A3's predecessor is A1. A3 is
+    ``=PY("result = x if data is None else -999")`` with no user-typed ``;A1``.
+    After deferred attach, A3's formula names A1. A cold worker + calculateAll
+    must yield 41 (geometric order, not leftover kernel state). A second
+    calculateAll must stay 41. ``-999`` means strip failed and A1's return
+    was packed as ``data``.
+    """
+    from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
+    from plugin.framework.config import set_config
+
+    reset_geometric_runtime_for_tests()
+    _cold_kernel()
+    previous = _enable_geometric_flag()
+    try:
+        set_config("scripting.python_session_mode", "shared")
+        _record_this_workbook_only(doc)
+        sheet = doc.getSheets().getByIndex(0)
+        a1 = sheet.getCellByPosition(0, 0)
+        a3 = sheet.getCellByPosition(0, 2)
+        # A2 left empty — A3's row-major predecessor is A1.
+        a1.setFormula('=PY("x = 41")')
+        a3.setFormula('=PY("result = x if data is None else -999")')
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        assert _pred(str(a1.getFormula() or "")) is None
+
+        # Cold kernel after attach so the first F9 cannot succeed because
+        # setFormula already left ``x`` in the Shared namespace.
+        _cold_kernel()
+        _record_this_workbook_only(doc)
+        if not _wait_cell_value(doc, a3, 41.0):
+            if _skip_if_py_unregistered(
+                a1, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
+            ):
+                return
+            raise AssertionError(
+                "A3 did not become 41 after attach+F9: value=%r error=%r string=%r formula=%r"
+                % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
+            )
+        assert a3.getValue() == 41.0, (
+            a3.getValue(),
+            a3.getString(),
+            a3.getFormula(),
+        )
+
+        # Second F9 (warm kernel is fine here — first pass already proved order).
+        doc.calculateAll()
+        assert a3.getValue() == 41.0, (
+            a3.getValue(),
+            a3.getString(),
+            a3.getFormula(),
+        )
+    finally:
+        set_config("scripting.python_session_mode", "isolated")
+        _restore_geometric_flag(previous)
+
+
+@native_test
+@with_native_doc("calc")
+def test_geometric_chained_origin_still_auto_spills(ctx, doc):
+    """§10 leftover: attaching ``;pred`` must not collapse an auto-spill origin to 1×1.
+
+    Unchained live spill is already covered by ``test_calc_spill_undo_lock``
+    (direct ``perform_deferred_spill``) and ``test_function`` DummyTimer cases.
+    This adds the chained origin next to those, using the same spill path.
+    """
+    from unittest.mock import patch
+
+    from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
+    from plugin.framework.config import get_config_bool
+
+    assert get_config_bool("scripting.python_auto_spill") is True
+    reset_geometric_runtime_for_tests()
+    _cold_kernel()
+    previous = _enable_geometric_flag()
+    try:
+        _record_this_workbook_only(doc)
+        sheet = doc.getSheets().getByIndex(0)
+        a1 = sheet.getCellByPosition(0, 0)
+        a3 = sheet.getCellByPosition(0, 2)
+        b3 = sheet.getCellByPosition(1, 2)
+        a4 = sheet.getCellByPosition(0, 3)
+        b4 = sheet.getCellByPosition(1, 3)
+        a1.setFormula('=PY("result = 1")')
+        # 2×2 list — origin A3, neighbors B3 / A4 / B4. Distinct code from A1
+        # so locate_formula_cell_in_doc stays unique after attach.
+        a3.setFormula('=PY("result = [[10, 20], [30, 40]]")')
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+
+        with patch("plugin.calc.python.function.threading.Timer", _ImmediateTimer):
+            if not _wait_cell_value(doc, a3, 10.0):
+                if _skip_if_py_unregistered(
+                    a1, test_name="test_geometric_chained_origin_still_auto_spills"
+                ):
+                    return
+                raise AssertionError(
+                    "chained origin did not become 10: value=%r error=%r string=%r formula=%r"
+                    % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
+                )
+
+        assert a3.getValue() == 10.0, (a3.getValue(), a3.getString(), a3.getFormula())
+        assert a3.getString() != "#SPILL!", a3.getString()
+        # Attaching ;A1 must not collapse the 2×2 via the index heuristic.
+        assert b3.getValue() == 20.0, (b3.getValue(), b3.getString())
+        assert a4.getValue() == 30.0, (a4.getValue(), a4.getString())
+        assert b4.getValue() == 40.0, (b4.getValue(), b4.getString())
     finally:
         _restore_geometric_flag(previous)
