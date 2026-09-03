@@ -223,25 +223,84 @@ def _skip_if_py_unregistered(cell, *, test_name: str) -> bool:
     return True
 
 
-class _ImmediateTimer:
-    """Collapse the 0.1s spill Timer onto the caller (UI) thread.
+# User-script body. Runs in soffice's Python (OXT), not the URP client.
+# Client-side reconcile updates the client's _STRIP_SAFE; sheet =PY() strip
+# reads soffice's map. Same for Shared-kernel worker shutdown.
+_SOFFICE_GEO_SCRIPT = '''
+def reconcile():
+    import plugin.calc.python.geometric_recalc as geo
+    ctx = XSCRIPTCONTEXT.getComponentContext()
+    doc = XSCRIPTCONTEXT.getDocument()
+    geo.geometric_flag_enabled = lambda: True
+    geo.reset_geometric_runtime_for_tests()
+    geo.record_geometric_calc_session(doc)
+    geo.reconcile_geometric_document(ctx, doc)
 
-    ``testing_runner`` sets ``WRITERAGENT_TESTING=1``, so ``post_to_main_thread``
-    already inlines. A real ``threading.Timer`` would fire off-main, and
-    ``perform_deferred_spill`` then no-ops (``on_main_thread`` is false).
-    Same DummyTimer shape as ``test_function.test_finalize_python_return_triggers_spill``.
-    """
 
-    def __init__(self, _interval, function, args=(), kwargs=None):
-        self.function = function
-        self.args = args
-        self.kwargs = kwargs or {}
+def cold_kernel():
+    from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.scripting.venv_worker import PythonWorkerManager
+    PythonWorkerManager.shutdown_all()
+    clear_python_addin_cache()
 
-    def start(self) -> None:
-        self.function(*self.args, **self.kwargs)
 
-    def cancel(self) -> None:
-        return None
+def restore_flag():
+    import plugin.calc.python.geometric_recalc as geo
+    geo.reset_geometric_runtime_for_tests()
+'''
+
+
+def _user_scripts_python_dir(ctx) -> str:
+    """``$(user)/Scripts/python`` in the live UserInstallation."""
+    import uno
+
+    subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
+    user_url = str(subst.substituteVariables("$(user)", True) or "")
+    if user_url.startswith("file://"):
+        user_dir = uno.fileUrlToSystemPath(user_url)
+    else:
+        user_dir = user_url
+    from os.path import join
+
+    return join(user_dir, "Scripts", "python")
+
+
+def _invoke_soffice_python(ctx, doc, func_name: str) -> None:
+    """Run a user Python macro inside soffice so eval sees the same in-memory maps."""
+    import os
+
+    scripts_dir = _user_scripts_python_dir(ctx)
+    os.makedirs(scripts_dir, exist_ok=True)
+    script_path = os.path.join(scripts_dir, "wa_geo_eval.py")
+    with open(script_path, "w", encoding="utf-8") as handle:
+        handle.write(_SOFFICE_GEO_SCRIPT)
+
+    smgr = ctx.getServiceManager()
+    factory = smgr.createInstanceWithContext(
+        "com.sun.star.script.provider.MasterScriptProviderFactory", ctx
+    )
+    provider = factory.createScriptProvider(doc)
+    uri = (
+        "vnd.sun.star.script:wa_geo_eval.%s?language=Python&location=user"
+        % func_name
+    )
+    script = provider.getScript(uri)
+    script.invoke((), (), ())
+
+
+def _soffice_reconcile(ctx, doc) -> None:
+    _invoke_soffice_python(ctx, doc, "reconcile")
+
+
+def _soffice_cold_kernel(ctx, doc) -> None:
+    _invoke_soffice_python(ctx, doc, "cold_kernel")
+
+
+def _soffice_restore_flag(ctx, doc) -> None:
+    try:
+        _invoke_soffice_python(ctx, doc, "restore_flag")
+    except Exception:
+        pass
 
 
 @native_test
@@ -352,12 +411,15 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
         a1.setFormula('=PY("x = 41")')
         a3.setFormula('=PY("result = x if data is None else -999")')
         _flush(ctx, doc, sheet)
+        # Client flush writes the formula; soffice reconcile fills soffice's
+        # strip-safe index + recorded session (eval runs in that process).
+        _soffice_reconcile(ctx, doc)
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
         assert _pred(str(a1.getFormula() or "")) is None
 
-        # Cold kernel after attach so the first F9 cannot succeed because
-        # setFormula already left ``x`` in the Shared namespace.
-        _cold_kernel()
+        # Cold soffice worker after attach so the first F9 cannot succeed
+        # because setFormula already left ``x`` in the Shared namespace.
+        _soffice_cold_kernel(ctx, doc)
         _record_this_workbook_only(doc)
         if not _wait_cell_value(doc, a3, 41.0):
             if _skip_if_py_unregistered(
@@ -383,6 +445,7 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
         )
     finally:
         set_config("scripting.python_session_mode", "isolated")
+        _soffice_restore_flag(ctx, doc)
         _restore_geometric_flag(previous)
 
 
@@ -395,8 +458,6 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
     (direct ``perform_deferred_spill``) and ``test_function`` DummyTimer cases.
     This adds the chained origin next to those, using the same spill path.
     """
-    from unittest.mock import patch
-
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
     from plugin.framework.config import get_config_bool
 
@@ -417,24 +478,29 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
         # so locate_formula_cell_in_doc stays unique after attach.
         a3.setFormula('=PY("result = [[10, 20], [30, 40]]")')
         _flush(ctx, doc, sheet)
+        _soffice_reconcile(ctx, doc)
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
 
-        with patch("plugin.calc.python.function.threading.Timer", _ImmediateTimer):
-            if not _wait_cell_value(doc, a3, 10.0):
-                if _skip_if_py_unregistered(
-                    a1, test_name="test_geometric_chained_origin_still_auto_spills"
-                ):
-                    return
-                raise AssertionError(
-                    "chained origin did not become 10: value=%r error=%r string=%r formula=%r"
-                    % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
-                )
+        if not _wait_cell_value(doc, a3, 10.0):
+            if _skip_if_py_unregistered(
+                a1, test_name="test_geometric_chained_origin_still_auto_spills"
+            ):
+                return
+            raise AssertionError(
+                "chained origin did not become 10: value=%r error=%r string=%r formula=%r"
+                % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
+            )
 
         assert a3.getValue() == 10.0, (a3.getValue(), a3.getString(), a3.getFormula())
         assert a3.getString() != "#SPILL!", a3.getString()
-        # Attaching ;A1 must not collapse the 2×2 via the index heuristic.
-        assert b3.getValue() == 20.0, (b3.getValue(), b3.getString())
+        # Deferred spill writes neighbors from soffice (0.1s timer). Poll.
+        if not _wait_cell_value(doc, b3, 20.0):
+            raise AssertionError(
+                "chained origin did not spill to B3: value=%r string=%r origin=%r"
+                % (b3.getValue(), b3.getString(), a3.getFormula())
+            )
         assert a4.getValue() == 30.0, (a4.getValue(), a4.getString())
         assert b4.getValue() == 40.0, (b4.getValue(), b4.getString())
     finally:
+        _soffice_restore_flag(ctx, doc)
         _restore_geometric_flag(previous)
