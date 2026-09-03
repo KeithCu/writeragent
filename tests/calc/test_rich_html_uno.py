@@ -84,7 +84,14 @@ def _is_bold_char_weight(wv) -> bool:
 @native_test
 @with_native_doc("calc")
 def test_insert_cell_html(ctx, doc):
+    from plugin.testing_runner import _progress, _soffice_pids
+    import os
+
     active_sheet = doc.getCurrentController().getActiveSheet()
+    _progress(
+        "insert_cell_html: execute start python_pid=%s soffice=%s"
+        % (os.getpid(), _soffice_pids())
+    )
     res = _execute_calc_tool(
         doc,
         ctx,
@@ -93,6 +100,10 @@ def test_insert_cell_html(ctx, doc):
             "cell": "Z99",
             "html": "Plain <b>BoldBit</b> tail",
         },
+    )
+    _progress(
+        "insert_cell_html: execute done status=%s python_pid=%s soffice=%s"
+        % (res.get("status"), os.getpid(), _soffice_pids())
     )
     assert res.get("status") == "ok", f"insert_cell_html failed: {res}"
     cell = active_sheet.getCellByPosition(25, 98)

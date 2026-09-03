@@ -80,6 +80,54 @@ def test_insert_cell_html_rich_loads_temp_writer_with_blank_target(caplog):
     ):
         assert f"insert_cell_html_rich: {step} start" in caplog.text
         assert f"insert_cell_html_rich: {step} done" in caplog.text
+    assert "target=_blank" in caplog.text
+    assert "reused_existing=" in caplog.text
+
+
+def test_insert_cell_html_rich_steps_go_to_stderr(capsys):
+    """GHA 33699746211 had no step line: file-only log.info never reached Actions."""
+    from plugin.calc.rich_html import insert_cell_html_rich
+
+    calc_doc, cell, desktop, _temp_doc, _calc_ctrl, _writer_ctrl = _cell_and_docs()
+    with (
+        patch("plugin.calc.rich_html.get_desktop", return_value=desktop),
+        patch("plugin.calc.rich_html.CalcBridge") as mock_bridge_cls,
+        patch("plugin.calc.rich_html.format_support") as mock_fmt,
+    ):
+        mock_bridge = mock_bridge_cls.return_value
+        mock_bridge.get_active_sheet.return_value = MagicMock()
+        mock_bridge.get_cell.return_value = cell
+        mock_fmt._ensure_html_linebreaks.side_effect = lambda html: html
+        mock_fmt.create_property_value.return_value = object()
+        insert_cell_html_rich(calc_doc, MagicMock(), "Z99", "Plain <b>BoldBit</b> tail")
+    err = capsys.readouterr().err
+    assert "insert_cell_html_rich: loadComponentFromURL start target=_blank" in err
+    assert "insert_cell_html_rich: writers_open=" in err
+    assert "insert_cell_html_rich: loadComponentFromURL done" in err
+    assert "reused_existing=" in err
+    assert "insert_cell_html_rich: insertTransferable start" in err
+    assert "insert_cell_html_rich: close done" in err
+
+
+def test_desktop_writer_uids_stops_on_mock_enumeration():
+    """MagicMock.hasMoreElements() is truthy; must not spin."""
+    from plugin.calc.rich_html import _desktop_writer_uids
+
+    assert _desktop_writer_uids(MagicMock()) == []
+
+
+def test_desktop_writer_uids_records_writer_runtime_uid():
+    from plugin.calc.rich_html import _desktop_writer_uids
+
+    writer = MagicMock()
+    writer.supportsService.side_effect = lambda name: name == "com.sun.star.text.TextDocument"
+    writer.RuntimeUID = "keeper-1"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = writer
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    assert _desktop_writer_uids(desktop) == ["keeper-1"]
 
 
 def test_insert_cell_html_rich_empty_html_raises():

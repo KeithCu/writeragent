@@ -109,6 +109,52 @@ def test_libreoffice_user_lock_path_is_under_profile() -> None:
     assert "libreoffice" in str(lock).lower() or "LibreOffice" in str(lock)
 
 
+def test_run_module_suite_prints_fail_reason(capsys) -> None:
+    """GHA 33699746211 hung after three FAILs; suite_log JSON never printed."""
+
+    def test_boom(ctx=None):
+        raise AssertionError("A1 did not become 2.0")
+
+    test_boom._is_test = True
+
+    class _Mod:
+        pass
+
+    module = _Mod()
+    module.test_boom = test_boom
+    passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.boom")
+    assert passed == 0
+    assert failed == 1
+    assert any("A1 did not become 2.0" in line for line in suite_log)
+    err = capsys.readouterr().err
+    assert "TEST end fake.boom.test_boom FAIL AssertionError: A1 did not become 2.0" in err
+
+
+def test_soffice_pids_win32_parses_tasklist(monkeypatch) -> None:
+    import subprocess
+
+    monkeypatch.setattr(tr.sys, "platform", "win32")
+    monkeypatch.setattr(
+        subprocess,
+        "check_output",
+        lambda *_args, **_kwargs: (
+            '"soffice.exe","99","Console","1","10 K"\r\n'
+            '"soffice.bin","100","Console","1","12 K"\r\n'
+            '"notepad.exe","1","Console","1","1 K"\r\n'
+        ),
+    )
+    assert tr._soffice_pids() == "99,100"
+
+
+def test_fail_reason_flattens_and_caps() -> None:
+    assert tr._fail_reason(AssertionError("x\ny")) == "AssertionError: x y"
+    long_exc = AssertionError("n" * 500)
+    out = tr._fail_reason(long_exc)
+    assert out.startswith("AssertionError: ")
+    assert out.endswith("...")
+    assert len(out) == 400
+
+
 def test_soffice_bin_running_uses_pids_helper(monkeypatch) -> None:
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "18456")
     assert tr._soffice_bin_running() is True

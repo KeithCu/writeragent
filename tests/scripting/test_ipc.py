@@ -126,6 +126,22 @@ def test_invalid_frame_includes_stdout_rest_when_win32_peek_skipped(monkeypatch)
     stream.read.assert_called_once_with(4)
 
 
+def test_invalid_frame_prints_platform_and_peek_skipped(monkeypatch, capsys):
+    """GHA UNO hang: say whether leftover peek ran before a later insert_cell_html stall."""
+    from plugin.scripting import ipc
+
+    monkeypatch.setattr(ipc.sys, "platform", "win32")
+    monkeypatch.setattr(ipc.os, "set_blocking", lambda *_a, **_k: None)
+    stream = MagicMock()
+    stream.fileno.return_value = 3
+    stream.read.return_value = b"Erro"
+    with pytest.raises(IpcFrameError):
+        read_pickle_frame(stream, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+    err = capsys.readouterr().err
+    assert "ipc invalid frame platform=win32 peek_skipped=True" in err
+    assert "stdout_rest=b''" in err
+
+
 def test_unread_pipe_bytes_posix_peek_uses_set_blocking(monkeypatch):
     """Unix leftover peek still uses set_blocking; mock so Windows pytest can run it."""
     from plugin.scripting import ipc

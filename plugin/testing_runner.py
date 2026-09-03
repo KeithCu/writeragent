@@ -32,15 +32,48 @@ def _progress(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def _soffice_pids_win32() -> str:
+    """Parse ``tasklist`` CSV. ``pgrep`` is absent on GHA windows-latest
+    (33699746211 printed ``soffice.bin=-`` while leftover dump still had
+    soffice.exe / soffice.bin).
+    """
+    import subprocess
+
+    try:
+        out = subprocess.check_output(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return "-"
+    pids: list[str] = []
+    for line in out.splitlines():
+        low = line.lower()
+        if "soffice.bin" not in low and "soffice.exe" not in low:
+            continue
+        parts = line.split(",")
+        if len(parts) < 2:
+            continue
+        pid = parts[1].strip().strip('"')
+        if pid.isdigit():
+            pids.append(pid)
+    return ",".join(dict.fromkeys(pids)) or "-"
+
+
 def _soffice_pids() -> str:
     """Best-effort soffice PIDs for correlating aborts with this run.
 
     Linux uses ``soffice.bin``; macOS Homebrew/app bundles name the process
     ``soffice``. ``pgrep -x soffice.bin`` on Darwin is why CI 33453203864
     printed ``soffice.bin=-`` while ``lo-kill`` still found PID 18456.
+    Windows GHA has no ``pgrep`` — use ``tasklist``.
     """
     try:
         import subprocess
+
+        if sys.platform == "win32":
+            return _soffice_pids_win32()
 
         pids: list[str] = []
         for name in ("soffice.bin", "soffice"):
@@ -56,6 +89,15 @@ def _soffice_pids() -> str:
         return ",".join(dict.fromkeys(pids)) or "-"
     except Exception:
         return "-"
+
+
+def _fail_reason(exc: BaseException) -> str:
+    """One-line FAIL reason for GHA. suite_log JSON is lost if a later test hangs."""
+    text = "%s: %s" % (type(exc).__name__, exc)
+    text = text.replace("\n", " ")
+    if len(text) > 400:
+        return text[:397] + "..."
+    return text
 
 
 def _is_case_id(token: str) -> bool:
@@ -579,7 +621,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 total_failed += 1
                 suite_log.append(f"{test_line} — FAIL (ModuleNotFoundError: {e})")
                 suite_log.append(traceback.format_exc())
-                _progress(f"TEST end {name}.{test_func.__name__} FAIL")
+                _progress(f"TEST end {name}.{test_func.__name__} FAIL {_fail_reason(e)}")
             except unittest.SkipTest as e:
                 total_passed += 1
                 suite_log.append(f"{test_line} — OK (skipped) ({e})")
@@ -588,12 +630,12 @@ def run_module_suite(ctx, module, name, doc_model=None):
                 total_failed += 1
                 suite_log.append(f"{test_line} — FAIL (AssertionError: {e})")
                 suite_log.append(traceback.format_exc())
-                _progress(f"TEST end {name}.{test_func.__name__} FAIL")
+                _progress(f"TEST end {name}.{test_func.__name__} FAIL {_fail_reason(e)}")
             except Exception as e:
                 total_failed += 1
                 suite_log.append(f"{test_line} — FAIL ({type(e).__name__}: {e})")
                 suite_log.append(traceback.format_exc())
-                _progress(f"TEST end {name}.{test_func.__name__} FAIL")
+                _progress(f"TEST end {name}.{test_func.__name__} FAIL {_fail_reason(e)}")
                 if _is_uno_bridge_disposed(e):
                     _mark_urp_dead(e, "%s.%s" % (name, test_func.__name__))
                     break
@@ -732,7 +774,20 @@ def run_all_tests(ctx: Any) -> str:
         # User-profile sidebar tests must not open a hidden Writer — that steals
         # the restored deck / current component.
         if not use_user_profile:
+            _progress(
+                "KEEPER load start target=_blank hidden=True "
+                "python_pid=%s soffice=%s" % (os.getpid(), _soffice_pids())
+            )
             keeper_doc = get_desktop(ctx).loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden_prop,))
+            keeper_uid = "-"
+            try:
+                keeper_uid = str(getattr(keeper_doc, "RuntimeUID", None) or "-")
+            except Exception:
+                keeper_uid = "-"
+            _progress(
+                "KEEPER load done ok=%s uid=%s python_pid=%s soffice=%s"
+                % (keeper_doc is not None, keeper_uid, os.getpid(), _soffice_pids())
+            )
     except Exception as e:
         log.warning("run_all_tests: could not create keeper document: %s", e)
         if _is_uno_bridge_disposed(e):
@@ -808,7 +863,6 @@ def run_all_tests(ctx: Any) -> str:
                 _mark_urp_dead(e, "_ensure_live_ctx refresh")
             return current_ctx
 
-    import os
     from plugin.framework.constants import get_plugin_dir
     import importlib.util
 
@@ -910,9 +964,11 @@ def run_all_tests(ctx: Any) -> str:
 
         if keeper_doc is not None:
             try:
+                _progress("KEEPER close start")
                 keeper_doc.close(True)
+                _progress("KEEPER close done")
             except Exception:
-                pass
+                _progress("KEEPER close failed")
 
     summary: Dict[str, Any] = {"total_passed": total_passed, "suites": suites}
     if total_failed:
