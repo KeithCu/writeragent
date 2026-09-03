@@ -250,69 +250,72 @@ def restore_flag():
 '''
 
 
-def _user_scripts_python_dir(ctx) -> str:
-    """``$(user)/Scripts/python`` in the live UserInstallation."""
+def _user_scripts_python_dirs(ctx) -> list[str]:
+    """Candidate ``$(user)/Scripts/python`` dirs (testing_runner throwaway profile)."""
+    import glob
     import os
 
     import uno
 
-    user_dir = ""
+    dirs: list[str] = []
+
+    def _add_user_dir(raw: str) -> None:
+        path = (raw or "").strip()
+        if path.startswith("file://"):
+            path = uno.fileUrlToSystemPath(path)
+        if not path:
+            return
+        user_dir = path
+        steps = 0
+        while steps < 4 and os.path.basename(user_dir) != "user":
+            parent = os.path.dirname(user_dir)
+            if parent == user_dir:
+                break
+            user_dir = parent
+            steps += 1
+        if os.path.basename(user_dir) != "user":
+            user_dir = path
+        candidate = os.path.join(user_dir, "Scripts", "python")
+        if candidate not in dirs:
+            dirs.append(candidate)
+
     smgr = ctx.getServiceManager()
     try:
-        subst = ctx.getValueByName("/singletons/com.sun.star.util.thePathSubstitution")
-        if subst is not None:
-            user_url = str(subst.substituteVariables("$(user)", True) or "")
-            if user_url.startswith("file://"):
-                user_dir = uno.fileUrlToSystemPath(user_url)
-            else:
-                user_dir = user_url
+        subst = smgr.createInstanceWithContext(
+            "com.sun.star.util.PathSubstitution", ctx
+        )
+        _add_user_dir(str(subst.substituteVariables("$(user)", True) or ""))
     except Exception:
-        user_dir = ""
-    if not user_dir:
-        try:
-            subst = smgr.createInstanceWithContext(
-                "com.sun.star.util.PathSubstitution", ctx
-            )
-            user_url = str(subst.substituteVariables("$(user)", True) or "")
-            if user_url.startswith("file://"):
-                user_dir = uno.fileUrlToSystemPath(user_url)
-            else:
-                user_dir = user_url
-        except Exception:
-            user_dir = ""
-    if not user_dir:
-        try:
-            ps = smgr.createInstanceWithContext("com.sun.star.util.PathSettings", ctx)
-            raw = str(getattr(ps, "UserConfig", "") or "")
-            if raw.startswith("file://"):
-                raw = uno.fileUrlToSystemPath(raw)
-            # UserConfig is often …/user or …/user/registry/data.
-            user_dir = raw
-            for idx in range(3):
-                if os.path.basename(user_dir) == "user":
-                    break
-                parent = os.path.dirname(user_dir)
-                if parent == user_dir:
-                    break
-                user_dir = parent
-        except Exception:
-            user_dir = ""
-    if not user_dir:
+        pass
+    try:
+        ps = smgr.createInstanceWithContext("com.sun.star.util.PathSettings", ctx)
+        _add_user_dir(str(getattr(ps, "UserConfig", "") or ""))
+    except Exception:
+        pass
+    try:
         from plugin.framework.config import _config_path
 
-        user_dir = os.path.dirname(_config_path())
-    return os.path.join(user_dir, "Scripts", "python")
+        _add_user_dir(os.path.dirname(_config_path()))
+    except Exception:
+        pass
+    for match in glob.glob("/tmp/writeragent-lo-test-profile-*/user"):
+        _add_user_dir(match)
+    return dirs
 
 
 def _invoke_soffice_python(ctx, doc, func_name: str) -> None:
     """Run a user Python macro inside soffice so eval sees the same in-memory maps."""
     import os
 
-    scripts_dir = _user_scripts_python_dir(ctx)
-    os.makedirs(scripts_dir, exist_ok=True)
-    script_path = os.path.join(scripts_dir, "wa_geo_eval.py")
-    with open(script_path, "w", encoding="utf-8") as handle:
-        handle.write(_SOFFICE_GEO_SCRIPT)
+    script_dirs = _user_scripts_python_dirs(ctx)
+    if not script_dirs:
+        raise AssertionError("could not resolve $(user)/Scripts/python")
+    for scripts_dir in script_dirs:
+        os.makedirs(scripts_dir, exist_ok=True)
+        script_path = os.path.join(scripts_dir, "wa_geo_eval.py")
+        with open(script_path, "w", encoding="utf-8") as handle:
+            handle.write(_SOFFICE_GEO_SCRIPT)
+        print("wa_geo_eval wrote", script_path, flush=True)
 
     smgr = ctx.getServiceManager()
     factory = smgr.createInstanceWithContext(
