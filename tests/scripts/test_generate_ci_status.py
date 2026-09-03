@@ -226,7 +226,7 @@ def test_render_svg_escapes_xml() -> None:
 
 def test_readme_embeds_pages_svg() -> None:
     text = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    assert "![CI status](https://keithcu.github.io/writeragent/status.svg)" in text
+    assert "![CI status](https://keithcu.github.io/writeragent/status.svg?v=2026-09-03)" in text
     assert "[CI status page](https://keithcu.github.io/writeragent/)" in text
 
 
