@@ -117,9 +117,6 @@ def test_writeragent_writer_only_top_level_items():
     for url in (
         _PROTOCOL + "textanalytics.open_dialog",
         _PROTOCOL + "writer.insert_latex_dialog",
-        _PROTOCOL + "notebook.run_all",
-        _PROTOCOL + "notebook.run_from_here",
-        _PROTOCOL + "notebook.stop",
     ):
         assert url in items, f"missing menu item {url}"
         ctx = _prop_text(items[url], "Context")
@@ -138,6 +135,22 @@ def test_writeragent_jupyter_is_not_a_menu_item():
         _prop_text(item, "URL") for item in _debug_submenu(menubar).findall("node")
     ]
     assert jupyter not in debug_urls
+
+
+def test_writeragent_notebook_run_is_not_a_menu_item():
+    """Run All / From Here / Stop are hamburger-only when a notebook registry exists."""
+    root = ET.parse(_ADDONS_XCU).getroot()
+    items = _submenu_items(_find_menubar(root))
+    debug_urls = [
+        _prop_text(item, "URL") for item in _debug_submenu(_find_menubar(root)).findall("node")
+    ]
+    for url in (
+        _PROTOCOL + "notebook.run_all",
+        _PROTOCOL + "notebook.run_from_here",
+        _PROTOCOL + "notebook.stop",
+    ):
+        assert url not in items
+        assert url not in debug_urls
 
 
 def test_writeragent_node_names_are_sort_stable():
@@ -169,9 +182,6 @@ def test_writeragent_menu_order():
         _PROTOCOL + "mcp.toggle_server",
         _PROTOCOL + "mcp.server_status",
         _PROTOCOL + "scripting.reset_python_session",
-        _PROTOCOL + "notebook.run_all",
-        _PROTOCOL + "notebook.run_from_here",
-        _PROTOCOL + "notebook.stop",
         _PROTOCOL + "main.NoOp",
         _PROTOCOL + "main.report_bug",
     ]
@@ -194,7 +204,7 @@ def test_writeragent_mcp_items_reserve_icon_slot():
     assert not _has_image_identifier(items[_PROTOCOL + "mcp.toggle_server"])
 
 
-def test_writeragent_toolbar_has_notebook_run_actions():
+def test_writeragent_toolbar_has_no_notebook_run_actions():
     root = ET.parse(_ADDONS_XCU).getroot()
     toolbar = None
     for node in root.iter("node"):
@@ -207,16 +217,9 @@ def test_writeragent_toolbar_has_notebook_run_actions():
         url = _prop_text(item, "URL")
         if url:
             urls.append(url)
-    assert _PROTOCOL + "notebook.run_all" in urls
-    assert _PROTOCOL + "notebook.run_from_here" in urls
-    assert _PROTOCOL + "notebook.stop" in urls
-    for url in (
-        _PROTOCOL + "notebook.run_all",
-        _PROTOCOL + "notebook.run_from_here",
-        _PROTOCOL + "notebook.stop",
-    ):
-        item = next(n for n in toolbar.findall("node") if _prop_text(n, "URL") == url)
-        assert _prop_text(item, "Context") == _WRITER_SVC
+    assert _PROTOCOL + "notebook.run_all" not in urls
+    assert _PROTOCOL + "notebook.run_from_here" not in urls
+    assert _PROTOCOL + "notebook.stop" not in urls
 
 
 def test_writeragent_mcp_images_section_points_at_assets():

@@ -40,9 +40,9 @@ def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
         (_("Settings"), "main.settings", "gear_32.png", "always"),
         (_("Vision OCR Settings..."), "vision.open_settings", None, "always"),
         (_("Reset Python Session"), "scripting.reset_python_session", None, "always"),
-        (_("Run All"), "notebook.run_all", None, "writer"),
-        (_("Run From Here"), "notebook.run_from_here", None, "writer"),
-        (_("Stop"), "notebook.stop", None, "writer"),
+        (_("Run All"), "notebook.run_all", None, "notebook"),
+        (_("Run From Here"), "notebook.run_from_here", None, "notebook"),
+        (_("Stop"), "notebook.stop", None, "notebook"),
         (_("Report bug..."), "main.report_bug", None, "always"),
     )
 
@@ -130,12 +130,30 @@ def command_prefix_for_ctx(ctx: Any) -> str:
     return resolve_package_extension_id(ctx) + ":"
 
 
+def document_has_notebook_registry(doc: Any) -> bool:
+    """True when File → Open wrote ``WriterAgentNotebookJson`` on *doc*.
+
+    Addons.xcu ``Context=TextDocument`` is every Writer file. These commands
+    must not appear there — only on an imported notebook.
+    """
+    if doc is None:
+        return False
+    try:
+        from plugin.notebook.cell_registry import load_registry
+
+        return load_registry(doc) is not None
+    except Exception:
+        log.debug("notebook registry check failed", exc_info=True)
+        return False
+
+
 def librepy_hamburger_actions(
     *,
     is_calc_doc: bool,
     is_writer_doc: bool,
     is_draw_doc: bool,
     handler_lookup: Callable[[str], Any] | None = None,
+    doc: Any | None = None,
 ) -> list[tuple[str, str, str | None]]:
     """Return (label, action, icon) rows that have a registered handler."""
     lookup = handler_lookup or get_action_handler
@@ -147,6 +165,9 @@ def librepy_hamburger_actions(
             continue
         if when == "draw" and not is_draw_doc:
             continue
+        if when == "notebook":
+            if not is_writer_doc or not document_has_notebook_registry(doc):
+                continue
         if lookup(action) is None:
             continue
         out.append((label, action, icon))
@@ -251,6 +272,7 @@ def show_librepy_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             is_calc_doc=is_calc(model),
             is_writer_doc=is_writer(model),
             is_draw_doc=is_draw(model),
+            doc=model,
         ):
             add_popup_item(
                 popup, label, action, pos, item_actions, next_id, ctx, prefix, icon

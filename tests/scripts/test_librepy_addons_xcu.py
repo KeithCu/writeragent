@@ -113,9 +113,6 @@ def test_librepy_writer_only_items():
     for url in (
         "org.extension.librepy:textanalytics.open_dialog",
         "org.extension.librepy:writer.insert_latex_dialog",
-        "org.extension.librepy:notebook.run_all",
-        "org.extension.librepy:notebook.run_from_here",
-        "org.extension.librepy:notebook.stop",
     ):
         assert url in items, f"missing menu item {url}"
         ctx = _prop_text(items[url], "Context")
@@ -150,6 +147,18 @@ def test_librepy_node_names_are_sort_stable():
     assert names[0].startswith("M0")
 
 
+def test_librepy_notebook_run_is_not_a_menu_item():
+    """Run All / From Here / Stop are hamburger-only when a notebook registry exists."""
+    root = ET.parse(_ADDONS_XCU).getroot()
+    items = _submenu_items(_find_menubar(root))
+    for url in (
+        "org.extension.librepy:notebook.run_all",
+        "org.extension.librepy:notebook.run_from_here",
+        "org.extension.librepy:notebook.stop",
+    ):
+        assert url not in items
+
+
 def test_librepy_menu_order():
     root = ET.parse(_ADDONS_XCU).getroot()
     assert _ordered_urls(_find_menubar(root)) == [
@@ -161,9 +170,6 @@ def test_librepy_menu_order():
         "org.extension.librepy:main.settings",
         "org.extension.librepy:vision.open_settings",
         "org.extension.librepy:scripting.reset_python_session",
-        "org.extension.librepy:notebook.run_all",
-        "org.extension.librepy:notebook.run_from_here",
-        "org.extension.librepy:notebook.stop",
         "org.extension.librepy:main.report_bug",
     ]
 

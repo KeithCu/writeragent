@@ -59,18 +59,50 @@ def test_calc_hamburger_includes_python_and_cell_not_search():
     assert "notebook.stop" not in actions
 
 
-def test_writer_hamburger_includes_notebook_run_actions():
+def test_writer_hamburger_without_notebook_registry_omits_run_actions():
     rows = librepy_hamburger_actions(
         is_calc_doc=False,
         is_writer_doc=True,
         is_draw_doc=False,
         handler_lookup=_lookup,
+        doc=object(),
     )
+    actions = [a for _label, a, _icon in rows]
+    assert "notebook.run_all" not in actions
+    assert "notebook.run_from_here" not in actions
+    assert "notebook.stop" not in actions
+    assert "scripting.reset_python_session" in actions
+
+
+def test_writer_hamburger_includes_notebook_run_actions():
+    with patch("plugin.notebook.cell_registry.load_registry", return_value=object()):
+        rows = librepy_hamburger_actions(
+            is_calc_doc=False,
+            is_writer_doc=True,
+            is_draw_doc=False,
+            handler_lookup=_lookup,
+            doc=object(),
+        )
     actions = [a for _label, a, _icon in rows]
     assert "notebook.run_all" in actions
     assert "notebook.run_from_here" in actions
     assert "notebook.stop" in actions
     assert actions.index("scripting.reset_python_session") < actions.index("notebook.run_all")
+
+
+def test_calc_hamburger_omits_notebook_even_with_registry():
+    with patch("plugin.notebook.cell_registry.load_registry", return_value=object()):
+        rows = librepy_hamburger_actions(
+            is_calc_doc=True,
+            is_writer_doc=False,
+            is_draw_doc=False,
+            handler_lookup=_lookup,
+            doc=object(),
+        )
+    actions = [a for _label, a, _icon in rows]
+    assert "notebook.run_all" not in actions
+    assert "notebook.run_from_here" not in actions
+    assert "notebook.stop" not in actions
 
 
 def test_skips_unregistered_handlers():

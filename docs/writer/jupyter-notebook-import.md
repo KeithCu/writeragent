@@ -4,6 +4,20 @@ Back to the [core NumPy and Python guide](../enabling_numpy_in_libreoffice.md).
 
 WriterAgent and LibrePy can **read** Jupyter notebooks (nbformat v4) and **import** them into an open LibreOffice Writer document. Imported code cells are editable **form TextFields**; you can **run** them with the in-document **▶** button against a **shared Python kernel** per document (`notebook:…` session — same venv worker as LibrePy/WriterAgent scripting, not a Jupyter server).
 
+## UI — where Run All / Run From Here / Stop appear
+
+These three commands are **notebook chrome**, not Writer chrome. They must not pollute menus or toolbars for every Writer file.
+
+| Surface | When it appears |
+|---------|-----------------|
+| **In-document ▶** | Every imported code cell (unchanged). Ordinary Writer docs never have these buttons. |
+| **Sidebar hamburger** | Writer **and** `load_registry(doc)` is set (`WriterAgentNotebookJson` from File → Open of a `.ipynb`). Items sit directly below **Reset Python Session**. |
+| **LibrePy / WriterAgent menubar** | **Never.** Addons.xcu `Context=TextDocument` is every Writer document — too wide. |
+| **WriterAgent toolbar** | **Never.** Same reason. |
+| **Calc / Draw / Impress / ordinary Writer** | **Never** — no menu, toolbar, or hamburger entries. |
+
+Addons.xcu cannot gate on a user-defined document property, so there is no native-menu hide path that stays off ordinary Writer. The hamburger already builds its list in Python and is the existing overflow menu — not a second menu system.
+
 ---
 
 ## Executive Summary & Application Scope
@@ -22,16 +36,17 @@ WriterAgent and LibrePy can **read** Jupyter notebooks (nbformat v4) and **impor
 
 ## Table of Contents
 
-1. [Shipped vs Deferred](#shipped-vs-deferred)
-2. [How to Use](#how-to-use)
-3. [Run a Code Cell](#run-a-code-cell)
-4. [Document Layout (per notebook cell)](#document-layout-per-notebook-cell)
-5. [Architecture & Execution Flow](#architecture--execution-flow)
-6. [Interactive Development Roadmap (Phases 0–6)](#interactive-development-roadmap-phases-06)
-7. [Limits and Stats](#limits-and-stats)
-8. [Debugging Import and Run](#debugging-import-and-run)
-9. [Implementation & PyUNO Lessons](#implementation--pyuno-lessons)
-10. [Developer Reference & Module Map](#developer-reference--module-map)
+1. [UI — where Run All / Run From Here / Stop appear](#ui--where-run-all--run-from-here--stop-appear)
+2. [Shipped vs Deferred](#shipped-vs-deferred)
+3. [How to Use](#how-to-use)
+4. [Run a Code Cell](#run-a-code-cell)
+5. [Document Layout (per notebook cell)](#document-layout-per-notebook-cell)
+6. [Architecture & Execution Flow](#architecture--execution-flow)
+7. [Interactive Development Roadmap (Phases 0–6)](#interactive-development-roadmap-phases-06)
+8. [Limits and Stats](#limits-and-stats)
+9. [Debugging Import and Run](#debugging-import-and-run)
+10. [Implementation & PyUNO Lessons](#implementation--pyuno-lessons)
+11. [Developer Reference & Module Map](#developer-reference--module-map)
 
 ---
 
@@ -44,7 +59,7 @@ WriterAgent and LibrePy can **read** Jupyter notebooks (nbformat v4) and **impor
 | **Import engine** — [`writer_importer.py`](../../plugin/notebook/writer_importer.py): ATX `#`/`##` headings, `* `/`- ` lists (nested + `<ol start=N>`), `>` blockquotes, `**bold**` / `*italic*`, `[text](url)` hyperlinks, HTML `<img>`/`<a>`, in-flow code fields, output text + images; `zxx` spellcheck-off locale | GFM tables, hover-only play, collapsible cells |
 | **Notebook registry (Phase 0)** — [`cell_registry.py`](../../plugin/notebook/cell_registry.py): `WriterAgentNotebookJson`, stable `cell_id` (UUID), output bookmarks `nb_out_*`, `WriterAgentNotebookSourcePath` | Export back to `.ipynb` (Phase 5 roadmap) |
 | **Run code cell (Phase 1)** — in-flow ▶ **push** button + [`notebook_controls.py`](../../plugin/notebook/notebook_controls.py) + [`notebook_runner.py`](../../plugin/notebook/notebook_runner.py); shared `notebook:…` kernel; re-run **replaces** output (`setString("")`); no VCL pump during execute (LayoutIdle livelock) | Cell CRUD, sidebar (Phases 3–4 roadmap) |
-| **Run All / Run From Here / Stop (Phase 2)** — Writer menu/toolbar next to Reset Python Session; registry-order sequence; drain **between** cells only; Stop skips the remainder (busy guard does not block Stop) | — |
+| **Run All / Run From Here / Stop (Phase 2)** — sidebar hamburger only, and only when `load_registry(doc)` is set (not ordinary Writer / Calc / Draw; not menubar or review toolbar); registry-order sequence; drain **between** cells only; Stop skips the remainder (busy guard does not block Stop) | — |
 | **Control lookup** — [`form_lookup.py`](../../plugin/notebook/form_lookup.py) indexes `ControlShape` models on the document draw page (required for wiring ▶ buttons) | Batched background image decode |
 | **Reset Python Session** — clears `notebook:…` kernel for Writer docs with a registry ([`session_manager.py`](../../plugin/scripting/session_manager.py)) | `notebook.enable_interactive` / Settings UI keys |
 | **Output images** — `image/png`, `image/jpeg` in `display_data` / `execute_result` | JSON schema validation (`fastjsonschema`), `traitlets`, `jupyter_core` |
@@ -56,7 +71,7 @@ WriterAgent and LibrePy can **read** Jupyter notebooks (nbformat v4) and **impor
 
 **File → Open** — **File → Open…**, desktop double-click, Open Recent, or `soffice notebook.ipynb` creates a new Writer document and imports the notebook (no FilePicker, no completion dialog). There is no menu entry to append into an already-open document.
 
-Click **▶** beside any code cell to execute it. **LibrePy / WriterAgent → Run All** runs every code cell in registry order. **Run From Here** starts at the code cell at or after the view cursor. **Stop** skips any cells that have not started (the in-flight cell may finish or abort).
+Click **▶** beside any code cell to execute it. On an imported notebook, the sidebar hamburger lists **Run All** (every code cell in registry order), **Run From Here** (from the code cell at or after the view cursor), and **Stop** (skip cells that have not started; the in-flight cell may finish or abort). Those three items do **not** appear on ordinary Writer documents, Calc, Draw, the menubar, or the review toolbar.
 
 ---
 
@@ -65,9 +80,9 @@ Click **▶** beside any code cell to execute it. **LibrePy / WriterAgent → Ru
 | Action | Behavior & Rules |
 |--------|------------------|
 | **Run one cell** | Click the in-flow **▶** push button immediately preceding the code `TextField`. |
-| **Run All** | **LibrePy / WriterAgent → Run All** (also on the Writer toolbar). Executes code cells in `state.code_cells` order. Empty fields are skipped. A traceback is written under the failing cell and the batch continues (Jupyter). |
-| **Run From Here** | **LibrePy / WriterAgent → Run From Here**. Starts at the code cell at or after the current selection (code field or `nb_out_*` bookmark). Selection before the first code cell is the same as Run All. |
-| **Stop** | **LibrePy / WriterAgent → Stop**. Interrupts the remainder of a Run All / Run From Here sequence. A ▶ during Run All is skipped (`busy`); Stop is not blocked by that guard. |
+| **Run All** | Sidebar hamburger **Run All** on a notebook document only (`WriterAgentNotebookJson` present). Executes code cells in `state.code_cells` order. Empty fields are skipped. A traceback is written under the failing cell and the batch continues (Jupyter). |
+| **Run From Here** | Sidebar hamburger **Run From Here** on a notebook document only. Starts at the code cell at or after the current selection (code field or `nb_out_*` bookmark). Selection before the first code cell is the same as Run All. |
+| **Stop** | Sidebar hamburger **Stop** on a notebook document only. Interrupts the remainder of a Run All / Run From Here sequence. A ▶ during Run All is skipped (`busy`); Stop is not blocked by that guard. |
 | **Shared variables** | All code cells in the document share one `notebook:…` Python namespace (like a Jupyter kernel). Variables assigned in earlier cells are available in later cells. |
 | **Execution count** | Resets to 1 on document load or **Reset Python Session**. Each execution (including re-clicks and errors) increments the counter by 1 (`In [n]`). |
 | **Reset kernel** | **LibrePy / WriterAgent → Reset Python Session** clears kernel variables and resets the counter to 1. |
@@ -135,7 +150,8 @@ flowchart TB
 - In-place output clearing (`clear_cell_output`) and replacement without paragraph leakage.
 
 ### Phase 2: Run All, Run From Here, Stop — **Shipped**
-- **Run All** menu/toolbar action to execute code cells in sequence with UI event drains **between** cells — never `processEventsToIdle` during `execute_code` (same `LayoutIdle` livelock as post-import flush on notebooks with many in-flow form controls).
+- Chrome: hamburger items only, and only when `load_registry(doc)` is non-None. Not on the LibrePy / WriterAgent menubar, not on the WriterAgent toolbar, not on ordinary Writer / Calc / Draw.
+- **Run All** executes code cells in sequence with UI event drains **between** cells — never `processEventsToIdle` during `execute_code` (same `LayoutIdle` livelock as post-import flush on notebooks with many in-flow form controls).
 - **Run From Here** execution from current selection.
 - **Stop** sets a per-document flag that `execute_code`'s wait polls (`stop_checker`, no VCL pump). Remaining cells do not start. In `[n]` / outputs update only for cells that finished.
 
