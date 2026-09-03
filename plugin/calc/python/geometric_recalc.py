@@ -39,7 +39,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
-from plugin.calc.address_utils import split_sheet_prefix
+from plugin.calc.address_utils import index_to_column, parse_address, split_sheet_prefix
 from plugin.calc.calc_addin_data import split_python_addin_data_args
 from plugin.calc.python.cell_discovery import _MAX_PYTHON_CELLS_FOUND
 from plugin.calc.python.formula_edit import (
@@ -323,6 +323,70 @@ def _plan_action(
     return "append", data_args + [desired]
 
 
+def _a1_shift(address: str, dcol: int, drow: int) -> str | None:
+    """Apply a col/row delta to a sheet-local A1 token. ``None`` if unusable."""
+    try:
+        col, row = parse_address(local_a1(address))
+    except (TypeError, ValueError):
+        return None
+    ncol, nrow = col + dcol, row + drow
+    if ncol < 0 or nrow < 0:
+        return None
+    try:
+        return f"{index_to_column(ncol)}{nrow + 1}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _rehome_candidate_score(
+    old: str,
+    rec: GeometricRecord,
+    live: str,
+    desired: str,
+) -> tuple[int, int] | None:
+    """Match a homeless incoming record to a live noop cell. Lower is better.
+
+    Rule 2 (0, absdelta): ``pred + (live - old)`` equals *desired* — the cell
+    moved and Calc already shifted the formula pred. Rule 1 (1, 0): pred
+    already equals *desired* and *old* is a different address (first
+    successor; pred sat above the insert). Bind-in-place (2, 0) is last —
+    a live key whose stale pred happens to equal the new occupant's desired
+    is the 4-cell collision, not a keep.
+    """
+    rule1 = same_cell_ref(rec.predecessor, desired)
+    try:
+        ocol, orow = parse_address(local_a1(old))
+        lcol, lrow = parse_address(local_a1(live))
+    except (TypeError, ValueError):
+        if not rule1:
+            return None
+        return (2, 0) if local_a1(old) == local_a1(live) else (1, 0)
+    dcol, drow = lcol - ocol, lrow - orow
+    if dcol or drow:
+        shifted = _a1_shift(rec.predecessor, dcol, drow)
+        if shifted is not None and same_cell_ref(shifted, desired):
+            return (0, abs(dcol) + abs(drow))
+    if not rule1:
+        return None
+    return (2, 0) if local_a1(old) == local_a1(live) else (1, 0)
+
+
+def _record_is_homeless(
+    old: str,
+    rec: GeometricRecord,
+    live_keys: set[str],
+    desired_by_key: Mapping[str, str | None],
+    evicted: set[str],
+) -> bool:
+    """Gone from the sheet, pred does not match that live cell, or overwritten."""
+    if old in evicted or old not in live_keys:
+        return True
+    live_desired = desired_by_key.get(old)
+    if live_desired is None:
+        return True
+    return not same_cell_ref(rec.predecessor, live_desired)
+
+
 def _rehome_or_keep_record(
     working: dict[str, GeometricRecord],
     incoming: Mapping[str, GeometricRecord],
@@ -330,41 +394,65 @@ def _rehome_or_keep_record(
     key: str,
     desired: str | None,
     data_args: list[str],
+    *,
+    consumed: set[str],
+    evicted: set[str],
+    desired_by_key: Mapping[str, str | None],
 ) -> None:
-    """Keep/update a live record, or rehome a pred-matching orphan after a move.
+    """Keep a true live record, or rehome a homeless one after a row/col move.
 
-    ``last == desired`` is a formula no-op. If we already have a record at
-    *key*, keep it and align the predecessor with the formula. If *key* is
-    new, rehome only when a gone incoming key's predecessor equals *desired*
-    (Calc shifted a cell we attached). An unmatched orphan must not be
-    stolen onto a user-authored previous-PY last arg (§9.5: do not record).
-    Dead keys drop at the end of ``compute_sheet_repair``.
+    ``last == desired`` is a formula no-op. Do **not** bind ``working[key]``
+    just because the key is live — after a 3+ chain shift that address is
+    often the *moved* cell's old record (wrong occupant). Homeless: key not
+    in *live_keys*, live but incoming pred ≠ that cell's desired, or evicted
+    when another record was written onto its address. Match via pred==desired
+    or pred+delta. Never ``orphans[0]``. No matching homeless record → do
+    not invent one (§9.5 user-authored ``;prev``).
     """
     if desired is None:
         return
     last = data_args[-1] if data_args else None
     if last is None or not is_single_cell_arg(last) or not same_cell_ref(last, desired):
         return
-    if key in working:
-        working[key] = GeometricRecord(predecessor=desired)
-        return
-    chosen = None
+    chosen: str | None = None
+    best: tuple[int, int] | None = None
     for old, rec in incoming.items():
-        if old in live_keys or old not in working:
+        if old in consumed:
             continue
-        if same_cell_ref(rec.predecessor, desired):
-            chosen = old
-            break
+        if not _record_is_homeless(old, rec, live_keys, desired_by_key, evicted):
+            continue
+        score = _rehome_candidate_score(old, rec, key, desired)
+        if score is None:
+            continue
+        if best is None or score < best:
+            chosen, best = old, score
     if chosen is None:
-        # Unmatched leftover (deleted cell, or a later cell after a multi-row
-        # shift whose incoming pred is stale). Do not invent a record — §9.5.
-        log.debug(
-            "geometric_recalc: no pred-matching orphan for %s (desired %s); not recording",
-            key,
-            desired,
-        )
+        incoming_here = incoming.get(key)
+        if (
+            incoming_here is not None
+            and key not in consumed
+            and key not in evicted
+            and same_cell_ref(incoming_here.predecessor, desired)
+        ):
+            working[key] = GeometricRecord(predecessor=desired)
+        else:
+            log.debug(
+                "geometric_recalc: no homeless match for %s (desired %s); not recording",
+                key,
+                desired,
+            )
         return
-    working.pop(chosen, None)
+    consumed.add(chosen)
+    # Pop only while working[chosen] is still the incoming record. A prior
+    # rehome may already have written the correct occupant at a live *chosen*.
+    if chosen != key and working.get(chosen) is incoming.get(chosen):
+        working.pop(chosen, None)
+    elif chosen not in live_keys:
+        working.pop(chosen, None)
+    if key in incoming and key != chosen and key not in consumed:
+        # Overwriting this address evicts the incoming record that sat here
+        # (4-cell: A4→A3 is displaced onto A5 after A3 claims A4).
+        evicted.add(key)
     working[key] = GeometricRecord(predecessor=desired)
     log.debug(
         "geometric_recalc: rehomed attach record %s -> %s (pred %s)",
@@ -445,12 +533,19 @@ def compute_sheet_repair(
     patches: list[GeometricPatch] = []
     new_formulas = {cell.address: cell.formula for cell in cells}
     live_keys = {cell_map_key(cell.address) for cell in cells}
+    desired_by_key: dict[str, str | None] = {}
+    for i, cell in enumerate(cells):
+        desired_by_key[cell_map_key(cell.address)] = (
+            local_a1(cells[i - 1].address) if i > 0 else None
+        )
+    consumed: set[str] = set()
+    evicted: set[str] = set()
 
     for i, cell in enumerate(cells):
         data_args = formula_data_args(cell.formula)
         if data_args is None:
             continue
-        desired = local_a1(cells[i - 1].address) if i > 0 else None
+        desired = desired_by_key[cell_map_key(cell.address)]
         key = cell_map_key(cell.address)
         action, new_args = _plan_action(
             desired=desired,
@@ -462,9 +557,19 @@ def compute_sheet_repair(
             # formula (A2 with ;A1 became A3 with ;A1). last==desired so we
             # used to continue without writing working[new_key]; the record
             # stayed at A2 (orphan) and unanimous-ours / replace went wrong.
-            # Rehome when the old key is gone. Do not invent a record when
-            # the user authored the previous PY as real data (§9.5).
-            _rehome_or_keep_record(working, incoming, live_keys, key, desired, data_args)
+            # Rehome when the old key is gone or displaced. Do not invent a
+            # record when the user authored the previous PY as real data (§9.5).
+            _rehome_or_keep_record(
+                working,
+                incoming,
+                live_keys,
+                key,
+                desired,
+                data_args,
+                consumed=consumed,
+                evicted=evicted,
+                desired_by_key=desired_by_key,
+            )
             continue
         new_formula = rebuild_formula_with_data_args(cell.formula, new_args)
         if new_formula is None or new_formula == cell.formula:

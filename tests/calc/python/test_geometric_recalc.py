@@ -284,12 +284,7 @@ def test_only_matching_orphan_rehomes_unmatched_is_dropped():
 
 
 def test_row_insert_three_cell_chain_rehomes_all_keys():
-    """A1,A2,A3 shifted to A1,A3,A4; only a pred-matching orphan may rehome.
-
-    Incoming A3 is still a live key, so A3 is updated in place (pred A1).
-    Orphan A2 pred A1 matches A3's desired — not A4's (desired A3). Stealing
-    A2 onto A4 is the same ``orphans[0]`` bug as recording a user ``;prev``.
-    """
+    """A1,A2,A3 shifted to A1,A3,A4; every attach record follows the cell."""
     result = _repair(
         [
             _cell("A1", '=PY("a")'),
@@ -303,8 +298,30 @@ def test_row_insert_three_cell_chain_rehomes_all_keys():
     )
     assert result.patches == ()
     assert result.records["A3"].predecessor == "A1"
+    assert result.records["A4"].predecessor == "A3"
     assert "A2" not in result.records
-    assert "A4" not in result.records
+
+
+def test_row_insert_four_cell_chain_rehomes_all_keys():
+    """A1–A4 shifted +1 row; all three successors rehome, no formula patches."""
+    result = _repair(
+        [
+            _cell("A1", '=PY("a")'),
+            _cell("A3", '=PY("b";A1)'),
+            _cell("A4", '=PY("c";A3)'),
+            _cell("A5", '=PY("d";A4)'),
+        ],
+        {
+            "A2": GeometricRecord(predecessor="A1"),
+            "A3": GeometricRecord(predecessor="A2"),
+            "A4": GeometricRecord(predecessor="A3"),
+        },
+    )
+    assert result.patches == ()
+    assert result.records["A3"].predecessor == "A1"
+    assert result.records["A4"].predecessor == "A3"
+    assert result.records["A5"].predecessor == "A4"
+    assert "A2" not in result.records
 
 
 def test_already_correct_dollar_ref_is_noop():
