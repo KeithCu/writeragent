@@ -260,6 +260,53 @@ def test_insert_html_at_body_end_calls_trim(monkeypatch):
     assert trim_called is True
 
 
+def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
+    """List HTML must keep leftover NumberingRules on the insertion para.
+
+    StarWriter merges the first <li> into that para. Clearing NumberingStyleName
+    and NumberingRules first made a 1-item <ol start="3"> import as plain text
+    (Ask for help lost its list style).
+    """
+    doc, _body_text, body_cursor = _writer_doc_mock()
+    body_cursor.getString.return_value = ""
+    cleared: list[str] = []
+
+    def fake_clear(cursor, *, reason=""):
+        cleared.append(reason)
+
+    monkeypatch.setattr("plugin.notebook.writer_importer._clear_para_numbering", fake_clear)
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", lambda *a, **k: None)
+    monkeypatch.setattr("plugin.notebook.writer_importer._trim_trailing_empty_paragraph", lambda _doc: None)
+    monkeypatch.setattr("plugin.notebook.writer_importer._cursor_para_is_empty", lambda _c: True)
+
+    import plugin.notebook.writer_importer as wi
+
+    wi._insert_html_at_body_end(
+        doc, '<ol start="3"><li>Ask for help</li></ol>', lead_break=False, exit_list=True
+    )
+    assert "pre_insert" not in cleared
+    assert "exit_list" in cleared
+
+
+def test_insert_html_blockquote_still_pre_clears(monkeypatch):
+    """Non-list HTML still pre-clears so a quote does not inherit leftover bullets."""
+    doc, _body_text, body_cursor = _writer_doc_mock()
+    body_cursor.getString.return_value = ""
+    cleared: list[str] = []
+
+    def fake_clear(cursor, *, reason=""):
+        cleared.append(reason)
+
+    monkeypatch.setattr("plugin.notebook.writer_importer._clear_para_numbering", fake_clear)
+    monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", lambda *a, **k: None)
+    monkeypatch.setattr("plugin.notebook.writer_importer._trim_trailing_empty_paragraph", lambda _doc: None)
+
+    import plugin.notebook.writer_importer as wi
+
+    wi._insert_html_at_body_end(doc, "<blockquote><p>Note</p></blockquote>", lead_break=False)
+    assert cleared == ["pre_insert"]
+
+
 def _writer_doc_mock(*, with_bookmarks: bool = False):
     body_cursor = MagicMock()
     body_text = MagicMock()

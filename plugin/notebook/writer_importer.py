@@ -1387,11 +1387,29 @@ def _dbg_doc_paras(doc: Any, *, limit: int = 30) -> list[dict[str, Any]]:
     return rows
 
 
+def _cursor_para_is_empty(cursor: Any) -> bool:
+    """True when *cursor*'s paragraph has no visible text (trailing list leftover)."""
+    try:
+        text_obj = cursor.getText()
+        rng = text_obj.createTextCursorByRange(cursor)
+        rng.gotoStartOfParagraph(False)
+        rng.gotoEndOfParagraph(True)
+        raw = rng.getString()
+        if raw is None:
+            return True
+        if not isinstance(raw, str):
+            return False
+        return raw.strip() == ""
+    except Exception:
+        return False
+
+
 def _clear_para_numbering(cursor: Any, *, reason: str = "") -> None:
     """Drop inherited list numbering so the next block is not a leftover bullet."""
-    # StarWriter insertDocumentFromURL leaves NumberingRules on the trailing
-    # para. The next heading, body, blockquote, or resumed <ol> then inherits
-    # leftover bullets. Clear both properties on the insertion cursor.
+    # StarWriter insertDocumentFromURL leaves NumberingRules on the last list
+    # item. A following paragraph break inherits that leftover. Clear both
+    # properties on heading/body/blockquote insertion cursors — not on the
+    # list fragment itself (see ``_insert_html_at_body_end``).
     # #region agent log
     before = _dbg_cursor_num(cursor)
     _dbg_agent_log(
@@ -1527,6 +1545,12 @@ def _insert_html_at_body_end(
         cursor.gotoEnd(False)
         did_lead = True
     html_s = html or ""
+    # List HTML: do not pre-clear leftover NumberingRules. The first <li>
+    # merges into this paragraph. A 1-item ``<ol start="N">`` inserted after
+    # NumberingStyleName="" / NumberingRules=None is imported as plain Text
+    # body (Ask for help). Blockquotes and other HTML still pre-clear so they
+    # do not inherit leftover bullets from the previous list item.
+    skip_pre_clear = bool(exit_list)
     # #region agent log
     _dbg_agent_log(
         "E",
@@ -1539,6 +1563,7 @@ def _insert_html_at_body_end(
             "is_ul": "<ul" in html_s.lower(),
             "is_bq": "<blockquote" in html_s.lower(),
             "exit_list": exit_list,
+            "skip_pre_clear": skip_pre_clear,
             "lead_break": lead_break,
             "did_lead": did_lead,
             "cursor": _dbg_cursor_num(cursor),
@@ -1546,15 +1571,17 @@ def _insert_html_at_body_end(
         },
     )
     # #endregion
-    _clear_para_numbering(cursor, reason="pre_insert")
+    if not skip_pre_clear:
+        _clear_para_numbering(cursor, reason="pre_insert")
     # #region agent log
     _dbg_agent_log(
         "A",
         "writer_importer.py:_insert_html_at_body_end:after_pre_clear",
-        "after pre-insert numbering clear, before HTML insert",
+        "after pre-insert numbering decision, before HTML insert",
         {
             "html": html_s[:240],
             "has_start": "start=" in html_s,
+            "skip_pre_clear": skip_pre_clear,
             "cursor": _dbg_cursor_num(cursor),
         },
     )
@@ -1580,7 +1607,11 @@ def _insert_html_at_body_end(
         if exit_list:
             end = text.createTextCursor()
             end.gotoEnd(False)
-            _clear_para_numbering(end, reason="exit_list")
+            # Only the empty trailing para. Clearing the last <li> would
+            # un-number Ask for help when insertDocumentFromURL left no extra para.
+            end_empty = _cursor_para_is_empty(end)
+            if end_empty:
+                _clear_para_numbering(end, reason="exit_list")
             # #region agent log
             _dbg_agent_log(
                 "C",
@@ -1589,6 +1620,7 @@ def _insert_html_at_body_end(
                 {
                     "html": html_s[:240],
                     "has_start": "start=" in html_s,
+                    "end_empty": end_empty,
                     "end": _dbg_cursor_num(end),
                     "paras": _dbg_doc_paras(doc),
                 },

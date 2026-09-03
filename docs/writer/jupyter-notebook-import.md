@@ -214,7 +214,7 @@ Native test suite execution:
 - **Wire Timing:** Attach a single form-level `XActionListener` on the form controller container after import; do not query control views per button click.
 - **Paragraph Mutations:** Never use `setString()` on paragraph ranges containing `AS_CHARACTER` controls, as this deletes the form shapes. Rewrite text portions specifically.
 - **Spellcheck:** Set locale to `zxx` (no linguistic content) on imported notebook paragraphs to prevent spellcheck squiggles on code blocks.
-- **HTML list insert:** StarWriter `insertDocumentFromURL` leaves `NumberingRules` on the trailing paragraph. Clear `NumberingStyleName` and `NumberingRules` after list HTML insert (`exit_list=True`) and on body/h2 paras so the next heading, blockquote, or resumed `<ol>` is not a leftover bullet.
+- **HTML list insert:** StarWriter `insertDocumentFromURL` leaves `NumberingRules` on the last list item; a following paragraph break inherits that leftover. Do **not** pre-clear numbering on the list insertion cursor — a 1-item `<ol start="N">` then imports as plain text. After list insert, clear leftover numbering only on an empty trailing paragraph (`exit_list=True`). Always clear on body/h2/blockquote insertion so those blocks are not leftover bullets.
 
 ---
 
