@@ -444,6 +444,7 @@ def test_g_require_stop_rec_urp_skips_when_session_send_stays_send(monkeypatch) 
             return self._model
 
     monkeypatch.setattr(gmod, "_session", SimpleNamespace(controls={"send": _Btn()}))
+    monkeypatch.setattr(gmod, "_transcript", lambda: "")
     with pytest.raises(unittest.SkipTest, match="Record no-op"):
         gmod._g_require_stop_rec(None, timeout=0.0)
 
@@ -459,7 +460,20 @@ def test_g_require_stop_rec_urp_ok_when_session_send_is_stop_rec(monkeypatch) ->
             return self._model
 
     monkeypatch.setattr(gmod, "_session", SimpleNamespace(controls={"send": _Btn()}))
+    monkeypatch.setattr(gmod, "_transcript", lambda: "")
     gmod._g_require_stop_rec(None, timeout=0.0)
+
+
+def test_g_skip_if_record_failed_on_device_error(monkeypatch) -> None:
+    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
+
+    monkeypatch.setattr(
+        gmod,
+        "_transcript",
+        lambda: "[Audio error: Audio recording failed: Error querying device -1]",
+    )
+    with pytest.raises(unittest.SkipTest, match="Record no-op"):
+        gmod._g_skip_if_record_failed()
 
 
 def test_mock_config_mutates_flags() -> None:

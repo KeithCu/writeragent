@@ -1782,6 +1782,17 @@ _PACKET_G_RECORD_SKIP = (
 )
 
 
+def _g_record_failed_in_transcript() -> bool:
+    """True when Record tried and the host had no device/stub (xvfb device -1)."""
+    body = _transcript().lower()
+    return "audio error" in body or "error querying device" in body
+
+
+def _g_skip_if_record_failed() -> None:
+    if _g_record_failed_in_transcript():
+        raise unittest.SkipTest(_PACKET_G_RECORD_SKIP)
+
+
 def _g_listener():
     sl = getattr(_session, "listener", None)
     if sl is None:
@@ -1810,6 +1821,8 @@ def _g_require_stop_rec(sl, timeout: float = 8.0) -> None:
     while True:
         if "stop rec" in _g_send_label_lower(sl):
             return
+        if _g_record_failed_in_transcript():
+            raise unittest.SkipTest(_PACKET_G_RECORD_SKIP)
         if time.monotonic() >= deadline:
             raise unittest.SkipTest(_PACKET_G_RECORD_SKIP)
         time.sleep(0.1)
@@ -1853,6 +1866,7 @@ def _g_record_and_stop(sl, wav: str | None, timeout: float = 60.0):
     _g_require_stop_rec(sl)
     press_stop_rec(listener=sl)
     assert wait_idle(listener=sl, timeout=timeout), "G Stop Rec did not go idle: %r" % _transcript()[-400:]
+    _g_skip_if_record_failed()
 
 
 @native_test
@@ -1910,6 +1924,7 @@ def test_g4_silence_auto_stop(ctx):
     fire_audio_auto_stop(listener=sl)
     press_record(listener=sl)
     assert wait_idle(listener=sl, timeout=60.0), "G4 auto-stop did not go idle: %r" % _transcript()[-400:]
+    _g_skip_if_record_failed()
     body = _transcript().lower()
     assert "mock" in body or "transcript" in body, "G4 expected native reply: %r" % _transcript()[-400:]
     _hello_ok()
