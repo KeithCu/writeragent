@@ -300,6 +300,14 @@ def _user_scripts_python_dirs(ctx) -> list[str]:
         pass
     for match in glob.glob("/tmp/writeragent-lo-test-profile-*/user"):
         _add_user_dir(match)
+    # pythonscript location=user expands bootstraprc UserInstallation, not
+    # the testing_runner -env:UserInstallation= throwaway profile.
+    for match in (
+        os.path.expanduser("~/.config/libreoffice/4/user"),
+        os.path.expanduser("~/.config/libreoffice/3/user"),
+    ):
+        if os.path.isdir(match):
+            _add_user_dir(match)
     return dirs
 
 
