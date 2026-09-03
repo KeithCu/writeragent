@@ -60,9 +60,9 @@ def _paragraphs(doc) -> list[tuple[str, str]]:
     return out
 
 
-def _paragraphs_with_numbering(doc) -> list[tuple[str, str, str]]:
-    """(ParaStyleName, NumberingStyleName, text) for leftover-list leak checks."""
-    out: list[tuple[str, str, str]] = []
+def _paragraphs_with_numbering(doc) -> list[tuple[str, str, str, int]]:
+    """(ParaStyleName, NumberingStyleName, text, NumberingLevel) for leftover-list leak checks."""
+    out: list[tuple[str, str, str, int]] = []
     enum = doc.getText().createEnumeration()
     while enum.hasMoreElements():
         el = enum.nextElement()
@@ -72,9 +72,13 @@ def _paragraphs_with_numbering(doc) -> list[tuple[str, str, str]]:
             style = str(el.getPropertyValue("ParaStyleName") or "")
             numbering = str(el.getPropertyValue("NumberingStyleName") or "")
             text = str(el.getString() or "")
+            try:
+                level = int(el.getPropertyValue("NumberingLevel") or 0)
+            except Exception:
+                level = 0
         except Exception:
             continue
-        out.append((style, numbering, text))
+        out.append((style, numbering, text, level))
     return out
 
 
@@ -930,8 +934,8 @@ def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
     assert not any(t.lstrip().startswith("1.") and "Ask for help" in t for t in numbered)
     numbered_paras = _paragraphs_with_numbering(doc)
     help_heading = [
-        (style, numbering, text)
-        for style, numbering, text in numbered_paras
+        (style, numbering, text, level)
+        for style, numbering, text, level in numbered_paras
         if "Where can I get help?" in text
     ]
     assert help_heading, f"help heading missing: {numbered_paras!r}"
@@ -939,18 +943,21 @@ def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
         f"help heading inherited leftover numbering: {help_heading!r}"
     )
     ask = [
-        (style, numbering, text)
-        for style, numbering, text in numbered_paras
+        (style, numbering, text, level)
+        for style, numbering, text, level in numbered_paras
         if "Ask for help" in text
     ]
     assert ask, f"Ask for help missing from numbered paras: {numbered_paras!r}"
     assert ask[0][1], f"Ask for help lost list numbering: {ask!r}"
-    assert not any(t.lstrip().startswith("1.") for _s, _n, t in ask), (
+    assert ask[0][3] == 0, (
+        f"Ask for help is leftover nested-ul (level {ask[0][3]}), not outer ol: {ask!r}"
+    )
+    assert not any(t.lstrip().startswith("1.") for _s, _n, t, _lvl in ask), (
         f"Ask for help restarted as literal 1.: {ask!r}"
     )
     after_list = [
-        (style, numbering, text)
-        for style, numbering, text in numbered_paras
+        (style, numbering, text, level)
+        for style, numbering, text, level in numbered_paras
         if "After the list" in text
     ]
     assert after_list, f"After the list heading missing: {numbered_paras!r}"
@@ -958,8 +965,8 @@ def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
         f"list-then-h2 leaked numbering onto After the list: {after_list!r}"
     )
     unique_quote = [
-        (style, numbering, text)
-        for style, numbering, text in numbered_paras
+        (style, numbering, text, level)
+        for style, numbering, text, level in numbered_paras
         if "unique elements" in text
     ]
     assert unique_quote, f"unique-elements quote missing: {numbered_paras!r}"
@@ -971,12 +978,12 @@ def test_import_nested_lists_blockquotes_and_in_keep_style(ctx, doc):
         f"unique-elements quote inherited leftover numbering: {unique_quote!r}"
     )
     note_quote = [
-        (style, numbering, text)
-        for style, numbering, text in numbered_paras
+        (style, numbering, text, level)
+        for style, numbering, text, level in numbered_paras
         if "ndarray" in text or "Note:" in text
     ]
     assert note_quote, f"Note/ndarray blockquote missing: {numbered_paras!r}"
-    assert all(numbering == "" for _s, numbering, _t in note_quote), (
+    assert all(numbering == "" for _s, numbering, _t, _lvl in note_quote), (
         f"Note/ndarray blockquote inherited leftover numbering: {note_quote!r}"
     )
     families = doc.getStyleFamilies()

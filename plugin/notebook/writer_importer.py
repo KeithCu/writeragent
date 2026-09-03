@@ -133,6 +133,8 @@ _HTML_ATTR_RE = re.compile(
     r"""(?is)([a-z_:][-a-z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"""
 )
 _IN_PROMPT_RE = re.compile(r"^In \[[0-9 ]*\]:")
+# One-item resumed list: ``<ol start="3"><li>Ask for help…</li></ol>``.
+_OL_START_RE = re.compile(r"""(?is)<ol\b[^>]*\bstart\s*=\s*["']?(\d+)""")
 
 
 def _mono_ms(t0: float) -> int:
@@ -1052,6 +1054,22 @@ def _list_block_to_html(items: list[Any]) -> str:
     return html
 
 
+def _single_ol_start(html: str) -> int | None:
+    """Return *start* when *html* is a one-item ``<ol start="N">`` with N > 1.
+
+    Multi-item lists already get numbering from StarWriter. The 1-item
+    ``start=N`` fragment is the one that inherits leftover nested-ul level
+    or drops numbering entirely.
+    """
+    if (html or "").lower().count("<li") != 1:
+        return None
+    match = _OL_START_RE.search(html or "")
+    if not match:
+        return None
+    start = int(match.group(1))
+    return start if start > 1 else None
+
+
 def _iter_markdown_blocks(source: str) -> list[tuple[str, Any]]:
     """Split CommonMark source into ATX headings, lists, quotes, images, paragraphs.
 
@@ -1387,6 +1405,92 @@ def _dbg_doc_paras(doc: Any, *, limit: int = 30) -> list[dict[str, Any]]:
     return rows
 
 
+def _numbering_kind(name: str) -> str:
+    """``none`` / ``outline`` / ``list`` — Outline is heading chapter numbering."""
+    lowered = (name or "").strip().lower()
+    if not lowered:
+        return "none"
+    if lowered == "outline" or "outline" in lowered:
+        return "outline"
+    return "list"
+
+
+def _copy_previous_outer_list(cursor: Any) -> bool:
+    """Copy NumberingStyleName + NumberingRules from the nearest level-0 list para."""
+    try:
+        text_obj = cursor.getText()
+        prev = text_obj.createTextCursorByRange(cursor)
+    except Exception:
+        return False
+    steps = 0
+    while steps < 32:
+        steps += 1
+        try:
+            if not prev.gotoPreviousParagraph(False):
+                return False
+            style = str(prev.getPropertyValue("NumberingStyleName") or "")
+            if _numbering_kind(style) != "list":
+                continue
+            level = int(prev.getPropertyValue("NumberingLevel") or 0)
+            if level != 0:
+                continue
+            rules = prev.getPropertyValue("NumberingRules")
+            if rules is None:
+                continue
+            cursor.setPropertyValue("NumberingStyleName", style)
+            cursor.setPropertyValue("NumberingRules", rules)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _promote_para_to_outer_ol(cursor: Any, *, start: int) -> bool:
+    """Put *cursor*'s paragraph on the outer ordered list at *start*.
+
+    Skip-pre-clear left Ask for help on leftover nested-ul NumberingLevel=1
+    (same style as ChatGPT). Full pre-clear made insertDocumentFromURL drop
+    numbering on a 1-item ``<ol start=N>``. Keep the list style, force level 0,
+    restart at N.
+    """
+    try:
+        style = str(cursor.getPropertyValue("NumberingStyleName") or "")
+    except Exception:
+        style = ""
+    kind = _numbering_kind(style)
+    if kind == "outline":
+        return False
+    if kind == "none" and not _copy_previous_outer_list(cursor):
+        return False
+    try:
+        cursor.setPropertyValue("NumberingLevel", 0)
+        cursor.setPropertyValue("NumberingStartValue", int(start))
+        cursor.setPropertyValue("ParaIsNumberingRestart", True)
+        return True
+    except Exception:
+        log.debug("notebook import promote outer ol start=%s failed", start, exc_info=True)
+        return False
+
+
+def _last_nonempty_para_cursor(text: Any) -> Any | None:
+    try:
+        cursor = text.createTextCursor()
+        cursor.gotoEnd(False)
+    except Exception:
+        return None
+    steps = 0
+    while steps < 16:
+        steps += 1
+        if not _cursor_para_is_empty(cursor):
+            return cursor
+        try:
+            if not cursor.gotoPreviousParagraph(False):
+                return None
+        except Exception:
+            return None
+    return None
+
+
 def _cursor_para_is_empty(cursor: Any) -> bool:
     """True when *cursor*'s paragraph has no visible text (trailing list leftover)."""
     try:
@@ -1545,12 +1649,13 @@ def _insert_html_at_body_end(
         cursor.gotoEnd(False)
         did_lead = True
     html_s = html or ""
-    # List HTML: do not pre-clear leftover NumberingRules. The first <li>
-    # merges into this paragraph. A 1-item ``<ol start="N">`` inserted after
-    # NumberingStyleName="" / NumberingRules=None is imported as plain Text
-    # body (Ask for help). Blockquotes and other HTML still pre-clear so they
-    # do not inherit leftover bullets from the previous list item.
+    # List HTML: do not pre-clear leftover NumberingRules (a 1-item
+    # ``<ol start="N">`` then imports as plain Text body). Do not leave
+    # leftover nested-ul NumberingLevel=1 either — that is the same style
+    # as ChatGPT bullets, not outer ol start=N. Promote that case to level 0
+    # and restart at N. Blockquotes still pre-clear.
     skip_pre_clear = bool(exit_list)
+    ol_start = _single_ol_start(html_s)
     # #region agent log
     _dbg_agent_log(
         "E",
@@ -1559,6 +1664,7 @@ def _insert_html_at_body_end(
         {
             "html": html_s[:240],
             "has_start": "start=" in html_s,
+            "ol_start": ol_start,
             "is_ol": "<ol" in html_s.lower(),
             "is_ul": "<ul" in html_s.lower(),
             "is_bq": "<blockquote" in html_s.lower(),
@@ -1571,8 +1677,11 @@ def _insert_html_at_body_end(
         },
     )
     # #endregion
+    promoted_before = False
     if not skip_pre_clear:
         _clear_para_numbering(cursor, reason="pre_insert")
+    elif ol_start is not None:
+        promoted_before = _promote_para_to_outer_ol(cursor, start=ol_start)
     # #region agent log
     _dbg_agent_log(
         "A",
@@ -1581,7 +1690,9 @@ def _insert_html_at_body_end(
         {
             "html": html_s[:240],
             "has_start": "start=" in html_s,
+            "ol_start": ol_start,
             "skip_pre_clear": skip_pre_clear,
+            "promoted_before": promoted_before,
             "cursor": _dbg_cursor_num(cursor),
         },
     )
@@ -1598,12 +1709,31 @@ def _insert_html_at_body_end(
             {
                 "html": html_s[:240],
                 "has_start": "start=" in html_s,
+                "ol_start": ol_start,
                 "exit_list": exit_list,
                 "cursor": _dbg_cursor_num(cursor),
                 "paras": _dbg_doc_paras(doc),
             },
         )
         # #endregion
+        promoted_after = False
+        if ol_start is not None:
+            target = _last_nonempty_para_cursor(text)
+            if target is not None:
+                promoted_after = _promote_para_to_outer_ol(target, start=ol_start)
+            # #region agent log
+            _dbg_agent_log(
+                "B",
+                "writer_importer.py:_insert_html_at_body_end:after_promote",
+                "after promote 1-item ol to outer start=N",
+                {
+                    "ol_start": ol_start,
+                    "promoted_after": promoted_after,
+                    "target": _dbg_cursor_num(target) if target is not None else None,
+                    "paras": _dbg_doc_paras(doc),
+                },
+            )
+            # #endregion
         if exit_list:
             end = text.createTextCursor()
             end.gotoEnd(False)

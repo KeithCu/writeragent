@@ -270,11 +270,17 @@ def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     doc, _body_text, body_cursor = _writer_doc_mock()
     body_cursor.getString.return_value = ""
     cleared: list[str] = []
+    promoted: list[int] = []
 
     def fake_clear(cursor, *, reason=""):
         cleared.append(reason)
 
+    def fake_promote(cursor, *, start):
+        promoted.append(start)
+        return True
+
     monkeypatch.setattr("plugin.notebook.writer_importer._clear_para_numbering", fake_clear)
+    monkeypatch.setattr("plugin.notebook.writer_importer._promote_para_to_outer_ol", fake_promote)
     monkeypatch.setattr("plugin.writer.html_import.insert_html_fragment_at_cursor", lambda *a, **k: None)
     monkeypatch.setattr("plugin.notebook.writer_importer._trim_trailing_empty_paragraph", lambda _doc: None)
     monkeypatch.setattr("plugin.notebook.writer_importer._cursor_para_is_empty", lambda _c: True)
@@ -286,6 +292,32 @@ def test_insert_html_list_skips_pre_clear_numbering(monkeypatch):
     )
     assert "pre_insert" not in cleared
     assert "exit_list" in cleared
+    assert 3 in promoted
+
+
+def test_single_ol_start_only_one_item():
+    from plugin.notebook.writer_importer import _single_ol_start
+
+    assert _single_ol_start('<ol start="3"><li>Ask for help</li></ol>') == 3
+    assert _single_ol_start("<ol><li>cheat</li><li>search</li></ol>") is None
+    assert _single_ol_start('<ol start="3"><li>a</li><li>b</li></ol>') is None
+    assert _single_ol_start("<blockquote><p>Note</p></blockquote>") is None
+
+
+def test_promote_para_to_outer_ol_nested_level():
+    from plugin.notebook.writer_importer import _promote_para_to_outer_ol
+
+    cursor = MagicMock()
+    props = {
+        "NumberingStyleName": "1698400711",
+        "NumberingLevel": 1,
+        "NumberingRules": object(),
+    }
+    cursor.getPropertyValue.side_effect = lambda name: props[name]
+    assert _promote_para_to_outer_ol(cursor, start=3) is True
+    cursor.setPropertyValue.assert_any_call("NumberingLevel", 0)
+    cursor.setPropertyValue.assert_any_call("NumberingStartValue", 3)
+    cursor.setPropertyValue.assert_any_call("ParaIsNumberingRestart", True)
 
 
 def test_insert_html_blockquote_still_pre_clears(monkeypatch):
