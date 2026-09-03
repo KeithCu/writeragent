@@ -273,9 +273,22 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     return filters
 
 
+# Headless throwaway UserInstallation created by ``_soffice_bootstrap_command``.
+# Leftover geometric UNO writes Shared-kernel config here so soffice ``get_config``
+# and the URP client are not looking at different ``writeragent.json`` files.
+_throwaway_profile_dir: Path | None = None
+
+
 def on_github_actions() -> bool:
     """True inside GitHub Actions (``GITHUB_ACTIONS=true``)."""
     return os.environ.get("GITHUB_ACTIONS") == "true"
+
+
+def throwaway_writeragent_json() -> Path | None:
+    """``user/config/writeragent.json`` under the headless throwaway profile, if any."""
+    if _throwaway_profile_dir is None:
+        return None
+    return _throwaway_profile_dir / "user" / "config" / "writeragent.json"
 
 
 def _libreoffice_user_profile_dir() -> Path:
@@ -346,6 +359,16 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
         "BOOTSTRAP throwaway seeded uno_packages from %s -> %s GITHUB_ACTIONS=%s"
         % (src, dest, on_github_actions())
     )
+    # Shared-kernel leftover UNO needs soffice ``get_config`` to see ``shared``
+    # on first read (2s mtime cache + Isolated OnNew otherwise). Isolated
+    # tests that care must write Isolated after bootstrap.
+    cfg = profile_dir / "user" / "config"
+    cfg.mkdir(parents=True, exist_ok=True)
+    (cfg / "writeragent.json").write_text(
+        '{\n  "scripting.python_session_mode": "shared"\n}\n',
+        encoding="utf-8",
+    )
+    _progress("BOOTSTRAP throwaway writeragent.json session_mode=shared path=%s" % (cfg / "writeragent.json"))
 
 
 def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
@@ -370,6 +393,8 @@ def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
         return None
     # Seed after the lookup try so a missing user OXT on GitHub Actions
     # raises instead of becoming a silent None command.
+    global _throwaway_profile_dir
+    _throwaway_profile_dir = profile_dir
     _seed_throwaway_profile_with_user_oxt(profile_dir)
     profile_url = profile_dir.as_uri()
     return (

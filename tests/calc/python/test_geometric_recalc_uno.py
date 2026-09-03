@@ -173,36 +173,71 @@ def _settle_soffice_config() -> None:
     time.sleep(2.1)
 
 
+def _session_config_paths(ctx) -> list[str]:
+    """Every ``writeragent.json`` soffice or the URP client might read."""
+
+    from plugin.framework.config import _config_path, _resolve_config_path_from_ctx
+    from plugin.testing_runner import (
+        _libreoffice_user_profile_dir,
+        throwaway_writeragent_json,
+    )
+
+    paths: list[str] = []
+    try:
+        paths.append(_resolve_config_path_from_ctx(ctx))
+    except Exception:
+        pass
+    try:
+        paths.append(_config_path())
+    except Exception:
+        pass
+    extra = throwaway_writeragent_json()
+    if extra is not None:
+        paths.append(str(extra))
+    paths.append(str(_libreoffice_user_profile_dir() / "user" / "config" / "writeragent.json"))
+    out: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        out.append(path)
+    return out
+
+
 def _set_session_mode(ctx, mode: str) -> None:
     """Write session mode where soffice ``get_config`` will see it.
 
     Client ``set_config`` can use a cached path that is not the throwaway
-    ``UserInstallation`` profile. Soffice reads PathSettings ``UserConfig``.
+    ``UserInstallation`` profile. Soffice PathSettings ``UserConfig`` is
+    usually the throwaway ``user/config``, but a cached ``init_config``
+    path can stay on the default user profile. Write every candidate.
     """
     import os
 
     from plugin.framework.config import (
         _invalidate_config_cache,
         _load_config_dict,
-        _resolve_config_path_from_ctx,
         _write_config_file,
         set_config,
     )
+    from plugin.testing_runner import _progress
 
     set_config("scripting.python_session_mode", mode)
-    path = _resolve_config_path_from_ctx(ctx)
-    data: dict = {}
-    if os.path.exists(path):
-        loaded = _load_config_dict(path, allow_repair=True, persist_repair=False)
-        if isinstance(loaded, dict):
-            data = loaded
-    if mode == "isolated":
-        data.pop("scripting.python_session_mode", None)
-        data.pop("python_session_mode", None)
-    else:
-        data["scripting.python_session_mode"] = mode
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    _write_config_file(path, data)
+    for path in _session_config_paths(ctx):
+        data: dict = {}
+        if os.path.exists(path):
+            loaded = _load_config_dict(path, allow_repair=True, persist_repair=False)
+            if isinstance(loaded, dict):
+                data = loaded
+        if mode == "isolated":
+            data.pop("scripting.python_session_mode", None)
+            data.pop("python_session_mode", None)
+        else:
+            data["scripting.python_session_mode"] = mode
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _write_config_file(path, data)
+        _progress("geometric session_mode=%s path=%s" % (mode, path))
     _invalidate_config_cache()
 
 
@@ -346,6 +381,11 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     DAG order on a unique Shared name). A second ``calculateAll`` must stay
     41. Precedent-only strip is Phase 4 unit-tested; headless soffice eval
     is off Python MainThread so live ``data is None`` cannot be observed.
+
+    Stay on the reused calc doc. A second factory ``scalc`` makes
+    ``off_main_calc_session_is_unambiguous()`` false, so Shared
+    ``session_id`` is dropped (XAddIn has no calling workbook). Throwaway
+    ``writeragent.json`` is seeded ``shared`` before soffice starts.
     """
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
 

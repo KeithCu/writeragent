@@ -47,9 +47,15 @@ _SESSION_MODE_KEY = "scripting.python_session_mode"
 def python_session_mode(ctx: Any) -> str:
     """Return ``isolated`` or ``shared`` from config (default ``isolated``)."""
     mode = (get_config_str(_SESSION_MODE_KEY) or "isolated").strip().lower()
-    if mode == "shared":
-        return "shared"
-    return "isolated"
+    if mode != "shared":
+        mode = "isolated"
+    try:
+        from plugin.framework.config import _config_path
+
+        log.debug("python_session_mode=%s config=%s", mode, _config_path())
+    except Exception:
+        log.debug("python_session_mode=%s config=<unresolved>", mode)
+    return mode
 
 
 def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:

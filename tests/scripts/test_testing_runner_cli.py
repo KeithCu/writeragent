@@ -71,6 +71,8 @@ def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) ->
     tr._seed_throwaway_profile_with_user_oxt(dest_root)
     copied = dest_root / "user" / "uno_packages" / "cache" / "uno_packages" / "lu9.tmp_" / "WriterAgent.oxt" / "addin.py"
     assert copied.read_text(encoding="utf-8") == "ok"
+    seeded_cfg = dest_root / "user" / "config" / "writeragent.json"
+    assert '"scripting.python_session_mode": "shared"' in seeded_cfg.read_text(encoding="utf-8")
 
 
 def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_path: Path) -> None:
