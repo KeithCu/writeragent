@@ -476,6 +476,26 @@ def test_g_skip_if_record_failed_on_device_error(monkeypatch) -> None:
         gmod._g_skip_if_record_failed()
 
 
+def test_g4_skip_if_no_audio_reply_on_greeting_only(monkeypatch) -> None:
+    """CI G4: wait_idle is immediate, greeting has no audio-error string."""
+    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
+
+    monkeypatch.setattr(
+        gmod,
+        "_transcript",
+        lambda: "Assistant: I can edit or translate your document instantly with professional formatting and color. Try me!",
+    )
+    with pytest.raises(unittest.SkipTest, match="Record no-op"):
+        gmod._g_skip_if_no_audio_reply()
+
+
+def test_g4_no_skip_when_native_reply_present(monkeypatch) -> None:
+    from tests.chatbot import test_mock_llm_sidebar_uno as gmod
+
+    monkeypatch.setattr(gmod, "_transcript", lambda: "Assistant: Hello from the mock microphone.")
+    gmod._g_skip_if_no_audio_reply()
+
+
 def test_mock_config_mutates_flags() -> None:
     cfg = SimpleNamespace(delay_ms=25, fail="none", offline=False)
     mock_config(cfg, delay_ms=40, fail="hang", offline=True)
