@@ -198,12 +198,6 @@ class QueryTextListener(BaseTextListener):
 
     def on_text_changed(self, rEvent):
         log.info("[SLASH-OV] query_text entered")
-        try:
-            with open("/tmp/slash-ov.txt", "a", encoding="utf-8") as fh:
-                fh.write("query_text entered\n")
-                fh.flush()
-        except Exception:
-            pass
         model = getattr(rEvent.Source, "Model", None)
         if not model:
             model = rEvent.Source.getModel()

@@ -37,17 +37,10 @@ from plugin.framework.errors import suppress_disposed
 
 log = logging.getLogger("writeragent.slash_popup")
 
-def _ovlog(msg: str, *args: object, **kwargs: object) -> None:
-    line = "[SLASH-OV] " + msg
-    log.info(line, *args, **kwargs)
-    logging.getLogger("plugin.chatbot.panel").info(line, *args, **kwargs)
-    try:
-        text = (line % args) if args else line
-        with open("/tmp/slash-ov.txt", "a", encoding="utf-8") as fh:
-            fh.write(text + "\n")
-            fh.flush()
-    except Exception:
-        pass
+def _ovlog(msg: str, *args: object, exc_info: bool = False) -> None:
+    """Slash-overlay breadcrumb. Logger only — no /tmp (Bandit B108)."""
+    text = (msg % args) if args else msg
+    log.info("[SLASH-OV] %s", text, exc_info=exc_info)
 
 
 def _ovdiag(obj: Any, label: str) -> None:
@@ -133,17 +126,22 @@ def _location_on_screen(obj: Any) -> tuple[int, int] | None:
         return None
     try:
         pt = fn()
-        return int(pt.X), int(pt.Y)
+        # UNO Point is untyped here; getattr avoids basedpyright treating it as object.
+        x = getattr(pt, "X", None)
+        y = getattr(pt, "Y", None)
+        if x is None or y is None:
+            return None
+        return int(x), int(y)
     except Exception:
         return None
 
 
 def _overlay_rect(qr: Any, rows: int, *, relative_to_ask: bool) -> tuple[int, int, int, int]:
     """List rectangle. Ask-relative Y is negative (clips in a 49px peer). Dialog-relative sits above Ask."""
-    height = _overlay_height(rows)
     width = max(20, int(getattr(qr, "Width", 0) or 0))
     if relative_to_ask:
-        return (0, -height - 2, width, height)
+        return _popup_bounds(width, rows)
+    height = _overlay_height(rows)
     return (int(qr.X), int(qr.Y) - height - 2, width, height)
 
 
@@ -701,14 +699,14 @@ class SlashPopupController:
             def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
                 return
 
-            def keyPressed(self, e):  # noqa: N802 -- UNO signature
-                code = int(getattr(e, "KeyCode", 0) or 0)
-                mods = int(getattr(e, "Modifiers", 0) or 0)
-                ch = getattr(e, "KeyChar", None)
+            def keyPressed(self, aEvent):  # noqa: N802 -- UNO XKeyHandler
+                code = int(getattr(aEvent, "KeyCode", 0) or 0)
+                mods = int(getattr(aEvent, "Modifiers", 0) or 0)
+                ch = getattr(aEvent, "KeyChar", None)
                 _ovlog("frame keyPressed code=%s mods=%s char=%r", code, mods, ch)
                 return bool(host.handle_key(code, mods))
 
-            def keyReleased(self, e):  # noqa: N802 -- UNO signature
+            def keyReleased(self, aEvent):  # noqa: N802 -- UNO XKeyHandler
                 return False
 
         handler = _Handler()
@@ -767,14 +765,14 @@ class SlashPopupController:
             def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
                 return
 
-            def keyPressed(self, e):  # noqa: N802 -- UNO signature
-                code = int(getattr(e, "KeyCode", 0) or 0)
-                mods = int(getattr(e, "Modifiers", 0) or 0)
-                ch = getattr(e, "KeyChar", None)
+            def keyPressed(self, aEvent):  # noqa: N802 -- UNO XKeyHandler
+                code = int(getattr(aEvent, "KeyCode", 0) or 0)
+                mods = int(getattr(aEvent, "Modifiers", 0) or 0)
+                ch = getattr(aEvent, "KeyChar", None)
                 _ovlog("toolkit keyPressed code=%s mods=%s char=%r", code, mods, ch)
                 return bool(host.handle_key(code, mods))
 
-            def keyReleased(self, e):  # noqa: N802 -- UNO signature
+            def keyReleased(self, aEvent):  # noqa: N802 -- UNO XKeyHandler
                 return False
 
         handler = _Handler()
@@ -855,7 +853,7 @@ class SlashPopupController:
             def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
                 return
 
-            def itemStateChanged(self, e):  # noqa: N802 -- UNO signature
+            def itemStateChanged(self, rEvent):  # noqa: N802 -- UNO XItemListener
                 _ovlog("itemStateChanged ignore=%s open=%s", host._ignore_item, host._open)
                 if host._ignore_item or not host._open:
                     return
@@ -865,7 +863,7 @@ class SlashPopupController:
             def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
                 return
 
-            def actionPerformed(self, e):  # noqa: N802 -- UNO signature
+            def actionPerformed(self, rEvent):  # noqa: N802 -- UNO XActionListener
                 _ovlog("actionPerformed open=%s", host._open)
                 if host._open:
                     host.accept_selected()
