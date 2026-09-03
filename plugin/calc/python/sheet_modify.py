@@ -22,6 +22,9 @@ import threading
 from types import SimpleNamespace
 from typing import Any
 
+import unohelper
+from com.sun.star.util import XModifyListener
+
 log = logging.getLogger(__name__)
 
 # Debounce one pass per sheet. Keyed by (doc_url, sheet_name).
@@ -30,16 +33,6 @@ _PENDING_LOCK = threading.Lock()
 # setFormula / clearContents during a pass re-enters modified(); skip.
 _DISPATCHING = False
 _MODIFY_DELAY_SEC = 0.1
-
-try:
-    import unohelper
-    from com.sun.star.util import XModifyListener
-
-    _HAVE_UNO = True
-except ImportError:  # pytest without soffice
-    unohelper = None  # type: ignore[assignment]
-    XModifyListener = object  # type: ignore[misc,assignment]
-    _HAVE_UNO = False
 
 
 def reset_sheet_modify_runtime_for_tests() -> None:
@@ -127,18 +120,22 @@ def schedule_sheet_modify_pass(
             )
         )
 
-    timer = threading.Timer(delay_sec, _fire)
-    with _PENDING_LOCK:
-        _PENDING_TIMERS[key] = timer
+    lifecycle_key = ""
     if doc is not None:
         try:
-            from plugin.calc.python.function import _register_spill_timer
             from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
-            _register_spill_timer(_lifecycle_key(doc), timer)
+            lifecycle_key = _lifecycle_key(doc)
         except Exception:
-            log.debug("sheet_modify: timer registry failed", exc_info=True)
-    timer.start()
+            log.debug("sheet_modify: lifecycle key failed", exc_info=True)
+    from plugin.calc.python.function import start_deferred_sheet_timer
+
+    # Timer lives in function.py (Layer C allowlist) — same 0.1s spill site.
+    timer = start_deferred_sheet_timer(
+        delay_sec, _fire, lifecycle_key=lifecycle_key
+    )
+    with _PENDING_LOCK:
+        _PENDING_TIMERS[key] = timer
 
 
 def flush_sheet_modify_pass_for_tests(
@@ -171,7 +168,10 @@ def run_sheet_modify_pass(
     """
     global _DISPATCHING
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
+    from plugin.framework.thread_guard import on_main_thread
 
+    if not on_main_thread():
+        return
     if _DISPATCHING or is_geometric_repairing():
         return
     if doc is None:
@@ -252,40 +252,22 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     return listener
 
 
-if _HAVE_UNO:
-    class SheetModifyDispatcher(unohelper.Base, XModifyListener):
-        """One ``XModifyListener`` per sheet. Schedules; does not own either job."""
+class SheetModifyDispatcher(unohelper.Base, XModifyListener):
+    """One ``XModifyListener`` per sheet. Schedules; does not own either job."""
 
-        def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
-            self.ctx = ctx
-            self.doc_url = doc_url
-            self.sheet_name = sheet_name
+    def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
+        self.ctx = ctx
+        self.doc_url = doc_url
+        self.sheet_name = sheet_name
 
-        def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
-            try:
-                dispatch_sheet_modified(self.ctx, self.doc_url, self.sheet_name, aEvent)
-            except Exception:
-                log.exception("Error in SheetModifyDispatcher.modified")
-
-        def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-            from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
-
-            SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
-            _cancel_pending((self.doc_url, self.sheet_name))
-else:
-    class SheetModifyDispatcher:
-        """Pytest stand-in when PyUNO is not imported."""
-
-        def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
-            self.ctx = ctx
-            self.doc_url = doc_url
-            self.sheet_name = sheet_name
-
-        def modified(self, aEvent: Any) -> None:
+    def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        try:
             dispatch_sheet_modified(self.ctx, self.doc_url, self.sheet_name, aEvent)
+        except Exception:
+            log.exception("Error in SheetModifyDispatcher.modified")
 
-        def disposing(self, Source: Any) -> None:
-            from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
+    def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
+        from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
 
-            SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
-            _cancel_pending((self.doc_url, self.sheet_name))
+        SHEET_MODIFY_LISTENERS.pop((self.doc_url, self.sheet_name), None)
+        _cancel_pending((self.doc_url, self.sheet_name))

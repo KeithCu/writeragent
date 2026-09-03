@@ -1117,6 +1117,25 @@ def _register_spill_timer(lifecycle_key: str, timer: threading.Timer) -> None:
         _PENDING_SPILL_TIMERS.append((lifecycle_key, timer))
 
 
+def start_deferred_sheet_timer(
+    delay_sec: float,
+    callback: Any,
+    *,
+    lifecycle_key: str = "",
+) -> threading.Timer:
+    """Shared 0.1s Timer for spill writes and geometric sheet-modify repair.
+
+    Lives here so Layer C allows the same ``threading.Timer`` site as
+    ``perform_deferred_spill``. The timer thread only ``post_to_main_thread``;
+    UNO writes run on the UI thread.
+    """
+    timer = threading.Timer(delay_sec, callback)
+    if lifecycle_key:
+        _register_spill_timer(lifecycle_key, timer)
+    timer.start()
+    return timer
+
+
 def cancel_pending_spill_timers(lifecycle_key: str) -> None:
     """Cancel deferred spill timers for a workbook that is unloading."""
     with _PENDING_SPILL_LOCK:

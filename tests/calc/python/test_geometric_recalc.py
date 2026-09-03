@@ -961,7 +961,7 @@ class _DeferredTimer:
 
 def _install_deferred_timer(monkeypatch):
     _DeferredTimer.instances.clear()
-    monkeypatch.setattr("plugin.calc.python.sheet_modify.threading.Timer", _DeferredTimer)
+    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _DeferredTimer)
     monkeypatch.setattr(
         "plugin.framework.queue_executor.post_to_main_thread",
         lambda fn, *a, **k: fn(*a, **k),
