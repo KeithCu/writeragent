@@ -320,39 +320,17 @@ def _user_writeragent_uno_packages() -> Path | None:
 
 
 def _seed_worker_python_path() -> str | None:
-    """Interpreter for throwaway ``scripting.python_venv_path``.
+    """Do not seed throwaway ``scripting.python_venv_path``.
 
-    Headless soffice on macOS often has ``sys.executable`` empty or pointing
-    at soffice (not ``Contents/Resources/python``). Sheet ``=PY()`` and
-    notebook ``execute_code`` then fail inside soffice (GHA 33749078050).
-    Prefer the checkout ``.venv`` (CI ``uv sync`` / numpy UNO). Fall back
-    to this process's ``sys.executable`` when it is a real ``python*`` file.
-
-    Linux leftover Shared (GHA 33751116865) failed with Isolated semantics
-    (``x_geo_live`` undefined) when this path was seeded — sheet ``=PY()``
-    is off-main and must keep using soffice ``sys.executable``. Darwin only.
+    Checkout ``.venv`` as that key made leftover Shared look Isolated
+    (``x_geo_live`` undefined) on Linux (GHA 33751116865) and macOS
+    (GHA 33752809831). Sheet ``=PY()`` is off-main; workers must keep
+    the office interpreter via ``resolve_libreoffice_python`` (sibling
+    ``python.exe`` / Darwin ``Contents/Resources/python`` when soffice
+    ``sys.executable`` is empty or not Python). Windows GHA 33752806292
+    was missing that neighbor lookup, not a venv seed.
     """
-    if sys.platform != "darwin":
-        return None
-    root = Path(__file__).resolve().parents[1]
-    for candidate in (
-        root / ".venv" / "bin" / "python",
-        root / ".venv" / "bin" / "python3",
-        root / ".venv" / "Scripts" / "python.exe",
-    ):
-        if candidate.is_file():
-            return str(root / ".venv")
-    exe = (getattr(sys, "executable", None) or "").strip()
-    if not exe:
-        return None
-    path = Path(exe)
-    if not path.is_file():
-        return None
-    if not path.name.lower().startswith("python"):
-        return None
-    if os.name != "nt" and not os.access(exe, os.X_OK):
-        return None
-    return exe
+    return None
 
 
 def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
@@ -403,8 +381,6 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
     seeded: dict[str, str] = {"scripting.python_session_mode": "shared"}
     worker = _seed_worker_python_path()
     if worker:
-        # macOS soffice ``sys.executable`` is not a usable python (GHA
-        # 33749078050). Name a real interpreter before soffice starts.
         seeded["scripting.python_venv_path"] = worker
     cfg_path = cfg / "writeragent.json"
     cfg_path.write_text(json.dumps(seeded, indent=2) + "\n", encoding="utf-8")

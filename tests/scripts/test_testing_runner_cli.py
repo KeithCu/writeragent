@@ -123,9 +123,8 @@ def test_seed_throwaway_copies_user_uno_packages(monkeypatch, tmp_path: Path) ->
     seeded_cfg = dest_root / "user" / "config" / "writeragent.json"
     seeded_text = seeded_cfg.read_text(encoding="utf-8")
     assert '"scripting.python_session_mode": "shared"' in seeded_text
-    worker = tr._seed_worker_python_path()
-    if worker:
-        assert worker in seeded_text
+    # Checkout .venv seed made leftover Shared Isolated (33751116865 / 33752809831).
+    assert "python_venv_path" not in seeded_text
 
 
 def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_path: Path) -> None:
@@ -139,41 +138,18 @@ def test_seed_throwaway_missing_oxt_raises_on_github_actions(monkeypatch, tmp_pa
         raise AssertionError("expected RuntimeError on GitHub Actions without user OXT")
 
 
-def test_seed_worker_python_path_prefers_checkout_venv(
+def test_seed_worker_python_path_never_seeds_checkout_venv(
     monkeypatch, tmp_path: Path
 ) -> None:
+    """Checkout .venv seed made leftover Shared Isolated (33751116865 / 33752809831)."""
     fake_root = tmp_path / "repo"
     venv_py = fake_root / ".venv" / "bin" / "python"
     venv_py.parent.mkdir(parents=True)
     venv_py.write_text("", encoding="utf-8")
-    monkeypatch.setattr(tr.sys, "platform", "darwin")
     monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
-    assert tr._seed_worker_python_path() == str(fake_root / ".venv")
-
-
-def test_seed_worker_python_path_falls_back_to_sys_executable(
-    monkeypatch, tmp_path: Path
-) -> None:
-    fake_root = tmp_path / "repo"
-    (fake_root / "plugin").mkdir(parents=True)
-    monkeypatch.setattr(tr.sys, "platform", "darwin")
-    monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
-    exe = tmp_path / "python3"
-    exe.write_text("", encoding="utf-8")
-    exe.chmod(0o755)
-    monkeypatch.setattr(tr.sys, "executable", str(exe))
-    assert tr._seed_worker_python_path() == str(exe)
-
-
-def test_seed_worker_python_path_skipped_off_darwin(monkeypatch, tmp_path: Path) -> None:
-    """Linux leftover Shared broke when venv was seeded (GHA 33751116865)."""
-    fake_root = tmp_path / "repo"
-    venv_py = fake_root / ".venv" / "bin" / "python"
-    venv_py.parent.mkdir(parents=True)
-    venv_py.write_text("", encoding="utf-8")
-    monkeypatch.setattr(tr.sys, "platform", "linux")
-    monkeypatch.setattr(tr, "__file__", str(fake_root / "plugin" / "testing_runner.py"))
-    assert tr._seed_worker_python_path() is None
+    for platform in ("darwin", "win32", "linux"):
+        monkeypatch.setattr(tr.sys, "platform", platform)
+        assert tr._seed_worker_python_path() is None
 
 
 def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path) -> None:
@@ -484,6 +460,25 @@ def test_clear_stale_user_profile_ipc_globs_os_tempdir(monkeypatch, tmp_path) ->
         ]
     else:
         assert seen == []
+
+
+def test_leftover_shared_diag_includes_cells_and_config(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from tests.calc.python import test_geometric_recalc_uno as geo_uno
+
+    cfg = tmp_path / "writeragent.json"
+    cfg.write_text('{"scripting.python_session_mode": "shared"}\n', encoding="utf-8")
+    cell = SimpleNamespace(
+        getValue=lambda: 0.0,
+        getError=lambda: 0,
+        getString=lambda: "x_geo_live is not defined",
+        getFormula=lambda: '=PY("x_geo_live";A1)',
+    )
+    blob = geo_uno._leftover_shared_diag(None, cell, cell)
+    assert "x_geo_live" in blob
+    assert "leftover diag A1" in blob
+    assert "leftover diag A3" in blob
 
 
 def test_geometric_leftover_525_fails_on_github_actions(monkeypatch) -> None:

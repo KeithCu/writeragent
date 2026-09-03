@@ -33,6 +33,7 @@ from plugin.scripting.sandbox import (
     resolve_venv_python,
     wrap_command_for_sandbox,
 )
+import plugin.scripting.sandbox as sandbox
 
 def test_resolve_venv_python_finds_posix_python(tmp_path):
     venv = tmp_path / "venv"
@@ -163,6 +164,7 @@ def test_resolve_libreoffice_python_none_when_missing_executable(tmp_path, monke
     p.write_text("not executable")
     p.chmod(0o644)
     monkeypatch.setattr(sys, "executable", str(p))
+    monkeypatch.setattr(sandbox, "_bundled_lo_python_candidates", lambda: [])
     if sys.platform == "win32":
         assert resolve_libreoffice_python() == str(p)
     else:
@@ -171,12 +173,52 @@ def test_resolve_libreoffice_python_none_when_missing_executable(tmp_path, monke
 
 def test_resolve_libreoffice_python_empty_string(monkeypatch):
     monkeypatch.setattr(sys, "executable", "")
+    monkeypatch.setattr(sandbox, "_bundled_lo_python_candidates", lambda: [])
     assert resolve_libreoffice_python() is None
 
 
 def test_resolve_libreoffice_python_nonexistent_path(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "executable", str(tmp_path / "does_not_exist"))
+    monkeypatch.setattr(sandbox, "_bundled_lo_python_candidates", lambda: [])
     assert resolve_libreoffice_python() is None
+
+
+def test_resolve_libreoffice_python_neighbor_of_soffice(tmp_path, monkeypatch):
+    """Windows GHA 33752806292: sys.executable is soffice.exe; use sibling python.exe."""
+    soffice = tmp_path / "soffice.exe"
+    py = tmp_path / "python.exe"
+    soffice.write_text("", encoding="utf-8")
+    py.write_text("#!/bin/sh\n", encoding="utf-8")
+    py.chmod(py.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setattr(sys, "executable", str(soffice))
+    monkeypatch.setattr(sandbox, "_bundled_lo_python_candidates", lambda: [])
+    assert resolve_libreoffice_python() == str(py)
+
+
+def test_resolve_libreoffice_python_macos_resources(tmp_path, monkeypatch):
+    """Darwin: Contents/MacOS/soffice → Contents/Resources/python (PR #561)."""
+    macos = tmp_path / "Contents" / "MacOS"
+    resources = tmp_path / "Contents" / "Resources"
+    macos.mkdir(parents=True)
+    resources.mkdir()
+    soffice = macos / "soffice"
+    py = resources / "python"
+    soffice.write_text("", encoding="utf-8")
+    py.write_text("#!/bin/sh\n", encoding="utf-8")
+    py.chmod(py.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setattr(sys, "executable", str(soffice))
+    monkeypatch.setattr(sandbox, "_bundled_lo_python_candidates", lambda: [])
+    assert resolve_libreoffice_python() == str(py)
+
+
+def test_resolve_libreoffice_python_empty_uses_bundled(tmp_path, monkeypatch):
+    """Darwin soffice sys.executable is often empty (GHA 33749078050)."""
+    py = tmp_path / "python"
+    py.write_text("#!/bin/sh\n", encoding="utf-8")
+    py.chmod(py.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setattr(sys, "executable", "")
+    monkeypatch.setattr(sandbox, "_bundled_lo_python_candidates", lambda: [str(py)])
+    assert resolve_libreoffice_python() == str(py)
 
 
 # --- Subprocess spawn helper tests (relocated from test_subprocess_helpers.py) ---

@@ -241,6 +241,50 @@ def _set_session_mode(ctx, mode: str) -> None:
     _invalidate_config_cache()
 
 
+def _leftover_shared_diag(ctx, a1, a3) -> str:
+    """Config + cell snapshot when leftover Shared does not become 41."""
+    from plugin.framework.config import get_config_str
+    from plugin.scripting.session_manager import (
+        off_main_calc_session_is_unambiguous,
+        python_session_mode,
+        recorded_calc_session_count,
+    )
+    from plugin.testing_runner import _progress
+
+    try:
+        mode = python_session_mode(ctx)
+        venv = get_config_str("scripting.python_venv_path")
+    except Exception as exc:
+        mode = "<unreadable %s>" % exc
+        venv = ""
+    lines = [
+        "leftover diag client_mode=%s venv=%r recorded=%s unambiguous=%s"
+        % (mode, venv, recorded_calc_session_count(), off_main_calc_session_is_unambiguous()),
+        "leftover diag A1 value=%r error=%r string=%r formula=%r"
+        % (a1.getValue(), a1.getError(), a1.getString(), a1.getFormula()),
+        "leftover diag A3 value=%r error=%r string=%r formula=%r"
+        % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula()),
+    ]
+    for path in _session_config_paths(ctx):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read()
+        except OSError as exc:
+            text = "<unreadable %s>" % exc
+        lines.append("leftover diag file=%s body=%s" % (path, text.replace("\n", " ")))
+        debug_log = path.replace("writeragent.json", "writeragent_debug.log")
+        if debug_log != path:
+            try:
+                with open(debug_log, encoding="utf-8") as handle:
+                    tail = handle.read()[-2000:]
+                lines.append("leftover diag log=%s tail=%s" % (debug_log, tail.replace("\n", " ")))
+            except OSError:
+                pass
+    blob = " | ".join(lines)
+    _progress(blob)
+    return blob
+
+
 def _wait_cell_value(doc, cell, expected: float, timeout: float = 8.0) -> bool:
     """True if *cell* reaches *expected*. False if sheet =PY is #NAME? (no add-in)."""
     deadline = time.monotonic() + timeout
@@ -385,7 +429,9 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     Stay on the reused calc doc. A second factory ``scalc`` makes
     ``off_main_calc_session_is_unambiguous()`` false, so Shared
     ``session_id`` is dropped (XAddIn has no calling workbook). Throwaway
-    ``writeragent.json`` is seeded ``shared`` before soffice starts.
+    ``writeragent.json`` is seeded ``shared`` before soffice starts. Do
+    not seed checkout ``.venv`` as ``python_venv_path`` — that made A3
+    Isolated (GHA 33751116865 / 33752809831). Workers use office Python.
     """
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
 
@@ -405,29 +451,26 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
         assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
         assert _pred(str(a1.getFormula() or "")) is None
 
-        if not _wait_cell_value(doc, a3, 41.0):
+        try:
+            reached = _wait_cell_value(doc, a3, 41.0)
+        except AssertionError as exc:
+            raise AssertionError("%s | %s" % (exc, _leftover_shared_diag(ctx, a1, a3))) from exc
+        if not reached:
             if _skip_if_py_unregistered(
                 a1, test_name="test_geometric_shared_kernel_a3_reads_a1_f9_stable"
             ):
                 return
             raise AssertionError(
-                "A3 did not become 41 after attach+F9: "
-                "value=%r error=%r string=%r formula=%r"
-                % (a3.getValue(), a3.getError(), a3.getString(), a3.getFormula())
+                "A3 did not become 41 after attach+F9: %s"
+                % _leftover_shared_diag(ctx, a1, a3)
             )
-        assert a3.getValue() == 41.0, (
-            a3.getValue(),
-            a3.getString(),
-            a3.getFormula(),
-        )
+        if a3.getValue() != 41.0:
+            raise AssertionError(_leftover_shared_diag(ctx, a1, a3))
 
         # Second F9. Same value — geometric edge stays, Shared name persists.
         doc.calculateAll()
-        assert a3.getValue() == 41.0, (
-            a3.getValue(),
-            a3.getString(),
-            a3.getFormula(),
-        )
+        if a3.getValue() != 41.0:
+            raise AssertionError(_leftover_shared_diag(ctx, a1, a3))
     finally:
         _set_session_mode(ctx, "isolated")
         _restore_geometric_flag(previous)

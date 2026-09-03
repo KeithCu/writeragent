@@ -397,23 +397,92 @@ def _is_usable_python_file(path: str) -> bool:
     return os.access(path, os.X_OK)
 
 
-def resolve_libreoffice_python() -> Optional[str]:
-    """Return ``sys.executable`` if it names a real file (no other heuristics).
+def _python_beside_soffice(soffice_path: str) -> Optional[str]:
+    """Office-bundled interpreter next to soffice (not checkout ``.venv``).
 
-    Under PyUNO this is normally the office-bundled Python; on broken installs it
-    may be wrong or missing — callers surface an error and the user can set a venv.
+    Windows ``sys.executable`` is often ``soffice.exe``; Darwin is empty or
+    ``Contents/MacOS/soffice``. Sibling / Resources python is the same
+    interpreter Linux leftover Shared already uses via ``sys.executable``.
+    Seeding checkout ``.venv`` as ``python_venv_path`` made A3 Isolated
+    (GHA 33751116865 Linux, 33752809831 Mac).
+    """
+    program = os.path.dirname(os.path.abspath(soffice_path))
+    if not program:
+        return None
+    names = ("python.exe", "python.bin", "python", "python3")
+    for name in names:
+        candidate = os.path.join(program, name)
+        if _is_usable_python_file(candidate):
+            return candidate
+    # Darwin: Contents/MacOS/soffice → Contents/Resources/python (PR #561).
+    resources = os.path.join(os.path.dirname(program), "Resources", "python")
+    if _is_usable_python_file(resources):
+        return resources
+    return None
+
+
+def _bundled_lo_python_candidates() -> list[str]:
+    """Install-layout fallbacks when ``sys.executable`` is empty (Darwin soffice)."""
+    out: list[str] = []
+    if os.name == "nt":
+        for root_key, default in (
+            ("PROGRAMFILES", r"C:\Program Files"),
+            ("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+        ):
+            root = os.environ.get(root_key, default)
+            out.append(os.path.join(root, "LibreOffice", "program", "python.exe"))
+        return out
+    out.extend(
+        (
+            "/Applications/LibreOffice.app/Contents/Resources/python",
+            "/usr/lib/libreoffice/program/python.bin",
+            "/usr/lib/libreoffice/program/python",
+        )
+    )
+    for cask_root in (
+        "/opt/homebrew/Caskroom/libreoffice",
+        "/usr/local/Caskroom/libreoffice",
+    ):
+        if not os.path.isdir(cask_root):
+            continue
+        try:
+            versions = os.listdir(cask_root)
+        except OSError:
+            continue
+        for version in versions:
+            out.append(
+                os.path.join(
+                    cask_root,
+                    version,
+                    "LibreOffice.app",
+                    "Contents",
+                    "Resources",
+                    "python",
+                )
+            )
+    return out
+
+
+def resolve_libreoffice_python() -> Optional[str]:
+    """Return a usable office Python: ``sys.executable``, else bundled neighbor.
+
+    Under PyUNO this is normally the office-bundled Python. On Windows/macOS
+    ``sys.executable`` is often soffice or empty (GHA 33752806292 / 33749078050)
+    — look next to that binary and at the install layouts before giving up.
+    Callers still surface an error so the user can set a venv.
     """
     # crosshair: off
     exe = (getattr(sys, "executable", None) or "").strip()
-    if not exe or not os.path.isfile(exe):
-        return None
-    if os.name != "nt" and not os.access(exe, os.X_OK):
-        return None
-    # Reject LibreOffice binaries (soffice, libreoffice, oosplash) that are not Python
-    basename = os.path.basename(exe).lower()
-    if not basename.startswith("python"):
-        return None
-    return exe
+    if exe and os.path.isfile(exe):
+        if _is_usable_python_file(exe):
+            return exe
+        neighbor = _python_beside_soffice(exe)
+        if neighbor:
+            return neighbor
+    for candidate in _bundled_lo_python_candidates():
+        if _is_usable_python_file(candidate):
+            return candidate
+    return None
 
 
 def _python_candidates_in_bin_dir(bin_dir: str) -> list[str]:
