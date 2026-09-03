@@ -283,6 +283,8 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     cached_doc_type: str | None
     cached_uno_services: frozenset[str] | None
     _record_assistant_start: bool
+    slash_popup: Any
+    clear_listener: Any
 
     def __init__(
         self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, chat_mode_selector=None, aspect_ratio_selector=None, base_size_input=None, sidebar_include_brainstorming=True, ensure_path_fn=None, clear_control=None
