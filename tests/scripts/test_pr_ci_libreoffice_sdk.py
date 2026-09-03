@@ -21,9 +21,13 @@ def test_ubuntu_ci_installs_libreoffice_dev_for_rdb_core() -> None:
     assert "libreoffice-dev" in ubuntu_block
 
 
-def test_rdb_script_names_ubuntu_sdk_package() -> None:
-    text = _RDB_SCRIPT.read_text(encoding="utf-8")
-    assert "libreoffice-dev" in text
+def test_rdb_core_invokes_bash_script_not_windows_ps1() -> None:
+    """GHA 33777144412: make rdb-core used rebuild_librepy_rdb.ps1 (missing)."""
+    makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    recipe = makefile.split("rdb-core:", 1)[1].split("build-core:", 1)[0]
+    assert "rebuild_librepy_rdb.sh" in recipe
+    assert "rebuild_librepy_rdb$(EXT)" not in recipe
+    assert "rebuild_librepy_rdb.ps1" not in recipe
 
 
 def test_windows_ci_installs_opengrep_and_forces_utf8() -> None:

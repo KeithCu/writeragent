@@ -437,7 +437,10 @@ manifest-core:
 		--skip-writeragent-extension --skip-addons
 
 rdb-core:
-	$(RUN_SH) $(SCRIPTS)/rebuild_librepy_rdb$(EXT)
+	# Bash-only (no Windows .ps1). CI without unoidl-write reuses the
+	# committed XPythonFunction.rdb. GHA 33777144412 failed packaging
+	# by routing this target through RUN_SH + EXT.
+	bash "$(SCRIPTS)/rebuild_librepy_rdb.sh"
 
 build-core: vendor manifest-core rdb-core compile-translations-core
 	@echo "Building LibrePy.oxt (standalone core extension)..."
