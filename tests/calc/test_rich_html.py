@@ -170,3 +170,81 @@ def test_insert_cell_html_rich_empty_html_raises():
 
     with pytest.raises(ToolExecutionError, match="HTML content is empty"):
         insert_cell_html_rich(MagicMock(), MagicMock(), "A1", "   ")
+
+
+def _portion_cell(blocks):
+    """Build a cell whose text enumeration yields *blocks* (each a portion or nest)."""
+    top = MagicMock()
+    top.hasMoreElements.side_effect = [True] * len(blocks) + [False]
+    top.nextElement.side_effect = list(blocks)
+    text = MagicMock()
+    text.createEnumeration.return_value = top
+    cell = MagicMock()
+    cell.getText.return_value = text
+    return cell
+
+
+def test_iter_cell_text_portions_logs_enumeration(capsys):
+    """GHA 33703959362: hang after execute-done may be createEnumeration / nextElement."""
+    from tests.calc.test_rich_html_uno import _iter_cell_text_portions_for_test
+
+    portion = MagicMock()
+    inner = MagicMock()
+    inner.hasMoreElements.side_effect = [True, False]
+    inner.nextElement.return_value = portion
+    block = MagicMock()
+    block.createEnumeration.return_value = inner
+    cell = _portion_cell([block])
+
+    assert list(_iter_cell_text_portions_for_test(cell)) == [portion]
+    err = capsys.readouterr().err
+    assert "insert_cell_html: portions createEnumeration start" in err
+    assert "insert_cell_html: portions createEnumeration done" in err
+    assert "insert_cell_html: portions hasMoreElements block=0" in err
+    assert "insert_cell_html: portions nextElement start block=0" in err
+    assert "insert_cell_html: portions nextElement done block=1" in err
+    assert "insert_cell_html: portions inner createEnumeration start block=1" in err
+    assert "insert_cell_html: portions inner nextElement done block=1 inner=0" in err
+    assert "insert_cell_html: portions enum exit yielded=1" in err
+
+
+def test_insert_cell_html_post_execute_breadcrumbs_present():
+    """GHA 33703959362: next Windows timeout must name the post-execute hang site."""
+    import inspect
+
+    from tests.calc import test_rich_html_uno as mod
+
+    src = inspect.getsource(inspect.unwrap(mod.test_insert_cell_html))
+    for needle in (
+        "status assert start",
+        "status assert done",
+        "getCellByPosition start",
+        "getCellByPosition done",
+        "getString start",
+        "getString done",
+        "portion loop start",
+        "portion loop done",
+        "bold assert start",
+        "bold assert done",
+        "assertions done",
+    ):
+        assert needle in src, needle
+
+
+def test_diagnose_insert_cell_html_bold_logs_enter_exit(capsys):
+    from tests.calc.test_rich_html_uno import _diagnose_insert_cell_html_bold
+
+    portion = MagicMock()
+    portion.getString.return_value = "BoldBit"
+    portion.getPropertyValue.side_effect = lambda name: 150.0 if name == "CharWeight" else "Text"
+    inner = MagicMock()
+    inner.hasMoreElements.side_effect = [True, False]
+    inner.nextElement.return_value = portion
+    block = MagicMock()
+    block.createEnumeration.return_value = inner
+
+    dump = _diagnose_insert_cell_html_bold(_portion_cell([block]))
+    err = capsys.readouterr().err
+    assert "insert_cell_html: diagnose start" in err
+    assert "insert_cell_html: diagnose done portions=1" in err
+    assert "BoldBit" in dump

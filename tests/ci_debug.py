@@ -11,6 +11,10 @@ faulthandler dump at 240s. Windows CI 33447705893 lost gw3 at 261s with no
 abort a native/subprocess block). Dump while the worker is still alive so a
 later unclean death still names the hung test and dumps every thread's stack.
 
+``arm_stderr_hang_dump`` is separate: always-on, writes all-thread stacks to
+stderr after 90s (GHA 33703959362). ``testing_runner`` uses it for
+``test_insert_cell_html`` only.
+
 This does not fix the Windows hang. ``--max-worker-restart=0`` (Makefile,
 same flag) is what lets the session summary print
 ``worker 'gw3' crashed while running '<nodeid>'`` instead of replacing the
@@ -21,6 +25,7 @@ from __future__ import annotations
 
 import faulthandler
 import os
+import sys
 from typing import IO, Optional
 
 # Observed hang-to-crash is ~261s (under --timeout=300, which did not fire).
@@ -29,7 +34,14 @@ from typing import IO, Optional
 # controller wait after "replacing crashed worker".
 _FAULT_DUMP_SECONDS = 240
 
+# GHA 33703959362: execute-done then 20 min silence until the 25m step died.
+# Dump well before that timeout. dump_traceback_later is a watchdog thread on
+# Windows (no gdb / cdb). Must write stderr — file-only log.info never reached
+# Actions on 33699746211.
+STDERR_HANG_DUMP_SECONDS = 90
+
 _log_fh: Optional[IO[str]] = None
+_stderr_hang_dump_armed = False
 
 
 def ci_debug_enabled() -> bool:
@@ -97,3 +109,46 @@ def stop_ci_debug() -> None:
         except Exception:
             pass
         _log_fh = None
+
+
+def arm_stderr_hang_dump(timeout: float | None = None, *, label: str = "") -> None:
+    """Dump every Python thread to stderr if still running after *timeout*.
+
+    Always on (not gated on ``WRITERAGENT_CI_DEBUG``). Replaces any prior
+    ``dump_traceback_later`` timer. In-process stacks only — no native debugger.
+    """
+    global _stderr_hang_dump_armed
+    seconds = STDERR_HANG_DUMP_SECONDS if timeout is None else timeout
+    try:
+        faulthandler.enable(file=sys.stderr, all_threads=True)
+    except Exception:
+        pass
+    faulthandler.dump_traceback_later(
+        seconds,
+        repeat=True,
+        exit=False,
+        file=sys.stderr,
+    )
+    _stderr_hang_dump_armed = True
+    print(
+        "hang dump armed timeout=%ss test=%s all_threads=True" % (seconds, label or "-"),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def cancel_stderr_hang_dump(*, label: str = "") -> None:
+    """Cancel the stderr watchdog. Quiet if nothing was armed (pytest fixtures)."""
+    global _stderr_hang_dump_armed
+    try:
+        faulthandler.cancel_dump_traceback_later()
+    except Exception:
+        pass
+    was_armed = _stderr_hang_dump_armed
+    _stderr_hang_dump_armed = False
+    if was_armed or label:
+        print(
+            "hang dump disarmed test=%s" % (label or "-"),
+            file=sys.stderr,
+            flush=True,
+        )

@@ -782,6 +782,19 @@ class MockContext:
 # Default ON for Calc only. Writer pooling still leaks CharWeight/HTML styles; pass reuse=True to try it.
 _NATIVE_DOC_POOL: dict = {}
 
+# GHA 33703959362: hang after insert_cell_html execute-done, before TEST end.
+# When True, stderr breadcrumbs name reset_native_doc / _reset_calc_doc steps.
+# with_native_doc sets this only for test_insert_cell_html (keep suite noise low).
+_LOG_NATIVE_DOC_TEARDOWN = False
+
+
+def _native_teardown_progress(msg: str) -> None:
+    if not _LOG_NATIVE_DOC_TEARDOWN:
+        return
+    from plugin.testing_runner import _progress
+
+    _progress(msg)
+
 
 def _default_native_doc_reuse(doc_type: str) -> bool:
     return doc_type == "calc"
@@ -858,7 +871,10 @@ def _clear_writeragent_udprops(doc) -> None:
 
 
 def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer reset
+    _native_teardown_progress("native_doc: _reset_calc_doc start")
+    _native_teardown_progress("native_doc: _reset_calc_doc remove_charts start")
     _remove_all_calc_charts(doc)
+    _native_teardown_progress("native_doc: _reset_calc_doc remove_charts done")
     sheets = doc.getSheets()
     while sheets.getCount() > 1:
         name = sheets.getByIndex(sheets.getCount() - 1).Name
@@ -870,6 +886,7 @@ def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer r
     except Exception:
         pass
     try:
+        _native_teardown_progress("native_doc: _reset_calc_doc clearContents start")
         cursor = sheet.createCursor()
         cursor.gotoStartOfUsedArea(False)
         cursor.gotoEndOfUsedArea(True)
@@ -878,8 +895,11 @@ def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer r
         except Exception:
             pass
         cursor.clearContents(_CALC_CLEAR_ALL)
+        _native_teardown_progress("native_doc: _reset_calc_doc clearContents done")
     except Exception:
+        _native_teardown_progress("native_doc: _reset_calc_doc clearContents fallback start")
         sheet.getCellRangeByName("A1:AMJ1048576").clearContents(_CALC_CLEAR_ALL)
+        _native_teardown_progress("native_doc: _reset_calc_doc clearContents fallback done")
     _clear_named_container(getattr(doc, "NamedRanges", None))
     try:
         _clear_named_container(sheet.NamedRanges)
@@ -903,6 +923,7 @@ def _reset_calc_doc(doc, ctx) -> None:  # ctx unused; same signature as writer r
         pass
     _clear_writeragent_udprops(doc)
     _clear_undo(doc)
+    _native_teardown_progress("native_doc: _reset_calc_doc done")
 
 
 def _reset_writer_style_families(doc) -> None:
@@ -1180,11 +1201,18 @@ class TestingFactory:
             if pooled:
                 # Wipe before leaving the pool: tests without @with_native_doc still
                 # see this document as the desktop's current component (init scripts, charts).
+                _native_teardown_progress(
+                    "native_doc: teardown reset start doc_type=%s" % doc_type
+                )
                 try:
                     reset_native_doc(doc, doc_type, ctx)
                 except Exception:
+                    _native_teardown_progress(
+                        "native_doc: teardown reset failed; close_doc"
+                    )
                     TestingFactory.close_doc(doc)
                     return
+                _native_teardown_progress("native_doc: teardown reset done")
                 try:
                     from plugin.scripting.session_manager import clear_active_calc_session
 
@@ -1192,7 +1220,9 @@ class TestingFactory:
                 except Exception:
                     pass
             else:
+                _native_teardown_progress("native_doc: teardown close_doc start")
                 TestingFactory.close_doc(doc)
+                _native_teardown_progress("native_doc: teardown close_doc done")
 
 
 
@@ -1276,19 +1306,47 @@ def with_native_doc(doc_type="writer", hidden=True, reuse=None):
             if ctx is None and len(args) > 0:
                 ctx = args[0]
 
-            with TestingFactory.native_doc(ctx, doc_type=doc_type, hidden=hidden, reuse=reuse) as doc:
-                sig = inspect.signature(func)
-                call_kwargs = {}
-                # Inject by parameter name so ctx is never dropped when doc is added.
-                if "ctx" in sig.parameters:
-                    call_kwargs["ctx"] = ctx
-                if "doc" in sig.parameters:
-                    call_kwargs["doc"] = doc
-                if call_kwargs:
-                    return func(**call_kwargs)
-                if len(sig.parameters) == 1:
-                    return func(doc)
-                return func(*args, **kwargs)
+            # GHA 33703959362: no TEST end after execute-done. Enter/exit here
+            # splits a body hang from wipe-and-reuse teardown after return.
+            log_teardown = func.__name__ == "test_insert_cell_html"
+            global _LOG_NATIVE_DOC_TEARDOWN
+            prev_teardown_log = _LOG_NATIVE_DOC_TEARDOWN
+            if log_teardown:
+                _LOG_NATIVE_DOC_TEARDOWN = True
+                from plugin.testing_runner import _progress
+
+                _progress(
+                    "with_native_doc: enter name=%s doc_type=%s" % (func.__name__, doc_type)
+                )
+            try:
+                with TestingFactory.native_doc(ctx, doc_type=doc_type, hidden=hidden, reuse=reuse) as doc:
+                    sig = inspect.signature(func)
+                    call_kwargs = {}
+                    # Inject by parameter name so ctx is never dropped when doc is added.
+                    if "ctx" in sig.parameters:
+                        call_kwargs["ctx"] = ctx
+                    if "doc" in sig.parameters:
+                        call_kwargs["doc"] = doc
+                    if call_kwargs:
+                        result = func(**call_kwargs)
+                    elif len(sig.parameters) == 1:
+                        result = func(doc)
+                    else:
+                        result = func(*args, **kwargs)
+                    if log_teardown:
+                        from plugin.testing_runner import _progress
+
+                        _progress(
+                            "with_native_doc: body returned name=%s; teardown start"
+                            % func.__name__
+                        )
+                    return result
+            finally:
+                _LOG_NATIVE_DOC_TEARDOWN = prev_teardown_log
+                if log_teardown:
+                    from plugin.testing_runner import _progress
+
+                    _progress("with_native_doc: teardown done name=%s" % func.__name__)
         return wrapper
     return decorator
 

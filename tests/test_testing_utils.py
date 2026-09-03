@@ -124,6 +124,93 @@ def test_testing_factory_create_context_native_requires_doc():
         TestingFactory.create_context(env="native", doc_type="writer")
 
 
+def test_with_native_doc_logs_teardown_for_insert_cell_html(capsys):
+    """GHA 33703959362: no TEST end after execute-done — name body vs teardown."""
+    from unittest.mock import patch
+
+    from plugin.tests.testing_utils import TestingFactory, with_native_doc
+
+    @with_native_doc("calc")
+    def test_insert_cell_html(ctx, doc):
+        return "ok"
+
+    with patch.object(TestingFactory, "native_doc") as mock_cm:
+        mock_cm.return_value.__enter__.return_value = object()
+        mock_cm.return_value.__exit__.return_value = None
+        assert test_insert_cell_html(ctx=object()) == "ok"
+    from plugin.tests import testing_utils as tu
+
+    err = capsys.readouterr().err
+    assert "with_native_doc: enter name=test_insert_cell_html doc_type=calc" in err
+    assert "with_native_doc: body returned name=test_insert_cell_html; teardown start" in err
+    assert "with_native_doc: teardown done name=test_insert_cell_html" in err
+    assert tu._LOG_NATIVE_DOC_TEARDOWN is False
+
+
+def test_with_native_doc_skips_teardown_log_for_other_tests(capsys):
+    from unittest.mock import patch
+
+    from plugin.tests.testing_utils import TestingFactory, with_native_doc
+
+    @with_native_doc("calc")
+    def test_other(ctx, doc):
+        return "ok"
+
+    with patch.object(TestingFactory, "native_doc") as mock_cm:
+        mock_cm.return_value.__enter__.return_value = object()
+        mock_cm.return_value.__exit__.return_value = None
+        assert test_other(ctx=object()) == "ok"
+    err = capsys.readouterr().err
+    assert "with_native_doc:" not in err
+
+
+def _calc_doc_for_reset():
+    from unittest.mock import MagicMock
+
+    empty = MagicMock()
+    empty.getElementNames.return_value = ()
+    sheets = MagicMock()
+    sheets.getCount.return_value = 1
+    sheet = MagicMock()
+    sheet.Name = "Sheet1"
+    sheet.getCharts.return_value = empty
+    sheet.NamedRanges = None
+    sheets.getByIndex.return_value = sheet
+    doc = MagicMock()
+    doc.getSheets.return_value = sheets
+    doc.getEmbeddedObjects.return_value = empty
+    doc.NamedRanges = None
+    doc.DatabaseRanges = None
+    return doc
+
+
+def test_reset_calc_doc_logs_when_teardown_flag_set(capsys):
+    from unittest.mock import MagicMock
+
+    from plugin.tests import testing_utils as tu
+
+    tu._LOG_NATIVE_DOC_TEARDOWN = True
+    try:
+        tu._reset_calc_doc(_calc_doc_for_reset(), MagicMock())
+    finally:
+        tu._LOG_NATIVE_DOC_TEARDOWN = False
+    err = capsys.readouterr().err
+    assert "native_doc: _reset_calc_doc start" in err
+    assert "native_doc: _reset_calc_doc clearContents start" in err
+    assert "native_doc: _reset_calc_doc clearContents done" in err
+    assert "native_doc: _reset_calc_doc done" in err
+
+
+def test_reset_calc_doc_silent_by_default(capsys):
+    from unittest.mock import MagicMock
+
+    from plugin.tests import testing_utils as tu
+
+    tu._reset_calc_doc(_calc_doc_for_reset(), MagicMock())
+    err = capsys.readouterr().err
+    assert "native_doc:" not in err
+
+
 def test_testing_factory_execute_tool_unknown_name():
     from unittest.mock import MagicMock, patch
 

@@ -32,6 +32,55 @@ def _progress(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+# GHA 33703959362 hung 20 min after execute-done; 25m step then died. Dump
+# Python stacks to stderr at 90s (watchdog thread on Windows — not gdb).
+_INSERT_CELL_HTML_HANG_TEST = "test_insert_cell_html"
+_INSERT_CELL_HTML_HANG_DUMP_SEC = 90
+
+
+def _arm_insert_cell_html_hang_dump(label: str) -> None:
+    try:
+        from tests.ci_debug import STDERR_HANG_DUMP_SECONDS, arm_stderr_hang_dump
+
+        arm_stderr_hang_dump(STDERR_HANG_DUMP_SECONDS, label=label)
+        return
+    except Exception:
+        pass
+    try:
+        import faulthandler
+
+        faulthandler.enable(file=sys.stderr, all_threads=True)
+        faulthandler.dump_traceback_later(
+            _INSERT_CELL_HTML_HANG_DUMP_SEC,
+            repeat=True,
+            exit=False,
+            file=sys.stderr,
+        )
+        _progress(
+            "hang dump armed timeout=%ss test=%s all_threads=True"
+            % (_INSERT_CELL_HTML_HANG_DUMP_SEC, label)
+        )
+    except Exception as exc:
+        _progress("hang dump arm failed test=%s: %s" % (label, exc))
+
+
+def _disarm_insert_cell_html_hang_dump(label: str) -> None:
+    try:
+        from tests.ci_debug import cancel_stderr_hang_dump
+
+        cancel_stderr_hang_dump(label=label)
+        return
+    except Exception:
+        pass
+    try:
+        import faulthandler
+
+        faulthandler.cancel_dump_traceback_later()
+    except Exception:
+        pass
+    _progress("hang dump disarmed test=%s" % label)
+
+
 def _soffice_pids_win32() -> str:
     """Parse ``tasklist`` CSV. ``pgrep`` is absent on GHA windows-latest
     (33699746211 printed ``soffice.bin=-`` while leftover dump still had
@@ -592,7 +641,13 @@ def run_module_suite(ctx, module, name, doc_model=None):
 
         for test_func in selected:
             test_line = f"Running test: {test_func.__name__}"
-            _progress(f"TEST start {name}.{test_func.__name__}")
+            qual = f"{name}.{test_func.__name__}"
+            _progress(f"TEST start {qual}")
+            # GHA 33703959362: no TEST end after execute-done. Watchdog dumps
+            # all Python threads to stderr at 90s; finally disarms on TEST end.
+            hang_dump = test_func.__name__ == _INSERT_CELL_HTML_HANG_TEST
+            if hang_dump:
+                _arm_insert_cell_html_hang_dump(qual)
             try:
                 # After suite @setup removal, native tests take ctx (and often doc via
                 # @with_native_doc). Pass ctx when the signature accepts it; no-arg
@@ -604,41 +659,48 @@ def run_module_suite(ctx, module, name, doc_model=None):
                     accepts_ctx = "ctx" in sig.parameters
                 except Exception:
                     accepts_ctx = True
+                # GHA 33703959362: execute-done then 20min silence, no TEST end.
+                # call vs returned splits body hang from post-return bookkeeping.
+                _progress(f"TEST call {qual}")
                 if accepts_ctx:
                     test_func(ctx=ctx)
                 else:
                     test_func()
+                _progress(f"TEST returned {qual}")
                 total_passed += 1
                 suite_log.append(f"{test_line} — OK")
-                _progress(f"TEST end {name}.{test_func.__name__} OK")
+                _progress(f"TEST end {qual} OK")
             except ModuleNotFoundError as e:
                 # Some "native" tests attempt to use pytest.skip, but LibreOffice's
                 # Python may not have pytest installed.
                 if getattr(e, "name", None) == "pytest":
                     suite_log.append(f"{test_line} — SKIP (pytest not available)")
-                    _progress(f"TEST end {name}.{test_func.__name__} SKIP")
+                    _progress(f"TEST end {qual} SKIP")
                     continue
                 total_failed += 1
                 suite_log.append(f"{test_line} — FAIL (ModuleNotFoundError: {e})")
                 suite_log.append(traceback.format_exc())
-                _progress(f"TEST end {name}.{test_func.__name__} FAIL {_fail_reason(e)}")
+                _progress(f"TEST end {qual} FAIL {_fail_reason(e)}")
             except unittest.SkipTest as e:
                 total_passed += 1
                 suite_log.append(f"{test_line} — OK (skipped) ({e})")
-                _progress(f"TEST end {name}.{test_func.__name__} SKIP")
+                _progress(f"TEST end {qual} SKIP")
             except AssertionError as e:
                 total_failed += 1
                 suite_log.append(f"{test_line} — FAIL (AssertionError: {e})")
                 suite_log.append(traceback.format_exc())
-                _progress(f"TEST end {name}.{test_func.__name__} FAIL {_fail_reason(e)}")
+                _progress(f"TEST end {qual} FAIL {_fail_reason(e)}")
             except Exception as e:
                 total_failed += 1
                 suite_log.append(f"{test_line} — FAIL ({type(e).__name__}: {e})")
                 suite_log.append(traceback.format_exc())
-                _progress(f"TEST end {name}.{test_func.__name__} FAIL {_fail_reason(e)}")
+                _progress(f"TEST end {qual} FAIL {_fail_reason(e)}")
                 if _is_uno_bridge_disposed(e):
-                    _mark_urp_dead(e, "%s.%s" % (name, test_func.__name__))
+                    _mark_urp_dead(e, qual)
                     break
+            finally:
+                if hang_dump:
+                    _disarm_insert_cell_html_hang_dump(qual)
 
     except Exception as e:
         total_failed += 1

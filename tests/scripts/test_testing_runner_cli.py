@@ -109,6 +109,103 @@ def test_libreoffice_user_lock_path_is_under_profile() -> None:
     assert "libreoffice" in str(lock).lower() or "LibreOffice" in str(lock)
 
 
+def test_run_module_suite_prints_call_and_returned(capsys) -> None:
+    """GHA 33703959362: execute-done then silence; call vs returned names the side."""
+
+    def test_ok(ctx=None):
+        return None
+
+    test_ok._is_test = True
+
+    class _Mod:
+        pass
+
+    module = _Mod()
+    module.test_ok = test_ok
+    passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.ok")
+    assert passed == 1
+    assert failed == 0
+    err = capsys.readouterr().err
+    assert "TEST call fake.ok.test_ok" in err
+    assert "TEST returned fake.ok.test_ok" in err
+    assert "TEST end fake.ok.test_ok OK" in err
+
+
+def test_run_module_suite_arms_hang_dump_only_for_insert_cell_html(monkeypatch) -> None:
+    """GHA 33703959362: arm at TEST start, disarm on TEST end (OK or FAIL)."""
+    events: list[object] = []
+    monkeypatch.setattr(
+        tr, "_arm_insert_cell_html_hang_dump", lambda label: events.append(("arm", label))
+    )
+    monkeypatch.setattr(
+        tr,
+        "_disarm_insert_cell_html_hang_dump",
+        lambda label: events.append(("disarm", label)),
+    )
+
+    def test_insert_cell_html(ctx=None):
+        events.append("body")
+
+    def test_other(ctx=None):
+        events.append("other")
+
+    test_insert_cell_html._is_test = True
+    test_other._is_test = True
+
+    class _Mod:
+        pass
+
+    module = _Mod()
+    module.test_insert_cell_html = test_insert_cell_html
+    module.test_other = test_other
+    passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.html")
+    assert passed == 2
+    assert failed == 0
+    assert events == [
+        ("arm", "fake.html.test_insert_cell_html"),
+        "body",
+        ("disarm", "fake.html.test_insert_cell_html"),
+        "other",
+    ]
+
+
+def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
+    events: list[str] = []
+    monkeypatch.setattr(tr, "_arm_insert_cell_html_hang_dump", lambda label: events.append("arm"))
+    monkeypatch.setattr(
+        tr, "_disarm_insert_cell_html_hang_dump", lambda label: events.append("disarm")
+    )
+
+    def test_insert_cell_html(ctx=None):
+        raise AssertionError("boom")
+
+    test_insert_cell_html._is_test = True
+
+    class _Mod:
+        pass
+
+    module = _Mod()
+    module.test_insert_cell_html = test_insert_cell_html
+    passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.html")
+    assert passed == 0
+    assert failed == 1
+    assert events == ["arm", "disarm"]
+
+
+def test_arm_insert_cell_html_hang_dump_uses_ci_debug(monkeypatch) -> None:
+    seen: list[tuple[object, ...]] = []
+
+    def fake_arm(timeout, *, label=""):
+        seen.append((timeout, label))
+
+    import tests.ci_debug as ci_debug_mod
+
+    monkeypatch.setattr(ci_debug_mod, "arm_stderr_hang_dump", fake_arm)
+    monkeypatch.setattr(ci_debug_mod, "STDERR_HANG_DUMP_SECONDS", 90)
+    tr._arm_insert_cell_html_hang_dump("calc.test_rich_html_uno.test_insert_cell_html")
+    assert seen == [(90, "calc.test_rich_html_uno.test_insert_cell_html")]
+
+
 def test_run_module_suite_prints_fail_reason(capsys) -> None:
     """GHA 33699746211 hung after three FAILs; suite_log JSON never printed."""
 
@@ -127,6 +224,8 @@ def test_run_module_suite_prints_fail_reason(capsys) -> None:
     assert failed == 1
     assert any("A1 did not become 2.0" in line for line in suite_log)
     err = capsys.readouterr().err
+    assert "TEST call fake.boom.test_boom" in err
+    assert "TEST returned fake.boom.test_boom" not in err
     assert "TEST end fake.boom.test_boom FAIL AssertionError: A1 did not become 2.0" in err
 
 
