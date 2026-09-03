@@ -70,12 +70,20 @@ _LIVE_CHAT_PANELS: WeakSet[Any] | None = None
 
 
 def _debug_live_panels_on() -> bool:
+    """True in dev thread-guard builds and mock-sidebar (``WRITERAGENT_TESTING=1``).
+
+    ``make test-mock-sidebar`` sets ``WRITERAGENT_UNO_THREAD_GUARD=0``, so the
+    thread_guard stub has no ``_designated_main_thread``. Still track the live
+    panel so URP slash/Packet G hooks can find ``SendButtonListener``.
+    """
     try:
         from plugin.framework import thread_guard as tg
 
-        return hasattr(tg, "_designated_main_thread")
+        if hasattr(tg, "_designated_main_thread"):
+            return True
     except Exception:
-        return False
+        pass
+    return os.environ.get("WRITERAGENT_TESTING") == "1"
 
 
 def _live_chat_panels() -> WeakSet[Any] | None:

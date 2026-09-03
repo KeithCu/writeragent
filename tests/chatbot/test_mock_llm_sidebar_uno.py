@@ -2339,14 +2339,22 @@ def _slash_prep():
             popup.hide()
         return sl
     state = _slash_type("")
-    if not state.get("available"):
-        raise unittest.SkipTest(
-            "slash popup ListBox not on the live chat dialog — deploy the "
-            "Ask-field OXT (ChatPanelDialog slash_popup). Pure filter/LRU tests still run. "
-            "snapshot=%r controls=%s"
-            % (state, sorted((getattr(_session, "controls", None) or {}).keys()))
+    if state.get("available"):
+        return None
+    # The ListBox is on the live dialog (URP can see it). Do not skip — the
+    # in-soffice listener should have been attached during panel wiring.
+    if "slash_popup" in controls:
+        raise AssertionError(
+            "slash_popup control is on the chat dialog but the in-soffice "
+            "snapshot has no controller. snapshot=%r"
+            % (state,)
         )
-    return None
+    raise unittest.SkipTest(
+        "slash popup ListBox not on the live chat dialog — deploy the "
+        "Ask-field OXT (ChatPanelDialog slash_popup). Pure filter/LRU tests still run. "
+        "snapshot=%r controls=%s"
+        % (state, sorted(controls.keys()))
+    )
 
 
 @native_test
