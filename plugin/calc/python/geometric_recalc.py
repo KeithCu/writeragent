@@ -794,9 +794,11 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
         return
     if ctx is None:
         try:
+            from plugin.framework.thread_guard import on_main_thread
             from plugin.framework.uno_context import get_ctx
 
-            ctx = get_ctx()
+            if on_main_thread():
+                ctx = get_ctx()
         except Exception:
             ctx = None
     sheet = _sheet_of_cell(cell, doc)

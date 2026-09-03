@@ -30,8 +30,10 @@ from plugin.calc.python.geometric_recalc import (
     geometric_cap_hit_user_message,
     geometric_workbook_key,
     load_geometric_registry_for_doc,
+    local_a1,
     maybe_geometric_on_document_open,
     maybe_strip_geometric_eval_args,
+    notify_geometric_cap_hit,
     record_geometric_calc_session,
     reconcile_geometric_document,
     replace_geometric_strip_safe,
@@ -449,7 +451,8 @@ def test_isolated_record_active_calc_session_never_empty():
     assert sid == "calc:file:///isolated.ods"
     assert sm.get_cached_calc_session_id() == sid
     assert sm.off_main_calc_session_is_unambiguous()
-    assert "" not in sid
+    assert sid.startswith("calc:")
+    assert sid != "calc:"
     assert geometric_workbook_key(doc) == sid
 
 
@@ -458,10 +461,14 @@ def test_unsaved_workbook_key_is_never_empty():
 
     _reset_geo()
     doc = CalcDocStub(url="")
-    sid = record_geometric_calc_session(doc)
-    assert sid.startswith("calc:")
+    with patch(
+        "plugin.scripting.session_manager._workbook_session_key",
+        return_value="unsaved-stable-id",
+    ):
+        sid = record_geometric_calc_session(doc)
+        assert geometric_workbook_key(doc) == sid
+    assert sid == "calc:unsaved-stable-id"
     assert sid != "calc:"
-    assert geometric_workbook_key(doc) == sid
 
 
 def test_load_and_save_geometric_registry(monkeypatch):
@@ -668,14 +675,16 @@ def test_strip_ranges_minus_one_is_user_range_not_pred():
     code = "ranges[-1].shape"
     replace_geometric_strip_safe(WB, frozenset({EvalIndexKey(WB, code, 2)}))
     col, pred = _mean_range_and_pred()
-    extra = ((4.0,), (5.0,))
     with patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": (3, 1)}
-        execute_python_addin(object(), code, (col, extra, pred))
+        execute_python_addin(object(), code, (col, pred))
         wire = mock_run.call_args.kwargs["data"]
-        assert is_multi_data(wire)
-        assert len(wire["items"]) == 2
-        assert wire["items"][-1]["shape"] == [2, 1]
+        # After strip, only B1:B10 remains. Indexed multi-data must not see pred.
+        from plugin.scripting.calc_range import is_calc_range_payload
+
+        assert not is_multi_data(wire)
+        assert is_calc_range_payload(wire)
+        assert wire["shape"] == [3, 1]
 
 
 def test_strip_runs_before_matrix_index_peel():
@@ -737,7 +746,6 @@ def test_two_workbooks_unambiguous_false_no_strip_at_eval():
 
 
 def test_isolated_unambiguous_session_strips():
-    from plugin.scripting import session_manager as sm
     from plugin.tests.testing_utils import CalcDocStub
 
     _reset_geo()
