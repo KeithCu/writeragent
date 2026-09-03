@@ -2,13 +2,14 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO: geometric splice, insert/delete repair, and live Shared-kernel eval.
+"""UNO: geometric splice, insert/delete repair, leftover §10, and §10 edges.
 
 Formula I/O confirms Calc's stored spelling (equals, $, prefix) so
 rebuild_formula_with_data_args does not guess from CalcDocStub. Phase 3
 covers insert/delete/undo and cap-hit skip. Leftover §10 product proofs:
 Shared-kernel A3 reads a name assigned in A1 (F9-stable, strip), and
-auto-spill still writes neighbors on a chained origin.
+auto-spill still writes neighbors on a chained origin. Remaining §10:
+hidden undo / locked unit, re-entrancy, Isolated + flag on, flag off.
 """
 
 from __future__ import annotations
@@ -529,5 +530,365 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
         assert sheet.getCellByPosition(1, 2).getValue() == 20.0
         assert sheet.getCellByPosition(0, 3).getValue() == 30.0
         assert sheet.getCellByPosition(1, 3).getValue() == 40.0
+    finally:
+        _restore_geometric_flag(previous)
+
+
+def _undo_titles(um) -> list[str]:
+    if um is None:
+        return []
+    try:
+        return list(um.getAllUndoActionTitles())
+    except Exception:
+        return []
+
+
+def _clear_undo_stack(um) -> None:
+    """Empty leftover wipe/edit undo so flag-on reconcile can take the lock() path."""
+    if um is None:
+        return
+    for name in ("clear", "reset"):
+        fn = getattr(um, name, None)
+        if not callable(fn):
+            continue
+        try:
+            fn()
+            if not um.isUndoPossible():
+                return
+        except Exception:
+            pass
+    try:
+        while um.isUndoPossible():
+            um.undo()
+    except Exception:
+        pass
+
+
+@native_test
+@with_native_doc("calc")
+def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
+    """§10 Undo: rewrite hides under a user edit; flag-on reconcile is one lock().
+
+    Same shape as ``test_calc_spill_undo_lock``: when ``isUndoPossible()``,
+    ``_undo_lock`` uses ``enterHiddenUndoContext`` so the geometric
+    ``setFormula`` is not a second undo step. Flag-on / open reconcile with
+    an empty stack uses ``um.lock()`` — one locked unit, not a hidden-under-
+    nothing no-op and not a fragment per cell.
+    """
+    from plugin.calc.python.geometric_recalc import (
+        reconcile_geometric_document,
+        reset_geometric_runtime_for_tests,
+    )
+    from plugin.testing_runner import _progress
+
+    reset_geometric_runtime_for_tests()
+    previous = _enable_geometric_flag()
+    try:
+        sheet = doc.getSheets().getByIndex(0)
+        a1 = sheet.getCellByPosition(0, 0)
+        a3 = sheet.getCellByPosition(0, 2)
+        um = doc.getUndoManager()
+        assert um is not None
+
+        # --- Hidden under the user edit (isUndoPossible) ---
+        a1.setFormula('=PY("first")')
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a1.getFormula() or "")) is None
+        a3.setFormula('=PY("third")')
+        um.enterUndoContext("Input")
+        um.leaveUndoContext()
+        assert um.isUndoPossible() is True
+        titles_before = _undo_titles(um)
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        titles_after = _undo_titles(um)
+        _progress(
+            "geometric hidden-undo titles before=%s after=%s"
+            % (titles_before, titles_after)
+        )
+        assert titles_after == titles_before, (
+            "geometric rewrite added extra undo actions: %s vs %s"
+            % (titles_after, titles_before)
+        )
+
+        # --- Flag-on reconcile with no prior edit is one locked unit ---
+        a1.setFormula("")
+        a3.setFormula("")
+        _clear_undo_stack(um)
+        # Writes under lock() so the formulas themselves are not an undo step.
+        if hasattr(um, "lock"):
+            um.lock()
+            try:
+                a1.setFormula('=PY("lock_first")')
+                a3.setFormula('=PY("lock_third")')
+            finally:
+                um.unlock()
+        else:
+            a1.setFormula('=PY("lock_first")')
+            a3.setFormula('=PY("lock_third")')
+            _clear_undo_stack(um)
+        assert um.isUndoPossible() is False, _undo_titles(um)
+        locked_before = _undo_titles(um)
+        reconcile_geometric_document(ctx, doc)
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        locked_after = _undo_titles(um)
+        _progress(
+            "geometric locked-unit titles before=%s after=%s undo=%s"
+            % (locked_before, locked_after, um.isUndoPossible())
+        )
+        assert locked_after == locked_before, (
+            "flag-on reconcile must be one lock() unit, not new undo: %s vs %s"
+            % (locked_after, locked_before)
+        )
+        assert um.isUndoPossible() is False
+    finally:
+        _restore_geometric_flag(previous)
+
+
+@native_test
+@with_native_doc("calc")
+def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
+    """§10 re-entrancy: repair ``setFormula`` must not nest a second repair.
+
+    ``_GEOMETRIC_REPAIRING`` is the mechanism. A modify listener (and an
+    explicit nested ``reconcile_geometric_sheet``) during apply must no-op.
+    Call reconcile directly so ``_DISPATCHING`` is not the thing that
+    prevents the nest — the geometric flag is.
+    """
+    import unohelper
+    from com.sun.star.util import XModifyListener
+
+    import plugin.calc.python.geometric_recalc as geo
+    from plugin.testing_runner import _progress
+
+    geo.reset_geometric_runtime_for_tests()
+    previous = _enable_geometric_flag()
+    orig_apply = geo._apply_patches_to_sheet
+    orig_repair = geo._repair_one_sheet
+    apply_enters: list[int] = []
+    repair_calls: list[bool] = []
+
+    def _counting_apply(sheet, patches):
+        apply_enters.append(len(patches))
+        assert geo.is_geometric_repairing() is True
+        # Nested repair while the flag is up must not apply a second time.
+        geo.reconcile_geometric_sheet(ctx, doc, sheet)
+        return orig_apply(sheet, patches)
+
+    def _counting_repair(*args, **kwargs):
+        repair_calls.append(geo.is_geometric_repairing())
+        return orig_repair(*args, **kwargs)
+
+    class _ReenterProbe(unohelper.Base, XModifyListener):
+        def __init__(self) -> None:
+            self.repairing_hits = 0
+            self.nested_apply_growth = 0
+
+        def modified(self, aEvent) -> None:  # noqa: N802 — UNO
+            if not geo.is_geometric_repairing():
+                return
+            self.repairing_hits += 1
+            before = len(apply_enters)
+            geo.reconcile_geometric_sheet(ctx, doc, sheet)
+            if len(apply_enters) != before:
+                self.nested_apply_growth += 1
+
+        def disposing(self, Source) -> None:  # noqa: N802 — UNO
+            return
+
+    sheet = doc.getSheets().getByIndex(0)
+    a1 = sheet.getCellByPosition(0, 0)
+    a3 = sheet.getCellByPosition(0, 2)
+    probe = _ReenterProbe()
+    sheet.addModifyListener(probe)
+    geo._apply_patches_to_sheet = _counting_apply
+    geo._repair_one_sheet = _counting_repair
+    try:
+        a1.setFormula('=PY("first")')
+        a3.setFormula('=PY("third")')
+        # Direct document reconcile: _DISPATCHING stays false.
+        geo.reconcile_geometric_document(ctx, doc)
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        _progress(
+            "geometric reenter apply=%s repair=%s listener_hits=%s nested_growth=%s"
+            % (
+                apply_enters,
+                repair_calls,
+                probe.repairing_hits,
+                probe.nested_apply_growth,
+            )
+        )
+        assert apply_enters, "repair never applied a patch"
+        assert len(apply_enters) == 1, apply_enters
+        assert repair_calls, repair_calls
+        assert all(repair_calls), repair_calls
+        assert probe.nested_apply_growth == 0
+        # setFormula during apply should have seen the flag. If Classic
+        # swallowed the listener, the explicit nest inside _counting_apply
+        # still proved _GEOMETRIC_REPAIRING.
+        if probe.repairing_hits == 0:
+            _progress(
+                "geometric reenter: modify listener saw 0 repairing hits; "
+                "nested reconcile during apply still no-op'd"
+            )
+    finally:
+        geo._apply_patches_to_sheet = orig_apply
+        geo._repair_one_sheet = orig_repair
+        try:
+            sheet.removeModifyListener(probe)
+        except Exception:
+            pass
+        _restore_geometric_flag(previous)
+
+
+@native_test
+@with_native_doc("calc")
+def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
+    """§9.3 / §10: Isolated + flag on — no Shared globals; strip when unambiguous.
+
+    Isolated + no init never records via init-kwargs. UI load/repair must
+    call ``record_geometric_calc_session`` (``calc:`` + ``_workbook_session_key``,
+    never empty) so the no-init case can pass the unambiguous check.
+    Stay on the reused Calc — a second factory ``scalc`` makes
+    ``off_main_calc_session_is_unambiguous()`` false. Do not assert Isolated
+    always leaves ``_RECORDED_CALC_SESSION_IDS`` empty.
+    """
+    from plugin.calc.python.geometric_recalc import (
+        current_geometric_strip_safe,
+        geometric_workbook_key,
+        maybe_geometric_on_document_open,
+        maybe_strip_geometric_eval_args,
+        reset_geometric_runtime_for_tests,
+    )
+    from plugin.scripting.session_manager import (
+        clear_active_calc_session,
+        get_cached_calc_session_id,
+        off_main_calc_session_is_unambiguous,
+        recorded_calc_session_count,
+        workbook_session_id,
+    )
+    from plugin.testing_runner import _progress
+
+    reset_geometric_runtime_for_tests()
+    _cold_kernel()
+    previous = _enable_geometric_flag()
+    try:
+        _set_session_mode(ctx, "isolated")
+        _settle_soffice_config()
+        # Isolated + no init: do not set an init script. Clear only so this
+        # test can prove the UI path records — not that Isolated "always"
+        # leaves the set empty (non-empty init already records).
+        clear_active_calc_session()
+        maybe_geometric_on_document_open(ctx, doc)
+        sid = geometric_workbook_key(doc)
+        _progress(
+            "geometric isolated sid=%r cached=%r recorded=%s unambiguous=%s"
+            % (
+                sid,
+                get_cached_calc_session_id(),
+                recorded_calc_session_count(),
+                off_main_calc_session_is_unambiguous(),
+            )
+        )
+        assert sid.startswith("calc:"), sid
+        assert sid != "calc:"
+        assert sid[5:], sid
+        assert get_cached_calc_session_id() == sid
+        assert recorded_calc_session_count() >= 1
+        assert off_main_calc_session_is_unambiguous() is True
+        assert workbook_session_id(ctx, doc) is None
+
+        sheet = doc.getSheets().getByIndex(0)
+        a1 = sheet.getCellByPosition(0, 0)
+        a2 = sheet.getCellByPosition(0, 1)
+        a3 = sheet.getCellByPosition(0, 2)
+        b1 = sheet.getCellByPosition(1, 0)
+        b2 = sheet.getCellByPosition(1, 1)
+        b3 = sheet.getCellByPosition(1, 2)
+        b1.setValue(10)
+        b2.setValue(20)
+        b3.setValue(30)
+        mean_code = "np.mean(data)"
+        a1.setFormula('=PY("x_geo_iso = 41")')
+        a2.setFormula('=PY("%s"; B1:B3)' % mean_code)
+        a3.setFormula('=PY("x_geo_iso")')
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a2.getFormula() or "")) == "A1", a2.getFormula()
+        assert _pred(str(a3.getFormula() or "")) == "A2", a3.getFormula()
+        assert _pred(str(a1.getFormula() or "")) is None
+
+        # Strip-safe from the live UNO repair; client eval reads the same sid.
+        safe = current_geometric_strip_safe()
+        assert any(
+            key.workbook_key == sid and key.resolved_code == mean_code and key.n_args == 2
+            for key in safe
+        ), safe
+        col = ((10.0,), (20.0,), (30.0,))
+        pred = ((0.0,),)
+        assert maybe_strip_geometric_eval_args(mean_code, [col, pred]) == [col]
+
+        # Isolated is a no-op for Python globals (Shared names do not appear).
+        # Do not wait for 41 — that is the Shared leftover. One or two
+        # calculateAll is enough for a NameError; a Shared leak would be 41.
+        doc.calculateAll()
+        if a1.getError() in _PY_UNREGISTERED or a3.getError() in _PY_UNREGISTERED:
+            if _skip_if_py_unregistered(
+                a1, test_name="test_geometric_isolated_flag_on_noop_and_strip"
+            ):
+                return
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and a3.getValue() != 41.0:
+            if a3.getError() in _PY_UNREGISTERED:
+                break
+            doc.calculateAll()
+            time.sleep(0.05)
+        if a3.getError() in _PY_UNREGISTERED:
+            if _skip_if_py_unregistered(
+                a1, test_name="test_geometric_isolated_flag_on_noop_and_strip"
+            ):
+                return
+        assert a3.getValue() != 41.0, _leftover_shared_diag(ctx, a1, a3)
+
+        # Live arity is soffice-side (URP attach cannot fill soffice's map).
+        # Log it; do not rewrite product B/C if yellow eval is off-main.
+        _progress(
+            "geometric isolated live A2 value=%r error=%r string=%r formula=%r"
+            % (a2.getValue(), a2.getError(), a2.getString(), a2.getFormula())
+        )
+    finally:
+        _set_session_mode(ctx, "isolated")
+        _restore_geometric_flag(previous)
+
+
+@native_test
+@with_native_doc("calc")
+def test_geometric_flag_off_leaves_existing_refs(ctx, doc):
+    """§9.4 / §10: flag off — no new attaches; leftover ``;pred`` stays.
+
+    Do not build strip-on-disable. Existing geometric refs are valid DAG
+    edges and must survive a later modify pass with the flag off.
+    """
+    import plugin.calc.python.geometric_recalc as geo
+
+    geo.reset_geometric_runtime_for_tests()
+    previous = _enable_geometric_flag()
+    try:
+        sheet = doc.getSheets().getByIndex(0)
+        a1 = sheet.getCellByPosition(0, 0)
+        a3 = sheet.getCellByPosition(0, 2)
+        a5 = sheet.getCellByPosition(0, 4)
+        a1.setFormula('=PY("first")')
+        a3.setFormula('=PY("third")')
+        _flush(ctx, doc, sheet)
+        leftover = str(a3.getFormula() or "")
+        assert _pred(leftover) == "A1", leftover
+
+        geo.geometric_flag_enabled = lambda: False
+        a5.setFormula('=PY("fifth")')
+        _flush(ctx, doc, sheet)
+        assert _pred(str(a5.getFormula() or "")) is None, a5.getFormula()
+        assert _pred(str(a3.getFormula() or "")) == "A1", a3.getFormula()
+        # Leftover field is still the same attach (not stripped on disable).
+        assert "PY" in str(a3.getFormula() or "").upper()
     finally:
         _restore_geometric_flag(previous)
