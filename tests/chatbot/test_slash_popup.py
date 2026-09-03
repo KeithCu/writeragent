@@ -16,7 +16,6 @@ from plugin.chatbot.slash_popup import (
     _POPUP_ROW_PX,
     _create_ask_peer_listbox,
     _is_combo_box,
-    _is_parent_local,
     _overlay_height,
     _popup_bounds,
     _printable_key_char,
@@ -249,13 +248,6 @@ def test_click_row_accepts_command_chrome_does_not_dump_help():
             assert popup.accept_row_at_y(0) is True
     send._append_response.assert_called_once()
     assert "Slash commands:" in send._append_response.call_args[0][0]
-
-
-def test_arch_parent_local_screen_is_rejected():
-    assert _is_parent_local((8, 419), 8, 419, 453) is True
-    assert _is_parent_local((786, 559), 8, 419, 453) is False
-    assert _is_parent_local((0, 0), 0, 0, 1280) is False
-
 
 def test_printable_key_char_skips_controls():
     assert _printable_key_char("h") == "h"

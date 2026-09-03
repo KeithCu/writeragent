@@ -108,41 +108,6 @@ def _popup_bounds(query_width: int, rows: int) -> tuple[int, int, int, int]:
     return (0, -height - 2, max(20, int(query_width)), height)
 
 
-def _location_on_screen(obj: Any) -> tuple[int, int] | None:
-    """Screen origin of an AWT window/control, or None."""
-    if obj is None:
-        return None
-    get_acc = getattr(obj, "getAccessibleContext", None)
-    acc = None
-    if callable(get_acc):
-        try:
-            acc = get_acc()
-        except Exception:
-            acc = None
-    if acc is None:
-        get_acc = getattr(obj, "getAccessibleContext", None)
-    fn = getattr(acc, "getLocationOnScreen", None) if acc is not None else None
-    if not callable(fn):
-        return None
-    try:
-        pt = fn()
-        # UNO Point is untyped here; getattr avoids basedpyright treating it as object.
-        x = getattr(pt, "X", None)
-        y = getattr(pt, "Y", None)
-        if x is None or y is None:
-            return None
-        return int(x), int(y)
-    except Exception:
-        return None
-
-
-def _is_parent_local(pt: tuple[int, int], local_x: int, local_y: int, width: int) -> bool:
-    """True when getLocationOnScreen echoed PosSize (Arch) instead of a screen origin."""
-    if abs(pt[0] - local_x) > 2 or abs(pt[1] - local_y) > 2:
-        return False
-    return int(width) < 800
-
-
 def _printable_key_char(key_char: Any) -> str | None:
     if key_char is None:
         return None
@@ -154,57 +119,6 @@ def _printable_key_char(key_char: Any) -> str | None:
     if not raw.isprintable() or raw in "\t\n\r":
         return None
     return raw
-
-
-def _trusted_ask_screen(query_control: Any, ask_peer: Any, parent: Any, frame: Any, qr: Any) -> tuple[int, int] | None:
-    """Ask screen origin, or None. Never treat dialog-local (8,419) as screen."""
-    qr_x = int(getattr(qr, "X", 0) or 0)
-    qr_y = int(getattr(qr, "Y", 0) or 0)
-    qr_w = int(getattr(qr, "Width", 0) or 0)
-    ask = _location_on_screen(query_control) or _location_on_screen(ask_peer)
-    if ask is not None and not _is_parent_local(ask, qr_x, qr_y, qr_w):
-        _ovlog("Ask screen from accessible %s", ask)
-        return ask
-    if ask is not None:
-        _ovlog("Ask accessible parent-local %s ignored", ask)
-    dlg = _location_on_screen(parent)
-    dw = 0
-    try:
-        if parent is not None and hasattr(parent, "getPosSize"):
-            dw = int(parent.getPosSize().Width or 0)
-    except Exception:
-        dw = 0
-    if dlg is not None and not _is_parent_local(dlg, 0, 0, dw or 1):
-        origin = (dlg[0] + qr_x, dlg[1] + qr_y)
-        _ovlog("Ask screen from dialog %s -> %s", dlg, origin)
-        return origin
-    get = getattr(frame, "getContainerWindow", None) if frame is not None else None
-    win = None
-    if callable(get):
-        try:
-            win = get()
-        except Exception:
-            win = None
-    fw = _location_on_screen(win)
-    if fw is None and win is not None and hasattr(win, "getPosSize"):
-        try:
-            r = win.getPosSize()
-            fw = (int(r.X), int(r.Y))
-            fw_w = int(r.Width or 0)
-        except Exception:
-            fw_w = 0
-    else:
-        fw_w = 0
-        if win is not None and hasattr(win, "getPosSize"):
-            try:
-                fw_w = int(win.getPosSize().Width or 0)
-            except Exception:
-                fw_w = 0
-    if fw is not None and dw and fw_w and dw < fw_w:
-        origin = (fw[0] + fw_w - dw + qr_x, fw[1] + qr_y)
-        _ovlog("Ask screen from frame estimate %s", origin)
-        return origin
-    return None
 
 
 def _overlay_rect(qr: Any, rows: int, *, relative_to_ask: bool) -> tuple[int, int, int, int]:
@@ -306,7 +220,7 @@ def _create_ask_peer_listbox(query_control: Any, parent_control: Any = None, fra
     consts = _awt_window_constants()
     if consts is None:
         return None
-    rectangle_cls, descriptor_cls, top, simple, attrs = consts
+    rectangle_cls, descriptor_cls, _top, simple, attrs = consts
     qr = query_control.getPosSize() if hasattr(query_control, "getPosSize") else None
     if qr is None:
         qr = type("R", (), {"X": 0, "Y": 0, "Width": 142, "Height": 30})()
