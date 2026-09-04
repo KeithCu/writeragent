@@ -436,7 +436,9 @@ Template params for OCR research (in `# writeragent:vision … params=…`):
 |-------|---------|--------|
 | `engine` | `"docling"` | `"docling"` \| `"paddle"` |
 | `ocr_backend` | `"rapidocr_paddle"` | `"auto"`, `"rapidocr"`, `"rapidocr_paddle"`, `"easyocr"`, `"tesseract"`, `"surya"` (requires `docling-surya` + `allow_external_plugins`) |
-| `fallback_engine` | `true` | When Docling missing, auto-fallback to Paddle if installed |
+| `fallback_engine` | `true` | When Docling is missing, or a Docling runtime `VISION_ERROR` looks like a layout API/AttributeError (`get_engine_config` / `LayoutModelConfig`), auto-fallback to Paddle if installed |
+
+**Docling layout `model_spec` (issue 587):** `layout_model=heron` / `egret_large` maps to `LayoutObjectDetectionOptions` / `ObjectDetectionModelSpec` (`layout_heron_default` / `layout_egret_large`) on Docling ≥ **2.118.0** (released **2026-08-03**). On ≤ 2.117 the same keys still assign `DOCLING_LAYOUT_*` (`LayoutModelConfig`) onto legacy `LayoutOptions`. The legacy branch is removable once WriterAgent assumes Docling ≥ 2.118.0.
 
 Success payloads may include `metrics.engine` and `metrics.ocr_backend` for provenance.
 

@@ -105,14 +105,82 @@ def _resolve_ocr_options(params: dict[str, Any]) -> Any:
     raise ValueError(f"Unknown ocr_backend {backend!r}")
 
 
+def _layout_model_key(params: dict[str, Any]) -> str:
+    return str(params.get("layout_model") or "heron").strip().lower() or "heron"
+
+
+def _is_object_detection_layout(layout_opts: Any) -> bool:
+    """True when layout_options expects ObjectDetectionModelSpec (Docling >= 2.118)."""
+    if getattr(layout_opts, "kind", None) == "layout_object_detection":
+        return True
+    if type(layout_opts).__name__ == "LayoutObjectDetectionOptions":
+        return True
+    spec = getattr(layout_opts, "model_spec", None)
+    if spec is None:
+        return False
+    # Inspect the class, not the instance: MagicMock instances invent callable attrs.
+    get_engine = getattr(type(spec), "get_engine_config", None)
+    return callable(get_engine)
+
+
 def _resolve_layout_model_spec(params: dict[str, Any]) -> Any:
-    layout_key = str(params.get("layout_model") or "heron").strip().lower() or "heron"
+    """Legacy LayoutModelConfig from layout_model_specs (Docling <= 2.117 LayoutOptions)."""
+    layout_key = _layout_model_key(params)
     layout_specs = importlib.import_module("docling.datamodel.layout_model_specs")
     mapping = {
         "heron": layout_specs.DOCLING_LAYOUT_HERON,
         "egret_large": getattr(layout_specs, "DOCLING_LAYOUT_EGRET_LARGE", layout_specs.DOCLING_LAYOUT_HERON),
     }
     return mapping.get(layout_key, layout_specs.DOCLING_LAYOUT_HERON)
+
+
+_OD_LAYOUT_PRESETS: dict[str, tuple[str, str]] = {
+    # WriterAgent layout_model -> (from_preset id, stage_model_specs attribute)
+    "heron": ("layout_heron_default", "OBJECT_DETECTION_LAYOUT_HERON"),
+    "egret_large": ("layout_egret_large", "OBJECT_DETECTION_LAYOUT_EGRET_LARGE"),
+}
+
+
+def _resolve_od_layout_model_spec(params: dict[str, Any]) -> Any:
+    """ObjectDetectionModelSpec for LayoutObjectDetectionOptions (Docling >= 2.118).
+
+    Never returns LayoutModelConfig — assigning that onto OD options skips
+    Docling's LayoutOptions→OD shim and convert then raises AttributeError
+    on model_spec.get_engine_config (issue 587).
+    """
+    layout_key = _layout_model_key(params)
+    preset_id, stage_attr = _OD_LAYOUT_PRESETS.get(layout_key, _OD_LAYOUT_PRESETS["heron"])
+
+    pipeline_mod = importlib.import_module("docling.datamodel.pipeline_options")
+    od_cls = getattr(pipeline_mod, "LayoutObjectDetectionOptions", None)
+    from_preset = getattr(od_cls, "from_preset", None) if od_cls is not None else None
+    if callable(from_preset):
+        try:
+            preset_opts = from_preset(preset_id)
+            spec = getattr(preset_opts, "model_spec", None)
+            if spec is not None:
+                return spec
+        except Exception:
+            log.debug("LayoutObjectDetectionOptions.from_preset(%s) failed", preset_id, exc_info=True)
+
+    stage_mod = importlib.import_module("docling.datamodel.stage_model_specs")
+    preset = getattr(stage_mod, stage_attr, None)
+    if preset is None:
+        preset = getattr(stage_mod, "OBJECT_DETECTION_LAYOUT_HERON", None)
+    spec = getattr(preset, "model_spec", None)
+    if spec is not None:
+        return spec
+
+    od_spec_cls = getattr(stage_mod, "ObjectDetectionModelSpec", None)
+    if callable(od_spec_cls):
+        legacy = _resolve_layout_model_spec(params)
+        return od_spec_cls(
+            name=str(getattr(legacy, "name", "") or "layout_heron"),
+            repo_id=str(getattr(legacy, "repo_id", "") or "docling-project/docling-layout-heron"),
+            revision=str(getattr(legacy, "revision", "") or "main"),
+        )
+
+    raise RuntimeError("Docling ObjectDetectionModelSpec is unavailable")
 
 
 def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any], *, for_structure: bool) -> None:
@@ -156,7 +224,17 @@ def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any], *, for
         layout_opts.create_orphan_clusters = bool(params.get("create_orphan_clusters"))
     if hasattr(layout_opts, "model_spec"):
         try:
-            layout_opts.model_spec = _resolve_layout_model_spec(params)
+            # Dual-path for Docling layout model_spec (issue 587).
+            # Sunset: the legacy LayoutModelConfig / layout_model_specs branch
+            # can be removed once WriterAgent assumes Docling >= 2.118.0
+            # (released 2026-08-03), when LayoutObjectDetectionOptions became
+            # the PdfPipelineOptions default and assigning LayoutModelConfig
+            # onto model_spec stopped being valid (convert then calls
+            # model_spec.get_engine_config and raises AttributeError).
+            if _is_object_detection_layout(layout_opts):
+                layout_opts.model_spec = _resolve_od_layout_model_spec(params)
+            else:
+                layout_opts.model_spec = _resolve_layout_model_spec(params)
         except Exception:
             log.debug("layout_model spec resolution failed", exc_info=True)
 

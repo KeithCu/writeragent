@@ -122,6 +122,39 @@ def test_extract_text_docling_unavailable_no_fallback(mock_convert):
     assert result["code"] == "DOCLING_UNAVAILABLE"
 
 
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_extract_text_docling_api_error_falls_back_to_paddle(mock_convert):
+    mock_convert.side_effect = AttributeError(
+        "'LayoutModelConfig' object has no attribute 'get_engine_config'"
+    )
+
+    with patch("plugin.vision.venv.vision_paddle._decode_image_bytes") as mock_decode, patch(
+        "plugin.vision.venv.vision_paddle._get_paddle_ocr"
+    ) as mock_get_engine:
+        engine = MagicMock()
+        engine.ocr.return_value = [_sample_ocr_page()]
+        mock_get_engine.return_value = engine
+        mock_decode.return_value = MagicMock()
+
+        result = run_vision({"helper": "extract_text", "params": {}}, b"png-bytes", {})
+
+    assert result["status"] == "ok"
+    assert result["full_text"] == "Hello\nWorld"
+    assert "Docling layout API error; fell back to PaddleOCR." in result["warnings"]
+    assert result["metrics"]["fallback_from"] == "docling"
+
+
+@patch("plugin.vision.venv.vision_docling._convert_image_bytes")
+def test_extract_text_docling_unrelated_vision_error_does_not_fallback(mock_convert):
+    mock_convert.side_effect = RuntimeError("model failed")
+
+    result = run_vision({"helper": "extract_text", "params": {}}, b"png-bytes", {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "VISION_ERROR"
+    assert "model failed" in result["message"]
+
+
 @patch("plugin.vision.venv.vision_paddle._decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_paddle_engine_maps_regions(mock_get_engine, mock_decode):

@@ -41,6 +41,14 @@ def _run_docling_helper(helper: str, image: Any, params: dict[str, Any]) -> dict
     return docling_backend.extract_structure(image, params)
 
 
+def _docling_api_mismatch_error(result: dict[str, Any]) -> bool:
+    """True for VISION_ERROR that looks like a Docling layout API break (issue 587)."""
+    if result.get("code") != "VISION_ERROR":
+        return False
+    message = str(result.get("message") or "")
+    return "get_engine_config" in message or "LayoutModelConfig" in message
+
+
 def _apply_paddle_fallback(
     docling_result: dict[str, Any],
     helper: str,
@@ -49,7 +57,9 @@ def _apply_paddle_fallback(
 ) -> dict[str, Any]:
     if docling_result.get("status") != "error":
         return docling_result
-    if docling_result.get("code") != "DOCLING_UNAVAILABLE":
+    code = docling_result.get("code")
+    api_mismatch = _docling_api_mismatch_error(docling_result)
+    if code != "DOCLING_UNAVAILABLE" and not api_mismatch:
         return docling_result
     if not fallback_engine_enabled(params):
         return docling_result
@@ -59,7 +69,10 @@ def _apply_paddle_fallback(
         return docling_result
 
     warnings = list(paddle_result.get("warnings") or [])
-    warnings.insert(0, "Docling unavailable; fell back to PaddleOCR.")
+    if api_mismatch:
+        warnings.insert(0, "Docling layout API error; fell back to PaddleOCR.")
+    else:
+        warnings.insert(0, "Docling unavailable; fell back to PaddleOCR.")
     paddle_result["warnings"] = warnings
     metrics = dict(paddle_result.get("metrics") or {})
     metrics["fallback_from"] = "docling"
