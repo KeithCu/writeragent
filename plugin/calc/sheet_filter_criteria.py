@@ -49,6 +49,8 @@ FILTER_OPERATOR2_LABELS: tuple[str, ...] = _FILTER_OPERATOR2_CODE_NAMES
 @deal.pre(lambda code: isinstance(code, int) and -8 <= code < 32)
 def filter_operator2_code_to_name(code: int) -> str:
     """Map UNO ``FilterOperator2`` *code* (long) to a stable string label."""
+    # crosshair: off
+    # cover-all 33797534946 (~39m module, 18732 examples). Doable later: closed enum codes 0..17 only.
     if 0 <= code < len(_FILTER_OPERATOR2_CODE_NAMES):
         return _FILTER_OPERATOR2_CODE_NAMES[code]
     return str(int(code))
@@ -112,7 +114,8 @@ def parse_sheet_filter_criterion(raw: dict[str, Any], is_first: bool) -> tuple[i
     Later rows: missing ``connection`` defaults to AND; ``OR`` links this row to the
     previous condition only (linear chain — not arbitrary parentheses).
     """
-    # crosshair: off  # nested dict Any (field/value) still combinatoric (cover-all 33337516899: 86k lines, 1559 examples). Doable later with a closed criterion schema.
+    # crosshair: off
+    # nested dict Any (field/value) still combinatoric (cover-all 33337516899: 86k lines, 1559 examples). Doable later with a closed criterion schema.
     if "field" not in raw:
         raise UnoObjectError("Each criterion needs 'field' (0-based column index within range).")
     try:

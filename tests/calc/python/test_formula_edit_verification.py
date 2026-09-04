@@ -61,6 +61,15 @@ _REWRITE_WRAPPERS_OFF = (
     "_rewrite_token_calls",
     "format_data_binding_display",
     "parse_data_binding_text",
+    # cover-all 33797534946 leftovers (~4.4h formula_edit)
+    "extract_python_code_loose",
+    "build_new_python_formula",
+    "escape_code_for_excel_formula",
+    "build_data_suffix",
+    "py_formula_has_unquoted_code_ref",
+    "rebuild_python_formula_with_code_ref",
+    "cell_looks_python_like",
+    "replace_python_code",
 )
 
 # Avoid Hypothesis inventing NULs / unpaired surrogates that confuse quote lexers.
@@ -271,20 +280,32 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
 
     format_data_binding_display / parse_data_binding_text are also off
     (deep check-all run 32840960268: Prev 95:09 / 15:20). Range formatters
-    stay on — closed A1/sheet alphabet, no regex.
+    stay on — closed A1/sheet alphabet, no regex. cover-all 33797534946
+    offs (extract/build/escape/rebuild wrappers) also stay out of cover FQNs.
     """
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module
 
-    fqns = cover_fqns_for_module(
-        Path("plugin/calc/python/formula_edit.py"), require_deal=True
-    )
+    path = Path("plugin/calc/python/formula_edit.py")
+    fqns = cover_fqns_for_module(path, require_deal=True)
     for name in _REWRITE_WRAPPERS_OFF:
         assert not any(f.endswith(f".{name}") for f in fqns), name
     assert any(f.endswith(".parse_python_formula") for f in fqns)
     assert any(f.endswith(".normalize_formula_string") for f in fqns)
     assert any(f.endswith(".format_py_data_range") for f in fqns)
     assert any(f.endswith(".format_excel_data_range") for f in fqns)
+    cover_fqns = cover_fqns_for_module(path)
+    for name in (
+        "extract_python_code_loose",
+        "build_new_python_formula",
+        "escape_code_for_excel_formula",
+        "build_data_suffix",
+        "py_formula_has_unquoted_code_ref",
+        "rebuild_python_formula_with_code_ref",
+        "cell_looks_python_like",
+        "replace_python_code",
+    ):
+        assert not any(f.endswith(f".{name}") for f in cover_fqns), name
     preprocess = cover_fqns_for_module(
         Path("plugin/calc/spreadsheet_import/preprocess.py"), require_deal=True
     )

@@ -480,6 +480,8 @@ def find_image_payloads(obj: Any) -> list[dict[str, Any]]:
 
 def image_payload_suffix(payload: dict[str, Any]) -> str:
     """Return a temp-file suffix for *payload* (``.svg`` or ``.png``)."""
+    # crosshair: off
+    # cover-all 33797534946 (~46.5m payload_codec, 710 examples). Dict Any format probe. Doable later with closed format Literal.
     fmt = str(payload.get("format") or "png").lower()
     return ".svg" if fmt == "svg" else ".png"
 
@@ -612,6 +614,8 @@ def column_kinds_for_grid(grid: list[Any] | list[list[Any]]) -> list[str]:
 
 def _uniform_column_kind(kinds: list[str]) -> str | None:
     """Return the kind when every column matches; else None (mixed columns)."""
+    # crosshair: off
+    # cover-all 33797534946 (~46.5m payload_codec, 634 examples). Combinatoric kinds list. Doable later with tiny kind alphabet.
     if not kinds:
         return None
     first = kinds[0]
@@ -639,6 +643,8 @@ def envelope_uniform_column_kind(envelope: dict[str, Any], *, ncols: int) -> str
 
 
 def _host_cell_from_float(val: float, *, kind: str) -> Any:  # pyright: ignore[reportUnusedFunction]  # test helper for host cell kind coercion
+    # crosshair: off
+    # cover-all 33797534946 (~46.5m payload_codec). Float/kind coercion leftover. Doable later with closed kind Literal.
     if math.isnan(val):
         return None
     return int(val) if kind == "int" else val
@@ -791,6 +797,8 @@ def binary_envelope_skip_reason(
     force: ForceBinary = "auto",
 ) -> str | None:
     """Human-readable reason split_grid was not used; None if envelope would be used."""
+    # crosshair: off
+    # cover-all 33797534946 (~46.5m payload_codec, 937 examples). Combinatoric skip-reason strings. Keep should_use_binary_envelope on (_CROSSHAIR_TARGETS). Doable later with closed force/shape domain.
     if should_use_binary_envelope(shape, min_cells=min_cells, force=force):
         return None
     if force == "never":

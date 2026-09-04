@@ -146,3 +146,16 @@ def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
                 assert isinstance(row, list)
                 assert len(row) == first_len
 
+
+def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
+    """cover-all 33797534946 leftover (~39m sheet_filter); code→name off, doable later."""
+    from pathlib import Path
+
+    from tests.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("scripts/ not in stripped release tree")
+    from scripts.crosshair_stream import cover_fqns_for_module
+
+    fqns = cover_fqns_for_module(Path("plugin/calc/sheet_filter_criteria.py"))
+    assert not any(f.endswith(".filter_operator2_code_to_name") for f in fqns)
+
