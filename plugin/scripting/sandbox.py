@@ -134,6 +134,8 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.vision.venv.vision_paddle",
     "plugin.vision.venv.vision_html_export",
     "css_inline",
+    "latex2mathml",
+    "latex2mathml.*",
     "plugin.scripting.viz",
     "plugin.scripting.symbolic",
     "plugin.scripting.units",

@@ -8,15 +8,20 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.vision.venv.vision_html_export import (
     CSS_INLINE_INSTALL_CMD,
     apply_structured_insert_html,
     augment_lo_body_paragraph_styles,
     augment_lo_heading_styles,
+    augment_lo_table_styles,
+    convert_latex_delimiters_to_mathml,
     export_docling_to_html,
     html_from_paddle_regions,
     html_from_paddle_structure,
     prepare_html_for_lo_import,
+    promote_table_header_rows,
 )
 
 
@@ -92,8 +97,10 @@ def test_html_from_paddle_structure_table_and_heading():
         )
     assert "<h2>Title</h2>" in html
     assert "<table" in html
+    assert "<thead>" in html
     assert "<th>A</th>" in html
     assert "<td>1</td>" in html
+    assert 'border="1"' in html
 
 
 def test_html_table_from_columns_rows_emits_spans():
@@ -107,6 +114,10 @@ def test_html_table_from_columns_rows_emits_spans():
     assert 'colspan="3"' in html
     assert html.count("ASSETS:") == 1
     assert html.count("<td") + html.count("<th") == 7  # 3 header + 1 spanned + 3 cash row
+    assert "<thead>" in html
+    assert "<tbody>" in html
+    assert "ASSETS:" in html[html.index("<tbody>") :]
+    assert "ASSETS:" not in html[html.index("<thead>") : html.index("</thead>")]
 
 
 
@@ -121,7 +132,11 @@ def test_export_docling_to_html_default():
     ):
         out = export_docling_to_html(doc, {})
     assert "strong" in out
-    doc.export_to_html.assert_called_once_with(image_mode=fake.ImageRefMode.PLACEHOLDER, split_page_view=False)
+    doc.export_to_html.assert_called_once_with(
+        image_mode=fake.ImageRefMode.PLACEHOLDER,
+        formula_to_mathml=True,
+        split_page_view=False,
+    )
 
 
 def test_css_inline_install_cmd():
@@ -151,3 +166,89 @@ def test_apply_structured_insert_html_skips_html_mode():
     result = {"status": "ok", "helper": "extract_text", "html": "<p>x</p>", "regions": []}
     out = apply_structured_insert_html(result, {"insert_mode": "html"})
     assert out is result
+
+
+def test_convert_latex_delimiters_to_mathml_display_and_inline():
+    pytest.importorskip("latex2mathml")
+    html = "<p>$$E=mc^2$$</p><p>see \\(a+b\\) in text</p>"
+    out = convert_latex_delimiters_to_mathml(html)
+    assert "$$" not in out
+    assert "\\(" not in out
+    assert "<math" in out
+    assert 'display="block"' in out
+    assert 'display="inline"' in out
+
+
+def test_convert_latex_delimiters_skips_currency_dollars():
+    html = "<td>$ 35,934</td><td>$9.00</td>"
+    out = convert_latex_delimiters_to_mathml(html)
+    assert "$ 35,934" in out
+    assert "$9.00" in out
+    assert "<math" not in out
+
+
+def test_convert_latex_delimiters_leaves_existing_mathml():
+    html = '<p><math display="block"><mi>x</mi></math></p>'
+    assert convert_latex_delimiters_to_mathml(html) == html
+
+
+def test_augment_lo_table_styles_adds_border_and_header_chrome():
+    raw = "<table><tr><th>Year</th></tr><tr><td>1</td></tr></table>"
+    out = augment_lo_table_styles(raw)
+    assert 'border="1"' in out
+    assert "border-collapse: collapse" in out
+    assert "1px solid #ccc" in out
+    assert "background-color: #f0f0f0" in out
+    assert "font-weight: bold" in out
+
+
+def test_augment_lo_table_styles_skips_layout_tables():
+    raw = (
+        '<table style="width:100%;border:none;border-collapse:collapse;">'
+        '<tr><td style="border:none;">Left</td>'
+        '<td style="border:none;">Right</td></tr></table>'
+    )
+    out = augment_lo_table_styles(raw)
+    assert 'border="1"' not in out
+    assert "background-color: #f0f0f0" not in out
+    assert "border:none" in out
+
+
+def test_promote_table_header_rows_wraps_first_th_row_only():
+    raw = (
+        "<table><tbody>"
+        "<tr><td></td><th>2025</th><th>2024</th></tr>"
+        "<tr><th colspan=\"3\">ASSETS:</th></tr>"
+        "<tr><th>Cash</th><td>1</td><td>2</td></tr>"
+        "</tbody></table>"
+    )
+    out = promote_table_header_rows(raw)
+    assert "<thead>" in out
+    header = out[out.index("<thead>") : out.index("</thead>")]
+    body = out[out.index("<tbody>") :]
+    assert "2025" in header
+    assert "ASSETS:" not in header
+    assert "ASSETS:" in body
+    assert header.count("<th") == 3  # empty corner td promoted to th
+
+
+def test_promote_table_header_rows_skips_layout_tables():
+    raw = (
+        '<table style="width:100%;border:none;">'
+        "<tr><td>Left</td><td>Right</td></tr></table>"
+    )
+    out = promote_table_header_rows(raw)
+    assert "<thead>" not in out
+
+
+def test_prepare_html_for_lo_import_applies_table_and_math_augment():
+    raw = "<html><body><p>$$x^2$$</p><table><tr><th>A</th></tr><tr><td>1</td></tr></table></body></html>"
+    with patch(
+        "css_inline.inline",
+        return_value="<p>$$x^2$$</p><table><tr><th>A</th></tr><tr><td>1</td></tr></table>",
+    ):
+        out = prepare_html_for_lo_import(raw)
+    assert "<math" in out
+    assert 'border="1"' in out
+    assert "<thead>" in out
+    assert "background-color: #f0f0f0" in out

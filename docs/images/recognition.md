@@ -188,7 +188,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Image export (selection + name) | [`export_graphic_object_to_bytes`](../../plugin/writer/images/image_tools.py), [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py), [`graphic_objects_in_selection`](../../plugin/doc/visual_helpers.py), [`_get_graphic_object`](../../plugin/writer/images/images.py) |
 | Run Python vision fast path | [`python_runner.py`](../../plugin/scripting/python_runner.py) — `insert_vision_result` (Writer + Calc) |
 | Calc vision egress | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) — `calc_output_anchor_from_graphic`, `insert_vision_html_into_calc` |
-| HTML export (Docling / Paddle) | [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) — `export_docling_to_html`, `prepare_html_for_lo_import` (**css-inline** required; heading/body augment) |
+| HTML export (Docling / Paddle) | [`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py) — `export_docling_to_html`, `prepare_html_for_lo_import` (**css-inline** required; heading/body/table/MathML augment) |
 | Script picker (Writer + Calc) | [`document_scripts.py`](../../plugin/scripting/document_scripts.py) — `SCRIPT_ORIGIN_VISION`, `_vision_script_section` |
 | Monaco built-in guards | [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js) — Attach/Save/Delete disabled for `origin === "vision"` |
 | Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`analysis_client.py`](../../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../../plugin/calc/analysis_runner.py) |
@@ -612,7 +612,7 @@ def is_vision_result(value: Any) -> bool:
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `html` | **Yes** on success | **Document insert uses this** — Docling/Paddle HTML through **`prepare_html_for_lo_import`**: `css-inline` → heading/body inline augment → single-wrap StarWriter insert ([`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py)) |
+| `html` | **Yes** on success | **Document insert uses this** — Docling/Paddle HTML through **`prepare_html_for_lo_import`**: `css-inline` → heading/body/table/MathML augment → single-wrap StarWriter insert ([`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py)) |
 | `full_text` | Yes (may be `""`) | Plain reading-order text for metrics / debugging; not inserted into documents |
 | `regions` | Yes (may be `[]`) | `box`: `[x, y, w, h]` pixels, PNG space, origin top-left |
 | `regions[].confidence` | Per line | Float 0–1 |
@@ -622,12 +622,15 @@ def is_vision_result(value: Any) -> bool:
 
 ### HTML insert pipeline and expectations
 
-1. Docling `export_to_html` (or Paddle HTML builders) → **`css_inline.inline()`** (required).
+1. Docling `export_to_html` (`formula_to_mathml=True`, or Paddle HTML builders) → **`css_inline.inline()`** (required).
 2. **`augment_lo_heading_styles`** — merge `font-size` / `font-weight` onto `<h1>`–`<h6>` (Docling’s h2 CSS is color/margins only).
 3. **`augment_lo_body_paragraph_styles`** — Arial + line-height on bare `<p>` tags.
-4. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
+4. **`convert_latex_delimiters_to_mathml`** — leftover `$$…$$` / `\[…\]` / `\(...\)` (and conservative `$…$`) → `<math display="block|inline">` via vendored `latex2mathml`, so Writer’s mixed HTML+math insert creates native editable Math objects. Currency like `$ 35,934` is left alone. Conversion is skipped if `latex2mathml` is missing.
+5. **`promote_table_header_rows`** — first row that already has `<th>` is wrapped in `<thead>` (remaining rows `<tbody>`). Layout tables with `border:none` (two-column bbox HTML) are skipped. Section rows such as `ASSETS:` stay in the body.
+6. **`augment_lo_table_styles`** — `border="1"` plus `border-collapse` / `1px solid #ccc` on data tables and cells; `<th>` gets `background-color: #f0f0f0; font-weight: bold`. StarWriter often drops stylesheet table rules; the HTML attribute plus inline CSS keep gridlines.
+7. Host [`insert_vision_result`](../../plugin/vision/vision_egress.py) → [`prepare_vision_writer_insert`](../../plugin/vision/vision_egress.py) (paragraph after graphic + collapse UI caret) → [`insert_html_at_cursor`](../../plugin/writer/format.py) (StarWriter filter; full documents are stripped to body markup before wrap).
 
-**What you should see:** section headings **bold and larger** than body paragraphs; table borders when Docling exports tables. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan).
+**What you should see:** section headings **bold and larger** than body paragraphs; **visible table gridlines** and distinct header rows (`<thead>` / shaded `<th>`, which LibreOffice can repeat on each page); LaTeX formulas as **editable LibreOffice Math** objects when Docling emitted TeX or MathML. **Not expected:** flyer colors, multi-column layout, or panel backgrounds (Docling does not export that visual design). For a **future dev plan** to improve visual fidelity, see [§21 Visual/layout HTML fidelity (deferred dev plan)](#21-visuallayout-html-fidelity-deferred-dev-plan).
 
 **Troubleshooting (Writer):** grep `writeragent_debug.log` for `insert_vision_result:` — a successful run logs `helper`, `html_len`, `h_tags`, and `style_attrs`. Missing line → old extension or insert path not reached; `h_tags=0` → upstream HTML has no headings. If the **image disappears** after insert, redeploy the extension (older builds imported HTML at the graphic anchor and replaced the selection). Current builds insert a paragraph break after the anchor first; a regression surfaces as `The image was removed during OCR insert.`
 
@@ -928,7 +931,7 @@ Copy when handing work to an coding agent:
 | Layer | Limit |
 |-------|--------|
 | **Docling `export_to_html`** | Semantic tree → HTML with a generic Docling stylesheet. Section labels become `<h2>`; body lines become plain `<p>`. **No** panel backgrounds, **no** column grid, **no** per-line colors from the raster. |
-| **css-inline + augment** ([`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py)) | Fixes LO’s dropped `<style>` blocks and adds bold/size on headings + Arial on bare `<p>`. Still **monochrome flow** in one column. |
+| **css-inline + augment** ([`vision_html_export.py`](../../plugin/vision/venv/vision_html_export.py)) | Fixes LO’s dropped `<style>` blocks; adds bold/size on headings, Arial on bare `<p>`, table gridlines/`<thead>`, and TeX→MathML. Still **monochrome flow** in one column. |
 | **HTML (StarWriter) import** ([`format.py`](../../plugin/writer/format.py)) | Inline `style=` on tags survives for **font-weight**, **font-size**, **color**, and **background-color** on simple blocks — but **not** reliable CSS grid/flex, and nested `<div>` layout often collapses to stacked paragraphs. |
 | **Akihabara fixture** | Docling yields **9× `<h2>`, 7× `<p>`, 0 tables** — layout information exists in **block bboxes** in the Docling model, not in exported HTML. |
 
