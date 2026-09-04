@@ -53,3 +53,24 @@ def test_insert_vision_structure_into_calc(mock_anchor, mock_bridge, mock_manipu
     assert rows >= 3
     manipulator.write_formula_range.assert_called_once()
     assert manipulator.write_formula_range.call_args[0][0] == "B5"
+
+
+@patch("plugin.calc.vision_egress.CellManipulator")
+@patch("plugin.calc.vision_egress.CalcBridge")
+@patch("plugin.calc.vision_egress.calc_output_anchor_from_graphic", return_value=(0, 0))
+def test_insert_vision_structure_merges_colspan(mock_anchor, mock_bridge, mock_manipulator_cls):
+    manipulator = MagicMock()
+    mock_manipulator_cls.return_value = manipulator
+    result = {
+        "helper": "extract_structure",
+        "tables": [
+            {
+                "name": "table_1",
+                "columns": ["ASSETS:", "", ""],
+                "rows": [["Cash", "1", "2"]],
+                "spans": [{"row": 0, "col": 0, "rowspan": 1, "colspan": 3}],
+            }
+        ],
+    }
+    insert_vision_structure_into_calc(MagicMock(), MagicMock(), result)
+    manipulator.merge_cells.assert_called_once_with("A4:C4", center=False)

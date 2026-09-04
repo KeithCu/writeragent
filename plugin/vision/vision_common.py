@@ -24,7 +24,11 @@ IMPLEMENTED_HELPERS = frozenset({"extract_text", "extract_structure"})
 DEFAULT_ENGINE = "docling"
 DEFAULT_OCR_BACKEND = "rapidocr"
 
-MAX_TABLE_ROWS = 50
+# Financial statements and comparison tables often exceed 50 body rows.
+MAX_TABLE_ROWS = 200
+
+# PDF magic so corpus / nearby-file bytes can skip the image OCR raster path.
+_PDF_MAGIC = b"%PDF"
 
 # Config keys merged from Settings → vision.* before template param overrides.
 VISION_CONFIG_KEYS = (
@@ -170,6 +174,20 @@ def _prov_bbox_to_xywh(prov: Any) -> list[int]:  # pyright: ignore[reportUnusedF
 
 def resolve_engine(params: dict[str, Any]) -> str:
     return str(params.get("engine") or DEFAULT_ENGINE).strip().lower() or DEFAULT_ENGINE
+
+
+def detect_vision_input_format(data: Any, params: dict[str, Any] | None = None) -> str:
+    """Return ``pdf`` or ``image`` for trusted vision bytes.
+
+    ``params["format"]`` of ``pdf`` / ``image`` wins; ``auto`` (default) sniffs
+    PDF magic so vector PDFs use Docling's PDF backend instead of IMAGE OCR.
+    """
+    explicit = str((params or {}).get("format") or "auto").strip().lower()
+    if explicit in ("pdf", "image"):
+        return explicit
+    if isinstance(data, (bytes, bytearray)) and bytes(data[:4]) == _PDF_MAGIC:
+        return "pdf"
+    return "image"
 
 
 def resolve_ocr_backend(params: dict[str, Any]) -> str:

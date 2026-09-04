@@ -13,6 +13,7 @@ from typing import Any, Literal
 from plugin.vision.vision_common import (
     MAX_TABLE_ROWS,
     css_inline_unavailable_result,
+    detect_vision_input_format,
     is_css_inline_import_error,
     _error_result,
     _ok_result,
@@ -31,13 +32,14 @@ def _import_docling() -> Any:
     return importlib.import_module("docling.document_converter")
 
 
-def _cache_key(params: dict[str, Any], *, for_structure: bool) -> tuple[Any, ...]:
+def _cache_key(params: dict[str, Any], *, for_structure: bool, input_format: str) -> tuple[Any, ...]:
     backend = resolve_ocr_backend(params)
     lang = str(params.get("lang") or "en").strip() or "en"
     return (
         backend,
         lang,
         for_structure,
+        input_format,
         True,
         float(params.get("images_scale") or 1.0),
         str(params.get("device") or "auto"),
@@ -50,6 +52,7 @@ def _cache_key(params: dict[str, Any], *, for_structure: bool) -> tuple[Any, ...
         bool(params.get("do_code_enrichment", False)),
         float(params.get("text_score") or 0.5),
         bool(params.get("force_full_page_ocr", True)),
+        str(params.get("ocr_mode") or ""),
         float(params.get("document_timeout") or 0),
         str(params.get("artifacts_path") or ""),
     )
@@ -83,8 +86,6 @@ def _resolve_ocr_options(params: dict[str, Any]) -> Any:
         text_score = params.get("text_score")
         if text_score is not None and hasattr(ocr_opts, "text_score"):
             ocr_opts.text_score = float(text_score)
-        if bool(params.get("force_full_page_ocr", False)) and hasattr(ocr_opts, "force_full_page_ocr"):
-            ocr_opts.force_full_page_ocr = True
         return ocr_opts
 
     if backend == "easyocr":
@@ -241,7 +242,50 @@ def _apply_pipeline_params(pipeline_options: Any, params: dict[str, Any], *, for
     del for_structure  # table structure enabled at construction time
 
 
-def _build_pipeline_options(params: dict[str, Any], *, for_structure: bool) -> Any:
+def _want_full_page_ocr(params: dict[str, Any], *, input_format: str) -> bool:
+    """Images default to full-page OCR; PDFs keep native text unless overridden.
+
+    Vector PDFs (10-K, arXiv) already have a text layer — forcing full-page OCR
+    rasterizes them. Scanned PDFs still OCR via ``do_ocr=True`` when there is no
+    text. ``ocr_mode`` / ``force_full_page_ocr`` remain explicit overrides.
+    """
+    explicit_mode = str(params.get("ocr_mode") or "").strip().lower()
+    if explicit_mode in ("full_page", "full-page"):
+        return True
+    if explicit_mode in ("default", "layout_regions", "pdf_aware_layout_regions"):
+        return False
+    if input_format == "pdf":
+        return False
+    return bool(params.get("force_full_page_ocr", True))
+
+
+def _apply_ocr_mode(pipeline_options: Any, params: dict[str, Any], *, input_format: str) -> None:
+    """Prefer Docling ``OcrMode.FULL_PAGE`` over deprecated ``force_full_page_ocr``."""
+    ocr_opts = getattr(pipeline_options, "ocr_options", None)
+    if ocr_opts is None:
+        return
+    want_full = _want_full_page_ocr(params, input_format=input_format)
+    pipeline_mod = importlib.import_module("docling.datamodel.pipeline_options")
+    ocr_mode_cls = getattr(pipeline_mod, "OcrMode", None)
+    if ocr_mode_cls is not None and hasattr(ocr_opts, "mode"):
+        full_page = getattr(ocr_mode_cls, "FULL_PAGE", None)
+        default_mode = getattr(ocr_mode_cls, "DEFAULT", None)
+        if want_full and full_page is not None:
+            ocr_opts.mode = full_page
+            return
+        if default_mode is not None:
+            ocr_opts.mode = default_mode
+            return
+    if hasattr(ocr_opts, "force_full_page_ocr"):
+        ocr_opts.force_full_page_ocr = want_full
+
+
+def _build_pipeline_options(
+    params: dict[str, Any],
+    *,
+    for_structure: bool,
+    input_format: str = "image",
+) -> Any:
     pipeline_options_mod = importlib.import_module("docling.datamodel.pipeline_options")
     pdf_opts_cls = pipeline_options_mod.PdfPipelineOptions
     backend = resolve_ocr_backend(params)
@@ -260,17 +304,21 @@ def _build_pipeline_options(params: dict[str, Any], *, for_structure: bool) -> A
     )
     if ocr_options is not None:
         pipeline_options.ocr_options = ocr_options
-        if bool(params.get("force_full_page_ocr", False)) and hasattr(pipeline_options.ocr_options, "force_full_page_ocr"):
-            pipeline_options.ocr_options.force_full_page_ocr = True
     if backend == "surya":
         # Docling sets this at runtime for the Surya plugin; stubs omit ocr_model.
         setattr(pipeline_options, "ocr_model", "suryaocr")
     _apply_pipeline_params(pipeline_options, params, for_structure=for_structure)
+    _apply_ocr_mode(pipeline_options, params, input_format=input_format)
     return pipeline_options
 
 
-def _get_docling_converter(params: dict[str, Any], *, for_structure: bool) -> Any:
-    key = _cache_key(params, for_structure=for_structure)
+def _get_docling_converter(
+    params: dict[str, Any],
+    *,
+    for_structure: bool,
+    input_format: str = "image",
+) -> Any:
+    key = _cache_key(params, for_structure=for_structure, input_format=input_format)
     cached = _converter_cache.get(key)
     if cached is not None:
         return cached
@@ -278,14 +326,21 @@ def _get_docling_converter(params: dict[str, Any], *, for_structure: bool) -> An
     _import_docling()
     base_models = importlib.import_module("docling.datamodel.base_models")
     converter_mod = importlib.import_module("docling.document_converter")
-    input_format = base_models.InputFormat
-    image_format_option = converter_mod.ImageFormatOption
+    input_format_enum = base_models.InputFormat
     document_converter_cls = converter_mod.DocumentConverter
 
-    pipeline_options = _build_pipeline_options(params, for_structure=for_structure)
+    pipeline_options = _build_pipeline_options(
+        params, for_structure=for_structure, input_format=input_format
+    )
+    if input_format == "pdf":
+        format_option_cls = converter_mod.PdfFormatOption
+        allowed = input_format_enum.PDF
+    else:
+        format_option_cls = converter_mod.ImageFormatOption
+        allowed = input_format_enum.IMAGE
     converter = document_converter_cls(
-        allowed_formats=[input_format.IMAGE],
-        format_options={input_format.IMAGE: image_format_option(pipeline_options=pipeline_options)},
+        allowed_formats=[allowed],
+        format_options={allowed: format_option_cls(pipeline_options=pipeline_options)},
     )
     _converter_cache[key] = converter
     return converter
@@ -295,12 +350,19 @@ def _convert_image_bytes(image: Any, params: dict[str, Any], *, for_structure: b
     if image is None or not isinstance(image, (bytes, bytearray)):
         raise ValueError("image must be raw bytes")
 
+    payload = bytes(image)
+    input_format = detect_vision_input_format(payload, params)
     _import_docling()
     base_models = importlib.import_module("docling.datamodel.base_models")
-    buf = BytesIO(bytes(image))
+    buf = BytesIO(payload)
     buf.seek(0)
-    stream = base_models.DocumentStream(name="image.png", stream=buf)
-    converter = _get_docling_converter(params, for_structure=for_structure)
+    # Filename extension must match the sniffed format so Docling's stream
+    # MIME guess agrees with allowed_formats (PDF magic vs IMAGE).
+    stream_name = "document.pdf" if input_format == "pdf" else "image.png"
+    stream = base_models.DocumentStream(name=stream_name, stream=buf)
+    converter = _get_docling_converter(
+        params, for_structure=for_structure, input_format=input_format
+    )
     result = converter.convert(stream)
     document = getattr(result, "document", None)
     if document is None:
@@ -308,8 +370,130 @@ def _convert_image_bytes(image: Any, params: dict[str, Any], *, for_structure: b
     return document
 
 
+def _cell_text(cell: Any) -> str:
+    if isinstance(cell, dict):
+        return str(cell.get("text") or cell.get("value") or "").strip()
+    return str(getattr(cell, "text", None) or cell or "").strip()
+
+
+def _cell_int(cell: Any, *names: str, default: int = 0) -> int:
+    for name in names:
+        if isinstance(cell, dict) and name in cell:
+            try:
+                return int(cell[name])
+            except (TypeError, ValueError):
+                return default
+        value = getattr(cell, name, None)
+        if value is not None:
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return default
+    return default
+
+
+def _table_from_span_cells(
+    cells: list[Any],
+    num_rows: int,
+    num_cols: int,
+    *,
+    name: str,
+) -> dict[str, Any] | None:
+    """Build a rectangular grid with span metadata; text only in the origin cell.
+
+    Docling's expanded ``grid`` repeats spanned text (``ASSETS:`` in every
+    column). Calc/Writer need one origin cell plus colspan/rowspan instead.
+    """
+    if num_rows <= 0 or num_cols <= 0 or not cells:
+        return None
+    grid = [[""] * num_cols for _ in range(num_rows)]
+    spans: list[dict[str, int]] = []
+    for cell in cells:
+        row = _cell_int(cell, "start_row_offset_idx", "start_row")
+        col = _cell_int(cell, "start_col_offset_idx", "start_col")
+        rowspan = max(_cell_int(cell, "row_span", default=1), 1)
+        colspan = max(_cell_int(cell, "col_span", default=1), 1)
+        if row < 0 or col < 0 or row >= num_rows or col >= num_cols:
+            continue
+        grid[row][col] = _cell_text(cell)
+        if rowspan > 1 or colspan > 1:
+            spans.append({"row": row, "col": col, "rowspan": rowspan, "colspan": colspan})
+
+    columns = [str(c) for c in grid[0]]
+    data_rows = [[str(c) for c in row] for row in grid[1:]]
+    if not columns and data_rows:
+        width = max(len(r) for r in data_rows)
+        columns = [f"col_{i + 1}" for i in range(width)]
+    limited = data_rows[:MAX_TABLE_ROWS]
+    # Drop spans that land only in truncated body rows.
+    kept_spans = [
+        span
+        for span in spans
+        if span["row"] == 0 or span["row"] - 1 < len(limited)
+    ]
+    return {
+        "name": name,
+        "columns": columns,
+        "rows": limited,
+        "spans": kept_spans,
+        "truncated": len(data_rows) > MAX_TABLE_ROWS,
+        "total_rows": len(data_rows),
+    }
+
+
+def _table_from_docling_item(table_item: Any, *, name: str) -> dict[str, Any] | None:
+    data = getattr(table_item, "data", None)
+    if data is not None:
+        cells = getattr(data, "table_cells", None)
+        num_rows = getattr(data, "num_rows", None)
+        num_cols = getattr(data, "num_cols", None)
+        if cells and num_rows and num_cols:
+            mapped = _table_from_span_cells(list(cells), int(num_rows), int(num_cols), name=name)
+            if mapped:
+                return mapped
+    if isinstance(table_item, dict):
+        return _table_from_docling_dict(table_item, name=name)
+    dumped = None
+    if hasattr(table_item, "export_to_dict"):
+        try:
+            dumped = table_item.export_to_dict()
+        except Exception:
+            dumped = None
+    if isinstance(dumped, dict):
+        return _table_from_docling_dict(dumped, name=name)
+    return None
+
+
 def _table_from_docling_dict(table_item: dict[str, Any], *, name: str) -> dict[str, Any] | None:
     data = table_item.get("data") if isinstance(table_item.get("data"), dict) else table_item
+    if isinstance(data, dict):
+        cells = data.get("table_cells")
+        num_rows = data.get("num_rows")
+        num_cols = data.get("num_cols")
+        if isinstance(cells, list) and cells and not isinstance(cells[0], list):
+            first = cells[0]
+            looks_like_cells = isinstance(first, dict) and (
+                "start_row_offset_idx" in first or "row_span" in first
+            )
+            if looks_like_cells:
+                if not num_rows or not num_cols:
+                    max_r = 0
+                    max_c = 0
+                    for cell in cells:
+                        end_r = _cell_int(cell, "end_row_offset_idx")
+                        end_c = _cell_int(cell, "end_col_offset_idx")
+                        start_r = _cell_int(cell, "start_row_offset_idx", "start_row")
+                        start_c = _cell_int(cell, "start_col_offset_idx", "start_col")
+                        rs = max(_cell_int(cell, "row_span", default=1), 1)
+                        cs = max(_cell_int(cell, "col_span", default=1), 1)
+                        max_r = max(max_r, end_r, start_r + rs)
+                        max_c = max(max_c, end_c, start_c + cs)
+                    num_rows = int(num_rows or max_r)
+                    num_cols = int(num_cols or max_c)
+                mapped = _table_from_span_cells(cells, int(num_rows), int(num_cols), name=name)
+                if mapped:
+                    return mapped
+
     grid = None
     if isinstance(data, dict):
         grid = data.get("grid") or data.get("table_cells") or data.get("cells")
@@ -344,6 +528,7 @@ def _table_from_docling_dict(table_item: dict[str, Any], *, name: str) -> dict[s
         "name": name,
         "columns": columns,
         "rows": limited,
+        "spans": [],
         "truncated": len(data_rows) > MAX_TABLE_ROWS,
         "total_rows": len(data_rows),
     }
@@ -408,22 +593,52 @@ def _map_docling_structure(document: Any) -> tuple[list[dict[str, Any]], list[di
         if text:
             text_parts.append(text)
 
-    for item in doc_dict.get("tables") or []:
-        if not isinstance(item, dict):
-            continue
-        table_index += 1
-        box = _prov_bbox_to_xywh(item.get("prov"))
-        table = _table_from_docling_dict(item, name=f"table_{table_index}")
-        block_text = ""
-        if table:
-            tables.append(table)
-            if table.get("columns"):
-                text_parts.append("\t".join(str(c) for c in table["columns"]))
-            for row in table.get("rows") or []:
-                if isinstance(row, list):
-                    text_parts.append("\t".join(str(c) for c in row))
-            block_text = "\n".join(text_parts[-1:] if text_parts else [])
-        blocks.append({"type": "table", "text": block_text, "box": box})
+    live_tables = getattr(document, "tables", None)
+    mapped_from_live = False
+    if isinstance(live_tables, list) and live_tables:
+        for item in live_tables:
+            table_index += 1
+            table = _table_from_docling_item(item, name=f"table_{table_index}")
+            box = [0, 0, 0, 0]
+            if hasattr(item, "prov") or hasattr(item, "export_to_dict"):
+                try:
+                    dumped = item.export_to_dict() if hasattr(item, "export_to_dict") else {}
+                    if isinstance(dumped, dict):
+                        box = _prov_bbox_to_xywh(dumped.get("prov"))
+                except Exception:
+                    box = [0, 0, 0, 0]
+            block_text = ""
+            if table:
+                mapped_from_live = True
+                tables.append(table)
+                if table.get("columns"):
+                    text_parts.append("\t".join(str(c) for c in table["columns"]))
+                for row in table.get("rows") or []:
+                    if isinstance(row, list):
+                        text_parts.append("\t".join(str(c) for c in row if str(c)))
+                block_text = "\n".join(text_parts[-1:] if text_parts else [])
+            blocks.append({"type": "table", "text": block_text, "box": box})
+
+    if not mapped_from_live:
+        table_index = 0
+        # Drop live-table placeholder blocks if dict mapping will re-add them.
+        blocks = [block for block in blocks if str(block.get("type") or "") != "table"]
+        for item in doc_dict.get("tables") or []:
+            if not isinstance(item, dict):
+                continue
+            table_index += 1
+            box = _prov_bbox_to_xywh(item.get("prov"))
+            table = _table_from_docling_dict(item, name=f"table_{table_index}")
+            block_text = ""
+            if table:
+                tables.append(table)
+                if table.get("columns"):
+                    text_parts.append("\t".join(str(c) for c in table["columns"]))
+                for row in table.get("rows") or []:
+                    if isinstance(row, list):
+                        text_parts.append("\t".join(str(c) for c in row if str(c)))
+                block_text = "\n".join(text_parts[-1:] if text_parts else [])
+            blocks.append({"type": "table", "text": block_text, "box": box})
 
     if not text_parts and hasattr(document, "export_to_markdown"):
         try:
@@ -438,8 +653,11 @@ def _map_docling_structure(document: Any) -> tuple[list[dict[str, Any]], list[di
     return blocks, tables, text_parts
 
 
-def _metrics_base(params: dict[str, Any]) -> dict[str, Any]:
-    return {"engine": "docling", "ocr_backend": resolve_ocr_backend(params)}
+def _metrics_base(params: dict[str, Any], image: Any = None) -> dict[str, Any]:
+    metrics: dict[str, Any] = {"engine": "docling", "ocr_backend": resolve_ocr_backend(params)}
+    if image is not None:
+        metrics["input_format"] = detect_vision_input_format(image, params)
+    return metrics
 
 
 def _root_import_error(exc: BaseException) -> str:
@@ -492,6 +710,7 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
 
         html = export_docling_to_html(document, params)
         full_text, regions = _map_docling_text(document)
+        _blocks, tables, _text_parts = _map_docling_structure(document)
     except ImportError as exc:
         if is_css_inline_import_error(exc):
             return _handle_css_inline_import_error(helper)
@@ -510,14 +729,15 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     mean_confidence = sum(confidences) / len(confidences) if confidences else 0.0
     line_count = len(regions) if regions else (0 if not full_text else len(full_text.splitlines()))
 
-    metrics = _metrics_base(params)
-    metrics.update({"line_count": line_count, "mean_confidence": mean_confidence})
+    metrics = _metrics_base(params, image)
+    metrics.update({"line_count": line_count, "mean_confidence": mean_confidence, "table_count": len(tables)})
 
     return _ok_result(
         helper,
         html=html,
         full_text=full_text,
         regions=regions,
+        tables=tables,
         metrics=metrics,
         warnings=warnings,
     )
@@ -546,7 +766,7 @@ def extract_structure(image: Any, params: dict[str, Any]) -> dict[str, Any]:
     if not full_text and not tables and not blocks:
         warnings.append("No structure detected.")
 
-    metrics = _metrics_base(params)
+    metrics = _metrics_base(params, image)
     metrics.update({"block_count": len(blocks), "table_count": len(tables)})
 
     return _ok_result(

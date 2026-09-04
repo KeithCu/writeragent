@@ -112,9 +112,11 @@ def export_docling_to_html(document: Any, params: dict[str, Any]) -> str:
     image_ref_mode = docling_doc_mod.ImageRefMode
 
     if hasattr(document, "export_to_html"):
+        # PLACEHOLDER: do not embed source/figure PNGs back into Writer (EMBEDDED
+        # dumps data:image payloads that StarWriter inserts as extra graphics).
         raw = str(
             document.export_to_html(
-                image_mode=image_ref_mode.EMBEDDED,
+                image_mode=image_ref_mode.PLACEHOLDER,
                 split_page_view=False,
             )
             or ""
@@ -146,25 +148,49 @@ def _paddle_block_tag(block_type: str) -> str:
     return "p"
 
 
-def _html_table_from_columns_rows(columns: list[Any], rows: list[list[Any]]) -> str:
+def _html_table_from_columns_rows(
+    columns: list[Any],
+    rows: list[list[Any]],
+    spans: list[dict[str, Any]] | None = None,
+) -> str:
     if not columns and not rows:
         return ""
+    grid = [list(columns)] if columns else []
+    for row in rows:
+        if isinstance(row, list):
+            grid.append(list(row))
+    if not grid:
+        return ""
+    covered: set[tuple[int, int]] = set()
+    span_at: dict[tuple[int, int], tuple[int, int]] = {}
+    for span in spans or []:
+        if not isinstance(span, dict):
+            continue
+        origin_row = int(span.get("row") or 0)
+        origin_col = int(span.get("col") or 0)
+        rowspan = max(int(span.get("rowspan") or 1), 1)
+        colspan = max(int(span.get("colspan") or 1), 1)
+        span_at[(origin_row, origin_col)] = (rowspan, colspan)
+        for rr in range(origin_row, origin_row + rowspan):
+            for cc in range(origin_col, origin_col + colspan):
+                if (rr, cc) != (origin_row, origin_col):
+                    covered.add((rr, cc))
+
     lines = ["<table>"]
-    if columns:
-        lines.append("<thead><tr>")
-        for col in columns:
-            lines.append(f"<th>{html_module.escape(str(col))}</th>")
-        lines.append("</tr></thead>")
-    if rows:
-        lines.append("<tbody>")
-        for row in rows:
-            if not isinstance(row, list):
+    for r_idx, row in enumerate(grid):
+        tag = "th" if r_idx == 0 and columns else "td"
+        lines.append("<tr>")
+        for c_idx, cell in enumerate(row):
+            if (r_idx, c_idx) in covered:
                 continue
-            lines.append("<tr>")
-            for cell in row:
-                lines.append(f"<td>{html_module.escape(str(cell))}</td>")
-            lines.append("</tr>")
-        lines.append("</tbody>")
+            rowspan, colspan = span_at.get((r_idx, c_idx), (1, 1))
+            attrs = ""
+            if rowspan > 1:
+                attrs += f' rowspan="{rowspan}"'
+            if colspan > 1:
+                attrs += f' colspan="{colspan}"'
+            lines.append(f"<{tag}{attrs}>{html_module.escape(str(cell))}</{tag}>")
+        lines.append("</tr>")
     lines.append("</table>")
     return "".join(lines)
 
@@ -196,6 +222,7 @@ def html_from_paddle_structure(
         table_html = _html_table_from_columns_rows(
             list(table.get("columns") or []),
             [list(r) for r in (table.get("rows") or []) if isinstance(r, list)],
+            list(table.get("spans") or []) if isinstance(table.get("spans"), list) else None,
         )
         if table_html:
             parts.append(table_html)
@@ -236,6 +263,7 @@ def structured_html_from_vision_result(result: dict[str, Any]) -> str:
             table_html = _html_table_from_columns_rows(
                 list(table.get("columns") or []),
                 [list(row) for row in (table.get("rows") or []) if isinstance(row, list)],
+                list(table.get("spans") or []) if isinstance(table.get("spans"), list) else None,
             )
             if table_html:
                 body = f"{body}\n{table_html}" if body else table_html

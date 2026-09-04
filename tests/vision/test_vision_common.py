@@ -8,9 +8,18 @@ from __future__ import annotations
 
 from plugin.vision.vision_common import (
     css_inline_unavailable_result,
+    detect_vision_input_format,
     is_css_inline_import_error,
     resolve_vision_insert_mode,
 )
+
+
+def test_detect_vision_input_format_pdf_magic():
+    assert detect_vision_input_format(b"%PDF-1.7\n%", {}) == "pdf"
+    assert detect_vision_input_format(b"\x89PNG\r\n", {}) == "image"
+    assert detect_vision_input_format(b"%PDF-1.4", {"format": "image"}) == "image"
+    assert detect_vision_input_format(b"not-pdf", {"format": "pdf"}) == "pdf"
+    assert detect_vision_input_format(b"%PDF", {"format": "auto"}) == "pdf"
 
 
 def test_resolve_vision_insert_mode_template_overrides_config():

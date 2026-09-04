@@ -27,9 +27,37 @@ def _append_blank(rows: list[list[Any]]) -> None:
         rows.append([])
 
 
-def format_vision_structure_for_calc(result: dict[str, Any]) -> list[list[Any]]:
-    """Turn extract_structure tables/blocks into a row-major grid for write_formula_range."""
+def _table_span_merges(
+    table: dict[str, Any],
+    *,
+    header_grid_row: int,
+) -> list[tuple[int, int, int, int]]:
+    """Return (r1, c1, r2, c2) 0-based grid coords for Docling cell spans."""
+    merges: list[tuple[int, int, int, int]] = []
+    spans = table.get("spans")
+    if not isinstance(spans, list):
+        return merges
+    for span in spans:
+        if not isinstance(span, dict):
+            continue
+        row = int(span.get("row") or 0)
+        col = int(span.get("col") or 0)
+        rowspan = max(int(span.get("rowspan") or 1), 1)
+        colspan = max(int(span.get("colspan") or 1), 1)
+        if rowspan <= 1 and colspan <= 1:
+            continue
+        r1 = header_grid_row + row
+        c1 = col
+        r2 = r1 + rowspan - 1
+        c2 = c1 + colspan - 1
+        merges.append((r1, c1, r2, c2))
+    return merges
+
+
+def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any]], list[tuple[int, int, int, int]]]:
+    """Grid plus merge boxes (grid-relative) for extract_structure Calc insert."""
     rows: list[list[Any]] = []
+    merges: list[tuple[int, int, int, int]] = []
     helper = str(result.get("helper") or "extract_structure")
     rows.append([helper])
 
@@ -61,14 +89,18 @@ def format_vision_structure_for_calc(result: dict[str, Any]) -> list[list[Any]]:
             table_count += 1
             _append_blank(rows)
             rows.append([str(table.get("name") or f"table_{table_count}")])
+            header_grid_row = len(rows)
             if isinstance(columns, list) and columns:
                 rows.append([str(col) for col in columns])
+            else:
+                header_grid_row = len(rows)
             if isinstance(table_rows, list):
                 for row in table_rows:
                     if isinstance(row, list):
                         rows.append([_cell(cell) for cell in row])
                     else:
                         rows.append([_cell(row)])
+            merges.extend(_table_span_merges(table, header_grid_row=header_grid_row))
             if table.get("truncated"):
                 total = table.get("total_rows")
                 note = f"(showing first rows; {total} total)" if total is not None else "(truncated)"
@@ -76,7 +108,13 @@ def format_vision_structure_for_calc(result: dict[str, Any]) -> list[list[Any]]:
 
     if len(rows) == 1:
         rows.append(["(no tabular output)"])
-    return rows
+    return rows, merges
+
+
+def format_vision_structure_for_calc(result: dict[str, Any]) -> list[list[Any]]:
+    """Turn extract_structure tables/blocks into a row-major grid for write_formula_range."""
+    grid, _merges = _vision_structure_calc_layout(result)
+    return grid
 
 
 def structure_calc_grid_has_content(grid: list[list[Any]]) -> bool:
@@ -135,7 +173,7 @@ def insert_vision_structure_into_calc(doc: Any, uno_ctx: Any, result: dict[str, 
     """Write extract_structure blocks/tables as native Calc cells below the graphic anchor."""
     del uno_ctx
     col, row = calc_output_anchor_from_graphic(doc)
-    grid = format_vision_structure_for_calc(result)
+    grid, merges = _vision_structure_calc_layout(result)
     if not structure_calc_grid_has_content(grid):
         raise ToolExecutionError(
             _("No structured tables or text blocks to insert."),
@@ -146,4 +184,9 @@ def insert_vision_structure_into_calc(doc: Any, uno_ctx: Any, result: dict[str, 
     manipulator = CellManipulator(bridge)
     addr = f"{index_to_column(col)}{row + 1}"
     manipulator.write_formula_range(addr, grid)
+    for r1, c1, r2, c2 in merges:
+        start = f"{index_to_column(col + c1)}{row + r1 + 1}"
+        end = f"{index_to_column(col + c2)}{row + r2 + 1}"
+        if start != end:
+            manipulator.merge_cells(f"{start}:{end}", center=False)
     return len(grid)

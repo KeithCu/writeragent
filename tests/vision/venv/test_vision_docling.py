@@ -90,6 +90,69 @@ def test_extract_structure_maps_tables(mock_convert, _mock_html):
     assert result["metrics"]["table_count"] == 1
 
 
+def test_extract_structure_maps_table_cell_spans():
+    mock_convert_doc = _mock_document(
+        texts=[],
+        tables=[
+            {
+                "prov": [],
+                "data": {
+                    "num_rows": 2,
+                    "num_cols": 3,
+                    "table_cells": [
+                        {
+                            "text": "ASSETS:",
+                            "start_row_offset_idx": 0,
+                            "start_col_offset_idx": 0,
+                            "row_span": 1,
+                            "col_span": 3,
+                        },
+                        {
+                            "text": "Cash",
+                            "start_row_offset_idx": 1,
+                            "start_col_offset_idx": 0,
+                            "row_span": 1,
+                            "col_span": 1,
+                        },
+                        {
+                            "text": "10",
+                            "start_row_offset_idx": 1,
+                            "start_col_offset_idx": 1,
+                            "row_span": 1,
+                            "col_span": 1,
+                        },
+                        {
+                            "text": "11",
+                            "start_row_offset_idx": 1,
+                            "start_col_offset_idx": 2,
+                            "row_span": 1,
+                            "col_span": 1,
+                        },
+                    ],
+                },
+            }
+        ],
+    )
+    with patch(
+        "plugin.vision.venv.vision_html_export.export_docling_to_html",
+        return_value="<table></table>",
+    ), patch("plugin.vision.venv.vision_docling._convert_image_bytes", return_value=mock_convert_doc):
+        result = extract_structure(b"png", {})
+
+    table = result["tables"][0]
+    assert table["columns"] == ["ASSETS:", "", ""]
+    assert table["rows"] == [["Cash", "10", "11"]]
+    assert table["spans"] == [{"row": 0, "col": 0, "rowspan": 1, "colspan": 3}]
+    assert table["columns"].count("ASSETS:") == 1
+
+
+def test_want_full_page_ocr_skips_pdfs():
+    assert docling_mod._want_full_page_ocr({}, input_format="image") is True
+    assert docling_mod._want_full_page_ocr({}, input_format="pdf") is False
+    assert docling_mod._want_full_page_ocr({"ocr_mode": "full_page"}, input_format="pdf") is True
+    assert docling_mod._want_full_page_ocr({"force_full_page_ocr": True}, input_format="pdf") is False
+
+
 def test_extract_text_docling_missing():
     with patch("plugin.vision.venv.vision_docling._convert_image_bytes", side_effect=ImportError("docling is not installed")):
         result = extract_text(b"png", {})
@@ -271,4 +334,37 @@ def test_extract_text_real_docling_tiny_png():
     assert isinstance(result.get("full_text"), str)
     assert isinstance(result.get("regions"), list)
     assert result.get("metrics", {}).get("engine") == "docling"
+
+
+@pytest.mark.timeout(300)
+def test_extract_structure_real_docling_pdf_magic():
+    """Vector PDF bytes must use the PDF backend (not IMAGE OCR)."""
+    from pathlib import Path
+
+    _require_installed_od_docling()
+    pytest.importorskip("css_inline")
+    pdf_path = (
+        Path(__file__).resolve().parents[2]
+        / "fixtures"
+        / "ocr_verification_corpus"
+        / "01_sec_10k_apple_balance_sheet_page34.pdf"
+    )
+    if not pdf_path.is_file():
+        pytest.skip(f"corpus PDF missing: {pdf_path}")
+
+    result = extract_structure(
+        pdf_path.read_bytes(),
+        {"layout_model": "heron", "ocr_backend": "rapidocr", "lang": "en", "format": "auto"},
+    )
+    assert not _is_layout_api_error(result), result
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
+
+    assert result["status"] == "ok"
+    assert result.get("metrics", {}).get("input_format") == "pdf"
+    assert result.get("metrics", {}).get("table_count", 0) >= 1
+    table = (result.get("tables") or [{}])[0]
+    assert any(span.get("colspan", 1) > 1 or span.get("rowspan", 1) > 1 for span in (table.get("spans") or [])), table
+    joined = " ".join(str(c) for c in (table.get("columns") or []))
+    assert joined.count("ASSETS:") <= 1
 

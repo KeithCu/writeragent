@@ -96,18 +96,32 @@ def test_html_from_paddle_structure_table_and_heading():
     assert "<td>1</td>" in html
 
 
+def test_html_table_from_columns_rows_emits_spans():
+    from plugin.vision.venv.vision_html_export import _html_table_from_columns_rows
+
+    html = _html_table_from_columns_rows(
+        ["", "2025", "2024"],
+        [["ASSETS:", "", ""], ["Cash", "1", "2"]],
+        [{"row": 1, "col": 0, "rowspan": 1, "colspan": 3}],
+    )
+    assert 'colspan="3"' in html
+    assert html.count("ASSETS:") == 1
+    assert html.count("<td") + html.count("<th") == 7  # 3 header + 1 spanned + 3 cash row
+
+
+
 def test_export_docling_to_html_default():
     doc = MagicMock()
     doc.export_to_html.return_value = "<p><strong>Hi</strong></p>"
     fake = MagicMock()
-    fake.ImageRefMode.EMBEDDED = "embedded"
+    fake.ImageRefMode.PLACEHOLDER = "placeholder"
     with patch("plugin.vision.venv.vision_html_export.importlib.import_module", return_value=fake), patch(
         "plugin.vision.venv.vision_html_export.prepare_html_for_lo_import",
         side_effect=lambda html: html,
     ):
         out = export_docling_to_html(doc, {})
     assert "strong" in out
-    doc.export_to_html.assert_called_once_with(image_mode=fake.ImageRefMode.EMBEDDED, split_page_view=False)
+    doc.export_to_html.assert_called_once_with(image_mode=fake.ImageRefMode.PLACEHOLDER, split_page_view=False)
 
 
 def test_css_inline_install_cmd():

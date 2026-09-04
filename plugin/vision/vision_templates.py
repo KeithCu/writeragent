@@ -30,7 +30,7 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
     "extract_text": "OCR selected image(s) to formatted HTML (Docling default, Paddle fallback).",
-    "extract_structure": "Layout and tables as formatted HTML — Docling default, Paddle fallback.",
+    "extract_structure": "Layout and tables as formatted HTML with cell spans — Docling default, Paddle fallback.",
 }
 
 

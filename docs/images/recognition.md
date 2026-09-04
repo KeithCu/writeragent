@@ -435,12 +435,20 @@ Template params for OCR research (in `# writeragent:vision … params=…`):
 | Param | Default | Values |
 |-------|---------|--------|
 | `engine` | `"docling"` | `"docling"` \| `"paddle"` |
-| `ocr_backend` | `"rapidocr_paddle"` | `"auto"`, `"rapidocr"`, `"rapidocr_paddle"`, `"easyocr"`, `"tesseract"`, `"surya"` (requires `docling-surya` + `allow_external_plugins`) |
+| `ocr_backend` | `"rapidocr"` | `"auto"`, `"rapidocr"`, `"rapidocr_paddle"`, `"easyocr"`, `"tesseract"`, `"surya"` (requires `docling-surya` + `allow_external_plugins`) |
+| `format` | `"auto"` | `"auto"` \| `"image"` \| `"pdf"`. `auto` sniffs `%PDF` so vector PDFs use Docling's PDF backend instead of IMAGE OCR |
+| `ocr_mode` | derived | `"full_page"` forces RapidOCR `OcrMode.FULL_PAGE`. Images default to full-page OCR; PDFs keep native text (`do_ocr=True` still OCRs scanned pages) |
 | `fallback_engine` | `true` | When Docling is missing, or a Docling runtime `VISION_ERROR` looks like a layout API/AttributeError (`get_engine_config` / `LayoutModelConfig`), auto-fallback to Paddle if installed |
 
 **Docling layout `model_spec` (issue 587):** `layout_model=heron` / `egret_large` maps to `LayoutObjectDetectionOptions` / `ObjectDetectionModelSpec` (`layout_heron_default` / `layout_egret_large`) on Docling ≥ **2.118.0** (released **2026-08-03**). On ≤ 2.117 the same keys still assign `DOCLING_LAYOUT_*` (`LayoutModelConfig`) onto legacy `LayoutOptions`. The legacy branch is removable once WriterAgent assumes Docling ≥ 2.118.0. When Docling is installed, `tests/vision/venv/test_vision_docling.py` imports it and calls `_build_pipeline_options` / `extract_text` without mocking layout types (skips if Docling, PIL, rapidocr, or onnxruntime is missing). The removable legacy `LayoutModelConfig` branch is not unit-tested.
 
-Success payloads may include `metrics.engine` and `metrics.ocr_backend` for provenance.
+Success payloads may include `metrics.engine`, `metrics.ocr_backend`, and `metrics.input_format` (`image` or `pdf`) for provenance.
+
+**Writer insert stays HTML, not PDF.** Docling 2.x exports HTML / markdown / JSON — it does not generate a PDF to paste back. LibreOffice's PDF import lands in Draw (or as a graphic), not as editable Writer tables. Corpus checks (Apple 10-K page 34) show Docling HTML already carries `colspan` and correct figures; the quality win is feeding **PDF bytes** into Docling and preserving those spans on the Calc grid.
+
+**`extract_structure` vs `extract_text`:** both convert with table structure on. `extract_structure` is the better Calc path (native cells + merged spans). `extract_text` now also returns `tables[]` so the JSON is not a dead end.
+
+Verification fixtures: [`tests/fixtures/ocr_verification_corpus/`](../../tests/fixtures/ocr_verification_corpus/).
 
 ### 7.2 Why not OpenCV / Tesseract / EasyOCR as defaults?
 
@@ -677,7 +685,7 @@ Same [`is_vision_result()`](../../plugin/vision/vision_egress.py) guard as [§10
 | `html` | **Yes** on success | **Document insert uses this** (structure + tables as HTML) |
 | `full_text` | Yes (may be `""`) | Plain reading-order text; not inserted into documents |
 | `blocks` | Yes (may be `[]`) | Layout regions from PP-Structure |
-| `tables` | Yes (may be `[]`) | Structured table dicts (also reflected in `html`) |
+| `tables` | Yes (may be `[]`) | Structured table dicts (also reflected in `html`). Each table may include `spans`: `{row, col, rowspan, colspan}` 0-based in the header+body grid (text only in the origin cell — do not repeat spanned labels) |
 | `metrics.block_count` | Recommended | Length of `blocks` |
 | `metrics.table_count` | Recommended | Length of `tables` |
 | `warnings` | Yes (may be `[]`) | e.g. `"No structure detected."` |
