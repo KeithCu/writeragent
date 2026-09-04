@@ -52,7 +52,7 @@ class ToolCalcImageBase(ToolCalcSpecialBase):
 class ToolCalcVisionBase(ToolCalcSpecialBase):
     specialized_domain = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "Local OCR on embedded sheet graphics (Docling/Paddle via Settings → Python venv); extract_text_from_image."
+        "Extract text and structure (layout, tables) from embedded sheet graphics; extract_structure_from_image."
     )
     intent = "media"
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset()

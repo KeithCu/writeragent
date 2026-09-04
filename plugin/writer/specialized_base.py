@@ -62,7 +62,7 @@ class DelegateToSpecializedWriter(DelegateToSpecializedBase):
         "Delegates a specialized task with a focused toolset. "
         f"document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. "
         "Also: charts, fields, styles, page, textframes, embedded (active doc OLE only), shapes, indexes, "
-        "bookmarks, tracking, footnotes, tables, forms, images, mail_merge, vision (local OCR when venv configured)."
+        "bookmarks, tracking, footnotes, tables, forms, images, mail_merge, vision (extract text and structure from images when configured)."
     )
 
     uno_services = ["com.sun.star.text.TextDocument"]
@@ -112,7 +112,7 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (
-        "Local OCR on embedded graphics (Docling/Paddle via Settings → Python venv); extract_text_from_image."
+        "Extract text and structure (layout, tables) from embedded graphics; extract_structure_from_image."
     )
     intent = "media"
 

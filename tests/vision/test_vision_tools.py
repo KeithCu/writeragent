@@ -21,7 +21,7 @@ from plugin.vision.vision_availability import (
     vision_packages_probe_ready,
     vision_venv_configured,
 )
-from plugin.vision.vision_tools import ExtractTextFromImage
+from plugin.vision.vision_tools import ExtractStructureFromImage
 
 setup_uno_mocks()
 
@@ -53,18 +53,19 @@ def tool_ctx():
 def _registry_with_vision_tool() -> ToolRegistry:
     services = ServiceRegistry()
     registry = ToolRegistry(services)
-    registry.register(ExtractTextFromImage())
+    registry.register(ExtractStructureFromImage())
     return registry
 
 
-def test_extract_text_not_in_default_core_list(writer_doc):
+def test_extract_structure_not_in_default_core_list(writer_doc):
     registry = _registry_with_vision_tool()
     names = {t.name for t in registry.get_tools(doc=writer_doc)}
+    assert "extract_structure_from_image" not in names
     assert "extract_text_from_image" not in names
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
-def test_extract_text_in_vision_domain(_mock_avail, writer_doc, calc_doc):
+def test_extract_structure_in_vision_domain(_mock_avail, writer_doc, calc_doc):
     registry = _registry_with_vision_tool()
     uno_ctx = MagicMock()
     for doc in (writer_doc, calc_doc):
@@ -72,18 +73,29 @@ def test_extract_text_in_vision_domain(_mock_avail, writer_doc, calc_doc):
             t.name
             for t in registry.get_tools(doc=doc, active_domain="vision", exclude_tiers=(), ctx=uno_ctx)
         }
-        assert "extract_text_from_image" in names
+        assert "extract_structure_from_image" in names
+        assert "extract_text_from_image" not in names
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
-def test_extract_text_hidden_when_vision_unavailable(_mock_avail, writer_doc):
+def test_extract_structure_hidden_when_vision_unavailable(_mock_avail, writer_doc):
     registry = _registry_with_vision_tool()
     uno_ctx = MagicMock()
     names = {
         t.name
         for t in registry.get_tools(doc=writer_doc, active_domain="vision", exclude_tiers=(), ctx=uno_ctx)
     }
-    assert "extract_text_from_image" not in names
+    assert "extract_structure_from_image" not in names
+
+
+def test_extract_structure_description_mentions_text_and_structure():
+    tool = ExtractStructureFromImage()
+    text = f"{tool.description} {tool.parameters['properties']['insert_into_document']['description']}"
+    lowered = text.lower()
+    assert "text and structure" in lowered
+    assert "high-quality representation" in lowered
+    for banned in ("html", "docling", "rapidocr", "paddle"):
+        assert banned not in lowered
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
@@ -156,7 +168,7 @@ def test_vision_venv_configured_true_even_when_probe_would_fail(_cfg, _exe, _pro
 
 
 def test_filter_vision_specialized_tools_removes_tool():
-    tool = ExtractTextFromImage()
+    tool = ExtractStructureFromImage()
     other = MagicMock()
     other.name = "specialized_workflow_finished"
     with patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False):
@@ -167,14 +179,14 @@ def test_filter_vision_specialized_tools_removes_tool():
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
-def test_extract_text_happy_path_inserts(
+def test_extract_structure_happy_path_inserts(
     mock_run,
     mock_main_thread,
     tool_ctx,
 ):
     mock_run.return_value = {
         "status": "ok",
-        "helper": "extract_text",
+        "helper": "extract_structure",
         "full_text": "Hello scan",
         "html": "<p>Hello scan</p>",
         "metrics": {"line_count": 1},
@@ -185,27 +197,28 @@ def test_extract_text_happy_path_inserts(
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    tool = ExtractTextFromImage()
+    tool = ExtractStructureFromImage()
     result = tool.execute(tool_ctx, insert_into_document=True)
 
     assert result["status"] == "ok"
+    assert result["helper"] == "extract_structure"
     assert result["full_text"] == "Hello scan"
     assert result["inserted"] is True
     mock_run.assert_called_once()
-    assert mock_run.call_args.kwargs["helper"] == "extract_text"
+    assert mock_run.call_args.kwargs["helper"] == "extract_structure"
     assert mock_run.call_args.kwargs["insert_into_document"] is True
 
 
 @patch("plugin.framework.queue_executor.execute_on_main_thread")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
-def test_extract_text_return_only_skips_insert(
+def test_extract_structure_return_only_skips_insert(
     mock_run,
     mock_main_thread,
     tool_ctx,
 ):
     mock_run.return_value = {
         "status": "ok",
-        "helper": "extract_text",
+        "helper": "extract_structure",
         "full_text": "text only",
         "html": "<p>text only</p>",
         "metrics": {},
@@ -216,7 +229,7 @@ def test_extract_text_return_only_skips_insert(
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
-    tool = ExtractTextFromImage()
+    tool = ExtractStructureFromImage()
     result = tool.execute(tool_ctx, insert_into_document=False)
 
     assert result["status"] == "ok"
@@ -224,9 +237,9 @@ def test_extract_text_return_only_skips_insert(
     assert mock_run.call_args.kwargs["insert_into_document"] is False
 
 
-def test_extract_text_rejects_unsupported_doc(tool_ctx):
+def test_extract_structure_rejects_unsupported_doc(tool_ctx):
     tool_ctx.doc_type = "draw"
-    tool = ExtractTextFromImage()
+    tool = ExtractStructureFromImage()
     result = tool.execute(tool_ctx)
     assert result["status"] == "error"
     assert "Writer or Calc" in result.get("message", "")
@@ -242,7 +255,7 @@ def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
 @patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
 @patch("plugin.doc.specialized_base.build_toolcalling_agent")
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
-@patch.object(ExtractTextFromImage, "execute", return_value={"status": "ok", "full_text": "hi"})
+@patch.object(ExtractStructureFromImage, "execute", return_value={"status": "ok", "full_text": "hi"})
 def test_delegate_vision_runs_ocr_directly(mock_execute, _avail, mock_build_agent):
     from plugin.writer.specialized_base import DelegateToSpecializedWriter
 
@@ -291,6 +304,19 @@ def test_get_vision_core_directive_when_available(_mock_avail, writer_doc):
 
     text = get_vision_core_directive(writer_doc, MagicMock())
     assert "domain=\"vision\"" in text
+    assert "text and structure" in text
+    assert "high-quality" in text
     assert "selected graphic" in text
     assert "task is ignored" in text
     assert "must use this call to perform OCR" in text
+    lowered = text.lower()
+    for banned in ("html", "docling", "rapidocr", "recognized text"):
+        assert banned not in lowered
+
+
+def test_images_guidance_names_structure_tool():
+    from plugin.framework.prompts import WRITER_IMAGES_RULES
+
+    assert "extract_structure_from_image" in WRITER_IMAGES_RULES
+    assert "extract_text_from_image" not in WRITER_IMAGES_RULES
+    assert "text and structure" in WRITER_IMAGES_RULES.lower()

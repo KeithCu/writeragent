@@ -327,7 +327,7 @@ WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill �
 
 WRITER_IMAGES_RULES = """IMAGES:
 - Image tools live in the 'images' domain: image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm), image_download.
-  OCR (extract_text_from_image) lives in the 'vision' domain.
+  Extract text and structure (layout, tables) from images with extract_structure_from_image in the 'vision' domain; inserts a high-quality representation into the document.
 - image_set_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
 - To actually SEE an image (vision-capable models), call get_image — by graphic name, selection=true, or page=N to render that whole page.
   For a bulk read with pictures embedded, pass include_images=true to get_document_content."""
@@ -661,9 +661,9 @@ def get_vision_core_directive(model, ctx) -> str:
         return ""
     delegate = "delegate_to_specialized_calc_toolset" if is_calc(model) else "delegate_to_specialized_writer_toolset"
     return (
-        f"When the user wants OCR or text from an embedded image, {delegate}(domain=\"vision\", task=\"\"). "
-        "That runs local OCR on the selected graphic and inserts the recognized text into the document "
-        "(no sub-agent; task is ignored). You must use this call to perform OCR."
+        f"When the user wants OCR or content from an embedded image, {delegate}(domain=\"vision\", task=\"\"). "
+        "That extracts text and structure from the selected graphic and inserts a high-quality "
+        "representation into the document (no sub-agent; task is ignored). You must use this call to perform OCR."
     )
 
 

@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""LLM tools for local vision/OCR (trusted venv extract_text)."""
+"""LLM/MCP tools for local vision OCR (trusted venv extract_structure)."""
 
 from __future__ import annotations
 
@@ -24,16 +24,16 @@ _VISION_DOCS = [
 ]
 
 
-class ExtractTextFromImage(ToolCalcVisionBase):
-    """Run trusted extract_text OCR on an embedded graphic via the user venv."""
+class ExtractStructureFromImage(ToolCalcVisionBase):
+    """Run trusted extract_structure OCR on an embedded graphic via the user venv."""
 
-    name = "extract_text_from_image"
+    name = "extract_structure_from_image"
     specialized_cross_cutting: ClassVar[bool] = True
     description = (
-        "OCR text from embedded document image(s) using local Docling/Paddle (Settings → Python venv). "
+        "Extract text and structure (layout, tables, etc.) from embedded document image(s). "
         "Leave image_name empty to use the currently selected graphic, or a Writer selection that "
         "contains multiple images (intervening text is ignored). "
-        "By default inserts formatted HTML after each graphic (Writer) or below the Calc anchor."
+        "By default inserts a high-quality representation after each graphic (Writer) or below the Calc anchor."
     )
     parameters = {
         "type": "object",
@@ -44,7 +44,10 @@ class ExtractTextFromImage(ToolCalcVisionBase):
             },
             "insert_into_document": {
                 "type": "boolean",
-                "description": "When true (default), insert OCR HTML into the document. When false, return text only.",
+                "description": (
+                    "When true (default), insert a high-quality representation into the document. "
+                    "When false, return extracted content only."
+                ),
             },
             "params": {
                 "type": "object",
@@ -80,7 +83,7 @@ class ExtractTextFromImage(ToolCalcVisionBase):
             return run_and_insert_vision_for_selection(
                 ctx.ctx,
                 doc,
-                helper="extract_text",
+                helper="extract_structure",
                 params=params_dict or None,
                 insert_into_document=insert_into_document,
             )
@@ -99,7 +102,7 @@ class ExtractTextFromImage(ToolCalcVisionBase):
 
         out = {
             "status": "ok",
-            "helper": "extract_text",
+            "helper": "extract_structure",
             "full_text": str(result.get("full_text") or ""),
             "metrics": result.get("metrics") if isinstance(result.get("metrics"), dict) else {},
             "warnings": result.get("warnings") if isinstance(result.get("warnings"), list) else [],

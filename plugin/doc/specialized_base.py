@@ -132,7 +132,7 @@ class DelegateToSpecializedBase(ToolBase):
 
         if domain == "vision":
             from plugin.vision.vision_availability import vision_venv_configured
-            from plugin.vision.vision_tools import ExtractTextFromImage
+            from plugin.vision.vision_tools import ExtractStructureFromImage
 
             if not vision_venv_configured(ctx.ctx):
                 return self._tool_error(
@@ -146,8 +146,8 @@ class DelegateToSpecializedBase(ToolBase):
             if USE_SUB_AGENT:
                 if status_callback:
                     status_callback(_("Running local OCR on selected image(s)..."))
-                # Gateway shortcut: no sub-agent parses task — always insert OCR after graphic(s).
-                return ExtractTextFromImage().execute(ctx, insert_into_document=True)
+                # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
+                return ExtractStructureFromImage().execute(ctx, insert_into_document=True)
 
         if domain == "document_research" and not USE_SUB_AGENT:
             return self._tool_error(

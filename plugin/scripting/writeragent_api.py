@@ -209,7 +209,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                     'track_changes_show',
                     'track_changes_start',
                     'track_changes_stop'],
-    'vision': ['extract_text_from_image'],
+    'vision': ['extract_structure_from_image'],
     'writer': [   'add_comment',
                   'apply_document_content',
                   'apply_style',
@@ -1164,9 +1164,9 @@ tracking = _TrackingProxy()
 class _VisionProxy:
     """Proxy for vision tools."""
 
-    def extract_text_from_image(self, *, image_name: str | None = None, insert_into_document: bool | None = None, params: dict | None = None) -> dict:
-        """OCR text from embedded document image(s) using local Docling/Paddle (Settings → Python venv)."""
-        return _rpc_call("extract_text_from_image", image_name=image_name, insert_into_document=insert_into_document, params=params)
+    def extract_structure_from_image(self, *, image_name: str | None = None, insert_into_document: bool | None = None, params: dict | None = None) -> dict:
+        """Extract text and structure (layout, tables, etc.) from embedded document image(s)."""
+        return _rpc_call("extract_structure_from_image", image_name=image_name, insert_into_document=insert_into_document, params=params)
 
 vision = _VisionProxy()
 

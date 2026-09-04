@@ -19,7 +19,7 @@ from plugin.scripting.venv_diagnostics import _probe_vision_packages, vision_ocr
 log = logging.getLogger(__name__)
 
 _VISION_DOMAIN = "vision"
-_VISION_TOOL_NAME = "extract_text_from_image"
+_VISION_TOOL_NAME = "extract_structure_from_image"
 _DELEGATE_GATEWAY_NAMES = frozenset(
     {
         "delegate_to_specialized_writer_toolset",
@@ -101,7 +101,7 @@ def vision_ocr_available(ctx: Any) -> bool:
 
 
 def filter_vision_specialized_tools(tools: list[Any], ctx: Any) -> list[Any]:
-    """Omit extract_text_from_image when no Settings venv is configured."""
+    """Omit extract_structure_from_image when no Settings venv is configured."""
     if vision_venv_configured(ctx):
         return tools
     return [t for t in tools if getattr(t, "name", None) != _VISION_TOOL_NAME]

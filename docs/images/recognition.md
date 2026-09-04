@@ -1,6 +1,6 @@
 # Image Recognition — Design (Local OCR & Detection)
 
-**Status:** **Phase 1 + Phase 1b (Calc) + Phase 2 + Phase 3 + Phase 6 partial (LLM `extract_text`) shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`, `[Vision] extract_structure`) on **Writer and Calc**; chat **`domain=vision`** + **`extract_text_from_image`** when Settings → Python venv has Docling/Paddle + css-inline (gated — hidden when stack missing). Draw/Impress egress → **Phase 1b.2** (deferred). Full **`analyze_image`** multi-helper / multimodal chat image parts → later.
+**Status:** **Phase 1 + Phase 1b (Calc) + Phase 2 + Phase 3 + Phase 6 partial (LLM `extract_structure`) shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`, `[Vision] extract_structure`) on **Writer and Calc**; chat **`domain=vision`** + **`extract_structure_from_image`** when Settings → Python venv has Docling/Paddle + css-inline (gated — hidden when stack missing). Draw/Impress egress → **Phase 1b.2** (deferred). Full **`analyze_image`** multi-helper / multimodal chat image parts → later.
 
 WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, screenshots, chart photos, slide exports, logos. **LibreOffice handles graphics I/O** (export, insert, replace, dimensions). **Recognition** (OCR, layout, object detection) runs in the user's venv via the same trusted-module pattern as [`analysis.py`](../../plugin/scripting/analysis.py) and [`embeddings_index.py`](../../plugin/scripting/embeddings_index.py).
 
@@ -168,7 +168,7 @@ Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); r
 
 Only after Vision Helpers work end-to-end:
 
-- **LLM OCR (partial — shipped):** `delegate_to_specialized_*_toolset(domain="vision")` + [`extract_text_from_image`](../../plugin/vision/vision_tools.py) when venv stack is ready ([§18](#18-llm-access))
+- **LLM OCR (partial — shipped):** `delegate_to_specialized_*_toolset(domain="vision")` + [`extract_structure_from_image`](../../plugin/vision/vision_tools.py) when venv stack is ready ([§18](#18-llm-access))
 - **`analyze_image` multi-helper tool** (remaining Phase 6)
 - Chat sidebar sending crops to multimodal models
 
@@ -193,7 +193,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Monaco built-in guards | [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js) — Attach/Save/Delete disabled for `origin === "vision"` |
 | Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`analysis_client.py`](../../plugin/framework/client/analysis_client.py), [`analysis_runner.py`](../../plugin/calc/analysis_runner.py) |
 | Calc analysis egress | [`analysis_egress.py`](../../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
-| **Vision LLM tools (partial)** | [`vision_tools.py`](../../plugin/vision/vision_tools.py) (`extract_text_from_image`), [`vision_availability.py`](../../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase` / `ToolCalcVisionBase`](../../plugin/writer/specialized_base.py) |
+| **Vision LLM tools (partial)** | [`vision_tools.py`](../../plugin/vision/vision_tools.py) (`extract_structure_from_image`), [`vision_availability.py`](../../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase` / `ToolCalcVisionBase`](../../plugin/writer/specialized_base.py) |
 | Tests | [`test_vision*.py`](../../tests/scripting/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_vision_html_insert_uno.py`](../../tests/writer/test_vision_html_insert_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
 
 ### Gaps (post–Phase 3)
@@ -789,7 +789,7 @@ Phases prioritize **user exposition**; LLM integration is last.
 | **4** | `detect_objects`, `recognize_pipeline`, Ultralytics helpers + templates | **Yes** |
 | **4v** | **Visual/layout HTML** — colored panels, columns, bbox-driven layout HTML (see [§21](#21-visuallayout-html-fidelity-deferred-dev-plan)) | **Yes** (planned) |
 | **5** | Per-folder vision cache; `perceptual_hash`; optional context menu | Partial |
-| **6** | **`extract_text_from_image`** via `domain=vision` (gated on venv); **`analyze_image`** multi-helper; optional multimodal hybrid | **Partial — shipped** (`extract_text` only) |
+| **6** | **`extract_structure_from_image`** via `domain=vision` (gated on venv); **`analyze_image`** multi-helper; optional multimodal hybrid | **Partial — shipped** (`extract_structure` only) |
 
 **Explicitly not before Phase 6 remainder:** full `analyze_image` helper surface, sidebar multimodal image payloads.
 
@@ -849,13 +849,13 @@ Checklist for implementers / QA:
 
 ## 18. LLM access
 
-**Phase 6 partial (shipped):** local OCR in chat via specialized domain **`vision`** — same `run_trusted_vision` / `extract_text` stack as manual Vision Helpers.
+**Phase 6 partial (shipped):** local OCR in chat via specialized domain **`vision`** — same `run_trusted_vision` / `extract_structure` stack as manual Vision Helpers. LLM/MCP expose only **`extract_structure_from_image`** (text and structure). The `extract_text` venv helper remains for Run Python Script / fallback.
 
-### 18.1 Shipped: `extract_text_from_image`
+### 18.1 Shipped: `extract_structure_from_image`
 
 | Piece | Location |
 |-------|----------|
-| Tool | [`ExtractTextFromImage`](../../plugin/vision/vision_tools.py) — `extract_text_from_image` |
+| Tool | [`ExtractStructureFromImage`](../../plugin/vision/vision_tools.py) — `extract_structure_from_image` |
 | Domain | `delegate_to_specialized_writer_toolset` / `delegate_to_specialized_calc_toolset` with `domain="vision"` — **gateway shortcut** (runs OCR directly, no Smol sub-agent; same pattern as `web_research`; always inserts into document) |
 | Backend | [`run_trusted_vision`](../../plugin/vision/vision_runner.py) → [`run_vision`](../../plugin/scripting/client.py) |
 | Insert | [`insert_vision_result`](../../plugin/vision/vision_egress.py) when `insert_into_document=true` (default) |
@@ -867,7 +867,7 @@ Checklist for implementers / QA:
 | `insert_into_document` | Default `true` — insert HTML at Writer cursor or Calc cell below anchor |
 | `params` | Optional vision overrides (`engine`, `lang`, …) merged with `vision.*` settings |
 
-**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — runs on the selected graphic and inserts into the document (no nested sub-agent).
+**Prompt rule:** You must use `domain=vision` delegation (empty `task`) to perform OCR when the venv stack is available — extracts text and structure from the selected graphic and inserts a high-quality representation into the document (no nested sub-agent).
 
 **Multimodal chat models:** Native vision APIs do not receive embedded doc images today — local `vision` remains authoritative for OCR + document insert. Optional future: attach exported graphic bytes to chat for semantic Q&A ([§18.2](#182-multimodal-llm-vision-optional-after-tool)).
 

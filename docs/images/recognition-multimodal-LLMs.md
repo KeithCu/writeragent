@@ -152,7 +152,7 @@ Specialized image tools (`image_list`, `image_get_info`, `image_set_properties`)
 
 **Options:**
 - Extend `GetImage.uno_services` to include `SpreadsheetDocument` for `image=` and `selection=` (page render stays Writer-only), **or**
-- Document explicitly that Calc must use `include_images=true` on reads or `extract_text_from_image`.
+- Document explicitly that Calc must use `include_images=true` on reads or `extract_structure_from_image`.
 
 ### 5. Page render fidelity — live UNO test (medium)
 
@@ -266,7 +266,7 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 - **Send-path selection:** Raster images in Writer/Calc selection only; Draw/Impress vectors use other paths.
 - **Main chat model only** for send-path attachment; sub-agents/delegates have separate rules.
 - **`get_image` Writer-only** for now; Calc has specialized list/info/set but not core fetch (see follow-up §4).
-- **Complementary OCR:** Use `domain=vision` + `extract_text_from_image` for accurate text + insert; use native multimodal for visual reasoning.
+- **Complementary OCR:** Use `domain=vision` + `extract_structure_from_image` for text and structure + insert; use native multimodal for visual reasoning.
 
 ---
 

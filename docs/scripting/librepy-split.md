@@ -43,7 +43,7 @@ Aligned with [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoff
 | In core extension | WriterAgent extension only |
 |-------------------|---------------------------|
 | `=PYTHON()` / `=PY()` Calc add-in + warm venv worker | `=PROMPT()`, chat sidebar, MCP, grammar |
-| **Run Python Script…**, document scripts, init script, **Reset Python Session**, `wa.scripts` / `wa.doc` named libraries (`named_scripts.py`; host fetch via `host_rpc`, not `writeragent_api`) | Chat tools (`run_venv_python_script`, `analyze_data`, `extract_text_from_image`, …) |
+| **Run Python Script…**, document scripts, init script, **Reset Python Session**, `wa.scripts` / `wa.doc` named libraries (`named_scripts.py`; host fetch via `host_rpc`, not `writeragent_api`) | Chat tools (`run_venv_python_script`, `analyze_data`, `extract_structure_from_image`, …) |
 | **Monaco** (Edit Python in Cell…, Run Python Script editor) | Analysis Sub-Agent, tool loop, LLM client |
 | **LibrePy Python sidebar** (Calc deck: cells + diagnostics; also in WriterAgent.oxt) | WriterAgent chat deck (`WriterAgentDeck`) |
 | **NumPy domain trusted helpers** (Analysis, Viz, Symbolic, Units, Forecast, Optimize, Quant, Text Analytics menu) | Embeddings (`plugin/embeddings/`, folder FTS, hybrid search) |
@@ -469,7 +469,7 @@ Additional files: `plugin/calc/base.py`, `plugin/calc/inspector.py`, `plugin/fra
 | `forecast_data` | [`plugin/calc/forecast.py`](../../plugin/calc/forecast.py) | Run Python Script → Forecast |
 | `optimize_data` | [`plugin/calc/optimize.py`](../../plugin/calc/optimize.py) | Run Python Script → Optimize |
 | `symbolic_math` | [`plugin/calc/symbolic_math.py`](../../plugin/calc/symbolic_math.py) | Run Python Script → Math Helpers |
-| `extract_text_from_image` | [`plugin/vision/vision_tools.py`](../../plugin/vision/vision_tools.py) | Run Python Script → Vision Helpers |
+| `extract_structure_from_image` | [`plugin/vision/vision_tools.py`](../../plugin/vision/vision_tools.py) | Run Python Script → Vision Helpers |
 
 ### Writer chat (venv, no menu insert)
 
@@ -844,7 +844,7 @@ Dev reference only (not OXT): `contrib/scripting/assets/editor/*`
 
 `vision/__init__.py`, `vision/module.yaml`, `vision_common.py`, `vision_templates.py`, `vision_runner.py`, `vision_egress.py`, `vision_availability.py`, `vision/venv/vision.py`, `vision/venv/vision_docling.py`, `vision/venv/vision_paddle.py`, `vision/venv/vision_html_export.py`, `vision/venv/vision_layout_html.py`, `vision/venv/__init__.py`, `calc/vision_egress.py`, `chatbot/module_config_dialog.py`
 
-Omit `vision_tools.py` for menu-only core (chat `extract_text_from_image`).
+Omit `vision_tools.py` for menu-only core (chat `extract_structure_from_image`).
 
 ### Layer 6 adds (~4 paths, overlaps Layer 2)
 
@@ -1092,7 +1092,7 @@ Optional: `jedi` (completion stub in `editor_main.py`).
 
 ## Appendix G — Vision/OCR
 
-Local OCR and document layout via trusted Vision helpers. Manual path first per [../images/recognition.md](../images/recognition.md). Core ships **Run Python Script → Vision Helpers** + **Vision OCR Settings** — not chat `extract_text_from_image`.
+Local OCR and document layout via trusted Vision helpers. Manual path first per [../images/recognition.md](../images/recognition.md). Core ships **Run Python Script → Vision Helpers** + **Vision OCR Settings** — not chat `extract_structure_from_image`.
 
 ```mermaid
 flowchart LR
@@ -1162,6 +1162,6 @@ Models are **not** bundled in the OXT; user venv installs them.
 
 | Path | Role |
 |------|------|
-| [`vision_tools.py`](../../plugin/vision/vision_tools.py) | `extract_text_from_image` LLM tool |
+| [`vision_tools.py`](../../plugin/vision/vision_tools.py) | `extract_structure_from_image` LLM tool |
 | `plugin/framework/tool.py` | Tool registration |
 | Draw/Impress page-positioned OCR | Deferred — [../images/recognition.md](../images/recognition.md) Phase 1b.2 |
