@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -113,7 +114,7 @@ def test_html_table_from_columns_rows_emits_spans():
     )
     assert 'colspan="3"' in html
     assert html.count("ASSETS:") == 1
-    assert html.count("<td") + html.count("<th") == 7  # 3 header + 1 spanned + 3 cash row
+    assert len(re.findall(r"<t[dh]\b", html)) == 7  # 3 header + 1 spanned + 3 cash row
     assert "<thead>" in html
     assert "<tbody>" in html
     assert "ASSETS:" in html[html.index("<tbody>") :]
@@ -229,7 +230,7 @@ def test_promote_table_header_rows_wraps_first_th_row_only():
     assert "2025" in header
     assert "ASSETS:" not in header
     assert "ASSETS:" in body
-    assert header.count("<th") == 3  # empty corner td promoted to th
+    assert len(re.findall(r"<th\b", header)) == 3  # empty corner td promoted to th
 
 
 def test_promote_table_header_rows_skips_layout_tables():
