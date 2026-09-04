@@ -246,7 +246,7 @@ def _is_missing_weight_or_network_error(result: dict) -> bool:
 
 @pytest.mark.timeout(300)
 def test_extract_text_real_docling_tiny_png():
-    """Requires installed Docling + PIL + rapidocr; skips otherwise.
+    """Requires installed Docling + PIL + rapidocr + onnxruntime; skips otherwise.
 
     Real extract_text (no Docling mocks) on a tiny in-memory PNG with
     layout_model=heron. Must not fail with get_engine_config / LayoutModelConfig
@@ -255,6 +255,7 @@ def test_extract_text_real_docling_tiny_png():
     _require_installed_od_docling()
     pytest.importorskip("PIL.Image")
     pytest.importorskip("rapidocr")
+    pytest.importorskip("onnxruntime")
     pytest.importorskip("css_inline")
 
     result = extract_text(
