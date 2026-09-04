@@ -139,19 +139,135 @@ def _pred(formula: str) -> str | None:
     return local_a1(args[-1])
 
 
-def _enable_geometric_flag():
+_GEO_FLAG_KEY = "scripting.python_geometric_recalc_order"
+
+
+def _path_under_root(path: str, root) -> bool:
+    """True when *path* resolves under *root* (throwaway UserInstallation)."""
+    from pathlib import Path
+
+    try:
+        return Path(path).resolve().is_relative_to(Path(root).resolve())
+    except Exception:
+        return str(root) in str(path)
+
+
+def _session_config_paths(ctx) -> list[str]:
+    """``writeragent.json`` under the active UserInstallation only.
+
+    Prefer the throwaway profile ``testing_runner`` created. Include the
+    ctx-resolved / client ``_config_path`` only when it sits under that
+    profile (or when there is no throwaway — ``--user-profile`` mode).
+    Never rewrite the default user profile while a throwaway is active;
+    leftover diag previously dumped production API keys from there.
+    """
+    from plugin.framework.config import _config_path, _resolve_config_path_from_ctx
+    from plugin.testing_runner import throwaway_writeragent_json
+
+    paths: list[str] = []
+    throwaway = throwaway_writeragent_json()
+    throwaway_root = None
+    if throwaway is not None:
+        paths.append(str(throwaway))
+        # …/user/config/writeragent.json → UserInstallation root
+        throwaway_root = throwaway.parent.parent.parent
+
+    candidates: list[str] = []
+    try:
+        candidates.append(_resolve_config_path_from_ctx(ctx))
+    except Exception:
+        pass
+    try:
+        candidates.append(_config_path())
+    except Exception:
+        pass
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if throwaway_root is None or _path_under_root(candidate, throwaway_root):
+            paths.append(candidate)
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        out.append(path)
+    return out
+
+
+def _patch_config_files(ctx, mutator) -> None:
+    """Load/mutate/write each UserInstallation ``writeragent.json``; invalidate cache."""
+    import os
+
+    from plugin.framework.config import (
+        _invalidate_config_cache,
+        _load_config_dict,
+        _write_config_file,
+    )
+    from plugin.testing_runner import _progress
+
+    for path in _session_config_paths(ctx):
+        data: dict = {}
+        if os.path.exists(path):
+            loaded = _load_config_dict(path, allow_repair=True, persist_repair=False)
+            if isinstance(loaded, dict):
+                data = loaded
+        mutator(data)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        _write_config_file(path, data)
+        _progress("geometric config path=%s" % path)
+    _invalidate_config_cache()
+
+
+def _enable_geometric_flag(ctx):
+    """Client monkeypatch + persist flag so soffice ``get_config`` sees it.
+
+    URP leftover eval runs inside soffice. Patching only the client leaves
+    soffice flag-off → no in-process record/strip → Isolated Shared names.
+    """
     import plugin.calc.python.geometric_recalc as geo
+    from plugin.framework.config import set_config
 
     previous = geo.geometric_flag_enabled
     geo.geometric_flag_enabled = lambda: True
+    set_config(_GEO_FLAG_KEY, True)
+
+    def _on(data: dict) -> None:
+        data[_GEO_FLAG_KEY] = True
+
+    _patch_config_files(ctx, _on)
     return previous
 
 
-def _restore_geometric_flag(previous) -> None:
+def _restore_geometric_flag(ctx, previous) -> None:
+    """Drop persisted flag (default off) and restore the client monkeypatch."""
     import plugin.calc.python.geometric_recalc as geo
+    from plugin.framework.config import set_config
 
     geo.geometric_flag_enabled = previous
+    set_config(_GEO_FLAG_KEY, False)
+
+    def _off(data: dict) -> None:
+        data.pop(_GEO_FLAG_KEY, None)
+
+    _patch_config_files(ctx, _off)
     geo.reset_geometric_runtime_for_tests()
+
+
+def _disable_geometric_flag_client_and_file(ctx) -> None:
+    """Flag-off mid-test: client patch + file so soffice modify stays off."""
+    import plugin.calc.python.geometric_recalc as geo
+    from plugin.framework.config import set_config
+
+    geo.geometric_flag_enabled = lambda: False
+    set_config(_GEO_FLAG_KEY, False)
+
+    def _off(data: dict) -> None:
+        data.pop(_GEO_FLAG_KEY, None)
+
+    _patch_config_files(ctx, _off)
 
 
 def _flush(ctx, doc, sheet) -> None:
@@ -174,72 +290,25 @@ def _settle_soffice_config() -> None:
     time.sleep(2.1)
 
 
-def _session_config_paths(ctx) -> list[str]:
-    """Every ``writeragent.json`` soffice or the URP client might read."""
-
-    from plugin.framework.config import _config_path, _resolve_config_path_from_ctx
-    from plugin.testing_runner import (
-        _libreoffice_user_profile_dir,
-        throwaway_writeragent_json,
-    )
-
-    paths: list[str] = []
-    try:
-        paths.append(_resolve_config_path_from_ctx(ctx))
-    except Exception:
-        pass
-    try:
-        paths.append(_config_path())
-    except Exception:
-        pass
-    extra = throwaway_writeragent_json()
-    if extra is not None:
-        paths.append(str(extra))
-    paths.append(str(_libreoffice_user_profile_dir() / "user" / "config" / "writeragent.json"))
-    out: list[str] = []
-    seen: set[str] = set()
-    for path in paths:
-        if not path or path in seen:
-            continue
-        seen.add(path)
-        out.append(path)
-    return out
-
-
 def _set_session_mode(ctx, mode: str) -> None:
     """Write session mode where soffice ``get_config`` will see it.
 
     Client ``set_config`` can use a cached path that is not the throwaway
-    ``UserInstallation`` profile. Soffice PathSettings ``UserConfig`` is
-    usually the throwaway ``user/config``, but a cached ``init_config``
-    path can stay on the default user profile. Write every candidate.
+    ``UserInstallation`` profile. Write only throwaway / in-profile paths
+    (see ``_session_config_paths``).
     """
-    import os
-
-    from plugin.framework.config import (
-        _invalidate_config_cache,
-        _load_config_dict,
-        _write_config_file,
-        set_config,
-    )
-    from plugin.testing_runner import _progress
+    from plugin.framework.config import set_config
 
     set_config("scripting.python_session_mode", mode)
-    for path in _session_config_paths(ctx):
-        data: dict = {}
-        if os.path.exists(path):
-            loaded = _load_config_dict(path, allow_repair=True, persist_repair=False)
-            if isinstance(loaded, dict):
-                data = loaded
+
+    def _mode(data: dict) -> None:
         if mode == "isolated":
             data.pop("scripting.python_session_mode", None)
             data.pop("python_session_mode", None)
         else:
             data["scripting.python_session_mode"] = mode
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        _write_config_file(path, data)
-        _progress("geometric session_mode=%s path=%s" % (mode, path))
-    _invalidate_config_cache()
+
+    _patch_config_files(ctx, _mode)
 
 
 def _leftover_shared_diag(ctx, a1, a3) -> str:
@@ -277,7 +346,9 @@ def _leftover_shared_diag(ctx, a1, a3) -> str:
         if debug_log != path:
             try:
                 with open(debug_log, encoding="utf-8") as handle:
-                    tail = handle.read()[-2000:]
+                    # Prefer soffice worker lines over older client chat noise.
+                    body = handle.read()
+                tail = body[-2000:]
                 lines.append("leftover diag log=%s tail=%s" % (debug_log, tail.replace("\n", " ")))
             except OSError:
                 pass
@@ -286,7 +357,14 @@ def _leftover_shared_diag(ctx, a1, a3) -> str:
     return blob
 
 
-def _wait_cell_value(doc, cell, expected: float, timeout: float = 8.0) -> bool:
+def _wait_cell_value(
+    doc,
+    cell,
+    expected: float,
+    timeout: float = 8.0,
+    *,
+    fail_fast_substrings: tuple[str, ...] = (),
+) -> bool:
     """True if *cell* reaches *expected*. False if sheet =PY is #NAME? (no add-in)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -295,6 +373,19 @@ def _wait_cell_value(doc, cell, expected: float, timeout: float = 8.0) -> bool:
             return True
         if cell.getError() in _PY_UNREGISTERED:
             return False
+        text = str(cell.getString() or "")
+        for needle in fail_fast_substrings:
+            if needle in text:
+                raise AssertionError(
+                    "cell did not become %r: value=%r error=%r string=%r formula=%r"
+                    % (
+                        expected,
+                        cell.getValue(),
+                        cell.getError(),
+                        text,
+                        cell.getFormula(),
+                    )
+                )
         time.sleep(0.05)
     if cell.getValue() == expected:
         return True
@@ -342,7 +433,7 @@ def test_geometric_insert_delete_undo_three_cell_column(ctx, doc):
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
 
     reset_geometric_runtime_for_tests()
-    previous = _enable_geometric_flag()
+    previous = _enable_geometric_flag(ctx)
     try:
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
@@ -385,7 +476,7 @@ def test_geometric_insert_delete_undo_three_cell_column(ctx, doc):
         _flush(ctx, doc, sheet)
         assert _pred(str(a3.getFormula() or "")) is None, a3.getFormula()
     finally:
-        _restore_geometric_flag(previous)
+        _restore_geometric_flag(ctx, previous)
 
 
 @native_test
@@ -398,7 +489,7 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
 
     reset_geometric_runtime_for_tests()
-    previous = _enable_geometric_flag()
+    previous = _enable_geometric_flag(ctx)
     try:
         sheet = doc.getSheets().getByIndex(0)
         for i in range(_MAX_PYTHON_CELLS_FOUND + 1):
@@ -412,7 +503,7 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
         a101 = str(sheet.getCellByPosition(0, _MAX_PYTHON_CELLS_FOUND).getFormula() or "")
         assert _pred(a101) is None, a101
     finally:
-        _restore_geometric_flag(previous)
+        _restore_geometric_flag(ctx, previous)
 
 
 @native_test
@@ -430,7 +521,9 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
     Stay on the reused calc doc. A second factory ``scalc`` makes
     ``off_main_calc_session_is_unambiguous()`` false, so Shared
     ``session_id`` is dropped (XAddIn has no calling workbook). Throwaway
-    ``writeragent.json`` is seeded ``shared`` before soffice starts. Do
+    ``writeragent.json`` is seeded ``shared`` before soffice starts. Persist
+    the geometric flag into that throwaway profile too — a client-only
+    monkeypatch leaves soffice flag-off (no in-process record/strip). Do
     not seed checkout ``.venv`` as ``python_venv_path`` — that made A3
     Isolated (GHA 33751116865 / 33752809831). Workers use office Python.
     """
@@ -438,10 +531,11 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
 
     reset_geometric_runtime_for_tests()
     _cold_kernel()
-    previous = _enable_geometric_flag()
+    previous = _enable_geometric_flag(ctx)
     try:
+        # Shared is seeded before soffice starts. Do not sleep 2.1s here —
+        # leftover must fail or pass on the first calculateAll, not a cache wait.
         _set_session_mode(ctx, "shared")
-        _settle_soffice_config()
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
         a3 = sheet.getCellByPosition(0, 2)
@@ -453,7 +547,14 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
         assert _pred(str(a1.getFormula() or "")) is None
 
         try:
-            reached = _wait_cell_value(doc, a3, 41.0)
+            # Isolated NameError will not become 41; do not poll for 8s.
+            reached = _wait_cell_value(
+                doc,
+                a3,
+                41.0,
+                timeout=2.0,
+                fail_fast_substrings=("not defined",),
+            )
         except AssertionError as exc:
             raise AssertionError("%s | %s" % (exc, _leftover_shared_diag(ctx, a1, a3))) from exc
         if not reached:
@@ -474,7 +575,7 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
             raise AssertionError(_leftover_shared_diag(ctx, a1, a3))
     finally:
         _set_session_mode(ctx, "isolated")
-        _restore_geometric_flag(previous)
+        _restore_geometric_flag(ctx, previous)
 
 
 @native_test
@@ -495,7 +596,7 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
 
     assert get_config_bool("scripting.python_auto_spill") is True
     reset_geometric_runtime_for_tests()
-    previous = _enable_geometric_flag()
+    previous = _enable_geometric_flag(ctx)
     try:
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
@@ -531,7 +632,7 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
         assert sheet.getCellByPosition(0, 3).getValue() == 30.0
         assert sheet.getCellByPosition(1, 3).getValue() == 40.0
     finally:
-        _restore_geometric_flag(previous)
+        _restore_geometric_flag(ctx, previous)
 
 
 def _undo_titles(um) -> list[str]:
@@ -562,7 +663,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
     from plugin.testing_runner import _progress
 
     reset_geometric_runtime_for_tests()
-    previous = _enable_geometric_flag()
+    previous = _enable_geometric_flag(ctx)
     try:
         from plugin.framework.thread_guard import _unwrap_uno
 
@@ -635,7 +736,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
             % (titles_after, titles_before)
         )
     finally:
-        _restore_geometric_flag(previous)
+        _restore_geometric_flag(ctx, previous)
 
 
 @native_test
@@ -655,7 +756,7 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
     from plugin.testing_runner import _progress
 
     geo.reset_geometric_runtime_for_tests()
-    previous = _enable_geometric_flag()
+    previous = _enable_geometric_flag(ctx)
     orig_apply = geo._apply_patches_to_sheet
     orig_repair = geo._repair_one_sheet
     apply_enters: list[int] = []
@@ -731,7 +832,7 @@ def test_geometric_repair_setformula_does_not_reenter(ctx, doc):
             sheet.removeModifyListener(probe)
         except Exception:
             pass
-        _restore_geometric_flag(previous)
+        _restore_geometric_flag(ctx, previous)
 
 
 @native_test
@@ -764,7 +865,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
 
     reset_geometric_runtime_for_tests()
     _cold_kernel()
-    previous = _enable_geometric_flag()
+    previous = _enable_geometric_flag(ctx)
     try:
         _set_session_mode(ctx, "isolated")
         _settle_soffice_config()
@@ -850,7 +951,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
         )
     finally:
         _set_session_mode(ctx, "isolated")
-        _restore_geometric_flag(previous)
+        _restore_geometric_flag(ctx, previous)
 
 
 @native_test
@@ -864,7 +965,7 @@ def test_geometric_flag_off_leaves_existing_refs(ctx, doc):
     import plugin.calc.python.geometric_recalc as geo
 
     geo.reset_geometric_runtime_for_tests()
-    previous = _enable_geometric_flag()
+    previous = _enable_geometric_flag(ctx)
     try:
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
@@ -876,7 +977,8 @@ def test_geometric_flag_off_leaves_existing_refs(ctx, doc):
         leftover = str(a3.getFormula() or "")
         assert _pred(leftover) == "A1", leftover
 
-        geo.geometric_flag_enabled = lambda: False
+        # Client flush + soffice modify must both see flag off.
+        _disable_geometric_flag_client_and_file(ctx)
         a5.setFormula('=PY("fifth")')
         _flush(ctx, doc, sheet)
         assert _pred(str(a5.getFormula() or "")) is None, a5.getFormula()
@@ -884,4 +986,4 @@ def test_geometric_flag_off_leaves_existing_refs(ctx, doc):
         # Leftover field is still the same attach (not stripped on disable).
         assert "PY" in str(a3.getFormula() or "").upper()
     finally:
-        _restore_geometric_flag(previous)
+        _restore_geometric_flag(ctx, previous)

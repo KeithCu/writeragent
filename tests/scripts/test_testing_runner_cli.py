@@ -27,12 +27,18 @@ def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) 
     seeded: list[Path] = []
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
-    _touch_soffice_next_to_helper(tmp_path)
+    soffice = _touch_soffice_next_to_helper(tmp_path)
     helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
     cmd = tr._soffice_bootstrap_command(helper)
     assert cmd is not None
+    assert isinstance(cmd, list)
+    assert cmd[0] == str(soffice)
+    assert " " not in cmd[0]
     assert "--headless" in cmd
-    assert "-env:UserInstallation=" in cmd
+    assert any(a.startswith("-env:UserInstallation=") for a in cmd)
+    assert any(a.startswith("--accept=pipe,name=") for a in cmd)
+    assert "--nologo" in cmd
+    assert "--nodefault" in cmd
     assert len(seeded) == 1
     assert seeded[0].name.startswith("writeragent-lo-test-profile-")
 
@@ -62,12 +68,14 @@ def test_soffice_bootstrap_command_seeds_throwaway_win32_exe(
     monkeypatch.setattr(tr, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     monkeypatch.setattr(tr.sys, "platform", "win32")
-    _touch_soffice_next_to_helper(tmp_path, name="soffice.exe")
+    soffice = _touch_soffice_next_to_helper(tmp_path, name="soffice.exe")
     helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
     cmd = tr._soffice_bootstrap_command(helper)
     assert cmd is not None
-    assert "soffice.exe" in cmd
+    assert cmd[0] == str(soffice)
+    assert "soffice.exe" in cmd[0]
     assert "--headless" in cmd
+    assert any(a.startswith("--accept=pipe,name=") for a in cmd)
     assert len(seeded) == 1
 
 
@@ -85,10 +93,56 @@ def test_soffice_bootstrap_command_uses_resolve_when_not_beside_helper(
     helper = type("Helper", (), {"__file__": str(tmp_path / "Resources" / "officehelper.py")})()
     cmd = tr._soffice_bootstrap_command(helper)
     assert cmd is not None
-    assert str(found) in cmd
+    assert cmd[0] == str(found)
     assert "--headless" in cmd
-    assert "-env:UserInstallation=" in cmd
+    assert any(a.startswith("-env:UserInstallation=") for a in cmd)
+    assert any(a.startswith("--accept=pipe,name=") for a in cmd)
     assert len(seeded) == 1
+
+
+def test_soffice_bootstrap_command_argv0_is_bare_path(monkeypatch, tmp_path: Path) -> None:
+    """Current officehelper Popen([sOffice, ...]) — argv[0] must be path-only."""
+    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
+    soffice = _touch_soffice_next_to_helper(tmp_path)
+    helper = type("Helper", (), {"__file__": str(tmp_path / "officehelper.py")})()
+    cmd = tr._soffice_bootstrap_command(helper)
+    assert cmd is not None
+    assert cmd[0] == str(soffice)
+    assert not any(flag in cmd[0] for flag in ("--headless", "-env:", "--accept"))
+
+
+def test_accept_from_soffice_argv() -> None:
+    assert tr._accept_from_soffice_argv(
+        ["/usr/bin/soffice", "--accept=pipe,name=uno123;urp;"]
+    ) == "pipe,name=uno123;urp;"
+    try:
+        tr._accept_from_soffice_argv(["/usr/bin/soffice", "--headless"])
+    except RuntimeError as exc:
+        assert "--accept" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError when --accept missing")
+
+
+def test_main_returns_1_when_bootstrap_raises(monkeypatch, capsys) -> None:
+    """Silent SKIP hid broken soffice= command strings on rolling LibreOffice."""
+    monkeypatch.setattr(tr, "_ensure_libreoffice_python_path", lambda: None)
+    monkeypatch.setattr(tr, "_parse_cli_args", lambda _argv: [])
+
+    import types
+
+    fake_oh = types.ModuleType("officehelper")
+    monkeypatch.setitem(sys.modules, "officehelper", fake_oh)
+
+    def boom(_module):
+        raise RuntimeError("simulated bootstrap fail")
+
+    monkeypatch.setattr(tr, "_bootstrap_office", boom)
+    assert tr.main() == 1
+    out = capsys.readouterr().out
+    assert "ERROR: LibreOffice UNO bootstrap failed" in out
+    assert "simulated bootstrap fail" in out
+    assert "SKIP:" not in out
 
 
 def test_on_github_actions_reads_env(monkeypatch) -> None:
@@ -205,14 +259,13 @@ def test_soffice_strip_env_names() -> None:
     assert "__PYVENV_LAUNCHER__" in tr._SOFFICE_STRIP_ENV
 
 
-def test_pop_soffice_env_restores(monkeypatch) -> None:
+def test_child_env_without_runner_python_strips(monkeypatch) -> None:
     monkeypatch.setenv("PYTHONPATH", "/checkout")
     monkeypatch.setenv("__PYVENV_LAUNCHER__", "/venv/bin/python")
-    saved, stripped = tr._pop_soffice_env()
-    assert "PYTHONPATH" in stripped
-    assert "__PYVENV_LAUNCHER__" in stripped
-    assert "PYTHONPATH" not in os.environ
-    os.environ.update(saved)
+    env = tr._child_env_without_runner_python()
+    assert "PYTHONPATH" not in env
+    assert "__PYVENV_LAUNCHER__" not in env
+    # Parent os.environ is unchanged (strip is only for the soffice child).
     assert os.environ.get("PYTHONPATH") == "/checkout"
 
 
@@ -308,15 +361,15 @@ def test_run_module_suite_prints_call_and_returned(capsys) -> None:
     assert "TEST end fake.ok.test_ok OK" in err
 
 
-def test_run_module_suite_arms_hang_dump_only_for_insert_cell_html(monkeypatch) -> None:
-    """GHA 33703959362: arm at TEST start, disarm on TEST end (OK or FAIL)."""
+def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> None:
+    """Every native test arms a 90s faulthandler abort; disarm on TEST end."""
     events: list[object] = []
     monkeypatch.setattr(
-        tr, "_arm_insert_cell_html_hang_dump", lambda label: events.append(("arm", label))
+        tr, "_arm_native_test_watchdog", lambda label: events.append(("arm", label))
     )
     monkeypatch.setattr(
         tr,
-        "_disarm_insert_cell_html_hang_dump",
+        "_disarm_native_test_watchdog",
         lambda label: events.append(("disarm", label)),
     )
 
@@ -342,15 +395,26 @@ def test_run_module_suite_arms_hang_dump_only_for_insert_cell_html(monkeypatch) 
         ("arm", "fake.html.test_insert_cell_html"),
         "body",
         ("disarm", "fake.html.test_insert_cell_html"),
+        ("arm", "fake.html.test_other"),
         "other",
+        ("disarm", "fake.html.test_other"),
     ]
+
+
+def test_native_test_timeout_sec_reads_env(monkeypatch) -> None:
+    monkeypatch.delenv("WRITERAGENT_UNO_TEST_TIMEOUT", raising=False)
+    assert tr._native_test_timeout_sec() == 90
+    monkeypatch.setenv("WRITERAGENT_UNO_TEST_TIMEOUT", "15")
+    assert tr._native_test_timeout_sec() == 15
+    monkeypatch.setenv("WRITERAGENT_UNO_TEST_TIMEOUT", "2")
+    assert tr._native_test_timeout_sec() == 5
 
 
 def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
     events: list[str] = []
-    monkeypatch.setattr(tr, "_arm_insert_cell_html_hang_dump", lambda label: events.append("arm"))
+    monkeypatch.setattr(tr, "_arm_native_test_watchdog", lambda label: events.append("arm"))
     monkeypatch.setattr(
-        tr, "_disarm_insert_cell_html_hang_dump", lambda label: events.append("disarm")
+        tr, "_disarm_native_test_watchdog", lambda label: events.append("disarm")
     )
 
     def test_insert_cell_html(ctx=None):

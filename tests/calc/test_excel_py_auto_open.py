@@ -311,11 +311,26 @@ def test_doc_from_event_disposed_view_controller_falls_back_to_calc_source():
     assert _doc_from_event(_DisposedViewControllerEvent(source=source)) is source
 
 
+def test_doc_from_event_onnew_controller_throw_still_returns_calc_source():
+    """Hidden factory OnNew: Source is the scalc, getCurrentController raises."""
+    source = CalcDocStub()
+
+    def _boom():
+        raise RuntimeError("no controller yet")
+
+    source.getCurrentController = _boom
+
+    class _OnNew:
+        EventName = "OnNew"
+        Source = source
+
+    assert _doc_from_event(_OnNew()) is source
+
+
 def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
     """OnLoadFinished marshals Collabora rewrite (doc only) then geometric open (ctx, doc)."""
     import plugin.calc.excel_py_convert.auto_open as mod
     from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
-    from plugin.calc.python.geometric_recalc import maybe_geometric_on_document_open
 
     ctx = MagicMock()
     smgr = MagicMock()
@@ -335,6 +350,7 @@ def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
         patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
         patch.object(mod.log, "warning") as warn,
     ):
         listener.on_document_event(event)
@@ -342,15 +358,14 @@ def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
         assert marshal.call_count == 2
         assert marshal.call_args_list[0][0][0] is maybe_rewrite_collabora_py_formulas
         assert marshal.call_args_list[0][0][1:] == (doc,)
-        assert marshal.call_args_list[1][0][0] is maybe_geometric_on_document_open
+        assert marshal.call_args_list[1][0][0] is mod._geometric_open_job
         assert marshal.call_args_list[1][0][1:] == (ctx, doc)
         warn.assert_not_called()
 
 
-def test_onnew_records_geometric_session_via_execute_on_main_thread():
-    """Factory Calc fires OnNew; Shared-kernel leftover UNO needs that record."""
+def test_onnew_records_geometric_session_inline_on_uno_thread():
+    """OnNew is already on the VCL thread — do not enqueue (30s leftover hang)."""
     import plugin.calc.excel_py_convert.auto_open as mod
-    from plugin.calc.python.geometric_recalc import maybe_geometric_on_document_open
 
     ctx = MagicMock()
     smgr = MagicMock()
@@ -369,11 +384,58 @@ def test_onnew_records_geometric_session_via_execute_on_main_thread():
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
         patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch(
+            "plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open"
+        ) as open_geo,
+    ):
+        listener.on_document_event(_NewEvent())
+        convert.assert_not_called()
+        marshal.assert_not_called()
+        open_geo.assert_called_once_with(ctx, doc)
+
+
+def test_record_desktop_calc_sessions_stops_on_magicmock_enum():
+    """MagicMock.hasMoreElements() is always truthy — must not walk forever.
+
+    Experiment (timeout 5s): mock desktop enum stayed True for 200 steps and
+    ``_is_calc_doc(MagicMock())`` is True. That is the leftover RAM crash:
+    OnNew inline + unpatched ctx ran ``_record_desktop_calc_sessions``.
+    """
+    import plugin.calc.excel_py_convert.auto_open as mod
+
+    ctx = MagicMock()
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=True):
+        mod._record_desktop_calc_sessions(ctx)
+
+
+def test_onnew_records_geometric_session_via_execute_on_main_thread():
+    """Factory Calc fires OnNew off-main; leftover still needs a marshaled record."""
+    import plugin.calc.excel_py_convert.auto_open as mod
+
+    ctx = MagicMock()
+    smgr = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = broadcaster
+    mod._doc_listener = None
+    install_excel_py_auto_convert(ctx)
+    listener = broadcaster.addDocumentEventListener.call_args[0][0]
+    doc = CalcDocStub()
+
+    class _NewEvent:
+        EventName = "OnNew"
+        Source = doc
+
+    with (
+        patch.object(mod, "maybe_convert_excel_py_document") as convert,
+        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
     ):
         listener.on_document_event(_NewEvent())
         convert.assert_not_called()
         assert marshal.call_count == 1
-        assert marshal.call_args_list[0][0][0] is maybe_geometric_on_document_open
+        assert marshal.call_args_list[0][0][0] is mod._geometric_open_job
         assert marshal.call_args_list[0][0][1:] == (ctx, doc)
 
 

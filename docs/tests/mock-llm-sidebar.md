@@ -114,7 +114,8 @@ From the Actions tab → **PR CI** → **Run workflow**:
 Linux starts a virtual framebuffer (`xvfb-run` + `dbus-run-session`) because `testing_runner` refuses `--user-profile` without `DISPLAY`. WriterAgent is still built and registered first.
 
 #### Test Runner Architecture & UNO Invariants
-- **Bootstrap:** LibreOffice is launched via `Popen` with `--norestore --writer --accept=socket,host=127.0.0.1,port=<port>;urp;` (TCP socket). `officehelper.bootstrap` is avoided because its `--nodefault` flag can cause GUI crashes.
+- **Bootstrap (user-profile):** LibreOffice is launched via `Popen` with `--norestore --writer --accept=socket,host=127.0.0.1,port=<port>;urp;` (TCP socket). `officehelper.bootstrap` is avoided because its `--nodefault` flag can cause GUI crashes.
+- **Bootstrap (headless `make test-uno`):** Same argv-`Popen` pattern with `--headless`, throwaway `-env:UserInstallation=…`, and `--accept=pipe,…`. Do **not** pass a quoted command string to `officehelper.bootstrap(soffice=…)` — current LibreOffice treats `soffice=` as a single executable path (list `Popen`, no shell); LO 25.2's `shell=True` hid that on Ubuntu CI. Bootstrap failure is a hard fail (exit 1), not a silent SKIP.
 - **Crash Recovery:** `--norestore` suppresses document recovery dialogs that would block the URP pipe.
 - **Sidebar Deck Activation:** Tests dispatch `.uno:SidebarDeck.WriterAgentDeck` to show the deck. When already visible, `showDecks` / `XDeck.activate` is used to prevent accidental toggling.
 - **Thread Guard:** Dev builds set `WRITERAGENT_UNO_THREAD_GUARD=0` in the child process so URP deck dispatch can initialize `ChatPanel`.

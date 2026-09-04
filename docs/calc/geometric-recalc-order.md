@@ -74,7 +74,7 @@ Do **not** add a dedicated IDL ordering argument. That rebuilds `.rdb`s for both
 
 ---
 
-## 3. Mechanism (senior-dev view)
+## 3. Mechanism 
 
 ### 3.1 The list
 
@@ -404,7 +404,8 @@ Phase 4 — `data` strip (inject the in-memory map; no UNO):
 **UNO (`test_*_uno.py`):**
 
 - **Formula I/O (landed, `test_geometric_recalc_uno.py`):** live `getFormula()` / `setFormula()` on `=PY("y"; $C$5)` (absolute `$` survives attach), quoted `=PY("np.mean(data)"; B1:B10)` (splice still parses), and unquoted `=PY($A$1; …)` (code-in-cell stays unquoted). Flag can stay off — this is splice I/O, not eval strip. Do not mark win32-only.
-- **Shared kernel eval (landed, `test_geometric_shared_kernel_a3_reads_a1_f9_stable`):** flag on, A3 reads a name assigned in A1 without a user-typed `data` ref; result is 41 across two `calculateAll` (F9) passes. Precedent-only strip of the attached last arg is Phase 4 unit-tested (`data is None` / `np.mean(data)` / `ranges[-1]`). **GitHub Actions asserts the 41s** — `testing_runner` seeds the throwaway `UserInstallation` from the user-level `uno_packages` that `make register-built-oxt` wrote (user `unopkg add` is invisible to `-env:UserInstallation=<tmp>`; 525 is a hard fail, not a skip). Discover soffice with `_resolve_soffice_bin` (Windows `soffice.exe`; macOS `Contents/MacOS/soffice`, not beside `Contents/Resources/officehelper.py`). Seed `writeragent.json` Shared before soffice starts (2s `get_config` cache). Do **not** seed checkout `.venv` as `scripting.python_venv_path` — leftover Shared then saw Isolated semantics (`x_geo_live` undefined) on Linux (GHA 33751116865) and macOS (GHA 33752809831). Windows/macOS soffice `sys.executable` is often empty or `soffice.exe`; `resolve_libreoffice_python` uses the sibling / `Contents/Resources` office interpreter instead (GHA 33752806292). Stay on the `with_native_doc` reuse Calc — a second factory `scalc` makes `off_main_calc_session_is_unambiguous()` false, so Shared drops `session_id`. Local blank profiles may still skip.
+- **Desktop enum mock (pytest):** `_record_desktop_calc_sessions` must stop when `hasMoreElements()` is a MagicMock (same as `session_manager._find_document_by_predicate`) and cap at 32. OnNew inline + unpatched mock `ctx` used to allocate until OOM; that is not leftover Isolated. `pytest-timeout` is 60s (`signal`); leftover/`testing_runner` dumps stacks and aborts at 90s (`WRITERAGENT_UNO_TEST_TIMEOUT`, `faulthandler.dump_traceback_later(..., exit=True)`).
+- **Shared kernel eval (landed, `test_geometric_shared_kernel_a3_reads_a1_f9_stable`):** flag on, A3 reads a name assigned in A1 without a user-typed `data` ref; result is 41 across two `calculateAll` (F9) passes. Precedent-only strip of the attached last arg is Phase 4 unit-tested (`data is None` / `np.mean(data)` / `ranges[-1]`). **GitHub Actions asserts the 41s** — `testing_runner` seeds the throwaway `UserInstallation` from the user-level `uno_packages` that `make register-built-oxt` wrote (user `unopkg add` is invisible to `-env:UserInstallation=<tmp>`; 525 is a hard fail, not a skip). Discover soffice with `_resolve_soffice_bin` (Windows `soffice.exe`; macOS `Contents/MacOS/soffice`, not beside `Contents/Resources/officehelper.py`). Seed `writeragent.json` Shared before soffice starts (2s `get_config` cache). **Also persist `scripting.python_geometric_recalc_order` into that throwaway profile** — a client-only monkeypatch of `geometric_flag_enabled` does not reach soffice; leftover then runs flag-off there (no in-process `record` / `_STRIP_SAFE`), Shared `session_id` is dropped, and A3 sees Isolated `x_geo_live` undefined. Factory `OnNew` must record **inline** on the UNO thread (`_run_geometric_on_open`) — marshaling from that event enqueues+waits and can sit 30s, then leftover Shared still sees `session_id=None`. Do **not** seed checkout `.venv` as `scripting.python_venv_path` — leftover Shared then saw Isolated semantics (`x_geo_live` undefined) on Linux (GHA 33751116865) and macOS (GHA 33752809831). Windows/macOS soffice `sys.executable` is often empty or `soffice.exe`; `resolve_libreoffice_python` uses the sibling / `Contents/Resources` office interpreter instead (GHA 33752806292). Stay on the `with_native_doc` reuse Calc — a second factory `scalc` makes `off_main_calc_session_is_unambiguous()` false, so Shared drops `session_id`. Local blank profiles may still skip.
 - Insert a PY row between two chained cells; after the deferred pass, successor formula names the new cell; values update on next recalc.
 - Delete middle cell: successor retargets or remove-field if it is now first.
 - Flag off (landed, `test_geometric_flag_off_leaves_existing_refs`): no new attaches; existing refs stay.
@@ -637,4 +638,87 @@ When starting implementation in `~/Desktop/collabofficefull`, proceed in this or
 ---
 
 *Specification Pass 3. Verified against Keith Curtis's Collabora Online / LibreOffice Core repository at `~/Desktop/collabofficefull/` (commits `3048e06f0d54` and `27355f078f2a`).*
+
+---
+
+## 13. Architectural Review & Evaluation (Pass 4 Notes)
+
+### 13.1 Review of Desktop / Python Implementation (`writeragent` / `LibrePy`)
+
+#### What Works Well & Current State
+1. **Formula Splice Fidelity (`geometric_recalc.py`):**
+   - Correctly preserves exact prefix (`=py(` vs `=PY(`), quotes (`"` → `""`), and unquoted code references (`=PY($A$1; ...)` remains unquoted `$A$1` instead of quoting or sanitizing code into `(…)+0.0`).
+   - Verbatim user argument retention: parsed user arguments retain absolute references (e.g. `$C$5`) without stripping `$`.
+2. **Unified Modify Listener (`sheet_modify.py`):**
+   - The `SheetModifyDispatcher` solves the multi-listener issue by serving as the single `XModifyListener` per sheet. It shares the 0.1s debounce timer, UI-thread drain, `_undo_lock`, and re-entrancy protection across spill cleanup and geometric repair.
+3. **Execution Pipeline Integration (`function.py`):**
+   - Stripping the geometric predecessor arg *prior* to `calc_addin_args_from_split` and the trailing 1×1 matrix-index peel is essential and correctly positioned. It prevents the predecessor address from flipping `data` to a multi-argument list or becoming an accidental `index_arg`.
+
+#### Opinions, Edge Cases, and Areas for Improvement
+1. **The Multi-Workbook Blackout (`off_main_calc_session_is_unambiguous`):**
+   - *Current limitation:* When two or more Calc documents are open, `off_main_calc_session_is_unambiguous()` returns `False`. Consequently, eval-time strip is disabled across all open workbooks.
+   - *Consequence:* While intentional by design in Pass 1–3 to prevent cross-workbook session cross-talk, it means opening a second workbook immediately breaks `=PY("np.mean(data)"; B1:B10)` on any sheet where geometric arguments were attached (the extra argument is not stripped, flipping `data` to a list).
+   - *Improvement path:* Pass the evaluating document's identifier or bind worker dispatch contexts to their originating document rather than relying on global process session counts (`len(_RECORDED_CALC_SESSION_IDS) == 1`). In the host dispatch, associating the dispatch job with its target document's `workbook_key` would allow unambiguous evaluation regardless of how many workbooks are open.
+2. **Mixed Triple Poisoning Blast Radius:**
+   - *Current limitation:* Eval identity requires unanimous map membership for `(workbook_key, resolved_code, n_args)`. If a user authors a single standalone formula with identical code and arity (e.g. matrix indexing or an unchained `=PY("np.mean(data)"; range)`), the entire triple is marked unsafe.
+   - *Consequence:* All chained cells sharing that snippet lose their strip.
+   - *Improvement path:* While safer than stripping user data, we could explore a sheet-scoped or cell-scoped hint when evaluation runs on the UI thread (where `pCell` / `doc` is known).
+3. **Complexity in Rehoming Heuristics:**
+   - *Current state:* `_collect_rule2_claimed` and `_rehome_or_keep_record` contain delicate heuristics to discern when Calc shifted a cell vs when a cell was inserted/deleted or an undo occurred.
+   - *Improvement path:* If rehoming ever exhibits drift on large interactive edits, a simpler alternative is to re-evaluate the full chain from scratch on debounced sheet-modify passes when a large mismatch is detected, rather than incrementally patching shifted coordinates.
+4. **Pre-Splice Cycle Detection (Err:522):**
+   - *Current state:* If cell A1 already contains a user-authored formula reference to A2, splicing A1 onto A2 creates a circular dependency in Calc (`Err:522`).
+   - *Improvement path:* Check if the candidate predecessor already contains a transitive reference to the candidate successor before applying the patch.
+
+---
+
+### 13.2 Review of Collabora Online / Core Engine Specification (Pass 3 vs `collabofficefull`)
+
+#### Verdict: Is the Plan Solid?
+**Yes, the foundational thesis is completely solid and essential.**
+In an asynchronous engine returning `XVolatileResult` (`#BUSY!`), Calc's recalculation DAG only orders when `Interpret()` is called, not when the asynchronous network operation finishes. Without architectural gating, an $N$-cell chain will issue simultaneous HTTP requests on initial calc and trigger an $O(N^2)$ cascade of redundant HTTP requests upon completion.
+
+The plan's decisions to:
+- Avoid formula rewriting (preserving `mxGroup` and clean ODS/XLSX export),
+- Implement symmetric listener cleanup via `ScGeometricRecalcManager` hooked into `ScFormulaCell::~ScFormulaCell()`,
+- Enforce serialization at the execution boundary,
+are fundamentally sound and align with LibreOffice Core's design idioms.
+
+#### Critical Gaps & Refinements for the C++ Implementation
+
+##### 1. The IDL / Cell Identity Gap in `startCompute()`
+- **The Issue in Pass 3:** Section 12.3 states that `startCompute()` checks `g_aCellToActiveReqId` using `Cell Key (doc_id, sheet, row, col)`. However, looking at the code in `collabofficefull`:
+  ```cpp
+  cpo::uno::Any SAL_CALL ScaPythonComputeAddIn::getPy(const OUString& aCode,
+                                                      const cpo::uno::Sequence<cpo::uno::Any>& aData)
+  ```
+  `getPy` is a standard UNO AddIn call. It does **not** receive cell coordinates, sheet, or document pointers. `startCompute()` in `bridge.cxx` has no direct knowledge of which cell invoked it.
+- **The Solution:** Gating must be coordinated from `sc/` where the cell context is known:
+  - *Option A (Recommended):* Before calling `aCall.ExecuteCall()` in `engine/sc/source/core/tool/interpr4.cxx`, `ScInterpreter` sets the current `ScFormulaCell*` (or its position) in an execution context accessible under `SolarMutexGuard`.
+  - *Option B (Pure Engine-Level Gating):* Instead of gating inside `bridge.cxx`, `ScGeometricRecalcManager` in `sc/` can perform the check directly in `ScFormulaCell::Interpret()` or `interpr4.cxx`. If its predecessor is marked pending, `Interpret()` immediately returns the cached `#BUSY!` volatile result without ever calling the AddIn bridge!
+
+##### 2. The `g_aWaiters` vs `TrackFormulas()` Conflict (Double-Execution Risk)
+- **The Issue in Pass 3:** Section 12.3 specifies that when Cell B evaluates while predecessor A is pending, B is queued in `g_aWaiters[idA]`. When A finishes:
+  1. `complete_json` drains `g_aWaiters` and calls `pEmit` for B.
+  2. Simultaneously, `xVolA->finish()` triggers `ScAddInListener::modified()`, which calls `pDoc->TrackFormulas()`.
+  3. `TrackFormulas()` broadcasts `ScDataChanged` from A to B (via Layer 1 `StartListeningCell`).
+  4. Calc marks B dirty and recalculates B, calling `Interpret(B)` a second time!
+- **The Hazard:**
+  - If B had arguments that referenced A (e.g. `=PY("...", A1)`), the payload queued in `g_aWaiters` during B's first evaluation contained `#BUSY!`. Emitting that queued payload sends stale/invalid data to Python!
+  - Meanwhile, Calc's second pass with A's real value tries to emit again.
+- **The Refinement (Inhibit Rather than Queue):**
+  - **Do not queue or emit from `g_aWaiters`.**
+  - Treat Layer 2 purely as an **Inhibit Gate**:
+    1. When B evaluates while predecessor A is in `g_aPending`, B returns `#BUSY!` without calling `pEmit`.
+    2. When A finishes, `complete_json` finishes A's volatile result.
+    3. `ScAddInListener::modified()` calls `TrackFormulas()`, which notifies B.
+    4. Calc recalculates B. At this moment, predecessor A is finished (not in `g_aPending`).
+    5. B computes its *fresh, up-to-date payload* (with A's resolved cell value if referenced) and calls `pEmit`.
+  - **Benefits:** Completely eliminates `g_aWaiters`, prevents stale payload emission, avoids duplicate execution, and lets Calc's native engine drive the progression of dependent recalculations.
+
+##### 3. Verification of Core Hooks (`~ScFormulaCell` & `macromgr.hxx` Parity)
+- Inspection of `engine/sc/source/core/data/formulacell.cxx` confirmed:
+  - `~ScFormulaCell` already calls `rDocument.GetMacroManager()->RemoveDependentCell(this)`.
+  - Adding `rDocument.GetGeometricRecalcManager()->RemoveCell(this)` directly follows the established engine pattern and guarantees no dangling listener pointers remain in `ScTable`.
+
 

@@ -4,7 +4,9 @@
 #
 # This module can be called from:
 # - Inside LibreOffice (given a UNO ComponentContext)
-# - Outside LibreOffice via officehelper.bootstrap() to get a ctx
+# - Outside LibreOffice via headless/user-profile Popen + UNO pipe (not
+#   officehelper.bootstrap(soffice=<cmd string>) — current LO treats soffice=
+#   as a single executable path)
 #
 # It aggregates existing in-LO tests (Writer/Calc, etc.) and returns
 # a JSON summary that external tools or agents can consume.
@@ -12,8 +14,11 @@
 import logging
 import json
 import os
+import secrets
 import shutil
+import subprocess
 import sys
+import time
 import traceback
 import unittest
 import tempfile
@@ -34,8 +39,10 @@ def _progress(msg: str) -> None:
 
 # GHA 33703959362 hung 20 min after execute-done; 25m step then died. Dump
 # Python stacks to stderr at 90s (watchdog thread on Windows — not gdb).
-_INSERT_CELL_HTML_HANG_TEST = "test_insert_cell_html"
+# Every native test gets this bound now: a mock desktop enum or leftover
+# Isolated poll must not sit until OOM. Override with WRITERAGENT_UNO_TEST_TIMEOUT.
 _INSERT_CELL_HTML_HANG_DUMP_SEC = 90
+_NATIVE_TEST_TIMEOUT_SEC = 90
 
 
 def _arm_insert_cell_html_hang_dump(label: str) -> None:
@@ -79,6 +86,47 @@ def _disarm_insert_cell_html_hang_dump(label: str) -> None:
     except Exception:
         pass
     _progress("hang dump disarmed test=%s" % label)
+
+
+def _native_test_timeout_sec() -> int:
+    raw = os.environ.get("WRITERAGENT_UNO_TEST_TIMEOUT")
+    if raw:
+        try:
+            return max(5, int(raw))
+        except ValueError:
+            pass
+    return _NATIVE_TEST_TIMEOUT_SEC
+
+
+def _arm_native_test_watchdog(label: str) -> None:
+    """Dump stacks and abort if a native test never returns.
+
+    A MagicMock desktop enum (or leftover Isolated poll) can grow until OOM.
+    ``dump_traceback_later(..., exit=True)`` is the host-process watchdog —
+    not UNO background work (no ``threading.Timer``).
+    """
+    seconds = _native_test_timeout_sec()
+    # Log line + optional ci_debug dump; then replace with exit=True so a
+    # mock loop cannot grow until OOM (dump-only does not stop allocation).
+    _arm_insert_cell_html_hang_dump(label)
+    try:
+        import faulthandler
+
+        faulthandler.enable(file=sys.stderr, all_threads=True)
+        faulthandler.dump_traceback_later(
+            seconds,
+            repeat=False,
+            exit=True,
+            file=sys.stderr,
+        )
+    except Exception as exc:
+        _progress("TEST timeout arm failed test=%s: %s" % (label, exc))
+        return
+    _progress("TEST timeout armed %ss %s faulthandler exit=True" % (seconds, label))
+
+
+def _disarm_native_test_watchdog(label: str) -> None:
+    _disarm_insert_cell_html_hang_dump(label)
 
 
 def _soffice_pids_win32() -> str:
@@ -390,12 +438,13 @@ def _seed_throwaway_profile_with_user_oxt(profile_dir: Path) -> None:
     )
 
 
-def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
-    """Return a soffice command for native tests.
+def _soffice_bootstrap_command(officehelper_module: Any) -> list[str] | None:
+    """Return a headless soffice argv for native tests (path is ``argv[0]``).
 
-    Default: headless + throwaway ``UserInstallation`` (never recovery UI).
-    ``--user-profile``: visible, real user install. ``--norestore`` skips the
-    crash-recovery dialog; tests open WriterAgentDeck over UNO instead.
+    Seeds a throwaway ``UserInstallation`` (never recovery UI). Do **not** pass
+    this as ``officehelper.bootstrap(soffice=...)``: current LibreOffice treats
+    ``soffice=`` as a single executable path and ``Popen``s a list with no
+    shell. Older LO 25.2 used ``shell=True``, which hid the bug on Ubuntu CI.
 
     Discover soffice with ``_resolve_soffice_bin`` (not only next to
     ``officehelper``). On macOS ``officehelper.py`` lives in
@@ -403,15 +452,12 @@ def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
     looking only beside the helper returned ``None`` and skipped throwaway
     seed / GITHUB_ACTIONS leftover hard-fail (GHA 33749075233 / 33749078050).
     Windows unit tests must create ``soffice.exe``, not a bare ``soffice``.
+
+    ``--user-profile`` does not use this helper — see ``_user_profile_soffice_argv``.
     """
     soffice = _resolve_soffice_bin(officehelper_module)
     if soffice is None:
         return None
-    quoted = '"%s"' % soffice
-    if use_user_profile:
-        # Keep the developer's UserInstallation (extension + writeragent.json).
-        # Actual GUI start is ``_user_profile_soffice_argv`` (adds --writer, no --nodefault).
-        return "%s --norestore --nofirststartwizard --nocrashreport --writer" % quoted
     profile_dir = Path(tempfile.mkdtemp(prefix="writeragent-lo-test-profile-"))
     # Seed after the lookup so a missing user OXT on GitHub Actions
     # raises instead of becoming a silent None command.
@@ -419,10 +465,20 @@ def _soffice_bootstrap_command(officehelper_module: Any) -> str | None:
     _throwaway_profile_dir = profile_dir
     _seed_throwaway_profile_with_user_oxt(profile_dir)
     profile_url = profile_dir.as_uri()
-    return (
-        "%s --headless --norestore --nofirststartwizard --nocrashreport "
-        "-env:UserInstallation=%s" % (quoted, profile_url)
-    )
+    # Same pipe name shape as officehelper / tools_lo; we own --accept now.
+    pipe_name = "uno" + secrets.token_hex(8)
+    accept = "pipe,name=%s;urp;" % pipe_name
+    return [
+        str(soffice),
+        "--headless",
+        "--nologo",
+        "--nodefault",
+        "--norestore",
+        "--nofirststartwizard",
+        "--nocrashreport",
+        "-env:UserInstallation=%s" % profile_url,
+        "--accept=%s" % accept,
+    ]
 
 
 # Inherited checkout / venv env makes soffice load mixed plugin sources; URP
@@ -432,18 +488,6 @@ _SOFFICE_STRIP_ENV = ("PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV", "__PYVENV_LAUNC
 
 # Set when a URP dispose is seen so run_all_tests stops instead of 200+ dead suites.
 _urp_bridge_dead: bool = False
-
-
-def _pop_soffice_env() -> tuple[dict[str, str], list[str]]:
-    """Remove runner-Python env from ``os.environ``. Return (saved, stripped keys)."""
-    saved: dict[str, str] = {}
-    stripped: list[str] = []
-    for key in _SOFFICE_STRIP_ENV:
-        val = os.environ.pop(key, None)
-        if val is not None:
-            saved[key] = val
-            stripped.append(key)
-    return saved, stripped
 
 
 def _child_env_without_runner_python(*, uno_thread_guard: bool | None = None) -> dict[str, str]:
@@ -540,6 +584,57 @@ def _resolve_soffice_bin(officehelper_module: Any) -> Path | None:
     return None
 
 
+def _uno_resolver_for_local_ctx() -> Any:
+    import uno
+
+    local = uno.getComponentContext()
+    smgr = getattr(local, "getServiceManager", lambda: None)()
+    if smgr is None:
+        smgr = getattr(local, "ServiceManager", None)
+    if smgr is None:
+        raise RuntimeError("no ServiceManager on local UNO context")
+    return smgr.createInstanceWithContext(
+        "com.sun.star.bridge.UnoUrlResolver", local
+    )
+
+
+def _connect_uno_accept(
+    proc: Any,
+    accept: str,
+    *,
+    path_label: str,
+    delays: tuple[float, ...] = (0.5, 1, 1, 2, 2, 3, 5, 8, 8),
+) -> Any:
+    """Resolve ``uno:<accept>StarOffice.ComponentContext`` while soffice stays up."""
+    from com.sun.star.connection import NoConnectException
+
+    resolver = _uno_resolver_for_local_ctx()
+    url = "uno:%sStarOffice.ComponentContext" % accept
+    last_exc: BaseException | None = None
+    for delay in delays:
+        time.sleep(delay)
+        code = proc.poll()
+        if code is not None:
+            raise RuntimeError(
+                "%s soffice exited %s before UNO connect (crash recovery or mixed PYTHONPATH?)"
+                % (path_label, code)
+            )
+        try:
+            ctx = resolver.resolve(url)
+            _progress(
+                "BOOTSTRAP path=%s connected=True soffice_exit=%s pids=%s"
+                % (path_label, proc.poll(), _soffice_pids())
+            )
+            return ctx
+        except NoConnectException as exc:
+            last_exc = exc
+    _progress(
+        "BOOTSTRAP path=%s connected=False soffice_exit=%s pids=%s last=%s"
+        % (path_label, proc.poll(), _soffice_pids(), last_exc)
+    )
+    raise RuntimeError("could not connect to %s soffice: %s" % (path_label, last_exc))
+
+
 def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
     """Visible soffice like ``make lo-start``: user profile, ``--norestore --writer``, UNO pipe.
 
@@ -547,12 +642,6 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
     That path opened a window and then crashed (URP disposed). This start matches
     ``scripts/launch-lo-debug.sh`` plus an accept string so tests can attach.
     """
-    import subprocess
-    import time
-
-    import uno
-    from com.sun.star.connection import NoConnectException
-
     if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         raise RuntimeError("user-profile sidebar tests need DISPLAY (visible Writer)")
     soffice = _resolve_soffice_bin(officehelper_module)
@@ -573,40 +662,15 @@ def _bootstrap_user_profile_gui(officehelper_module: Any) -> Any:
         env=child_env,
         start_new_session=True,
     )
-    local = uno.getComponentContext()
-    smgr = getattr(local, "getServiceManager", lambda: None)()
-    if smgr is None:
-        smgr = getattr(local, "ServiceManager", None)
-    if smgr is None:
-        raise RuntimeError("no ServiceManager on local UNO context")
-    resolver = smgr.createInstanceWithContext(
-        "com.sun.star.bridge.UnoUrlResolver", local
-    )
-    url = "uno:%sStarOffice.ComponentContext" % accept
-    last_exc: BaseException | None = None
-    # GUI + extension OnStartApp is slower than headless officehelper.
-    for delay in (0.5, 1, 1, 2, 2, 3, 5, 8, 8):
-        time.sleep(delay)
-        code = proc.poll()
-        if code is not None:
-            raise RuntimeError(
-                "user-profile soffice exited %s before UNO connect (crash recovery or mixed PYTHONPATH?)"
-                % code
-            )
-        try:
-            ctx = resolver.resolve(url)
-            _progress(
-                "BOOTSTRAP path=user-profile connected=True soffice_exit=%s pids=%s"
-                % (proc.poll(), _soffice_pids())
-            )
-            return ctx
-        except NoConnectException as exc:
-            last_exc = exc
-    _progress(
-        "BOOTSTRAP path=user-profile connected=False soffice_exit=%s pids=%s last=%s"
-        % (proc.poll(), _soffice_pids(), last_exc)
-    )
-    raise RuntimeError("could not connect to user-profile soffice: %s" % last_exc)
+    # GUI + extension OnStartApp is slower than headless.
+    return _connect_uno_accept(proc, accept, path_label="user-profile")
+
+
+def _accept_from_soffice_argv(cmd: list[str]) -> str:
+    for arg in cmd:
+        if arg.startswith("--accept="):
+            return arg[len("--accept=") :]
+    raise RuntimeError("soffice argv missing --accept=...")
 
 
 def _bootstrap_office(officehelper_module: Any) -> Any:
@@ -618,11 +682,20 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
     it — user ``unopkg add`` is invisible to ``-env:UserInstallation=<tmp>``).
     If it inherits the checkout ``PYTHONPATH``, the extension imports mixed
     sources and can crash on startup (URP then reports the bridge disposed).
+
+    Headless uses argv ``Popen`` (same idea as user-profile / ``tools_lo``).
+    Do not call ``officehelper.bootstrap(soffice=<command string>)``: current
+    LibreOffice treats ``soffice=`` as a path only (list ``Popen``, no shell).
     """
     if use_user_profile:
         return _bootstrap_user_profile_gui(officehelper_module)
-    saved, stripped = _pop_soffice_env()
     cmd = _soffice_bootstrap_command(officehelper_module)
+    if cmd is None:
+        raise RuntimeError(
+            "soffice not found (PATH, officehelper dir, or common install paths)"
+        )
+    stripped = [key for key in _SOFFICE_STRIP_ENV if key in os.environ]
+    child_env = _child_env_without_runner_python()
     resolved = _resolve_soffice_bin(officehelper_module)
     _progress(
         "BOOTSTRAP path=headless stripped=%s officehelper=%s soffice_cmd=%r resolved_soffice=%s"
@@ -634,7 +707,18 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
         )
     )
     try:
-        ctx = officehelper_module.bootstrap(soffice=cmd)
+        proc = subprocess.Popen(
+            cmd,
+            env=child_env,
+            start_new_session=True,
+        )
+        # Headless usually connects faster than GUI; keep the same retry budget.
+        ctx = _connect_uno_accept(
+            proc,
+            _accept_from_soffice_argv(cmd),
+            path_label="headless",
+            delays=(0.5, 1, 1, 2, 2, 3, 5, 7),
+        )
         _progress(
             "BOOTSTRAP path=headless returned=%s pids=%s leftover_PYTHONPATH=%s"
             % (ctx is not None, _soffice_pids(), os.environ.get("PYTHONPATH"))
@@ -646,8 +730,6 @@ def _bootstrap_office(officehelper_module: Any) -> Any:
             % (type(exc).__name__, exc, _soffice_pids())
         )
         raise
-    finally:
-        os.environ.update(saved)
 
 
 
@@ -772,11 +854,9 @@ def run_module_suite(ctx, module, name, doc_model=None):
             test_line = f"Running test: {test_func.__name__}"
             qual = f"{name}.{test_func.__name__}"
             _progress(f"TEST start {qual}")
-            # GHA 33703959362: no TEST end after execute-done. Watchdog dumps
-            # all Python threads to stderr at 90s; finally disarms on TEST end.
-            hang_dump = test_func.__name__ == _INSERT_CELL_HTML_HANG_TEST
-            if hang_dump:
-                _arm_insert_cell_html_hang_dump(qual)
+            # GHA 33703959362: no TEST end after execute-done. Every native
+            # test dumps at 90s and then os._exit(124) so a mock loop cannot OOM.
+            _arm_native_test_watchdog(qual)
             try:
                 # After suite @setup removal, native tests take ctx (and often doc via
                 # @with_native_doc). Pass ctx when the signature accepts it; no-arg
@@ -828,8 +908,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
                     _mark_urp_dead(e, qual)
                     break
             finally:
-                if hang_dump:
-                    _disarm_insert_cell_html_hang_dump(qual)
+                _disarm_native_test_watchdog(qual)
 
     except Exception as e:
         total_failed += 1
@@ -1241,12 +1320,17 @@ def main() -> int:
     try:
         ctx = _bootstrap_office(officehelper)
     except Exception as e:
-        # Typical in CI/headless shells: no soffice pipe (BootstrapException, NoConnectException, etc.)
-        print(f"SKIP: LibreOffice UNO bootstrap failed; skipping in-LO tests.\n  ({type(e).__name__}: {e})", flush=True)
-        return 0
+        # Hard fail: silent SKIP hid broken officehelper soffice= command strings
+        # on rolling LO (CachyOS) while Ubuntu CI still used shell=True.
+        print(
+            "ERROR: LibreOffice UNO bootstrap failed; cannot run in-LO tests.\n"
+            "  (%s: %s)" % (type(e).__name__, e),
+            flush=True,
+        )
+        return 1
 
     if ctx is None:
-        print("ERROR: Could not bootstrap LibreOffice (officehelper.bootstrap() returned None).", flush=True)
+        print("ERROR: Could not bootstrap LibreOffice (headless Popen/UNO connect returned None).", flush=True)
         return 1
 
     summary_json = run_all_tests(ctx)

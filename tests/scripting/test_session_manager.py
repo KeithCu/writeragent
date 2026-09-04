@@ -159,6 +159,22 @@ def test_workbook_session_id_uses_cached_session_off_main() -> None:
         session_manager.clear_active_calc_session()
 
 
+def test_record_active_calc_session_drops_ephemeral_unsaved_when_durable() -> None:
+    """OnOpen unsaved: fallback must not poison unambiguous after UDProp sticks."""
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session("calc:unsaved:early-open")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.off_main_calc_session_is_unambiguous() is True
+
+        session_manager.record_active_calc_session("calc:persisted-uuid")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.get_cached_calc_session_id() == "calc:persisted-uuid"
+        assert session_manager.off_main_calc_session_is_unambiguous() is True
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
     """If is_calc throws, workbook_session_id falls back to doc URL directly."""
     from unittest.mock import MagicMock, patch

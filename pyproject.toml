@@ -22,6 +22,8 @@ include = ["plugin*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+timeout = 60
+timeout_method = "signal"
 addopts = "--ignore=build --ignore=tests/uno --ignore-glob=*_uno.py --ignore=tests/scripting/test_serialization_verification.py"
 markers = [
     "slow: excluded from default pytest; run via make slowtests",

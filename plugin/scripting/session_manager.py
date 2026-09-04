@@ -147,6 +147,18 @@ def record_active_calc_session(session_id: str | None, init_kwargs: dict[str, An
         if session_id is not None:
             _LAST_ACTIVE_CALC_SESSION_ID = session_id
             _RECORDED_CALC_SESSION_IDS.add(session_id)
+            # OnCreate can fall back to ``calc:unsaved:{uuid}`` before the
+            # UDProp sticks; a later OnLoadFinished then records the persisted
+            # id. Leaving both makes ``off_main_calc_session_is_unambiguous``
+            # false and Shared ``=PY()`` drops session_id (Isolated semantics).
+            # Drop ephemeral unsaved: keys once a durable id is recorded.
+            if not str(session_id).startswith("calc:unsaved:"):
+                for stale in [
+                    sid
+                    for sid in _RECORDED_CALC_SESSION_IDS
+                    if str(sid).startswith("calc:unsaved:")
+                ]:
+                    _RECORDED_CALC_SESSION_IDS.discard(stale)
         if init_kwargs:
             _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
 
