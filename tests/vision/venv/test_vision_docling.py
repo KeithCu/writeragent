@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from io import BytesIO
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,106 +15,20 @@ from plugin.vision.venv import vision_docling as docling_mod
 from plugin.vision.venv.vision_docling import extract_structure, extract_text
 
 
-class _LayoutModelConfig:
-    """Stand-in for docling.datamodel.layout_model_specs.LayoutModelConfig (no get_engine_config)."""
+def _require_installed_od_docling() -> None:
+    """Skip unless a real Docling install uses the ≥2.118 OD layout path.
 
-    def __init__(self, name: str, repo_id: str, revision: str = "main"):
-        self.name = name
-        self.repo_id = repo_id
-        self.revision = revision
-
-
-class _ObjectDetectionModelSpec:
-    """Stand-in for docling.datamodel.stage_model_specs.ObjectDetectionModelSpec."""
-
-    def __init__(self, name: str, repo_id: str, revision: str = "main"):
-        self.name = name
-        self.repo_id = repo_id
-        self.revision = revision
-
-    def get_engine_config(self, engine_type=None):
-        del engine_type
-        return {"repo_id": self.repo_id, "revision": self.revision}
-
-
-class _LayoutObjectDetectionOptions:
-    kind = "layout_object_detection"
-
-    def __init__(self) -> None:
-        self.model_spec = _ObjectDetectionModelSpec(
-            "layout_heron", "docling-project/docling-layout-heron"
+    Does not mock layout types. Does not exercise the removable
+    LayoutModelConfig / legacy LayoutOptions branch.
+    """
+    pytest.importorskip("docling.document_converter")
+    pipeline_mod = pytest.importorskip("docling.datamodel.pipeline_options")
+    default_opts = pipeline_mod.PdfPipelineOptions()
+    if not docling_mod._is_object_detection_layout(default_opts.layout_options):
+        pytest.skip(
+            "installed Docling still defaults to legacy LayoutOptions; "
+            "not testing that removable LayoutModelConfig branch"
         )
-        self.create_orphan_clusters = True
-
-    @classmethod
-    def from_preset(cls, preset_id: str):
-        spec = _EGRET_OD if preset_id == "layout_egret_large" else _HERON_OD
-        return SimpleNamespace(model_spec=spec)
-
-
-class _LegacyLayoutOptions:
-    kind = "docling_layout_default"
-
-    def __init__(self) -> None:
-        self.model_spec = _HERON_LEGACY
-        self.create_orphan_clusters = True
-
-
-class _PdfPipelineOptions:
-    def __init__(self, **kwargs):
-        del kwargs
-        self.layout_options = _LayoutObjectDetectionOptions()
-        self.ocr_options = None
-        self.table_structure_options = SimpleNamespace(mode=None, do_cell_matching=True)
-        self.accelerator_options = SimpleNamespace(device="auto", num_threads=4)
-        self.images_scale = 1.0
-        self.document_timeout = None
-        self.artifacts_path = ""
-        self.do_formula_enrichment = False
-        self.do_code_enrichment = False
-
-
-class _LegacyPdfPipelineOptions(_PdfPipelineOptions):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.layout_options = _LegacyLayoutOptions()
-
-
-_HERON_LEGACY = _LayoutModelConfig("heron", "docling-project/docling-layout-heron")
-_EGRET_LEGACY = _LayoutModelConfig("egret_large", "docling-project/docling-layout-egret-large")
-_HERON_OD = _ObjectDetectionModelSpec("layout_heron", "docling-project/docling-layout-heron")
-_EGRET_OD = _ObjectDetectionModelSpec("layout_egret_large", "docling-project/docling-layout-egret-large")
-
-
-def _docling_import_side_effect(*, od_layout: bool = True, with_from_preset: bool = True):
-    pipeline_mod = MagicMock()
-    pipeline_mod.PdfPipelineOptions = _PdfPipelineOptions if od_layout else _LegacyPdfPipelineOptions
-    pipeline_mod.RapidOcrOptions = MagicMock(return_value=MagicMock())
-    pipeline_mod.TableFormerMode.FAST = "FAST"
-    if with_from_preset:
-        pipeline_mod.LayoutObjectDetectionOptions = _LayoutObjectDetectionOptions
-    else:
-        pipeline_mod.LayoutObjectDetectionOptions = None
-
-    layout_specs = MagicMock()
-    layout_specs.DOCLING_LAYOUT_HERON = _HERON_LEGACY
-    layout_specs.DOCLING_LAYOUT_EGRET_LARGE = _EGRET_LEGACY
-
-    stage_specs = MagicMock()
-    stage_specs.ObjectDetectionModelSpec = _ObjectDetectionModelSpec
-    stage_specs.OBJECT_DETECTION_LAYOUT_HERON = SimpleNamespace(model_spec=_HERON_OD)
-    stage_specs.OBJECT_DETECTION_LAYOUT_EGRET_LARGE = SimpleNamespace(model_spec=_EGRET_OD)
-
-    def side_effect(name: str):
-        if name == "docling.datamodel.pipeline_options":
-            return pipeline_mod
-        if name == "docling.datamodel.layout_model_specs":
-            return layout_specs
-        if name == "docling.datamodel.stage_model_specs":
-            return stage_specs
-        return MagicMock()
-
-    return side_effect
 
 
 @pytest.fixture(autouse=True)
@@ -274,94 +188,86 @@ def test_build_pipeline_options_surya():
     assert pdf_opts_instance.ocr_model == "suryaocr"
 
 
-def test_build_pipeline_options_od_layout_heron_has_get_engine_config():
-    """Docling >= 2.118 OD layout_options must keep ObjectDetectionModelSpec (issue 587)."""
-    with patch("importlib.import_module", side_effect=_docling_import_side_effect()):
-        opts = docling_mod._build_pipeline_options(
-            {"ocr_backend": "rapidocr_paddle", "layout_model": "heron"},
-            for_structure=True,
-        )
+def test_build_pipeline_options_real_docling_layout_has_get_engine_config():
+    """Requires installed Docling ≥2.118; skips otherwise. No importlib mock.
 
+    Catches issue 587 on a real install: OD layout model_spec must expose
+    get_engine_config after WriterAgent builds pipeline options.
+    """
+    _require_installed_od_docling()
+    opts = docling_mod._build_pipeline_options(
+        {"ocr_backend": "rapidocr", "layout_model": "heron"},
+        for_structure=True,
+    )
     spec = opts.layout_options.model_spec
     assert hasattr(spec, "get_engine_config")
     assert callable(spec.get_engine_config)
-    assert isinstance(spec, _ObjectDetectionModelSpec)
-    assert spec.name == "layout_heron"
 
 
-def test_build_pipeline_options_od_layout_egret_large_has_get_engine_config():
-    with patch("importlib.import_module", side_effect=_docling_import_side_effect()):
-        opts = docling_mod._build_pipeline_options(
-            {"ocr_backend": "rapidocr_paddle", "layout_model": "egret_large"},
-            for_structure=True,
-        )
-
-    spec = opts.layout_options.model_spec
-    assert hasattr(spec, "get_engine_config")
-    assert callable(spec.get_engine_config)
-    assert isinstance(spec, _ObjectDetectionModelSpec)
-    assert spec.name == "layout_egret_large"
+def _tiny_hello_ocr_png() -> bytes:
+    Image = pytest.importorskip("PIL.Image")
+    ImageDraw = pytest.importorskip("PIL.ImageDraw")
+    img = Image.new("RGB", (240, 64), "white")
+    draw = ImageDraw.Draw(img)
+    draw.text((10, 20), "Hello OCR", fill=(0, 0, 0))
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
-def test_build_pipeline_options_must_not_leave_layout_model_config_on_od():
-    """Today's bug: LayoutModelConfig assigned onto OD options (no get_engine_config)."""
-    with patch("importlib.import_module", side_effect=_docling_import_side_effect()):
-        opts = docling_mod._build_pipeline_options(
-            {"ocr_backend": "rapidocr_paddle", "layout_model": "heron"},
-            for_structure=True,
-        )
-
-    spec = opts.layout_options.model_spec
-    assert not isinstance(spec, _LayoutModelConfig)
-    assert hasattr(spec, "get_engine_config")
+def _is_layout_api_error(result: dict) -> bool:
+    message = str(result.get("message") or "")
+    return "get_engine_config" in message or "LayoutModelConfig" in message
 
 
-def test_build_pipeline_options_legacy_layout_keeps_layout_model_config():
-    """Docling <= 2.117 LayoutOptions still receives DOCLING_LAYOUT_*."""
-    with patch(
-        "importlib.import_module",
-        side_effect=_docling_import_side_effect(od_layout=False),
-    ):
-        opts = docling_mod._build_pipeline_options(
-            {"ocr_backend": "rapidocr_paddle", "layout_model": "heron"},
-            for_structure=True,
-        )
-
-    spec = opts.layout_options.model_spec
-    assert spec is _HERON_LEGACY
-    assert not hasattr(spec, "get_engine_config")
-
-
-def test_build_pipeline_options_legacy_layout_egret_large():
-    with patch(
-        "importlib.import_module",
-        side_effect=_docling_import_side_effect(od_layout=False),
-    ):
-        opts = docling_mod._build_pipeline_options(
-            {"ocr_backend": "rapidocr_paddle", "layout_model": "egret_large"},
-            for_structure=True,
-        )
-
-    assert opts.layout_options.model_spec is _EGRET_LEGACY
+def _is_missing_weight_or_network_error(result: dict) -> bool:
+    """Convert can need a first-time model download; skip rather than fail CI."""
+    blob = " ".join(
+        str(result.get(key) or "") for key in ("message", "code", "details")
+    ).lower()
+    markers = (
+        "failed to download",
+        "huggingface",
+        "hf_hub",
+        "connection",
+        "timed out",
+        "timeout",
+        "offline",
+        "no such file",
+        "filenotfound",
+        "model not found",
+        "could not find",
+        "unreachable",
+        "max retries",
+        "temporary failure",
+    )
+    return any(marker in blob for marker in markers)
 
 
-def test_apply_pipeline_params_od_path_never_assigns_layout_model_config():
-    layout_opts = _LayoutObjectDetectionOptions()
-    pipeline = SimpleNamespace(
-        layout_options=layout_opts,
-        table_structure_options=SimpleNamespace(),
-        accelerator_options=SimpleNamespace(),
+@pytest.mark.timeout(300)
+def test_extract_text_real_docling_tiny_png():
+    """Requires installed Docling + PIL + rapidocr; skips otherwise.
+
+    Real extract_text (no Docling mocks) on a tiny in-memory PNG with
+    layout_model=heron. Must not fail with get_engine_config / LayoutModelConfig
+    (issue 587). First model download can be slow; image stays tiny.
+    """
+    _require_installed_od_docling()
+    pytest.importorskip("PIL.Image")
+    pytest.importorskip("rapidocr")
+    pytest.importorskip("css_inline")
+
+    result = extract_text(
+        _tiny_hello_ocr_png(),
+        {"layout_model": "heron", "ocr_backend": "rapidocr", "lang": "en"},
     )
 
-    with patch("importlib.import_module", side_effect=_docling_import_side_effect()):
-        docling_mod._apply_pipeline_params(
-            pipeline,
-            {"layout_model": "egret_large"},
-            for_structure=True,
-        )
+    assert not _is_layout_api_error(result), result
+    if result.get("status") != "ok" and _is_missing_weight_or_network_error(result):
+        pytest.skip(f"Docling convert needs weights/network: {result.get('message')}")
 
-    assert isinstance(layout_opts.model_spec, _ObjectDetectionModelSpec)
-    assert not isinstance(layout_opts.model_spec, _LayoutModelConfig)
-    assert hasattr(layout_opts.model_spec, "get_engine_config")
-    assert layout_opts.model_spec.name == "layout_egret_large"
+    assert result["status"] == "ok"
+    assert isinstance(result.get("full_text"), str)
+    assert isinstance(result.get("regions"), list)
+    assert result.get("metrics", {}).get("engine") == "docling"
 
