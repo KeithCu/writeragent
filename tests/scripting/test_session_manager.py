@@ -159,6 +159,38 @@ def test_workbook_session_id_uses_cached_session_off_main() -> None:
         session_manager.clear_active_calc_session()
 
 
+def test_record_active_calc_session_ignores_opencl_probe() -> None:
+    """Headless soffice opens cl-test.ods — must not make leftover recorded=2."""
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session(
+            "calc:file:///usr/lib/libreoffice/program/../program/opencl/cl-test.ods"
+        )
+        assert session_manager.recorded_calc_session_count() == 0
+        session_manager.record_active_calc_session("calc:e058adf2-8a4e-4556-a488-589b4e93e983")
+        session_manager.record_active_calc_session(
+            "calc:file:///usr/lib/libreoffice/program/../program/opencl/cl-test.ods"
+        )
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.off_main_calc_session_is_unambiguous() is True
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_record_active_calc_session_replaces_prior_unsaved() -> None:
+    """Two unsaved: fallbacks must not leave recorded=2 (leftover Isolated)."""
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session("calc:unsaved:first")
+        session_manager.record_active_calc_session("calc:unsaved:second")
+        assert session_manager.recorded_calc_session_count() == 1
+        assert session_manager.get_cached_calc_session_id() == "calc:unsaved:second"
+        assert session_manager.off_main_calc_session_is_unambiguous() is True
+        assert session_manager.recorded_calc_session_ids() == ("calc:unsaved:second",)
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_record_active_calc_session_drops_ephemeral_unsaved_when_durable() -> None:
     """OnOpen unsaved: fallback must not poison unambiguous after UDProp sticks."""
     session_manager.clear_active_calc_session()

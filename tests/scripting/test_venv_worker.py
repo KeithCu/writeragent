@@ -25,6 +25,7 @@ from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
 from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame, read_pickle_frame
 from plugin.scripting.venv_worker import (
     PythonWorkerManager,
+    _clear_host_state_after_worker_death,
     _worker_error,
     _worker_error_message,
     pid_is_alive,
@@ -1198,5 +1199,24 @@ def test_maybe_dispatch_tool_call_without_ppt_master(monkeypatch):
 def test_python_worker_manager_sets_is_worker_env():
     mgr = PythonWorkerManager(sys.executable, {"PATH": "/usr/bin"})
     assert mgr.env.get("WRITERAGENT_IS_WORKER") == "1"
+
+
+def test_clear_host_state_after_worker_death_keeps_recorded_session() -> None:
+    """Leftover Shared needs the host session id after a worker restart."""
+    from plugin.scripting.session_manager import (
+        clear_active_calc_session,
+        off_main_calc_session_is_unambiguous,
+        record_active_calc_session,
+        recorded_calc_session_count,
+    )
+
+    clear_active_calc_session()
+    try:
+        record_active_calc_session("calc:file:///leftover.ods")
+        _clear_host_state_after_worker_death()
+        assert recorded_calc_session_count() == 1
+        assert off_main_calc_session_is_unambiguous() is True
+    finally:
+        clear_active_calc_session()
 
 

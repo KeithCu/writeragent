@@ -70,13 +70,13 @@ _SHARED_WORKER_RESTART_HINT = " Shared Python process restarted (all workbooks).
 
 
 def _clear_host_state_after_worker_death() -> None:
-    """IPC is desynced after a kill; drop cached session/scalar state so other books restart cold."""
-    try:
-        from plugin.scripting.session_manager import clear_active_calc_session
+    """IPC is desynced after a kill; drop add-in scalar cache so the next turn is cold.
 
-        clear_active_calc_session()
-    except Exception:
-        log.debug("venv_worker: clear_active_calc_session after death failed", exc_info=True)
+    Do **not** clear ``_RECORDED_CALC_SESSION_IDS``. Off-main Shared ``=PY()``
+    needs that single id (leftover after cap-hit / worker restart otherwise
+    sees ``recorded=0`` and Isolated ``x_geo_live`` undefined). The new
+    worker is a fresh namespace; the host still knows which workbook it is.
+    """
     try:
         from plugin.calc.python.function import clear_python_addin_cache
 

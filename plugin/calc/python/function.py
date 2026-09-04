@@ -1279,11 +1279,20 @@ def _execute_python_addin_impl(
             init_kwargs = get_python_init_kwargs(ctx, doc=target_doc)
 
             from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
+            from plugin.scripting.session_manager import (
+                off_main_calc_session_is_unambiguous,
+                recorded_calc_session_count,
+                recorded_calc_session_ids,
+            )
 
             log.debug(
-                "PYTHON eval: target_doc=%r, session_id=%r, has_init=%s, on_main=%s, in_sync_host=%s",
-                target_doc,
+                "PYTHON eval: target_doc=%s session_id=%r recorded=%s ids=%s "
+                "unambiguous=%s has_init=%s on_main=%s in_sync_host=%s",
+                target_doc is not None,
                 session_id,
+                recorded_calc_session_count(),
+                recorded_calc_session_ids(),
+                off_main_calc_session_is_unambiguous(),
                 bool(init_kwargs),
                 on_main_thread(),
                 in_sync_host_dispatch(),

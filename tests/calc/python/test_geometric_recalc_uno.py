@@ -270,6 +270,54 @@ def _disable_geometric_flag_client_and_file(ctx) -> None:
     _patch_config_files(ctx, _off)
 
 
+def _runtime_uid(doc) -> str:
+    try:
+        uid = doc.getPropertyValue("RuntimeUID")
+    except Exception:
+        return ""
+    return str(uid or "")
+
+
+def _close_extra_calc_docs(ctx, keep) -> int:
+    """Close other Calcs so soffice leftover Shared sees recorded=1.
+
+    Full ``make test-uno`` often still has another factory scalc. Each OnNew
+    records a session; leftover then stays ``recorded=2`` / Isolated.
+    """
+    from plugin.doc.doc_type import is_calc
+    from plugin.framework.uno_context import get_desktop
+
+    keep_uid = _runtime_uid(keep)
+    desktop = get_desktop(ctx)
+    comps = getattr(desktop, "getComponents", lambda: None)()
+    if comps is None or not hasattr(comps, "createEnumeration"):
+        return 0
+    enum = comps.createEnumeration()
+    extras = []
+    while enum.hasMoreElements():
+        elem = enum.nextElement()
+        model = elem
+        if not is_calc(model):
+            try:
+                ctrl = getattr(elem, "getController", lambda: None)()
+                model = ctrl.getModel() if ctrl is not None else None
+            except Exception:
+                continue
+        if not is_calc(model):
+            continue
+        if keep_uid and _runtime_uid(model) == keep_uid:
+            continue
+        extras.append(model)
+    closed = 0
+    for other in extras:
+        try:
+            other.close(True)
+            closed += 1
+        except Exception:
+            pass
+    return closed
+
+
 def _flush(ctx, doc, sheet) -> None:
     from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
 
@@ -346,12 +394,21 @@ def _leftover_shared_diag(ctx, a1, a3) -> str:
         if debug_log != path:
             try:
                 with open(debug_log, encoding="utf-8") as handle:
-                    # Prefer soffice worker lines over older client chat noise.
                     body = handle.read()
-                tail = body[-2000:]
-                lines.append("leftover diag log=%s tail=%s" % (debug_log, tail.replace("\n", " ")))
             except OSError:
-                pass
+                continue
+            needles = ("PYTHON eval:", "excel_py lifecycle:", "geometric on_open")
+            hits = [
+                line.strip()
+                for line in body.splitlines()
+                if any(needle in line for needle in needles)
+            ]
+            # Worker tail hid soffice session_id=None. These lines are the eval.
+            shown = hits[-12:] if hits else ["<no PYTHON eval / lifecycle lines>"]
+            lines.append(
+                "leftover diag log=%s hits=%s"
+                % (debug_log, " || ".join(shown).replace("\n", " "))
+            )
     blob = " | ".join(lines)
     _progress(blob)
     return blob
@@ -520,11 +577,13 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
 
     Stay on the reused calc doc. A second factory ``scalc`` makes
     ``off_main_calc_session_is_unambiguous()`` false, so Shared
-    ``session_id`` is dropped (XAddIn has no calling workbook). Throwaway
-    ``writeragent.json`` is seeded ``shared`` before soffice starts. Persist
-    the geometric flag into that throwaway profile too — a client-only
-    monkeypatch leaves soffice flag-off (no in-process record/strip). Do
-    not seed checkout ``.venv`` as ``python_venv_path`` — that made A3
+    ``session_id`` is dropped (XAddIn has no calling workbook). Desktop
+    scan records only when exactly one Calc is open. Worker restart must
+    not clear recorded sessions (leftover after cap-hit saw
+    ``recorded=0``). Throwaway ``writeragent.json`` is seeded ``shared``
+    before soffice starts. Persist the geometric flag into that throwaway
+    profile too — a client-only monkeypatch leaves soffice flag-off.
+    Do not seed checkout ``.venv`` as ``python_venv_path`` — that made A3
     Isolated (GHA 33751116865 / 33752809831). Workers use office Python.
     """
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
@@ -536,6 +595,7 @@ def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
         # Shared is seeded before soffice starts. Do not sleep 2.1s here —
         # leftover must fail or pass on the first calculateAll, not a cache wait.
         _set_session_mode(ctx, "shared")
+        _close_extra_calc_docs(ctx, doc)
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
         a3 = sheet.getCellByPosition(0, 2)

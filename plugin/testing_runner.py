@@ -37,55 +37,9 @@ def _progress(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-# GHA 33703959362 hung 20 min after execute-done; 25m step then died. Dump
-# Python stacks to stderr at 90s (watchdog thread on Windows — not gdb).
-# Every native test gets this bound now: a mock desktop enum or leftover
-# Isolated poll must not sit until OOM. Override with WRITERAGENT_UNO_TEST_TIMEOUT.
-_INSERT_CELL_HTML_HANG_DUMP_SEC = 90
-_NATIVE_TEST_TIMEOUT_SEC = 90
-
-
-def _arm_insert_cell_html_hang_dump(label: str) -> None:
-    try:
-        from tests.ci_debug import STDERR_HANG_DUMP_SECONDS, arm_stderr_hang_dump
-
-        arm_stderr_hang_dump(STDERR_HANG_DUMP_SECONDS, label=label)
-        return
-    except Exception:
-        pass
-    try:
-        import faulthandler
-
-        faulthandler.enable(file=sys.stderr, all_threads=True)
-        faulthandler.dump_traceback_later(
-            _INSERT_CELL_HTML_HANG_DUMP_SEC,
-            repeat=True,
-            exit=False,
-            file=sys.stderr,
-        )
-        _progress(
-            "hang dump armed timeout=%ss test=%s all_threads=True"
-            % (_INSERT_CELL_HTML_HANG_DUMP_SEC, label)
-        )
-    except Exception as exc:
-        _progress("hang dump arm failed test=%s: %s" % (label, exc))
-
-
-def _disarm_insert_cell_html_hang_dump(label: str) -> None:
-    try:
-        from tests.ci_debug import cancel_stderr_hang_dump
-
-        cancel_stderr_hang_dump(label=label)
-        return
-    except Exception:
-        pass
-    try:
-        import faulthandler
-
-        faulthandler.cancel_dump_traceback_later()
-    except Exception:
-        pass
-    _progress("hang dump disarmed test=%s" % label)
+# Every native test aborts after this many seconds (override with
+# WRITERAGENT_UNO_TEST_TIMEOUT). Silent — do not print arm/disarm lines.
+_NATIVE_TEST_TIMEOUT_SEC = 30
 
 
 def _native_test_timeout_sec() -> int:
@@ -98,17 +52,9 @@ def _native_test_timeout_sec() -> int:
     return _NATIVE_TEST_TIMEOUT_SEC
 
 
-def _arm_native_test_watchdog(label: str) -> None:
-    """Dump stacks and abort if a native test never returns.
-
-    A MagicMock desktop enum (or leftover Isolated poll) can grow until OOM.
-    ``dump_traceback_later(..., exit=True)`` is the host-process watchdog —
-    not UNO background work (no ``threading.Timer``).
-    """
+def _arm_native_test_watchdog(_label: str) -> None:
+    """Abort if a native test never returns. No stderr on arm or disarm."""
     seconds = _native_test_timeout_sec()
-    # Log line + optional ci_debug dump; then replace with exit=True so a
-    # mock loop cannot grow until OOM (dump-only does not stop allocation).
-    _arm_insert_cell_html_hang_dump(label)
     try:
         import faulthandler
 
@@ -119,14 +65,17 @@ def _arm_native_test_watchdog(label: str) -> None:
             exit=True,
             file=sys.stderr,
         )
-    except Exception as exc:
-        _progress("TEST timeout arm failed test=%s: %s" % (label, exc))
-        return
-    _progress("TEST timeout armed %ss %s faulthandler exit=True" % (seconds, label))
+    except Exception:
+        pass
 
 
-def _disarm_native_test_watchdog(label: str) -> None:
-    _disarm_insert_cell_html_hang_dump(label)
+def _disarm_native_test_watchdog(_label: str) -> None:
+    try:
+        import faulthandler
+
+        faulthandler.cancel_dump_traceback_later()
+    except Exception:
+        pass
 
 
 def _soffice_pids_win32() -> str:
@@ -854,8 +803,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
             test_line = f"Running test: {test_func.__name__}"
             qual = f"{name}.{test_func.__name__}"
             _progress(f"TEST start {qual}")
-            # GHA 33703959362: no TEST end after execute-done. Every native
-            # test dumps at 90s and then os._exit(124) so a mock loop cannot OOM.
+            # Per-test faulthandler abort (30s). Silent — TEST start/end is enough.
             _arm_native_test_watchdog(qual)
             try:
                 # After suite @setup removal, native tests take ctx (and often doc via

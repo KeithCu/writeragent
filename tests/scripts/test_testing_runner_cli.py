@@ -359,10 +359,12 @@ def test_run_module_suite_prints_call_and_returned(capsys) -> None:
     assert "TEST call fake.ok.test_ok" in err
     assert "TEST returned fake.ok.test_ok" in err
     assert "TEST end fake.ok.test_ok OK" in err
+    assert "hang dump" not in err
+    assert "timeout armed" not in err
 
 
 def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> None:
-    """Every native test arms a 90s faulthandler abort; disarm on TEST end."""
+    """Every native test arms a silent 30s faulthandler abort; disarm on TEST end."""
     events: list[object] = []
     monkeypatch.setattr(
         tr, "_arm_native_test_watchdog", lambda label: events.append(("arm", label))
@@ -403,7 +405,7 @@ def test_run_module_suite_arms_timeout_watchdog_for_every_test(monkeypatch) -> N
 
 def test_native_test_timeout_sec_reads_env(monkeypatch) -> None:
     monkeypatch.delenv("WRITERAGENT_UNO_TEST_TIMEOUT", raising=False)
-    assert tr._native_test_timeout_sec() == 90
+    assert tr._native_test_timeout_sec() == 30
     monkeypatch.setenv("WRITERAGENT_UNO_TEST_TIMEOUT", "15")
     assert tr._native_test_timeout_sec() == 15
     monkeypatch.setenv("WRITERAGENT_UNO_TEST_TIMEOUT", "2")
@@ -433,18 +435,12 @@ def test_run_module_suite_disarms_hang_dump_on_fail(monkeypatch) -> None:
     assert events == ["arm", "disarm"]
 
 
-def test_arm_insert_cell_html_hang_dump_uses_ci_debug(monkeypatch) -> None:
-    seen: list[tuple[object, ...]] = []
-
-    def fake_arm(timeout, *, label=""):
-        seen.append((timeout, label))
-
-    import tests.ci_debug as ci_debug_mod
-
-    monkeypatch.setattr(ci_debug_mod, "arm_stderr_hang_dump", fake_arm)
-    monkeypatch.setattr(ci_debug_mod, "STDERR_HANG_DUMP_SECONDS", 90)
-    tr._arm_insert_cell_html_hang_dump("calc.test_rich_html_uno.test_insert_cell_html")
-    assert seen == [(90, "calc.test_rich_html_uno.test_insert_cell_html")]
+def test_native_test_watchdog_is_silent(capsys) -> None:
+    tr._arm_native_test_watchdog("fake.test")
+    tr._disarm_native_test_watchdog("fake.test")
+    err = capsys.readouterr().err
+    assert "hang dump" not in err
+    assert "timeout armed" not in err
 
 
 def test_run_module_suite_prints_fail_reason(capsys) -> None:

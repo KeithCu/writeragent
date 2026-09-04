@@ -11,9 +11,8 @@ faulthandler dump at 240s. Windows CI 33447705893 lost gw3 at 261s with no
 abort a native/subprocess block). Dump while the worker is still alive so a
 later unclean death still names the hung test and dumps every thread's stack.
 
-``arm_stderr_hang_dump`` is separate: always-on, writes all-thread stacks to
-stderr after 90s (GHA 33703959362). ``testing_runner`` uses it for
-``test_insert_cell_html`` only.
+``arm_stderr_hang_dump`` is separate: opt-in CI stacks after 90s
+(GHA 33703959362). Native tests use a silent 30s ``testing_runner`` abort.
 
 This does not fix the Windows hang. ``--max-worker-restart=0`` (Makefile,
 same flag) is what lets the session summary print

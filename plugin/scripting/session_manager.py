@@ -42,6 +42,16 @@ def _has_notebook_registry(doc: Any) -> bool:
 
 PYTHON_WORKBOOK_SESSION_PROP = "WriterAgentPythonSessionId"
 _SESSION_MODE_KEY = "scripting.python_session_mode"
+# Headless soffice opens this probe workbook. Recording it next to leftover
+# factory Calc makes recorded=2 / Isolated (leftover 11:31 ids=).
+_OPENCL_PROBE_MARK = "opencl/cl-test.ods"
+
+
+def is_opencl_probe_session_id(session_id: str | None) -> bool:
+    """True for LibreOffice's OpenCL ``cl-test.ods`` probe workbook."""
+    if not session_id:
+        return False
+    return _OPENCL_PROBE_MARK in str(session_id).replace("\\", "/")
 
 
 def python_session_mode(ctx: Any) -> str:
@@ -145,18 +155,29 @@ def record_active_calc_session(session_id: str | None, init_kwargs: dict[str, An
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is not None:
+            if is_opencl_probe_session_id(session_id):
+                if init_kwargs:
+                    _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
+                return
             _LAST_ACTIVE_CALC_SESSION_ID = session_id
             _RECORDED_CALC_SESSION_IDS.add(session_id)
             # OnCreate can fall back to ``calc:unsaved:{uuid}`` before the
             # UDProp sticks; a later OnLoadFinished then records the persisted
-            # id. Leaving both makes ``off_main_calc_session_is_unambiguous``
-            # false and Shared ``=PY()`` drops session_id (Isolated semantics).
-            # Drop ephemeral unsaved: keys once a durable id is recorded.
-            if not str(session_id).startswith("calc:unsaved:"):
+            # id. Two unsaved: keys (UDProp failed twice) or unsaved+durable
+            # both make ``off_main_calc_session_is_unambiguous`` false.
+            sid_text = str(session_id)
+            if sid_text.startswith("calc:unsaved:"):
                 for stale in [
-                    sid
-                    for sid in _RECORDED_CALC_SESSION_IDS
-                    if str(sid).startswith("calc:unsaved:")
+                    other
+                    for other in _RECORDED_CALC_SESSION_IDS
+                    if other != session_id and str(other).startswith("calc:unsaved:")
+                ]:
+                    _RECORDED_CALC_SESSION_IDS.discard(stale)
+            else:
+                for stale in [
+                    other
+                    for other in _RECORDED_CALC_SESSION_IDS
+                    if str(other).startswith("calc:unsaved:")
                 ]:
                     _RECORDED_CALC_SESSION_IDS.discard(stale)
         if init_kwargs:
@@ -167,6 +188,12 @@ def recorded_calc_session_count() -> int:
     """How many distinct Calc workbook sessions are currently recorded."""
     with _ACTIVE_CALC_SESSION_LOCK:
         return len(_RECORDED_CALC_SESSION_IDS)
+
+
+def recorded_calc_session_ids() -> tuple[str, ...]:
+    """Sorted host-side Calc session ids (soffice leftover diag)."""
+    with _ACTIVE_CALC_SESSION_LOCK:
+        return tuple(sorted(_RECORDED_CALC_SESSION_IDS))
 
 
 def off_main_calc_session_is_unambiguous() -> bool:

@@ -356,10 +356,10 @@ def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
         listener.on_document_event(event)
         convert.assert_called_once()
         assert marshal.call_count == 2
-        assert marshal.call_args_list[0][0][0] is maybe_rewrite_collabora_py_formulas
-        assert marshal.call_args_list[0][0][1:] == (doc,)
-        assert marshal.call_args_list[1][0][0] is mod._geometric_open_job
-        assert marshal.call_args_list[1][0][1:] == (ctx, doc)
+        assert marshal.call_args_list[0][0][0] is mod._geometric_open_job
+        assert marshal.call_args_list[0][0][1:] == (ctx, doc)
+        assert marshal.call_args_list[1][0][0] is maybe_rewrite_collabora_py_formulas
+        assert marshal.call_args_list[1][0][1:] == (doc,)
         warn.assert_not_called()
 
 
@@ -393,6 +393,77 @@ def test_onnew_records_geometric_session_inline_on_uno_thread():
         convert.assert_not_called()
         marshal.assert_not_called()
         open_geo.assert_called_once_with(ctx, doc)
+
+
+def test_oncreate_without_resolvable_doc_still_scans_desktop():
+    """Leftover OnCreate Source is often the Writer keeper — still scan Calc."""
+    import plugin.calc.excel_py_convert.auto_open as mod
+
+    ctx = MagicMock()
+    smgr = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = broadcaster
+    mod._doc_listener = None
+    install_excel_py_auto_convert(ctx)
+    listener = broadcaster.addDocumentEventListener.call_args[0][0]
+
+    class _CreateEvent:
+        EventName = "OnCreate"
+        Source = None
+
+    with (
+        patch.object(mod, "maybe_convert_excel_py_document") as convert,
+        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
+        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch.object(mod, "_record_desktop_calc_sessions") as scan,
+        patch(
+            "plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open"
+        ) as open_geo,
+    ):
+        listener.on_document_event(_CreateEvent())
+        convert.assert_not_called()
+        marshal.assert_not_called()
+        open_geo.assert_called_once_with(ctx, None)
+        scan.assert_called_once_with(ctx)
+
+
+def test_record_desktop_calc_sessions_records_only_exactly_one_calc():
+    """Two Calcs must not be recorded — leftover then Isolated (recorded=2)."""
+    import plugin.calc.excel_py_convert.auto_open as mod
+    from plugin.scripting.session_manager import (
+        clear_active_calc_session,
+        recorded_calc_session_count,
+    )
+
+    clear_active_calc_session()
+    one = CalcDocStub()
+    two = CalcDocStub()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [one, two]
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        ):
+            mod._record_desktop_calc_sessions(MagicMock())
+        assert recorded_calc_session_count() == 0
+
+        enum2 = MagicMock()
+        enum2.hasMoreElements.side_effect = [True, False]
+        enum2.nextElement.side_effect = [one]
+        desktop.getComponents.return_value.createEnumeration.return_value = enum2
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        ):
+            mod._record_desktop_calc_sessions(MagicMock())
+        assert recorded_calc_session_count() == 1
+    finally:
+        clear_active_calc_session()
 
 
 def test_record_desktop_calc_sessions_stops_on_magicmock_enum():
