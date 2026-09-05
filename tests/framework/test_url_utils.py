@@ -6,6 +6,7 @@ from plugin.framework.url_utils import (
     get_url_query_dict,
     matches_librepy_dispatch_url,
     normalize_endpoint_url,
+    path_to_file_url,
 )
 
 class TestNormalizeEndpointUrl():
@@ -133,3 +134,10 @@ class TestLibrePyDispatchUrl(unittest.TestCase):
         assert matches_librepy_dispatch_url(self._Url(protocol="org.extension.librepy:", path="main.settings"))
         assert matches_librepy_dispatch_url(self._Url(complete="org.extension.librepy:main.settings"))
         assert not matches_librepy_dispatch_url(self._Url(protocol="org.extension.writeragent:", path="main.settings"))
+
+
+class TestPathToFileUrl:
+    def test_posix_absolute_uses_three_slashes(self):
+        url = path_to_file_url("/home/user/Writing/Test.odt")
+        assert url.startswith("file:///")
+        assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url

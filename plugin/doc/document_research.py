@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import uno
 
 from plugin.doc.doc_type import DocumentType, doc_type_label_for_enum, get_document_type
 from plugin.doc.text_helpers import get_document_path, normalize_file_url
-from plugin.framework.uno_context import resolve_document_by_url
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
+from plugin.framework.uno_context import resolve_document_by_url
+from plugin.framework.url_utils import path_to_file_url
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase
@@ -159,16 +159,6 @@ def _normalize_path(path: str) -> str:
 
 def _is_absolute_or_posix_absolute(path: str) -> bool:
     return os.path.isabs(path) or path.startswith("/")
-
-
-def _path_to_file_url(path: str) -> str:
-    """Build a LO-compatible file URL (file:/// on Unix).
-
-    urljoin('file:', ...) wrongly yields file:/home/... (two slashes);
-    loadComponentFromURL and open_document_for_read require file:///home/...
-    """
-    norm = _normalize_path(path)
-    return Path(norm).as_uri()
 
 
 def _system_path_from_url(url: str) -> str | None:
@@ -383,7 +373,7 @@ def _scan_directory(
             truncated = True
             break
         norm = _normalize_path(full)
-        url = open_paths.get(norm) or _path_to_file_url(full)
+        url = open_paths.get(norm) or path_to_file_url(full)
         entries.append(
             FileEntry(
                 path=norm,
@@ -503,7 +493,7 @@ def resolve_path_or_name(
 
     if os.path.isabs(raw) and os.path.isfile(raw):
         norm = _normalize_path(raw)
-        return norm, _path_to_file_url(norm)
+        return norm, path_to_file_url(norm)
 
     listing = list_nearby_files(
         ctx, active_model, filter=filter or raw, file_kind=file_kind, max_entries=_DEFAULT_MAX_ENTRIES
@@ -552,7 +542,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
         path = _system_path_from_url(url)
     elif _is_absolute_or_posix_absolute(raw) and os.path.isfile(raw):
         path = _normalize_path(raw)
-        url = _path_to_file_url(path)
+        url = path_to_file_url(path)
     else:
         return None, None, f"Invalid path or URL: {raw!r}", False
 

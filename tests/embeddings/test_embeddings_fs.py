@@ -12,6 +12,29 @@ from pathlib import Path
 import pytest
 
 from plugin.embeddings import embeddings_fs
+from plugin.framework.url_utils import path_to_file_url
+
+
+def test_path_to_file_url_uses_three_slashes_on_unix():
+    url = path_to_file_url("/home/user/Writing/Test.odt")
+    assert url.startswith("file:///")
+    assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url
+
+
+def test_embeddings_fs_does_not_reexport_path_to_file_url():
+    assert not hasattr(embeddings_fs, "path_to_file_url")
+
+
+def test_embeddings_fs_import_stays_uno_free():
+    """url_utils must stay UNO-free so embeddings extract can import it."""
+    import subprocess
+    import sys
+
+    code = (
+        "import plugin.embeddings.embeddings_fs, plugin.framework.url_utils, sys; "
+        "assert 'uno' not in sys.modules"
+    )
+    subprocess.check_call([sys.executable, "-c", code])
 
 
 def test_content_hash_stable():
@@ -72,7 +95,7 @@ def test_paragraph_chunks_from_path(tmp_path: Path):
     assert len(chunks) == 1
     assert chunks[0].text == "Body"
     assert chunks[0].para_index == 0
-    assert chunks[0].doc_url.startswith("file:")
+    assert chunks[0].doc_url.startswith("file:///")
 
 
 def test_paragraph_chunks_from_path_without_styles(tmp_path: Path):
@@ -88,7 +111,7 @@ def test_paragraph_chunks_from_path_without_styles(tmp_path: Path):
     assert len(chunks) == 1
     assert chunks[0].text == "Body"
     assert chunks[0].para_index == 0
-    assert chunks[0].doc_url.startswith("file:")
+    assert chunks[0].doc_url.startswith("file:///")
 
 
 def test_path_uses_prose_chunking_by_extension():

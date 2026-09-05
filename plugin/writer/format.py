@@ -19,7 +19,6 @@
 import contextlib
 import logging
 import os
-from pathlib import Path
 import re
 import sys
 import tempfile
@@ -27,6 +26,7 @@ from typing import Any, cast
 
 import uno
 from plugin.doc.text_helpers import get_string_without_tracked_deletions as _get_str  # noqa: F401  # pyright: ignore[reportUnusedImport]
+from plugin.framework.url_utils import path_to_file_url
 from .math.html_math_segment import html_fragment_contains_mixed_math  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from .math.math_mml_convert import convert_latex_to_starmath as convert_latex_to_starmath  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from .math.math_mml_convert import convert_mathml_to_starmath as convert_mathml_to_starmath  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -116,11 +116,6 @@ def _get_format_props(config_svc=None):
 # ---------------------------------------------------------------------------
 
 
-def _file_url(path):
-    """Return a ``file://`` URL for *path*."""
-    return Path(os.path.abspath(path)).as_uri()
-
-
 def create_property_value(name, value):
     """Create a ``com.sun.star.beans.PropertyValue``."""
     p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
@@ -149,7 +144,7 @@ def _with_temp_buffer(content=None, config_svc=None, ext=None):  # pyright: igno
                 f.write(content)
         else:
             os.close(fd)
-        yield (path, _file_url(path))
+        yield (path, path_to_file_url(path))
     finally:
         try:
             os.unlink(path)

@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 from plugin.doc.document_research import (
     NEARBY_FILE_EXTENSIONS,
     NEARBY_IMAGE_EXTENSIONS,
-    _path_to_file_url,
     _system_path_from_url,
     close_document_research_document,
     guess_doc_type_from_path,
@@ -24,6 +23,7 @@ from plugin.doc.document_research import (
     resolve_listing_directory,
 )
 from plugin.doc.text_helpers import normalize_file_url
+from plugin.framework.url_utils import path_to_file_url
 
 
 def test_guess_doc_type_from_path():
@@ -39,7 +39,7 @@ def test_guess_doc_type_from_path():
 
 
 def test_path_to_file_url_uses_three_slashes_on_unix():
-    url = _path_to_file_url("/home/user/Writing/Test.odt")
+    url = path_to_file_url("/home/user/Writing/Test.odt")
     assert url.startswith("file:///")
     assert url.endswith("/home/user/Writing/Test.odt") or "Writing" in url
 
@@ -163,7 +163,7 @@ def test_get_work_directory_file_url():
     with tempfile.TemporaryDirectory() as tmp:
         ctx = MagicMock()
         path_settings = MagicMock()
-        path_settings.getPropertyValue.return_value = _path_to_file_url(tmp)
+        path_settings.getPropertyValue.return_value = path_to_file_url(tmp)
         ctx.getValueByName.side_effect = lambda name: path_settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
         norm = os.path.normpath(tmp)
         with patch("plugin.doc.document_research._system_path_from_url", return_value=norm):

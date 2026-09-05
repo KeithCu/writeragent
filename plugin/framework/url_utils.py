@@ -5,12 +5,17 @@
 
 """
 URL parsing utilities for WriterAgent.
+
+HTTP / LLM endpoint helpers live below. Filesystem ``file:`` conversion is a
+separate section — do not fold it into ``normalize_endpoint_url``.
 """
 
 # crosshair: off
 from __future__ import annotations
 
+import os
 import urllib.parse
+from pathlib import Path
 from typing import Any
 
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
@@ -211,3 +216,19 @@ def is_pdf_url(url):
         return (parsed.path or "").lower().endswith(".pdf")
     except (ValueError, TypeError, AttributeError):
         return False
+
+
+# ---------------------------------------------------------------------------
+# Filesystem / document file: URLs (UNO-free; not HTTP endpoints)
+# ---------------------------------------------------------------------------
+
+
+def path_to_file_url(path: str) -> str:
+    """Build a document / ``loadComponentFromURL`` / GraphicProvider-style ``file:`` URL.
+
+    Normalize with ``os.path.abspath`` then ``Path.as_uri()`` so Unix yields
+    ``file:///…`` (three slashes). ``urljoin('file:', …)`` wrongly produces
+    ``file:/…``. Not an LLM endpoint helper; no ``@deal`` (those contracts are
+    for HTTP strings). UNO-free so embeddings extract can import this module.
+    """
+    return Path(os.path.abspath(path)).as_uri()
