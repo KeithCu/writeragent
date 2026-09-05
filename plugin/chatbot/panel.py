@@ -218,10 +218,11 @@ class QueryTextListener(BaseTextListener):
         from plugin.chatbot.slash_commands import slash_typed_prefix
         from plugin.chatbot.slash_popup import ENABLE_SLASH
         if callable(on_text):
+            owner = getattr(on_text, "__self__", None)
             log.info(
                 "[SLASH-OV] query_text invoking on_query_text ENABLE_SLASH=%s id=%s",
                 bool(ENABLE_SLASH),
-                id(on_text.__self__) if getattr(on_text, "__self__", None) is not None else None,
+                id(owner) if owner is not None else None,
             )
             try:
                 on_text(raw)
