@@ -14,6 +14,8 @@ from hypothesis import given, strategies as st
 import deal
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel
 from plugin.calc.excel_py_convert.to_dag import (
+    _deal_convert_scripts_ok,
+    _deal_excel_src_ok,
     _find_xl_calls,
     _normalize_bindings,
     _normalize_excel_placeholders,
@@ -132,6 +134,17 @@ def test_find_xl_calls_accepts_tab_then_quote() -> None:
     calls, issues = _find_xl_calls('\t"')
     assert calls == []
     assert isinstance(issues, list)
+
+
+def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
+    """Wrapper scripts pre must share rewrite_excel_code's _deal_excel_src_ok.
+
+    Pytest keeps str_bounded (NUL allowed); CrossHair alphabet rejects NUL
+    (check-all 33935176527: convert_model_to_dag(scripts=['\\x00'])).
+    """
+    assert _deal_excel_src_ok("\x00")  # pytest: str_bounded; CrossHair pre rejects
+    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
+    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["x"], cells=[]))
 
 
 def test_convert_cell_to_dag_script_index_oor_fail_closed() -> None:
