@@ -15,6 +15,7 @@ import deal
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel
 from plugin.calc.excel_py_convert.to_dag import (
     _deal_convert_scripts_ok,
+    _deal_convert_source_path_ok,
     _deal_excel_src_ok,
     _find_xl_calls,
     _normalize_bindings,
@@ -145,6 +146,17 @@ def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
     assert _deal_excel_src_ok("\x00")  # pytest: str_bounded; CrossHair pre rejects
     assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
     assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["x"], cells=[]))
+
+
+def test_deal_convert_source_path_ok_rejects_nul_under_docs() -> None:
+    """convert_model_to_dag source_path pre: pytest allows str_bounded paths.
+
+    CrossHair rejects NUL/controls (check-all 33940151004 PatternError on
+    source_path='\\x00'). Under pytest this helper stays str_bounded.
+    """
+    assert _deal_convert_source_path_ok("")
+    assert _deal_convert_source_path_ok("book.xlsx")
+    assert _deal_convert_source_path_ok("\x00")  # pytest: str_bounded; CrossHair rejects
 
 
 def test_convert_cell_to_dag_script_index_oor_fail_closed() -> None:
