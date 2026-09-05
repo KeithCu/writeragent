@@ -39,6 +39,7 @@ def test_rps_domain_order():
         "optimize",
         "forecast",
         "analysis",
+        "sql",
     ]
 
 
@@ -57,7 +58,7 @@ def test_post_venv_order_matches_constant():
 def test_wiring_and_post_venv_and_run_import_binding_agree():
     """Same domain ids in WIRING_TABLE and POST_VENV_DOMAIN_ORDER; calc_only flags match.
 
-    Picker is not 1:1 (sql is picker-only; text is wiring-only) — do not assert that.
+    Picker is not 1:1 (text is wiring-only) — do not assert that.
     Order of the two wiring lists is intentionally different; only membership is shared.
     """
     wiring_ids = {w.id for w in WIRING_TABLE}

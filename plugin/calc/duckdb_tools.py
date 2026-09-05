@@ -44,12 +44,21 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
         "Absolute range: {range: \"Sales.A1:F500\"} stays frozen A1. "
         "Sibling sheet used-range: files={name: \"budget.xlsx#Sales\"} (dict key is the SQL table). "
         "Optional tables file=\"budget.xlsx\" reads that sibling instead of the active doc. "
-        "Host prepares all UNO data + validates."
+        "Host prepares all UNO data + validates. "
+        "Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message "
+        "when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION."
     )
     parameters = {
         "type": "object",
         "properties": {
-            "sql": {"type": "string", "description": "The SQL query. Use FROM data for active sheet range, or FROM 'file.csv' / registered table names for folder files."},
+            "sql": {
+                "type": "string",
+                "description": (
+                    "Read-only SQL (SELECT/CTE/in-memory VIEW). "
+                    "COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes are rejected. "
+                    "Results longer than 200 rows are truncated and flagged."
+                ),
+            },
             "files": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},

@@ -178,6 +178,30 @@ def test_query_folder_sql_requires_sql():
 
 @patch("plugin.calc.duckdb_tools.execute_on_main_thread")
 @patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.read_table_source_grid")
+@patch("plugin.calc.duckdb_tools.configured_python_max_data_cells", return_value=8)
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_query_folder_sql_ingress_size_fails_loud(
+    mock_resolve, _mock_max, mock_read, mock_run, mock_exec
+):
+    """Host cell cap is fail-loud (not a soft truncate) and names the table."""
+    mock_resolve.return_value = "/tmp/project"
+    mock_exec.side_effect = lambda fn: fn()
+    mock_read.return_value = [["h1", "h2"]] + [[1, 2] for _unused in range(20)]
+
+    t = QueryFolderSqlTool()
+    res = t.execute(ctx=_mk_ctx(), sql="SELECT * FROM sales", tables={"sales": {"sheet": "Sales"}})
+
+    assert res["status"] == "error"
+    msg = str(res.get("message") or res.get("error") or res)
+    assert "sales" in msg.lower()
+    assert "too large" in msg.lower()
+    assert "maximum" in msg.lower()
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
 def test_query_folder_sql_calls_host_with_resolved_dir(mock_resolve, mock_run, mock_exec):
     mock_resolve.return_value = "/tmp/project"

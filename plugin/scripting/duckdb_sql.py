@@ -18,6 +18,7 @@ from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, pars
 # --- Constants (host) ---
 
 SQL_HELPER_NAMES = frozenset({"query_folder_sql", "query_sheet_sql"})
+SQL_RESULT_HELPERS = frozenset({"query_folder_sql", "query_sheet_sql", "run_sql"})
 
 SQL_HEADER_PREFIX = header_prefix("sql")
 
@@ -31,14 +32,23 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
     "query_sheet_sql": "Run read-only SQL on a live range from the active Calc sheet (registers as table 'data')",
 }
 
+_SQL_ROW_CAP_NOTE = (
+    "Results cap at 200 rows (MAX_TABLE_ROWS). truncated/warning/flags mean "
+    "the table is incomplete — add LIMIT or aggregate."
+)
+
 
 _SQL_VENV_EXPORTS = frozenset(
     {
         "query_folder_sql",
+        "run_sql",
         "session_duckdb",
         "reset_session_duckdb",
         "invalidate_session_tables",
         "persistable_duckdb_session_id",
+        "GuardedDuckDBConnection",
+        "ReadonlyViolation",
+        "MAX_TABLE_ROWS",
     }
 )
 
@@ -59,6 +69,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
         return (
             f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
             f"# {desc}\n"
+            f"# {_SQL_ROW_CAP_NOTE}\n"
             f"# Set the Data range in the toolbar (or select cells), then Run.\n"
             f"from writeragent.scripting.duckdb_sql import query_folder_sql\n\n"
             f"result = query_folder_sql(\n"
@@ -71,6 +82,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
     return (
         f"{SQL_HEADER_PREFIX} helper={helper} params={params_json}\n"
         f"# {desc}\n"
+        f"# {_SQL_ROW_CAP_NOTE}\n"
         f"# Files must live beside the saved .ods/.xlsx. Edit the files list.\n"
         f"from writeragent.scripting.duckdb_sql import query_folder_sql\n\n"
         f"result = query_folder_sql(\n"
@@ -100,3 +112,51 @@ def parse_sql_script_header(code: str) -> SqlScriptMeta | None:
     # Header regex ``params=({.*})`` hangs deep check even via this thin wrapper.
     # crosshair: off
     return parse_helper_script_header(code, tag="sql", helper_names=SQL_HELPER_NAMES)
+
+
+def is_sql_result(value: Any) -> bool:
+    """True when *value* matches the compact DuckDB SQL helper result contract."""
+    if not isinstance(value, dict):
+        return False
+    if "status" not in value:
+        return False
+    helper = value.get("helper")
+    if isinstance(helper, str) and helper in SQL_RESULT_HELPERS:
+        return True
+    if value.get("status") == "error":
+        code = str(value.get("code") or "")
+        return code in ("READONLY_VIOLATION", "DUCKDB_SQL_ERROR", "DUCKDB_ERROR", "MISSING_SCOPED_DIR")
+    return False
+
+
+def format_sql_for_calc(result: dict[str, Any]) -> list[list[Any]]:
+    """Turn a SQL helper result into a row-major grid (truncation note via tabular egress)."""
+    from plugin.calc.tabular_egress import format_tabular_helper_for_calc
+
+    return format_tabular_helper_for_calc(
+        result,
+        domain_label="SQL",
+        default_helper="query_folder_sql",
+        failed_message="SQL query failed.",
+    )
+
+
+def insert_sql_result_into_calc(
+    doc: Any,
+    uno_ctx: Any,
+    result: dict[str, Any],
+    *,
+    start_col: int | None = None,
+    start_row: int | None = None,
+) -> int:
+    """Write formatted SQL output starting at the selection (or given anchor)."""
+    from plugin.calc.tabular_egress import insert_tabular_result_into_calc
+
+    grid = format_sql_for_calc(result)
+    return insert_tabular_result_into_calc(
+        doc,
+        uno_ctx,
+        grid,
+        start_col=start_col,
+        start_row=start_row,
+    )

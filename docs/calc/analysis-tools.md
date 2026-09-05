@@ -12,12 +12,15 @@ Previously, tools lived under the **`analysis`** specialized domain (`delegate_t
 | Single-variable what-if on live formulas | `calc_goal_seek` |
 | Constrained optimization on formula cells | `calc_solver` |
 
-See [specialized-toolsets.md](specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan. DuckDB SQL support (through Phase D): 
+See [specialized-toolsets.md](specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan. DuckDB SQL support (through Phase D + honesty polish):
 - `query_folder_sql` for folder files (CSV/Parquet/JSON direct + .xlsx/.ods via LO import) and/or live ranges.
 - Use `tables` with a **stable identity**: `{sheet: "Sales"}` (used range), `{named_range: "SalesData"}` (named or database range), or frozen `{range: "Sales.A1:F500"}`. Sibling sheet: `files={"sales": "budget.xlsx#Sales"}` (dict key is the SQL table). See [duckdb-dev-plan.md § Table source identity](duckdb-dev-plan.md#table-source-identity).
 - `data_range` is still frozen A1 → table `data`.
 - Available in analysis domain chat or Run Python Script → SQL Helpers.
 - Shared kernel: `session_duckdb()` / in-cell `query_folder_sql` reuse one catalog until Reset. Chat tools stay per-request.
+- **Row cap:** results longer than **200 rows** (`MAX_TABLE_ROWS`) set `truncated=true`, `total_rows`, `row_cap`, plus a `warning` / `flags` / `message` and `tables[0].truncated`. RPS writes the analysis-style “(showing first rows; N total)” note. This is not the full result — add `LIMIT` or aggregate.
+- **Firewall:** `COPY` / `EXPORT` / `ATTACH` / `INSTALL` / `LOAD` and path/URI escapes fail with `READONLY_VIOLATION`. In-memory `CREATE VIEW` / register stay allowed. Prefer `run_sql` / `session_duckdb()` from `=PY()` (same contract); raw `import duckdb` is unguarded.
+- **Ingress:** preloaded sheet/office grids fail loud at `scripting.python_max_data_cells` (table name + cell count), same as `=PY()`.
 Full plan and status: [duckdb-dev-plan.md](duckdb-dev-plan.md).
 
 **Threading:** The analysis sub-agent runs on a background worker. Tools marked `is_async` (including `analyze_data`) marshal every Calc UNO touch through `execute_on_main_thread` inside the tool body — primary analysis reads, optional sheet writes, **`auto_plot` viz data reads**, and chart insert — while only the venv IPC runs on the worker.

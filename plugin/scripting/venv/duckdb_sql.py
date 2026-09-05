@@ -9,7 +9,10 @@ Phase A–C: CSV/Parquet/JSON (direct) + sibling .xlsx/.xls/.ods via host LO imp
 shared-kernel workbook session (``calc:`` / ``rps:`` / ``notebook:``) until
 Reset Python Session. Isolated / chat trusted actions stay per-request.
 
-Host always resolves scoped_dir and validates. Read-only policy (no writes/attach/export).
+Host always resolves scoped_dir and validates. Read-only policy (no disk/network
+writes/attach/export). Result rows are capped at ``MAX_TABLE_ROWS``. Callers
+must treat ``truncated`` / ``warning`` / ``flags`` as user-visible — a short
+``rows`` list is not the full set.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import threading
 from typing import Any
 
@@ -30,6 +34,7 @@ from plugin.scripting.venv.coerce import (
     ok_result as _ok_result,
     error_result as _error_result,
     missing_package_error as _missing_package_error,
+    table_from_df as _table_from_df,
 )
 
 # Workbook-keyed sessions may keep one DuckDB. Domain prefixes used by
@@ -112,9 +117,10 @@ def session_duckdb(session_id: str | None = None) -> Any:
     """Return a DuckDB in-memory connection for ``=PY()`` / tools.
 
     Shared kernel (persistable ``session_id`` or current sandbox session): the
-    same connection and registered tables until Reset Python Session or
+    same guarded connection and registered tables until Reset Python Session or
     ``invalidate_session_tables()``. Isolated / chat (no persistable session):
-    a fresh connection each call — same as ``duckdb.connect()`` today.
+    a fresh connection each call. ``execute`` / ``sql`` use the read-only
+    firewall; raw ``import duckdb`` still bypasses that wrap.
     """
     con, _persist = _acquire_duckdb(session_id)
     return con
@@ -139,46 +145,216 @@ def invalidate_session_tables(
         con = _SESSION_CONNECTIONS.get(key)
     if con is None:
         return
-    for raw in names:
-        name = str(raw).strip()
+    raw = con._con if isinstance(con, GuardedDuckDBConnection) else con
+    for item in names:
+        name = str(item).strip()
         if not name:
             continue
         try:
-            if hasattr(con, "unregister"):
-                con.unregister(name)
+            if hasattr(raw, "unregister"):
+                raw.unregister(name)
             else:
-                con.execute(f'DROP VIEW IF EXISTS "{name}"')
+                raw.execute(f'DROP VIEW IF EXISTS "{name}"')
         except Exception:
             log.debug("invalidate_session_tables: could not drop %s", name, exc_info=True)
 
 
 def _acquire_duckdb(session_id: str | None) -> tuple[Any, bool]:
-    """Return ``(connection, persist)``. Persist means do not close after the query."""
+    """Return ``(connection, persist)``. Persist means do not close after the query.
+
+    Cached connections are ``GuardedDuckDBConnection`` wrappers so
+    ``session_duckdb() is session_duckdb()`` stays true for a persistable id
+    and ``execute`` / ``sql`` still hit the firewall.
+    """
     import duckdb  # type: ignore[import-not-found]
 
     key = resolve_duckdb_session_id(session_id)
     if key is None:
         # Isolated / writeragent:sql trusted action: per-request catalog.
-        return duckdb.connect(), False
+        return GuardedDuckDBConnection(duckdb.connect()), False
     with _SESSION_LOCK:
         con = _SESSION_CONNECTIONS.get(key)
         if con is not None and _connection_alive(con):
             return con, True
         if con is not None:
             _close_connection(con)
-        con = duckdb.connect()
+        con = GuardedDuckDBConnection(duckdb.connect())
         _SESSION_CONNECTIONS[key] = con
         return con, True
 
 
 def _register_relation(con: Any, name: str, rel: Any) -> None:
     """Replace a prior registration so a recalc snapshot overwrites a stale table."""
+    raw = con._con if isinstance(con, GuardedDuckDBConnection) else con
     try:
-        if hasattr(con, "unregister"):
-            con.unregister(name)
+        if hasattr(raw, "unregister"):
+            raw.unregister(name)
     except Exception:
         pass
-    con.register(name, rel)
+    raw.register(name, rel)
+
+
+# Disk/network side effects only. In-memory CREATE VIEW / TABLE / INSERT stay
+# allowed so shared-kernel ``session_duckdb()`` register workflows work.
+# Do not use ``duckdb.connect(read_only=True)`` on ``:memory:`` — the engine
+# refuses that. Word-boundary scan after comment/string strip (tokens inside
+# comments or string literals are not statements).
+_BLOCKED_STMT_RE = re.compile(
+    r"(?is)(?<![A-Z0-9_])(?:COPY|EXPORT|ATTACH|INSTALL|LOAD)\b"
+)
+
+_STRING_RE = re.compile(r"(?s)('(?:''|[^'])*'|\"(?:\"\"|[^\"]*)\")")
+_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
+_DRIVE_RE = re.compile(r"^[A-Za-z]:[/\\]")
+_URI_RE = re.compile(r"(?i)^(?:https?|s3|file|ftp)://")
+# Unquoted remainder: ../, drive, URI, or absolute /path (not ``a / b`` division).
+_REMAINDER_PATH_RE = re.compile(
+    r"""(?ix)
+    (?:
+        \.\.[/\\]
+        | ~/
+        | [A-Za-z]:[/\\]
+        | (?:https?|s3|file|ftp)://
+        | (?:^|[\s=,(])[/\\](?!\s)
+    )
+    """
+)
+
+
+class ReadonlyViolation(ValueError):
+    """COPY/escape blocked the same way as ``query_folder_sql`` (``READONLY_VIOLATION``)."""
+
+    code = "READONLY_VIOLATION"
+
+
+class GuardedDuckDBConnection:
+    """Delegate to an in-memory DuckDB connection; ``execute`` / ``sql`` use the firewall.
+
+    Register / CREATE VIEW stay available. Raw ``import duckdb`` still bypasses this
+    wrap — demos and ``=PY()`` should prefer ``session_duckdb()`` / ``run_sql``.
+    """
+
+    def __init__(self, con: Any) -> None:
+        self._con = con
+
+    def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+        _raise_if_write_or_escape(sql)
+        return self._con.execute(sql, *args, **kwargs)
+
+    def sql(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+        _raise_if_write_or_escape(sql)
+        return self._con.sql(sql, *args, **kwargs)
+
+    def close(self) -> None:
+        self._con.close()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._con, name)
+
+
+def _strip_sql_comments_and_strings(sql: str) -> tuple[str, list[str]]:
+    """Return (sql without comments/strings, inner string literals).
+
+    Statements are judged on the remainder; path escapes live in the strings.
+    """
+    strings: list[str] = []
+
+    def _keep_string(match: re.Match[str]) -> str:
+        raw = match.group(0)
+        strings.append(raw[1:-1])
+        return " "
+
+    no_block = _BLOCK_COMMENT_RE.sub(" ", sql)
+    no_line = _LINE_COMMENT_RE.sub(" ", no_block)
+    remainder = _STRING_RE.sub(_keep_string, no_line)
+    return remainder, strings
+
+
+def _string_looks_like_escape(literal: str) -> bool:
+    text = literal.strip()
+    if not text:
+        return False
+    if text.startswith(("/", "\\", "~/")) or text.startswith("~\\"):
+        return True
+    if ".." in text and ("/" in text or "\\" in text):
+        return True
+    if _DRIVE_RE.match(text) or _URI_RE.match(text):
+        return True
+    return False
+
+
+def _file_spec_looks_like_escape(spec: str) -> bool:
+    """True when a files= entry is not a scoped basename (``../``, slashes, ``~``)."""
+    text = str(spec).strip()
+    if not text:
+        return False
+    base = os.path.basename(text)
+    return base != text or base in (".", "..") or ".." in text
+
+
+def _looks_like_write_or_escape(sql: str) -> bool:
+    # Comment/string strip avoids false positives (``SELECT 'COPY later'``) while
+    # still catching ``FROM '/etc/passwd'`` and ``COPY … TO`` as statements.
+    # Do not treat ``ROUND(a / b)`` as a path — only ``/name`` without a space.
+    remainder, strings = _strip_sql_comments_and_strings(str(sql))
+    if _BLOCKED_STMT_RE.search(remainder):
+        return True
+    if _REMAINDER_PATH_RE.search(remainder):
+        return True
+    return any(_string_looks_like_escape(item) for item in strings)
+
+
+def _raise_if_write_or_escape(sql: str) -> None:
+    if _looks_like_write_or_escape(sql):
+        raise ReadonlyViolation("SQL contains write, attach, or path escape")
+
+
+def _truncation_warning(total: int) -> str:
+    return (
+        f"Result truncated: showing {MAX_TABLE_ROWS} of {total} rows "
+        f"(MAX_TABLE_ROWS={MAX_TABLE_ROWS}). This is not the full result — "
+        f"add LIMIT or aggregate to see the complete set."
+    )
+
+
+def _ok_sql_result(
+    helper: str,
+    df: Any,
+    *,
+    files_used: list[str] | None = None,
+) -> dict[str, Any]:
+    """Shape a SQL DataFrame like analysis helpers: tables + flags + metrics."""
+    total = int(len(df))
+    truncated = total > MAX_TABLE_ROWS
+    table = _table_from_df(df, name="sql_result", max_rows=MAX_TABLE_ROWS)
+    # table_from_df already sets truncated / total_rows; keep columns/rows at
+    # top level so existing chat/tool callers keep working.
+    cols = list(table["columns"])
+    rows = list(table["rows"])
+    warning = _truncation_warning(total) if truncated else None
+    flags = [warning] if warning else []
+    payload: dict[str, Any] = {
+        "columns": cols,
+        "rows": rows,
+        "truncated": truncated,
+        "total_rows": total,
+        "row_cap": MAX_TABLE_ROWS,
+        "files_used": files_used or [],
+        "tables": [table],
+        "flags": flags,
+        "metrics": {
+            "returned_rows": len(rows),
+            "total_rows": total,
+            "row_cap": MAX_TABLE_ROWS,
+            "truncated": truncated,
+        },
+    }
+    if warning:
+        payload["warning"] = warning
+        # ``message`` is a priority key in generic RPS HTML insert — bold, not a footnote.
+        payload["message"] = warning
+    return _ok_result(helper, **payload)
 
 
 @contextlib.contextmanager
@@ -190,35 +366,6 @@ def _scoped_cwd(path: str):
         yield
     finally:
         os.chdir(old)
-
-
-def _looks_like_write_or_escape(sql: str) -> bool:
-    # Crude substring scan (tokens in strings/CTEs/comments can false-positive).
-    # Real threats it covers are path escape (``..``, absolute paths, COPY TO),
-    # which tests/scripting/test_duckdb_sql.py already pins. Writes to registered
-    # tables never hit disk. Do not replace this with ``duckdb.connect(read_only=True)``
-    # — see the connect site. Engine-side alternative: ``allowed_directories=[scoped_dir]``
-    # plus ``lock_configuration`` at connect, then re-prove those folder tests.
-    s = " " + sql.upper() + " "
-    write_tokens = (
-        " COPY ",
-        " ATTACH ",
-        " INSTALL ",
-        " LOAD ",
-        " EXPORT ",
-        " CREATE OR REPLACE ",
-        " INSERT ",
-        " UPDATE ",
-        " DELETE ",
-        " DROP ",
-        " ALTER ",
-    )
-    if any(tok in s for tok in write_tokens):
-        return True
-    # crude but effective for A: reject obvious escapes even under chdir
-    if ".." in sql or sql.strip().startswith(("/", "\\")) or ":\\" in sql or "~/" in sql:
-        return True
-    return False
 
 
 def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:
@@ -272,6 +419,7 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
 def _register_flat_files(con: Any, flat_files: dict[str, str] | None) -> None:
     if not flat_files:
         return
+    raw = con._con if isinstance(con, GuardedDuckDBConnection) else con
     for name, path in flat_files.items():
         if not name or not path:
             continue
@@ -279,16 +427,58 @@ def _register_flat_files(con: Any, flat_files: dict[str, str] | None) -> None:
             p = str(path)
             lower = p.lower()
             if lower.endswith((".csv", ".tsv")):
-                rel = con.read_csv(p)
+                rel = raw.read_csv(p)
             elif lower.endswith(".parquet"):
-                rel = con.read_parquet(p)
+                rel = raw.read_parquet(p)
             elif lower.endswith((".json", ".jsonl")):
-                rel = con.read_json(p)
+                rel = raw.read_json(p)
             else:
-                rel = con.read_csv(p)
+                rel = raw.read_csv(p)
             _register_relation(con, name, rel)
         except Exception as flat_err:
             log.warning("Failed to register flat file table %s from %s: %s", name, path, flat_err)
+
+
+def run_sql(sql: str, con: Any | None = None, *, session_id: str | None = None) -> dict[str, Any]:
+    """Guarded SQL execute with the same honesty fields as ``query_folder_sql``.
+
+    Prefer this from ``=PY()`` / shared-kernel cells instead of raw
+    ``import duckdb``. With no ``con``, uses ``_acquire_duckdb`` so a persistable
+    sandbox session reuses the Phase D catalog. Isolated / omitted session:
+    one-shot connection.
+    """
+    helper = "run_sql"
+    try:
+        import duckdb  # type: ignore[import-not-found]
+    except ImportError:
+        return _missing_package_error(helper, "duckdb")
+    del duckdb
+
+    if not sql or not str(sql).strip():
+        return _error_result("INVALID_SQL", "sql is required", helper=helper)
+
+    if _looks_like_write_or_escape(str(sql)):
+        return _error_result("READONLY_VIOLATION", "SQL contains write, attach, or path escape", helper=helper)
+
+    persist = False
+    acquired: Any = None
+    try:
+        if con is None:
+            acquired, persist = _acquire_duckdb(session_id)
+            df = acquired.execute(sql).df()
+        elif isinstance(con, GuardedDuckDBConnection):
+            df = con.execute(sql).df()
+        else:
+            df = con.execute(sql).df()
+        return _ok_sql_result(helper, df)
+    except ReadonlyViolation as exc:
+        return _error_result("READONLY_VIOLATION", str(exc), helper=helper)
+    except Exception as exc:
+        log.exception("run_sql failed")
+        return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
+    finally:
+        if acquired is not None and not persist:
+            _close_connection(acquired)
 
 
 def query_folder_sql(
@@ -309,6 +499,9 @@ def query_folder_sql(
       ``=PY()`` sandbox session is), reuse one connection and keep tables
       that this call does not re-register. Isolated / omitted: per-request.
     'data' is conventional for sheet ranges.
+
+    Results longer than ``MAX_TABLE_ROWS`` set ``truncated=True`` and a visible
+    ``warning`` / ``flags`` / ``message`` — do not treat ``rows`` as complete.
     """
     helper = "query_folder_sql"
     try:
@@ -321,6 +514,14 @@ def query_folder_sql(
         return _error_result("INVALID_SQL", "sql is required", helper=helper)
 
     if _looks_like_write_or_escape(str(sql)):
+        return _error_result("READONLY_VIOLATION", "SQL contains write, attach, or path escape", helper=helper)
+
+    file_specs: list[str] = []
+    if isinstance(files, list):
+        file_specs = [str(x) for x in files]
+    elif isinstance(files, dict):
+        file_specs = [str(v) for v in files.values()]
+    if any(_file_spec_looks_like_escape(spec) for spec in file_specs):
         return _error_result("READONLY_VIOLATION", "SQL contains write, attach, or path escape", helper=helper)
 
     if not scoped_dir and (files or flat_files):
@@ -358,24 +559,12 @@ def query_folder_sql(
             if not persist:
                 _close_connection(con)
 
-        total = int(len(df))
-        limited = df.head(MAX_TABLE_ROWS)
-        rows = limited.where(limited.notna(), None).values.tolist()
-        cols = [str(c) for c in limited.columns]
-
         used = [os.path.basename(p) for p in validated]
         if preloaded:
             used = list(preloaded.keys()) + used
         if flat_files:
             used = list(flat_files.keys()) + used
-        return _ok_result(
-            helper,
-            columns=cols,
-            rows=rows,
-            truncated=total > MAX_TABLE_ROWS,
-            total_rows=total,
-            files_used=used,
-        )
+        return _ok_sql_result(helper, df, files_used=used)
     except Exception as exc:  # broad: duckdb errors, IO, etc. surface message
         log.exception("query_folder_sql failed")
         return _error_result("DUCKDB_ERROR", str(exc), helper=helper)

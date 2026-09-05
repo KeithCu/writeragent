@@ -31,6 +31,7 @@ These Python / NumPy features also now ship in **LibrePy.oxt**. The WriterAgent 
 | [Venv subprocess IPC & NumPy serialization](scripting/numpy-serialization.md) | Warm worker, protocol, wire formats, benchmarks |
 | [Why not copy Microsoft’s `=PY()`](scripting/ms-py-compatibility.md) | `xl()` + co-volatility costs vs native `=PY(code, data?)` |
 | [NumPy domain helpers](scripting/numpy-domains.md) | Analysis, Viz, Symbolic, Units, Text, Forecasting |
+| [DuckDB / folder SQL](calc/duckdb-dev-plan.md) | Read-only SQL over sibling files + live ranges; 200-row result cap (`truncated`/`warning`); prefer `run_sql` / `session_duckdb()` from `=PY()` |
 | [Extension packaging](scripting/librepy-split.md) | LibrePy vs WriterAgent packaging |
 | [LibrePy-surface live QA plan](librepy-manual-qa-plan.md) | Real-scenario Calc/RPS/domain checks (`=PY("1 + 1")` upward). Either OXT; do not test chat/`=PROMPT()`. |
 | [Monaco editor dev plan](scripting/monaco-editor-dev-plan.md) | IPC, phases 2B–2F |

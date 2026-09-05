@@ -131,7 +131,7 @@ def try_rps_post_venv(
 # Three tables on purpose: WIRING_TABLE (RPS insert order), POST_VENV_DOMAIN_ORDER
 # (is_result scan order), PICKER_WIRING (script-picker UI). Do not collapse them
 # or add a fourth registry. Drift is caught by test_domain_registry (same members
-# for wiring vs post-venv; picker is not 1:1 — sql is picker-only, text is not).
+# for wiring vs post-venv; picker is not 1:1 — text is wiring-only).
 @dataclass(frozen=True)
 class DomainWiring:
     id: str
@@ -291,6 +291,13 @@ WIRING_TABLE: tuple[DomainWiring, ...] = (
         format_ok_kind="rows",
         post_venv_calc_only=True,
     ),
+    DomainWiring(
+        id="sql",
+        insert="plugin.scripting.duckdb_sql:insert_sql_result_into_calc",
+        is_result="plugin.scripting.duckdb_sql:is_sql_result",
+        format_ok_kind="rows",
+        post_venv_calc_only=True,
+    ),
 )
 
 def _rps_builder_for(wiring: DomainWiring) -> Callable[[], RpsDomainSpec]:
@@ -325,6 +332,7 @@ POST_VENV_DOMAIN_ORDER: tuple[str, ...] = (
     "quant",
     "optimize",
     "forecast",
+    "sql",
 )
 
 

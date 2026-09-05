@@ -33,7 +33,7 @@ isProject: false
 
 Back to [Enabling NumPy & Python in LibreOffice](../enabling_numpy_in_libreoffice.md).
 
-**Status:** Phase A + A+ (including ODS mtime cache) + B + C + D landed (shared-kernel DuckDB session cache). See execution plan and implementation notes below.
+**Status:** Phase A + A+ (including ODS mtime cache) + B + C + D landed (shared-kernel DuckDB session cache). Honesty polish: 200-row result cap is visible; COPY/escape fail loud. See execution plan and implementation notes below.
 
 ### Pretty demo (SQL / DuckDB sheet)
 
@@ -62,9 +62,10 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 - Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads).
 - Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
 - Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading.
-- Worker: registers preloaded via `coerce_to_dataframe`, flat files via `read_csv`/`read_parquet` etc. under provided names. Read-only guards.
-- Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script.
-- Limitations: no write-back, default first sheet for office files when `#SheetName` is omitted. Sibling `.xlsx`/`.ods` now read the sheet **used range** (same `createCursor` / `gotoStartOfUsedArea` / `gotoEndOfUsedArea` path as `SheetAnalyzer` / ingest) — open / missing-sheet / empty-range failures are tool errors. Sibling `.xlsx`/`.xls` reuse `writeragent_ods_cache/` (mtime+size key; `calc.ods_cache_enabled`, default true). Native `.ods` and the live workbook are not cached. Shared-kernel `=PY()` reuses one DuckDB connection per workbook until Reset; Isolated / chat tools stay per-request. See [Phase D](#phase-d--shared-kernel-session-cache).
+- Worker: registers preloaded via `coerce_to_dataframe`, flat files via `read_csv`/`read_parquet` etc. under provided names. Read-only guards (`COPY`/`EXPORT`/`ATTACH`/`INSTALL`/`LOAD` + path/URI escapes). In-memory `CREATE VIEW` / register stay allowed.
+- Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script (sheet egress shows truncation flags).
+- `=PY()`: prefer `run_sql` / `session_duckdb()` (same firewall + honesty fields) over raw `import duckdb`. Shared-kernel `=PY()` reuses one DuckDB connection per workbook until Reset; Isolated / chat tools stay per-request. See [Phase D](#phase-d--shared-kernel-session-cache).
+- Limitations: no write-back, default first sheet for office files when `#SheetName` is omitted. Sibling `.xlsx`/`.ods` now read the sheet **used range** (same `createCursor` / `gotoStartOfUsedArea` / `gotoEndOfUsedArea` path as `SheetAnalyzer` / ingest) — open / missing-sheet / empty-range failures are tool errors. Sibling `.xlsx`/`.xls` reuse `writeragent_ods_cache/` (mtime+size key; `calc.ods_cache_enabled`, default true). Native `.ods` and the live workbook are not cached. Result grids cap at **200 rows** (`MAX_TABLE_ROWS`); `truncated` / `warning` / `flags` / `message` are set when the query returned more.
 - Usage: Mix tables + files for joins, e.g. live sheet identity + sibling CSVs. See [Table source identity](#table-source-identity).
 
 **Audience:** Product, senior engineers, and future implementers. This doc captures why DuckDB fits WriterAgent, what users get, and how to build on existing Calc↔venv infrastructure without a new architectural pillar.
@@ -358,12 +359,15 @@ Exactly one of `sheet`, `named_range`, or `range` per `tables` entry (a sibling 
 
 **Landed.** Shared-kernel `=PY()` mode ([session modes](../enabling_numpy_in_libreoffice.md#session-modes-and-recalc-semantics)) keeps **one in-memory DuckDB connection** and its registered tables per workbook until **Reset Python Session** (or `invalidate_session_tables()`). Isolated mode and chat `query_folder_sql` stay per-request (`duckdb.connect()` + close), same as Phases A–C.
 
+Cached connections are `GuardedDuckDBConnection` wrappers: `.execute` / `.sql` use the same COPY/escape firewall as `query_folder_sql`. Prefer `run_sql` / `session_duckdb()` from `=PY()`. Raw `import duckdb` still bypasses the guard. Do **not** use `duckdb.connect(read_only=True)` on `:memory:` (engine refuses).
+
 **API (venv worker):**
 
 | Helper | Role |
 |--------|------|
 | `session_duckdb()` | Return the workbook connection when a persistable session is active (`calc:` / `rps:` / `notebook:`); otherwise a fresh connection. Injected into `=PY()` / RPS namespaces. Also `from writeragent.scripting.duckdb_sql import session_duckdb`. |
 | `query_folder_sql(..., session_id=)` | Reuses that connection when `session_id` is persistable **or** the current sandbox session is. Re-registers any `preloaded` / `flat_files` on this call (refresh). Tables omitted from this call stay as last registered. |
+| `run_sql(sql, con=None)` | Same honesty dict + firewall. With no `con`, uses the persistable session when one is active. |
 | `invalidate_session_tables(names=None)` | Drop named tables, or close the whole catalog when *names* is omitted. |
 | `reset_session_duckdb(session_id)` | Close the cached connection. **Reset Python Session** calls this with the workbook id. |
 
@@ -393,7 +397,7 @@ Authoring: pass upstream ranges as `data` so Calc dirties the cell that re-regis
 | **Run Python Script → SQL Helpers** | A, B, C | `[SQL] query_folder_sql` / `query_sheet_sql`; supports tables + files |
 | **Analysis sub-agent** | A, B, C | `query_folder_sql` with `tables` / `files` / `data_range` |
 | **Chat / delegate** | B, C | “Join Sales range to costs.csv and ledger.parquet” |
-| **`=PY()` / `=PYTHON()`** | B+, D | `session_duckdb()` in shared kernel; `import duckdb` still authorized; Isolated stays per-eval |
+| **`=PY()` / `=PYTHON()`** | B+, D | `session_duckdb()` in shared kernel (guarded + 200-row honesty). Raw `import duckdb` is authorized but unguarded. Isolated stays per-eval. |
 | **MCP** | B+ | Optional later via existing tool registry |
 
 **PM note:** Phase A is releasable on its own — valuable for users who export CSV from Calc or receive data drops beside ODS files.
@@ -406,8 +410,8 @@ Authoring: pass upstream ranges as `data` so Calc dirties the cell that re-regis
 |------|------------|
 | Filesystem escape via SQL paths | Host passes `scoped_dir`; worker resolves and rejects paths outside prefix |
 | Network exfil | Venv sandbox already blocks `requests`/`urllib`; DuckDB `httpfs` extension not whitelisted |
-| Write/attach side effects | Read-only SQL guard (deny `COPY`, `ATTACH`, `INSTALL`, `LOAD` untrusted) |
-| Huge memory | Cell/file size caps; optional row limits on `sql()` result before egress |
+| Write/attach side effects | Read-only SQL guard: deny `COPY`, `EXPORT`, `ATTACH`, `INSTALL`, `LOAD` (word-boundary, comments/strings stripped). In-memory `CREATE VIEW` / `CREATE TABLE` / `INSERT` stay allowed. Path/URI escapes (`../`, absolute `/…`, `~/`, drive letters, `http(s)/s3/file/ftp`) fail with `READONLY_VIOLATION`. Do not use `duckdb.connect(read_only=True)` on `:memory:`. |
+| Huge memory | Ingress: `python_max_data_cells` fail-loud on preloaded grids (table name + cell count). Egress: `MAX_TABLE_ROWS=200` with `truncated`, `total_rows`, `row_cap`, `warning` / `flags` / `message`, and `tables[].truncated` so chat, RPS, and tools cannot mistake a partial grid for a complete result. |
 | Secrets in env | Existing `scrub_subprocess_env` in [`sandbox.py`](../../plugin/scripting/sandbox.py) |
 
 Add `duckdb` / `duckdb.*` to [`VENV_AUTHORIZED_IMPORTS`](../../plugin/scripting/sandbox.py) when shipping; update [`import_policy.py`](../../plugin/scripting/import_policy.py) prompts to mention SQL helpers vs raw pandas.
@@ -498,3 +502,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | Stable table identity: `{sheet}` (used range), `{named_range}` (named or database range), sibling `file.xlsx#Sheet` / `files={name: "file.xlsx#Sheet"}`. Frozen `{range: A1}` kept. Catalog does not store expanded A1. |
 | 2026-09-05 | Phase A+ ODS cache: sibling `.xlsx`/`.xls` → `writeragent_ods_cache/` (hash of abs path + mtime + size); open cached ODS on hit; native `.ods` and the live workbook skip cache. Setting `calc.ods_cache_enabled` (default true). |
 | 2026-09-05 | Phase D: shared-kernel `session_duckdb()` + `query_folder_sql` table cache until Reset Python Session; Isolated / `writeragent:sql` stay per-request. Staleness: re-register on `data`/`preloaded`, else last snapshot. |
+| 2026-09-05 | Honesty + firewall polish: 200-row cap is visible (`warning`/`flags`/`message`/`tables`); deny-list is disk/network only (VIEW/register stay); `run_sql` / guarded `session_duckdb()` for `=PY()`; RPS SQL uses tabular egress. |

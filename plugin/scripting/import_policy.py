@@ -160,7 +160,7 @@ def format_venv_import_policy_for_prompt(*, compact: bool = False) -> str:
         "When =PY has data range args, xl(\"%Pn%\") is also injected (binding-only Excel bridge; not a live sheet read). "
         f"DO NOT import {do_not_import}. "
         "Prefer np/sp/pd/st and scipy over hand-rolled Python; use dt for dates, plt for charts. "
-        "For folder SQL analytics over CSV/Parquet use the trusted query_folder_sql (or run_sql) helper when available. "
+        "For folder SQL analytics over CSV/Parquet use the trusted query_folder_sql (or run_sql / session_duckdb) helper when available; results cap at 200 rows and say so when truncated. "
         "In shared kernel, session_duckdb() reuses one DuckDB connection and registered tables until Reset Python Session."
     )
     blocked_security = _join_modules(tuple(sorted(DANGEROUS_MODULES)))

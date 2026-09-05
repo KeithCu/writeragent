@@ -15,11 +15,16 @@ pytest.importorskip("duckdb")
 pytest.importorskip("pandas")
 
 from plugin.scripting.venv.duckdb_sql import (
+    MAX_TABLE_ROWS,
+    GuardedDuckDBConnection,
+    ReadonlyViolation,
     invalidate_session_tables,
     persistable_duckdb_session_id,
     query_folder_sql,
     reset_session_duckdb,
+    run_sql,
     session_duckdb,
+    _looks_like_write_or_escape,
 )
 
 
@@ -66,7 +71,7 @@ def test_query_folder_sql_rejects_escape(tmp_path):
     # attempt via files=
     res = query_folder_sql(str(tmp_path), "SELECT * FROM 'evil.csv'", files=["../evil.csv"])
     assert res["status"] == "error"
-    assert "NO_ALLOWED_FILES" in res.get("code", "") or "READONLY" in res.get("code", "") or "outside" in res.get("message", "").lower()
+    assert res.get("code") == "READONLY_VIOLATION"
 
     # attempt via sql literal with ..
     good = tmp_path / "ok.csv"
@@ -97,12 +102,17 @@ def test_query_folder_sql_missing_package(monkeypatch, tmp_path):
 
 
 def test_query_folder_sql_requires_scoped_and_files(tmp_path):
-    res = query_folder_sql(None, "select 1")
+    """Folder files need a host-resolved scoped_dir; in-memory SELECT 1 does not."""
+    res = query_folder_sql(None, "SELECT * FROM 'x.csv'", files=["x.csv"])
     assert res["status"] == "error"
+    assert res.get("code") == "MISSING_SCOPED_DIR"
+
+    res = query_folder_sql(None, "select 1")
+    assert res["status"] == "ok", res
+    assert res["total_rows"] == 1
 
     res = query_folder_sql(str(tmp_path), "select 1", files=[])
-    assert res["status"] == "error"
-    assert "NO_ALLOWED" in res.get("code", "") or "allowed" in res.get("message", "").lower()
+    assert res["status"] == "ok", res
 
 
 def test_query_folder_sql_preloaded_compact_grid(tmp_path):
@@ -447,3 +457,159 @@ def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):
     )
     assert second["status"] == "ok", second
     assert second["result"] == 13
+
+
+# --- Honesty + firewall polish ---
+
+
+def test_query_folder_sql_truncation_is_honest():
+    """Over-cap results must not look complete: truncated + total_rows + warning/flags."""
+    n = MAX_TABLE_ROWS + 17
+    grid = [["id", "val"]] + [[i, i * 2] for i in range(n)]
+    res = query_folder_sql(
+        None,
+        "SELECT * FROM nums ORDER BY id",
+        preloaded={"nums": {"grid": grid, "headers": True}},
+    )
+    assert res["status"] == "ok", res
+    assert res["truncated"] is True
+    assert res["total_rows"] == n
+    assert res["row_cap"] == MAX_TABLE_ROWS
+    assert len(res["rows"]) == MAX_TABLE_ROWS
+    assert res["metrics"]["truncated"] is True
+    assert res["metrics"]["returned_rows"] == MAX_TABLE_ROWS
+    assert res["metrics"]["total_rows"] == n
+    warning = res.get("warning") or res.get("message") or ""
+    assert str(MAX_TABLE_ROWS) in warning
+    assert str(n) in warning
+    assert "not the full result" in warning.lower()
+    assert warning in res.get("flags", [])
+    table = res["tables"][0]
+    assert table["truncated"] is True
+    assert table["total_rows"] == n
+    assert len(table["rows"]) == MAX_TABLE_ROWS
+
+
+def test_query_folder_sql_under_cap_has_no_truncation_warning():
+    grid = [["id"], [1], [2]]
+    res = query_folder_sql(None, "SELECT * FROM t", preloaded={"t": {"grid": grid, "headers": True}})
+    assert res["status"] == "ok", res
+    assert res["truncated"] is False
+    assert res["total_rows"] == 2
+    assert not res.get("warning")
+    assert res.get("flags") == []
+    assert "message" not in res
+
+
+def test_query_folder_sql_allows_cte():
+    grid = [["x"], [1], [2]]
+    cte = query_folder_sql(
+        None,
+        "WITH v AS (SELECT x FROM t) SELECT * FROM v",
+        preloaded={"t": {"grid": grid, "headers": True}},
+    )
+    assert cte["status"] == "ok", cte
+    assert cte["total_rows"] == 2
+
+
+def test_query_folder_sql_readonly_blocks_export_attach_install(tmp_path):
+    f = tmp_path / "t.csv"
+    _write_csv(f, "id,val\n1,10")
+    for sql in (
+        "EXPORT DATABASE 'dump'",
+        "ATTACH 'other.db'",
+        "INSTALL httpfs",
+        "LOAD httpfs",
+        "COPY (SELECT * FROM 't.csv') TO '/tmp/out.csv'",
+    ):
+        res = query_folder_sql(str(tmp_path), sql, files=["t.csv"])
+        assert res["status"] == "error", sql
+        assert res["code"] == "READONLY_VIOLATION", (sql, res)
+
+
+def test_looks_like_write_ignores_comment_and_string_tokens():
+    assert _looks_like_write_or_escape("SELECT 1 -- COPY later") is False
+    assert _looks_like_write_or_escape("SELECT 'COPY TO x' AS note") is False
+    assert _looks_like_write_or_escape("SELECT * FROM loading_dock") is False
+    assert _looks_like_write_or_escape("SELECT * FROM t WHERE note = 'a..b'") is False
+    # Division must not look like an absolute path (marketing ROAS demo).
+    assert _looks_like_write_or_escape(
+        "SELECT ROUND(SUM(Revenue) / NULLIF(SUM(Ad_Spend), 0), 2) AS roas FROM marketing"
+    ) is False
+
+
+def test_looks_like_write_blocks_quoted_absolute_and_uri():
+    assert _looks_like_write_or_escape("SELECT * FROM '/etc/passwd'") is True
+    assert _looks_like_write_or_escape("SELECT * FROM 'https://example.com/x.csv'") is True
+    assert _looks_like_write_or_escape("SELECT * FROM 'C:/secret/x.csv'") is True
+
+
+def test_run_sql_rejects_copy_and_escape_like_query_folder(tmp_path):
+    res = run_sql("COPY (SELECT 1) TO 'out.csv'")
+    assert res["status"] == "error"
+    assert res["code"] == "READONLY_VIOLATION"
+    assert res["helper"] == "run_sql"
+
+    res2 = run_sql("SELECT * FROM '../evil.csv'")
+    assert res2["status"] == "error"
+    assert res2["code"] == "READONLY_VIOLATION"
+
+
+def test_run_sql_truncation_honesty():
+    con = session_duckdb()
+    con.execute(f"CREATE TABLE nums AS SELECT range AS id FROM range({MAX_TABLE_ROWS + 5})")
+    res = run_sql("SELECT * FROM nums", con=con)
+    assert res["status"] == "ok", res
+    assert res["helper"] == "run_sql"
+    assert res["truncated"] is True
+    assert res["total_rows"] == MAX_TABLE_ROWS + 5
+    assert len(res["rows"]) == MAX_TABLE_ROWS
+    assert "not the full result" in str(res.get("warning") or "").lower()
+    con.close()
+
+
+def test_session_duckdb_reuses_catalog_across_statements():
+    """Shared-kernel Phase D pattern: bind one connection, register, query later."""
+    con = session_duckdb()
+    assert isinstance(con, GuardedDuckDBConnection)
+    con.execute("CREATE VIEW v AS SELECT 41 AS x")
+    res = run_sql("SELECT x + 1 AS y FROM v", con=con)
+    assert res["status"] == "ok", res
+    assert res["truncated"] is False
+    assert res["total_rows"] == 1
+    assert res["rows"][0][0] == 42
+    with pytest.raises(ReadonlyViolation):
+        con.execute("COPY (SELECT 1) TO 'out.csv'")
+    with pytest.raises(ReadonlyViolation):
+        con.sql("SELECT * FROM '/tmp/x.csv'")
+    con.close()
+
+
+def test_format_sql_for_calc_shows_truncation_note():
+    from plugin.scripting.duckdb_sql import format_sql_for_calc, is_sql_result
+
+    result = {
+        "status": "ok",
+        "helper": "query_folder_sql",
+        "metrics": {"returned_rows": 200, "total_rows": 250, "row_cap": 200, "truncated": True},
+        "flags": ["Result truncated: showing 200 of 250 rows"],
+        "tables": [
+            {
+                "name": "sql_result",
+                "columns": ["id"],
+                "rows": [[i] for i in range(3)],
+                "truncated": True,
+                "total_rows": 250,
+            }
+        ],
+        "truncated": True,
+        "total_rows": 250,
+    }
+    assert is_sql_result(result)
+    grid = format_sql_for_calc(result)
+    flat = [str(cell) for row in grid for cell in row if cell]
+    assert any("250" in cell and "truncated" in cell.lower() or "showing first" in cell.lower() for cell in flat)
+    assert any("Flags" in cell or "truncated" in cell.lower() for cell in flat)
+    err = format_sql_for_calc({"status": "error", "code": "READONLY_VIOLATION", "message": "SQL contains write"})
+    assert err[0][0].startswith("SQL error")
+    assert "write" in err[1][0]
