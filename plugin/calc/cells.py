@@ -198,7 +198,9 @@ class WriteCellRange(ToolBase):
         "YYYY-MM-DDTHH:MM[:SS]. These become real Calc date/time values. Elapsed/stopwatch values: "
         "use PTnHnMnS (e.g. PT30H, PT1H30M); these become duration serials with elapsed formatting. "
         "Do not include a timezone offset or Z, and do not use locale forms like 08/05/2026; those "
-        "are stored as text. Prefix with an apostrophe ('2026-08-08) to force text."
+        "are stored as text. Prefix with an apostrophe ('2026-08-08) to force text. "
+        "Don't use this tool to reorder rows because it overwrites the range (including headers); "
+        'do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range instead.'
     )
     parameters = {
         "type": "object",
@@ -483,7 +485,11 @@ class SortRange(ToolCalcRangeBase):
 
     name = "sort_range"
     intent = "edit"
-    description = "Sorts the specified range(s) by a column. Use for ordering rows by values in one column. Supports lists for non-contiguous areas."
+    description = (
+        "Stable one-column sort of the specified range(s) by values in one column "
+        "(has_header keeps the first row in place). Multi-key sorts are multiple calls "
+        "(two stable one-column passes). Supports lists for non-contiguous areas."
+    )
     parameters = {
         "type": "object",
         "properties": {

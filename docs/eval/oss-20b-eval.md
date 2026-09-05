@@ -8,7 +8,9 @@ Related: [benchmarks.md](benchmarks.md), [eval-dev-plan.md](eval-dev-plan.md),
 [string-harness-upgrade.md](string-harness-upgrade.md),
 [dspy-prompt-optimization-plan.md](dspy-prompt-optimization-plan.md).
 
-**Status:** analysis only. No prompt or optimizer change yet.
+**Status:** Calc sort + relative-formula directives and the two tool-description
+lines are drafted (shared prompt; no 20b fork). Draw/Writer needle lines are
+out of scope. 5-task A/B on 20b/120b still pending.
 
 ## Snapshot
 
@@ -116,8 +118,9 @@ Keep diffs short.
 **Tool descriptions:**
 
 - `sort_range`: one-column, stable; two-key sorts are two calls.
-- `write_formula_range`: do not use `=PY` to sort or to stamp the same
-  formula on every tax row.
+- `write_formula_range`: sort half only (don't reorder rows with this
+  tool because it overwrites the range; use ranges/`sort_range`). The
+  relative/tax formula rule stays in Calc directives, not this description.
 
 Then eval only the five fails, both models:
 
@@ -201,7 +204,7 @@ production-compatible version of a demo is 2–3 lines in
 
 ## Open
 
-- [ ] Draft the three directive patches + two tool-description lines
+- [x] Draft the Calc directive patches + two tool-description lines (sort + relative formulas; sort-only on `write_formula_range`)
 - [ ] 5-task A/B on 20b and 120b
 - [ ] Full 17 if the A/B is a win and 120b does not regress
 - [ ] Tool-subset sweep if `data_sorting` still fails
