@@ -841,6 +841,28 @@ def _selection_is_multi_cell(target_doc: Any) -> bool:
     return (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
 
 
+def _spill_target_doc(ctx: Any, doc: Any | None) -> Any | None:
+    """Document to use for auto-spill. Off-main: cached model when unambiguous.
+
+    Do not query the desktop off-main (Yellow / #402). The cached object is
+    passed through to a UI-thread callback — do not invoke UNO on it here.
+    """
+    if doc is not None:
+        return doc
+    from plugin.framework.thread_guard import on_main_thread
+    from plugin.scripting.session_manager import (
+        get_cached_calc_document,
+        record_active_calc_document,
+    )
+
+    if on_main_thread():
+        resolved = _get_calc_doc(ctx)
+        if resolved is not None:
+            record_active_calc_document(resolved)
+        return resolved
+    return get_cached_calc_document()
+
+
 def _off_main_may_auto_spill(doc: Any | None) -> bool:
     """Off-main spill is safe when the caller named a doc or at most one session is recorded.
 
@@ -975,6 +997,19 @@ def _queue_off_main_auto_spill(
     late to change the add-in return; the deferred path just skips the write.
     """
     from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.scripting.session_manager import (
+        off_main_calc_session_is_unambiguous,
+        recorded_calc_session_count,
+    )
+
+    log.debug(
+        "Spill: scheduling off-main deferred locate code=%r has_doc=%s "
+        "recorded=%s unambiguous=%s",
+        code,
+        doc is not None,
+        recorded_calc_session_count(),
+        off_main_calc_session_is_unambiguous(),
+    )
 
     def _on_main() -> None:
         from plugin.framework.thread_guard import on_main_thread
@@ -1066,14 +1101,12 @@ def finalize_python_return(
             grid_to_spill = _result_as_spill_grid(result)
             try:
                 if not on_main_thread():
-                    if _off_main_may_auto_spill(doc):
-                        _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
+                    spill_doc = _spill_target_doc(ctx, doc)
+                    if _off_main_may_auto_spill(spill_doc):
+                        _queue_off_main_auto_spill(ctx, code, grid_to_spill, spill_doc)
                     return to_calc_compatible(grid_to_spill[0][0])
 
-                target_doc = doc
-                if target_doc is None:
-                    if on_main_thread():
-                        target_doc = _get_calc_doc(ctx)
+                target_doc = _spill_target_doc(ctx, doc)
                 if target_doc is not None:
                     prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
                     if prepared == "#SPILL!":
@@ -1164,7 +1197,7 @@ def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
                 log.debug("python workbook unload listener install failed", exc_info=True)
             kwargs = build_python_eval_init_kwargs(target)
             if kwargs and on_main_thread():
-                record_active_calc_session(None, kwargs)
+                record_active_calc_session(None, kwargs, doc=target)
             return kwargs
         return get_cached_calc_init_kwargs()
     except Exception:
@@ -1319,11 +1352,18 @@ def _execute_python_addin_impl(
             from plugin.framework.thread_guard import on_main_thread
 
             if on_main_thread():
-                from plugin.scripting.session_manager import _calc_document
+                from plugin.scripting.session_manager import (
+                    _calc_document,
+                    record_active_calc_document,
+                )
 
                 target_doc = _calc_document(ctx)
-            # Off-main: do not query the desktop (Yellow / #402). finalize_python_return
-            # defers auto-spill to the UI thread when the recorded session is unambiguous.
+                if target_doc is not None:
+                    record_active_calc_document(target_doc)
+            # Off-main: do not query the desktop (Yellow / #402). A cached
+            # model is only for spill finalize — session_key / init_kwargs
+            # must not call UNO on it from this thread.
+        spill_doc = target_doc if target_doc is not None else _spill_target_doc(ctx, None)
         from plugin.calc.python.geometric_recalc import (
             ensure_geometric_strip_index_for_eval,
             maybe_strip_geometric_eval_args,
@@ -1398,9 +1438,10 @@ def _execute_python_addin_impl(
             )
 
             log.debug(
-                "PYTHON eval: target_doc=%s session_id=%r recorded=%s ids=%s "
+                "PYTHON eval: target_doc=%s spill_doc=%s session_id=%r recorded=%s ids=%s "
                 "unambiguous=%s has_init=%s on_main=%s in_sync_host=%s",
                 target_doc is not None,
+                spill_doc is not None,
                 session_id,
                 recorded_calc_session_count(),
                 recorded_calc_session_ids(),
@@ -1435,7 +1476,9 @@ def _execute_python_addin_impl(
                 if timings:
                     image_ms = int(round((time.perf_counter() - t_img) * 1000))
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
-            final_ret = finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc)
+            final_ret = finalize_python_return(
+                ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=spill_doc
+            )
             log.debug("PYTHON returning scalar: %r (type: %s)", final_ret, type(final_ret).__name__)
             return final_ret
 

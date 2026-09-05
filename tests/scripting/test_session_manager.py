@@ -140,6 +140,36 @@ def test_workbook_session_id_off_main_ambiguous_when_two_workbooks() -> None:
         session_manager.clear_active_calc_session()
 
 
+def test_cached_calc_document_unambiguous_and_cleared() -> None:
+    """Off-main spill may pass through the UI-thread model when one session is recorded."""
+    from tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    doc = CalcDocStub(url="file:///SpillTest.ods")
+    try:
+        session_manager.record_active_calc_session("calc:file:///SpillTest.ods", doc=doc)
+        assert session_manager.get_cached_calc_document() is doc
+        session_manager.record_active_calc_session("calc:file:///other.ods")
+        assert session_manager.get_cached_calc_document() is None
+    finally:
+        session_manager.clear_active_calc_session()
+    assert session_manager.get_cached_calc_document() is None
+
+
+def test_cached_calc_document_isolated_zero_sessions() -> None:
+    """Isolated (no recorded id) still returns the last UI-thread model."""
+    from tests.testing_utils import CalcDocStub
+
+    session_manager.clear_active_calc_session()
+    doc = CalcDocStub(url="file:///isolated.ods")
+    try:
+        session_manager.record_active_calc_document(doc)
+        assert session_manager.recorded_calc_session_count() == 0
+        assert session_manager.get_cached_calc_document() is doc
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_workbook_session_id_uses_cached_session_off_main() -> None:
     """Off the main thread without explicit doc, workbook_session_id returns UI-cached session id."""
     from unittest.mock import MagicMock, patch

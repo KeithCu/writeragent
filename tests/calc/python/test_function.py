@@ -603,6 +603,57 @@ def _install_immediate_spill_timer(
     )
 
 
+def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SpillTest!A1 ``=PY("result=[[11,22],[33,44]]")`` must paint 11,22 / 33,44.
+
+    Headed repro (Scrolly): worker returns the full grid, then
+    ``PYTHON eval: target_doc=False on_main=False`` / ``returning scalar: 11``
+    with zero ``Spill:`` lines. Off-main finalize must resolve the cached
+    document and deferred-spill the neighbors.
+    """
+    from plugin.scripting import session_manager as sm
+    from tests.testing_utils import CalcSheetStub
+
+    spilltest_code = "result=[[11,22],[33,44]]"
+    sheet = CalcSheetStub("SpillTest")
+    doc = CalcDocStub(
+        sheets=[sheet],
+        url="file:///SpillTest.ods",
+        active_sheet="SpillTest",
+        selection="A1",
+    )
+    sheet.getCellByPosition(0, 0).setFormula(f'=PY("{spilltest_code}")')
+    ctx = _ctx_with_doc(doc)
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+    sm.clear_active_calc_session()
+    sm.record_active_calc_session("calc:file:///SpillTest.ods", doc=doc)
+
+    on_main = {"value": False}
+    monkeypatch.setattr(
+        "plugin.framework.thread_guard.on_main_thread",
+        lambda: on_main["value"],
+    )
+    # Desktop resolve must not be required once the session cached the model.
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: None)
+    assert python_function._spill_target_doc(ctx, None) is doc
+    _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
+
+    try:
+        val = finalize_python_return(ctx, spilltest_code, [[11, 22], [33, 44]], doc=None)
+    finally:
+        sm.clear_active_calc_session()
+
+    assert val == 11
+    assert sheet.getCellByPosition(1, 0).getValue() == 22  # B1
+    assert sheet.getCellByPosition(0, 1).getValue() == 33  # A2
+    assert sheet.getCellByPosition(1, 1).getValue() == 44  # B2
+    key = ("file:///SpillTest.ods", "SpillTest", 0, 0)
+    assert key in python_function.SPILL_REGISTRY
+    assert set(python_function.SPILL_REGISTRY[key]) == {(0, 1), (1, 0), (1, 1)}
+
+
 def test_finalize_python_return_spills_off_main_when_doc_unambiguous(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
+import weakref
 from typing import Any
 
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
@@ -144,15 +145,60 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
 _ACTIVE_CALC_SESSION_LOCK = threading.Lock()
 _LAST_ACTIVE_CALC_SESSION_ID: str | None = None
 _LAST_ACTIVE_CALC_INIT_KWARGS: dict[str, Any] = {}
+# Weakref to the last UI-thread Calc model. Off-main finalize may pass this
+# through to deferred spill; do not call UNO on it off-main.
+_LAST_ACTIVE_CALC_DOC: weakref.ReferenceType[Any] | None = None
 # Session ids recorded while workbooks were on the UI thread. Off-main recalc
 # may use the cache only when exactly one workbook is recorded — two open files
 # would otherwise run doc B in doc A's shared kernel (XAddIn has no calling doc).
 _RECORDED_CALC_SESSION_IDS: set[str] = set()
 
 
-def record_active_calc_session(session_id: str | None, init_kwargs: dict[str, Any] | None = None) -> None:
+def record_active_calc_document(doc: Any | None) -> None:
+    """Remember the UI-thread Calc model for off-main spill when the session is unambiguous."""
+    global _LAST_ACTIVE_CALC_DOC
+    if doc is None:
+        return
+    raw = doc
+    try:
+        from plugin.framework.thread_guard import _unwrap_uno
+
+        raw = _unwrap_uno(doc)
+    except Exception:
+        raw = doc
+    with _ACTIVE_CALC_SESSION_LOCK:
+        try:
+            _LAST_ACTIVE_CALC_DOC = weakref.ref(raw)
+        except TypeError:
+            _LAST_ACTIVE_CALC_DOC = None
+
+
+def get_cached_calc_document() -> Any | None:
+    """Return the cached Calc model when at most one workbook session is recorded.
+
+    Two recorded sessions: XAddIn has no calling document — do not guess.
+    Zero recorded sessions (Isolated) still returns the last UI-thread model.
+    The object is for *identity / later UI-thread use*. Do not invoke UNO on it
+    from a worker or Yellow thread.
+    """
+    with _ACTIVE_CALC_SESSION_LOCK:
+        if len(_RECORDED_CALC_SESSION_IDS) > 1:
+            return None
+        ref = _LAST_ACTIVE_CALC_DOC
+    if ref is None:
+        return None
+    return ref()
+
+
+def record_active_calc_session(
+    session_id: str | None,
+    init_kwargs: dict[str, Any] | None = None,
+    doc: Any | None = None,
+) -> None:
     """Cache the active Calc session id and init kwargs on the main thread for off-main formula lookups."""
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS
+    if doc is not None:
+        record_active_calc_document(doc)
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is not None:
             if is_opencl_probe_session_id(session_id):
@@ -217,18 +263,20 @@ def get_cached_calc_init_kwargs() -> dict[str, Any]:
 
 def clear_active_calc_session(session_id: str | None = None) -> None:
     """Clear cached Calc session on document unload or reset."""
-    global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS
+    global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS, _LAST_ACTIVE_CALC_DOC
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is None:
             _RECORDED_CALC_SESSION_IDS.clear()
             _LAST_ACTIVE_CALC_SESSION_ID = None
             _LAST_ACTIVE_CALC_INIT_KWARGS = {}
+            _LAST_ACTIVE_CALC_DOC = None
         else:
             _RECORDED_CALC_SESSION_IDS.discard(session_id)
             if _LAST_ACTIVE_CALC_SESSION_ID == session_id:
                 _LAST_ACTIVE_CALC_SESSION_ID = next(iter(_RECORDED_CALC_SESSION_IDS), None)
                 # Remaining workbook's init is unknown; do not keep the closed file's kwargs.
                 _LAST_ACTIVE_CALC_INIT_KWARGS = {}
+                _LAST_ACTIVE_CALC_DOC = None
     try:
         from plugin.calc.python.function import clear_python_addin_cache
 
@@ -277,7 +325,7 @@ def _workbook_session_key(doc: Any) -> str:
 def calc_workbook_base_session_id(doc: Any) -> str:
     """Worker session id for shared-kernel ``=PY()`` (not the ``:init`` session)."""
     sid = f"calc:{_workbook_session_key(doc)}"
-    record_active_calc_session(sid)
+    record_active_calc_session(sid, doc=doc)
     return sid
 
 
