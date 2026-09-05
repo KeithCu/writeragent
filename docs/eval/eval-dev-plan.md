@@ -201,9 +201,10 @@ tasks). Regressions to work down:
 | `data_sorting` | `z-ai/glm-5.3-flash` |
 | `tax_column` | `qwen/qwen3.8-27b`, `upstage/solar-pro4`, `z-ai/glm-5.3` |
 
-Catalog note for **future** ranking runs: drop `z-ai/glm-5.3`
-(expensive/overkill); keep `z-ai/glm-5.3-flash` as the more likely-used
-model. Keep `glm-5.3` in the current 613 snapshot since it already ran.
+Catalog note: `z-ai/glm-5.3` was **dropped** from the ranking catalog in the
+post-#616/#617 selective refresh (expensive/overkill); `z-ai/glm-5.3-flash`
+remains as the more likely-used model. Historical 613 snapshot prose above
+still mentions full `glm-5.3` where it ran.
 
 #### Next steps
 

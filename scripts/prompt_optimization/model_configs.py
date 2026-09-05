@@ -158,14 +158,6 @@ MODELS: list[ModelConfig] = [
         notes="Qwen 3.8 Flash 125B/6B-active MoE with 1M context; replaces 3.7 Flash.",
     ),
     ModelConfig(
-        openrouter_id="z-ai/glm-5.3",
-        display_name="Z.ai: GLM 5.3",
-        context_window_tokens=1_310_720,
-        input_cost_per_million=1.4,
-        output_cost_per_million=4.4,
-        notes="Z.ai flagship GLM for long-horizon software/agent work; replaces 5.1.",
-    ),
-    ModelConfig(
         openrouter_id="z-ai/glm-5.3-flash",
         display_name="Z.ai: GLM 5.3 Flash",
         context_window_tokens=1_310_720,
