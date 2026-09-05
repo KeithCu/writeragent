@@ -176,7 +176,6 @@ def test_query_folder_sql_requires_sql():
     assert res["status"] == "error"
 
 
-@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
 @patch("plugin.calc.duckdb_tools.execute_on_main_thread")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.read_table_source_grid")
@@ -201,6 +200,7 @@ def test_query_folder_sql_ingress_size_fails_loud(
     mock_run.assert_not_called()
 
 
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
 @patch("plugin.calc.duckdb_tools.execute_on_main_thread")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
