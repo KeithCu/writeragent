@@ -17,6 +17,7 @@ import pytest
 
 from plugin.embeddings.embeddings_fs import LocaleTextRun
 from plugin.embeddings.embeddings_split import (
+    _deal_passage_text_ok,
     _merge_small_sentences_to_spans,
     _meta_chunks_from_spans,
     _split_non_prose_passage_to_spans,
@@ -66,6 +67,13 @@ def test_embeddings_split_overflow_pre_fails_closed() -> None:
             {},
             prose=True,
         )
+
+
+def test_deal_passage_text_ok_pytest_accepts_normal_text() -> None:
+    """Pytest domain keeps str_bounded (NUL allowed); CrossHair rejects NUL/controls."""
+    assert _deal_passage_text_ok("Hello\nworld")
+    assert _deal_passage_text_ok("")
+    assert _deal_passage_text_ok("\x00")  # pytest: str_bounded; CrossHair pre rejects
 
 
 def test_merge_small_sentences_rejects_out_of_order_spans() -> None:
