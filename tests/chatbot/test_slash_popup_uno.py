@@ -62,8 +62,8 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
         assert int(box.getItemCount()) >= 5
         ps = box.getPosSize()
         assert int(ps.Height) > 20
-        # TOP host so the list can paint over rich-text above Ready.
-        assert popup._popup_floater is not None
+        # In-dialog SIMPLE list (shrink transcript); no TOP floater host.
+        assert popup._popup_floater is None
 
         popup.on_query_text("/he")
         assert popup.visible_names == ["help"]
