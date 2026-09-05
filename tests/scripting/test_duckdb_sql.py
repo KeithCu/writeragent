@@ -434,6 +434,22 @@ def test_pretty_demo_join_results_code_runs_via_run_sql():
     assert abs(joined_rev - sheet_rev) < 0.02
 
 
+def test_run_sql_registers_calcrange_preloaded(tmp_path: Path):
+    """=PY() data[0] is a CalcRange; bool(range) must not skip registration."""
+    from plugin.scripting.calc_range import CalcRange
+
+    income = tmp_path / "zip_income.csv"
+    _write_csv(income, "code,median_household_income\nNORTH,50000\n")
+    df = run_sql(
+        "SELECT z.median_household_income AS inc FROM sales s JOIN zip_income z ON s.code = z.code",
+        preloaded={"sales": CalcRange([["code"], ["NORTH"]])},
+        files={"zip_income": "zip_income.csv"},
+        scoped_dir=str(tmp_path),
+    )
+    assert len(df) == 1
+    assert int(df.iloc[0]["inc"]) == 50000
+
+
 def test_run_sql_returns_dataframe_for_preloaded_and_sibling_csv(tmp_path: Path):
     sales = tmp_path / "ignored.csv"
     _write_csv(sales, "zip,amount\n02116,10\n")

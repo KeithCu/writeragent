@@ -1146,7 +1146,9 @@ def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
     monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
-    out = python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "1+1")
+    doc = CalcDocStub()
+    # Pass doc= — CalcDocStub is not a UNO Calc model, so desktop lookup is None.
+    out = python_function.execute_python_addin(_ctx_with_doc(doc), "1+1", doc=doc)
     assert out == 1.0
     assert captured.get("bindings") == {"scoped_dir": "/folder"}
 

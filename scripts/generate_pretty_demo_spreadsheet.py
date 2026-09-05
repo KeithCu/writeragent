@@ -1636,6 +1636,21 @@ def build_xlsx_showcase(out_path: Path) -> None:
         ws8.row_dimensions[current].height = 36
         current += 1 + sql_results_gutter_rows(scenario["kind"])
 
+    # Last RESULTS is the live ZIP join. Bumping ``current`` alone does not
+    # create rows, so openpyxl max_row stayed on the formula and the 15-row
+    # gutter vanished. A footer after the gutter makes those rows real.
+    ws8.merge_cells(f"A{current}:H{current}")
+    foot = ws8[f"A{current}"]
+    set_text_cell(
+        foot,
+        "Edit the SQL cells — live RESULTS recalc through Calc's DAG. "
+        "Sibling CSV is scoped_dir, not a formula argument.",
+    )
+    foot.fill = metric_fill
+    foot.font = metric_font
+    foot.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+    ws8.row_dimensions[current].height = 22
+
     auto_fit_columns(ws8)
 
     from openpyxl.workbook.defined_name import DefinedName
