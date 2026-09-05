@@ -486,8 +486,8 @@ class SortRange(ToolCalcRangeBase):
     description = (
         "Stable one-column sort of the specified range(s) by values in one column. "
         "Multi-key sorts are multiple calls (two stable one-column passes). "
-        "Do pass has_header=true when row 1 is labels because otherwise the header "
-        "sorts like a value and leaves the top of the sheet. "
+        "Do pass has_header=true when row 1 is labels because otherwise labels "
+        "sort as values. "
         "Supports lists for non-contiguous areas."
     )
     parameters = {

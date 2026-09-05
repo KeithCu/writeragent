@@ -103,10 +103,10 @@ Keep diffs short.
 
 - Do `delegate_to_specialized_calc_toolset(domain="ranges")` then
   `sort_range` to reorder rows (multi-key = two stable one-column
-  passes). Prefer that over `write_formula_range` / `=PY` for sort
-  **because** those overwrite the range including headers.
-- Do pass `has_header=true` when row 1 is labels **because** otherwise
-  the header sorts like a value.
+  passes) because `write_formula_range` / `=PY` overwrite the range
+  including headers.
+- Do pass `has_header=true` when row 1 is labels because otherwise
+  labels sort as values.
 - Do write each row's formula with that row's cells (`Banana` → `B3`,
   not a stamped `B2`).
 
@@ -124,8 +124,8 @@ Keep diffs short.
 **Tool descriptions:**
 
 - `sort_range`: full contract — stable one-column; multi-key = multiple
-  calls; labeled tables → `has_header=true` (DO-first, because otherwise
-  the header sorts like a value).
+  calls; labeled tables → `has_header=true` (Do pass it when row 1 is
+  labels because otherwise labels sort as values).
 - `write_formula_range`: no sort-half sentence (slim surface). Relative
   / tax formula rule stays in Calc directives only.
 

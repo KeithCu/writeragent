@@ -53,13 +53,12 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
 # Rule shape: Do Z because Y (lead with Do). Shared prompt — no 20b fork.
 _CALC_SORT_ROUTING = (
     'Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range '
-    "to reorder rows (multi-key sorts are two stable one-column passes). "
-    "Prefer that over write_formula_range or =PY for sort because those "
-    "overwrite the range including headers."
+    "to reorder rows (multi-key sorts are two stable one-column passes) "
+    "because write_formula_range or =PY overwrite the range including headers."
 )
 _CALC_HAS_HEADER = (
     "Do pass has_header=true on sort_range when row 1 is labels because "
-    "otherwise the header sorts like a value and leaves the top of the sheet."
+    "otherwise labels sort as values."
 )
 _CALC_RELATIVE_FORMULA = (
     "Do write each row's formula with that row's cells because copying one "
@@ -67,8 +66,8 @@ _CALC_RELATIVE_FORMULA = (
     "stamped B2)."
 )
 _SORT_RANGE_HAS_HEADER = (
-    "Do pass has_header=true when row 1 is labels because otherwise the header "
-    "sorts like a value and leaves the top of the sheet."
+    "Do pass has_header=true when row 1 is labels because otherwise labels "
+    "sort as values."
 )
 
 
