@@ -384,7 +384,7 @@ CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_H
 - You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_calc_toolset(domain="web_research").
 Python on sheet data: write_formula_range of =PY (that tool's description).
-Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because write_formula_range or =PY overwrite the range including headers.
+Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
 Do pass has_header=true on sort_range when row 1 is labels because otherwise labels sort as values.
 Do write each row's formula with that row's cells because copying one prototype pins cell refs to the first row (e.g. Banana row uses B3, not a stamped B2)."""
 

@@ -54,7 +54,7 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
 _CALC_SORT_ROUTING = (
     'Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range '
     "to reorder rows (multi-key sorts are two stable one-column passes) "
-    "because write_formula_range or =PY overwrite the range including headers."
+    "because rewriting values by hand loses the header row."
 )
 _CALC_HAS_HEADER = (
     "Do pass has_header=true on sort_range when row 1 is labels because "
@@ -78,6 +78,11 @@ def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:
     assert _CALC_SORT_ROUTING in calc
     assert _CALC_HAS_HEADER in calc
     assert _CALC_RELATIVE_FORMULA in calc
+    # Naming write_formula_range / =PY in the because-clause primed weak
+    # models to call the tool we want them to avoid (glm-5.3-flash).
+    sort_line = next(line for line in calc.splitlines() if "then sort_range" in line)
+    assert "write_formula_range" not in sort_line
+    assert "=PY" not in sort_line
     # Slim surface: sort routing lives in CALC_CORE_DIRECTIVES only.
     assert _CALC_SORT_ROUTING not in CALC_WORKFLOW
     assert _CALC_HAS_HEADER not in CALC_WORKFLOW

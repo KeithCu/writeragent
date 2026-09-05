@@ -232,6 +232,25 @@ model. Keep `glm-5.3` in the current 613 snapshot since it already ran.
    `poolside/laguna-xs-2.1`) when key budget allows so Pareto is not
    carrying stale Sep 1 bits for those ids.
 
+#### Follow-up (oracle FN + sort because-clause)
+
+Forensics on the four catalog "hurts" (item 1 above):
+
+- Two tax `P→F` rows (`qwen/qwen3.8-27b`, `z-ai/glm-5.3`) were **oracle
+  false-negatives**: models wrote semantically correct relative 8% forms
+  (`=0.08*B{n}`, `=B{n}*8%`) that `_tax_formula_ok` rejected as a
+  string-literal `=B{n}*0.08`. Parser now accepts those equivalents
+  (and `8/100`, `$` / spaces / decimal comma) without loosening wrong
+  row, wrong factor, or Price-column junk. Shared-prompt tax lines stay
+  put so the real tax helps (20b, gemini-3.5-flash-lite, laguna-s-2.1)
+  are not undone.
+- `z-ai/glm-5.3-flash` sort `P→F` was **tool-naming priming**: the sort
+  Do-line because-clause named `write_formula_range` / `=PY`, and the
+  model sorted in its head then hand-rolled that write into A2:B6.
+  Because-clause is now "rewriting values by hand loses the header
+  row" — still `domain="ranges"` then `sort_range`, no tool names in
+  the why.
+
 Cross-links: [`oss-20b-eval.md`](oss-20b-eval.md),
 [PR 610](https://github.com/KeithCu/writeragent/pull/610),
 [PR 613](https://github.com/KeithCu/writeragent/pull/613),
@@ -239,4 +258,4 @@ Cross-links: [`oss-20b-eval.md`](oss-20b-eval.md),
 [`nemotron-35-eval.md`](nemotron-35-eval.md).
 
 ---
-*Updated Dev Plan v2.3 — Phase G retrospective (Sep 2026; PR 610 / PR 613)*
+*Updated Dev Plan v2.3 — Phase G retrospective (Sep 2026; PR 610 / PR 613); oracle/sort follow-up*
