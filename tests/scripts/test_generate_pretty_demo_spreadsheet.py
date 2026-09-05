@@ -12,9 +12,9 @@ from pathlib import Path
 
 from scripts.generate_pretty_demo_spreadsheet import (
     CALC_PYTHON_ADDIN_FN,
+    RESULTS_PY_CODE_MAX_LEN,
     SALES_RANGE_ODS_CROSS,
     SALES_ZIPS_BY_REGION,
-    SQL_MARKETING_CHANNEL_ROAS,
     SQL_SALES_BY_REGION_CATEGORY,
     SQL_SALES_ZIP_INCOME_JOIN,
     ZIP_INCOME_CSV_NAME,
@@ -22,10 +22,23 @@ from scripts.generate_pretty_demo_spreadsheet import (
     _ODS_SHEET_COLUMNS,
     _scenario_result_formula,
     build_ods_showcase,
+    duckdb_sql_from_cell_code,
     get_sales_dataset,
     ods_formula,
     sql_demo_scenarios,
+    sql_query_lines,
     write_zip_income_csv,
+)
+
+# Tokens that must live in sheet cells, never inside the RESULTS formula string.
+_SQL_EMBED_MARKERS = (
+    "SUM(Revenue)",
+    "SUM(Ad_Spend)",
+    "GROUP BY",
+    "COUNT(*)",
+    "NULLIF",
+    "FROM sales",
+    "FROM marketing",
 )
 
 FIXTURE_ODS = Path(__file__).resolve().parents[1] / "fixtures" / "python_showcase_demo.ods"
@@ -160,6 +173,19 @@ def _assert_ods_formulas_and_layout(xml: str) -> None:
     assert "style:column-width" in xml
     assert "style:row-height" in xml
     assert "SQL_DuckDB" in xml
+    # SQL text is cell content; RESULTS formulas are short OpenFormula runners.
+    assert "SUM(Revenue)" in xml
+    assert "SUM(Ad_Spend)" in xml
+    formula_attrs = re.findall(r'table:formula="([^"]*)"', xml)
+    # ``data[1]`` also appears in Forecasting CGR; pin RESULTS on the DuckDB runner.
+    results = [f for f in formula_attrs if "con.sql(sql)" in f]
+    assert len(results) == 2
+    for formula in results:
+        assert "data[1]" in formula
+        assert "[.A" in formula  # explicit SQL cell/range, not magic-above
+        assert len(formula) < 400
+        for marker in _SQL_EMBED_MARKERS:
+            assert marker not in formula, (marker, formula)
 
 
 def test_build_ods_showcase_formulas_and_layout(tmp_path: Path) -> None:
@@ -172,43 +198,104 @@ def test_shipped_ods_fixture_formulas_and_layout() -> None:
     _assert_ods_formulas_and_layout(_ods_content_xml(FIXTURE_ODS))
 
 
-def test_sheet_only_result_formulas_keep_sql_inside_quoted_payload() -> None:
-    """SQL stays inside the formula's one quoted string (no triple-quote / Err:508)."""
+def _assert_results_formula_is_short_and_quote_safe(formula: str, *, sql_range: str) -> str:
+    """RESULTS =PY() is a short runner: SQL is a cell/range arg, not a giant string."""
+    assert formula.startswith("="), formula
+    payload = _quoted_formula_payload(formula)
+    rest = formula[formula.rindex('"') + 1 :]
+    assert len(payload) <= RESULTS_PY_CODE_MAX_LEN, (len(payload), payload)
+    assert '"""' not in formula
+    assert payload.count("'") <= 2  # only the table-name quotes in register('sales')
+    assert "data[0]" in payload and "data[1]" in payload
+    assert "con.sql(sql)" in payload
+    assert sql_range in rest
+    for marker in _SQL_EMBED_MARKERS:
+        assert marker not in formula, marker
+    # Premature string close made Calc treat SQL commas as OpenFormula
+    # separators (Region, Category → region; category).
+    assert "Region; Category" not in formula
+    assert "SUM(Revenue);" not in formula
+    return payload
+
+
+def test_sheet_only_result_formulas_are_short_and_read_sql_from_cell_arg() -> None:
+    """SQL is not embedded; RESULTS passes an explicit SQL cell/range plus the data range."""
     cases = (
-        ("sheet_sales", SQL_SALES_BY_REGION_CATEGORY, "SUM(Revenue)"),
-        ("sheet_marketing", SQL_MARKETING_CHANNEL_ROAS, "SUM(Ad_Spend)"),
+        ("sheet_sales", "A11:A16"),
+        ("sheet_marketing", "A23:A29"),
     )
-    for kind, sql, marker in cases:
+    for kind, sql_range in cases:
         for ods_fmt in (False, True):
-            formula = _scenario_result_formula(kind, sql, ods=ods_fmt)
+            formula = _scenario_result_formula(kind, sql_range, ods=ods_fmt)
             assert formula is not None, kind
-            payload = _quoted_formula_payload(formula)
-            rest = formula[formula.rindex('"') + 1 :]
-            assert marker in payload
-            assert marker not in rest
-            assert '"""' not in formula
-            assert "con.sql('" in payload
-            assert "SUM(" not in rest
-            assert "COUNT(" not in rest
-            # Premature string close made Calc treat SQL commas as OpenFormula
-            # separators (Region, Category → region; category). Keep them inside.
-            assert "Region; Category" not in formula
-            assert "SUM(Revenue);" not in formula
-            assert payload.count(",") >= 2
-    assert _scenario_result_formula("join_zip", SQL_SALES_ZIP_INCOME_JOIN, ods=False) is None
+            _assert_results_formula_is_short_and_quote_safe(formula, sql_range=sql_range)
+    assert _scenario_result_formula("join_zip", "A40:A54", ods=False) is None
 
 
-def test_fixture_xlsx_sql_results_formulas_are_well_quoted() -> None:
-    """Committed showcase xlsx RESULTS cells must not regress to broken quoting."""
+def test_duckdb_sql_from_cell_code_is_quote_safe_and_under_cap() -> None:
+    for table in ("sales", "marketing"):
+        code = duckdb_sql_from_cell_code(table)
+        assert len(code) <= RESULTS_PY_CODE_MAX_LEN
+        assert '"' not in code
+        assert f"register('{table}'" in code
+        assert "data[1]" in code
+
+
+def test_ods_formula_sql_results_two_args_not_rematched() -> None:
+    formula = _scenario_result_formula("sheet_sales", "A11:A16", ods=True)
+    assert formula is not None
+    out = ods_formula(formula)
+    assert "[$Sales_Analytics.A5:.J40]" in out
+    assert "[.A11:.A16]" in out
+    assert _NESTED_SHEET_REF.search(out) is None
+    assert out.startswith(f"of:={CALC_PYTHON_ADDIN_FN}(")
+    for marker in _SQL_EMBED_MARKERS:
+        assert marker not in out
+
+
+def test_sql_query_lines_keeps_visible_sql_out_of_the_formula() -> None:
+    lines = sql_query_lines(SQL_SALES_BY_REGION_CATEGORY)
+    assert any("SUM(Revenue)" in line for line in lines)
+    assert len(lines) >= 4
+    formula = _scenario_result_formula("sheet_sales", "A11:A16", ods=False)
+    assert formula is not None
+    assert "SUM(Revenue)" not in formula
+
+
+def _xlsx_sql_duckdb_result_formulas(ws: object) -> list[tuple[str, str]]:
+    found: list[tuple[str, str]] = []
+    for row in ws.iter_rows():  # type: ignore[attr-defined]
+        for cell in row:
+            val = cell.value
+            if isinstance(val, str) and val.startswith("=") and "data[1]" in val:
+                found.append((cell.coordinate, val))
+    return found
+
+
+def test_fixture_xlsx_sql_results_formulas_are_short_and_quote_safe() -> None:
+    """Committed showcase xlsx RESULTS cells stay short; SQL lives in cells."""
     from openpyxl import load_workbook
 
     path = Path(__file__).resolve().parents[1] / "fixtures" / "python_showcase_demo.xlsx"
     wb = load_workbook(path)
     ws = wb["SQL_DuckDB"]
-    for coord, marker in (("A18", "SUM(Revenue)"), ("A31", "SUM(Ad_Spend)")):
-        formula = ws[coord].value
-        assert isinstance(formula, str) and formula.startswith("="), coord
-        payload = _quoted_formula_payload(formula)
-        assert marker in payload
-        assert '"""' not in formula
-    assert ws["A44"].data_type == "s"  # join remains text-only
+    formulas = _xlsx_sql_duckdb_result_formulas(ws)
+    assert len(formulas) == 2
+    sql_text = "\n".join(
+        str(cell.value) for row in ws.iter_rows() for cell in row if isinstance(cell.value, str)
+    )
+    assert "SUM(Revenue)" in sql_text
+    assert "SUM(Ad_Spend)" in sql_text
+    assert "zip_income" in sql_text
+    for unused_coord, formula in formulas:
+        # Trailing arg is the SQL cell/range on this sheet (A11:A16 or A11).
+        rest = formula[formula.rindex('"') + 1 :]
+        sql_arg = rest.rsplit(",", 1)[-1].strip().rstrip(")")
+        _assert_results_formula_is_short_and_quote_safe(formula, sql_range=sql_arg)
+    join_notes = [
+        cell.value
+        for row in ws.iter_rows()
+        for cell in row
+        if isinstance(cell.value, str) and "query_folder_sql" in cell.value and not cell.value.startswith("=")
+    ]
+    assert join_notes, "ZIP join must stay a query_folder_sql pointer, not a live =PY()"

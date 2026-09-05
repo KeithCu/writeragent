@@ -37,7 +37,20 @@ Back to [Enabling NumPy & Python in LibreOffice](../enabling_numpy_in_libreoffic
 
 ### Pretty demo (SQL / DuckDB sheet)
 
-The same ODS as the `=PY()` showcase — [`tests/fixtures/python_showcase_demo.ods`](../../tests/fixtures/python_showcase_demo.ods) — includes a **SQL_DuckDB** sheet. It reuses the Sales and Marketing ranges, keeps SQL **in cells**, and joins sheet sales to sibling [`zip_income.csv`](../../tests/fixtures/zip_income.csv) (ACS 2024 5-year B19013 / S1903-equivalent ZCTA median household income).
+The same ODS as the `=PY()` showcase — [`tests/fixtures/python_showcase_demo.ods`](../../tests/fixtures/python_showcase_demo.ods) — includes a **SQL_DuckDB** sheet. It reuses the Sales and Marketing ranges, keeps SQL **only in cells** (one line per row), and joins sheet sales to sibling [`zip_income.csv`](../../tests/fixtures/zip_income.csv) (ACS 2024 5-year B19013 / S1903-equivalent ZCTA median household income).
+
+**RESULTS contract (sheet-only scenarios):** the live cell is a **short** `=PY()` / add-in formula — not a novel of nested quotes. SQL is an explicit formula argument:
+
+```text
+=PY("sql=chr(10).join(str(c) for r in data[1] for c in r if c); import duckdb; …",
+    Sales_Analytics!A4:J39, A11:A16)
+```
+
+- `data[0]` is the sheet range (registered as `sales` / `marketing`).
+- `data[1]` is the SQL cell or multi-row block (joined with newlines).
+- Editing the SQL cells dirties RESULTS through Calc's normal DAG.
+- `data[` in the payload is required so the trailing SQL cell is not peeled as a matrix index.
+- Scenario 3 (ZIP ⨝ `zip_income.csv`) stays a `query_folder_sql` pointer — the sibling CSV is not a Calc argument.
 
 ```bash
 python scripts/generate_pretty_demo_spreadsheet.py --format all
@@ -420,3 +433,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | Pretty demo: same ODS as the =PY() showcase gets a SQL_DuckDB sheet (SQL in cells) + ZIP on sales + sibling ACS `zip_income.csv`. Tests run `query_folder_sql` against those assets. |
 | 2026-09-05 | Sibling office ingress: used-range (not `A1:AK2000` / `A1:AZ5000`); fail loud on open / `#SheetName` / empty range. ODS mtime cache still pending. |
 | 2026-09-05 | SQL_DuckDB live RESULTS `=PY()` formulas quote SQL with Python single quotes inside the formula `"…"` payload. Triple-double quotes closed the formula string early (Calc Err:508). |
+| 2026-09-05 | SQL_DuckDB RESULTS are formula-safe: SQL lives only in cells; the `=PY()` payload is a short runner that reads `data[1]` (SQL cell/range) plus `data[0]` (sheet range). |

@@ -15,9 +15,13 @@ Usage (from repo root):
 
 Writes ``python_showcase_demo.ods`` / ``.xlsx`` and copies sibling ``zip_income.csv``
 (U.S. Census ACS 2024 5-year B19013 / S1903-equivalent median household income by
-ZCTA). The SQL_DuckDB sheet keeps query text in cells; sheet-only scenarios also
-have live =PY()+DuckDB result formulas. The sales⨝ZIP-income join is the
-``query_folder_sql`` happy path (chat / Run Python Script / tests).
+ZCTA). The SQL_DuckDB sheet keeps query text **only** in cells (one line per
+row). Sheet-only RESULTS cells are a **short** ``=PY()`` that takes the data
+range as ``data[0]`` and an explicit SQL cell/range as ``data[1]`` (joined with
+newlines). Editing the SQL cells dirties RESULTS through Calc's DAG. Do not
+embed SQL inside the formula string — long quoted SQL is how Calc hits Err:508
+/ comma→semicolon bugs. The sales⨝ZIP-income join stays the
+``query_folder_sql`` happy path (sibling CSV is not a Calc arg).
 
 ODS-only notes (XLSX never calls these paths):
 - ``ods_formula()`` rewrites Calc refs to OpenFormula in one pass so names like
@@ -252,9 +256,36 @@ ACS_INCOME_NOTE = (
     "Sibling zip_income.csv is U.S. Census ACS 2024 5-year table B19013 "
     "(median household income; S1903 subject-table equivalent) by ZIP Code "
     "Tabulation Area (ZCTA) — reference data you would not keep in the company "
-    "workbook. Join sales ZIP to that file via query_folder_sql (chat or Run "
-    "Python Script). Regenerate: python scripts/generate_pretty_demo_spreadsheet.py --format all"
+    "workbook. Sheet-only RESULTS: =PY(short code, data_range, sql_range) — "
+    "data[0] is the sheet range, data[1] is the SQL cells above (joined with "
+    "newlines). The ZIP join is query_folder_sql (chat or Run Python Script), "
+    "not a live =PY(), because the CSV is not a Calc argument. Regenerate: "
+    "python scripts/generate_pretty_demo_spreadsheet.py --format all"
 )
+
+# Quoted =PY() payload must stay short. SQL lives in cells; this is only the
+# runner. ``data[`` is required so the trailing SQL cell is not peeled as a
+# matrix index (see plugin/calc/python/function.py).
+RESULTS_PY_CODE_MAX_LEN = 200
+
+
+def sql_query_lines(sql: str) -> list[str]:
+    """Split a SQL constant into sheet rows (one visible line per cell)."""
+    return [line for line in sql.splitlines() if line.strip()]
+
+
+def duckdb_sql_from_cell_code(table: str) -> str:
+    """Short =PY() payload: register ``data[0]`` as *table*, run SQL from ``data[1]``.
+
+    ``data[1]`` may be one cell or a multi-row block. Lines are joined with
+    newlines. No SQL text is inlined — the formula stays quote-safe.
+    """
+    return (
+        "sql=chr(10).join(str(c) for r in data[1] for c in r if c); "
+        "import duckdb; con=duckdb.connect(); "
+        f"con.register('{table}', data[0].to_pandas()); "
+        "result=con.sql(sql).df()"
+    )
 
 
 def write_zip_income_csv(out_dir: Path) -> Path:
@@ -323,39 +354,24 @@ def get_sales_dataset() -> list[list[Any]]:
     return [headers] + with_zip
 
 
-def _duckdb_register_formula(table: str, sql: str, range_addr: str, *, ods: bool) -> str:
-    """=PY() that registers a sheet range as *table* and runs *sql* via DuckDB.
-
-    The Calc/Excel formula wraps *code* in double quotes. Python string literals
-    inside that payload must use single quotes. Triple-double-quote SQL would
-    close the formula string at the first ``"`` so Calc sees bare ``SUM(…)`` /
-    ``COUNT(*)`` and raises Err:508 (mismatched parentheses). Other working
-    demo formulas already follow this quoting rule.
-    """
-    # Collapse whitespace; escape SQL apostrophes so they stay inside '...'.
-    sql_one_line = " ".join(sql.split()).replace("'", "\\'")
-    code = (
-        f"import duckdb; df=pd.DataFrame(data[1:], columns=data[0]); "
-        f"con=duckdb.connect(); con.register('{table}', df); "
-        f"result=con.sql('{sql_one_line}').df()"
-    )
-    if ods:
-        return f'=PY("{code}"; {range_addr})'
-    return f'={CALC_PYTHON_ADDIN_FN}("{code}", {range_addr})'
-
-
 def sql_demo_scenarios() -> list[dict[str, str]]:
     """SQL_DuckDB sheet blocks. Tests import the SQL strings and run query_folder_sql."""
     return [
         {
             "title": "1. Sheet-only: sales by Region × Category",
-            "blurb": "DuckDB GROUP BY on the Sales_Analytics range (no files).",
+            "blurb": (
+                "DuckDB GROUP BY on the Sales_Analytics range (no files). "
+                "Edit the SQL cells — RESULTS reads that range via =PY()."
+            ),
             "sql": SQL_SALES_BY_REGION_CATEGORY,
             "kind": "sheet_sales",
         },
         {
             "title": "2. Sheet-only: marketing channel ROAS",
-            "blurb": "Aggregate KPI on the Statistics_ML campaign range.",
+            "blurb": (
+                "Aggregate KPI on the Statistics_ML campaign range. "
+                "Edit the SQL cells — RESULTS reads that range via =PY()."
+            ),
             "sql": SQL_MARKETING_CHANNEL_ROAS,
             "kind": "sheet_marketing",
         },
@@ -372,28 +388,47 @@ def sql_demo_scenarios() -> list[dict[str, str]]:
     ]
 
 
-def _scenario_result_formula(kind: str, sql: str, *, ods: bool) -> str | None:
-    """Live =PY()+DuckDB for sheet-only scenarios. Join is query_folder_sql (sibling CSV)."""
+def _a1_col_range(start_row: int, end_row: int) -> str:
+    """A1 range for a vertical SQL block (single cell when start==end)."""
+    if start_row == end_row:
+        return f"A{start_row}"
+    return f"A{start_row}:A{end_row}"
+
+
+def _scenario_result_formula(kind: str, sql_range: str, *, ods: bool) -> str | None:
+    """Live =PY()+DuckDB for sheet-only scenarios. SQL is a cell/range arg, not a string.
+
+    Join stays ``query_folder_sql`` (sibling CSV is not a Calc argument).
+    """
     if kind == "sheet_sales":
-        return _duckdb_register_formula(
-            "sales", sql, SALES_RANGE_ODS_CROSS if ods else SALES_RANGE_XLSX_CROSS, ods=ods
-        )
-    if kind == "sheet_marketing":
-        return _duckdb_register_formula(
+        table, data_range = "sales", SALES_RANGE_ODS_CROSS if ods else SALES_RANGE_XLSX_CROSS
+    elif kind == "sheet_marketing":
+        table, data_range = (
             "marketing",
-            sql,
             MARKETING_RANGE_ODS_CROSS if ods else MARKETING_RANGE_XLSX_CROSS,
-            ods=ods,
         )
-    return None
+    else:
+        return None
+    code = duckdb_sql_from_cell_code(table)
+    if ods:
+        return f'=PY("{code}"; {data_range}; {sql_range})'
+    return f'={CALC_PYTHON_ADDIN_FN}("{code}", {data_range}, {sql_range})'
 
 
 def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any) -> None:
     """SQL / DuckDB tab: visible SQL in cells + live =PY() results for sheet ranges."""
     tab = make_table("SQL_DuckDB")
+    row_n = 0
+
+    def emit(row: Any) -> int:
+        nonlocal row_n
+        tab.addElement(row)
+        row_n += 1
+        return row_n
+
     r1 = make_row("hero")
     r1.addElement(make_cell("🦆 SQL / DuckDB — Sheet ranges and sibling files", "HeroTitle", span_cols=8))
-    tab.addElement(r1)
+    emit(r1)
 
     r2 = make_row("sub")
     r2.addElement(
@@ -403,37 +438,41 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
             span_cols=8,
         )
     )
-    tab.addElement(r2)
-    tab.addElement(make_row("spacer"))
+    emit(r2)
+    emit(make_row("spacer"))
 
     note = make_row("metric")
     note.addElement(make_cell(ACS_INCOME_NOTE, "InfoBox", span_cols=8))
-    tab.addElement(note)
-    tab.addElement(make_row("spacer"))
+    emit(note)
+    emit(make_row("spacer"))
 
     for scenario in sql_demo_scenarios():
         banner = make_row("section")
         banner.addElement(make_cell(scenario["title"], "SectionBanner", span_cols=8))
-        tab.addElement(banner)
+        emit(banner)
 
         blurb = make_row("metric")
         blurb.addElement(make_cell(scenario["blurb"], "MetricLabel", span_cols=8))
-        tab.addElement(blurb)
+        emit(blurb)
 
         sql_hdr = make_row("header")
         sql_hdr.addElement(make_cell("SQL (edit this text — this is the query)", "TableHeader", span_cols=8))
-        tab.addElement(sql_hdr)
+        emit(sql_hdr)
 
-        sql_row = make_row("data")
-        sql_row.addElement(make_cell(scenario["sql"], "CodeBlock", span_cols=8))
-        tab.addElement(sql_row)
-        tab.addElement(make_row("spacer"))
+        lines = sql_query_lines(scenario["sql"])
+        sql_start = row_n + 1
+        for line in lines:
+            sql_row = make_row("data")
+            sql_row.addElement(make_cell(line, "CodeBlock", span_cols=8))
+            emit(sql_row)
+        sql_range = _a1_col_range(sql_start, row_n)
+        emit(make_row("spacer"))
 
         res_hdr = make_row("section")
         res_hdr.addElement(make_cell("RESULTS", "SectionBanner", span_cols=8))
-        tab.addElement(res_hdr)
+        emit(res_hdr)
 
-        formula = _scenario_result_formula(scenario["kind"], scenario["sql"], ods=True)
+        formula = _scenario_result_formula(scenario["kind"], sql_range, ods=True)
         res_row = make_row("metric")
         if formula:
             res_row.addElement(
@@ -448,9 +487,9 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
                     span_cols=8,
                 )
             )
-        tab.addElement(res_row)
-        tab.addElement(make_row("spacer"))
-        tab.addElement(make_row("spacer"))
+        emit(res_row)
+        emit(make_row("spacer"))
+        emit(make_row("spacer"))
 
     doc.spreadsheet.addElement(tab)
 
@@ -1464,16 +1503,20 @@ def build_xlsx_showcase(out_path: Path) -> None:
         sh.font = th_font
         current += 1
 
+        lines = sql_query_lines(scenario["sql"])
         sql_start = current
-        sql_end = current + 4
-        ws8.merge_cells(f"A{sql_start}:H{sql_end}")
-        sql_cell = ws8[f"A{sql_start}"]
-        set_text_cell(sql_cell, scenario["sql"])
-        sql_cell.fill = code_fill
-        sql_cell.font = code_font
-        sql_cell.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
-        sql_cell.border = thin_border
-        current = sql_end + 2
+        for line in lines:
+            ws8.merge_cells(f"A{current}:H{current}")
+            sql_cell = ws8[f"A{current}"]
+            set_text_cell(sql_cell, line)
+            sql_cell.fill = code_fill
+            sql_cell.font = code_font
+            sql_cell.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+            sql_cell.border = thin_border
+            ws8.row_dimensions[current].height = 18
+            current += 1
+        sql_range = _a1_col_range(sql_start, current - 1)
+        current += 1
 
         ws8.merge_cells(f"A{current}:H{current}")
         rh = ws8[f"A{current}"]
@@ -1483,7 +1526,7 @@ def build_xlsx_showcase(out_path: Path) -> None:
         rh.alignment = Alignment(vertical="center", indent=1)
         current += 1
 
-        formula = _scenario_result_formula(scenario["kind"], scenario["sql"], ods=False)
+        formula = _scenario_result_formula(scenario["kind"], sql_range, ods=False)
         ws8.merge_cells(f"A{current}:H{current}")
         rc = ws8[f"A{current}"]
         if formula:

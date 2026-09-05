@@ -216,3 +216,31 @@ def test_pretty_demo_join_sales_to_sibling_zip_income():
     sheet_rev = sum(float(r[7]) for r in grid[1:])
     assert abs(joined_rev - sheet_rev) < 0.02
     assert "zip_income" in str(res.get("files_used", []))
+
+
+def test_pretty_demo_results_code_reads_sql_from_cell_range():
+    """The short RESULTS =PY() payload runs the SQL sitting in data[1], not a copy."""
+    from plugin.scripting.calc_range import CalcRange
+    from scripts.generate_pretty_demo_spreadsheet import (
+        SQL_SALES_BY_REGION_CATEGORY,
+        duckdb_sql_from_cell_code,
+        sql_query_lines,
+    )
+
+    data = [
+        CalcRange(_pretty_demo_sales_grid()),
+        CalcRange([[line] for line in sql_query_lines(SQL_SALES_BY_REGION_CATEGORY)]),
+    ]
+    ns: dict[str, object] = {"data": data}
+    exec(duckdb_sql_from_cell_code("sales"), ns)  # noqa: S102 — exact demo payload
+    result = ns["result"]
+    assert list(result.columns) == ["Region", "Category", "revenue", "orders"]
+    assert len(result) >= 8
+    import pandas as pd
+
+    grid = _pretty_demo_sales_grid()
+    df = pd.DataFrame(grid[1:], columns=grid[0])
+    expected = df.groupby(["Region", "Category"], as_index=False)["Revenue"].sum()
+    got = {(r.Region, r.Category): float(r.revenue) for r in result.itertuples(index=False)}
+    for rec in expected.itertuples(index=False):
+        assert abs(got[(rec.Region, rec.Category)] - float(rec.Revenue)) < 1e-6
