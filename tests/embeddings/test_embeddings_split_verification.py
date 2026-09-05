@@ -57,11 +57,7 @@ def test_embeddings_split_overflow_pre_fails_closed() -> None:
     with pytest.raises(deal.PreContractError):
         _split_non_prose_passage_to_spans(too_long)
     with pytest.raises(deal.PreContractError):
-        # Non-ascii meta values pass the old isinstance(dict) wrapper pre, then
-        # fail split_passage_to_chunk_meta's ascii_bounded value bound.
-        split_passage_locale_runs_to_chunk_meta("x", [0], {"": "\x80"}, prose=False)
-    with pytest.raises(deal.PreContractError):
-        # Non-ascii run locale fails _split_prose_passage_to_spans's ascii bound.
+        # Pytest run-locale pre is still ascii_bounded; CrossHair is None-only.
         split_passage_locale_runs_to_chunk_meta(
             "x",
             [LocaleTextRun(char_start=0, char_end=1, locale_bcp47="\x80\x00")],
@@ -78,10 +74,12 @@ def test_deal_passage_text_ok_pytest_accepts_normal_text() -> None:
 
 
 def test_chunk_meta_accepts_file_url_doc_url() -> None:
-    """Production base_meta.doc_url is a file:// path; TOKEN (64) is too short."""
+    """Pytest meta values are str_bounded(DEAL_MAX_SOURCE); TOKEN (64) is too short."""
     url = "file:///home/runner/work/writeragent/writeragent/tmp/pytest-0/test_paragraph_chunks_from_path0/a.odt"
     assert len(url) > 64
     assert _deal_chunk_base_meta_ok({"doc_url": url, "para_index": 0, "file_mtime": 1.0})
+    # Non-ascii meta is legal under pytest; CrossHair still ascii_bounded TOKEN.
+    assert _deal_chunk_base_meta_ok({"": "\x80"})
 
 
 def test_merge_small_sentences_rejects_out_of_order_spans() -> None:
