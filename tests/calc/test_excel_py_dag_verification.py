@@ -12,7 +12,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 import deal
-from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel
+from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
 from plugin.calc.excel_py_convert.to_dag import (
     _deal_convert_cell_ok,
     _deal_convert_scripts_ok,
@@ -151,16 +151,18 @@ def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
 def test_deal_convert_cell_ok_dep_alphabet_pytest() -> None:
     """Pytest deps stay ascii_bounded so ``_xlfn.ANCHORARRAY`` / ``Table[#All]`` work.
 
-    CrossHair rejects ``_`` / ``[`` / NUL (check-all 33940151004 PatternError).
-    Different from #599: that hole was NUL *scripts* vs ``_deal_excel_src_ok``.
+    CrossHair rejects len-1 junk and non-A1 tokens (check-all 33940151004
+    PatternError on ``_``; check-all 33954468213 nested note PreconditionFailed
+    on ``M``). Different from #599: NUL *scripts* vs ``_deal_excel_src_ok``.
     """
     def cell(deps: list[str]) -> ExcelPyCell:
         return ExcelPyCell(sheet="S", cell="A1", script_index=0, return_type=0, deps=deps)
 
-    assert _deal_convert_cell_ok(cell(["_"]))  # pytest ascii; CrossHair alphabet rejects
+    assert _deal_convert_cell_ok(cell(["_"]))  # pytest ascii; CrossHair A1 rejects
     assert _deal_convert_cell_ok(cell(["["]))
     assert _deal_convert_cell_ok(cell(["\x00"]))
     assert _deal_convert_cell_ok(cell(["A"]))
+    assert _deal_convert_cell_ok(cell(["M"]))
     assert _deal_convert_cell_ok(cell(["A1"]))
     assert _deal_convert_cell_ok(cell(["_xlfn.ANCHORARRAY(A6)"]))
     assert _deal_convert_cell_ok(cell(["Table1[#All]"]))
@@ -199,6 +201,40 @@ def test_convert_model_to_dag_underscore_dep_no_pattern_error() -> None:
     assert any("unrecognized dep" in i or "unresolved" in i for i in (cell.issues or []))
     # best_effort still emits; the contract is "no PatternError", not fail-closed.
     assert isinstance(cell.dag_formula, str)
+
+
+def test_convert_model_to_dag_single_letter_dep_no_nested_note_pre_fail() -> None:
+    """check-all 33954468213: deps=['M'] nested-failed ``_normalize_bindings``.
+
+    ``resolve_dep('M')`` is unresolved with note ``unrecognized dep 'M'`` (len >1).
+    Under CrossHair ``_normalize_bindings`` requires ``_DEAL_NOTE_LEN=1``, so the
+    outer convert pre must reject len-1 non-A1 deps. Pytest still allows ``M``;
+    convert must not raise ``PreconditionFailed``.
+    """
+    model = ExcelWorkbookModel(
+        scripts=[""],
+        cells=[
+            ExcelPyCell(
+                "",
+                "",
+                0,
+                0,
+                deps=["M"],
+                formula_raw="\x00",
+                array_ref="",
+                row=2,
+                col=0,
+            )
+        ],
+        sheets=[SheetInfo("\x01", 0, "")],
+        tables={},
+        anchor_snapshots={"": ""},
+        source_path="",
+    )
+    report = convert_model_to_dag(model, best_effort=False)
+    assert report.cells
+    cell = report.cells[0]
+    assert any("unrecognized dep" in i or "unresolved" in i for i in (cell.issues or []))
 
 
 def test_convert_cell_to_dag_script_index_oor_fail_closed() -> None:
