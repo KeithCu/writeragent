@@ -821,6 +821,202 @@ def perform_deferred_spill(
         log.exception("Error in perform_deferred_spill")
 
 
+def _result_as_spill_grid(result: list | tuple) -> list[list[Any]]:
+    """Normalize a 1D list or 2D list-of-lists into a rectangular spill grid."""
+    first_elem = result[0]
+    if isinstance(first_elem, (list, tuple)):
+        return [list(row) for row in result]
+    return [[x] for x in result]
+
+
+def _selection_is_multi_cell(target_doc: Any) -> bool:
+    """True when the current UI selection spans more than one cell (matrix entry)."""
+    ctrl = target_doc.getCurrentController() if target_doc is not None else None
+    if ctrl is None:
+        return False
+    selection = ctrl.getSelection()
+    if selection is None or not hasattr(selection, "getRangeAddress"):
+        return False
+    addr = selection.getRangeAddress()
+    return (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
+
+
+def _off_main_may_auto_spill(doc: Any | None) -> bool:
+    """Off-main spill is safe when the caller named a doc or at most one session is recorded.
+
+    Two recorded workbooks: XAddIn has no calling document, so do not guess.
+    Zero recorded sessions (Isolated) still defers — ``_get_calc_doc`` on the UI
+    thread uses the current component, same as the on-main path.
+    """
+    if doc is not None:
+        return True
+    from plugin.scripting.session_manager import recorded_calc_session_count
+
+    return recorded_calc_session_count() <= 1
+
+
+def _prepare_auto_spill(
+    ctx: Any,
+    code: str,
+    grid_to_spill: list[list[Any]],
+    target_doc: Any,
+) -> str | tuple[str, str, int, int] | None:
+    """Locate the unique formula origin and check spill collisions (UNO / UI thread).
+
+    Returns ``"#SPILL!"`` on collision, ``(doc_url, sheet_name, row, col)`` when the
+    neighbor write should proceed, or ``None`` when the origin is not unique.
+    """
+    doc_url = getattr(target_doc, "getURL", lambda: "")() or ""
+    located = locate_formula_cell_in_doc(ctx, target_doc, code)
+    if located is None:
+        return None
+    sheet = located[0]
+    formula_coord = located[2]
+    sheet_name = sheet.getName() if hasattr(sheet, "getName") else "Sheet1"
+    log.debug("Spill: located formula cell at %r on sheet %r for code %r", formula_coord, sheet_name, code)
+    formula_row, formula_col = formula_coord
+
+    if doc_url not in LOADED_DOCUMENTS:
+        load_spill_registry_for_doc(target_doc)
+        LOADED_DOCUMENTS.add(doc_url)
+
+    try:
+        from plugin.calc.python.sheet_modify import (
+            ensure_sheet_modify_listener,
+        )
+
+        ensure_sheet_modify_listener(ctx, target_doc, sheet)
+    except Exception:
+        log.exception("Failed to register modify listener on sheet")
+
+    num_rows = len(grid_to_spill)
+    num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
+    reg_key = (doc_url, sheet_name, formula_row, formula_col)
+    previous_spills = SPILL_REGISTRY.get(reg_key, [])
+    prev_spill_set = set(previous_spills)
+
+    log.debug("Spill: previous spills for cell %r: %r", reg_key, previous_spills)
+
+    try:
+        from com.sun.star.table.CellContentType import EMPTY
+    except ImportError:
+        EMPTY = cast("Any", 0)
+
+    for r_idx in range(num_rows):
+        for c_idx in range(num_cols):
+            if r_idx == 0 and c_idx == 0:
+                continue
+            target_r = formula_row + r_idx
+            target_c = formula_col + c_idx
+            if target_r >= 1048576 or target_c >= 1024:
+                log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
+                return "#SPILL!"
+            if (target_r, target_c) == (formula_row, formula_col):
+                continue
+            if (target_r, target_c) in prev_spill_set:
+                continue
+            cell = sheet.getCellByPosition(target_c, target_r)
+            cell_type = cell.getType()
+            if cell_type != EMPTY:
+                log.debug(
+                    "Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty",
+                    (target_r, target_c),
+                    cell_type,
+                    cell.getValue() or cell.getString(),
+                    cell.getFormula(),
+                )
+                return "#SPILL!"
+    return (doc_url, sheet_name, formula_row, formula_col)
+
+
+def _queue_deferred_spill_write(
+    ctx: Any,
+    code: str,
+    grid_to_spill: list[list[Any]],
+    target_doc: Any,
+    prepared: tuple[str, str, int, int],
+) -> None:
+    """Post neighbor writes to the UI thread after the usual 0.1s settle."""
+    from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+    doc_url, sheet_name, formula_row, formula_col = prepared
+    spill_lifecycle = _lifecycle_key(target_doc)
+
+    def _deferred_spill_on_main() -> None:
+        post_to_main_thread(
+            lambda: perform_deferred_spill(
+                ctx,
+                doc_url,
+                sheet_name,
+                formula_row,
+                formula_col,
+                grid_to_spill,
+                doc=target_doc,
+                code=code,
+                lifecycle_key=spill_lifecycle,
+            )
+        )
+
+    t = threading.Timer(0.1, _deferred_spill_on_main)
+    _register_spill_timer(spill_lifecycle, t)
+    t.start()
+
+
+def _queue_off_main_auto_spill(
+    ctx: Any,
+    code: str,
+    grid_to_spill: list[list[Any]],
+    doc: Any | None,
+) -> None:
+    """Resolve the document on the UI thread, then locate and write the spill.
+
+    Yellow/off-main finalize must not touch UNO. Collision ``#SPILL!`` is too
+    late to change the add-in return; the deferred path just skips the write.
+    """
+    from plugin.framework.queue_executor import post_to_main_thread
+
+    def _on_main() -> None:
+        from plugin.framework.thread_guard import on_main_thread
+
+        target_doc = doc
+        if target_doc is None:
+            # AST lint only treats a bare ``if on_main_thread():`` as a guard.
+            if on_main_thread():
+                target_doc = _get_calc_doc(ctx)
+        if target_doc is None:
+            log.debug("Spill: off-main deferred locate found no Calc document")
+            return
+        try:
+            prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
+        except Exception:
+            log.exception("Error checking spill collision or locating formula cell")
+            return
+        if not isinstance(prepared, tuple):
+            return
+        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+        doc_url, sheet_name, formula_row, formula_col = prepared
+        perform_deferred_spill(
+            ctx,
+            doc_url,
+            sheet_name,
+            formula_row,
+            formula_col,
+            grid_to_spill,
+            doc=target_doc,
+            code=code,
+            lifecycle_key=_lifecycle_key(target_doc),
+        )
+
+    def _deferred() -> None:
+        post_to_main_thread(_on_main)
+
+    t = threading.Timer(0.1, _deferred)
+    _register_spill_timer("", t)
+    t.start()
+
+
 def finalize_python_return(
     ctx: Any,
     code: str,
@@ -836,142 +1032,54 @@ def finalize_python_return(
     # DataFrame envelopes become labeled grids (header row + body) so columns survive spill.
     result = result_to_calc_grid(result)
 
-    # Auto-spill check: If it's a list/tuple, index_arg is not provided, and it's not a matrix selection
+    # Auto-spill: list/tuple, no index_arg, and not a matrix selection.
+    # Bugfix: off-main =PY() (Calc multithreaded recalc / Yellow dispatch) cannot
+    # inspect the UI selection or resolve a UNO document. The old path treated
+    # ``target_doc is None and not on_main`` as a matrix formula and returned
+    # only grid[0][0], so DataFrames and 2D lists painted a single corner with
+    # no Spill: logs. Matrix is only when we actually see a multi-cell selection.
+    # Off-main, locate + collision + write are posted to the UI thread when the
+    # target document/session is unambiguous (caller passed *doc*, or at most
+    # one recorded Calc session). Two recorded workbooks stay corner-only —
+    # XAddIn has no calling document.
     is_matrix = False
     if isinstance(result, (list, tuple)) and index_arg is None and len(result) > 0:
         from plugin.framework.config import get_config_bool
-        if get_config_bool("scripting.python_auto_spill"):
-            try:
-                target_doc = doc
-                from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.thread_guard import on_main_thread
 
-                if target_doc is None and (not on_main_thread() or not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager"))):
-                    is_matrix = True
-                elif target_doc is None:
-                    target_doc = _get_calc_doc(ctx)
-                if target_doc is not None:
-                    ctrl = target_doc.getCurrentController()
-                    if ctrl is not None:
-                         selection = ctrl.getSelection()
-                         if selection is not None and hasattr(selection, "getRangeAddress"):
-                             addr = selection.getRangeAddress()
-                             is_matrix = (addr.EndColumn - addr.StartColumn > 0) or (addr.EndRow - addr.StartRow > 0)
-            except Exception:
-                pass
+        if get_config_bool("scripting.python_auto_spill"):
+            # AST lint only treats a bare ``if on_main_thread():`` as a guard.
+            if on_main_thread():
+                try:
+                    target_doc = doc
+                    if target_doc is None:
+                        if on_main_thread():
+                            target_doc = _get_calc_doc(ctx)
+                    if target_doc is not None:
+                        is_matrix = _selection_is_multi_cell(target_doc)
+                except Exception:
+                    pass
         else:
             is_matrix = True
 
         if not is_matrix:
-            grid_to_spill = []
-            first_elem = result[0]
-            if isinstance(first_elem, (list, tuple)):
-                grid_to_spill = [list(row) for row in result]
-            else:
-                grid_to_spill = [[x] for x in result]
-
-            # Get document and sheet to locate formula cell
+            grid_to_spill = _result_as_spill_grid(result)
             try:
-                from plugin.framework.thread_guard import on_main_thread
+                if not on_main_thread():
+                    if _off_main_may_auto_spill(doc):
+                        _queue_off_main_auto_spill(ctx, code, grid_to_spill, doc)
+                    return to_calc_compatible(grid_to_spill[0][0])
 
                 target_doc = doc
-                if target_doc is None and (not on_main_thread() or not (hasattr(ctx, "ServiceManager") or hasattr(ctx, "getServiceManager"))):
-                    return to_calc_compatible(grid_to_spill[0][0])
                 if target_doc is None:
-                    target_doc = _get_calc_doc(ctx)
+                    if on_main_thread():
+                        target_doc = _get_calc_doc(ctx)
                 if target_doc is not None:
-                    doc_url = getattr(target_doc, "getURL", lambda: "")() or ""
-                    located = locate_formula_cell_in_doc(ctx, target_doc, code)
-                    if located is not None:
-                        sheet, _, formula_coord = located
-                        sheet_name = sheet.getName() if hasattr(sheet, "getName") else "Sheet1"
-                        log.debug("Spill: located formula cell at %r on sheet %r for code %r", formula_coord, sheet_name, code)
-                        formula_row, formula_col = formula_coord
-                                
-                        # Check for collisions synchronously
-                        if doc_url not in LOADED_DOCUMENTS:
-                            load_spill_registry_for_doc(target_doc)
-                            LOADED_DOCUMENTS.add(doc_url)
-
-                        # One dispatcher per sheet (spill cleanup + geometric repair).
-                        try:
-                            from plugin.calc.python.sheet_modify import (
-                                ensure_sheet_modify_listener,
-                            )
-
-                            ensure_sheet_modify_listener(ctx, target_doc, sheet)
-                        except Exception:
-                            log.exception("Failed to register modify listener on sheet")
-
-                        num_rows = len(grid_to_spill)
-                        num_cols = max(len(row) for row in grid_to_spill) if num_rows > 0 else 0
-                        reg_key = (doc_url, sheet_name, formula_row, formula_col)
-                        previous_spills = SPILL_REGISTRY.get(reg_key, [])
-                        prev_spill_set = set(previous_spills)
-
-                        log.debug("Spill: previous spills for cell %r: %r", reg_key, previous_spills)
-
-                        try:
-                            from com.sun.star.table.CellContentType import EMPTY
-                        except ImportError:
-                            EMPTY = cast("Any", 0)
-
-                        collides = False
-                        for r_idx in range(num_rows):
-                            for c_idx in range(num_cols):
-                                if r_idx == 0 and c_idx == 0:
-                                    continue
-                                target_r = formula_row + r_idx
-                                target_c = formula_col + c_idx
-                                if target_r >= 1048576 or target_c >= 1024:
-                                    log.debug("Spill: collision: target coordinate %r is out of bounds", (target_r, target_c))
-                                    collides = True
-                                    break
-                                if (target_r, target_c) == (formula_row, formula_col):
-                                    continue
-                                if (target_r, target_c) in prev_spill_set:
-                                    continue
-                                cell = sheet.getCellByPosition(target_c, target_r)
-                                cell_type = cell.getType()
-                                if cell_type != EMPTY:
-                                    log.debug(
-                                        "Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty",
-                                        (target_r, target_c),
-                                        cell_type,
-                                        cell.getValue() or cell.getString(),
-                                        cell.getFormula(),
-                                    )
-                                    collides = True
-                                    break
-                            if collides:
-                                break
-
-                        if collides:
-                            return "#SPILL!"
-
-                        from plugin.framework.queue_executor import post_to_main_thread
-                        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-
-                        spill_lifecycle = _lifecycle_key(target_doc)
-
-                        def _deferred_spill_on_main() -> None:
-                            post_to_main_thread(
-                                lambda: perform_deferred_spill(
-                                    ctx,
-                                    doc_url,
-                                    sheet_name,
-                                    formula_row,
-                                    formula_col,
-                                    grid_to_spill,
-                                    doc=target_doc,
-                                    code=code,
-                                    lifecycle_key=spill_lifecycle,
-                                )
-                            )
-
-                        t = threading.Timer(0.1, _deferred_spill_on_main)
-                        _register_spill_timer(spill_lifecycle, t)
-                        t.start()
-
+                    prepared = _prepare_auto_spill(ctx, code, grid_to_spill, target_doc)
+                    if prepared == "#SPILL!":
+                        return "#SPILL!"
+                    if isinstance(prepared, tuple):
+                        _queue_deferred_spill_write(ctx, code, grid_to_spill, target_doc, prepared)
                         return to_calc_compatible(grid_to_spill[0][0])
             except Exception:
                 log.exception("Error checking spill collision or locating formula cell")
@@ -1214,6 +1322,8 @@ def _execute_python_addin_impl(
                 from plugin.scripting.session_manager import _calc_document
 
                 target_doc = _calc_document(ctx)
+            # Off-main: do not query the desktop (Yellow / #402). finalize_python_return
+            # defers auto-spill to the UI thread when the recorded session is unambiguous.
         from plugin.calc.python.geometric_recalc import (
             ensure_geometric_strip_index_for_eval,
             maybe_strip_geometric_eval_args,

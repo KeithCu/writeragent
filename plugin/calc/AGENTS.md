@@ -20,7 +20,7 @@ Topic docs: [docs/calc/specialized-toolsets.md](../../docs/calc/specialized-tool
 ## Sharp edges
 
 - `=PROMPT()` must not `processEventsToIdle` during recalc (`run_blocking_in_thread(..., pump_idle=False)`). Pumping re-enters the formula engine (`#VALUE!`). `=PY()` already blocks without a VCL pump.
-- XAddIn never names the calling cell or document. Spill/image/scalar-cache only when `locate_formula_cell_in_doc` finds a **unique** formula origin. Off-main shared-kernel session/init only when exactly one Calc workbook is recorded.
+- XAddIn never names the calling cell or document. Spill/image/scalar-cache only when `locate_formula_cell_in_doc` finds a **unique** formula origin. Off-main shared-kernel session/init only when exactly one Calc workbook is recorded. Off-main auto-spill must **not** treat a missing `target_doc` as a matrix formula: locate + write are posted to the UI thread when the caller passed `doc` or at most one session is recorded (two recorded workbooks stay corner-only).
 - LibrePy uses `addin_librepy.py` instead of `addin.py`.
 - Collabora Online `=PY()` files store `…PYTHONCOMPUTEFUNCTIONS.GETPY`; on open LibrePy rewrites that prefix ([`python/collabora_formula.py`](python/collabora_formula.py)). Do not register Collabora’s UNO service from the OXT.
 - Nested specialized sets use `specialized` / `specialized_control` and are omitted from default main-chat lists. Callers use `delegate_to_specialized_calc_toolset`.

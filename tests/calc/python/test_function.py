@@ -575,6 +575,162 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
     assert set(python_function.SPILL_REGISTRY[key]) == {(1, 2), (2, 1), (2, 2)}
 
 
+def _install_immediate_spill_timer(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    on_main_after_start: dict[str, bool] | None = None,
+) -> None:
+    """Run the 0.1s spill Timer inline; optionally flip on_main when it fires."""
+
+    class DummyTimer:
+        def __init__(self, interval, function, args=(), kwargs={}):
+            self.function = function
+            self.args = args
+            self.kwargs = kwargs
+
+        def start(self):
+            if on_main_after_start is not None:
+                on_main_after_start["value"] = True
+            self.function(*self.args, **self.kwargs)
+
+        def cancel(self):
+            return None
+
+    monkeypatch.setattr(python_function.threading, "Timer", DummyTimer)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.post_to_main_thread",
+        lambda fn, *a, **k: fn(*a, **k),
+    )
+
+
+def test_finalize_python_return_spills_off_main_when_doc_unambiguous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Off-main finalize used to treat missing target_doc as a matrix formula.
+
+    That returned only grid[0][0] (SpillTest [[11,22],[33,44]] painted 11) with
+    zero Spill: logs. When at most one Calc session is recorded, deferred
+    locate+write must still paint the full grid.
+    """
+    from plugin.scripting import session_manager as sm
+
+    doc = CalcDocStub(url="file:///offmain-spill.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PYTHON("off_main_spill")')
+    ctx = _ctx_with_doc(doc)
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+    sm.clear_active_calc_session()
+
+    on_main = {"value": False}
+    monkeypatch.setattr(
+        "plugin.framework.thread_guard.on_main_thread",
+        lambda: on_main["value"],
+    )
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
+    _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
+
+    try:
+        val = finalize_python_return(ctx, "off_main_spill", [[11, 22], [33, 44]], doc=None)
+    finally:
+        sm.clear_active_calc_session()
+
+    assert val == 11
+    assert sheet.getCellByPosition(2, 1).getValue() == 22  # C2
+    assert sheet.getCellByPosition(1, 2).getValue() == 33  # B3
+    assert sheet.getCellByPosition(2, 2).getValue() == 44  # C3
+    key = ("file:///offmain-spill.ods", "Sheet1", 1, 1)
+    assert key in python_function.SPILL_REGISTRY
+    assert set(python_function.SPILL_REGISTRY[key]) == {(1, 2), (2, 1), (2, 2)}
+
+
+def test_finalize_python_return_spills_dataframe_payload_off_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DataFrame envelopes must spill header+body off-main, not only the first header."""
+    from plugin.scripting import session_manager as sm
+
+    doc = CalcDocStub(url="file:///offmain-df.ods", selection="A1")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(0, 0).setFormula('=PYTHON("df_spill")')
+    ctx = _ctx_with_doc(doc)
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+    sm.clear_active_calc_session()
+    sm.record_active_calc_session("calc:file:///offmain-df.ods", {})
+
+    on_main = {"value": False}
+    monkeypatch.setattr(
+        "plugin.framework.thread_guard.on_main_thread",
+        lambda: on_main["value"],
+    )
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
+    _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
+
+    payload = {
+        "__wa_payload__": "dataframe",
+        "columns": ["Region", "Channel"],
+        "data": [["North", "Search"], ["South", "Email"]],
+    }
+    try:
+        val = finalize_python_return(ctx, "df_spill", payload, doc=None)
+    finally:
+        sm.clear_active_calc_session()
+
+    assert val == "Region"
+    assert sheet.getCellByPosition(1, 0).getString() == "Channel"
+    assert sheet.getCellByPosition(0, 1).getString() == "North"
+    assert sheet.getCellByPosition(1, 1).getString() == "Search"
+    assert sheet.getCellByPosition(0, 2).getString() == "South"
+    assert sheet.getCellByPosition(1, 2).getString() == "Email"
+
+
+def test_finalize_python_return_off_main_no_spill_when_two_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two recorded workbooks: do not guess which book to spill into."""
+    from plugin.scripting import session_manager as sm
+
+    doc = CalcDocStub(url="file:///ambig.ods", selection="B2")
+    sheet = doc.getSheets().getByName("Sheet1")
+    sheet.getCellByPosition(1, 1).setFormula('=PYTHON("ambig_spill")')
+    ctx = _ctx_with_doc(doc)
+
+    python_function.SPILL_REGISTRY.clear()
+    python_function.LOADED_DOCUMENTS.clear()
+    sm.clear_active_calc_session()
+    sm.record_active_calc_session("calc:file:///a.ods", {"init": "a"})
+    sm.record_active_calc_session("calc:file:///b.ods", {"init": "b"})
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: doc)
+    spill_started = {"n": 0}
+
+    class _NoStartTimer:
+        def __init__(self, interval, function, args=(), kwargs={}):
+            self.function = function
+
+        def start(self):
+            spill_started["n"] += 1
+
+        def cancel(self):
+            return None
+
+    monkeypatch.setattr(python_function.threading, "Timer", _NoStartTimer)
+
+    try:
+        val = finalize_python_return(ctx, "ambig_spill", [[11, 22], [33, 44]], doc=None)
+    finally:
+        sm.clear_active_calc_session()
+
+    assert val == 11
+    assert spill_started["n"] == 0
+    assert sheet.getCellByPosition(2, 1).getValue() in (0, 0.0, None, "")
+    assert python_function.SPILL_REGISTRY.get(("file:///ambig.ods", "Sheet1", 1, 1)) is None
+
+
 def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that CalcSpillModifyListener cleans up spilled cells when formula is removed."""
     # Listener cleanup asserts clearContents call args; keep a MagicMock sheet for that.
