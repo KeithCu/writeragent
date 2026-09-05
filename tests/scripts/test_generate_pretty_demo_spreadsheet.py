@@ -1,22 +1,77 @@
 # WriterAgent - AI Writing Assistant for LibreOffice
-# Copyright (c) 2026 KeithCu
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Generator invariants for the pretty demo + SQL/DuckDB sheet."""
+"""Unit tests for scripts/generate_pretty_demo_spreadsheet.py."""
 
 from __future__ import annotations
 
+import re
+import zipfile
 from pathlib import Path
 
 from scripts.generate_pretty_demo_spreadsheet import (
+    CALC_PYTHON_ADDIN_FN,
+    SALES_RANGE_ODS_CROSS,
     SALES_ZIPS_BY_REGION,
     SQL_SALES_ZIP_INCOME_JOIN,
     ZIP_INCOME_CSV_NAME,
     ZIP_INCOME_FIXTURE,
+    _ODS_SHEET_COLUMNS,
+    build_ods_showcase,
     get_sales_dataset,
+    ods_formula,
     sql_demo_scenarios,
     write_zip_income_csv,
 )
+
+FIXTURE_ODS = Path(__file__).resolve().parents[1] / "fixtures" / "python_showcase_demo.ods"
+_NESTED_SHEET_REF = re.compile(r"\[\$[A-Za-z0-9_]*\[\$")
+
+
+def _ods_content_xml(path: Path) -> str:
+    with zipfile.ZipFile(path) as zf:
+        return zf.read("content.xml").decode("utf-8")
+
+
+def test_ods_formula_sales_analytics_range_not_rematched() -> None:
+    out = ods_formula('=PY("x"; Sales_Analytics.A5:I40)')
+    assert "[$Sales_Analytics.A5:.I40]" in out
+    assert _NESTED_SHEET_REF.search(out) is None
+    assert "[$S[$ales_Analytics" not in out
+    assert out.startswith(f"of:={CALC_PYTHON_ADDIN_FN}(")
+
+
+def test_ods_formula_forecasting_range_not_rematched() -> None:
+    out = ods_formula('=PY("y"; Forecasting.A1:B2)')
+    assert "[$Forecasting.A1:.B2]" in out
+    assert _NESTED_SHEET_REF.search(out) is None
+    assert "[$F[$orecasting" not in out
+
+
+def test_ods_formula_same_sheet_range_and_cell() -> None:
+    out = ods_formula('=PY("sum(r[7] for r in data[1:])"; A5:I40; F46)')
+    assert "[.A5:.I40]" in out
+    assert "[.F46]" in out
+    assert "A5:I40" not in out
+    assert out.startswith(f"of:={CALC_PYTHON_ADDIN_FN}(")
+
+
+def test_ods_formula_python_wrapper_and_cross_sheet_cell() -> None:
+    out = ods_formula('=PYTHON("x"; Sales_Analytics.F47)')
+    assert out.startswith(f"of:={CALC_PYTHON_ADDIN_FN}(")
+    assert "[$Sales_Analytics.F47]" in out
+    assert _NESTED_SHEET_REF.search(out) is None
+
+
+def test_ods_formula_leaves_non_formula_text() -> None:
+    assert ods_formula("plain") == "plain"
+
+
+def test_ods_formula_statistics_ml_range_not_rematched() -> None:
+    out = ods_formula('=PY("x"; Statistics_ML.A5:G25)')
+    assert "[$Statistics_ML.A5:.G25]" in out
+    assert _NESTED_SHEET_REF.search(out) is None
 
 
 def test_sales_dataset_has_zip_column_from_real_zctas() -> None:
@@ -58,8 +113,6 @@ def test_write_zip_income_csv_copies_sibling(tmp_path: Path) -> None:
 
 
 def test_generated_ods_has_sql_duckdb_sheet(tmp_path: Path) -> None:
-    from scripts.generate_pretty_demo_spreadsheet import build_ods_showcase
-
     out = tmp_path / "python_showcase_demo.ods"
     build_ods_showcase(out)
     write_zip_income_csv(tmp_path)
@@ -78,3 +131,27 @@ def test_generated_ods_has_sql_duckdb_sheet(tmp_path: Path) -> None:
     text = "\n".join(str(p) for p in sql_sheet.getElementsByType(P))
     assert "zip_income" in text
     assert "GROUP BY" in text or "Region" in text
+
+
+def _assert_ods_formulas_and_layout(xml: str) -> None:
+    sales_of = f"[${SALES_RANGE_ODS_CROSS.replace(':', ':.')}]"
+    assert sales_of in xml
+    assert "[$Forecasting.A5:.E41]" in xml
+    assert "[$S[$ales_Analytics" not in xml
+    assert "[$F[$orecasting" not in xml
+    assert "[$S[$tatistics_ML" not in xml
+    assert _NESTED_SHEET_REF.search(xml) is None
+    assert xml.count("<table:table-column") >= sum(len(cols) for cols in _ODS_SHEET_COLUMNS.values())
+    assert "style:column-width" in xml
+    assert "style:row-height" in xml
+    assert "SQL_DuckDB" in xml
+
+
+def test_build_ods_showcase_formulas_and_layout(tmp_path: Path) -> None:
+    out_path = tmp_path / "python_showcase_demo.ods"
+    build_ods_showcase(out_path)
+    _assert_ods_formulas_and_layout(_ods_content_xml(out_path))
+
+
+def test_shipped_ods_fixture_formulas_and_layout() -> None:
+    _assert_ods_formulas_and_layout(_ods_content_xml(FIXTURE_ODS))

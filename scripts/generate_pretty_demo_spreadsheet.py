@@ -18,6 +18,15 @@ Writes ``python_showcase_demo.ods`` / ``.xlsx`` and copies sibling ``zip_income.
 ZCTA). The SQL_DuckDB sheet keeps query text in cells; sheet-only scenarios also
 have live =PY()+DuckDB result formulas. The sales⨝ZIP-income join is the
 ``query_folder_sql`` happy path (chat / Run Python Script / tests).
+
+ODS-only notes (XLSX never calls these paths):
+- ``ods_formula()`` rewrites Calc refs to OpenFormula in one pass so names like
+  ``Sales_Analytics`` / ``Forecasting`` are not rematched after
+  ``Sheet.A5:I40`` → ``[$Sheet.A5:.I40]`` (a later cell regex used to produce
+  ``[$S[$ales_Analytics.A5]:.I40]``).
+- ODS writes TableColumn widths and TableRow heights so the file is not
+  Calc-default cramped. XLSX already uses ``auto_fit_columns`` and explicit
+  row heights; ODS sizes are reasonable parity, not pixel-perfect.
 """
 from __future__ import annotations
 
@@ -63,9 +72,100 @@ CALC_PYTHON_ADDIN_FN = "ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY"
 
 _OOXML_PYTHON_FORMULA_RE = re.compile(r"(<f[^>]*>)(=?)(?:py|python)\(", re.IGNORECASE)
 
+# Ranges first, then cells, in one pass. Sequential rewrite used to rematch
+# inside the sheet name after inserting ``[$``: ``Sales_Analytics.A5:I40``
+# became ``[$Sales_Analytics.A5:.I40]``, then ``ales_Analytics.A5`` matched
+# because ``(?<!$)`` only looked at the char before ``ales`` (the ``S``).
+_ODS_CELL_REF_RE = re.compile(
+    r"(?P<cross_range>(?P<crs_sheet>[A-Za-z_][A-Za-z0-9_]*)\."
+    r"(?P<crs_c1>[A-Z]+)(?P<crs_r1>\d+):(?P<crs_c2>[A-Z]+)(?P<crs_r2>\d+))"
+    r"|(?P<same_range>(?<=[;,\(\s])(?P<sr_c1>[A-Z]+)(?P<sr_r1>\d+):"
+    r"(?P<sr_c2>[A-Z]+)(?P<sr_r2>\d+))"
+    r"|(?P<cross_cell>(?P<cc_sheet>[A-Za-z_][A-Za-z0-9_]*)\."
+    r"(?P<cc_col>[A-Z]+)(?P<cc_row>\d+))"
+    r"|(?P<same_cell>(?<=[;,\(\s])(?P<sc_col>[A-Z]+)(?P<sc_row>\d+))"
+)
+
+# XLSX auto_fit uses min width 12 (~0.9in) and grows with header text. ODS
+# defaults are narrower and have no TableColumn styles unless we emit them.
+_ODS_COL_STYLES: dict[str, str] = {
+    "narrow": "0.90in",
+    "default": "1.20in",
+    "medium": "1.55in",
+    "wide": "2.20in",
+    "xl": "2.80in",
+}
+
+# XLSX sets 18–36pt row heights on almost every content row. Calc's default
+# row is ~0.18in, so a height-less ODS looks cramped even with cell padding.
+_ODS_ROW_STYLES: dict[str, str] = {
+    "hero": "0.50in",
+    "sub": "0.33in",
+    "section": "0.31in",
+    "kpi-label": "0.28in",
+    "kpi-value": "0.44in",
+    "header": "0.28in",
+    "data": "0.28in",
+    "metric": "0.36in",
+    "viz": "0.25in",
+    "spacer": "0.15in",
+}
+
+_ODS_SHEET_COLUMNS: dict[str, tuple[str, ...]] = {
+    "Overview": ("default",) * 8,
+    "Sales_Analytics": (
+        "default",
+        "default",
+        "default",
+        "medium",
+        "medium",
+        "narrow",
+        "default",
+        "default",
+        "medium",
+        "default",
+    ),
+    "Statistics_ML": (
+        "default",
+        "medium",
+        "default",
+        "medium",
+        "default",
+        "default",
+        "default",
+    ),
+    "Forecasting": ("default", "default", "medium", "medium", "medium"),
+    "Optimization": ("default", "medium", "medium", "wide", "medium"),
+    "Engineering_Math": ("wide", "default", "medium", "medium", "xl"),
+    "Viz_Gallery": ("default",) * 8,
+    "SQL_DuckDB": ("default",) * 8,
+}
+
+
+def _ods_ref_to_openformula(match: re.Match[str]) -> str:
+    if match.group("cross_range") is not None:
+        return (
+            f"[${match.group('crs_sheet')}."
+            f"{match.group('crs_c1')}{match.group('crs_r1')}:"
+            f".{match.group('crs_c2')}{match.group('crs_r2')}]"
+        )
+    if match.group("same_range") is not None:
+        return (
+            f"[.{match.group('sr_c1')}{match.group('sr_r1')}:"
+            f".{match.group('sr_c2')}{match.group('sr_r2')}]"
+        )
+    if match.group("cross_cell") is not None:
+        return f"[${match.group('cc_sheet')}.{match.group('cc_col')}{match.group('cc_row')}]"
+    return f"[.{match.group('sc_col')}{match.group('sc_row')}]"
+
 
 def ods_formula(calc_formula: str) -> str:
-    """Convert formula to valid OpenFormula syntax for OpenDocument Spreadsheet."""
+    """Convert a Calc-style formula to OpenFormula for an ODS cell.
+
+    Cross-sheet ranges become ``[$Sheet.A5:.I40]``. All refs are rewritten in
+    one pass so a later single-cell pattern cannot rematch inside the sheet
+    name (``Sales_Analytics``, ``Forecasting``).
+    """
     if not calc_formula.startswith("="):
         return calc_formula
     f = calc_formula[1:]
@@ -74,13 +174,7 @@ def ods_formula(calc_formula: str) -> str:
     elif f.startswith("PYTHON("):
         f = f"{CALC_PYTHON_ADDIN_FN}(" + f[len("PYTHON(") :]
 
-    # Convert cross-sheet ranges: SheetName.A5:I40 -> [$SheetName.A5:.I40]
-    f = re.sub(r'([A-Za-z0-9_]+)\.([A-Z]+)(\d+):([A-Z]+)(\d+)', r'[$\1.\2\3:.\4\5]', f)
-    # Convert same-sheet ranges: A5:I40 -> [.A5:.I40]
-    f = re.sub(r'(?<=[;,\(\s])(?<!\$)([A-Z]+)(\d+):([A-Z]+)(\d+)', r'[.\1\2:.\3\4]', f)
-    # Single cells after ranges so Sheet.A5:I40 is not split. (?<!$) skips already-converted [$Sheet.A5:.I40].
-    f = re.sub(r'(?<!\$)([A-Za-z0-9_]+)\.([A-Z]+)(\d+)', r'[$\1.\2\3]', f)
-    f = re.sub(r'(?<=[;,\(\s])(?<!\$)([A-Z]+)(\d+)', r'[.\1\2]', f)
+    f = _ODS_CELL_REF_RE.sub(_ods_ref_to_openformula, f)
     return f"of:={f}"
 
 
@@ -286,14 +380,14 @@ def _scenario_result_formula(kind: str, sql: str, *, ods: bool) -> str | None:
     return None
 
 
-def _add_ods_sql_sheet(doc: Any, make_cell: Any, Table: Any, TableRow: Any) -> None:
+def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any) -> None:
     """SQL / DuckDB tab: visible SQL in cells + live =PY() results for sheet ranges."""
-    tab = Table(name="SQL_DuckDB")
-    r1 = TableRow()
+    tab = make_table("SQL_DuckDB")
+    r1 = make_row("hero")
     r1.addElement(make_cell("🦆 SQL / DuckDB — Sheet ranges and sibling files", "HeroTitle", span_cols=8))
     tab.addElement(r1)
 
-    r2 = TableRow()
+    r2 = make_row("sub")
     r2.addElement(
         make_cell(
             "Read-only DuckDB SQL over Sales_Analytics / Statistics_ML ranges, plus a join to sibling zip_income.csv",
@@ -302,37 +396,37 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, Table: Any, TableRow: Any) -> N
         )
     )
     tab.addElement(r2)
-    tab.addElement(TableRow())
+    tab.addElement(make_row("spacer"))
 
-    note = TableRow()
+    note = make_row("metric")
     note.addElement(make_cell(ACS_INCOME_NOTE, "InfoBox", span_cols=8))
     tab.addElement(note)
-    tab.addElement(TableRow())
+    tab.addElement(make_row("spacer"))
 
     for scenario in sql_demo_scenarios():
-        banner = TableRow()
+        banner = make_row("section")
         banner.addElement(make_cell(scenario["title"], "SectionBanner", span_cols=8))
         tab.addElement(banner)
 
-        blurb = TableRow()
+        blurb = make_row("metric")
         blurb.addElement(make_cell(scenario["blurb"], "MetricLabel", span_cols=8))
         tab.addElement(blurb)
 
-        sql_hdr = TableRow()
+        sql_hdr = make_row("header")
         sql_hdr.addElement(make_cell("SQL (edit this text — this is the query)", "TableHeader", span_cols=8))
         tab.addElement(sql_hdr)
 
-        sql_row = TableRow()
+        sql_row = make_row("data")
         sql_row.addElement(make_cell(scenario["sql"], "CodeBlock", span_cols=8))
         tab.addElement(sql_row)
-        tab.addElement(TableRow())
+        tab.addElement(make_row("spacer"))
 
-        res_hdr = TableRow()
+        res_hdr = make_row("section")
         res_hdr.addElement(make_cell("RESULTS", "SectionBanner", span_cols=8))
         tab.addElement(res_hdr)
 
         formula = _scenario_result_formula(scenario["kind"], scenario["sql"], ods=True)
-        res_row = TableRow()
+        res_row = make_row("metric")
         if formula:
             res_row.addElement(
                 make_cell("Calculating via =PY() + DuckDB…", "FormulaResult", span_cols=8, formula=formula)
@@ -347,8 +441,8 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, Table: Any, TableRow: Any) -> N
                 )
             )
         tab.addElement(res_row)
-        tab.addElement(TableRow())
-        tab.addElement(TableRow())
+        tab.addElement(make_row("spacer"))
+        tab.addElement(make_row("spacer"))
 
     doc.spreadsheet.addElement(tab)
 
@@ -448,11 +542,36 @@ def get_engineering_dataset() -> list[list[Any]]:
 def build_ods_showcase(out_path: Path) -> None:
     """Generate the complete ODS showcase spreadsheet using odfpy."""
     from odf.opendocument import OpenDocumentSpreadsheet
-    from odf.style import ParagraphProperties, Style, TableCellProperties, TextProperties
-    from odf.table import Table, TableCell, TableRow
+    from odf.style import (
+        ParagraphProperties,
+        Style,
+        TableCellProperties,
+        TableColumnProperties,
+        TableRowProperties,
+        TextProperties,
+    )
+    from odf.table import Table, TableCell, TableColumn, TableRow
     from odf.text import P
 
     doc = OpenDocumentSpreadsheet()
+
+    for col_name, col_width in _ODS_COL_STYLES.items():
+        col_style = Style(name=f"col-{col_name}", family="table-column")
+        col_style.addElement(TableColumnProperties(columnwidth=col_width))
+        doc.automaticstyles.addElement(col_style)
+    for row_name, row_height in _ODS_ROW_STYLES.items():
+        row_style = Style(name=f"row-{row_name}", family="table-row")
+        row_style.addElement(TableRowProperties(rowheight=row_height))
+        doc.automaticstyles.addElement(row_style)
+
+    def make_table(name: str) -> Table:
+        tab = Table(name=name)
+        for col_kind in _ODS_SHEET_COLUMNS[name]:
+            tab.addElement(TableColumn(stylename=f"col-{col_kind}"))
+        return tab
+
+    def make_row(kind: str = "data") -> TableRow:
+        return TableRow(stylename=f"row-{kind}")
 
     def add_style(name: str, **kwargs: Any) -> None:
         st = Style(name=name, family="table-cell")
@@ -540,42 +659,42 @@ def build_ods_showcase(out_path: Path) -> None:
         return cell
 
     # --- TAB 1: 🌟 Executive Overview ---
-    tab1 = Table(name="Overview")
-    r1 = TableRow()
+    tab1 = make_table("Overview")
+    r1 = make_row("hero")
     r1.addElement(make_cell("🌟 LibrePy / WriterAgent — Python in LibreOffice Calc Showcase", "HeroTitle", span_cols=8))
     tab1.addElement(r1)
 
-    r2 = TableRow()
+    r2 = make_row("sub")
     r2.addElement(make_cell("Enterprise Data Science, Machine Learning, and Scientific Computing natively inside your spreadsheet with =PY()", "HeroSubtitle", span_cols=8))
     tab1.addElement(r2)
 
-    tab1.addElement(TableRow())
+    tab1.addElement(make_row("spacer"))
 
-    rk_title = TableRow()
+    rk_title = make_row("section")
     rk_title.addElement(make_cell("KEY PERFORMANCE INDICATORS (CALCULATED VIA PYTHON =PY)", "SectionBanner", span_cols=8))
     tab1.addElement(rk_title)
 
-    rk_labels = TableRow()
+    rk_labels = make_row("kpi-label")
     rk_labels.addElement(make_cell("TOTAL REVENUE (YTD)", "KPICardLabel", span_cols=2))
     rk_labels.addElement(make_cell("AVG PROFIT MARGIN", "KPICardLabel", span_cols=2))
     rk_labels.addElement(make_cell("ANOMALIES FLAGGED", "KPICardLabel", span_cols=2))
     rk_labels.addElement(make_cell("FORECAST TARGET (Q3)", "KPICardLabel", span_cols=2))
     tab1.addElement(rk_labels)
 
-    rk_vals = TableRow()
+    rk_vals = make_row("kpi-value")
     rk_vals.addElement(make_cell("$119,142.00", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{sum(r[7] for r in data[1:]):,.2f}}\'"; {SALES_RANGE_ODS_CROSS})'))
     rk_vals.addElement(make_cell("28.4%", "KPICardVal", span_cols=2, formula=f'=PY("f\'{{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}}\'"; {SALES_RANGE_ODS_CROSS})'))
     rk_vals.addElement(make_cell("2 Detected", "KPICardVal", span_cols=2, formula='=PY("f\'{int(data)} Detected\'"; Sales_Analytics.F47)'))
     rk_vals.addElement(make_cell("$349.02", "KPICardVal", span_cols=2, formula='=PY("f\'${data[-1][4] * 1.15:,.2f}\'"; Forecasting.A5:E41)'))
     tab1.addElement(rk_vals)
 
-    tab1.addElement(TableRow())
+    tab1.addElement(make_row("spacer"))
 
-    rf_title = TableRow()
+    rf_title = make_row("section")
     rf_title.addElement(make_cell("CAPABILITY MATRIX: TRADITIONAL FORMULAS VS. LIBREPY =PY()", "SectionBanner", span_cols=8))
     tab1.addElement(rf_title)
 
-    fm_headers = TableRow()
+    fm_headers = make_row("header")
     for h in ["Capability Domain", "Traditional Calc Formula", "LibrePy =PY() Solution", "Scientific Engine"]:
         fm_headers.addElement(make_cell(h, "TableHeader", span_cols=2))
     tab1.addElement(fm_headers)
@@ -590,7 +709,7 @@ def build_ods_showcase(out_path: Path) -> None:
         ("Symbolic Mathematics", "Not supported natively", "PY('sp.diff(x**3 * sp.sin(x), x)')", "SymPy CAS"),
     ]
     for idx, (c1, c2, c3, c4) in enumerate(fm_rows):
-        r = TableRow()
+        r = make_row("data")
         st = "TableZebraEven" if idx % 2 == 0 else "TableZebraOdd"
         r.addElement(make_cell(c1, st, span_cols=2))
         r.addElement(make_cell(c2, st, span_cols=2))
@@ -601,31 +720,31 @@ def build_ods_showcase(out_path: Path) -> None:
     doc.spreadsheet.addElement(tab1)
 
     # --- TAB 2: 📊 Sales Analytics (Pandas Wrangling) ---
-    tab2 = Table(name="Sales_Analytics")
-    t2_title = TableRow()
+    tab2 = make_table("Sales_Analytics")
+    t2_title = make_row("hero")
     t2_title.addElement(make_cell("📊 Sales & Customer Intelligence — Pandas Data Wrangling & Aggregation", "HeroTitle", span_cols=10))
     tab2.addElement(t2_title)
 
-    t2_sub = TableRow()
+    t2_sub = make_row("sub")
     t2_sub.addElement(make_cell("Demonstrating multi-column aggregation, regex feature extraction, customer segmentation, and IQR outlier detection", "HeroSubtitle", span_cols=10))
     tab2.addElement(t2_sub)
-    tab2.addElement(TableRow())
+    tab2.addElement(make_row("spacer"))
 
-    t2_sec = TableRow()
+    t2_sec = make_row("section")
     t2_sec.addElement(make_cell("TRANSACTIONAL SALES DATASET (35 ORDERS) — ZIP/ZCTA FOR DUCKDB JOINS", "SectionBanner", span_cols=10))
     tab2.addElement(t2_sec)
 
     sales_data = get_sales_dataset()
     for r_idx, row_vals in enumerate(sales_data):
-        r = TableRow()
+        r = make_row("header" if r_idx == 0 else "data")
         st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
         for val in row_vals:
             r.addElement(make_cell(val, st))
         tab2.addElement(r)
 
-    tab2.addElement(TableRow())
+    tab2.addElement(make_row("spacer"))
 
-    t2_an_title = TableRow()
+    t2_an_title = make_row("section")
     t2_an_title.addElement(make_cell(f"LIVE =PY() PYTHON ANALYSIS METRICS (DRIVEN BY SALES DATA {SALES_RANGE_ODS})", "SectionBanner", span_cols=10))
     tab2.addElement(t2_an_title)
 
@@ -637,7 +756,7 @@ def build_ods_showcase(out_path: Path) -> None:
         ("5. High Value Orders (above threshold)", "Flags orders more than 2 standard deviations above the mean", f'=PY("sum(r[7] > data[1] for r in data[0][1:])"; {SALES_RANGE_ODS}; F46)'),
     ]
     for title, desc, form in calc_cards_t2:
-        rc1 = TableRow()
+        rc1 = make_row("metric")
         rc1.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=5))
         rc1.addElement(make_cell("Calculating...", "FormulaResult", span_cols=4, formula=form))
         tab2.addElement(rc1)
@@ -645,31 +764,31 @@ def build_ods_showcase(out_path: Path) -> None:
     doc.spreadsheet.addElement(tab2)
 
     # --- TAB 3: 📈 Statistics & ML (SciPy, Statsmodels, Scikit-Learn) ---
-    tab3 = Table(name="Statistics_ML")
-    t3_title = TableRow()
+    tab3 = make_table("Statistics_ML")
+    t3_title = make_row("hero")
     t3_title.addElement(make_cell("📈 Statistical Modeling & Machine Learning — SciPy, Statsmodels & Scikit-Learn", "HeroTitle", span_cols=7))
     tab3.addElement(t3_title)
 
-    t3_sub = TableRow()
+    t3_sub = make_row("sub")
     t3_sub.addElement(make_cell("Multi-channel marketing campaign dataset analyzed with descriptive stats, Pearson correlation, OLS linear regression, and K-Means", "HeroSubtitle", span_cols=7))
     tab3.addElement(t3_sub)
-    tab3.addElement(TableRow())
+    tab3.addElement(make_row("spacer"))
 
-    t3_sec = TableRow()
+    t3_sec = make_row("section")
     t3_sec.addElement(make_cell("MARKETING CAMPAIGN DATASET (20 CAMPAIGNS)", "SectionBanner", span_cols=7))
     tab3.addElement(t3_sec)
 
     mkt_data = get_marketing_dataset()
     for r_idx, row_vals in enumerate(mkt_data):
-        r = TableRow()
+        r = make_row("header" if r_idx == 0 else "data")
         st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
         for val in row_vals:
             r.addElement(make_cell(val, st))
         tab3.addElement(r)
 
-    tab3.addElement(TableRow())
+    tab3.addElement(make_row("spacer"))
 
-    t3_an_title = TableRow()
+    t3_an_title = make_row("section")
     t3_an_title.addElement(make_cell("PREDICTIVE MODELING & STATISTICAL METRICS (FROM DATA A5:G25)", "SectionBanner", span_cols=7))
     tab3.addElement(t3_an_title)
 
@@ -680,7 +799,7 @@ def build_ods_showcase(out_path: Path) -> None:
         ("4. Total Marketing Return on Ad Spend", "Overall portfolio return multiplier across all channels", '=PY("round(sum(r[6] for r in data[1:]) / sum(r[2] for r in data[1:]), 2)"; A5:G25)'),
     ]
     for title, desc, form in stat_cards:
-        rc1 = TableRow()
+        rc1 = make_row("metric")
         rc1.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=4))
         rc1.addElement(make_cell("Calculating...", "FormulaResult", span_cols=3, formula=form))
         tab3.addElement(rc1)
@@ -688,31 +807,31 @@ def build_ods_showcase(out_path: Path) -> None:
     doc.spreadsheet.addElement(tab3)
 
     # --- TAB 4: 🔮 Time Series & Forecasting ---
-    tab4 = Table(name="Forecasting")
-    t4_title = TableRow()
+    tab4 = make_table("Forecasting")
+    t4_title = make_row("hero")
     t4_title.addElement(make_cell("🔮 Time Series Forecasting & Decomposition — Statsmodels", "HeroTitle", span_cols=5))
     tab4.addElement(t4_title)
 
-    t4_sub = TableRow()
+    t4_sub = make_row("sub")
     t4_sub.addElement(make_cell("36-Month historical sales series with Trend, Seasonal periodicity, and Anomaly residual detection", "HeroSubtitle", span_cols=5))
     tab4.addElement(t4_sub)
-    tab4.addElement(TableRow())
+    tab4.addElement(make_row("spacer"))
 
-    t4_sec = TableRow()
+    t4_sec = make_row("section")
     t4_sec.addElement(make_cell("36-MONTH HISTORICAL SALES SERIES", "SectionBanner", span_cols=5))
     tab4.addElement(t4_sec)
 
     ts_data = get_timeseries_dataset()
     for r_idx, row_vals in enumerate(ts_data):
-        r = TableRow()
+        r = make_row("header" if r_idx == 0 else "data")
         st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
         for val in row_vals:
             r.addElement(make_cell(val, st))
         tab4.addElement(r)
 
-    tab4.addElement(TableRow())
+    tab4.addElement(make_row("spacer"))
 
-    t4_an_title = TableRow()
+    t4_an_title = make_row("section")
     t4_an_title.addElement(make_cell("TIME SERIES METRICS & PROJECTIONS (FROM DATA A5:E41)", "SectionBanner", span_cols=5))
     tab4.addElement(t4_an_title)
 
@@ -723,7 +842,7 @@ def build_ods_showcase(out_path: Path) -> None:
         ("4. Residual Anomaly Spike Month", "Detects unusual spike via STL residual analysis", '=PY("max(data[1:], key=lambda r: r[4] - r[2] - r[3])[1]"; A5:E41)'),
     ]
     for title, desc, form in ts_cards:
-        rc = TableRow()
+        rc = make_row("metric")
         rc.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=3))
         rc.addElement(make_cell("Calculating...", "FormulaResult", span_cols=2, formula=form))
         tab4.addElement(rc)
@@ -731,31 +850,31 @@ def build_ods_showcase(out_path: Path) -> None:
     doc.spreadsheet.addElement(tab4)
 
     # --- TAB 5: ⚡ Financial Optimization (SciPy Optimize & Quant) ---
-    tab5 = Table(name="Optimization")
-    t5_title = TableRow()
+    tab5 = make_table("Optimization")
+    t5_title = make_row("hero")
     t5_title.addElement(make_cell("⚡ Financial Optimization & Monte Carlo — SciPy Optimize", "HeroTitle", span_cols=5))
     tab5.addElement(t5_title)
 
-    t5_sub = TableRow()
+    t5_sub = make_row("sub")
     t5_sub.addElement(make_cell("Asset return modeling, Sharpe ratio portfolio optimization, and Monte Carlo wealth projections", "HeroSubtitle", span_cols=5))
     tab5.addElement(t5_sub)
-    tab5.addElement(TableRow())
+    tab5.addElement(make_row("spacer"))
 
-    t5_sec = TableRow()
+    t5_sec = make_row("section")
     t5_sec.addElement(make_cell("16-MONTH ASSET CLASS RETURNS MATRIX", "SectionBanner", span_cols=5))
     tab5.addElement(t5_sec)
 
     port_data = get_portfolio_dataset()
     for r_idx, row_vals in enumerate(port_data):
-        r = TableRow()
+        r = make_row("header" if r_idx == 0 else "data")
         st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
         for val in row_vals:
             r.addElement(make_cell(val, st))
         tab5.addElement(r)
 
-    tab5.addElement(TableRow())
+    tab5.addElement(make_row("spacer"))
 
-    t5_an_title = TableRow()
+    t5_an_title = make_row("section")
     t5_an_title.addElement(make_cell("PORTFOLIO OPTIMIZATION & RISK METRICS (FROM DATA A5:E21)", "SectionBanner", span_cols=5))
     tab5.addElement(t5_an_title)
 
@@ -766,7 +885,7 @@ def build_ods_showcase(out_path: Path) -> None:
         ("4. Monte Carlo 10-Yr 95th %ile Wealth ($10k)", "Top quartile outcome simulated across 1,000 runs", '=PY("f\'${10000 * (1 + 0.08)**10 * 1.35:,.0f}\'"; A5:E21)'),
     ]
     for title, desc, form in opt_cards:
-        rc = TableRow()
+        rc = make_row("metric")
         rc.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=3))
         rc.addElement(make_cell("Calculating...", "FormulaResult", span_cols=2, formula=form))
         tab5.addElement(rc)
@@ -774,31 +893,31 @@ def build_ods_showcase(out_path: Path) -> None:
     doc.spreadsheet.addElement(tab5)
 
     # --- TAB 6: 🔬 Engineering, Math & Pint Units ---
-    tab6 = Table(name="Engineering_Math")
-    t6_title = TableRow()
+    tab6 = make_table("Engineering_Math")
+    t6_title = make_row("hero")
     t6_title.addElement(make_cell("🔬 Engineering Units & Symbolic Math — Pint & SymPy", "HeroTitle", span_cols=5))
     tab6.addElement(t6_title)
 
-    t6_sub = TableRow()
+    t6_sub = make_row("sub")
     t6_sub.addElement(make_cell("Physical dimension unit conversions using Pint and exact analytical calculus using SymPy CAS", "HeroSubtitle", span_cols=5))
     tab6.addElement(t6_sub)
-    tab6.addElement(TableRow())
+    tab6.addElement(make_row("spacer"))
 
-    t6_sec = TableRow()
+    t6_sec = make_row("section")
     t6_sec.addElement(make_cell("PHYSICAL PARAMETERS & UNIT CONVERSION TABLE", "SectionBanner", span_cols=5))
     tab6.addElement(t6_sec)
 
     eng_data = get_engineering_dataset()
     for r_idx, row_vals in enumerate(eng_data):
-        r = TableRow()
+        r = make_row("header" if r_idx == 0 else "data")
         st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
         for val in row_vals:
             r.addElement(make_cell(val, st))
         tab6.addElement(r)
 
-    tab6.addElement(TableRow())
+    tab6.addElement(make_row("spacer"))
 
-    t6_an_title = TableRow()
+    t6_an_title = make_row("section")
     t6_an_title.addElement(make_cell("LIVE SCIENTIFIC CONVERSIONS & SYMBOLIC CALCULUS (FROM DATA A5:E11)", "SectionBanner", span_cols=5))
     tab6.addElement(t6_an_title)
 
@@ -811,7 +930,7 @@ def build_ods_showcase(out_path: Path) -> None:
         ("6. SymPy: Definite Integral exp(-x^2)", "Analytical Gaussian integral computation using math.erf", '=PY("round(math.erf(1) * (math.sqrt(math.pi)/2), 4)")'),
     ]
     for title, desc, form in eng_cards:
-        rc = TableRow()
+        rc = make_row("metric")
         rc.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=3))
         rc.addElement(make_cell("Calculating...", "FormulaResult", span_cols=2, formula=form))
         tab6.addElement(rc)
@@ -819,17 +938,17 @@ def build_ods_showcase(out_path: Path) -> None:
     doc.spreadsheet.addElement(tab6)
 
     # --- TAB 7: 🎨 Visualization Gallery ---
-    tab7 = Table(name="Viz_Gallery")
-    t7_title = TableRow()
+    tab7 = make_table("Viz_Gallery")
+    t7_title = make_row("hero")
     t7_title.addElement(make_cell("🎨 Visualization Gallery — Live Matplotlib & Seaborn Charts via =PY()", "HeroTitle", span_cols=8))
     tab7.addElement(t7_title)
 
-    t7_sub = TableRow()
+    t7_sub = make_row("sub")
     t7_sub.addElement(make_cell("Live =PY() formulas that automatically generate and embed vector chart graphics directly on the spreadsheet", "HeroSubtitle", span_cols=8))
     tab7.addElement(t7_sub)
-    tab7.addElement(TableRow())
+    tab7.addElement(make_row("spacer"))
 
-    t7_sec = TableRow()
+    t7_sec = make_row("section")
     t7_sec.addElement(make_cell("INTERACTIVE =PY() EMBEDDED PLOT GENERATORS", "SectionBanner", span_cols=8))
     tab7.addElement(t7_sec)
 
@@ -841,22 +960,24 @@ def build_ods_showcase(out_path: Path) -> None:
     ]
 
     for title, desc, form in viz_cards:
-        tab7.addElement(TableRow())
-        hdr_row = TableRow()
+        tab7.addElement(make_row("spacer"))
+        hdr_row = make_row("section")
         hdr_row.addElement(make_cell(f"📊 {title} — {desc}", "SectionBanner", span_cols=8))
         tab7.addElement(hdr_row)
 
-        c_row1 = TableRow()
+        c_row1 = make_row("viz")
         c_row1.addElement(make_cell(f"Plot Definition:\n{desc}\n\nLive Formula:\n{form}", "InfoBox", span_cols=3, span_rows=10))
         c_row1.addElement(make_cell("Rendering Plot...", "ChartCanvas", span_cols=5, span_rows=10, formula=form))
         tab7.addElement(c_row1)
 
-        for _ in range(9):
-            tab7.addElement(TableRow())
+        viz_follow = 9
+        while viz_follow > 0:
+            tab7.addElement(make_row("viz"))
+            viz_follow -= 1
 
     doc.spreadsheet.addElement(tab7)
 
-    _add_ods_sql_sheet(doc, make_cell, Table, TableRow)
+    _add_ods_sql_sheet(doc, make_cell, make_table, make_row)
 
     # Save ODS
     out_path.parent.mkdir(parents=True, exist_ok=True)
