@@ -10,9 +10,10 @@ Related: [benchmarks.md](benchmarks.md), [eval-dev-plan.md](eval-dev-plan.md),
 
 **Status:** First A/B: 20b gained `data_sorting`; 120b regressed
 (`header row is not first` — used `sort_range` but treated Product/Revenue
-as a data row). Wording revised DO-first + slimmed (no `CALC_WORKFLOW`
-duplicate; no `write_formula_range` sort-half; `has_header` on
-`sort_range.description` plus a brief directive echo). Tax relative rule
+as a data row). Wording revised to one-sentence **Do Z because Y** + slimmed (no
+`CALC_WORKFLOW` duplicate; no `write_formula_range` sort-half; no
+Don't/Prefer-over opener; `has_header` on `sort_range.description`
+plus a brief directive echo). Tax relative rule
 stayed helpful for 120b. Shared prompt; no 20b fork. Re-A/B pending.
 
 ## Snapshot
