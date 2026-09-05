@@ -190,6 +190,11 @@ def test_sheet_only_result_formulas_keep_sql_inside_quoted_payload() -> None:
             assert "con.sql('" in payload
             assert "SUM(" not in rest
             assert "COUNT(" not in rest
+            # Premature string close made Calc treat SQL commas as OpenFormula
+            # separators (Region, Category → region; category). Keep them inside.
+            assert "Region; Category" not in formula
+            assert "SUM(Revenue);" not in formula
+            assert payload.count(",") >= 2
     assert _scenario_result_formula("join_zip", SQL_SALES_ZIP_INCOME_JOIN, ods=False) is None
 
 
