@@ -22,6 +22,7 @@ import importlib
 import logging
 import sys
 import threading
+from contextvars import ContextVar
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -43,6 +44,45 @@ from plugin.scripting.sandbox import VENV_AUTHORIZED_IMPORTS
 _SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
 _SESSION_LOCK = threading.Lock()
 
+# Cell / RPS session for the current execute. Isolated runs leave this None so
+# DuckDB and similar caches stay per-request. Init-only ids are not stored here
+# (``calc:…:init`` would otherwise leak a catalog across Isolated cells).
+_CURRENT_SANDBOX_SESSION: ContextVar[str | None] = ContextVar(
+    "sandbox_session_id", default=None
+)
+
+
+def current_sandbox_session_id() -> str | None:
+    """Workbook session id for this sandboxed execute, or ``None`` (isolated)."""
+    return _CURRENT_SANDBOX_SESSION.get()
+
+
+def _reset_session_duckdb(session_id: str | None) -> None:
+    """Close the Phase D DuckDB catalog for *session_id* (LibrePy has no module)."""
+    try:
+        from plugin.scripting.venv.duckdb_sql import reset_session_duckdb
+    except ImportError:
+        return
+    reset_session_duckdb(session_id)
+
+
+def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
+    """Bind ``session_duckdb`` / ``invalidate_session_tables`` when DuckDB helpers ship."""
+    try:
+        from plugin.scripting.venv.duckdb_sql import (
+            invalidate_session_tables,
+            session_duckdb,
+        )
+    except ImportError:
+        return
+    helpers = {
+        "session_duckdb": session_duckdb,
+        "invalidate_session_tables": invalidate_session_tables,
+    }
+    executor.send_variables(helpers)
+    executor.custom_tools.update(helpers)
+
+
 # Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
 _INIT_SCRIPT_HASH: dict[str, str] = {}
 _CELL_SESSION_INIT_DIGEST: dict[str, str] = {}
@@ -55,6 +95,8 @@ _INIT_STATE_SKIP_KEYS = frozenset(
         "data",
         "ranges",  # always-list of CalcRange; re-injected each run
         "xl",  # binding-only Excel data bridge; re-injected each run
+        "session_duckdb",  # rebound each execute; not an init-script binding
+        "invalidate_session_tables",
     }
 )
 
@@ -469,6 +511,8 @@ def _clear_init_session_unlocked(init_session_id: str) -> None:
     if cell_sid:
         _SESSION_EXECUTORS.pop(cell_sid, None)
         _CELL_SESSION_INIT_DIGEST.pop(cell_sid, None)
+        # Init-hash change drops the workbook kernel; DuckDB tables must go too.
+        _reset_session_duckdb(cell_sid)
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
@@ -487,6 +531,7 @@ def reset_sandbox_session(session_id: str) -> dict[str, Any]:
         if session_id.endswith(":init"):
             _INIT_SCRIPT_HASH.pop(session_id, None)
         _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
+    _reset_session_duckdb(session_id)
     return {"status": "ok"}
 
 
@@ -496,6 +541,7 @@ def clear_all_sandbox_sessions() -> None:
         _SESSION_EXECUTORS.clear()
         _INIT_SCRIPT_HASH.clear()
         _CELL_SESSION_INIT_DIGEST.clear()
+    _reset_session_duckdb(None)
 
 
 def _snapshot_init_bindings(init_session_id: str) -> dict[str, Any]:
@@ -740,28 +786,35 @@ def run_sandboxed_code(
     # Force non-interactive backend so plt.show() doesn't block in the subprocess.
     _ensure_mpl_agg()
 
-    init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
-    if init_sid and (init_script or "").strip():
-        init_err = _ensure_init_executed(
-            init_sid,
-            init_script or "",
-            timeout_sec=timeout_sec,
-            init_script_hash=init_script_hash,
-        )
-        if init_err is not None:
-            return init_err
+    # Only the cell / RPS session_id is persistable. Isolated cells still have
+    # init_session_id (calc:…:init); binding that would share DuckDB across cells.
+    token = _CURRENT_SANDBOX_SESSION.set(session_id)
+    try:
+        init_sid = init_session_id if isinstance(init_session_id, str) and init_session_id.strip() else None
+        if init_sid and (init_script or "").strip():
+            init_err = _ensure_init_executed(
+                init_sid,
+                init_script or "",
+                timeout_sec=timeout_sec,
+                init_script_hash=init_script_hash,
+            )
+            if init_err is not None:
+                return init_err
 
-    if session_id:
-        executor = _get_or_create_session_executor(session_id, timeout_sec)
-        if init_sid:
-            _seed_executor_from_init(executor, init_sid)
-    else:
-        executor = _new_executor(timeout_sec)
-        if init_sid:
-            _seed_executor_from_init(executor, init_sid)
+        if session_id:
+            executor = _get_or_create_session_executor(session_id, timeout_sec)
+            if init_sid:
+                _seed_executor_from_init(executor, init_sid)
+        else:
+            executor = _new_executor(timeout_sec)
+            if init_sid:
+                _seed_executor_from_init(executor, init_sid)
 
-    inject_auto_imports(executor, code)
-    ranges = _inject_data(executor, data)
-    _inject_excel_xl(executor, ranges)
-    _inject_bindings(executor, bindings)
-    return _run_on_executor(executor, code)
+        inject_auto_imports(executor, code)
+        ranges = _inject_data(executor, data)
+        _inject_excel_xl(executor, ranges)
+        _inject_bindings(executor, bindings)
+        _inject_session_duckdb(executor)
+        return _run_on_executor(executor, code)
+    finally:
+        _CURRENT_SANDBOX_SESSION.reset(token)

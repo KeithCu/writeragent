@@ -4,7 +4,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Trusted venv DuckDB SQL compute (folder read-only) — runs in user venv worker.
 
-Phase A: CSV/Parquet/JSON (direct) + Phase A+: sibling .xlsx/.xls/.ods via host LO import (preloaded grids).
+Phase A–C: CSV/Parquet/JSON (direct) + sibling .xlsx/.xls/.ods via host LO import
+(preloaded grids) + multi-table catalog. Phase D: one in-memory DuckDB per
+shared-kernel workbook session (``calc:`` / ``rps:`` / ``notebook:``) until
+Reset Python Session. Isolated / chat trusted actions stay per-request.
+
 Host always resolves scoped_dir and validates. Read-only policy (no writes/attach/export).
 """
 
@@ -13,6 +17,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import threading
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -26,6 +31,154 @@ from plugin.scripting.venv.coerce import (
     error_result as _error_result,
     missing_package_error as _missing_package_error,
 )
+
+# Workbook-keyed sessions may keep one DuckDB. Domain prefixes used by
+# run_trusted_action (``writeragent:sql``) are routing ids, not kernels —
+# caching on those would leak one catalog across every document.
+_PERSISTABLE_PREFIXES = ("calc:", "rps:", "notebook:")
+
+_SESSION_CONNECTIONS: dict[str, Any] = {}
+_SESSION_LOCK = threading.Lock()
+
+
+def persistable_duckdb_session_id(session_id: str | None) -> str | None:
+    """Return the cache key for a shared-kernel session, or ``None`` (per-request).
+
+    ``calc:…:init`` shares the workbook key so an init script and ``=PY()``
+    cells see the same catalog. Isolated executes pass no cell ``session_id``.
+    """
+    sid = (session_id or "").strip()
+    if not sid:
+        return None
+    if sid.endswith(":init"):
+        sid = sid[: -len(":init")]
+    if any(sid.startswith(prefix) for prefix in _PERSISTABLE_PREFIXES):
+        return sid
+    return None
+
+
+def _sandbox_session_id() -> str | None:
+    try:
+        from plugin.scripting.venv.venv_sandbox import current_sandbox_session_id
+    except ImportError:
+        return None
+    return current_sandbox_session_id()
+
+
+def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
+    """Explicit id, else the current shared-kernel sandbox session (if persistable)."""
+    if session_id is not None:
+        return persistable_duckdb_session_id(session_id)
+    return persistable_duckdb_session_id(_sandbox_session_id())
+
+
+def _close_connection(con: Any) -> None:
+    try:
+        con.close()
+    except Exception:
+        log.debug("DuckDB session close failed", exc_info=True)
+
+
+def _connection_alive(con: Any) -> bool:
+    try:
+        con.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
+def reset_session_duckdb(session_id: str | None = None) -> None:
+    """Close cached connection(s). ``None`` drops every session (tests / worker wipe).
+
+    Reset Python Session calls this for the workbook id so registered tables
+    do not survive the namespace wipe.
+    """
+    with _SESSION_LOCK:
+        if session_id is None:
+            cons = list(_SESSION_CONNECTIONS.values())
+            _SESSION_CONNECTIONS.clear()
+        else:
+            keys = {session_id}
+            normalized = persistable_duckdb_session_id(session_id)
+            if normalized:
+                keys.add(normalized)
+            cons = [_SESSION_CONNECTIONS.pop(key, None) for key in keys]
+    for con in cons:
+        if con is not None:
+            _close_connection(con)
+
+
+def session_duckdb(session_id: str | None = None) -> Any:
+    """Return a DuckDB in-memory connection for ``=PY()`` / tools.
+
+    Shared kernel (persistable ``session_id`` or current sandbox session): the
+    same connection and registered tables until Reset Python Session or
+    ``invalidate_session_tables()``. Isolated / chat (no persistable session):
+    a fresh connection each call — same as ``duckdb.connect()`` today.
+    """
+    con, _persist = _acquire_duckdb(session_id)
+    return con
+
+
+def invalidate_session_tables(
+    names: list[str] | tuple[str, ...] | None = None,
+    *,
+    session_id: str | None = None,
+) -> None:
+    """Drop registered tables, or close the session catalog when *names* is omitted.
+
+    Use this when a cell must discard a snapshot without Reset Python Session.
+    """
+    key = resolve_duckdb_session_id(session_id)
+    if key is None:
+        return
+    if not names:
+        reset_session_duckdb(key)
+        return
+    with _SESSION_LOCK:
+        con = _SESSION_CONNECTIONS.get(key)
+    if con is None:
+        return
+    for raw in names:
+        name = str(raw).strip()
+        if not name:
+            continue
+        try:
+            if hasattr(con, "unregister"):
+                con.unregister(name)
+            else:
+                con.execute(f'DROP VIEW IF EXISTS "{name}"')
+        except Exception:
+            log.debug("invalidate_session_tables: could not drop %s", name, exc_info=True)
+
+
+def _acquire_duckdb(session_id: str | None) -> tuple[Any, bool]:
+    """Return ``(connection, persist)``. Persist means do not close after the query."""
+    import duckdb  # type: ignore[import-not-found]
+
+    key = resolve_duckdb_session_id(session_id)
+    if key is None:
+        # Isolated / writeragent:sql trusted action: per-request catalog.
+        return duckdb.connect(), False
+    with _SESSION_LOCK:
+        con = _SESSION_CONNECTIONS.get(key)
+        if con is not None and _connection_alive(con):
+            return con, True
+        if con is not None:
+            _close_connection(con)
+        con = duckdb.connect()
+        _SESSION_CONNECTIONS[key] = con
+        return con, True
+
+
+def _register_relation(con: Any, name: str, rel: Any) -> None:
+    """Replace a prior registration so a recalc snapshot overwrites a stale table."""
+    try:
+        if hasattr(con, "unregister"):
+            con.unregister(name)
+    except Exception:
+        pass
+    con.register(name, rel)
 
 
 @contextlib.contextmanager
@@ -90,18 +243,71 @@ def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:
     return validated
 
 
+def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
+    if not preloaded:
+        return
+    from plugin.scripting.venv.coerce import coerce_to_dataframe
+
+    for orig_name, data in preloaded.items():
+        if not orig_name or not data:
+            continue
+        try:
+            if isinstance(data, dict) and "grid" in data:
+                g = data["grid"]
+                h = bool(data.get("headers", True))
+                coerced = coerce_to_dataframe(g, headers=h, sheet_hint=orig_name)
+            else:
+                coerced = coerce_to_dataframe(data, headers=True, sheet_hint=orig_name)
+            _register_relation(con, orig_name, coerced.df)
+            stem = os.path.splitext(orig_name)[0]
+            if stem and stem != orig_name:
+                try:
+                    _register_relation(con, stem, coerced.df)
+                except Exception:
+                    pass
+        except Exception as reg_err:
+            log.warning("Failed to register preloaded table %s: %s", orig_name, reg_err)
+
+
+def _register_flat_files(con: Any, flat_files: dict[str, str] | None) -> None:
+    if not flat_files:
+        return
+    for name, path in flat_files.items():
+        if not name or not path:
+            continue
+        try:
+            p = str(path)
+            lower = p.lower()
+            if lower.endswith((".csv", ".tsv")):
+                rel = con.read_csv(p)
+            elif lower.endswith(".parquet"):
+                rel = con.read_parquet(p)
+            elif lower.endswith((".json", ".jsonl")):
+                rel = con.read_json(p)
+            else:
+                rel = con.read_csv(p)
+            _register_relation(con, name, rel)
+        except Exception as flat_err:
+            log.warning("Failed to register flat file table %s from %s: %s", name, path, flat_err)
+
+
 def query_folder_sql(
     scoped_dir: str | None,
     sql: str,
     files: list[str] | dict[str, str] | None = None,
     preloaded: dict[str, Any] | None = None,
     flat_files: dict[str, str] | None = None,
+    *,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Run read-only SQL against scoped folder files + preloaded tables (from sibling spreadsheets or live ranges).
 
     - preloaded: dict table_name -> 2D grid data (from host LO reads for ranges/office files).
     - files: list of basenames (legacy, uses chdir + filename refs) or dict name->basename for flat files.
     - flat_files: dict name -> full validated path for direct DuckDB reads (preferred for named files in Phase C+).
+    - session_id: shared-kernel workbook id. When persistable (or the current
+      ``=PY()`` sandbox session is), reuse one connection and keep tables
+      that this call does not re-register. Isolated / omitted: per-request.
     'data' is conventional for sheet ranges.
     """
     helper = "query_folder_sql"
@@ -109,6 +315,7 @@ def query_folder_sql(
         import duckdb  # type: ignore[import-not-found]
     except ImportError:
         return _missing_package_error(helper, "duckdb")
+    del duckdb
 
     if not sql or not str(sql).strip():
         return _error_result("INVALID_SQL", "sql is required", helper=helper)
@@ -135,59 +342,12 @@ def query_folder_sql(
         else:
             validated = _validate_files(scoped_dir, files) if files and scoped_dir else []
 
-        # In-memory catalog (``duckdb.connect()`` with no file). DuckDB refuses
-        # ``read_only=True`` on ``:memory:`` ("Cannot launch in-memory database in
-        # read-only mode"); ``read_only`` is for a database file shared across
-        # processes. This helper must read folder files: tests use ``FROM 'sales.csv'``
-        # after chdir; the modern path calls ``con.read_csv`` / ``read_parquet``.
-        # ``enable_external_access=false`` would break those reads.
-        con = duckdb.connect()
+        # In-memory catalog. DuckDB refuses ``read_only=True`` on ``:memory:``.
+        # Shared kernel reuses one connection; isolated always opens+closes.
+        con, persist = _acquire_duckdb(session_id)
         try:
-            # Register any preloaded tables (e.g. from sibling .xlsx/.ods or live ranges)
-            if preloaded:
-                from plugin.scripting.venv.coerce import coerce_to_dataframe
-                for orig_name, data in (preloaded or {}).items():
-                    if not orig_name or not data:
-                        continue
-                    try:
-                        if isinstance(data, dict) and "grid" in data:
-                            g = data["grid"]
-                            h = bool(data.get("headers", True))
-                            coerced = coerce_to_dataframe(g, headers=h, sheet_hint=orig_name)
-                        else:
-                            coerced = coerce_to_dataframe(data, headers=True, sheet_hint=orig_name)
-                        con.register(orig_name, coerced.df)
-                        stem = os.path.splitext(orig_name)[0]
-                        if stem and stem != orig_name:
-                            try:
-                                con.register(stem, coerced.df)
-                            except Exception:
-                                pass
-                    except Exception as reg_err:
-                        log.warning("Failed to register preloaded table %s: %s", orig_name, reg_err)
-
-            # Phase C+: named flat files (preferred)
-            if flat_files:
-                for name, path in (flat_files or {}).items():
-                    if not name or not path:
-                        continue
-                    try:
-                        p = str(path)
-                        lower = p.lower()
-                        if lower.endswith(('.csv', '.tsv')):
-                            rel = con.read_csv(p)
-                            con.register(name, rel)
-                        elif lower.endswith('.parquet'):
-                            rel = con.read_parquet(p)
-                            con.register(name, rel)
-                        elif lower.endswith(('.json', '.jsonl')):
-                            rel = con.read_json(p)
-                            con.register(name, rel)
-                        else:
-                            rel = con.read_csv(p)
-                            con.register(name, rel)
-                    except Exception as flat_err:
-                        log.warning("Failed to register flat file table %s from %s: %s", name, path, flat_err)
+            _register_preloaded(con, preloaded)
+            _register_flat_files(con, flat_files)
 
             if base and (legacy_files or not flat_files) and (validated or legacy_files):
                 with _scoped_cwd(base):
@@ -195,7 +355,8 @@ def query_folder_sql(
             else:
                 df = con.execute(sql).df()
         finally:
-            con.close()
+            if not persist:
+                _close_connection(con)
 
         total = int(len(df))
         limited = df.head(MAX_TABLE_ROWS)

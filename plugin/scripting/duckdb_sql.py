@@ -35,6 +35,10 @@ _HELPER_DESCRIPTIONS: dict[str, str] = {
 _SQL_VENV_EXPORTS = frozenset(
     {
         "query_folder_sql",
+        "session_duckdb",
+        "reset_session_duckdb",
+        "invalidate_session_tables",
+        "persistable_duckdb_session_id",
     }
 )
 

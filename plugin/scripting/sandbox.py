@@ -127,6 +127,7 @@ VENV_AUTHORIZED_IMPORTS: tuple[str, ...] = (
     "plugin.embeddings.venv.embeddings_zvec",
     "plugin.embeddings.venv.embeddings_hybrid_search",
     "plugin.scripting.analysis",
+    "plugin.scripting.duckdb_sql",
     "plugin.vision",
     "plugin.vision.venv.vision",
     "plugin.vision.vision_common",

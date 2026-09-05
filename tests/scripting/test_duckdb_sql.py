@@ -14,7 +14,13 @@ import pytest
 pytest.importorskip("duckdb")
 pytest.importorskip("pandas")
 
-from plugin.scripting.venv.duckdb_sql import query_folder_sql
+from plugin.scripting.venv.duckdb_sql import (
+    invalidate_session_tables,
+    persistable_duckdb_session_id,
+    query_folder_sql,
+    reset_session_duckdb,
+    session_duckdb,
+)
 
 
 def _write_csv(path: Path, content: str) -> None:
@@ -244,3 +250,200 @@ def test_pretty_demo_results_code_reads_sql_from_cell_range():
     got = {(r.Region, r.Category): float(r.revenue) for r in result.itertuples(index=False)}
     for rec in expected.itertuples(index=False):
         assert abs(got[(rec.Region, rec.Category)] - float(rec.Revenue)) < 1e-6
+
+
+# --- Phase D: shared-kernel DuckDB session cache ---
+
+
+@pytest.fixture
+def _clean_duckdb_sessions():
+    reset_session_duckdb()
+    from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions
+
+    clear_all_sandbox_sessions()
+    yield
+    reset_session_duckdb()
+    clear_all_sandbox_sessions()
+
+
+def _tiny_grid(value: int) -> list[list[object]]:
+    return [["x"], [value]]
+
+
+def test_persistable_session_id_workbook_only():
+    assert persistable_duckdb_session_id("calc:wb-1") == "calc:wb-1"
+    assert persistable_duckdb_session_id("calc:wb-1:init") == "calc:wb-1"
+    assert persistable_duckdb_session_id("rps:doc") == "rps:doc"
+    assert persistable_duckdb_session_id("notebook:doc") == "notebook:doc"
+    assert persistable_duckdb_session_id("writeragent:sql") is None
+    assert persistable_duckdb_session_id("") is None
+    assert persistable_duckdb_session_id(None) is None
+
+
+def test_session_duckdb_reuses_connection(_clean_duckdb_sessions):
+    sid = "calc:duckdb-reuse"
+    first = session_duckdb(session_id=sid)
+    second = session_duckdb(session_id=sid)
+    assert first is second
+
+
+def test_isolated_session_duckdb_is_fresh_each_call(_clean_duckdb_sessions):
+    first = session_duckdb()
+    second = session_duckdb()
+    assert first is not second
+    first.close()
+    second.close()
+
+
+def test_trusted_action_prefix_is_not_a_session_cache(_clean_duckdb_sessions):
+    """Chat / run_folder_sql uses writeragent:sql as a routing id, not a kernel."""
+    first = session_duckdb(session_id="writeragent:sql")
+    second = session_duckdb(session_id="writeragent:sql")
+    assert first is not second
+    first.close()
+    second.close()
+
+
+def test_query_folder_sql_session_reuses_registered_table(_clean_duckdb_sessions):
+    sid = "calc:duckdb-tables"
+    first = query_folder_sql(
+        None,
+        "SELECT x FROM sales",
+        preloaded={"sales": _tiny_grid(7)},
+        session_id=sid,
+    )
+    assert first["status"] == "ok", first
+    assert first["rows"][0][0] == 7
+
+    # Second request sends only SQL — table stays registered on the session catalog.
+    second = query_folder_sql(None, "SELECT x FROM sales", session_id=sid)
+    assert second["status"] == "ok", second
+    assert second["rows"][0][0] == 7
+
+
+def test_query_folder_sql_isolated_does_not_reuse_tables(_clean_duckdb_sessions):
+    first = query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(3)})
+    assert first["status"] == "ok", first
+    second = query_folder_sql(None, "SELECT x FROM sales")
+    assert second["status"] == "error"
+    assert "DUCKDB_ERROR" in second.get("code", "")
+
+
+def test_query_folder_sql_reregister_refreshes_stale_snapshot(_clean_duckdb_sessions):
+    sid = "calc:duckdb-refresh"
+    query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(1)}, session_id=sid)
+    refreshed = query_folder_sql(
+        None,
+        "SELECT x FROM sales",
+        preloaded={"sales": _tiny_grid(42)},
+        session_id=sid,
+    )
+    assert refreshed["status"] == "ok", refreshed
+    assert refreshed["rows"][0][0] == 42
+
+
+def test_reset_session_duckdb_clears_connection_and_tables(_clean_duckdb_sessions):
+    sid = "calc:duckdb-reset"
+    before = session_duckdb(session_id=sid)
+    query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(5)}, session_id=sid)
+    reset_session_duckdb(sid)
+    after = session_duckdb(session_id=sid)
+    assert after is not before
+    missing = query_folder_sql(None, "SELECT x FROM sales", session_id=sid)
+    assert missing["status"] == "error"
+
+
+def test_reset_sandbox_session_closes_duckdb(_clean_duckdb_sessions):
+    from plugin.scripting.venv.venv_sandbox import reset_sandbox_session
+
+    sid = "calc:duckdb-sandbox-reset"
+    query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(9)}, session_id=sid)
+    assert reset_sandbox_session(sid)["status"] == "ok"
+    missing = query_folder_sql(None, "SELECT x FROM sales", session_id=sid)
+    assert missing["status"] == "error"
+
+
+def test_invalidate_session_tables_drops_one_name(_clean_duckdb_sessions):
+    sid = "calc:duckdb-invalidate"
+    query_folder_sql(
+        None,
+        "SELECT x FROM sales",
+        preloaded={"sales": _tiny_grid(1), "costs": _tiny_grid(2)},
+        session_id=sid,
+    )
+    invalidate_session_tables(["sales"], session_id=sid)
+    gone = query_folder_sql(None, "SELECT x FROM sales", session_id=sid)
+    kept = query_folder_sql(None, "SELECT x FROM costs", session_id=sid)
+    assert gone["status"] == "error"
+    assert kept["status"] == "ok", kept
+    assert kept["rows"][0][0] == 2
+
+
+def test_cross_session_duckdb_isolation(_clean_duckdb_sessions):
+    query_folder_sql(None, "SELECT x FROM sales", preloaded={"sales": _tiny_grid(11)}, session_id="calc:a")
+    other = query_folder_sql(None, "SELECT x FROM sales", session_id="calc:b")
+    assert other["status"] == "error"
+
+
+def test_shared_kernel_cell_reuses_injected_session_duckdb(_clean_duckdb_sessions):
+    from plugin.scripting.venv.worker_harness import _execute_request
+
+    sid = "calc:duckdb-injected"
+    first = _execute_request(
+        "import pandas as pd\n"
+        "con = session_duckdb()\n"
+        "con.register('sales', pd.DataFrame({'x': [8]}))\n"
+        "result = id(con)",
+        None,
+        session_id=sid,
+    )
+    assert first["status"] == "ok", first
+    second = _execute_request(
+        "con = session_duckdb()\n"
+        "result = [id(con), int(con.execute('SELECT x FROM sales').fetchone()[0])]",
+        None,
+        session_id=sid,
+    )
+    assert second["status"] == "ok", second
+    assert second["result"][0] == first["result"]
+    assert second["result"][1] == 8
+
+
+def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
+    from plugin.scripting.venv.worker_harness import _execute_request
+
+    first = _execute_request(
+        "import pandas as pd\n"
+        "con = session_duckdb()\n"
+        "con.register('sales', pd.DataFrame({'x': [1]}))\n"
+        "result = 1",
+        None,
+    )
+    assert first["status"] == "ok", first
+    second = _execute_request(
+        "result = session_duckdb().execute('SELECT x FROM sales').fetchone()[0]",
+        None,
+    )
+    assert second["status"] == "error"
+
+
+def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):
+    from plugin.scripting.venv.worker_harness import _execute_request
+
+    sid = "calc:duckdb-sandbox-current"
+    first = _execute_request(
+        "from writeragent.scripting.duckdb_sql import query_folder_sql\n"
+        "result = query_folder_sql(None, 'SELECT x FROM sales', preloaded={'sales': [['x'], [13]]})['status']",
+        None,
+        session_id=sid,
+    )
+    assert first["status"] == "ok", first
+    assert first["result"] == "ok"
+    second = _execute_request(
+        "from writeragent.scripting.duckdb_sql import query_folder_sql\n"
+        "result = query_folder_sql(None, 'SELECT x FROM sales')['rows'][0][0]",
+        None,
+        session_id=sid,
+    )
+    assert second["status"] == "ok", second
+    assert second["result"] == 13

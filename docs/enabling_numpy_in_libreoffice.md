@@ -356,7 +356,7 @@ Settings → Python → `scripting.python_session_mode`:
 | Mode                   | Behavior                                                                                                                                                                                                                                |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Isolated** (default) | Each `=PY()` evaluation gets a **fresh** namespace. The **initialization script** still runs once per workbook and its imports/helpers are **seeded** into every cell — but variables assigned in one cell do **not** leak to the next. |
-| **Shared kernel**      | One **persistent global namespace** per workbook (`calc:…` session). Any cell can read or overwrite any name set by any other cell. **Reset Python Session** clears it. Run Python Script uses the same Calc session, or `rps:…` on Writer/Draw, so `wa.scripts` / `wa.doc` library caches stay on that document. |
+| **Shared kernel**      | One **persistent global namespace** per workbook (`calc:…` session). Any cell can read or overwrite any name set by any other cell. **Reset Python Session** clears it (including the session DuckDB catalog). Run Python Script uses the same Calc session, or `rps:…` on Writer/Draw, so `wa.scripts` / `wa.doc` library caches stay on that document. |
 
 
 Optional chat runs always use isolated execution (not workbook session mode) — see [Using the chat assistant](#using-the-chat-assistant-optional).
@@ -402,14 +402,14 @@ Excel’s *saved* static bridges already put ranges on `_xlws.PY` trailing args 
 | **Any cell can clobber any name**    | True shared mutable globals — cell B1 can overwrite a name from A1.                                                                                                                                                                                        |
 | **Order via** `data`**, not layout** | `result = x + 1` with **no** second arg has **no** ordering guarantee. Pass upstream cells/ranges as `data`. Init script always runs before any cell.                                                                                                      |
 | **Runs any time**                    | Partial recalc, matrix spill, manual F9 — treat every cell as **restartable**.                                                                                                                                                                             |
-| **Escape hatch**                     | **Reset Python Session** clears workbook namespace, wipes worker executors, and re-seeds helper functions.                                                                                                                                                 |
+| **Escape hatch**                     | **Reset Python Session** clears workbook namespace, wipes worker executors, closes the session DuckDB connection, and re-seeds helper functions.                                                                                                           |
 | **Yellow recalc contract**           | `=PY()` formula recalculations run in a synchronous host dispatch context (`sync_host_dispatch`). Off-main recalc worker threads never query UNO desktop or document components; session IDs and init kwargs are resolved from UI-thread cached state.          |
 
 
 
 | When state clears                               | When state persists                               |
 | ----------------------------------------------- | ------------------------------------------------- |
-| **Reset Python Session**                        | F9 / automatic / partial recalc                   |
+| **Reset Python Session** (namespace + session DuckDB) | F9 / automatic / partial recalc                   |
 | Worker subprocess restart or crash              | Names from cells that did not recalc this pass    |
 | Init script hash change (re-seed)               | Until user resets (matches Excel: no reset on F9) |
 | Document close (`OnUnload`)                     |                                                   |
@@ -465,9 +465,15 @@ Deliberate accumulation (running totals, etc.) is fine — treat it as a choice,
 
 **Not reset automatically:** F9, Ctrl+Shift+F9, or editing one cell does **not** clear the shared kernel.
 
+#### Session DuckDB (Phase D)
+
+In **Shared kernel**, `session_duckdb()` (injected; also `from writeragent.scripting.duckdb_sql import session_duckdb`) returns one in-memory DuckDB connection per workbook. `query_folder_sql` uses that connection when called from a `=PY()` / RPS cell so later cells can `SELECT` previously registered tables. Isolated mode and chat `query_folder_sql` still open-and-close a connection per request.
+
+Registered tables are snapshots: a cell that passes `data` and re-registers refreshes that name; a query-only cell does not. **Reset Python Session** or `invalidate_session_tables()` drops the catalog. Full staleness table: [calc/duckdb-dev-plan.md § Phase D](calc/duckdb-dev-plan.md#phase-d--shared-kernel-session-cache).
+
 **Related:** `[WorkerResultSession](../plugin/calc/python/function.py)` is a **separate** thread-local cache for matrix list results within one recalc pass — it does not hold cross-cell Python globals. See [Matrix Formula Optimization](#matrix-formula-optimization-fast-path).
 
-**Implementation:** `[session_manager.py](../plugin/scripting/session_manager.py)`, `[venv/venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` (`_SESSION_EXECUTORS`).
+**Implementation:** `[session_manager.py](../plugin/scripting/session_manager.py)`, `[venv/venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` (`_SESSION_EXECUTORS`), `[venv/duckdb_sql.py](../plugin/scripting/venv/duckdb_sql.py)` (session catalog).
 
 #### `result` vs `print()` (egress model) {#result-vs-print-egress-model}
 

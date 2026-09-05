@@ -12,11 +12,12 @@ Previously, tools lived under the **`analysis`** specialized domain (`delegate_t
 | Single-variable what-if on live formulas | `calc_goal_seek` |
 | Constrained optimization on formula cells | `calc_solver` |
 
-See [specialized-toolsets.md](specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan. DuckDB SQL support (up to Phase C): 
+See [specialized-toolsets.md](specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan. DuckDB SQL support (through Phase D): 
 - `query_folder_sql` for folder files (CSV/Parquet/JSON direct + .xlsx/.ods via LO import) and/or live ranges.
 - Use `tables` with a **stable identity**: `{sheet: "Sales"}` (used range), `{named_range: "SalesData"}` (named or database range), or frozen `{range: "Sales.A1:F500"}`. Sibling sheet: `files={"sales": "budget.xlsx#Sales"}` (dict key is the SQL table). See [duckdb-dev-plan.md § Table source identity](duckdb-dev-plan.md#table-source-identity).
 - `data_range` is still frozen A1 → table `data`.
 - Available in analysis domain chat or Run Python Script → SQL Helpers.
+- Shared kernel: `session_duckdb()` / in-cell `query_folder_sql` reuse one catalog until Reset. Chat tools stay per-request.
 Full plan and status: [duckdb-dev-plan.md](duckdb-dev-plan.md).
 
 **Threading:** The analysis sub-agent runs on a background worker. Tools marked `is_async` (including `analyze_data`) marshal every Calc UNO touch through `execute_on_main_thread` inside the tool body — primary analysis reads, optional sheet writes, **`auto_plot` viz data reads**, and chart insert — while only the venv IPC runs on the worker.
