@@ -66,3 +66,16 @@ def test_menu_icon_filename_uses_only_32_when_that_is_all(monkeypatch, tmp_path)
     )
     # Even at 1×, only shipped size wins until smaller assets exist.
     assert m.menu_icon_filename("python", px=16) == "python_32.png"
+
+
+def test_strong_cache_logs_info_once(monkeypatch, caplog):
+    import logging
+    from plugin.framework import menu_icon_dpi as m
+
+    m.reset_menu_icon_dpi_cache()
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 1.0)
+    with caplog.at_level(logging.INFO, logger="writeragent.menu_icon_dpi"):
+        assert m.resolve_menu_icon_pixel_size() == 16
+        assert m.resolve_menu_icon_pixel_size() == 16
+    infos = [r for r in caplog.records if r.levelno == logging.INFO and "menu_icon_dpi source=" in r.getMessage()]
+    assert len(infos) == 1

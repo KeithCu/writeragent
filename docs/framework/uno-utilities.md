@@ -1,6 +1,6 @@
 # UNO utility helpers — inventory, overlaps, and future-work plan
 
-**Status:** analysis, plus two landed P1 unifies (public `normalize_doc_url`; shared `normalize_file_url` / `get_document_path` `file:/` repair). Remaining recommendations below are deferred.
+**Status:** analysis, plus three landed P1 unifies (public `normalize_doc_url`; shared `normalize_file_url` / `get_document_path` `file:/` repair; shared UNO-free `url_utils.path_to_file_url`). Remaining recommendations below are deferred.
 
 This is the catalog of **shared UNO utility helpers** — component context, document identity, LibrePy-safe text/path helpers, chat `DocumentService`, type guards, user-defined properties, dialog accessors, listener bases, visual property helpers, and UNO error wrappers. It is **not** a catalog of domain tools (`plugin/writer/`, `plugin/calc/`, `plugin/draw/` feature modules).
 
@@ -19,7 +19,7 @@ Related catalogs (do not duplicate here):
 - **No monolithic `uno_helpers.py`.** Helpers stay split: `uno_context`, `text_helpers` / `doc_type` / `udprops`, `document_helpers`, `dialogs`. That split is an AGENTS.md rule.
 - **LibrePy must not import `document_helpers`.** Light helpers only (`text_helpers`, `doc_type`, `udprops`). Do not re-export the light helpers from `document_helpers`.
 - **Use the extension’s `self.ctx`**, stored via `set_fallback_ctx` / `get_ctx()`. Do not prefer `uno.getComponentContext()` (wrong context in test runners; can segfault on Desktop).
-- **HTTP / LLM URL policy stays in `url_utils`.** Document `file:` URLs and PathSettings are a different problem.
+- **HTTP / LLM URL policy stays in `url_utils`.** One stdlib `path_to_file_url` lives in a separate filesystem / document `file:` section; do not fold it into `normalize_endpoint_url`. PathSettings stay out of `url_utils`.
 
 ---
 
@@ -247,9 +247,7 @@ There is **no** single shared converter. Live implementations:
 
 | Helper | Module | Direction | Mechanism |
 |--------|--------|-----------|-----------|
-| `_path_to_file_url` | `document_research` | path → URL | `Path(abspath).as_uri()` (forces `file:///` on POSIX). |
-| `path_to_file_url` | `embeddings_fs` | path → URL | Same `Path.as_uri()`; **no UNO** (embeddings extract is disk-only). |
-| `_file_url` | `writer/format.py` | path → URL | Same `Path.as_uri()`. |
+| `path_to_file_url` | `url_utils` (filesystem / document `file:` section) | path → URL | `Path(abspath).as_uri()` (forces `file:///` on POSIX). **Landed.** UNO-free; used by `document_research`, `embeddings_fs`, and `format`. |
 | `_to_file_url` | `writer/specialized/mail_merge.py` | path or URL → URL | Prefer `uno.systemPathToFileUrl`; fallback `Path.as_uri()`. |
 | `_file_url_for_path` | `writer/images/image_tools.py` | path → URL | `uno.systemPathToFileUrl(abspath)`. |
 | `_file_url` | `writer/math/math_mml_convert.py` | path → URL | `uno.systemPathToFileUrl(abspath)`. |
@@ -263,7 +261,7 @@ There is **no** single shared converter. Live implementations:
 
 **Why two conversion styles exist**
 
-- `urljoin("file:", path)` produced `file:/home/...` (two slashes). `loadComponentFromURL` needs `file:///home/...`. `Path.as_uri()` is the documented fix (`document_research._path_to_file_url`, tests in `tests/doc/test_document_research.py`).
+- `urljoin("file:", path)` produced `file:/home/...` (two slashes). `loadComponentFromURL` needs `file:///home/...`. `Path.as_uri()` is the documented fix (`url_utils.path_to_file_url`, tests in `tests/framework/test_url_utils.py` and `tests/doc/test_document_research.py`).
 - `uno.systemPathToFileUrl` / `fileUrlToSystemPath` are OS-correct **when UNO is available on the main thread**.
 - Sandbox and Calc session-id parsing **must not** call UNO (off-main / stdlib-only). They reimplement a subset with explicit Windows branches.
 
@@ -271,7 +269,7 @@ There is **no** single shared converter. Live implementations:
 
 | Cluster | Share? |
 |---------|--------|
-| `Path.as_uri()` sites (`document_research`, `embeddings_fs`, `format._file_url`) | **Candidate unify** — same stdlib, no UNO. Keep the helper UNO-free so embeddings can import it. |
+| `Path.as_uri()` sites (`document_research`, `embeddings_fs`, `format`) | **Landed** as `url_utils.path_to_file_url` (filesystem section). Same stdlib, no UNO, no `@deal`. |
 | `uno.systemPathToFileUrl` at GraphicProvider / `loadComponentFromURL` image/math sites | Optional later; behavior matches `Path.as_uri()` on POSIX. Leave until a Windows mismatch is proven. |
 | `get_document_path` vs `_system_path_from_url` | **Landed the `file:/` repair** on `get_document_path` via shared `text_helpers.normalize_file_url`. Research still adds `abspath`. |
 | sandbox / session_manager stdlib parsers | **Stay separate** — no UNO, Windows UNC/drive, off-main. |
@@ -327,7 +325,7 @@ Three **different** PathSettings properties; do not collapse the meanings.
 
 ### 2.5 HTTP / API URL helpers vs document URLs
 
-[`plugin/framework/url_utils.py`](../../plugin/framework/url_utils.py) is **not** a document-URL module.
+[`plugin/framework/url_utils.py`](../../plugin/framework/url_utils.py) is primarily an HTTP / dispatch module. One stdlib filesystem helper lives in a **separate** section.
 
 | Symbol | Purpose |
 |--------|---------|
@@ -335,8 +333,9 @@ Three **different** PathSettings properties; do not collapse the meanings.
 | `get_url_hostname` / `get_url_domain` / `get_url_path` / `get_url_query_dict` / `get_url_path_and_query` | Safe `urllib.parse` for HTTP endpoints. |
 | `is_pdf_url` | HTTP path ends with `.pdf`. |
 | `matches_librepy_dispatch_url` / `dispatch_command_from_url` | LibreOffice **dispatch** URLs (`org.extension.librepy:…`), not `file:`. |
+| `path_to_file_url` | Filesystem path → document `file:` URL (`Path.as_uri()`). No `@deal`. |
 
-Do not add `file:` conversion or document identity here. Tests: `tests/framework/test_url_utils.py`.
+Do not fold document identity or PathSettings into the HTTP helpers. Tests: `tests/framework/test_url_utils.py`.
 
 ### 2.6 Extension and dispatch URLs
 
@@ -399,7 +398,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | Pair | What’s duplicated | Notes |
 |------|-------------------|-------|
 | `uno_context.normalize_doc_url` vs `document_scripts._normalize_doc_url` | Trailing-slash strip | **Landed.** Script identity imports `normalize_doc_url`; the document_scripts copy is gone. |
-| `document_research._path_to_file_url` vs `embeddings_fs.path_to_file_url` vs `format._file_url` | `Path(abspath).as_uri()` | Same stdlib. embeddings **cannot** import `text_helpers` (UNO). Needs a UNO-free home if unified. Deferred (P1 path→URL). |
+| `document_research._path_to_file_url` vs `embeddings_fs.path_to_file_url` vs `format._file_url` | `Path(abspath).as_uri()` | **Landed.** Shared `url_utils.path_to_file_url` (filesystem section). Old copies deleted; no aliases. |
 | `text_helpers.normalize_file_url` vs sandbox vs session_manager `file:/` repair | `file:/` → `file://` + rest | **Landed for UNO callers** (`get_document_path` + research). Sandbox / session_manager stay stdlib. |
 | Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. |
 
@@ -408,7 +407,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | Split | Why it is intentional |
 |-------|------------------------|
 | `text_helpers` / `doc_type` / `udprops` vs `document_helpers` | LibrePy import graph. Chat context / `SheetAnalyzer` must not load in LibrePy. |
-| `url_utils` (HTTP + LibrePy dispatch) vs document `file:` | Different schemes, different failure modes, `@deal` contracts on HTTP strings. |
+| `url_utils` HTTP helpers vs document `file:` identity | Different schemes and `@deal` contracts. The one exception is stdlib `path_to_file_url` in the filesystem section. |
 | `visual_helpers` vs `doc_type` | Visual adds `WebDocument` (checked first) and unknown→`"writer"`; research uses `impress_as_draw`. |
 | `visual_helpers` vs `image_tools` | Lookup/properties vs insert/gallery/GraphicProvider. Wrappers already delegate. |
 | `get_document_from_frame` vs `get_active_document` | Sidebar must bind the **frame’s** document, not Desktop current (wrong-doc bug). |
@@ -482,7 +481,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 ### Leave as-is / invariant
 
 1. LibrePy vs `document_helpers` import split.
-2. HTTP `url_utils` vs document `file:` URLs.
+2. HTTP `url_utils` policy vs document identity (except the one stdlib `path_to_file_url` in the filesystem section).
 3. `get_document_from_frame` for sidebars vs `get_active_document` for menus/MCP.
 4. `visual_helpers` vs `image_tools` (wrappers already delegate).
 5. sandbox / session_manager stdlib file-URL parsers (no UNO, Windows).
@@ -494,7 +493,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 ### P1 — candidate unify (small, real duplication)
 
 1. **Delete `document_scripts._normalize_doc_url`.** **Landed.** Callers import public `uno_context.normalize_doc_url`. Tests: `tests/doc/test_document.py`, `tests/scripting/test_document_scripts.py`.
-2. **UNO-free `path_to_file_url`.** Still deferred. One `Path(abspath).as_uri()` helper imported by `document_research`, `embeddings_fs`, and `format._file_url`. Do **not** put it in `url_utils`. Do **not** put it in `text_helpers` (UNO import). A tiny `plugin/doc/file_urls.py` (stdlib only) or a function next to `embeddings_fs` that research can import are both fine; pick the one that does not pull embeddings into LibrePy.
+2. **UNO-free `path_to_file_url`.** **Landed** in `url_utils` filesystem / document `file:` section (not HTTP helpers, not `text_helpers`, not a new `file_urls.py`). `document_research`, `embeddings_fs`, and `format` import it; old copies deleted; no aliases. Tests: `tests/framework/test_url_utils.py`, `tests/doc/test_document_research.py`, `tests/embeddings/test_embeddings_fs.py`.
 3. **Document URL→path: teach `get_document_path` the `file:/` repair.** **Landed.** Shared `text_helpers.normalize_file_url`; `get_document_path` and `_system_path_from_url` both use it. Sandbox / session_manager stdlib copies stay. Tests: `tests/doc/test_text_helpers.py`, `tests/doc/test_document_research.py`.
 
 ### P2 — candidate unify after documenting behavior
@@ -530,7 +529,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 | resolve by URL or RuntimeUID | `tests/doc/test_resolve_document_by_url.py` |
 | `file:///` + `file:/` repair, work directory | `tests/doc/test_document_research.py` |
 | `get_open_documents` untitled / Start Center | `tests/mcp/test_list_open_documents.py` |
-| HTTP `url_utils` | `tests/framework/test_url_utils.py` |
+| HTTP `url_utils` + `path_to_file_url` | `tests/framework/test_url_utils.py` |
 | `uno_context` getters | `tests/framework/test_uno_context.py` |
 | listeners | `tests/framework/test_uno_listeners.py` |
 | type guards | `tests/doc/test_doc_type.py` |

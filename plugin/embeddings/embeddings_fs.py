@@ -12,8 +12,9 @@ import dataclasses
 import hashlib
 import logging
 import os
-from pathlib import Path
 from typing import Any
+
+from plugin.framework import url_utils
 
 log = logging.getLogger(__name__)
 
@@ -71,13 +72,6 @@ def content_hash(text: str) -> str:
 
 def _normalize_path(path: str) -> str:
     return os.path.normpath(os.path.abspath(path))
-
-
-def path_to_file_url(path: str) -> str:
-    """Build a LO-compatible file URL (file:/// on Unix)."""
-    norm = _normalize_path(path)
-    return Path(norm).as_uri()
-
 
 
 def extract_writer_paragraph_runs(path: str) -> list[tuple[str, list[LocaleTextRun]]]:
@@ -193,7 +187,7 @@ def guess_indexable_paths(directory: str) -> list[WriterFileEntry]:
         entries.append(
             WriterFileEntry(
                 path=norm,
-                url=path_to_file_url(norm),
+                url=url_utils.path_to_file_url(norm),
                 modified=mtime,
                 name=name,
             )
@@ -219,7 +213,7 @@ def indexable_chunks_from_path(
     from plugin.embeddings.embeddings_split import split_passage_locale_runs_to_chunk_meta, split_passage_to_chunk_meta
 
     norm = _normalize_path(path)
-    url = doc_url if doc_url else path_to_file_url(norm)
+    url = doc_url if doc_url else url_utils.path_to_file_url(norm)
     try:
         mtime = float(file_mtime if file_mtime is not None else os.path.getmtime(norm))
     except OSError:

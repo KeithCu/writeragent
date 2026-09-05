@@ -61,7 +61,8 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
     )
 
     from plugin.embeddings.embeddings_cache import mark_file_indexed
-    from plugin.embeddings.embeddings_fs import content_hash, path_to_file_url
+    from plugin.embeddings.embeddings_fs import content_hash
+    from plugin.framework.url_utils import path_to_file_url
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
 
     doc_url = path_to_file_url(str(doc))

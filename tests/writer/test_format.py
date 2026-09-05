@@ -14,7 +14,17 @@ import tempfile as tempfile_mod
 
 import pytest
 
-from plugin.writer.format import _resolve_temp_dir, strip_embedded_image_data, _apply_image_export_options
+from plugin.writer.format import (
+    _apply_image_export_options,
+    _resolve_temp_dir,
+    _with_temp_buffer,
+    strip_embedded_image_data,
+)
+
+
+def test_with_temp_buffer_yields_three_slash_file_url():
+    with _with_temp_buffer(content="x", ext=".html") as (_path, url):
+        assert url.startswith("file:///")
 
 
 def test_resolve_temp_dir_avoids_gettempdir_under_crosshair(monkeypatch):
