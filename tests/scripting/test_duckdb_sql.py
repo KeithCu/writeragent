@@ -68,7 +68,7 @@ def test_query_folder_sql_happy_join(tmp_path):
 def test_query_folder_sql_rejects_escape(tmp_path):
     evil = tmp_path.parent / "evil.csv"
     _write_csv(evil, "x,y\n1,2")
-    # attempt via files=
+    # attempt via files= — basename-only resolve; ``../`` is a path escape
     res = query_folder_sql(str(tmp_path), "SELECT * FROM 'evil.csv'", files=["../evil.csv"])
     assert res["status"] == "error"
     assert res.get("code") == "READONLY_VIOLATION"
@@ -113,6 +113,10 @@ def test_query_folder_sql_requires_scoped_and_files(tmp_path):
 
     res = query_folder_sql(str(tmp_path), "select 1", files=[])
     assert res["status"] == "ok", res
+
+    res = query_folder_sql(str(tmp_path), "SELECT * FROM missing", files=["nope.csv"])
+    assert res["status"] == "error"
+    assert res.get("code") == "MISSING_FILE"
 
 
 def test_query_folder_sql_preloaded_compact_grid(tmp_path):
@@ -260,6 +264,142 @@ def test_pretty_demo_results_code_reads_sql_from_cell_range():
     got = {(r.Region, r.Category): float(r.revenue) for r in result.itertuples(index=False)}
     for rec in expected.itertuples(index=False):
         assert abs(got[(rec.Region, rec.Category)] - float(rec.Revenue)) < 1e-6
+
+
+def _write_parquet(path: Path, rows: list[tuple[str, int]]) -> None:
+    """Write a tiny region/amount Parquet via DuckDB (no pyarrow required)."""
+    import duckdb
+
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t (region VARCHAR, amount INTEGER)")
+    con.executemany("INSERT INTO t VALUES (?, ?)", rows)
+    con.execute(f"COPY t TO '{path.as_posix()}' (FORMAT PARQUET)")
+    con.close()
+
+
+def _write_json_array(path: Path, rows: list[dict[str, object]]) -> None:
+    import json
+
+    path.write_text(json.dumps(rows), encoding="utf-8")
+
+
+def _write_ndjson(path: Path, rows: list[dict[str, object]]) -> None:
+    import json
+
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+
+def test_query_folder_sql_parquet_flat_files(tmp_path):
+    pq = tmp_path / "ledger.parquet"
+    _write_parquet(pq, [("North", 100), ("South", 200), ("North", 50)])
+    res = query_folder_sql(
+        str(tmp_path),
+        "SELECT region, SUM(amount) AS total FROM ledger GROUP BY 1 ORDER BY 1",
+        flat_files={"ledger": str(pq)},
+    )
+    assert res["status"] == "ok", res
+    assert res["total_rows"] == 2
+    rows = {r[0]: int(r[1]) for r in res["rows"]}
+    assert rows == {"North": 150, "South": 200}
+    assert "ledger" in res.get("files_used", [])
+
+
+def test_query_folder_sql_parquet_files_dict(tmp_path):
+    _write_parquet(tmp_path / "ledger.parquet", [("East", 9)])
+    res = query_folder_sql(
+        str(tmp_path),
+        "SELECT region, amount FROM ledger",
+        files={"ledger": "ledger.parquet"},
+    )
+    assert res["status"] == "ok", res
+    assert res["rows"] == [["East", 9]]
+
+
+def test_query_folder_sql_json_array_and_ndjson(tmp_path):
+    events = tmp_path / "events.json"
+    _write_json_array(events, [{"region": "North", "n": 1}, {"region": "South", "n": 2}])
+    lines = tmp_path / "rows.jsonl"
+    _write_ndjson(lines, [{"region": "North", "n": 10}, {"region": "South", "n": 20}])
+    nd = tmp_path / "more.ndjson"
+    _write_ndjson(nd, [{"region": "East", "n": 3}])
+
+    array_res = query_folder_sql(
+        str(tmp_path),
+        "SELECT region, n FROM events ORDER BY 1",
+        flat_files={"events": str(events)},
+    )
+    assert array_res["status"] == "ok", array_res
+    assert array_res["rows"] == [["North", 1], ["South", 2]]
+
+    jsonl_res = query_folder_sql(
+        str(tmp_path),
+        "SELECT SUM(n) AS total FROM rows",
+        files={"rows": "rows.jsonl"},
+    )
+    assert jsonl_res["status"] == "ok", jsonl_res
+    assert int(jsonl_res["rows"][0][0]) == 30
+
+    nd_res = query_folder_sql(
+        str(tmp_path),
+        "SELECT region FROM more",
+        flat_files={"more": str(nd)},
+    )
+    assert nd_res["status"] == "ok", nd_res
+    assert nd_res["rows"] == [["East"]]
+
+
+def test_query_folder_sql_join_parquet_and_csv(tmp_path):
+    _write_parquet(tmp_path / "ledger.parquet", [("North", 100), ("South", 40)])
+    _write_csv(
+        tmp_path / "rates.csv",
+        """
+        region,rate
+        North,2
+        South,3
+        """,
+    )
+    res = query_folder_sql(
+        str(tmp_path),
+        "SELECT l.region, l.amount * r.rate AS weighted FROM ledger l JOIN rates r USING (region) ORDER BY 1",
+        files={"ledger": "ledger.parquet", "rates": "rates.csv"},
+    )
+    assert res["status"] == "ok", res
+    rows = {r[0]: int(r[1]) for r in res["rows"]}
+    assert rows == {"North": 200, "South": 120}
+
+
+def test_query_folder_sql_unsupported_and_missing_flat_types(tmp_path):
+    (tmp_path / "notes.txt").write_text("a,b\n1,2\n", encoding="utf-8")
+    unsupported = query_folder_sql(
+        str(tmp_path),
+        "SELECT * FROM notes",
+        files={"notes": "notes.txt"},
+    )
+    assert unsupported["status"] == "error"
+    assert unsupported.get("code") == "UNSUPPORTED_FILE_TYPE"
+    assert ".txt" in unsupported.get("message", "")
+    assert "parquet" in unsupported.get("message", "").lower()
+
+    missing = query_folder_sql(
+        str(tmp_path),
+        "SELECT * FROM ledger",
+        flat_files={"ledger": str(tmp_path / "ledger.parquet")},
+    )
+    assert missing["status"] == "error"
+    assert missing.get("code") == "MISSING_FILE"
+
+
+def test_query_folder_sql_corrupt_parquet_is_read_error(tmp_path):
+    bad = tmp_path / "ledger.parquet"
+    bad.write_bytes(b"not a parquet file")
+    res = query_folder_sql(
+        str(tmp_path),
+        "SELECT * FROM ledger",
+        flat_files={"ledger": str(bad)},
+    )
+    assert res["status"] == "error"
+    assert res.get("code") == "FLAT_FILE_READ_ERROR"
+    assert "ledger.parquet" in res.get("message", "")
 
 
 # --- Phase D: shared-kernel DuckDB session cache ---

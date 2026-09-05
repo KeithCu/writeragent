@@ -246,7 +246,7 @@ def run_folder_sql(
     Supports:
     - preloaded: grids from ranges or office files (key = table name)
     - files: list (legacy) or dict name->spec for folder files
-    - flat_files: dict name -> full path for direct DuckDB flat files (CSV/Parquet)
+    - flat_files: dict name -> full path for direct DuckDB flat files (CSV/TSV, Parquet, JSON/JSONL/NDJSON)
     """
     return _run_trusted_action(
         ctx,

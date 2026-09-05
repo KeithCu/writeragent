@@ -28,7 +28,7 @@ _DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
 }
 
 _HELPER_DESCRIPTIONS: dict[str, str] = {
-    "query_folder_sql": "Run read-only SQL against CSV/Parquet/JSON files (or .xlsx via LO) in the same folder as the saved document",
+    "query_folder_sql": "Run read-only SQL against CSV/TSV, Parquet, JSON/JSONL/NDJSON files (or .xlsx/.ods via LO) in the same folder as the saved document",
     "query_sheet_sql": "Run read-only SQL on a live range from the active Calc sheet (registers as table 'data')",
 }
 

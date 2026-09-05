@@ -176,6 +176,7 @@ def test_query_folder_sql_requires_sql():
     assert res["status"] == "error"
 
 
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
 @patch("plugin.calc.duckdb_tools.execute_on_main_thread")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.read_table_source_grid")
@@ -203,7 +204,7 @@ def test_query_folder_sql_ingress_size_fails_loud(
 @patch("plugin.calc.duckdb_tools.execute_on_main_thread")
 @patch("plugin.scripting.client.run_folder_sql")
 @patch("plugin.calc.duckdb_tools.resolve_listing_directory")
-def test_query_folder_sql_calls_host_with_resolved_dir(mock_resolve, mock_run, mock_exec):
+def test_query_folder_sql_calls_host_with_resolved_dir(mock_resolve, mock_run, mock_exec, _mock_isfile):
     mock_resolve.return_value = "/tmp/project"
     mock_run.return_value = {"status": "ok", "helper": "query_folder_sql", "total_rows": 3}
     mock_exec.side_effect = lambda fn: fn()
@@ -284,6 +285,76 @@ def test_query_folder_sql_office_read_error_does_not_skip(
     assert res["status"] == "error"
     assert "budget.xlsx" in res["message"]
     assert "Nope" in res["message"]
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_query_folder_sql_routes_parquet_and_json_to_flat_files(
+    mock_resolve, mock_run, mock_exec, _mock_isfile
+):
+    """Named Parquet/JSON stay on the DuckDB binder path (not LO preload)."""
+    mock_resolve.return_value = "/tmp/project"
+    mock_run.return_value = {"status": "ok", "total_rows": 2}
+    mock_exec.side_effect = lambda fn: fn()
+
+    t = QueryFolderSqlTool()
+    res = t.execute(
+        _mk_ctx(),
+        sql="SELECT * FROM ledger",
+        files={
+            "ledger": "ledger.parquet",
+            "events": "events.json",
+            "rows": "rows.jsonl",
+            "more": "more.ndjson",
+        },
+    )
+    assert res["status"] == "ok"
+    mock_run.assert_called_once()
+    flat = mock_run.call_args.kwargs.get("flat_files") or {}
+    assert flat["ledger"].endswith("ledger.parquet")
+    assert flat["events"].endswith("events.json")
+    assert flat["rows"].endswith("rows.jsonl")
+    assert flat["more"].endswith("more.ndjson")
+    pre = mock_run.call_args.kwargs.get("preloaded") or {}
+    assert pre == {}
+
+
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_query_folder_sql_rejects_unsupported_flat_type(
+    mock_resolve, mock_run, mock_exec, _mock_isfile
+):
+    mock_resolve.return_value = "/tmp/project"
+    mock_exec.side_effect = lambda fn: fn()
+
+    t = QueryFolderSqlTool()
+    res = t.execute(_mk_ctx(), sql="SELECT * FROM notes", files=["notes.txt"])
+    assert res["status"] == "error"
+    assert res.get("code") == "UNSUPPORTED_FILE_TYPE"
+    assert ".txt" in res.get("message", "")
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=False)
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_query_folder_sql_rejects_missing_flat_file(
+    mock_resolve, mock_run, mock_exec, _mock_isfile
+):
+    mock_resolve.return_value = "/tmp/project"
+    mock_exec.side_effect = lambda fn: fn()
+
+    t = QueryFolderSqlTool()
+    res = t.execute(_mk_ctx(), sql="SELECT * FROM ledger", files={"ledger": "ledger.parquet"})
+    assert res["status"] == "error"
+    assert res.get("code") == "MISSING_FILE"
+    assert "ledger.parquet" in res.get("message", "")
     mock_run.assert_not_called()
 
 

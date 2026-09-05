@@ -24,18 +24,108 @@ import re
 import threading
 from typing import Any
 
-log = logging.getLogger(__name__)
-
-# Small shared result/error shapes (duplicated from analysis for zero coupling in A)
-MAX_TABLE_ROWS = 200  # generous for SQL results vs analysis 50
-
-
 from plugin.scripting.venv.coerce import (
     ok_result as _ok_result,
     error_result as _error_result,
     missing_package_error as _missing_package_error,
     table_from_df as _table_from_df,
 )
+
+log = logging.getLogger(__name__)
+
+# Small shared result/error shapes (duplicated from analysis for zero coupling in A)
+MAX_TABLE_ROWS = 200  # generous for SQL results vs analysis 50
+
+# Direct DuckDB binders (venv). Sibling .xlsx/.xls/.ods stay on the host LO import path.
+FLAT_CSV_EXTS = (".csv", ".tsv")
+FLAT_PARQUET_EXTS = (".parquet",)
+FLAT_JSON_EXTS = (".json", ".jsonl", ".ndjson")
+FLAT_FILE_EXTS = FLAT_CSV_EXTS + FLAT_PARQUET_EXTS + FLAT_JSON_EXTS
+_OFFICE_HINT_EXTS = (".xlsx", ".xls", ".ods")
+
+
+class FlatFileError(ValueError):
+    """Typed folder-file failure so query_folder_sql can return a stable code."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def _flat_ext(path: str) -> str:
+    return os.path.splitext(path)[1].lower()
+
+
+def unsupported_flat_type_message(filename: str, ext: str) -> str:
+    shown = ext or "(no extension)"
+    direct = ", ".join(FLAT_FILE_EXTS)
+    office = ", ".join(_OFFICE_HINT_EXTS)
+    return (
+        f"Unsupported folder file type {shown} for {filename!r}. "
+        f"Direct DuckDB reads: {direct}. "
+        f"Spreadsheets ({office}) use the LibreOffice import path."
+    )
+
+
+def _assert_under_scoped_dir(scoped_dir: str, path: str) -> str:
+    base = os.path.realpath(os.path.abspath(scoped_dir))
+    rp = os.path.realpath(os.path.abspath(path))
+    if rp == base or not rp.startswith(base + os.sep):
+        raise FlatFileError(
+            "READONLY_VIOLATION",
+            f"path outside scoped_dir: {os.path.basename(path)}",
+        )
+    return rp
+
+
+def resolve_flat_file_path(scoped_dir: str, spec: str) -> str:
+    """Resolve a caller file spec to a real path under *scoped_dir*.
+
+    Only the basename is used (host/LLM cannot pass ``../`` escapes). Missing
+    and unsupported types fail loud — do not skip and let SQL look like a
+    missing ``FROM``.
+    """
+    if not scoped_dir or not os.path.isdir(scoped_dir):
+        raise FlatFileError("MISSING_SCOPED_DIR", "scoped_dir must be an existing directory")
+    raw = str(spec).strip()
+    if not raw:
+        raise FlatFileError("MISSING_FILE", "file spec is empty")
+    normalized = raw.replace("\\", "/")
+    if any(part == ".." for part in normalized.split("/")):
+        raise FlatFileError("READONLY_VIOLATION", f"file spec escapes scoped_dir: {raw}")
+    bn = os.path.basename(raw)
+    if not bn or bn in (".", ".."):
+        raise FlatFileError("READONLY_VIOLATION", f"invalid file spec {raw!r}")
+    ext = _flat_ext(bn)
+    if ext not in FLAT_FILE_EXTS:
+        raise FlatFileError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(bn, ext))
+    candidate = os.path.join(os.path.realpath(os.path.abspath(scoped_dir)), bn)
+    if not os.path.isfile(candidate):
+        raise FlatFileError(
+            "MISSING_FILE",
+            f"Folder file {bn!r} was not found under the document folder",
+        )
+    return _assert_under_scoped_dir(scoped_dir, candidate)
+
+
+def _read_flat_relation(con: Any, path: str) -> Any:
+    """Bind a scoped flat file with the DuckDB reader that matches its suffix.
+
+    Unknown suffixes used to fall through to ``read_csv``, so Parquet/JSON
+    mis-reads looked like CSV parse noise (or a later missing table).
+    """
+    ext = _flat_ext(path)
+    if ext in FLAT_CSV_EXTS:
+        return con.read_csv(path)
+    if ext in FLAT_PARQUET_EXTS:
+        return con.read_parquet(path)
+    if ext in FLAT_JSON_EXTS:
+        # jsonl/ndjson are newline-delimited; .json is auto (array or ndjson).
+        if ext in (".jsonl", ".ndjson"):
+            return con.read_json(path, format="newline_delimited")
+        return con.read_json(path)
+    raise FlatFileError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(os.path.basename(path), ext))
+
 
 # Workbook-keyed sessions may keep one DuckDB. Domain prefixes used by
 # run_trusted_action (``writeragent:sql``) are routing ids, not kernels —
@@ -369,24 +459,13 @@ def _scoped_cwd(path: str):
 
 
 def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:
-    """Return list of validated absolute paths for the given basenames. Reject escapes."""
-    if not scoped_dir or not os.path.isdir(scoped_dir):
-        raise ValueError("scoped_dir must be an existing directory")
-    base = os.path.realpath(os.path.abspath(scoped_dir))
+    """Return validated absolute paths for the given specs. Fail loud on gaps."""
     validated: list[str] = []
     for raw in files or []:
-        bn = os.path.basename(str(raw).strip())
-        if not bn or bn in (".", "..") or "/" in bn or "\\" in bn:
+        spec = str(raw).strip()
+        if not spec:
             continue
-        candidate = os.path.join(base, bn)
-        if not os.path.isfile(candidate):
-            continue
-        rp = os.path.realpath(candidate)
-        # must be strictly under base (or equal for weird case)
-        if rp == base or rp.startswith(base + os.sep):
-            validated.append(rp)
-        else:
-            log.warning("rejected path outside scoped_dir: %s", candidate)
+        validated.append(resolve_flat_file_path(scoped_dir, spec))
     return validated
 
 
@@ -416,27 +495,55 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
             log.warning("Failed to register preloaded table %s: %s", orig_name, reg_err)
 
 
-def _register_flat_files(con: Any, flat_files: dict[str, str] | None) -> None:
+def _register_flat_files(
+    con: Any,
+    flat_files: dict[str, str] | None,
+    scoped_dir: str | None = None,
+) -> None:
     if not flat_files:
         return
     raw = con._con if isinstance(con, GuardedDuckDBConnection) else con
     for name, path in flat_files.items():
         if not name or not path:
             continue
-        try:
-            p = str(path)
-            lower = p.lower()
-            if lower.endswith((".csv", ".tsv")):
-                rel = raw.read_csv(p)
-            elif lower.endswith(".parquet"):
-                rel = raw.read_parquet(p)
-            elif lower.endswith((".json", ".jsonl")):
-                rel = raw.read_json(p)
+        p = str(path)
+        if scoped_dir:
+            # Host sends a full path; still require the file to live under scoped_dir.
+            if os.path.isfile(p):
+                ext = _flat_ext(p)
+                if ext not in FLAT_FILE_EXTS:
+                    raise FlatFileError(
+                        "UNSUPPORTED_FILE_TYPE",
+                        unsupported_flat_type_message(os.path.basename(p), ext),
+                    )
+                p = _assert_under_scoped_dir(scoped_dir, p)
             else:
-                rel = raw.read_csv(p)
-            _register_relation(con, name, rel)
+                p = resolve_flat_file_path(scoped_dir, p)
+        elif not os.path.isfile(p):
+            raise FlatFileError(
+                "MISSING_FILE",
+                f"Folder file {os.path.basename(p)!r} (table {name!r}) was not found",
+            )
+        else:
+            ext = _flat_ext(p)
+            if ext not in FLAT_FILE_EXTS:
+                raise FlatFileError(
+                    "UNSUPPORTED_FILE_TYPE",
+                    unsupported_flat_type_message(os.path.basename(p), ext),
+                )
+        try:
+            # Unwrap GuardedDuckDBConnection so read_* hits the engine, not execute().
+            rel = _read_flat_relation(raw, p)
+        except FlatFileError:
+            raise
         except Exception as flat_err:
-            log.warning("Failed to register flat file table %s from %s: %s", name, path, flat_err)
+            # Used to log-and-skip: SQL then failed with a missing table instead of
+            # the real Parquet/JSON read error.
+            raise FlatFileError(
+                "FLAT_FILE_READ_ERROR",
+                f"Could not read {os.path.basename(p)!r} as table {name!r}: {flat_err}",
+            ) from flat_err
+        _register_relation(con, name, rel)
 
 
 def run_sql(sql: str, con: Any | None = None, *, session_id: str | None = None) -> dict[str, Any]:
@@ -536,10 +643,11 @@ def query_folder_sql(
             legacy_files = files
             validated = _validate_files(scoped_dir, files) if scoped_dir else []
         elif isinstance(files, dict):
-            # files as {name: basename}, validate later or assume host did
             validated = []
-            flat_from_files = {k: os.path.join(base, os.path.basename(v)) if base else v for k,v in files.items()}
-            flat_files = {** (flat_files or {}), **flat_from_files}
+            if not scoped_dir:
+                raise FlatFileError("MISSING_SCOPED_DIR", "scoped_dir is required for file-based queries")
+            flat_from_files = {k: resolve_flat_file_path(scoped_dir, v) for k, v in files.items() if k and str(v).strip()}
+            flat_files = {**(flat_files or {}), **flat_from_files}
         else:
             validated = _validate_files(scoped_dir, files) if files and scoped_dir else []
 
@@ -548,7 +656,7 @@ def query_folder_sql(
         con, persist = _acquire_duckdb(session_id)
         try:
             _register_preloaded(con, preloaded)
-            _register_flat_files(con, flat_files)
+            _register_flat_files(con, flat_files, scoped_dir=base)
 
             if base and (legacy_files or not flat_files) and (validated or legacy_files):
                 with _scoped_cwd(base):
@@ -565,6 +673,8 @@ def query_folder_sql(
         if flat_files:
             used = list(flat_files.keys()) + used
         return _ok_sql_result(helper, df, files_used=used)
+    except FlatFileError as exc:
+        return _error_result(exc.code, str(exc), helper=helper)
     except Exception as exc:  # broad: duckdb errors, IO, etc. surface message
         log.exception("query_folder_sql failed")
         return _error_result("DUCKDB_ERROR", str(exc), helper=helper)

@@ -17,6 +17,7 @@ from plugin.doc.document_research import get_document_directory, resolve_listing
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
+from plugin.scripting.venv.duckdb_sql import FLAT_FILE_EXTS, unsupported_flat_type_message
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -24,6 +25,8 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc.duckdb")
+
+OFFICE_EXTS = (".xlsx", ".xls", ".ods")
 
 
 class QueryFolderSqlTool(ToolCalcAnalysisBase):
@@ -43,6 +46,8 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
         "or {named_range: \"SalesData\"} (Calc named/database range). "
         "Absolute range: {range: \"Sales.A1:F500\"} stays frozen A1. "
         "Sibling sheet used-range: files={name: \"budget.xlsx#Sales\"} (dict key is the SQL table). "
+        "Flat files: CSV/TSV, Parquet, JSON/JSONL/NDJSON (DuckDB read_*). "
+        "Spreadsheets (.xlsx/.xls/.ods) use the LibreOffice import path. "
         "Optional tables file=\"budget.xlsx\" reads that sibling instead of the active doc. "
         "Host prepares all UNO data + validates. "
         "Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message "
@@ -64,6 +69,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                 "additionalProperties": {"type": "string"},
                 "description": (
                     "Folder files as name -> basename/spec. "
+                    "Flat: {\"ledger\": \"ledger.parquet\"}, {\"events\": \"events.json\"}. "
                     "Sibling spreadsheet used-range: {\"sales\": \"budget.xlsx#Sales\"} "
                     "(#SheetName is the sheet identity; the dict key is the SQL table). "
                     "A list of basenames is still accepted."
@@ -141,7 +147,6 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
             scoped = resolve_listing_directory(ctx.ctx, ctx.doc) or get_document_directory(ctx.doc)
 
             preloaded: dict[str, Any] = {}
-            direct_files: list[str] = []
             flat_files: dict[str, str] = {}
 
             # Catalog stores identity (sheet / named_range / frozen A1), not
@@ -164,7 +169,6 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
             # Separate direct DuckDB-readable files from office files that need LO import.
             # Support "file.xlsx" or "file.xlsx#SheetName" syntax for sheets.
             # files can be list (legacy) or dict for named (Phase C)
-            OFFICE_EXTS = (".xlsx", ".xls", ".ods")
             files_input = files
             file_pairs = files_input.items() if isinstance(files_input, dict) else [(None, f) for f in (files_input or [])]
 
@@ -182,27 +186,40 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                     sheet_hint = None
 
                 ext = os.path.splitext(bn)[1].lower()
-                full_path = os.path.join(scoped, bn) if scoped else bn
-                if scoped and os.path.isfile(full_path):
-                    if ext in OFFICE_EXTS:
-                        # Office files that exist must preload or fail loud. A silent
-                        # (None, None) skip used to append the basename to direct_files
-                        # so SQL ran without the table and looked like a missing FROM.
-                        try:
-                            _tbl, office_grid = _read_sibling_office_file_as_grid(
-                                ctx.ctx, full_path, sheet_hint=sheet_hint
-                            )
-                        except ToolExecutionError as exc:
-                            return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
-                        use_name = name_hint or bn
-                        preloaded[use_name] = {"grid": office_grid, "headers": headers}
-                        continue
-                    else:
-                        # flat file -> use flat_files for named direct DuckDB read (Phase C)
-                        use_name = name_hint or bn
-                        flat_files[use_name] = full_path
-                        continue
-                direct_files.append(bn)
+                if not scoped:
+                    return self._tool_error(
+                        "A saved document folder is required to read sibling files",
+                        code="MISSING_SCOPED_DIR",
+                    )
+                full_path = os.path.join(scoped, bn)
+                if not os.path.isfile(full_path):
+                    # Used to append the basename to direct_files so DuckDB failed
+                    # later with a generic IO / missing-FROM error.
+                    return self._tool_error(
+                        f"Folder file {bn!r} was not found under the document folder",
+                        code="MISSING_FILE",
+                    )
+                if ext in OFFICE_EXTS:
+                    # Office files that exist must preload or fail loud. A silent
+                    # (None, None) skip used to append the basename to direct_files
+                    # so SQL ran without the table and looked like a missing FROM.
+                    try:
+                        _tbl, office_grid = _read_sibling_office_file_as_grid(
+                            ctx.ctx, full_path, sheet_hint=sheet_hint
+                        )
+                    except ToolExecutionError as exc:
+                        return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
+                    use_name = name_hint or bn
+                    preloaded[use_name] = {"grid": office_grid, "headers": headers}
+                    continue
+                if ext in FLAT_FILE_EXTS:
+                    use_name = name_hint or bn
+                    flat_files[use_name] = full_path
+                    continue
+                return self._tool_error(
+                    unsupported_flat_type_message(bn, ext),
+                    code="UNSUPPORTED_FILE_TYPE",
+                )
 
             # Enforce the same data size limit used for analysis / =PY()
             max_cells = configured_python_max_data_cells(ctx.ctx)
@@ -214,7 +231,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                         return self._tool_error(f"Preloaded table {name} too large for DuckDB SQL: {size_err}")
 
             # Pass flat_files for named direct flat files (Phase C), preloaded for grids (ranges + office)
-            return run_folder_sql(ctx.ctx, scoped, sql, direct_files or None, preloaded=preloaded or None, flat_files=flat_files or None)
+            return run_folder_sql(ctx.ctx, scoped, sql, None, preloaded=preloaded or None, flat_files=flat_files or None)
 
         try:
             result = execute_on_main_thread(_run)
