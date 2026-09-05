@@ -90,7 +90,11 @@ def _deal_excel_src_ok_crosshair(src: object) -> bool:
     # Must not exceed _skip_string's str_bounded(_DEAL_REWRITE_SRC): CrossHair
     # used to pass len-2 src such as '\t"' into _find_xl_calls, then
     # _normalize_excel_placeholders called _skip_string and PreconditionFailed.
-    return str_bounded(src, _DEAL_REWRITE_SRC) and all(c in _EXCEL_PLACEHOLDER_CHARS for c in src)
+    return (
+        isinstance(src, str)
+        and str_bounded(src, _DEAL_REWRITE_SRC)
+        and all(c in _EXCEL_PLACEHOLDER_CHARS for c in src)
+    )
 
 
 # Import-time only — do not branch inside ``@deal.pre`` lambdas.
