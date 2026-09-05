@@ -50,12 +50,15 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
 
 
 # gpt-oss-20b data_sorting / tax_column routing (docs/eval/oss-20b-eval.md).
-# Rule shape: compact Do B and D because Y. Shared prompt — no 20b fork.
-_CALC_SORT_AND_HAS_HEADER = (
+# Rule shape: Do Z because Y (two short sort lines). Shared prompt — no 20b fork.
+_CALC_SORT_ROUTING = (
     'Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range '
-    "with has_header=true when row 1 is labels (multi-key sorts are two "
-    "stable one-column passes) because write_formula_range or =PY overwrite "
-    "the range including headers and otherwise labels sort as values."
+    "to reorder rows (multi-key sorts are two stable one-column passes) "
+    "because write_formula_range or =PY overwrite the range including headers."
+)
+_CALC_HAS_HEADER = (
+    "Do pass has_header=true on sort_range when row 1 is labels because "
+    "otherwise labels sort as values."
 )
 _CALC_RELATIVE_FORMULA = (
     "Do write each row's formula with that row's cells because copying one "
@@ -72,10 +75,12 @@ def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:
     from plugin.framework.prompts import CALC_WORKFLOW
 
     calc = get_calc_eval_chat_system_prompt()
-    assert _CALC_SORT_AND_HAS_HEADER in calc
+    assert _CALC_SORT_ROUTING in calc
+    assert _CALC_HAS_HEADER in calc
     assert _CALC_RELATIVE_FORMULA in calc
     # Slim surface: sort routing lives in CALC_CORE_DIRECTIVES only.
-    assert _CALC_SORT_AND_HAS_HEADER not in CALC_WORKFLOW
+    assert _CALC_SORT_ROUTING not in CALC_WORKFLOW
+    assert _CALC_HAS_HEADER not in CALC_WORKFLOW
     # Writer/Draw needle lines stay out of this shared Calc prompt.
     assert "NEMA 4" not in calc
     assert "flowchart" not in calc.lower()
@@ -93,3 +98,6 @@ def test_calc_tool_descriptions_pin_sort_has_header_not_tax() -> None:
     assert "Multi-key sorts are multiple calls" in sort_desc
     assert "two stable one-column passes" in sort_desc
     assert _SORT_RANGE_HAS_HEADER in sort_desc
+    assert SortRange.parameters["required"] == ["range", "has_header"]
+    assert "true when row 1 is labels" in SortRange.parameters["properties"]["has_header"]["description"]
+    assert "false only for a headerless block" in SortRange.parameters["properties"]["has_header"]["description"]

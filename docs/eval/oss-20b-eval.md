@@ -8,13 +8,12 @@ Related: [benchmarks.md](benchmarks.md), [eval-dev-plan.md](eval-dev-plan.md),
 [string-harness-upgrade.md](string-harness-upgrade.md),
 [dspy-prompt-optimization-plan.md](dspy-prompt-optimization-plan.md).
 
-**Status:** First A/B: 20b gained `data_sorting`; 120b regressed
-(`header row is not first` — used `sort_range` but treated Product/Revenue
-as a data row). Wording revised to compact **Do B and D because Y**
-(sort + `has_header` in one line; no `CALC_WORKFLOW` duplicate; no
-`write_formula_range` sort-half; no Don't/Prefer-over opener;
-`has_header` contract on `sort_range.description`). Tax relative rule
-stayed helpful for 120b. Shared prompt; no 20b fork. Re-A/B pending.
+**Status:** A/B: 20b gained `data_sorting`; header misses persist (models
+likely pass `has_header=false` explicitly — runtime already defaults True
+when omitted). `sort_range` now **requires** `has_header`. Calc directives
+are two short **Do Z because Y** lines (sort routing + `has_header`), not
+a mashed one-liner. Tax relative rule stayed helpful for 120b. Shared
+prompt; no 20b fork. Re-A/B pending.
 
 ## Snapshot
 
@@ -103,10 +102,11 @@ Keep diffs short.
 **Calc** (`CALC_CORE_DIRECTIVES` only for sort; slim `CALC_WORKFLOW`):
 
 - Do `delegate_to_specialized_calc_toolset(domain="ranges")` then
-  `sort_range` with `has_header=true` when row 1 is labels (multi-key
-  = two stable one-column passes) because `write_formula_range` /
-  `=PY` overwrite the range including headers and otherwise labels
-  sort as values.
+  `sort_range` to reorder rows (multi-key = two stable one-column
+  passes) because `write_formula_range` / `=PY` overwrite the range
+  including headers.
+- Do pass `has_header=true` on `sort_range` when row 1 is labels
+  because otherwise labels sort as values.
 - Do write each row's formula with that row's cells (`Banana` → `B3`,
   not a stamped `B2`).
 
@@ -123,9 +123,9 @@ Keep diffs short.
 
 **Tool descriptions:**
 
-- `sort_range`: full contract — stable one-column; multi-key = multiple
-  calls; labeled tables → `has_header=true` (Do pass it when row 1 is
-  labels because otherwise labels sort as values).
+- `sort_range`: stable one-column; multi-key = multiple calls; Do pass
+  `has_header=true` when row 1 is labels because otherwise labels sort
+  as values. Schema `required` is `["range", "has_header"]`.
 - `write_formula_range`: no sort-half sentence (slim surface). Relative
   / tax formula rule stays in Calc directives only.
 
@@ -213,7 +213,8 @@ production-compatible version of a demo is 2–3 lines in
 
 - [x] Draft the Calc directive patches + `sort_range` description (DO-first sort + `has_header`; relative formulas; slimmed after 120b miss)
 - [x] First 5-task A/B on 20b and 120b — 20b gained `data_sorting`; 120b `has_header` miss (`header row is not first`)
-- [ ] Re-A/B after DO-first + `has_header` wording (confirm 20b keep + 120b recover)
+- [x] Re-A/B after wording — header misses persist; likely explicit `has_header=false`
+- [ ] Re-A/B after required `has_header` + split DO lines
 - [ ] Full 17 if the A/B is a win and 120b does not regress
 - [ ] Tool-subset sweep if `data_sorting` still fails
 - [ ] Wrap `llm_chat_eval` as a DSPy module; GEPA on Calc/Draw blobs
