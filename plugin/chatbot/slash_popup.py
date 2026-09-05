@@ -101,8 +101,30 @@ def _ovdiag(obj: Any, label: str) -> None:
     _ovlog("%s", " ".join(str(b) for b in bits))
 
 
-def _log_slash_clip_neighbors(send_listener: Any, *, popup_bounds: tuple[int, int, int, int] | None = None) -> None:
-    """Log status / response / rich-text geometry beside popup (Arch clip hypothesis)."""
+def _resolve_query_label(send_listener: Any, overlay_parent: Any = None) -> Any:
+    """Ask/instruct label control — may sit in the Ready↔Ask gap on HiDPI."""
+    label = getattr(send_listener, "query_label", None) if send_listener is not None else None
+    if label is not None:
+        return label
+    parent = overlay_parent
+    if parent is None and send_listener is not None:
+        popup = getattr(send_listener, "slash_popup", None)
+        parent = getattr(popup, "_overlay_parent", None) if popup is not None else None
+    if parent is not None and hasattr(parent, "getControl"):
+        try:
+            return parent.getControl("query_label")
+        except Exception:
+            return None
+    return None
+
+
+def _log_slash_clip_neighbors(
+    send_listener: Any,
+    *,
+    popup_bounds: tuple[int, int, int, int] | None = None,
+    overlay_parent: Any = None,
+) -> None:
+    """Log status / query_label / response / rich-text geometry beside popup (Arch clip)."""
     if popup_bounds is not None:
         x, y, w, h = popup_bounds
         _ovlog("popup_bounds_for_clip=%s,%s %sx%s (y..y+h=%s..%s)", x, y, w, h, y, y + h)
@@ -111,9 +133,11 @@ def _log_slash_clip_neighbors(send_listener: Any, *, popup_bounds: tuple[int, in
         return
     status = getattr(send_listener, "status_control", None)
     response = getattr(send_listener, "response_control", None)
+    query_label = _resolve_query_label(send_listener, overlay_parent)
     rich_widget = getattr(send_listener, "rich_text_widget", None)
     rich_ctrl = getattr(rich_widget, "control", None) if rich_widget is not None else None
     _ovdiag(status, "status")
+    _ovdiag(query_label, "query_label")
     _ovdiag(response, "response")
     _ovdiag(rich_ctrl, "rich_text")
 
@@ -656,7 +680,7 @@ class SlashPopupController:
                 self._popup_window is not None,
                 relative_to_ask,
             )
-            _log_slash_clip_neighbors(self.send_listener, popup_bounds=(x, y, w, h))
+            _log_slash_clip_neighbors(self.send_listener, popup_bounds=(x, y, w, h), overlay_parent=self._overlay_parent)
             if self._popup_window is not None:
                 floater = getattr(self, "_popup_floater", None)
                 if floater is not None:
