@@ -7,16 +7,24 @@
 
 Features an executive-ready dashboard design inspired by Microsoft's Python in Excel
 templates, demonstrating data wrangling, descriptive statistics, machine learning,
-time series forecasting, portfolio optimization, engineering units, and visual plots.
+time series forecasting, portfolio optimization, engineering units, visual plots,
+and DuckDB SQL over sheet ranges plus a sibling ACS ZIP-income CSV.
 
 Usage (from repo root):
     python scripts/generate_pretty_demo_spreadsheet.py [--out-dir DIR] [--format {ods,xlsx,all}]
+
+Writes ``python_showcase_demo.ods`` / ``.xlsx`` and copies sibling ``zip_income.csv``
+(U.S. Census ACS 2024 5-year B19013 / S1903-equivalent median household income by
+ZCTA). The SQL_DuckDB sheet keeps query text in cells; sheet-only scenarios also
+have live =PY()+DuckDB result formulas. The sales⨝ZIP-income join is the
+``query_folder_sql`` happy path (chat / Run Python Script / tests).
 """
 from __future__ import annotations
 
 import argparse
 import io
 import re
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -89,9 +97,93 @@ def set_formula_cell(cell: Any, formula: str) -> None:
 
 # --- Datasets ---
 
+ZIP_INCOME_CSV_NAME = "zip_income.csv"
+ZIP_INCOME_FIXTURE = REPO_ROOT / "tests" / "fixtures" / ZIP_INCOME_CSV_NAME
+
+# Real ZCTAs used on the sales sheet (must exist in zip_income.csv).
+SALES_ZIPS_BY_REGION: dict[str, tuple[str, ...]] = {
+    "North": ("10001", "02116", "60611", "55401"),
+    "South": ("30309", "75201", "33131", "37203"),
+    "East": ("19103", "20001", "21201", "07302"),
+    "West": ("94105", "90012", "98101", "80202"),
+}
+
+# Sheet ranges after the ZIP column is appended (10 columns A–J).
+SALES_RANGE_ODS = "A5:J40"
+SALES_RANGE_XLSX = "A4:J39"
+SALES_RANGE_ODS_CROSS = f"Sales_Analytics.{SALES_RANGE_ODS}"
+SALES_RANGE_XLSX_CROSS = f"Sales_Analytics!{SALES_RANGE_XLSX}"
+MARKETING_RANGE_ODS = "A5:G25"
+MARKETING_RANGE_XLSX = "A4:G24"
+MARKETING_RANGE_ODS_CROSS = f"Statistics_ML.{MARKETING_RANGE_ODS}"
+MARKETING_RANGE_XLSX_CROSS = f"Statistics_ML!{MARKETING_RANGE_XLSX}"
+
+# Shared with tests — do not invent a second copy of these queries.
+SQL_SALES_BY_REGION_CATEGORY = """\
+SELECT Region, Category,
+       SUM(Revenue) AS revenue,
+       COUNT(*) AS orders
+FROM sales
+GROUP BY Region, Category
+ORDER BY Region, Category"""
+
+SQL_MARKETING_CHANNEL_ROAS = """\
+SELECT Channel,
+       SUM(Ad_Spend) AS ad_spend,
+       SUM(Revenue) AS revenue,
+       ROUND(SUM(Revenue) / NULLIF(SUM(Ad_Spend), 0), 2) AS roas
+FROM marketing
+GROUP BY Channel
+ORDER BY revenue DESC"""
+
+# CAST/LPAD so ZIP joins survive string, int, or coerce-to-float (02116 → 2116.0).
+SQL_SALES_ZIP_INCOME_JOIN = """\
+SELECT
+  CASE
+    WHEN z.median_household_income < 75000 THEN 'Under $75k'
+    WHEN z.median_household_income < 120000 THEN '$75k-$120k'
+    ELSE '$120k+'
+  END AS income_band,
+  ROUND(SUM(s.Revenue), 2) AS revenue,
+  ROUND(AVG(z.median_household_income), 0) AS avg_zip_income,
+  COUNT(*) AS orders
+FROM sales s
+JOIN zip_income z
+  ON LPAD(CAST(CAST(ROUND(TRY_CAST(s.ZIP AS DOUBLE)) AS INTEGER) AS VARCHAR), 5, '0')
+   = LPAD(CAST(CAST(ROUND(TRY_CAST(z.zip AS DOUBLE)) AS INTEGER) AS VARCHAR), 5, '0')
+GROUP BY 1
+ORDER BY 1"""
+
+ACS_INCOME_NOTE = (
+    "Sibling zip_income.csv is U.S. Census ACS 2024 5-year table B19013 "
+    "(median household income; S1903 subject-table equivalent) by ZIP Code "
+    "Tabulation Area (ZCTA) — reference data you would not keep in the company "
+    "workbook. Join sales ZIP to that file via query_folder_sql (chat or Run "
+    "Python Script). Regenerate: python scripts/generate_pretty_demo_spreadsheet.py --format all"
+)
+
+
+def write_zip_income_csv(out_dir: Path) -> Path:
+    """Copy the ACS ZCTA extract beside the generated workbook."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / ZIP_INCOME_CSV_NAME
+    if not ZIP_INCOME_FIXTURE.is_file():
+        raise FileNotFoundError(
+            f"Missing {ZIP_INCOME_FIXTURE}. See tests/fixtures/zip_income.README.md"
+        )
+    if dest.resolve() != ZIP_INCOME_FIXTURE.resolve():
+        shutil.copy2(ZIP_INCOME_FIXTURE, dest)
+    return dest
+
+
+def _assign_sales_zip(region: str, row_index: int) -> str:
+    zips = SALES_ZIPS_BY_REGION[region]
+    return zips[row_index % len(zips)]
+
+
 def get_sales_dataset() -> list[list[Any]]:
-    """Realistic transactional sales dataset (35 rows)."""
-    headers = ["Order_ID", "Date", "Region", "Category", "Customer_Type", "Units", "Unit_Price", "Revenue", "SKU_Code"]
+    """Realistic transactional sales dataset (35 rows) with a ZIP/ZCTA column."""
+    headers = ["Order_ID", "Date", "Region", "Category", "Customer_Type", "Units", "Unit_Price", "Revenue", "SKU_Code", "ZIP"]
     data: list[list[Any]] = [
         ["ORD-1001", "2024-01-05", "North", "Electronics", "Enterprise", 15, 240.00, 3600.00, "ELEC-9021"],
         ["ORD-1002", "2024-01-07", "South", "Furniture", "SMB", 4, 450.00, 1800.00, "FURN-3310"],
@@ -129,7 +221,136 @@ def get_sales_dataset() -> list[list[Any]]:
         ["ORD-1034", "2024-05-07", "South", "Electronics", "SMB", 14, 290.00, 4060.00, "ELEC-9055"],
         ["ORD-1035", "2024-05-11", "East", "Electronics", "Consumer", 6, 225.00, 1350.00, "ELEC-8812"],
     ]
-    return [headers] + data
+    # ZIP is appended so existing =PY() formulas that index Revenue (r[7]) / SKU (r[8]) stay valid.
+    with_zip: list[list[Any]] = []
+    for idx, row in enumerate(data):
+        region = str(row[2])
+        with_zip.append([*row, _assign_sales_zip(region, idx)])
+    return [headers] + with_zip
+
+
+def _duckdb_register_formula(table: str, sql: str, range_addr: str, *, ods: bool) -> str:
+    """=PY() that registers a sheet range as *table* and runs *sql* via DuckDB."""
+    sql_one_line = " ".join(sql.split())
+    code = (
+        f"import duckdb; df=pd.DataFrame(data[1:], columns=data[0]); "
+        f"con=duckdb.connect(); con.register('{table}', df); "
+        f'result=con.sql("""{sql_one_line}""").df()'
+    )
+    if ods:
+        return f'=PY("{code}"; {range_addr})'
+    return f'={CALC_PYTHON_ADDIN_FN}("{code}", {range_addr})'
+
+
+def sql_demo_scenarios() -> list[dict[str, str]]:
+    """SQL_DuckDB sheet blocks. Tests import the SQL strings and run query_folder_sql."""
+    return [
+        {
+            "title": "1. Sheet-only: sales by Region × Category",
+            "blurb": "DuckDB GROUP BY on the Sales_Analytics range (no files).",
+            "sql": SQL_SALES_BY_REGION_CATEGORY,
+            "kind": "sheet_sales",
+        },
+        {
+            "title": "2. Sheet-only: marketing channel ROAS",
+            "blurb": "Aggregate KPI on the Statistics_ML campaign range.",
+            "sql": SQL_MARKETING_CHANNEL_ROAS,
+            "kind": "sheet_marketing",
+        },
+        {
+            "title": "3. Join: sales ⨝ sibling zip_income.csv",
+            "blurb": (
+                "Sheet sales ZIP joined to ACS ZCTA median household income. "
+                "Run via query_folder_sql with tables={sales: Sales_Analytics range} "
+                f"and files={{zip_income: {ZIP_INCOME_CSV_NAME}}}."
+            ),
+            "sql": SQL_SALES_ZIP_INCOME_JOIN,
+            "kind": "join_zip",
+        },
+    ]
+
+
+def _scenario_result_formula(kind: str, sql: str, *, ods: bool) -> str | None:
+    """Live =PY()+DuckDB for sheet-only scenarios. Join is query_folder_sql (sibling CSV)."""
+    if kind == "sheet_sales":
+        return _duckdb_register_formula(
+            "sales", sql, SALES_RANGE_ODS_CROSS if ods else SALES_RANGE_XLSX_CROSS, ods=ods
+        )
+    if kind == "sheet_marketing":
+        return _duckdb_register_formula(
+            "marketing",
+            sql,
+            MARKETING_RANGE_ODS_CROSS if ods else MARKETING_RANGE_XLSX_CROSS,
+            ods=ods,
+        )
+    return None
+
+
+def _add_ods_sql_sheet(doc: Any, make_cell: Any, Table: Any, TableRow: Any) -> None:
+    """SQL / DuckDB tab: visible SQL in cells + live =PY() results for sheet ranges."""
+    tab = Table(name="SQL_DuckDB")
+    r1 = TableRow()
+    r1.addElement(make_cell("🦆 SQL / DuckDB — Sheet ranges and sibling files", "HeroTitle", span_cols=8))
+    tab.addElement(r1)
+
+    r2 = TableRow()
+    r2.addElement(
+        make_cell(
+            "Read-only DuckDB SQL over Sales_Analytics / Statistics_ML ranges, plus a join to sibling zip_income.csv",
+            "HeroSubtitle",
+            span_cols=8,
+        )
+    )
+    tab.addElement(r2)
+    tab.addElement(TableRow())
+
+    note = TableRow()
+    note.addElement(make_cell(ACS_INCOME_NOTE, "InfoBox", span_cols=8))
+    tab.addElement(note)
+    tab.addElement(TableRow())
+
+    for scenario in sql_demo_scenarios():
+        banner = TableRow()
+        banner.addElement(make_cell(scenario["title"], "SectionBanner", span_cols=8))
+        tab.addElement(banner)
+
+        blurb = TableRow()
+        blurb.addElement(make_cell(scenario["blurb"], "MetricLabel", span_cols=8))
+        tab.addElement(blurb)
+
+        sql_hdr = TableRow()
+        sql_hdr.addElement(make_cell("SQL (edit this text — this is the query)", "TableHeader", span_cols=8))
+        tab.addElement(sql_hdr)
+
+        sql_row = TableRow()
+        sql_row.addElement(make_cell(scenario["sql"], "CodeBlock", span_cols=8))
+        tab.addElement(sql_row)
+        tab.addElement(TableRow())
+
+        res_hdr = TableRow()
+        res_hdr.addElement(make_cell("RESULTS", "SectionBanner", span_cols=8))
+        tab.addElement(res_hdr)
+
+        formula = _scenario_result_formula(scenario["kind"], scenario["sql"], ods=True)
+        res_row = TableRow()
+        if formula:
+            res_row.addElement(
+                make_cell("Calculating via =PY() + DuckDB…", "FormulaResult", span_cols=8, formula=formula)
+            )
+        else:
+            res_row.addElement(
+                make_cell(
+                    "Run this SQL with query_folder_sql (preloaded sales + flat_files zip_income). "
+                    "tests/scripting/test_duckdb_sql.py exercises that path against these assets.",
+                    "InfoBox",
+                    span_cols=8,
+                )
+            )
+        tab.addElement(res_row)
+        tab.addElement(TableRow())
+        tab.addElement(TableRow())
+
+    doc.spreadsheet.addElement(tab)
 
 
 def get_marketing_dataset() -> list[list[Any]]:
@@ -342,8 +563,8 @@ def build_ods_showcase(out_path: Path) -> None:
     tab1.addElement(rk_labels)
 
     rk_vals = TableRow()
-    rk_vals.addElement(make_cell("$119,142.00", "KPICardVal", span_cols=2, formula='=PY("f\'${sum(r[7] for r in data[1:]):,.2f}\'"; Sales_Analytics.A5:I40)'))
-    rk_vals.addElement(make_cell("28.4%", "KPICardVal", span_cols=2, formula='=PY("f\'{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}\'"; Sales_Analytics.A5:I40)'))
+    rk_vals.addElement(make_cell("$119,142.00", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{sum(r[7] for r in data[1:]):,.2f}}\'"; {SALES_RANGE_ODS_CROSS})'))
+    rk_vals.addElement(make_cell("28.4%", "KPICardVal", span_cols=2, formula=f'=PY("f\'{{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}}\'"; {SALES_RANGE_ODS_CROSS})'))
     rk_vals.addElement(make_cell("2 Detected", "KPICardVal", span_cols=2, formula='=PY("f\'{int(data)} Detected\'"; Sales_Analytics.F47)'))
     rk_vals.addElement(make_cell("$349.02", "KPICardVal", span_cols=2, formula='=PY("f\'${data[-1][4] * 1.15:,.2f}\'"; Forecasting.A5:E41)'))
     tab1.addElement(rk_vals)
@@ -382,16 +603,16 @@ def build_ods_showcase(out_path: Path) -> None:
     # --- TAB 2: 📊 Sales Analytics (Pandas Wrangling) ---
     tab2 = Table(name="Sales_Analytics")
     t2_title = TableRow()
-    t2_title.addElement(make_cell("📊 Sales & Customer Intelligence — Pandas Data Wrangling & Aggregation", "HeroTitle", span_cols=9))
+    t2_title.addElement(make_cell("📊 Sales & Customer Intelligence — Pandas Data Wrangling & Aggregation", "HeroTitle", span_cols=10))
     tab2.addElement(t2_title)
 
     t2_sub = TableRow()
-    t2_sub.addElement(make_cell("Demonstrating multi-column aggregation, regex feature extraction, customer segmentation, and IQR outlier detection", "HeroSubtitle", span_cols=9))
+    t2_sub.addElement(make_cell("Demonstrating multi-column aggregation, regex feature extraction, customer segmentation, and IQR outlier detection", "HeroSubtitle", span_cols=10))
     tab2.addElement(t2_sub)
     tab2.addElement(TableRow())
 
     t2_sec = TableRow()
-    t2_sec.addElement(make_cell("TRANSACTIONAL SALES DATASET (35 ORDERS)", "SectionBanner", span_cols=9))
+    t2_sec.addElement(make_cell("TRANSACTIONAL SALES DATASET (35 ORDERS) — ZIP/ZCTA FOR DUCKDB JOINS", "SectionBanner", span_cols=10))
     tab2.addElement(t2_sec)
 
     sales_data = get_sales_dataset()
@@ -405,15 +626,15 @@ def build_ods_showcase(out_path: Path) -> None:
     tab2.addElement(TableRow())
 
     t2_an_title = TableRow()
-    t2_an_title.addElement(make_cell("LIVE =PY() PYTHON ANALYSIS METRICS (DRIVEN BY SALES DATA A5:I40)", "SectionBanner", span_cols=9))
+    t2_an_title.addElement(make_cell(f"LIVE =PY() PYTHON ANALYSIS METRICS (DRIVEN BY SALES DATA {SALES_RANGE_ODS})", "SectionBanner", span_cols=10))
     tab2.addElement(t2_an_title)
 
     calc_cards_t2 = [
-        ("1. Total Enterprise Revenue", "Filters and sums all Enterprise tier sales orders", '=PY("sum(r[7] for r in data[1:] if r[4] == \'Enterprise\')"; A5:I40)'),
-        ("2. Top Selling SKU by Revenue", "Finds the highest single order revenue SKU code", '=PY("max(data[1:], key=lambda r: r[7])[8]"; A5:I40)'),
-        ("3. Regional Average Order Size", "Calculates average units purchased per transaction", '=PY("round(np.mean([r[5] for r in data[1:]]), 1)"; A5:I40)'),
-        ("4. High-Value Threshold (mean plus 2 standard deviations)", "Revenue cutoff: mean plus two population standard deviations", '=PY("rev = [r[7] for r in data[1:]]; round(np.mean(rev) + 2 * np.std(rev), 2)"; A5:I40)'),
-        ("5. High Value Orders (above threshold)", "Flags orders more than 2 standard deviations above the mean", '=PY("sum(r[7] > data[1] for r in data[0][1:])"; A5:I40; F46)'),
+        ("1. Total Enterprise Revenue", "Filters and sums all Enterprise tier sales orders", f'=PY("sum(r[7] for r in data[1:] if r[4] == \'Enterprise\')"; {SALES_RANGE_ODS})'),
+        ("2. Top Selling SKU by Revenue", "Finds the highest single order revenue SKU code", f'=PY("max(data[1:], key=lambda r: r[7])[8]"; {SALES_RANGE_ODS})'),
+        ("3. Regional Average Order Size", "Calculates average units purchased per transaction", f'=PY("round(np.mean([r[5] for r in data[1:]]), 1)"; {SALES_RANGE_ODS})'),
+        ("4. High-Value Threshold (mean plus 2 standard deviations)", "Revenue cutoff: mean plus two population standard deviations", f'=PY("rev = [r[7] for r in data[1:]]; round(np.mean(rev) + 2 * np.std(rev), 2)"; {SALES_RANGE_ODS})'),
+        ("5. High Value Orders (above threshold)", "Flags orders more than 2 standard deviations above the mean", f'=PY("sum(r[7] > data[1] for r in data[0][1:])"; {SALES_RANGE_ODS}; F46)'),
     ]
     for title, desc, form in calc_cards_t2:
         rc1 = TableRow()
@@ -613,7 +834,7 @@ def build_ods_showcase(out_path: Path) -> None:
     tab7.addElement(t7_sec)
 
     viz_cards = [
-        ("1. Sales Revenue Trend Chart", "Matplotlib Line Plot — Generates and anchors line chart of order revenues", '=PY("plt.figure(figsize=(6,3)); plt.plot([r[7] for r in data[1:]], color=\'#0284C7\', lw=2); plt.title(\'Sales Revenue Trend\'); plt.xlabel(\'Order #\'); plt.ylabel(\'Revenue ($)\'); plt.grid(True, alpha=0.3); plt.tight_layout()"; Sales_Analytics.A5:I40)'),
+        ("1. Sales Revenue Trend Chart", "Matplotlib Line Plot — Generates and anchors line chart of order revenues", f'=PY("plt.figure(figsize=(6,3)); plt.plot([r[7] for r in data[1:]], color=\'#0284C7\', lw=2); plt.title(\'Sales Revenue Trend\'); plt.xlabel(\'Order #\'); plt.ylabel(\'Revenue ($)\'); plt.grid(True, alpha=0.3); plt.tight_layout()"; {SALES_RANGE_ODS_CROSS})'),
         ("2. Marketing Channel ROAS Bar Chart", "Matplotlib Bar Chart — Visualizes return multiplier across ad channels", '=PY("plt.figure(figsize=(6,3)); plt.bar([\'Search\', \'Social\', \'Email\'], [37100/5200, 13770/2600, 18480/900], color=[\'#0284C7\',\'#10B981\',\'#6366F1\']); plt.title(\'Top Channel ROAS Multiplier\'); plt.ylabel(\'ROAS (x)\'); plt.tight_layout()")'),
         ("3. Asset Risk vs. Return Profile", "Matplotlib Scatter Plot — Risk/volatility vs expected return map", '=PY("plt.figure(figsize=(6,3)); plt.scatter([0.06, 0.08, 0.01, 0.04], [0.04, 0.06, 0.015, 0.035], color=\'#F59E0B\', s=80); plt.title(\'Risk vs Return Profile\'); plt.xlabel(\'Expected Return\'); plt.ylabel(\'Volatility\'); plt.grid(True, alpha=0.3); plt.tight_layout()")'),
         ("4. Historical Sales Distribution", "Matplotlib Histogram — Distribution of monthly sales volume", '=PY("plt.figure(figsize=(6,3)); plt.hist([r[4] for r in data[1:]], bins=8, color=\'#10B981\', edgecolor=\'white\'); plt.title(\'Sales Volume Distribution\'); plt.xlabel(\'Volume ($k)\'); plt.tight_layout()"; Forecasting.A5:E41)'),
@@ -634,6 +855,8 @@ def build_ods_showcase(out_path: Path) -> None:
             tab7.addElement(TableRow())
 
     doc.spreadsheet.addElement(tab7)
+
+    _add_ods_sql_sheet(doc, make_cell, Table, TableRow)
 
     # Save ODS
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -758,8 +981,8 @@ def build_xlsx_showcase(out_path: Path) -> None:
     ws1.row_dimensions[4].height = 24
 
     kpi_spans = [
-        ("A5:B5", "A6:B6", "TOTAL REVENUE (YTD)", f'={CALC_PYTHON_ADDIN_FN}("f\'${{sum(r[7] for r in data[1:]):,.2f}}\'", Sales_Analytics!A4:I39)'),
-        ("C5:D5", "C6:D6", "AVG PROFIT MARGIN", f'={CALC_PYTHON_ADDIN_FN}("f\'{{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}}\'", Sales_Analytics!A4:I39)'),
+        ("A5:B5", "A6:B6", "TOTAL REVENUE (YTD)", f'={CALC_PYTHON_ADDIN_FN}("f\'${{sum(r[7] for r in data[1:]):,.2f}}\'", {SALES_RANGE_XLSX_CROSS})'),
+        ("C5:D5", "C6:D6", "AVG PROFIT MARGIN", f'={CALC_PYTHON_ADDIN_FN}("f\'{{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}}\'", {SALES_RANGE_XLSX_CROSS})'),
         ("E5:F5", "E6:F6", "ANOMALIES FLAGGED", f'={CALC_PYTHON_ADDIN_FN}("f\'{{int(data)}} Detected\'", Sales_Analytics!F47)'),
         ("G5:H5", "G6:H6", "FORECAST TARGET (Q3)", f'={CALC_PYTHON_ADDIN_FN}("f\'${{data[-1][4] * 1.15:,.2f}}\'", Forecasting!A4:E40)'),
     ]
@@ -864,7 +1087,7 @@ def build_xlsx_showcase(out_path: Path) -> None:
             for c_idx, val in enumerate(row_vals):
                 col_let = get_column_letter(c_idx + 1)
                 cell = ws[f"{col_let}{row_num}"]
-                if is_header:
+                if is_header or isinstance(val, str):
                     set_text_cell(cell, val)
                 else:
                     cell.value = val
@@ -914,11 +1137,11 @@ def build_xlsx_showcase(out_path: Path) -> None:
         "TRANSACTIONAL SALES DATASET (35 ORDERS)",
         get_sales_dataset(),
         [
-            ("1. Total Enterprise Sales", "Filters and sums all Enterprise tier sales orders", f'={CALC_PYTHON_ADDIN_FN}("sum(r[7] for r in data[1:] if r[4]==\'Enterprise\')", A4:I39)'),
-            ("2. Top Revenue SKU", "Finds the highest single order revenue SKU code", f'={CALC_PYTHON_ADDIN_FN}("max(data[1:], key=lambda r: r[7])[8]", A4:I39)'),
-            ("3. Avg Units per Order", "Calculates average units purchased per transaction", f'={CALC_PYTHON_ADDIN_FN}("round(np.mean([r[5] for r in data[1:]]), 1)", A4:I39)'),
-            ("4. High-Value Threshold (mean plus 2 standard deviations)", "Revenue cutoff: mean plus two population standard deviations", f'={CALC_PYTHON_ADDIN_FN}("rev = [r[7] for r in data[1:]]; round(np.mean(rev) + 2 * np.std(rev), 2)", A4:I39)'),
-            ("5. High Value Orders (above threshold)", "Flags orders more than 2 standard deviations above the mean", f'={CALC_PYTHON_ADDIN_FN}("sum(r[7] > data[1] for r in data[0][1:])", A4:I39, F46)'),
+            ("1. Total Enterprise Sales", "Filters and sums all Enterprise tier sales orders", f'={CALC_PYTHON_ADDIN_FN}("sum(r[7] for r in data[1:] if r[4]==\'Enterprise\')", {SALES_RANGE_XLSX})'),
+            ("2. Top Revenue SKU", "Finds the highest single order revenue SKU code", f'={CALC_PYTHON_ADDIN_FN}("max(data[1:], key=lambda r: r[7])[8]", {SALES_RANGE_XLSX})'),
+            ("3. Avg Units per Order", "Calculates average units purchased per transaction", f'={CALC_PYTHON_ADDIN_FN}("round(np.mean([r[5] for r in data[1:]]), 1)", {SALES_RANGE_XLSX})'),
+            ("4. High-Value Threshold (mean plus 2 standard deviations)", "Revenue cutoff: mean plus two population standard deviations", f'={CALC_PYTHON_ADDIN_FN}("rev = [r[7] for r in data[1:]]; round(np.mean(rev) + 2 * np.std(rev), 2)", {SALES_RANGE_XLSX})'),
+            ("5. High Value Orders (above threshold)", "Flags orders more than 2 standard deviations above the mean", f'={CALC_PYTHON_ADDIN_FN}("sum(r[7] > data[1] for r in data[0][1:])", {SALES_RANGE_XLSX}, F46)'),
         ]
     )
 
@@ -1008,7 +1231,7 @@ def build_xlsx_showcase(out_path: Path) -> None:
     ws7.row_dimensions[4].height = 22
 
     viz_cards_xlsx = [
-        ("1. Sales Revenue Trend Chart", "Matplotlib Line Plot — Generates and anchors line chart of order revenues", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.plot([r[7] for r in data[1:]], color=\'#0284C7\', lw=2); plt.title(\'Sales Revenue Trend\'); plt.xlabel(\'Order #\'); plt.ylabel(\'Revenue ($)\'); plt.grid(True, alpha=0.3); plt.tight_layout()", Sales_Analytics!A4:I39)'),
+        ("1. Sales Revenue Trend Chart", "Matplotlib Line Plot — Generates and anchors line chart of order revenues", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.plot([r[7] for r in data[1:]], color=\'#0284C7\', lw=2); plt.title(\'Sales Revenue Trend\'); plt.xlabel(\'Order #\'); plt.ylabel(\'Revenue ($)\'); plt.grid(True, alpha=0.3); plt.tight_layout()", {SALES_RANGE_XLSX_CROSS})'),
         ("2. Marketing Channel ROAS Bar Chart", "Matplotlib Bar Chart — Visualizes return multiplier across ad channels", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.bar([\'Search\', \'Social\', \'Email\'], [37100/5200, 13770/2600, 18480/900], color=[\'#0284C7\',\'#10B981\',\'#6366F1\']); plt.title(\'Top Channel ROAS Multiplier\'); plt.ylabel(\'ROAS (x)\'); plt.tight_layout()")'),
         ("3. Asset Risk vs. Return Profile", "Matplotlib Scatter Plot — Risk/volatility vs expected return map", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.scatter([0.06, 0.08, 0.01, 0.04], [0.04, 0.06, 0.015, 0.035], color=\'#F59E0B\', s=80); plt.title(\'Risk vs Return Profile\'); plt.xlabel(\'Expected Return\'); plt.ylabel(\'Volatility\'); plt.grid(True, alpha=0.3); plt.tight_layout()")'),
         ("4. Historical Sales Distribution", "Matplotlib Histogram — Distribution of monthly sales volume", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.hist([r[4] for r in data[1:]], bins=8, color=\'#10B981\', edgecolor=\'white\'); plt.title(\'Sales Volume Distribution\'); plt.xlabel(\'Volume ($k)\'); plt.tight_layout()", Forecasting!A4:E40)'),
@@ -1052,6 +1275,107 @@ def build_xlsx_showcase(out_path: Path) -> None:
 
     auto_fit_columns(ws7)
 
+    # --- TAB 8: SQL / DuckDB ---
+    ws8 = wb.create_sheet(title="SQL_DuckDB")
+    ws8.views.sheetView[0].showGridLines = True
+    code_fill = PatternFill(start_color=PALETTE["code_bg"], end_color=PALETTE["code_bg"], fill_type="solid")
+    code_font = Font(name="Consolas", size=9, color="0F172A")
+
+    ws8.merge_cells("A1:H1")
+    t8 = ws8["A1"]
+    set_text_cell(t8, "🦆 SQL / DuckDB — Sheet ranges and sibling files")
+    t8.fill = hero_fill
+    t8.font = hero_font
+    t8.alignment = Alignment(vertical="center", indent=1)
+    ws8.row_dimensions[1].height = 32
+
+    ws8.merge_cells("A2:H2")
+    s8 = ws8["A2"]
+    set_text_cell(
+        s8,
+        "Read-only DuckDB SQL over Sales_Analytics / Statistics_ML ranges, plus a join to sibling zip_income.csv",
+    )
+    s8.fill = hero_fill
+    s8.font = sub_font
+    s8.alignment = Alignment(vertical="center", indent=1)
+    ws8.row_dimensions[2].height = 24
+
+    ws8.merge_cells("A4:H6")
+    n8 = ws8["A4"]
+    set_text_cell(n8, ACS_INCOME_NOTE)
+    n8.fill = canvas_fill
+    n8.font = body_font
+    n8.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
+    n8.border = thin_border
+
+    current = 8
+    for scenario in sql_demo_scenarios():
+        ws8.merge_cells(f"A{current}:H{current}")
+        bcell = ws8[f"A{current}"]
+        set_text_cell(bcell, scenario["title"])
+        bcell.fill = sec_fill
+        bcell.font = sec_font
+        bcell.alignment = Alignment(vertical="center", indent=1)
+        ws8.row_dimensions[current].height = 22
+        current += 1
+
+        ws8.merge_cells(f"A{current}:H{current}")
+        dcell = ws8[f"A{current}"]
+        set_text_cell(dcell, scenario["blurb"])
+        dcell.fill = metric_fill
+        dcell.font = metric_font
+        dcell.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        ws8.row_dimensions[current].height = 28
+        current += 1
+
+        ws8.merge_cells(f"A{current}:H{current}")
+        sh = ws8[f"A{current}"]
+        set_text_cell(sh, "SQL (edit this text — this is the query)")
+        sh.fill = th_fill
+        sh.font = th_font
+        current += 1
+
+        sql_start = current
+        sql_end = current + 4
+        ws8.merge_cells(f"A{sql_start}:H{sql_end}")
+        sql_cell = ws8[f"A{sql_start}"]
+        set_text_cell(sql_cell, scenario["sql"])
+        sql_cell.fill = code_fill
+        sql_cell.font = code_font
+        sql_cell.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
+        sql_cell.border = thin_border
+        current = sql_end + 2
+
+        ws8.merge_cells(f"A{current}:H{current}")
+        rh = ws8[f"A{current}"]
+        set_text_cell(rh, "RESULTS")
+        rh.fill = sec_fill
+        rh.font = sec_font
+        rh.alignment = Alignment(vertical="center", indent=1)
+        current += 1
+
+        formula = _scenario_result_formula(scenario["kind"], scenario["sql"], ods=False)
+        ws8.merge_cells(f"A{current}:H{current}")
+        rc = ws8[f"A{current}"]
+        if formula:
+            set_formula_cell(rc, formula)
+            rc.fill = res_fill
+            rc.font = res_font
+        else:
+            set_text_cell(
+                rc,
+                "Run this SQL with query_folder_sql (preloaded sales + flat_files zip_income). "
+                "tests/scripting/test_duckdb_sql.py exercises that path against these assets.",
+            )
+            rc.fill = canvas_fill
+            rc.font = body_font
+        rc.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
+        rc.border = thin_border
+        ws8.row_dimensions[current].height = 36
+        current += 3
+
+    auto_fit_columns(ws8)
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(out_path))
     _ensure_xlsx_python_fn_full_name(out_path)
@@ -1066,6 +1390,7 @@ def main() -> int:
 
     out_dir = args.out_dir
     fmt = args.format
+    write_zip_income_csv(out_dir)
 
     if fmt in ("ods", "all"):
         ods_file = out_dir / "python_showcase_demo.ods"
