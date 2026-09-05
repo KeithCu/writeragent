@@ -466,6 +466,45 @@ def test_record_desktop_calc_sessions_records_only_exactly_one_calc():
         clear_active_calc_session()
 
 
+def test_record_desktop_calc_sessions_drops_stale_closed_file_ids():
+    """Closed showcase calc:file: ids must not keep leftover Shared Isolated.
+
+    UNO tests that open python_showcase_demo.ods/.xlsx record those file
+    sessions in soffice. Client-side clear_active_calc_session() does not
+    reach soffice. The next sole-Calc desktop scan (factory OnNew) must
+    drop the leftovers so A3 can bind A1's Shared name.
+    """
+    import plugin.calc.excel_py_convert.auto_open as mod
+    from plugin.scripting.session_manager import (
+        clear_active_calc_session,
+        off_main_calc_session_is_unambiguous,
+        record_active_calc_session,
+        recorded_calc_session_count,
+        recorded_calc_session_ids,
+    )
+
+    clear_active_calc_session()
+    record_active_calc_session("calc:file:///fixtures/python_showcase_demo.ods")
+    record_active_calc_session("calc:file:///fixtures/python_showcase_demo.xlsx")
+    one = CalcDocStub()
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.side_effect = [one]
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = enum
+    try:
+        with (
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        ):
+            mod._record_desktop_calc_sessions(MagicMock())
+        assert recorded_calc_session_count() == 1
+        assert off_main_calc_session_is_unambiguous()
+        assert all("python_showcase_demo" not in sid for sid in recorded_calc_session_ids())
+    finally:
+        clear_active_calc_session()
+
+
 def test_record_desktop_calc_sessions_stops_on_magicmock_enum():
     """MagicMock.hasMoreElements() is always truthy — must not walk forever.
 

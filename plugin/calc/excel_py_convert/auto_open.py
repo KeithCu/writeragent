@@ -45,8 +45,10 @@ def _record_desktop_calc_sessions(ctx: Any) -> None:
     from plugin.framework.uno_context import get_desktop
     from plugin.scripting.session_manager import (
         calc_workbook_base_session_id,
+        clear_active_calc_session,
         is_opencl_probe_session_id,
         recorded_calc_session_count,
+        recorded_calc_session_ids,
     )
 
     desktop = get_desktop(ctx)
@@ -85,7 +87,14 @@ def _record_desktop_calc_sessions(ctx: Any) -> None:
                 continue
             calcs.append(model)
     if len(calcs) == 1:
-        calc_workbook_base_session_id(calcs[0])
+        sid = calc_workbook_base_session_id(calcs[0])
+        # Opening a saved showcase file records calc:file:… in soffice. Closing
+        # it does not always drop that id (OnUnload only discards the listener's
+        # early uuid). The next factory OnNew must prune those leftovers or
+        # Shared leftover stays recorded>1 / Isolated (A3 NameError).
+        for other in recorded_calc_session_ids():
+            if other != sid:
+                clear_active_calc_session(other)
     log.info(
         "excel_py lifecycle: desktop calc sessions scanned=%s calcs=%s recorded=%s",
         n,
