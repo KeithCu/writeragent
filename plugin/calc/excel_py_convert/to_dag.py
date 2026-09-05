@@ -567,11 +567,14 @@ def _normalize_bindings(
 
 
 def _deal_convert_scripts_ok(model: object) -> bool:
+    # Match rewrite_excel_code / convert_cell_to_dag nested pre: str_bounded alone
+    # let CrossHair build scripts=['\x00'] then PreconditionFailed inside
+    # (check-all 33935176527). Pytest _deal_excel_src_ok is still str_bounded.
     scripts = getattr(model, "scripts", None)
     return (
         isinstance(scripts, list)
         and len(scripts) <= _DEAL_CONVERT_LIST
-        and all(isinstance(s, str) and str_bounded(s, _DEAL_CONVERT_STR) for s in scripts)
+        and all(_deal_excel_src_ok(s) for s in scripts)
     )
 
 
