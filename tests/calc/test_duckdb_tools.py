@@ -734,14 +734,16 @@ def test_xlsx_skips_cache_when_disabled(
 @patch("plugin.calc.inspector.CellInspector.read_range")
 @patch("plugin.calc.duckdb_tools.open_document_for_read")
 def test_live_workbook_skips_cache(mock_open, mock_read, _mock_close, mock_export, _mock_open_wb, tmp_path):
+    """Already-open workbook: skip cache hit and do not storeToURL (opened_flag=False)."""
     xlsx, _ods = _write_office_fixtures(tmp_path)
-    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_open.return_value = (_fake_model(), "calc", None, False)
     mock_read.side_effect = _grid_for_requested_range
 
     _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
 
     assert os.path.normpath(mock_open.call_args[0][1]) == os.path.normpath(str(xlsx))
     mock_export.assert_not_called()
+    _mock_close.assert_not_called()
 
 
 @patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)

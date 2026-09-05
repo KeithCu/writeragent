@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import split_sheet_prefix
@@ -20,6 +19,8 @@ from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc.duckdb")
@@ -597,8 +598,14 @@ def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool]:
     return full_path, False
 
 
-def _maybe_write_ods_cache(ctx: Any, model: Any, full_path: str, *, opened_flag: bool, cache_hit: bool) -> None:
-    """On a conversion miss, Save As the imported XLSX/XLS into the folder cache."""
+def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, cache_hit: bool) -> None:
+    """On a conversion miss, Save As the imported XLSX/XLS into the folder cache.
+
+    ``opened_flag`` is the live-workbook guard: False means we reused a
+    desktop document, so we must not ``storeToURL`` it. Do not call
+    ``_source_is_open_workbook`` here — after a hidden open the source
+    *is* loaded, which would skip every miss write.
+    """
     from plugin.calc.ods_cache import (
         cache_entry_paths,
         is_cacheable_office_source,
@@ -609,8 +616,6 @@ def _maybe_write_ods_cache(ctx: Any, model: Any, full_path: str, *, opened_flag:
     if cache_hit or not opened_flag:
         return
     if not is_cacheable_office_source(full_path) or not ods_cache_enabled():
-        return
-    if _source_is_open_workbook(ctx, full_path):
         return
     paths = cache_entry_paths(full_path)
     if paths is None:
@@ -712,7 +717,7 @@ def _read_sibling_office_file_as_grid(
                 sheet=str(identity) if identity else None,
             )
 
-        _maybe_write_ods_cache(ctx, model, full_path, opened_flag=opened_flag, cache_hit=cache_hit)
+        _maybe_write_ods_cache(model, full_path, opened_flag=opened_flag, cache_hit=cache_hit)
 
         tbl_name = _sanitize_sql_table_name(os.path.splitext(os.path.basename(full_path))[0])
         return tbl_name, grid
