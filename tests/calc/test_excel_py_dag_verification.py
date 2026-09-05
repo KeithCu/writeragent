@@ -110,6 +110,28 @@ def test_dag_wrapper_overflow_pre_fails_closed() -> None:
         convert_model_to_dag(
             ExcelWorkbookModel(scripts=["x"] * (DEAL_MAX_CMD_ARGS + 1), cells=[])
         )
+    with pytest.raises(deal.PreContractError):
+        convert_model_to_dag(
+            ExcelWorkbookModel(
+                scripts=[],
+                cells=[
+                    ExcelPyCell(
+                        sheet="",
+                        cell="",
+                        script_index=0,
+                        return_type=0,
+                        deps=["x"] * (DEAL_MAX_CMD_ARGS + 1),
+                    )
+                ],
+            )
+        )
+
+
+def test_find_xl_calls_accepts_tab_then_quote() -> None:
+    """Pytest domain is DEAL_MAX_SOURCE; a two-char quote walk is a legal script."""
+    calls, issues = _find_xl_calls('\t"')
+    assert calls == []
+    assert isinstance(issues, list)
 
 
 def test_convert_cell_to_dag_script_index_oor_fail_closed() -> None:

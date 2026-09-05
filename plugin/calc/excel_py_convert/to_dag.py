@@ -75,6 +75,11 @@ _EXCEL_PLACEHOLDER_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     "%_#'\" \t\n\\()=,.:+-[]{}"
 )
+# Tiny rewrite walk + convert lists. Defined before _deal_excel_src_ok so the
+# CrossHair src pre cannot exceed _skip_string's str_bounded(_DEAL_REWRITE_SRC).
+_DEAL_CONVERT_LIST = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
+_DEAL_CONVERT_STR = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+_DEAL_REWRITE_SRC = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
 def _deal_excel_src_ok_pytest(src: object) -> bool:
@@ -82,11 +87,10 @@ def _deal_excel_src_ok_pytest(src: object) -> bool:
 
 
 def _deal_excel_src_ok_crosshair(src: object) -> bool:
-    return (
-        isinstance(src, str)
-        and len(src) <= 2
-        and all(c in _EXCEL_PLACEHOLDER_CHARS for c in src)
-    )
+    # Must not exceed _skip_string's str_bounded(_DEAL_REWRITE_SRC): CrossHair
+    # used to pass len-2 src such as '\t"' into _find_xl_calls, then
+    # _normalize_excel_placeholders called _skip_string and PreconditionFailed.
+    return str_bounded(src, _DEAL_REWRITE_SRC) and all(c in _EXCEL_PLACEHOLDER_CHARS for c in src)
 
 
 # Import-time only — do not branch inside ``@deal.pre`` lambdas.
@@ -106,9 +110,6 @@ _DEAL_NOTE_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 # Pytest notes include Unicode (e.g. ``ANCHORARRAY(A6) → A6:B254``); CrossHair is ascii-only.
 _deal_note_ok = ascii_bounded if UNDER_CROSSHAIR else str_bounded
 _RESOLVED_KINDS = frozenset(("range", "unresolved", "table_snapshot", "anchor_snapshot"))
-_DEAL_CONVERT_LIST = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
-_DEAL_CONVERT_STR = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-_DEAL_REWRITE_SRC = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
 def _deal_ast_offset_src_ok_pytest(src: object) -> bool:
@@ -561,15 +562,29 @@ def _normalize_bindings(
     return bindings, index_map, data_args, excel_deps, issues
 
 
+def _deal_convert_scripts_ok(model: object) -> bool:
+    scripts = getattr(model, "scripts", None)
+    return (
+        isinstance(scripts, list)
+        and len(scripts) <= _DEAL_CONVERT_LIST
+        and all(isinstance(s, str) and str_bounded(s, _DEAL_CONVERT_STR) for s in scripts)
+    )
+
+
+def _deal_convert_cell_ok(cell: object) -> bool:
+    """Cell fields ``convert_cell_to_dag`` requires; script_index range is body-checked."""
+    script_index = getattr(cell, "script_index", None)
+    deps = getattr(cell, "deps", None)
+    return (
+        type(script_index) is int
+        and isinstance(deps, list)
+        and len(deps) <= _DEAL_CONVERT_LIST
+        and all(isinstance(d, str) and ascii_bounded(d, _DEAL_CONVERT_STR) for d in deps)
+    )
+
+
 @deal.pre(
-    lambda model, cell, *_unused, **__: isinstance(model.scripts, list)
-    and len(model.scripts) <= _DEAL_CONVERT_LIST
-    and all(isinstance(s, str) and str_bounded(s, _DEAL_CONVERT_STR) for s in model.scripts)
-    and type(cell.script_index) is int
-    # Body fail-closes on OOR / negative index; a range pre here would hide that path.
-    and isinstance(cell.deps, list)
-    and len(cell.deps) <= _DEAL_CONVERT_LIST
-    and all(isinstance(d, str) and ascii_bounded(d, _DEAL_CONVERT_STR) for d in cell.deps)
+    lambda model, cell, *_unused, **__: _deal_convert_scripts_ok(model) and _deal_convert_cell_ok(cell)
 )
 def convert_cell_to_dag(
     model: ExcelWorkbookModel,
@@ -680,11 +695,12 @@ def convert_cell_to_dag(
 
 
 @deal.pre(
-    lambda model, *_unused, **__: isinstance(model.scripts, list)
-    and len(model.scripts) <= _DEAL_CONVERT_LIST
-    and all(isinstance(s, str) and str_bounded(s, _DEAL_CONVERT_STR) for s in model.scripts)
+    lambda model, *_unused, **__: _deal_convert_scripts_ok(model)
     and isinstance(model.cells, list)
     and len(model.cells) <= _DEAL_CONVERT_LIST
+    # convert_cell_to_dag's cell.deps bound is tighter than this wrapper used to be
+    # (empty scripts + a 3-dep cell passed here, then PreconditionFailed inside).
+    and all(_deal_convert_cell_ok(c) for c in model.cells)
 )
 def convert_model_to_dag(model: ExcelWorkbookModel, *, best_effort: bool = False) -> ConversionReport:
     """Convert every PY cell in *model* to DAG-style ``=PY`` formulas."""

@@ -21,6 +21,7 @@ from plugin.embeddings.embeddings_split import (
     _split_non_prose_passage_to_spans,
     _split_passage_whitespace_to_sentences,
     _split_prose_passage_to_spans,
+    split_passage_locale_runs_to_chunk_meta,
     split_passage_to_sentences,
 )
 from plugin.framework.deal_shim import DEAL_MAX_SOURCE
@@ -52,6 +53,10 @@ def test_embeddings_split_overflow_pre_fails_closed() -> None:
         _split_prose_passage_to_spans(too_long)
     with pytest.raises(deal.PreContractError):
         _split_non_prose_passage_to_spans(too_long)
+    with pytest.raises(deal.PreContractError):
+        # Non-ascii meta values pass the old isinstance(dict) wrapper pre, then
+        # fail split_passage_to_chunk_meta's ascii_bounded value bound.
+        split_passage_locale_runs_to_chunk_meta("x", [0], {"": "\x80"}, prose=False)
 
 
 def test_merge_small_sentences_rejects_out_of_order_spans() -> None:

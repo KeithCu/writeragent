@@ -28,7 +28,28 @@ def _deal_sentence_locale_ok_pytest(locale: object) -> bool:
 
 
 def _deal_sentence_locale_ok_crosshair(locale: object) -> bool:
-    return locale == DEFAULT_SENTENCE_LOCALE
+    # Identity, not ==: CrossHair synthesizes a new 'en@ss=standard' that
+    # compares equal but is not a real str/Locale, so icu4py SentenceBreaker
+    # TypeErrors. The default arg is this module constant.
+    return locale is DEFAULT_SENTENCE_LOCALE
+
+
+def _deal_chunk_base_meta_ok(base_meta: object) -> bool:
+    """Same meta bound as ``split_passage_to_chunk_meta`` (ascii keys/values)."""
+    return (
+        type(base_meta) is dict
+        and len(base_meta) <= _DEAL_SENT_LIST_LEN
+        and all(
+            type(k) is str
+            and ascii_bounded(k, DEAL_MAX_TOKEN)
+            and (
+                v is None
+                or type(v) in (int, float, bool)
+                or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN))
+            )
+            for k, v in base_meta.items()
+        )
+    )
 
 
 _deal_sentence_locale_ok = (
@@ -297,8 +318,7 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
     lambda text, runs, base_meta, *_unused, **__: ascii_bounded(text, _DEAL_PASSAGE_LEN)
     and isinstance(runs, list)
     and len(runs) <= _DEAL_SENT_LIST_LEN
-    and isinstance(base_meta, dict)
-    and len(base_meta) <= _DEAL_SENT_LIST_LEN
+    and _deal_chunk_base_meta_ok(base_meta)
 )
 def split_passage_locale_runs_to_chunk_meta(
     text: str,
@@ -339,13 +359,7 @@ def split_passage_locale_runs_to_chunk_meta(
 
 @deal.pre(
     lambda text, base_meta, *args, **kwargs: ascii_bounded(text, _DEAL_PASSAGE_LEN)
-    and type(base_meta) is dict
-    and len(base_meta) <= _DEAL_SENT_LIST_LEN
-    and all(
-        type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN)
-        and (v is None or type(v) in (int, float, bool) or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN)))
-        for k, v in base_meta.items()
-    )
+    and _deal_chunk_base_meta_ok(base_meta)
     and (kwargs.get("locale_bcp47") is None or ascii_bounded(kwargs.get("locale_bcp47"), DEAL_MAX_TOKEN))
 )
 def split_passage_to_chunk_meta(
