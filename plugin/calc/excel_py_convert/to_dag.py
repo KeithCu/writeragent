@@ -54,7 +54,11 @@ from plugin.calc.excel_py_convert.models import (
     ExcelWorkbookModel,
     HeaderMode,
 )
-from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
+from plugin.calc.excel_py_convert.resolve_refs import (
+    ResolvedDep,
+    _deal_resolved_list_ok,
+    resolve_deps,
+)
 from plugin.framework.deal_shim import (
     DEAL_MAX_CELL_REF,
     DEAL_MAX_CMD_ARGS,
@@ -109,11 +113,6 @@ _AST_OFFSET_MAX_COL = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 _AST_OFFSET_CHARS = frozenset("AB \n")
 _DEAL_BINDING_A1_LEN = DEAL_MAX_CELL_REF if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 _DEAL_RESOLVED_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
-# Note/convert still multi-10m at len 4 (33211730747); floor to 1.
-_DEAL_NOTE_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
-# Pytest notes include Unicode (e.g. ``ANCHORARRAY(A6) → A6:B254``); CrossHair is ascii-only.
-_deal_note_ok = ascii_bounded if UNDER_CROSSHAIR else str_bounded
-_RESOLVED_KINDS = frozenset(("range", "unresolved", "table_snapshot", "anchor_snapshot"))
 
 
 def _deal_ast_offset_src_ok_pytest(src: object) -> bool:
@@ -495,16 +494,11 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
 
 
 @deal.pre(
-    lambda resolved, header_modes: type(resolved) is list
-    and len(resolved) <= _DEAL_RESOLVED_LEN
-    and all(
-        isinstance(r, ResolvedDep)
-        and r.kind in _RESOLVED_KINDS
-        and _deal_note_ok(r.note or "", _DEAL_NOTE_LEN)
-        and (r.a1 is None or ascii_bounded(r.a1, _DEAL_BINDING_A1_LEN))
-        and (r.original is None or ascii_bounded(r.original, _DEAL_BINDING_A1_LEN))
-        for r in resolved
-    )
+    # Same resolved predicate as resolve_deps @deal.post. The old note/a1
+    # length caps (CrossHair note len 1) rejected legitimate unresolved notes
+    # such as "unrecognized dep 'M'" — deal then reported the first conjunct
+    # type(resolved) is list (check-all 33954468213).
+    lambda resolved, header_modes: _deal_resolved_list_ok(resolved)
     and type(header_modes) is dict
     and len(header_modes) <= _DEAL_RESOLVED_LEN
     and all(
@@ -609,11 +603,15 @@ def _deal_convert_cell_ok(cell: object) -> bool:
     """Cell fields ``convert_cell_to_dag`` requires; script_index range is body-checked."""
     script_index = getattr(cell, "script_index", None)
     deps = getattr(cell, "deps", None)
+    sheet = getattr(cell, "sheet", "")
     return (
         type(script_index) is int
         and isinstance(deps, list)
         and len(deps) <= _DEAL_CONVERT_LIST
         and all(_deal_convert_dep_ok(d) for d in deps)
+        # resolve_deps / resolve_dep sheet_hint is str_bounded(DEAL_MAX_SOURCE).
+        and isinstance(sheet, str)
+        and str_bounded(sheet, DEAL_MAX_SOURCE)
     )
 
 

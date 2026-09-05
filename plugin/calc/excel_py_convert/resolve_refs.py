@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ExcelWorkbookModel
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, str_bounded, deal
 
 _ANCHOR_RE = re.compile(r"^(?:_xlfn\.)?ANCHORARRAY\((.+)\)$", re.IGNORECASE)
 _TABLE_ALL_RE = re.compile(r"^([A-Za-z_][\w.]*)\[#All\]$", re.IGNORECASE)
@@ -44,6 +44,35 @@ class ResolvedDep:
     a1: str
     kind: str  # range | table_snapshot | anchor_snapshot | unresolved
     note: str = ""
+
+
+# Must match convert / _normalize_bindings. resolve_dep only emits these kinds.
+_RESOLVED_KINDS = frozenset(("range", "unresolved", "table_snapshot", "anchor_snapshot"))
+
+
+def _deal_resolved_list_ok(result: object) -> bool:
+    """True when *result* is a ``list`` of ``ResolvedDep`` with a known kind.
+
+    Shared by ``resolve_deps`` ``@deal.post`` and ``_normalize_bindings``
+    ``@deal.pre``. check-all 33954468213 nest-failed
+    ``convert_model_to_dag`` → ``_normalize_bindings`` with
+    ``type(resolved) is list``: CPython already returns a list; deal names the
+    first conjunct when a later one fails (unresolved note
+    ``unrecognized dep 'M'`` vs CrossHair ``_DEAL_NOTE_LEN=1``).
+    """
+    return type(result) is list and all(
+        isinstance(r, ResolvedDep) and r.kind in _RESOLVED_KINDS for r in result
+    )
+
+
+def _deal_resolve_deps_pre(deps: object, sheet_hint: object) -> bool:
+    """``resolve_dep`` sheet/dep ``str_bounded`` plus a list length cap."""
+    return (
+        isinstance(deps, list)
+        and len(deps) <= DEAL_MAX_CMD_ARGS
+        and all(str_bounded(d, DEAL_MAX_SOURCE) for d in deps)
+        and str_bounded(sheet_hint, DEAL_MAX_SOURCE)
+    )
 
 
 def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "") -> str | None:
@@ -176,5 +205,11 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
     return ResolvedDep(original=raw, a1="", kind="unresolved", note=f"unrecognized dep {raw!r}")
 
 
+@deal.pre(lambda deps, model, sheet_hint="": _deal_resolve_deps_pre(deps, sheet_hint))
+@deal.post(lambda result: _deal_resolved_list_ok(result))
 def resolve_deps(deps: list[str], model: ExcelWorkbookModel, *, sheet_hint: str = "") -> list[ResolvedDep]:
+    # crosshair: off
+    # Map over resolve_dep (already off). The post is the convert contract:
+    # always a list of ResolvedDep so _normalize_bindings cannot nest-fail
+    # (check-all 33954468213).
     return [resolve_dep(d, model, sheet_hint=sheet_hint) for d in deps]

@@ -21,7 +21,9 @@ from plugin.calc.sheet_filter_criteria import (
 )
 from plugin.calc.excel_py_convert.resolve_refs import (
     ResolvedDep,
+    _deal_resolved_list_ok,
     resolve_dep,
+    resolve_deps,
 )
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN
 from plugin.framework.errors import UnoObjectError
@@ -135,6 +137,22 @@ def test_resolve_dep_junk_no_pattern_error(dep: str) -> None:
     model = DummyModel()  # type: ignore[assignment]
     resolved = resolve_dep(dep, model)
     assert resolved.kind == "unresolved"
+
+
+def test_resolve_deps_always_list_for_letter_dep() -> None:
+    """check-all 33954468213: resolve_deps(['M']) must stay a list of ResolvedDep.
+
+    convert_model_to_dag then _normalize_bindings; the producer post is
+    ``_deal_resolved_list_ok`` so the callee cannot nest-fail on
+    ``type(resolved) is list`` for unrecognized 1-char deps.
+    """
+    model = DummyModel()  # type: ignore[assignment]
+    resolved = resolve_deps(["M"], model, sheet_hint="")
+    assert type(resolved) is list
+    assert _deal_resolved_list_ok(resolved)
+    assert len(resolved) == 1
+    assert resolved[0].kind == "unresolved"
+    assert "unrecognized dep" in resolved[0].note
 
 
 from plugin.calc.calc_addin_data import (

@@ -12,7 +12,8 @@ import pytest
 from hypothesis import given, strategies as st
 
 import deal
-from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel
+from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel, SheetInfo
+from plugin.calc.excel_py_convert.resolve_refs import _deal_resolved_list_ok, resolve_deps
 from plugin.calc.excel_py_convert.to_dag import (
     _deal_convert_cell_ok,
     _deal_convert_scripts_ok,
@@ -128,6 +129,21 @@ def test_dag_wrapper_overflow_pre_fails_closed() -> None:
                 ],
             )
         )
+    with pytest.raises(deal.PreContractError):
+        convert_model_to_dag(
+            ExcelWorkbookModel(
+                scripts=[""],
+                cells=[
+                    ExcelPyCell(
+                        sheet="S" * (DEAL_MAX_SOURCE + 1),
+                        cell="",
+                        script_index=0,
+                        return_type=0,
+                        deps=[],
+                    )
+                ],
+            )
+        )
 
 
 def test_find_xl_calls_accepts_tab_then_quote() -> None:
@@ -164,6 +180,50 @@ def test_deal_convert_cell_ok_dep_alphabet_pytest() -> None:
     assert _deal_convert_cell_ok(cell(["A1"]))
     assert _deal_convert_cell_ok(cell(["_xlfn.ANCHORARRAY(A6)"]))
     assert _deal_convert_cell_ok(cell(["Table1[#All]"]))
+    assert _deal_convert_cell_ok(ExcelPyCell(sheet="", cell="A1", script_index=0, return_type=0, deps=["M"]))
+    assert not _deal_convert_cell_ok(
+        ExcelPyCell(sheet="S" * (DEAL_MAX_SOURCE + 1), cell="A1", script_index=0, return_type=0, deps=[])
+    )
+
+
+def test_convert_model_to_dag_letter_dep_no_normalize_pre_fail() -> None:
+    """check-all 33954468213: PreconditionFailed on _normalize_bindings.
+
+    CrossHair reported ``type(resolved) is list``; CPython ``resolve_deps(['M'])``
+    already returns a list. The pre failed on the 20-char unresolved note vs
+    CrossHair ``_DEAL_NOTE_LEN=1`` (deal names the first conjunct). Convert must
+    fail-closed without a contract error for this exact junk model.
+    """
+    model = ExcelWorkbookModel(
+        scripts=[""],
+        cells=[
+            ExcelPyCell(
+                "",
+                "",
+                0,
+                0,
+                deps=["M"],
+                formula_raw="\x00",
+                array_ref="",
+                row=2,
+                col=0,
+            )
+        ],
+        sheets=[SheetInfo("\x01", 0, "")],
+        tables={},
+        anchor_snapshots={"": ""},
+        source_path="",
+    )
+    assert _deal_convert_cell_ok(model.cells[0])
+    resolved = resolve_deps(["M"], model, sheet_hint="")
+    assert _deal_resolved_list_ok(resolved)
+    # Nested callee must accept the producer post (the 33954468213 hole).
+    _normalize_bindings(resolved, {})
+    report = convert_model_to_dag(model, best_effort=False)
+    assert report.cells
+    cell = report.cells[0]
+    assert cell.converted is False
+    assert any("unrecognized dep" in i or "unresolved" in i for i in (cell.issues or []))
 
 
 def test_convert_model_to_dag_underscore_dep_no_pattern_error() -> None:
