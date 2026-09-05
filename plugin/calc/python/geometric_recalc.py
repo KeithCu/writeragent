@@ -279,10 +279,10 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
 def geometric_cap_hit_user_message(sheet_name: str) -> str:
     """User-facing text when a sheet is left unchained. Users do not read logfiles."""
     return _(
-        "Geometric Recalc Order skipped sheet '%s': found %s or more Python "
+        "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more Python "
         "cells (discovery cap). The sheet was left unchained so a partial "
         "list is not treated as complete."
-    ) % (sheet_name, GEOMETRIC_DISCOVERY_CAP)
+    ) % {"sheet": sheet_name, "cap": GEOMETRIC_DISCOVERY_CAP}
 
 
 def notify_geometric_cap_hit(
