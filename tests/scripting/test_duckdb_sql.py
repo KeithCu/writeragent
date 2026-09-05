@@ -393,20 +393,20 @@ def test_shared_kernel_cell_reuses_injected_session_duckdb(_clean_duckdb_session
         "import pandas as pd\n"
         "con = session_duckdb()\n"
         "con.register('sales', pd.DataFrame({'x': [8]}))\n"
-        "result = id(con)",
+        "result = session_duckdb() is con",
         None,
         session_id=sid,
     )
     assert first["status"] == "ok", first
+    assert first["result"] is True
     second = _execute_request(
         "con = session_duckdb()\n"
-        "result = [id(con), int(con.execute('SELECT x FROM sales').fetchone()[0])]",
+        "result = int(con.execute('SELECT x FROM sales').fetchone()[0])",
         None,
         session_id=sid,
     )
     assert second["status"] == "ok", second
-    assert second["result"][0] == first["result"]
-    assert second["result"][1] == 8
+    assert second["result"] == 8
 
 
 def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
