@@ -4,10 +4,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """One-shot menu-icon pixel-size probe for LibreOffice ImageManager.
 
-Keith's HiDPI Arch already looks good with 16px menu icons (LO scales them).
-On 1x boxes those same assets look tiny. Probe VCL DPI (preferred), then
-font size, then toolbar/config peers; pick among shipped sizes without
-regressing HiDPI.
+Pick shipped menu-icon pixel sizes from display scale.
+
+HiDPI (~2×) wants the large assets (26/32). Little/1× screens want 16.
+Probe VCL DPI (preferred), then font, toolbar config, then env scale.
+Probe-miss defaults to the large HiDPI asset (not 16).
 """
 
 from __future__ import annotations
@@ -21,8 +22,9 @@ log = logging.getLogger("writeragent.menu_icon_dpi")
 # 96 DPI in device pixels per meter (LO DeviceInfo convention).
 _PPM_96DPI = 96.0 / 0.0254  # 3780.0
 
-# Size that already looks good on Keith's HiDPI when LO scales menus.
-_HIDPI_KNOWN_GOOD_PX = 16
+# Base 1× asset size; HiDPI prefers the largest shipped asset.
+_ONE_X_PX = 16
+_HIDPI_PX = 32
 
 # Shipped menu-icon suffixes we can select (MCP status has 16 + 26).
 _AVAILABLE_PX = (16, 26, 32)
@@ -40,31 +42,121 @@ def reset_menu_icon_dpi_cache() -> None:
     _cached_weak = False
 
 
-def probe_vcl_dpi_scale(ctx: Any = None) -> float | None:
-    """Return VCL device DPI scale vs 96 DPI, or None if unavailable.
-
-    Uses ``XWindow.getInfo().PixelPerMeterX`` (same DeviceInfo LO VCL fills).
-    """
+def _ppm_scale(win: Any) -> float | None:
+    if win is None:
+        return None
+    info = None
     try:
-        from plugin.framework.appearance import get_style_window
-
-        win = get_style_window(ctx=ctx)
-        if win is None:
-            return None
-        info = None
         if hasattr(win, "getInfo"):
             info = win.getInfo()
         elif hasattr(win, "Info"):
             info = win.Info
-        if info is None:
-            return None
-        ppm = float(getattr(info, "PixelPerMeterX", 0.0) or 0.0)
-        if ppm <= 0.0:
-            return None
-        return ppm / _PPM_96DPI
+    except Exception:
+        return None
+    if info is None:
+        return None
+    ppm = float(getattr(info, "PixelPerMeterX", 0.0) or 0.0)
+    if ppm <= 0.0:
+        return None
+    return ppm / _PPM_96DPI
+
+
+def _candidate_windows(ctx: Any = None) -> list[Any]:
+    """StyleSettings host first, then desktop/frame peers (Wayland/KDE often need these)."""
+    wins: list[Any] = []
+    try:
+        from plugin.framework.appearance import get_style_window
+
+        w = get_style_window(ctx=ctx)
+        if w is not None:
+            wins.append(w)
+    except Exception:
+        pass
+    try:
+        import uno
+
+        from plugin.framework.uno_context import get_service_manager
+
+        if ctx is None:
+            ctx = uno.getComponentContext()
+        sm = get_service_manager(ctx)
+        if sm is None:
+            return wins
+        desktop = sm.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        frames_to_try: list[Any] = []
+        try:
+            active = desktop.getActiveFrame()
+            if active is not None:
+                frames_to_try.append(active)
+        except Exception:
+            pass
+        try:
+            frames = desktop.getFrames()
+            for i in range(int(frames.getCount())):
+                frames_to_try.append(frames.getByIndex(i))
+        except Exception:
+            pass
+        for frame in frames_to_try:
+            if frame is None:
+                continue
+            for name in ("getContainerWindow", "getComponentWindow"):
+                fn = getattr(frame, name, None)
+                if not callable(fn):
+                    continue
+                try:
+                    w = fn()
+                    if w is not None:
+                        wins.append(w)
+                except Exception:
+                    pass
+    except Exception:
+        log.debug("candidate windows failed", exc_info=True)
+    # Dedupe by id while preserving order.
+    out: list[Any] = []
+    seen: set[int] = set()
+    for w in wins:
+        wid = id(w)
+        if wid in seen:
+            continue
+        seen.add(wid)
+        out.append(w)
+    return out
+
+
+def probe_vcl_dpi_scale(ctx: Any = None) -> float | None:
+    """Return VCL device DPI scale vs 96 DPI, or None if unavailable.
+
+    Uses ``XWindow.getInfo().PixelPerMeterX`` (same DeviceInfo LO VCL fills).
+    Tries StyleSettings host plus active/open frame windows — KDE/Wayland
+    often has no usable style window at menu-icon time.
+    """
+    try:
+        for win in _candidate_windows(ctx):
+            scale = _ppm_scale(win)
+            if scale is not None:
+                return scale
+        log.info("menu_icon_dpi probe_vcl_dpi: no PixelPerMeterX on %s windows", len(_candidate_windows(ctx)))
+        return None
     except Exception:
         log.debug("probe_vcl_dpi_scale failed", exc_info=True)
         return None
+
+
+def probe_env_scale() -> float | None:
+    """Last-resort desktop scale from GDK_SCALE / QT_SCALE_FACTOR (Arch HiDPI often sets these)."""
+    for key in ("GDK_SCALE", "QT_SCALE_FACTOR", "QT_SCREEN_SCALE_FACTORS"):
+        raw = os.environ.get(key)
+        if not raw:
+            continue
+        # QT_SCREEN_SCALE_FACTORS can be "2;2" or "HDMI-1=2"
+        token = raw.replace(";", "=").split("=")[-1].split(";")[0].strip()
+        try:
+            val = float(token)
+        except ValueError:
+            continue
+        if val > 0:
+            return val
+    return None
 
 
 def probe_menu_font_scale(ctx: Any = None) -> float | None:
@@ -128,25 +220,25 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
 
 
 def _nearest_available(px: int) -> int:
-    # On a tie, prefer the larger asset (helps 1x; HiDPI still lands on 16).
+    # On a tie, prefer the larger asset (HiDPI gets 26/32).
     return min(_AVAILABLE_PX, key=lambda a: (abs(a - px), -a))
 
 
-def interpolate_menu_icon_px(scale: float, *, hidpi_good: int = _HIDPI_KNOWN_GOOD_PX) -> int:
-    """Map DPI scale to shipped pixel size without blowing up HiDPI.
+def interpolate_menu_icon_px(scale: float, *, one_x: int = _ONE_X_PX) -> int:
+    """Map DPI scale to shipped pixel size.
 
-    At scale~2 (Keith), keep ``hidpi_good`` (16). At scale~1, prefer ~32.
-    ``chosen ~= hidpi_good * (2 / scale)``, then snap to available assets.
+    At scale~1 → 16. At scale~2 → 32 (HiDPI highres). Mid scales snap to 26.
+    ``chosen ~= one_x * scale``, then snap to available assets.
     """
     if scale <= 0:
         scale = 1.0
-    target = hidpi_good * (2.0 / scale)
+    target = one_x * scale
     target = max(float(_AVAILABLE_PX[0]), min(float(_AVAILABLE_PX[-1]), target))
     return _nearest_available(int(round(target)))
 
 
 def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
-    """One-shot: probe, interpolate, cache. Safe default leans HiDPI-known-good."""
+    """One-shot: probe, interpolate, cache. Probe-miss prefers HiDPI large assets."""
     global _cached_px, _cached_scale, _cached_weak
     if _cached_px is not None and not _cached_weak:
         return _cached_px
@@ -159,15 +251,20 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
     if scale is None:
         cfg_px = probe_toolbar_icon_config_px(ctx)
         if cfg_px is not None:
-            scale = (2.0 * _HIDPI_KNOWN_GOOD_PX) / float(cfg_px)
+            # Config already stores a pixel-ish size; treat 16 as 1×.
+            scale = float(cfg_px) / float(_ONE_X_PX)
             source = "toolbar_config"
     if scale is None:
-        # Prefer Keith's HiDPI-known-good when we cannot probe (startup race).
+        scale = probe_env_scale()
+        source = "env_scale"
+    if scale is None:
+        # Probe miss is common on Wayland/KDE at startup — assume HiDPI wants big assets.
         _cached_scale = 2.0
-        _cached_px = _HIDPI_KNOWN_GOOD_PX
+        _cached_px = _HIDPI_PX
         _cached_weak = True  # retry when a real window exists
         log.info(
-            "menu_icon_dpi source=default_hidpi_safe scale=n/a px=%s",
+            "menu_icon_dpi source=default_hidpi_large scale=n/a px=%s "
+            "(probe miss — prefer highres assets on HiDPI)",
             _cached_px,
         )
         return _cached_px
@@ -177,11 +274,10 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
     _cached_px = px
     _cached_weak = False
     log.info(
-        "menu_icon_dpi source=%s scale=%.3f px=%s (hidpi_good=%s)",
+        "menu_icon_dpi source=%s scale=%.3f px=%s",
         source,
         scale,
         px,
-        _HIDPI_KNOWN_GOOD_PX,
     )
     return px
 
