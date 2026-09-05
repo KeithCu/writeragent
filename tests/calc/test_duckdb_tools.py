@@ -6,15 +6,109 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
-from plugin.calc.duckdb_tools import QueryFolderSqlTool
+from plugin.calc.address_utils import parse_range_string, split_sheet_prefix
+from plugin.calc.duckdb_tools import (
+    QueryFolderSqlTool,
+    _read_sibling_office_file_as_grid,
+)
+from plugin.framework.errors import ToolExecutionError
 
 
 def _mk_ctx():
     return SimpleNamespace(ctx=object(), doc=object(), doc_type="calc", active_domain="analysis")
+
+
+def _write_office_fixtures(tmp_path: Path) -> tuple[Path, Path]:
+    """Small xlsx/ods on disk so the host preload path sees real sibling files.
+
+    Content is for the fixture; unit tests mock UNO used-area / read_range.
+    """
+    xlsx = tmp_path / "budget.xlsx"
+    ods = tmp_path / "ledger.ods"
+    try:
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        assert ws is not None
+        ws.title = "Actuals"
+        ws["C5"] = "Region"
+        ws["D5"] = "Sales"
+        ws["C6"] = "North"
+        ws["D6"] = 100
+        wb.save(xlsx)
+    except ImportError:
+        xlsx.write_bytes(b"PK\x03\x04xlsx")
+    ods.write_bytes(b"PK\x03\x04ods")
+    return xlsx, ods
+
+
+def _fake_addr(start_col: int = 2, start_row: int = 4, end_col: int = 3, end_row: int = 5):
+    """C5:D6 by default — data that is *not* at A1, so A1:AK2000 would pad."""
+    return SimpleNamespace(StartColumn=start_col, StartRow=start_row, EndColumn=end_col, EndRow=end_row)
+
+
+def _fake_sheet(name: str = "Actuals", addr=None):
+    addr = addr or _fake_addr()
+    cursor = SimpleNamespace(
+        gotoStartOfUsedArea=lambda expand: None,
+        gotoEndOfUsedArea=lambda expand: None,
+        getRangeAddress=lambda: addr,
+    )
+    return SimpleNamespace(getName=lambda: name, createCursor=lambda: cursor)
+
+
+def _fake_sheets(names: tuple[str, ...] = ("Actuals", "Summary"), addr=None):
+    sheets = {n: _fake_sheet(n, addr=addr) for n in names}
+
+    class Sheets:
+        def hasByName(self, name: str) -> bool:
+            return name in sheets
+
+        def getByName(self, name: str):
+            if name not in sheets:
+                raise Exception(f"no sheet {name}")
+            return sheets[name]
+
+        def getByIndex(self, idx: int):
+            return sheets[names[idx]]
+
+        def getElementNames(self) -> tuple[str, ...]:
+            return names
+
+        def getCount(self) -> int:
+            return len(names)
+
+    return Sheets()
+
+
+def _fake_model(sheets=None):
+    sheets = sheets or _fake_sheets()
+    return SimpleNamespace(
+        getSheets=lambda: sheets,
+        getCurrentController=lambda: None,
+        NamedRanges=SimpleNamespace(hasByName=lambda _n: False),
+    )
+
+
+def _grid_for_requested_range(range_name: str) -> list[list[dict]]:
+    """Size the mock grid to the *requested* A1 range so a giant fallback is visible."""
+    _prefix, bare = split_sheet_prefix(range_name)
+    (start_col, start_row), (end_col, end_row) = parse_range_string(bare)
+    data = {
+        (2, 4): "Region",
+        (3, 4): "Sales",
+        (2, 5): "North",
+        (3, 5): 100,
+    }
+    grid = []
+    for row in range(start_row, end_row + 1):
+        grid.append([{"value": data.get((col, row))} for col in range(start_col, end_col + 1)])
+    return grid
 
 
 def test_query_folder_sql_tool_basic_schema():
@@ -60,7 +154,7 @@ def test_query_folder_sql_calls_host_with_resolved_dir(mock_resolve, mock_run, m
 def test_query_folder_sql_handles_office_files_and_sheet_hint(
     mock_resolve, mock_run, mock_exec, mock_read_office, _mock_isfile
 ):
-    """Polished A+: office files are preloaded on host, not passed as direct files; sheet hint supported."""
+    """Office files are preloaded on host; #SheetName is forwarded; CSV stays flat."""
     mock_resolve.return_value = "/tmp/project"
     mock_read_office.return_value = ("budget", [["Region", "Sales"], ["North", 100]])
     mock_run.return_value = {"status": "ok", "total_rows": 1}
@@ -68,22 +162,206 @@ def test_query_folder_sql_handles_office_files_and_sheet_hint(
 
     t = QueryFolderSqlTool()
     ctx = _mk_ctx()
-    # Mix direct + office with sheet hint
     res = t.execute(ctx, sql="SELECT * FROM budget", files=["sales.csv", "budget.xlsx#Actuals"])
 
     assert res["status"] == "ok"
     mock_read_office.assert_called_once()
-    # Check that run_folder_sql received preloaded (keyed by original bn) and only direct files
+    _args, kwargs = mock_read_office.call_args
+    assert _args[1].endswith("budget.xlsx")
+    assert kwargs.get("sheet_hint") == "Actuals"
+
     call_args = mock_run.call_args
-    pre = call_args.kwargs.get("preloaded") if call_args.kwargs else None
-    if not pre and len(call_args[0]) > 4:
-        pre = call_args[0][4]
-    assert pre and ("budget.xlsx" in pre or any("budget" in k for k in pre))
-    direct = call_args.kwargs.get("files") if call_args.kwargs else None
+    pre = call_args.kwargs.get("preloaded")
+    assert pre is not None
+    assert "budget.xlsx" in pre
+    assert pre["budget.xlsx"]["grid"] == [["Region", "Sales"], ["North", 100]]
+
+    flat = call_args.kwargs.get("flat_files") or {}
+    direct = call_args.kwargs.get("files")
     if direct is None and len(call_args[0]) > 3:
         direct = call_args[0][3]
-    # direct may be list of remaining or None if all processed to flat/pre
     direct = direct or []
-    assert "sales.csv" in str(direct) or True  # loose for Phase C changes
-    # assert not any office in direct
+    assert any("sales.csv" in str(v) for v in (flat.values() if isinstance(flat, dict) else [])) or (
+        "sales.csv" in str(direct)
+    )
+    assert "budget.xlsx" not in str(direct)
+    assert not any("budget.xlsx" in str(v) for v in (flat.values() if isinstance(flat, dict) else []))
 
+
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
+@patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_query_folder_sql_office_read_error_does_not_skip(
+    mock_resolve, mock_run, mock_exec, mock_read_office, _mock_isfile
+):
+    """Open/sheet/empty failures must surface; SQL must not run without the table."""
+    mock_resolve.return_value = "/tmp/project"
+    mock_read_office.side_effect = ToolExecutionError(
+        "Sibling spreadsheet 'budget.xlsx' sheet 'Nope': No sheet named 'Nope'. Available: Actuals",
+        code="DUCKDB_SQL_ERROR",
+    )
+    mock_exec.side_effect = lambda fn: fn()
+
+    t = QueryFolderSqlTool()
+    res = t.execute(_mk_ctx(), sql="SELECT * FROM budget", files=["budget.xlsx#Nope"])
+
+    assert res["status"] == "error"
+    assert "budget.xlsx" in res["message"]
+    assert "Nope" in res["message"]
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_read_sibling_used_range_skips_giant_padding(mock_open, mock_read, _mock_close, tmp_path):
+    """Used-area C5:D6 must not ship A1:AK2000 / A1:AZ5000 empty padding."""
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_read.side_effect = _grid_for_requested_range
+
+    _tbl, grid = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+
+    requested = mock_read.call_args[0][0]
+    assert "AK2000" not in requested
+    assert "AZ5000" not in requested
+    _prefix, bare = split_sheet_prefix(requested)
+    assert _prefix == "Actuals"
+    assert bare == "C5:D6"
+    assert len(grid) == 2
+    assert all(len(row) == 2 for row in grid)
+    assert grid[0] == ["Region", "Sales"]
+    assert grid[1] == ["North", 100]
+
+
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_read_sibling_ods_used_range(mock_open, mock_read, _mock_close, tmp_path):
+    _xlsx, ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_read.side_effect = _grid_for_requested_range
+
+    _tbl, grid = _read_sibling_office_file_as_grid(object(), str(ods))
+
+    requested = mock_read.call_args[0][0]
+    assert "AK2000" not in requested
+    assert len(grid) == 2
+    assert len(grid[0]) == 2
+
+
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_read_sibling_missing_sheet_hint_errors(mock_open, mock_read, _mock_close, tmp_path):
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+
+    try:
+        _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Nope")
+    except ToolExecutionError as exc:
+        assert "budget.xlsx" in str(exc)
+        assert "Nope" in str(exc)
+        assert "Actuals" in str(exc)
+    else:
+        raise AssertionError("expected ToolExecutionError for missing sheet hint")
+    mock_read.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_read_sibling_open_failure_errors(mock_open, _mock_close, tmp_path):
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (None, None, "Failed to open /tmp/budget.xlsx", False)
+
+    try:
+        _read_sibling_office_file_as_grid(object(), str(xlsx))
+    except ToolExecutionError as exc:
+        assert "budget.xlsx" in str(exc)
+        assert "Failed to open" in str(exc)
+    else:
+        raise AssertionError("expected ToolExecutionError when LibreOffice open fails")
+
+
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_read_sibling_empty_used_range_errors(mock_open, mock_read, _mock_close, tmp_path):
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    empty_addr = _fake_addr(0, 0, 0, 0)
+    mock_open.return_value = (_fake_model(sheets=_fake_sheets(addr=empty_addr)), "calc", None, True)
+    mock_read.return_value = [[{"value": None}]]
+
+    try:
+        _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    except ToolExecutionError as exc:
+        msg = str(exc)
+        assert "budget.xlsx" in msg
+        assert "Actuals" in msg
+        assert "empty" in msg.lower()
+    else:
+        raise AssertionError("expected ToolExecutionError for empty used range")
+
+
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_preload_path_ships_used_range_grid(
+    mock_resolve, mock_run, mock_exec, _mock_close, mock_open, mock_read, tmp_path
+):
+    """End-to-end host preload: fixture files + used-range, no giant padding."""
+    xlsx, ods = _write_office_fixtures(tmp_path)
+    (tmp_path / "sales.csv").write_text("region,amount\nNorth,1\n")
+    mock_resolve.return_value = str(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_read.side_effect = _grid_for_requested_range
+    mock_run.return_value = {"status": "ok", "total_rows": 1}
+    mock_exec.side_effect = lambda fn: fn()
+
+    t = QueryFolderSqlTool()
+    res = t.execute(
+        _mk_ctx(),
+        sql="SELECT * FROM budget",
+        files=["sales.csv", "budget.xlsx#Actuals", "ledger.ods"],
+    )
+    assert res["status"] == "ok"
+
+    pre = mock_run.call_args.kwargs.get("preloaded") or {}
+    assert "budget.xlsx" in pre
+    assert "ledger.ods" in pre
+    budget_grid = pre["budget.xlsx"]["grid"]
+    assert len(budget_grid) == 2
+    assert len(budget_grid[0]) == 2
+    assert budget_grid[0] == ["Region", "Sales"]
+    for requested in (c[0][0] for c in mock_read.call_args_list):
+        assert "AK2000" not in requested
+        assert "AZ5000" not in requested
+
+
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_preload_path_bad_sheet_hint_errors(
+    mock_resolve, mock_run, mock_exec, _mock_close, mock_open, mock_read, tmp_path
+):
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    mock_resolve.return_value = str(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_exec.side_effect = lambda fn: fn()
+
+    t = QueryFolderSqlTool()
+    res = t.execute(_mk_ctx(), sql="SELECT * FROM budget", files=[f"{xlsx.name}#MissingSheet"])
+
+    assert res["status"] == "error"
+    assert "budget.xlsx" in res["message"]
+    assert "MissingSheet" in res["message"]
+    mock_run.assert_not_called()
+    mock_read.assert_not_called()

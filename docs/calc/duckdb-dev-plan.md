@@ -51,7 +51,7 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 - Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading.
 - Worker: registers preloaded via `coerce_to_dataframe`, flat files via `read_csv`/`read_parquet` etc. under provided names. Read-only guards.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script.
-- Limitations: no write-back, no shared kernel cache yet, default first sheet for office files, simple range reads (large fixed range).
+- Limitations: no write-back, no shared kernel cache yet, default first sheet for office files when `#SheetName` is omitted. Sibling `.xlsx`/`.ods` now read the sheet **used range** (same `createCursor` / `gotoStartOfUsedArea` / `gotoEndOfUsedArea` path as `SheetAnalyzer` / ingest) — open / missing-sheet / empty-range failures are tool errors. ODS mtime cache (`writeragent_ods_cache/`) is still pending.
 - Usage: Mix tables + files for joins, e.g. live ranges + sibling CSVs. See tool parameters and plan for request shapes.
 
 **Audience:** Product, senior engineers, and future implementers. This doc captures why DuckDB fits WriterAgent, what users get, and how to build on existing Calc↔venv infrastructure without a new architectural pillar.
@@ -418,3 +418,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-06-18 | Phase B: data_range support in tool for active sheet (registers as 'data' table, respects headers). Unified preloaded handling (structured for headers), template for query_sheet_sql, descriptions. |
 | 2026-06-18 | Phase C: multi-table 'tables' param (named ranges on active), files as dict for named flat+office. Worker supports flat_files dict for direct named registration (no chdir). Host prepares preloaded + flat_files. Tool + client updated. |
 | 2026-09-05 | Pretty demo: same ODS as the =PY() showcase gets a SQL_DuckDB sheet (SQL in cells) + ZIP on sales + sibling ACS `zip_income.csv`. Tests run `query_folder_sql` against those assets. |
+| 2026-09-05 | Sibling office ingress: used-range (not `A1:AK2000` / `A1:AZ5000`); fail loud on open / `#SheetName` / empty range. ODS mtime cache still pending. |

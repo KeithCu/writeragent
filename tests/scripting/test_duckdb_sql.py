@@ -99,6 +99,21 @@ def test_query_folder_sql_requires_scoped_and_files(tmp_path):
     assert "NO_ALLOWED" in res.get("code", "") or "allowed" in res.get("message", "").lower()
 
 
+def test_query_folder_sql_preloaded_compact_grid(tmp_path):
+    """Host used-range path ships a tight grid; worker must register it as-is (no padding)."""
+    grid = [["Region", "Sales"], ["North", 100], ["South", 200]]
+    res = query_folder_sql(
+        str(tmp_path),
+        "SELECT Region, Sales FROM budget ORDER BY 1",
+        files=None,
+        preloaded={"budget": {"grid": grid, "headers": True}},
+    )
+    assert res["status"] == "ok", res
+    assert res["total_rows"] == 2
+    assert len(res["columns"]) == 2
+    assert not any(len(row) > 2 for row in res["rows"])
+
+
 def _pretty_demo_sales_grid():
     from scripts.generate_pretty_demo_spreadsheet import get_sales_dataset
 

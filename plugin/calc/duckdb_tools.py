@@ -147,11 +147,18 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
                 full_path = os.path.join(scoped, bn) if scoped else bn
                 if scoped and os.path.isfile(full_path):
                     if ext in OFFICE_EXTS:
-                        tbl, office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, sheet_hint=sheet_hint)
-                        if tbl and office_grid:
-                            use_name = name_hint or bn
-                            preloaded[use_name] = {"grid": office_grid, "headers": headers}
-                            continue
+                        # Office files that exist must preload or fail loud. A silent
+                        # (None, None) skip used to append the basename to direct_files
+                        # so SQL ran without the table and looked like a missing FROM.
+                        try:
+                            _tbl, office_grid = _read_sibling_office_file_as_grid(
+                                ctx.ctx, full_path, sheet_hint=sheet_hint
+                            )
+                        except ToolExecutionError as exc:
+                            return self._tool_error(str(exc), code=getattr(exc, "code", "DUCKDB_SQL_ERROR"))
+                        use_name = name_hint or bn
+                        preloaded[use_name] = {"grid": office_grid, "headers": headers}
+                        continue
                     else:
                         # flat file -> use flat_files for named direct DuckDB read (Phase C)
                         use_name = name_hint or bn
@@ -187,57 +194,90 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
         return {"status": "ok", "result": result}
 
 
-def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str | None = None) -> tuple[str | None, list[list[Any]] | None]:
-    """Open a sibling .xlsx/.ods hidden+readonly, read a sheet into a grid of values.
+def _grid_has_usable_values(grid: list[list[Any]] | None) -> bool:
+    """True when *grid* has at least one non-empty cell (0 / False count as data)."""
+    if not grid:
+        return False
+    for row in grid:
+        if not row:
+            continue
+        for cell in row:
+            if cell is not None and cell != "":
+                return True
+    return False
 
-    sheet_hint: optional sheet name (e.g. from "file.xlsx#Sales").
-    Returns (table_name, grid) or (None, None) on failure.
-    Table name is the basename without extension (safe for SQL).
+
+def _sheet_qualified_a1(sheet_name: str, range_str: str) -> str:
+    """Qualify an A1 range so CellInspector hits *sheet_name* without setActiveSheet.
+
+    Hidden sibling opens often lack a usable controller; a sheet prefix is the
+    same resolve path live-range tools already use (``CalcBridge.resolve``).
     """
+    if any(ch in sheet_name for ch in " .!'"):
+        return f"'{sheet_name}'.{range_str}"
+    return f"{sheet_name}.{range_str}"
+
+
+def _sibling_office_error(full_path: str, message: str, *, sheet: str | None = None, code: str = "DUCKDB_SQL_ERROR") -> ToolExecutionError:
+    bn = os.path.basename(full_path)
+    if sheet:
+        return ToolExecutionError(f"Sibling spreadsheet {bn!r} sheet {sheet!r}: {message}", code=code)
+    return ToolExecutionError(f"Sibling spreadsheet {bn!r}: {message}", code=code)
+
+
+def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str | None = None) -> tuple[str, list[list[Any]]]:
+    """Open a sibling .xlsx/.ods hidden+readonly and read the sheet used range.
+
+    *sheet_hint* is the optional ``#SheetName`` from the files spec.
+    Returns ``(table_name, grid)``. Raises ``ToolExecutionError`` on open,
+    missing sheet, or empty/unusable used-range — never ``(None, None)``.
+
+    Used-range uses the same ``createCursor`` + ``gotoStart/EndOfUsedArea``
+    path as ``SheetAnalyzer`` / ``ingest._used_range_address``. The previous
+    hardcoded ``A1:AK2000`` / ``A1:AZ5000`` fallback padded most tables with
+    thousands of empty cells and hid open/sheet failures as a silent skip.
+    """
+    from plugin.calc.bridge import CalcBridge
+    from plugin.calc.calc_addin_data import values_from_inspector_range
+    from plugin.calc.inspector import CellInspector
+    from plugin.calc.spreadsheet_import.ingest import _used_range_address, used_range_string_from_address
+
     model = None
     opened_flag = False
     try:
         model, doc_type, err, opened_flag = open_document_for_read(ctx, full_path)
-        if err or model is None or doc_type != "calc":
-            return None, None
-
-        from plugin.calc.bridge import CalcBridge
-        from plugin.calc.inspector import CellInspector
-        from plugin.calc.calc_addin_data import values_from_inspector_range
+        if err or model is None:
+            raise _sibling_office_error(full_path, err or "LibreOffice failed to open the file")
+        if doc_type != "calc":
+            raise _sibling_office_error(full_path, f"not a spreadsheet (type={doc_type!r})")
 
         bridge = CalcBridge(model)
-
-        # Try to activate the desired sheet so inspector.read_range uses it
-        target_sheet = None
         sheets = model.getSheets()
         if sheet_hint:
+            # CalcBridge.get_sheet lists available names — do not fall back to sheet 0.
             try:
-                target_sheet = sheets.getByName(sheet_hint)
-            except Exception:
-                pass
-        if target_sheet is None:
-            # default to first sheet
+                target_sheet = bridge.get_sheet(sheet_hint)
+            except ValueError as exc:
+                raise _sibling_office_error(full_path, str(exc), sheet=sheet_hint) from exc
+        else:
+            if sheets.getCount() < 1:
+                raise _sibling_office_error(full_path, "workbook has no sheets")
             target_sheet = sheets.getByIndex(0)
 
-        # For hidden docs, try to set active sheet on controller if possible
-        try:
-            controller = model.getCurrentController()
-            if controller and hasattr(controller, "setActiveSheet") and target_sheet:
-                controller.setActiveSheet(target_sheet)
-        except Exception:
-            pass  # hidden docs sometimes lack full controller; fall back to first anyway
+        sheet_name = str(target_sheet.getName())
+        addr = _used_range_address(target_sheet)
+        range_str = used_range_string_from_address(addr)
+        qualified = _sheet_qualified_a1(sheet_name, range_str)
 
         inspector = CellInspector(bridge)
-
-        # Use a large but reasonable range. For production this could compute actual used area.
-        # "A1:AK2000" covers most practical tables (columns A-AK = 37 cols).
-        range_str = "A1:AK2000"
-        try:
-            raw = inspector.read_range(range_str)
-            grid = values_from_inspector_range(raw)
-        except Exception:
-            raw = inspector.read_range("A1:AZ5000")
-            grid = values_from_inspector_range(raw)
+        raw = inspector.read_range(qualified)
+        grid = values_from_inspector_range(raw)
+        if not _grid_has_usable_values(grid):
+            raise _sibling_office_error(
+                full_path,
+                f"used range {range_str} is empty; nothing to register for SQL",
+                sheet=sheet_name,
+            )
 
         tbl_name = os.path.splitext(os.path.basename(full_path))[0]
         tbl_name = "".join(c if c.isalnum() or c in "_$" else "_" for c in tbl_name)
@@ -245,9 +285,11 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
             tbl_name = "sheet_" + tbl_name
 
         return tbl_name, grid
-    except Exception as e:
-        log.warning("Failed to read sibling office file %s for DuckDB: %s", full_path, e)
-        return None, None
+    except ToolExecutionError:
+        raise
+    except Exception as exc:
+        log.exception("Failed to read sibling office file %s for DuckDB", full_path)
+        raise _sibling_office_error(full_path, f"failed to read used range: {exc}") from exc
     finally:
         if model is not None and opened_flag:
             try:
