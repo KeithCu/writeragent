@@ -36,3 +36,16 @@ def test_probe_env_scale_gdk(monkeypatch):
     m.reset_menu_icon_dpi_cache()
     monkeypatch.setenv("GDK_SCALE", "2")
     assert m.probe_env_scale() == 2.0
+
+
+def test_strong_cache_logs_info_once(monkeypatch, caplog):
+    import logging
+    from plugin.framework import menu_icon_dpi as m
+
+    m.reset_menu_icon_dpi_cache()
+    monkeypatch.setattr(m, "probe_vcl_dpi_scale", lambda ctx=None: 1.0)
+    with caplog.at_level(logging.INFO, logger="writeragent.menu_icon_dpi"):
+        assert m.resolve_menu_icon_pixel_size() == 16
+        assert m.resolve_menu_icon_pixel_size() == 16
+    infos = [r for r in caplog.records if r.levelno == logging.INFO and "menu_icon_dpi source=" in r.getMessage()]
+    assert len(infos) == 1

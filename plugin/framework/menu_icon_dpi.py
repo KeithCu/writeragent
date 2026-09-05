@@ -34,12 +34,16 @@ _cached_scale: float | None = None
 _cached_weak: bool = False
 
 
+_logged_strong: bool = False
+
+
 def reset_menu_icon_dpi_cache() -> None:
     """Test hook: clear the one-shot cache."""
-    global _cached_px, _cached_scale, _cached_weak
+    global _cached_px, _cached_scale, _cached_weak, _logged_strong
     _cached_px = None
     _cached_scale = None
     _cached_weak = False
+    _logged_strong = False
 
 
 def _ppm_scale(win: Any) -> float | None:
@@ -135,7 +139,7 @@ def probe_vcl_dpi_scale(ctx: Any = None) -> float | None:
             scale = _ppm_scale(win)
             if scale is not None:
                 return scale
-        log.info("menu_icon_dpi probe_vcl_dpi: no PixelPerMeterX on %s windows", len(_candidate_windows(ctx)))
+        log.debug("menu_icon_dpi probe_vcl_dpi: no PixelPerMeterX on %s windows", len(_candidate_windows(ctx)))
         return None
     except Exception:
         log.debug("probe_vcl_dpi_scale failed", exc_info=True)
@@ -239,7 +243,7 @@ def interpolate_menu_icon_px(scale: float, *, one_x: int = _ONE_X_PX) -> int:
 
 def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
     """One-shot: probe, interpolate, cache. Probe-miss prefers HiDPI large assets."""
-    global _cached_px, _cached_scale, _cached_weak
+    global _cached_px, _cached_scale, _cached_weak, _logged_strong
     if _cached_px is not None and not _cached_weak:
         return _cached_px
 
@@ -262,9 +266,8 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
         _cached_scale = 2.0
         _cached_px = _HIDPI_PX
         _cached_weak = True  # retry when a real window exists
-        log.info(
-            "menu_icon_dpi source=default_hidpi_large scale=n/a px=%s "
-            "(probe miss — prefer highres assets on HiDPI)",
+        log.debug(
+            "menu_icon_dpi source=default_hidpi_large scale=n/a px=%s (weak; will retry)",
             _cached_px,
         )
         return _cached_px
@@ -273,12 +276,21 @@ def resolve_menu_icon_pixel_size(ctx: Any = None) -> int:
     _cached_scale = float(scale)
     _cached_px = px
     _cached_weak = False
-    log.info(
-        "menu_icon_dpi source=%s scale=%.3f px=%s",
-        source,
-        scale,
-        px,
-    )
+    if not _logged_strong:
+        log.info(
+            "menu_icon_dpi source=%s scale=%.3f px=%s",
+            source,
+            scale,
+            px,
+        )
+        _logged_strong = True
+    else:
+        log.debug(
+            "menu_icon_dpi source=%s scale=%.3f px=%s (cache refresh)",
+            source,
+            scale,
+            px,
+        )
     return px
 
 
