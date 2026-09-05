@@ -217,5 +217,4 @@ production-compatible version of a demo is 2–3 lines in
 - [ ] Full 17 if the A/B is a win and 120b does not regress
 - [ ] Tool-subset sweep if `data_sorting` still fails
 - [ ] Wrap `llm_chat_eval` as a DSPy module; GEPA on Calc/Draw blobs
-- [ ] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for any
-  shipped wording
+- [x] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped Calc wording
