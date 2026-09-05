@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, DEAL_MAX_URL, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 64
@@ -34,8 +34,26 @@ def _deal_sentence_locale_ok_crosshair(locale: object) -> bool:
     return locale is DEFAULT_SENTENCE_LOCALE
 
 
-def _deal_chunk_base_meta_ok(base_meta: object) -> bool:
-    """Ascii keys (token) + ascii values (URL). ``doc_url`` is a file:// path, not a token."""
+def _deal_chunk_base_meta_ok_pytest(base_meta: object) -> bool:
+    """Wide domain: production ``doc_url`` file:// paths exceed DEAL_MAX_TOKEN."""
+    return (
+        type(base_meta) is dict
+        and len(base_meta) <= DEAL_MAX_SHAPE_DIM
+        and all(
+            type(k) is str
+            and str_bounded(k, DEAL_MAX_TOKEN)
+            and (
+                v is None
+                or type(v) in (int, float, bool)
+                or (isinstance(v, str) and str_bounded(v, DEAL_MAX_SOURCE))
+            )
+            for k, v in base_meta.items()
+        )
+    )
+
+
+def _deal_chunk_base_meta_ok_crosshair(base_meta: object) -> bool:
+    """Tiny ascii keys/values for CrossHair check-all."""
     return (
         type(base_meta) is dict
         and len(base_meta) <= _DEAL_SENT_LIST_LEN
@@ -45,11 +63,16 @@ def _deal_chunk_base_meta_ok(base_meta: object) -> bool:
             and (
                 v is None
                 or type(v) in (int, float, bool)
-                or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_URL))
+                or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN))
             )
             for k, v in base_meta.items()
         )
     )
+
+
+_deal_chunk_base_meta_ok = (
+    _deal_chunk_base_meta_ok_crosshair if UNDER_CROSSHAIR else _deal_chunk_base_meta_ok_pytest
+)
 
 
 def _deal_run_locale_ok_pytest(locale: object) -> bool:
@@ -353,7 +376,7 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
 
 
 @deal.pre(
-    lambda text, runs, base_meta, *args, **kwargs: ascii_bounded(text, _DEAL_PASSAGE_LEN)
+    lambda text, runs, base_meta, *args, **kwargs: _deal_passage_text_ok(text)
     and isinstance(runs, list)
     and len(runs) <= _DEAL_SENT_LIST_LEN
     and _deal_chunk_base_meta_ok(base_meta)
@@ -398,9 +421,9 @@ def split_passage_locale_runs_to_chunk_meta(
 
 
 @deal.pre(
-    lambda text, base_meta, *args, **kwargs: ascii_bounded(text, _DEAL_PASSAGE_LEN)
+    lambda text, base_meta, *args, **kwargs: _deal_passage_text_ok(text)
     and _deal_chunk_base_meta_ok(base_meta)
-    and (kwargs.get("locale_bcp47") is None or ascii_bounded(kwargs.get("locale_bcp47"), DEAL_MAX_TOKEN))
+    and _deal_run_locale_ok(kwargs.get("locale_bcp47"))
 )
 def split_passage_to_chunk_meta(
     text: str,
