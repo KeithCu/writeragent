@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
@@ -1101,36 +1102,79 @@ def test_scalar_for_list_result_increments_with_unique_origin(monkeypatch: pytes
 
 
 def test_py_scoped_dir_bindings_none_doc() -> None:
-    assert python_function._py_scoped_dir_bindings(None) == {"scoped_dir": None}
+    from plugin.scripting import session_manager
+
+    session_manager.clear_active_calc_session()
+    try:
+        assert python_function._py_scoped_dir_bindings(None) == {"scoped_dir": None}
+    finally:
+        session_manager.clear_active_calc_session()
 
 
 def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """Yellow / #402: off-main recalc must not call getURL() on a cached model."""
+    from plugin.scripting import session_manager
+
     called: list[int] = []
 
     def boom(doc: object) -> str:
         called.append(1)
         raise AssertionError("must not touch UNO off-main")
 
+    session_manager.clear_active_calc_session()
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
     monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
-    assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": None}
-    assert called == []
+    try:
+        assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": None}
+        assert called == []
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_py_scoped_dir_bindings_off_main_uses_cached_file_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """File-based run_sql needs the document folder even when recalc is off-main."""
+    from plugin.scripting import session_manager
+
+    workbook = tmp_path / "python_showcase_demo.xlsx"
+    workbook.write_bytes(b"pk")
+    session_manager.clear_active_calc_session()
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+
+    def boom(doc: object) -> str:
+        raise AssertionError("must not touch UNO off-main")
+
+    monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
+    try:
+        session_manager.record_active_calc_session(f"calc:{workbook.as_uri()}")
+        assert python_function._py_scoped_dir_bindings(None) == {"scoped_dir": str(tmp_path)}
+    finally:
+        session_manager.clear_active_calc_session()
 
 
 def test_py_scoped_dir_bindings_on_main_uses_document_directory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from plugin.scripting import session_manager
+
+    session_manager.clear_active_calc_session()
     monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
     monkeypatch.setattr(
         "plugin.doc.document_research.get_document_directory",
         lambda doc: "/tmp/workbook-dir",
     )
-    assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": "/tmp/workbook-dir"}
+    try:
+        assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": "/tmp/workbook-dir"}
+    finally:
+        session_manager.clear_active_calc_session()
 
 
 def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting import session_manager
+
     python_function.clear_python_addin_cache()
+    session_manager.clear_active_calc_session()
     captured: dict[str, Any] = {}
 
     def fake_run(*_a: object, **kwargs: Any) -> dict[str, Any]:
@@ -1147,10 +1191,47 @@ def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
     doc = CalcDocStub()
-    # Pass doc= — CalcDocStub is not a UNO Calc model, so desktop lookup is None.
-    out = python_function.execute_python_addin(_ctx_with_doc(doc), "1+1", doc=doc)
-    assert out == 1.0
-    assert captured.get("bindings") == {"scoped_dir": "/folder"}
+    try:
+        # Pass doc= — CalcDocStub is not a UNO Calc model, so desktop lookup is None.
+        out = python_function.execute_python_addin(_ctx_with_doc(doc), "1+1", doc=doc)
+        assert out == 1.0
+        assert captured.get("bindings") == {"scoped_dir": "/folder"}
+    finally:
+        session_manager.clear_active_calc_session()
+
+
+def test_execute_python_addin_off_main_injects_cached_scoped_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Host must inject the document folder for file-based run_sql, not None."""
+    from plugin.scripting import session_manager
+
+    workbook = tmp_path / "demo.xlsx"
+    workbook.write_bytes(b"pk")
+    python_function.clear_python_addin_cache()
+    session_manager.clear_active_calc_session()
+    captured: dict[str, Any] = {}
+
+    def fake_run(*_a: object, **kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"status": "ok", "result": 1.0}
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(
+        python_function,
+        "workbook_session_id",
+        lambda *_a, **_k: f"calc:{workbook.as_uri()}",
+    )
+    try:
+        session_manager.record_active_calc_session(f"calc:{workbook.as_uri()}")
+        out = python_function.execute_python_addin(_ctx_with_doc(None), "result=1")
+        assert out == 1.0
+        assert captured.get("bindings") == {"scoped_dir": str(tmp_path)}
+    finally:
+        session_manager.clear_active_calc_session()
 
 
 def test_format_error_for_display_distinguishes_timeout_error() -> None:

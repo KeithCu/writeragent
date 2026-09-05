@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import uuid
 import weakref
@@ -148,10 +149,60 @@ _LAST_ACTIVE_CALC_INIT_KWARGS: dict[str, Any] = {}
 # Weakref to the last UI-thread Calc model. Off-main finalize may pass this
 # through to deferred spill; do not call UNO on it off-main.
 _LAST_ACTIVE_CALC_DOC: weakref.ReferenceType[Any] | None = None
+# Document folder captured from a file: session id (no UNO). Off-main =PY()
+# injects this as scoped_dir so run_sql file joins do not see None.
+_LAST_ACTIVE_CALC_SCOPED_DIR: str | None = None
 # Session ids recorded while workbooks were on the UI thread. Off-main recalc
 # may use the cache only when exactly one workbook is recorded — two open files
 # would otherwise run doc B in doc A's shared kernel (XAddIn has no calling doc).
 _RECORDED_CALC_SESSION_IDS: set[str] = set()
+
+
+def _system_dir_from_file_url(url: str) -> str | None:
+    """Parent directory of a ``file:`` URL. No UNO — safe off-main."""
+    from urllib.parse import unquote, urlparse
+
+    raw = str(url).strip()
+    if raw.startswith("file:/") and not raw.startswith("file://"):
+        raw = "file://" + raw[len("file:") :]
+    parsed = urlparse(raw)
+    if parsed.scheme != "file":
+        return None
+    path = unquote(parsed.path)
+    if os.name == "nt" and path.startswith("/") and len(path) >= 3 and path[2] == ":":
+        path = path[1:]
+    path = os.path.normpath(path)
+    parent = os.path.dirname(path)
+    return parent if parent and os.path.isdir(parent) else None
+
+
+def scoped_dir_from_calc_session_id(session_id: str | None) -> str | None:
+    """``calc:file:///path/workbook.xlsx`` → ``/path`` when that folder exists."""
+    if not session_id:
+        return None
+    text = str(session_id)
+    if text.startswith("calc:"):
+        text = text[5:]
+    if text.endswith(":init"):
+        text = text[:-5]
+    if not text.startswith("file:"):
+        return None
+    return _system_dir_from_file_url(text)
+
+
+def record_active_calc_scoped_dir(path: str | None) -> None:
+    """Remember the document folder for off-main ``=PY()`` ``scoped_dir`` inject."""
+    global _LAST_ACTIVE_CALC_SCOPED_DIR
+    with _ACTIVE_CALC_SESSION_LOCK:
+        _LAST_ACTIVE_CALC_SCOPED_DIR = path or None
+
+
+def get_cached_calc_scoped_dir() -> str | None:
+    """Cached document folder when at most one workbook session is recorded."""
+    with _ACTIVE_CALC_SESSION_LOCK:
+        if len(_RECORDED_CALC_SESSION_IDS) > 1:
+            return None
+        return _LAST_ACTIVE_CALC_SCOPED_DIR
 
 
 def record_active_calc_document(doc: Any | None) -> None:
@@ -197,6 +248,7 @@ def record_active_calc_session(
 ) -> None:
     """Cache the active Calc session id and init kwargs on the main thread for off-main formula lookups."""
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS
+    global _LAST_ACTIVE_CALC_SCOPED_DIR
     if doc is not None:
         record_active_calc_document(doc)
     with _ACTIVE_CALC_SESSION_LOCK:
@@ -226,6 +278,8 @@ def record_active_calc_session(
                     if str(other).startswith("calc:unsaved:")
                 ]:
                     _RECORDED_CALC_SESSION_IDS.discard(stale)
+            # File-URL sessions carry the document folder without getURL().
+            _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir_from_calc_session_id(session_id)
         if init_kwargs:
             _LAST_ACTIVE_CALC_INIT_KWARGS = dict(init_kwargs)
 
@@ -264,12 +318,14 @@ def get_cached_calc_init_kwargs() -> dict[str, Any]:
 def clear_active_calc_session(session_id: str | None = None) -> None:
     """Clear cached Calc session on document unload or reset."""
     global _LAST_ACTIVE_CALC_SESSION_ID, _LAST_ACTIVE_CALC_INIT_KWARGS, _LAST_ACTIVE_CALC_DOC
+    global _LAST_ACTIVE_CALC_SCOPED_DIR
     with _ACTIVE_CALC_SESSION_LOCK:
         if session_id is None:
             _RECORDED_CALC_SESSION_IDS.clear()
             _LAST_ACTIVE_CALC_SESSION_ID = None
             _LAST_ACTIVE_CALC_INIT_KWARGS = {}
             _LAST_ACTIVE_CALC_DOC = None
+            _LAST_ACTIVE_CALC_SCOPED_DIR = None
         else:
             _RECORDED_CALC_SESSION_IDS.discard(session_id)
             if _LAST_ACTIVE_CALC_SESSION_ID == session_id:
@@ -277,6 +333,9 @@ def clear_active_calc_session(session_id: str | None = None) -> None:
                 # Remaining workbook's init is unknown; do not keep the closed file's kwargs.
                 _LAST_ACTIVE_CALC_INIT_KWARGS = {}
                 _LAST_ACTIVE_CALC_DOC = None
+                _LAST_ACTIVE_CALC_SCOPED_DIR = scoped_dir_from_calc_session_id(
+                    _LAST_ACTIVE_CALC_SESSION_ID
+                )
     try:
         from plugin.calc.python.function import clear_python_addin_cache
 

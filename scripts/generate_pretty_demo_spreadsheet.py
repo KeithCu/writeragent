@@ -32,6 +32,13 @@ Region×Category spill (header+12) does not hit the next title. The live
 RESULTS formula cell is unmerged — a span/merge over A:H covers the spill
 targets and Calc then shows only the top-left.
 
+XLSX named ranges must be **absolute** (``Sheet!$A$4:$J$39``). Relative
+``Sheet!A4:J39`` still looks correct in UNO / Name Manager (definition is
+A4:J39 with the header), but Calc evaluates the name from the ``=PY()``
+RESULTS cell (SQL_DuckDB A23 / A51 / A87). The packed ``data[0]`` then
+starts mid-table or empty — DuckDB ``Region`` / ``Channel`` BinderException.
+ODS already writes ``$Sheet.$A$5:.$J$40``.
+
 ODS-only notes (XLSX never calls these paths):
 - ``ods_formula()`` rewrites Calc refs to OpenFormula in one pass so names like
   ``Sales_Analytics`` / ``Forecasting`` are not rematched after
@@ -447,16 +454,39 @@ def sql_results_gutter_rows(kind: str) -> int:
     return 2
 
 
+def _abs_a1_cell(cell: str) -> str:
+    """``A4`` → ``$A$4`` so named ranges do not shift with the calling cell."""
+    col = "".join(ch for ch in cell if ch.isalpha())
+    row = "".join(ch for ch in cell if ch.isdigit())
+    return f"${col}${row}"
+
+
 def _ods_named_range_address(sheet: str, a1: str) -> str:
     """OpenFormula named-range address: ``$Sheet.$A$5:.$J$40``."""
     start, end = a1.split(":")
+    return f"${sheet}.{_abs_a1_cell(start)}:.{_abs_a1_cell(end)}"
 
-    def _abs_cell(cell: str) -> str:
-        col = "".join(ch for ch in cell if ch.isalpha())
-        row = "".join(ch for ch in cell if ch.isdigit())
-        return f"${col}${row}"
 
-    return f"${sheet}.{_abs_cell(start)}:.{_abs_cell(end)}"
+def _xlsx_named_range_address(sheet: str, a1: str) -> str:
+    """OOXML defined name: ``Sheet!$A$4:$J$39``.
+
+    Relative ``Sheet!A4:J39`` is what Name Manager shows as A4:J39, but
+    ``=PY(..., SalesData, ...)`` on SQL_DuckDB evaluates the name from the
+    RESULTS row and packs a shifted (or empty) ``data[0]``.
+    """
+    start, end = a1.split(":")
+    return f"{sheet}!{_abs_a1_cell(start)}:{_abs_a1_cell(end)}"
+
+
+def relative_named_range_eval_start_row(defined_start_row: int, formula_row: int) -> int:
+    """Sheet row a relative ``A{defined}`` name starts at when used from ``A{formula}``.
+
+    Calc treats ``Sheet!A4:J39`` as relative to A1. Used from row *R* the
+    start becomes ``defined + (R - 1)``. SQL_DuckDB RESULTS at A23 therefore
+    packs Sales_Analytics row 26 (ORD-1022 Electronics/Consumer) instead of
+    the Order_ID header. A51 walks MarketingData off the table (empty pack).
+    """
+    return defined_start_row + (formula_row - 1)
 
 
 def _a1_col_range(start_row: int, end_row: int) -> str:
@@ -1656,10 +1686,16 @@ def build_xlsx_showcase(out_path: Path) -> None:
     from openpyxl.workbook.defined_name import DefinedName
 
     wb.defined_names.add(
-        DefinedName(name=SALES_NAMED_RANGE, attr_text=f"Sales_Analytics!{SALES_RANGE_XLSX}")
+        DefinedName(
+            name=SALES_NAMED_RANGE,
+            attr_text=_xlsx_named_range_address("Sales_Analytics", SALES_RANGE_XLSX),
+        )
     )
     wb.defined_names.add(
-        DefinedName(name=MARKETING_NAMED_RANGE, attr_text=f"Statistics_ML!{MARKETING_RANGE_XLSX}")
+        DefinedName(
+            name=MARKETING_NAMED_RANGE,
+            attr_text=_xlsx_named_range_address("Statistics_ML", MARKETING_RANGE_XLSX),
+        )
     )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)

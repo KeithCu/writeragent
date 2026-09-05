@@ -237,6 +237,37 @@ def test_record_active_calc_session_drops_ephemeral_unsaved_when_durable() -> No
         session_manager.clear_active_calc_session()
 
 
+def test_scoped_dir_from_calc_session_id_uses_file_url(tmp_path: Path) -> None:
+    workbook = tmp_path / "python_showcase_demo.xlsx"
+    workbook.write_bytes(b"pk")
+    assert session_manager.scoped_dir_from_calc_session_id(f"calc:{workbook.as_uri()}") == str(
+        tmp_path
+    )
+    assert session_manager.scoped_dir_from_calc_session_id("calc:unsaved:abc") is None
+    assert session_manager.scoped_dir_from_calc_session_id(None) is None
+
+
+def test_record_active_calc_session_caches_scoped_dir(tmp_path: Path) -> None:
+    first_dir = tmp_path / "one"
+    second_dir = tmp_path / "two"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first = first_dir / "demo.ods"
+    second = second_dir / "other.ods"
+    first.write_bytes(b"PK")
+    second.write_bytes(b"PK")
+    session_manager.clear_active_calc_session()
+    try:
+        session_manager.record_active_calc_session(f"calc:{first.as_uri()}")
+        assert session_manager.get_cached_calc_scoped_dir() == str(first_dir)
+        session_manager.record_active_calc_session(f"calc:{second.as_uri()}")
+        # Two recorded sessions: do not guess which folder belongs to =PY().
+        assert session_manager.recorded_calc_session_count() == 2
+        assert session_manager.get_cached_calc_scoped_dir() is None
+    finally:
+        session_manager.clear_active_calc_session()
+
+
 def test_workbook_session_id_resilient_when_is_calc_fails() -> None:
     """If is_calc throws, workbook_session_id falls back to doc URL directly."""
     from unittest.mock import MagicMock, patch

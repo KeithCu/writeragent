@@ -239,6 +239,28 @@ def test_check_python_multi_data_size_combined():
     assert check_python_multi_data_size(ranges, max_cells=250) is None
 
 
+def test_named_range_header_survives_py_pack_when_definition_is_used():
+    """=PY packing must keep the header row Name Manager shows for SalesData.
+
+    A relative name evaluated from SQL_DuckDB!A23 drops Order_ID and DuckDB
+    then reports Region not found (candidates Electronics/Consumer).
+    """
+    from scripts.generate_pretty_demo_spreadsheet import get_sales_dataset
+
+    grid = get_sales_dataset()
+    packed = calc_addin_data_to_python(grid)
+    assert packed is not None
+    assert packed[0][0] == "Order_ID"
+    assert packed[0][2] == "Region"
+    wire = pack_calc_data_for_wire(packed)
+    rng = child_unpack_data(wire)
+    if not hasattr(rng, "to_pandas"):
+        rng = rng[0]
+    cols = list(rng.to_pandas().columns)
+    assert "Region" in cols
+    assert "Order_ID" in cols
+
+
 def test_pack_calc_multi_data_for_wire_roundtrip():
     np = pytest.importorskip("numpy")
     ranges = [[[1.0, 2.0, 3.0]], [[4.0, 5.0, 6.0]]]

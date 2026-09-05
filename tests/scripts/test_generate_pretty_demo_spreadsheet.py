@@ -13,9 +13,11 @@ from pathlib import Path
 from scripts.generate_pretty_demo_spreadsheet import (
     CALC_PYTHON_ADDIN_FN,
     MARKETING_NAMED_RANGE,
+    MARKETING_RANGE_XLSX,
     RESULTS_PY_CODE_MAX_LEN,
     SALES_NAMED_RANGE,
     SALES_RANGE_ODS_CROSS,
+    SALES_RANGE_XLSX,
     SALES_ZIPS_BY_REGION,
     SQL_IDENTITY_TEACH,
     SQL_RESULTS_SPILL_GUTTER_COLS,
@@ -26,12 +28,15 @@ from scripts.generate_pretty_demo_spreadsheet import (
     ZIP_INCOME_FIXTURE,
     _ODS_SHEET_COLUMNS,
     _scenario_result_formula,
+    _xlsx_named_range_address,
     build_ods_showcase,
     build_xlsx_showcase,
     duckdb_join_from_cell_code,
     duckdb_sql_from_cell_code,
+    get_marketing_dataset,
     get_sales_dataset,
     ods_formula,
+    relative_named_range_eval_start_row,
     sql_demo_scenarios,
     sql_query_lines,
     sql_results_gutter_rows,
@@ -398,6 +403,12 @@ def test_generated_xlsx_results_have_spill_gutter(tmp_path: Path) -> None:
     _assert_xlsx_results_unmerged_with_clearance(ws)
     assert SALES_NAMED_RANGE in wb.defined_names
     assert MARKETING_NAMED_RANGE in wb.defined_names
+    assert wb.defined_names[SALES_NAMED_RANGE].attr_text == _xlsx_named_range_address(
+        "Sales_Analytics", SALES_RANGE_XLSX
+    )
+    assert wb.defined_names[MARKETING_NAMED_RANGE].attr_text == _xlsx_named_range_address(
+        "Statistics_ML", MARKETING_RANGE_XLSX
+    )
 
 
 def test_sheet_only_result_formulas_are_short_and_read_sql_from_cell_arg() -> None:
@@ -500,6 +511,12 @@ def test_fixture_xlsx_sql_results_formulas_are_short_and_quote_safe() -> None:
     assert "{sheet" in sql_text and "{named_range" in sql_text
     assert SALES_NAMED_RANGE in wb.defined_names
     assert MARKETING_NAMED_RANGE in wb.defined_names
+    assert wb.defined_names[SALES_NAMED_RANGE].attr_text == _xlsx_named_range_address(
+        "Sales_Analytics", SALES_RANGE_XLSX
+    )
+    assert wb.defined_names[MARKETING_NAMED_RANGE].attr_text == _xlsx_named_range_address(
+        "Statistics_ML", MARKETING_RANGE_XLSX
+    )
     join_formulas = [f for unused_coord, f in formulas if "run_sql(" in f]
     sheet_formulas = [f for unused_coord, f in formulas if "con.sql(sql)" in f]
     assert len(join_formulas) == 1
@@ -517,3 +534,50 @@ def test_fixture_xlsx_sql_results_formulas_are_short_and_quote_safe() -> None:
     for coord, empty in gaps:
         assert empty >= SQL_RESULTS_SPILL_GUTTER_ROWS, (coord, empty)
     _assert_xlsx_results_unmerged_with_clearance(ws)
+
+
+def test_xlsx_relative_named_range_shift_matches_headed_binder_exceptions() -> None:
+    """Repro path: relative Sheet!A4:J39 used from SQL_DuckDB RESULTS rows.
+
+    UNO / Name Manager still show A4:J39 with Order_ID / Channel headers.
+    Calc evaluates the name from the =PY() cell, so data[0] starts mid-table
+    (scen1 A23 → row 26 Electronics/Consumer) or off the table (scen2 A51 →
+    empty pack, Channel missing / candidate "column").
+    """
+    from plugin.scripting.calc_range import CalcRange
+
+    sales = get_sales_dataset()
+    marketing = get_marketing_dataset()
+    sales_start = int("".join(ch for ch in SALES_RANGE_XLSX.split(":")[0] if ch.isdigit()))
+    marketing_start = int("".join(ch for ch in MARKETING_RANGE_XLSX.split(":")[0] if ch.isdigit()))
+    marketing_end = int("".join(ch for ch in MARKETING_RANGE_XLSX.split(":")[1] if ch.isdigit()))
+
+    scen1_row = relative_named_range_eval_start_row(sales_start, 23)
+    assert scen1_row == 26
+    sales_offset = scen1_row - sales_start
+    shifted_sales = sales[sales_offset:]
+    assert shifted_sales[0][3] == "Electronics"
+    assert shifted_sales[0][4] == "Consumer"
+    defined_cols = list(CalcRange(sales).to_pandas().columns)
+    shifted_cols = list(CalcRange(shifted_sales).to_pandas().columns)
+    assert "Region" in defined_cols
+    assert "Region" not in shifted_cols
+    assert "Electronics" in shifted_cols and "Consumer" in shifted_cols
+
+    scen2_row = relative_named_range_eval_start_row(marketing_start, 51)
+    assert scen2_row == 54
+    assert scen2_row > marketing_end
+    marketing_offset = scen2_row - marketing_start
+    shifted_marketing = marketing[marketing_offset:]
+    assert shifted_marketing == []
+    empty_cols = list(CalcRange(shifted_marketing).to_pandas().columns)
+    assert "Channel" not in empty_cols
+
+
+def test_xlsx_named_range_address_is_absolute() -> None:
+    assert _xlsx_named_range_address("Sales_Analytics", SALES_RANGE_XLSX) == (
+        "Sales_Analytics!$A$4:$J$39"
+    )
+    assert _xlsx_named_range_address("Statistics_ML", MARKETING_RANGE_XLSX) == (
+        "Statistics_ML!$A$4:$G$24"
+    )

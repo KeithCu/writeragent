@@ -1169,22 +1169,42 @@ def _code_uses_indexed_multi_data(code: str) -> bool:
 
 
 def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
-    """Document folder for in-cell folder SQL. UNO only on the UI thread.
+    """Document folder for in-cell folder SQL.
 
-    Off-main recalc must not call ``getURL()`` on a cached model (Yellow / #402).
-    Bind ``scoped_dir`` as ``None`` so join formulas do not ``NameError``.
+    On-main with a model: ``get_document_directory`` (UNO ``getURL()``).
+    Off-main / missing doc: reuse the folder cached from a ``calc:file:``
+    session id — do not call ``getURL()`` on a cached model (Yellow / #402).
+    Bind ``scoped_dir`` as ``None`` only when no folder is known so join
+    formulas do not ``NameError`` (file joins then fail loud).
     """
     from plugin.framework.thread_guard import on_main_thread
+    from plugin.scripting.session_manager import (
+        get_cached_calc_scoped_dir,
+        get_cached_calc_session_id,
+        record_active_calc_scoped_dir,
+        scoped_dir_from_calc_session_id,
+    )
 
-    if doc is None or not on_main_thread():
-        return {"scoped_dir": None}
-    try:
-        from plugin.doc.document_research import get_document_directory
+    if doc is not None and on_main_thread():
+        try:
+            from plugin.doc.document_research import get_document_directory
 
-        return {"scoped_dir": get_document_directory(doc)}
-    except Exception:
-        log.debug("scoped_dir binding failed", exc_info=True)
-        return {"scoped_dir": None}
+            folder = get_document_directory(doc)
+        except Exception:
+            log.debug("scoped_dir binding failed", exc_info=True)
+            folder = None
+        if folder:
+            record_active_calc_scoped_dir(folder)
+            return {"scoped_dir": folder}
+
+    folder = get_cached_calc_scoped_dir()
+    if folder:
+        return {"scoped_dir": folder}
+    folder = scoped_dir_from_calc_session_id(get_cached_calc_session_id())
+    if folder:
+        record_active_calc_scoped_dir(folder)
+        return {"scoped_dir": folder}
+    return {"scoped_dir": None}
 
 
 def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
@@ -1363,6 +1383,10 @@ def _execute_python_addin_impl(
     try:
         t_pack = time.perf_counter() if timings else 0.0
         args = split_python_addin_data_args(data)
+        # Named-range args arrive as already-evaluated values from Calc.
+        # Relative names (Sheet!A4:J39) shift from the calling cell — UNO
+        # Name Manager still shows the definition with the header. Absolute
+        # $A$4:$J$39 is required so data[0].to_pandas() keeps Region/Channel.
         # Geometric predecessor is a Calc-only DAG token. Strip it before
         # calc_addin_args_from_split (1 vs N flips `data` to a list) and
         # before the matrix-index peel (a leftover 1×1 pred becomes index_arg).

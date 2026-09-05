@@ -60,7 +60,8 @@ The same ODS as the `=PY()` showcase — [`tests/fixtures/python_showcase_demo.o
 - Editing the SQL cells dirties RESULTS through Calc's normal DAG.
 - `data[` in the payload is required so the trailing SQL cell is not peeled as a matrix index.
 - Sheet-only RESULTS use injected `session_duckdb()` (Phase D shared-kernel catalog).
-- Scenario 3 (ZIP ⨝ `zip_income.csv`) is a live `=PY()` via injected `run_sql` + `scoped_dir` (the document folder). The sibling CSV is **not** a Calc argument — same catalog as `query_folder_sql`. Off-main recalc binds `scoped_dir=None` so the name exists (join then errors loud instead of `NameError`).
+- Scenario 3 (ZIP ⨝ `zip_income.csv`) is a live `=PY()` via injected `run_sql` + `scoped_dir` (the document folder). The sibling CSV is **not** a Calc argument — same catalog as `query_folder_sql`. Off-main recalc reuses the folder cached from a `calc:file:` session id (no `getURL()`). Bind `scoped_dir=None` only when no folder is known so the name exists (join then errors loud instead of `NameError`).
+- XLSX `SalesData` / `MarketingData` must be **absolute** (`Sheet!$A$4:$J$39`). Relative `Sheet!A4:J39` looks correct in UNO / Name Manager but `=PY()` evaluates the name from the SQL_DuckDB RESULTS cell and packs a shifted or empty `data[0]` (BinderException `Region` / `Channel`).
 
 ```bash
 python scripts/generate_pretty_demo_spreadsheet.py --format all
@@ -71,7 +72,7 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 ### Current Implementation (as of latest increment)
 - Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads). `run_sql` is the `=PY()` entry: guarded execute (honesty dict) or, with `preloaded` / `files` / `scoped_dir`, a DataFrame over that catalog.
 - Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
-- Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading. `=PY()` injects `session_duckdb` / `run_sql` and binds `scoped_dir` from the document folder on the UI thread only (off-main: `None`).
+- Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading. `=PY()` injects `session_duckdb` / `run_sql` and binds `scoped_dir` from the document folder on the UI thread, or from the cached `calc:file:` folder off-main (unambiguous session only).
 - Worker: registers preloaded via `coerce_to_dataframe`; flat files via suffix binders (`read_csv` / `read_parquet` / `read_json`, including `.jsonl` / `.ndjson`) under provided names. Unknown suffixes and missing files fail loud (`UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`) instead of falling through to CSV. Read-only guards (`COPY`/`EXPORT`/`ATTACH`/`INSTALL`/`LOAD` + path/URI escapes). In-memory `CREATE VIEW` / register stay allowed.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script (sheet egress shows truncation flags).
 - `=PY()`: prefer `run_sql` / `session_duckdb()` (same firewall + honesty fields) over raw `import duckdb`. Shared-kernel `=PY()` reuses one DuckDB connection per workbook until Reset; Isolated / chat tools stay per-request. See [Phase D](#phase-d--shared-kernel-session-cache).
@@ -515,3 +516,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | Honesty + firewall polish: 200-row cap is visible (`warning`/`flags`/`message`/`tables`); deny-list is disk/network only (VIEW/register stay); `run_sql` / guarded `session_duckdb()` for `=PY()`; RPS SQL uses tabular egress. |
 | 2026-09-05 | Folder SQL flat binders: Parquet + JSON/JSONL/NDJSON register reliably via `flat_files` / `files` dict; unsupported and missing types return `UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`. Sibling XLSX/ODS stay on the LO import path. |
 | 2026-09-05 | Pretty-demo polish: SQL_DuckDB teaches `{sheet}` / `{named_range}` / sibling `file#Sheet` (named ranges `SalesData` / `MarketingData` as the live `=PY()` data args). ZIP join is a live `=PY()` via `run_sql` + `scoped_dir` (same 15×5 spill gutter; SQL still only in cells). |
+| 2026-09-05 | XLSX `SalesData` / `MarketingData` are absolute (`$A$4:$J$39`) so `=PY()` from SQL_DuckDB RESULTS does not pack a shifted/empty `data[0]`. `scoped_dir` inject reuses the cached `calc:file:` folder off-main. |
