@@ -14,6 +14,7 @@ from hypothesis import given, strategies as st
 import deal
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel
 from plugin.calc.excel_py_convert.to_dag import (
+    _deal_convert_cell_ok,
     _deal_convert_scripts_ok,
     _deal_excel_src_ok,
     _find_xl_calls,
@@ -145,6 +146,59 @@ def test_deal_convert_scripts_ok_matches_excel_src_ok() -> None:
     assert _deal_excel_src_ok("\x00")  # pytest: str_bounded; CrossHair pre rejects
     assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
     assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["x"], cells=[]))
+
+
+def test_deal_convert_cell_ok_dep_alphabet_pytest() -> None:
+    """Pytest deps stay ascii_bounded so ``_xlfn.ANCHORARRAY`` / ``Table[#All]`` work.
+
+    CrossHair rejects ``_`` / ``[`` / NUL (check-all 33940151004 PatternError).
+    Different from #599: that hole was NUL *scripts* vs ``_deal_excel_src_ok``.
+    """
+    def cell(deps: list[str]) -> ExcelPyCell:
+        return ExcelPyCell(sheet="S", cell="A1", script_index=0, return_type=0, deps=deps)
+
+    assert _deal_convert_cell_ok(cell(["_"]))  # pytest ascii; CrossHair alphabet rejects
+    assert _deal_convert_cell_ok(cell(["["]))
+    assert _deal_convert_cell_ok(cell(["\x00"]))
+    assert _deal_convert_cell_ok(cell(["A"]))
+    assert _deal_convert_cell_ok(cell(["A1"]))
+    assert _deal_convert_cell_ok(cell(["_xlfn.ANCHORARRAY(A6)"]))
+    assert _deal_convert_cell_ok(cell(["Table1[#All]"]))
+
+
+def test_convert_model_to_dag_underscore_dep_no_pattern_error() -> None:
+    """check-all 33940151004: CrossHair relib PatternError on this exact call.
+
+    CPython ``resolve_dep('_')`` is unresolved; convert must not raise
+    ``re.error`` / ``PatternError`` (unterminated character set) even with
+    ``best_effort=True``, empty script, and NUL ``source_path``.
+    """
+    model = ExcelWorkbookModel(
+        scripts=[""],
+        cells=[
+            ExcelPyCell(
+                "",
+                "",
+                0,
+                0,
+                deps=["_"],
+                formula_raw="",
+                array_ref="",
+                row=0,
+                col=0,
+            )
+        ],
+        sheets=[],
+        tables={},
+        anchor_snapshots={"": ""},
+        source_path="\x00",
+    )
+    report = convert_model_to_dag(model, best_effort=True)
+    assert report.cells
+    cell = report.cells[0]
+    assert any("unrecognized dep" in i or "unresolved" in i for i in (cell.issues or []))
+    # best_effort still emits; the contract is "no PatternError", not fail-closed.
+    assert isinstance(cell.dag_formula, str)
 
 
 def test_convert_cell_to_dag_script_index_oor_fail_closed() -> None:

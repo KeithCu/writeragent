@@ -109,6 +109,32 @@ def test_resolve_dep_range_and_table() -> None:
     assert dep3.kind == "anchor_snapshot"
     assert dep3.a1 == "A6:C10"
 
+    # Case folding still reaches the regex after the surface-shape gate.
+    dep4 = resolve_dep("table1[#all]", model)
+    assert dep4.kind == "table_snapshot"
+    assert dep4.a1 == "A1:D50"
+
+    dep5 = resolve_dep("ANCHORARRAY(A6)", model)
+    assert dep5.kind == "anchor_snapshot"
+    assert dep5.a1 == "A6:C10"
+
+    dep6 = resolve_dep("A6#", model)
+    assert dep6.kind == "anchor_snapshot"
+    assert dep6.a1 == "A6:C10"
+
+
+@pytest.mark.parametrize("dep", ["_", "[", "]", "\x00", "!", ":", "#", ""])
+def test_resolve_dep_junk_no_pattern_error(dep: str) -> None:
+    """check-all 33940151004: junk 1-char deps must not hit character-class regexes.
+
+    CrossHair relib ``PatternError: unterminated character set`` on
+    ``convert_model_to_dag(..., deps=['_'])``. CPython already returned
+    unresolved; the gate keeps ``re.match`` off these strings.
+    """
+    model = DummyModel()  # type: ignore[assignment]
+    resolved = resolve_dep(dep, model)
+    assert resolved.kind == "unresolved"
+
 
 from plugin.calc.calc_addin_data import (
     _unwrap_cell,
