@@ -419,3 +419,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-06-18 | Phase C: multi-table 'tables' param (named ranges on active), files as dict for named flat+office. Worker supports flat_files dict for direct named registration (no chdir). Host prepares preloaded + flat_files. Tool + client updated. |
 | 2026-09-05 | Pretty demo: same ODS as the =PY() showcase gets a SQL_DuckDB sheet (SQL in cells) + ZIP on sales + sibling ACS `zip_income.csv`. Tests run `query_folder_sql` against those assets. |
 | 2026-09-05 | Sibling office ingress: used-range (not `A1:AK2000` / `A1:AZ5000`); fail loud on open / `#SheetName` / empty range. ODS mtime cache still pending. |
+| 2026-09-05 | SQL_DuckDB live RESULTS `=PY()` formulas quote SQL with Python single quotes inside the formula `"…"` payload. Triple-double quotes closed the formula string early (Calc Err:508). |

@@ -14,10 +14,13 @@ from scripts.generate_pretty_demo_spreadsheet import (
     CALC_PYTHON_ADDIN_FN,
     SALES_RANGE_ODS_CROSS,
     SALES_ZIPS_BY_REGION,
+    SQL_MARKETING_CHANNEL_ROAS,
+    SQL_SALES_BY_REGION_CATEGORY,
     SQL_SALES_ZIP_INCOME_JOIN,
     ZIP_INCOME_CSV_NAME,
     ZIP_INCOME_FIXTURE,
     _ODS_SHEET_COLUMNS,
+    _scenario_result_formula,
     build_ods_showcase,
     get_sales_dataset,
     ods_formula,
@@ -72,6 +75,18 @@ def test_ods_formula_statistics_ml_range_not_rematched() -> None:
     out = ods_formula('=PY("x"; Statistics_ML.A5:G25)')
     assert "[$Statistics_ML.A5:.G25]" in out
     assert _NESTED_SHEET_REF.search(out) is None
+
+
+def _quoted_formula_payload(formula: str) -> str:
+    """First ``"…"`` argument of ``=FN("code", range)``. Exactly one pair of quotes."""
+    assert formula.startswith("="), formula
+    first = formula.index('"')
+    last = formula.rindex('"')
+    assert first < last, formula
+    # A premature " (e.g. Python """) would add extra quotes and leak SQL
+    # tokens like SUM(...) into the formula — Calc Err:508.
+    assert formula.count('"') == 2, formula
+    return formula[first + 1 : last]
 
 
 def test_sales_dataset_has_zip_column_from_real_zctas() -> None:
@@ -155,3 +170,40 @@ def test_build_ods_showcase_formulas_and_layout(tmp_path: Path) -> None:
 
 def test_shipped_ods_fixture_formulas_and_layout() -> None:
     _assert_ods_formulas_and_layout(_ods_content_xml(FIXTURE_ODS))
+
+
+def test_sheet_only_result_formulas_keep_sql_inside_quoted_payload() -> None:
+    """SQL stays inside the formula's one quoted string (no triple-quote / Err:508)."""
+    cases = (
+        ("sheet_sales", SQL_SALES_BY_REGION_CATEGORY, "SUM(Revenue)"),
+        ("sheet_marketing", SQL_MARKETING_CHANNEL_ROAS, "SUM(Ad_Spend)"),
+    )
+    for kind, sql, marker in cases:
+        for ods_fmt in (False, True):
+            formula = _scenario_result_formula(kind, sql, ods=ods_fmt)
+            assert formula is not None, kind
+            payload = _quoted_formula_payload(formula)
+            rest = formula[formula.rindex('"') + 1 :]
+            assert marker in payload
+            assert marker not in rest
+            assert '"""' not in formula
+            assert "con.sql('" in payload
+            assert "SUM(" not in rest
+            assert "COUNT(" not in rest
+    assert _scenario_result_formula("join_zip", SQL_SALES_ZIP_INCOME_JOIN, ods=False) is None
+
+
+def test_fixture_xlsx_sql_results_formulas_are_well_quoted() -> None:
+    """Committed showcase xlsx RESULTS cells must not regress to broken quoting."""
+    from openpyxl import load_workbook
+
+    path = Path(__file__).resolve().parents[1] / "fixtures" / "python_showcase_demo.xlsx"
+    wb = load_workbook(path)
+    ws = wb["SQL_DuckDB"]
+    for coord, marker in (("A18", "SUM(Revenue)"), ("A31", "SUM(Ad_Spend)")):
+        formula = ws[coord].value
+        assert isinstance(formula, str) and formula.startswith("="), coord
+        payload = _quoted_formula_payload(formula)
+        assert marker in payload
+        assert '"""' not in formula
+    assert ws["A44"].data_type == "s"  # join remains text-only

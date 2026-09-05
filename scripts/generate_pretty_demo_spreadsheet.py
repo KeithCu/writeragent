@@ -324,12 +324,20 @@ def get_sales_dataset() -> list[list[Any]]:
 
 
 def _duckdb_register_formula(table: str, sql: str, range_addr: str, *, ods: bool) -> str:
-    """=PY() that registers a sheet range as *table* and runs *sql* via DuckDB."""
-    sql_one_line = " ".join(sql.split())
+    """=PY() that registers a sheet range as *table* and runs *sql* via DuckDB.
+
+    The Calc/Excel formula wraps *code* in double quotes. Python string literals
+    inside that payload must use single quotes. Triple-double-quote SQL would
+    close the formula string at the first ``"`` so Calc sees bare ``SUM(…)`` /
+    ``COUNT(*)`` and raises Err:508 (mismatched parentheses). Other working
+    demo formulas already follow this quoting rule.
+    """
+    # Collapse whitespace; escape SQL apostrophes so they stay inside '...'.
+    sql_one_line = " ".join(sql.split()).replace("'", "\\'")
     code = (
         f"import duckdb; df=pd.DataFrame(data[1:], columns=data[0]); "
         f"con=duckdb.connect(); con.register('{table}', df); "
-        f'result=con.sql("""{sql_one_line}""").df()'
+        f"result=con.sql('{sql_one_line}').df()"
     )
     if ods:
         return f'=PY("{code}"; {range_addr})'
