@@ -10,10 +10,10 @@ Related: [benchmarks.md](benchmarks.md), [eval-dev-plan.md](eval-dev-plan.md),
 
 **Status:** First A/B: 20b gained `data_sorting`; 120b regressed
 (`header row is not first` — used `sort_range` but treated Product/Revenue
-as a data row). Wording revised to one-sentence **Do Z because Y** + slimmed (no
-`CALC_WORKFLOW` duplicate; no `write_formula_range` sort-half; no
-Don't/Prefer-over opener; `has_header` on `sort_range.description`
-plus a brief directive echo). Tax relative rule
+as a data row). Wording revised to compact **Do B and D because Y**
+(sort + `has_header` in one line; no `CALC_WORKFLOW` duplicate; no
+`write_formula_range` sort-half; no Don't/Prefer-over opener;
+`has_header` contract on `sort_range.description`). Tax relative rule
 stayed helpful for 120b. Shared prompt; no 20b fork. Re-A/B pending.
 
 ## Snapshot
@@ -103,11 +103,10 @@ Keep diffs short.
 **Calc** (`CALC_CORE_DIRECTIVES` only for sort; slim `CALC_WORKFLOW`):
 
 - Do `delegate_to_specialized_calc_toolset(domain="ranges")` then
-  `sort_range` to reorder rows (multi-key = two stable one-column
-  passes) because `write_formula_range` / `=PY` overwrite the range
-  including headers.
-- Do pass `has_header=true` when row 1 is labels because otherwise
-  labels sort as values.
+  `sort_range` with `has_header=true` when row 1 is labels (multi-key
+  = two stable one-column passes) because `write_formula_range` /
+  `=PY` overwrite the range including headers and otherwise labels
+  sort as values.
 - Do write each row's formula with that row's cells (`Banana` → `B3`,
   not a stamped `B2`).
 
