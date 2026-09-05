@@ -1,6 +1,6 @@
 # UNO utility helpers — inventory, overlaps, and future-work plan
 
-**Status:** analysis only. No helper moves, renames, or new shared path/URL API in this document’s originating goal. Recommendations below are deferred work.
+**Status:** analysis, plus two landed P1 unifies (public `normalize_doc_url`; shared `normalize_file_url` / `get_document_path` `file:/` repair). Remaining recommendations below are deferred.
 
 This is the catalog of **shared UNO utility helpers** — component context, document identity, LibrePy-safe text/path helpers, chat `DocumentService`, type guards, user-defined properties, dialog accessors, listener bases, visual property helpers, and UNO error wrappers. It is **not** a catalog of domain tools (`plugin/writer/`, `plugin/calc/`, `plugin/draw/` feature modules).
 
@@ -57,7 +57,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 
 | Symbol | Module | Purpose |
 |--------|--------|---------|
-| `_normalize_doc_url` | `uno_context` | Strip + drop a trailing `/` so URL identity compares. |
+| `normalize_doc_url` | `uno_context` | Strip + drop a trailing `/` so URL identity compares. |
 | `get_runtime_uid` | `uno_context` | Per-session id (`getRuntimeUID` / attribute / property); works for untitled docs. |
 | `resolve_document_by_url` | `uno_context` | Walk desktop components; match normalized URL **or** RuntimeUID; return `(model, doc_type)`. |
 | `get_open_documents` | `document_research` | List open OfficeDocuments with name/url/uid/path/type/active/modified (untitled kept). |
@@ -66,7 +66,7 @@ Still [`uno_context.py`](../../plugin/framework/uno_context.py), plus the resear
 | `close_document_research_document` | `document_research` | Close only if this call loaded a hidden sibling (not a user-visible doc). |
 | `list_open_documents` (tool) | `document_research_tools` | Tool facade over `get_open_documents` (not a second resolver). |
 
-`DocumentService.resolve_document_by_url` / `get_active_document` are thin wrappers (see §1.4). MCP mutation-gate keys import `_normalize_doc_url` + `get_runtime_uid` from `uno_context`.
+`DocumentService.resolve_document_by_url` / `get_active_document` are thin wrappers (see §1.4). MCP mutation-gate keys import `normalize_doc_url` + `get_runtime_uid` from `uno_context`.
 
 ### 1.3 LibrePy-safe text / path / selection
 
@@ -78,7 +78,8 @@ LibrePy Run Python Script, text analytics, Excel auto-open, and Writer selection
 |--------|---------|
 | `normalize_linebreaks` | `\r\n` / `\r` → `\n` so offsets match (Windows UNO/clipboard). |
 | `get_string_without_tracked_deletions` | Skip redline Delete portions when reading a text range. |
-| `get_document_path` | `file://` URL → `uno.fileUrlToSystemPath`; `None` if untitled / non-file. |
+| `normalize_file_url` | Repair `file:/path` → `file:///path` (legacy `urljoin`). Shared with research. |
+| `get_document_path` | `file:` URL → repair then `uno.fileUrlToSystemPath`; `None` if untitled / non-file. |
 | `get_selection_range` | Writer `(start, end)` character offsets (cursor = equal ends). |
 | `get_selection_text` | Selected string for Writer / Calc / Draw; `None` if empty. |
 | `build_heading_tree` | Single-pass outline tree (`HeadingTreeNode`). |
@@ -253,8 +254,9 @@ There is **no** single shared converter. Live implementations:
 | `_file_url_for_path` | `writer/images/image_tools.py` | path → URL | `uno.systemPathToFileUrl(abspath)`. |
 | `_file_url` | `writer/math/math_mml_convert.py` | path → URL | `uno.systemPathToFileUrl(abspath)`. |
 | (inline) | `styles.py`, `get_image.py`, `duckdb_tools.py`, `calc/python/image_egress.py`, `librepy/sidebar_menus.py` | path → URL | Raw `uno.systemPathToFileUrl`. |
-| `get_document_path` | `text_helpers` | URL → path | `file://` prefix required; `uno.fileUrlToSystemPath`. |
-| `_system_path_from_url` | `document_research` | URL → path | Accepts `file:`; repairs `file:/`; then `fileUrlToSystemPath` + `abspath`. |
+| `normalize_file_url` | `text_helpers` | URL repair | `file:/path` → `file:///path`. Shared by `get_document_path` and research. **Landed.** |
+| `get_document_path` | `text_helpers` | URL → path | Repair then `file://` prefix; `uno.fileUrlToSystemPath`. |
+| `_system_path_from_url` | `document_research` | URL → path | Accepts `file:`; uses shared `normalize_file_url`; then `fileUrlToSystemPath` + `abspath`. |
 | `get_extension_path` | `uno_context` | URL → path | `file://` → `fileUrlToSystemPath`; else returns the URL string (`vnd.sun.star.extension://…`). |
 | `_path_from_file_url` | `scripting/sandbox.py` | URL → path | **stdlib only** (`urlparse`/`unquote`); Windows drive + UNC. |
 | `_system_dir_from_file_url` | `scripting/session_manager.py` | URL → parent dir | **stdlib, no UNO** (off-main `=PY()`); Windows drive letter. |
@@ -271,7 +273,7 @@ There is **no** single shared converter. Live implementations:
 |---------|--------|
 | `Path.as_uri()` sites (`document_research`, `embeddings_fs`, `format._file_url`) | **Candidate unify** — same stdlib, no UNO. Keep the helper UNO-free so embeddings can import it. |
 | `uno.systemPathToFileUrl` at GraphicProvider / `loadComponentFromURL` image/math sites | Optional later; behavior matches `Path.as_uri()` on POSIX. Leave until a Windows mismatch is proven. |
-| `get_document_path` vs `_system_path_from_url` | **Candidate unify the URL→path direction** for document models (`file:/` repair is missing from `get_document_path`). |
+| `get_document_path` vs `_system_path_from_url` | **Landed the `file:/` repair** on `get_document_path` via shared `text_helpers.normalize_file_url`. Research still adds `abspath`. |
 | sandbox / session_manager stdlib parsers | **Stay separate** — no UNO, Windows UNC/drive, off-main. |
 | `mail_merge._to_file_url` | Domain helper; can call a shared path→URL once one exists. |
 
@@ -279,14 +281,14 @@ There is **no** single shared converter. Live implementations:
 
 | Helper | What it normalizes | What it does **not** |
 |--------|--------------------|----------------------|
-| `uno_context._normalize_doc_url` | strip; drop trailing `/` | Does not repair `file:/` vs `file:///`. |
-| `document_scripts._normalize_doc_url` | **byte-identical copy** | Same. Used only for script stale-detection identity. |
-| `document_research._normalize_file_url` | `file:/path` → `file:///path` | Does not strip trailing slash. |
-| sandbox / session_manager | same `file:/` → `file://` + rest | Then stdlib parse. |
+| `uno_context.normalize_doc_url` | strip; drop trailing `/` | Does not repair `file:/` vs `file:///`. |
+| `document_scripts_identity` | imports `normalize_doc_url` | URL-only; empty if untitled. |
+| `text_helpers.normalize_file_url` | `file:/path` → `file:///path` | Does not strip trailing slash. |
+| sandbox / session_manager | same `file:/` → `file://` + rest | Then stdlib parse. Stay local (no UNO). |
 
-`resolve_document_by_url` compares `_normalize_doc_url(model.getURL())` to the request. A request of `file:/home/a.odt` will **not** match an open `file:///home/a.odt` unless something else repaired it first. `open_document_for_read` **does** run `_normalize_file_url` before resolve.
+`resolve_document_by_url` compares `normalize_doc_url(model.getURL())` to the request. A request of `file:/home/a.odt` will **not** match an open `file:///home/a.odt` unless something else repaired it first. `open_document_for_read` **does** run `normalize_file_url` before resolve. `get_document_path` now repairs before `fileUrlToSystemPath`.
 
-Tests: `tests/doc/test_document.py` (`_normalize_doc_url` trailing slash), `tests/doc/test_document_research.py` (`file:/` repair).
+Tests: `tests/doc/test_document.py` (`normalize_doc_url` trailing slash), `tests/doc/test_text_helpers.py` (`file:/` repair + `get_document_path`).
 
 ### 2.3 Untitled / empty URL / RuntimeUID
 
@@ -297,7 +299,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 | `get_runtime_uid` | Returns uid string or `""`. Accepts only `str`/`int` (mocks cannot fake it). |
 | `resolve_document_by_url` | `url` argument may be a RuntimeUID; matches unsaved docs. |
 | `get_open_documents` | Keeps untitled rows (`url=""`, `path=""`, `name="Untitled"`, `uid=…`). Never drops them on type-lookup failure. |
-| `get_document_path` | Returns `None` (not a `file://` URL). |
+| `get_document_path` | Returns `None` (not a `file:` URL after repair). |
 | `document_scripts_identity` | Empty string for untitled (URL-only; **no** uid). |
 | MCP `_resolve_mcp_doc_key` | Prefers `uid:<RuntimeUID>`; else `url:<normalized>`; else active-document sentinel. Survives Save As. |
 | `DocumentService.doc_key` | `id(doc)` — proxy-unsafe; **not** uid. |
@@ -396,9 +398,9 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 
 | Pair | What’s duplicated | Notes |
 |------|-------------------|-------|
-| `uno_context._normalize_doc_url` vs `document_scripts._normalize_doc_url` | Trailing-slash strip | Byte-identical. MCP already imports the `uno_context` copy. **Highest-value unify.** |
-| `document_research._path_to_file_url` vs `embeddings_fs.path_to_file_url` vs `format._file_url` | `Path(abspath).as_uri()` | Same stdlib. embeddings **cannot** import `text_helpers` (UNO). Needs a UNO-free home if unified. |
-| `document_research._normalize_file_url` vs sandbox vs session_manager `file:/` repair | `file:/` → `file://` + rest | Research uses UNO after repair; the other two stay stdlib. Share the **repair string** only, or leave the stdlib pair local. |
+| `uno_context.normalize_doc_url` vs `document_scripts._normalize_doc_url` | Trailing-slash strip | **Landed.** Script identity imports `normalize_doc_url`; the document_scripts copy is gone. |
+| `document_research._path_to_file_url` vs `embeddings_fs.path_to_file_url` vs `format._file_url` | `Path(abspath).as_uri()` | Same stdlib. embeddings **cannot** import `text_helpers` (UNO). Needs a UNO-free home if unified. Deferred (P1 path→URL). |
+| `text_helpers.normalize_file_url` vs sandbox vs session_manager `file:/` repair | `file:/` → `file://` + rest | **Landed for UNO callers** (`get_document_path` + research). Sandbox / session_manager stay stdlib. |
 | Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. |
 
 ### 3.2 Intentional splits (do not collapse)
@@ -438,7 +440,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown �
 
 **URL → path**
 
-`get_document_path` requires `startswith("file://")` and does not repair `file:/`. `_system_path_from_url` accepts `file:`, repairs, then `abspath`. A document whose URL is the legacy two-slash form would be “unsaved” to `get_document_path` / `get_document_directory` but openable via `open_document_for_read`.
+`get_document_path` and `_system_path_from_url` both repair `file:/` via `text_helpers.normalize_file_url`. Research still applies `abspath` after conversion. Untitled / non-file URLs still return `None`.
 
 **Active document**
 
@@ -491,9 +493,9 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 
 ### P1 — candidate unify (small, real duplication)
 
-1. **Delete `document_scripts._normalize_doc_url`.** Import `uno_context._normalize_doc_url` (or promote it to a public `normalize_doc_url`). Same tests as `tests/doc/test_document.py`.
-2. **UNO-free `path_to_file_url`.** One `Path(abspath).as_uri()` helper imported by `document_research`, `embeddings_fs`, and `format._file_url`. Do **not** put it in `url_utils`. Do **not** put it in `text_helpers` (UNO import). A tiny `plugin/doc/file_urls.py` (stdlib only) or a function next to `embeddings_fs` that research can import are both fine; pick the one that does not pull embeddings into LibrePy.
-3. **Document URL→path: teach `get_document_path` the `file:/` repair** (or have it call a shared `_system_path_from_url`). Today research and text_helpers disagree on legacy two-slash URLs.
+1. **Delete `document_scripts._normalize_doc_url`.** **Landed.** Callers import public `uno_context.normalize_doc_url`. Tests: `tests/doc/test_document.py`, `tests/scripting/test_document_scripts.py`.
+2. **UNO-free `path_to_file_url`.** Still deferred. One `Path(abspath).as_uri()` helper imported by `document_research`, `embeddings_fs`, and `format._file_url`. Do **not** put it in `url_utils`. Do **not** put it in `text_helpers` (UNO import). A tiny `plugin/doc/file_urls.py` (stdlib only) or a function next to `embeddings_fs` that research can import are both fine; pick the one that does not pull embeddings into LibrePy.
+3. **Document URL→path: teach `get_document_path` the `file:/` repair.** **Landed.** Shared `text_helpers.normalize_file_url`; `get_document_path` and `_system_path_from_url` both use it. Sandbox / session_manager stdlib copies stay. Tests: `tests/doc/test_text_helpers.py`, `tests/doc/test_document_research.py`.
 
 ### P2 — candidate unify after documenting behavior
 
@@ -510,7 +512,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 11. Point remaining `uno.systemPathToFileUrl` image/math sites at the P1 helper **after** a Windows smoke check.
 12. Notebook `file://` strip fallback → same URL→path helper.
 13. `DocumentService.doc_key` → `get_runtime_uid` (or uid-or-url like MCP). This is a behavior change for any cache keyed on `id(doc)`.
-14. Promote `uno_context._normalize_doc_url` to public name when P1 lands (callers already treat it as shared).
+14. Promote `uno_context._normalize_doc_url` to public name when P1 lands. **Landed** as `normalize_doc_url`.
 
 ### Explicit non-goals for later refactors
 
@@ -524,7 +526,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 
 | Area | Tests |
 |------|-------|
-| `_normalize_doc_url` | `tests/doc/test_document.py` |
+| `normalize_doc_url` | `tests/doc/test_document.py` |
 | resolve by URL or RuntimeUID | `tests/doc/test_resolve_document_by_url.py` |
 | `file:///` + `file:/` repair, work directory | `tests/doc/test_document_research.py` |
 | `get_open_documents` untitled / Start Center | `tests/mcp/test_list_open_documents.py` |

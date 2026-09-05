@@ -13,8 +13,8 @@ from unittest.mock import MagicMock, patch
 from plugin.doc.document_research import (
     NEARBY_FILE_EXTENSIONS,
     NEARBY_IMAGE_EXTENSIONS,
-    _normalize_file_url,
     _path_to_file_url,
+    _system_path_from_url,
     close_document_research_document,
     guess_doc_type_from_path,
     get_document_directory,
@@ -23,6 +23,7 @@ from plugin.doc.document_research import (
     open_document_for_read,
     resolve_listing_directory,
 )
+from plugin.doc.text_helpers import normalize_file_url
 
 
 def test_guess_doc_type_from_path():
@@ -45,7 +46,17 @@ def test_path_to_file_url_uses_three_slashes_on_unix():
 
 def test_normalize_file_url_repairs_legacy_urljoin_form():
     legacy = "file:/home/user/Writing/Test.odt"
-    assert _normalize_file_url(legacy) == "file:///home/user/Writing/Test.odt"
+    assert normalize_file_url(legacy) == "file:///home/user/Writing/Test.odt"
+
+
+def test_system_path_from_url_uses_shared_file_url_repair():
+    with patch(
+        "plugin.doc.document_research.uno.fileUrlToSystemPath",
+        return_value="/home/user/Writing/Test.odt",
+    ), patch("plugin.doc.document_research._normalize_path", side_effect=lambda path: path):
+        assert _system_path_from_url("file:/home/user/Writing/Test.odt") == "/home/user/Writing/Test.odt"
+        assert _system_path_from_url("") is None
+        assert _system_path_from_url("private:factory/swriter") is None
 
 
 def test_get_document_directory():

@@ -558,8 +558,12 @@ def process_events_to_idle(ctx, rounds: int = 1, force: bool = False) -> bool:
     return pumped
 
 
-def _normalize_doc_url(url):
-    """Normalize document URL for comparison (strip, optional trailing slash)."""
+def normalize_doc_url(url):
+    """Normalize document URL for comparison (strip, optional trailing slash).
+
+    Shared by resolve-by-URL, MCP doc keys, and document-script stale detection.
+    Does not repair ``file:/`` vs ``file:///`` — that is ``text_helpers.normalize_file_url``.
+    """
     if not url:
         return ""
     s = str(url).strip()
@@ -612,7 +616,7 @@ def resolve_document_by_url(ctx, url):
         return (None, None)
     from plugin.doc import doc_type as _doc_type
 
-    target = _normalize_doc_url(url)
+    target = normalize_doc_url(url)
     try:
         desktop = get_desktop(ctx)
         comps = desktop.getComponents()
@@ -634,7 +638,7 @@ def resolve_document_by_url(ctx, url):
                     if controller is not None and hasattr(controller, "getModel"):
                         model = controller.getModel()
                 if model is not None:
-                    doc_url = _normalize_doc_url(model.getURL()) if hasattr(model, "getURL") else ""
+                    doc_url = normalize_doc_url(model.getURL()) if hasattr(model, "getURL") else ""
                     uid = get_runtime_uid(model)
                     if (doc_url and doc_url == target) or (uid and uid == target):
                         doc_type_enum = _doc_type.get_document_type(model)

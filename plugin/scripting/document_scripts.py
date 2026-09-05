@@ -30,7 +30,7 @@ from plugin.doc.udprops import get_document_property, set_document_property
 from plugin.framework.errors import UnoObjectError
 from plugin.framework.i18n import _
 from plugin.framework.json_utils import safe_json_loads
-from plugin.framework.uno_context import get_desktop
+from plugin.framework.uno_context import get_desktop, normalize_doc_url
 from plugin.scripting.domain_registry import (
     ANALYSIS_SCRIPT_DISPLAY_PREFIX,
     DOC_SCRIPT_DISPLAY_PREFIX,
@@ -58,20 +58,11 @@ _SOFT_WARN_SCRIPT_BYTES = 200_000
 _ENVELOPE_VERSION = 1
 
 
-def _normalize_doc_url(url: Any) -> str:
-    if not url:
-        return ""
-    s = str(url).strip()
-    if s.endswith("/") and len(s) > 1:
-        s = s[:-1]
-    return s
-
-
 def document_scripts_identity(doc: Any) -> str:
     """Stable identity for stale detection (normalized URL or empty for untitled)."""
     try:
         if hasattr(doc, "getURL"):
-            return _normalize_doc_url(doc.getURL() or "")
+            return normalize_doc_url(doc.getURL() or "")
     except Exception:
         log.debug("document_scripts_identity failed", exc_info=True)
     return ""

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict
 import uno
 
 from plugin.doc.doc_type import DocumentType, doc_type_label_for_enum, get_document_type
-from plugin.doc.text_helpers import get_document_path
+from plugin.doc.text_helpers import get_document_path, normalize_file_url
 from plugin.framework.uno_context import resolve_document_by_url
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 
@@ -171,20 +171,10 @@ def _path_to_file_url(path: str) -> str:
     return Path(norm).as_uri()
 
 
-def _normalize_file_url(url: str) -> str:
-    """Repair file:/path URLs from the old urljoin-based _path_to_file_url."""
-    raw = str(url).strip()
-    if raw.startswith("file:///"):
-        return raw
-    if raw.startswith("file:/") and not raw.startswith("file://"):
-        return "file://" + raw[len("file:") :]
-    return raw
-
-
 def _system_path_from_url(url: str) -> str | None:
     if not url or not str(url).startswith("file:"):
         return None
-    url = _normalize_file_url(str(url))
+    url = normalize_file_url(str(url))
     if not url.startswith("file://"):
         return None
     try:
@@ -558,7 +548,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     url: str | None = None
     raw = str(path_or_url).strip()
     if raw.startswith("file:"):
-        url = _normalize_file_url(raw)
+        url = normalize_file_url(raw)
         path = _system_path_from_url(url)
     elif _is_absolute_or_posix_absolute(raw) and os.path.isfile(raw):
         path = _normalize_path(raw)

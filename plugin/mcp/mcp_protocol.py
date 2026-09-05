@@ -31,7 +31,7 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 
-from plugin.framework.uno_context import _normalize_doc_url, get_runtime_uid
+from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.framework.queue_executor import QueueExecutor
 from plugin.framework.errors import WriterAgentException, safe_json_loads
 from plugin.mcp.cors import send_cors_headers
@@ -238,7 +238,7 @@ def _resolve_mcp_doc_key(document_url, doc):
             uid = get_runtime_uid(doc)
             if uid:
                 return "uid:%s" % uid
-            url = _normalize_doc_url(doc.getURL())
+            url = normalize_doc_url(doc.getURL())
             if url:
                 return "url:%s" % url
         except Exception:
@@ -247,7 +247,7 @@ def _resolve_mcp_doc_key(document_url, doc):
     # namespaced ("url:") so it can never collide with a resolved "uid:"/"url:" key; else the
     # active-document sentinel.
     if document_url:
-        return "url:%s" % _normalize_doc_url(document_url)
+        return "url:%s" % normalize_doc_url(document_url)
     return _ACTIVE_DOCUMENT_SENTINEL
 
 

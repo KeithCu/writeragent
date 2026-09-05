@@ -8,7 +8,7 @@ The per-document mutation gate must give the SAME key whether a document is addr
 URL or by its RuntimeUID, so two concurrent mutating MCP calls on that document serialize on one
 lock instead of racing on two.
 """
-from plugin.framework.uno_context import _normalize_doc_url
+from plugin.framework.uno_context import normalize_doc_url
 from plugin.mcp.mcp_protocol import _ACTIVE_DOCUMENT_SENTINEL, _resolve_mcp_doc_key
 
 
@@ -35,7 +35,7 @@ def test_same_doc_by_url_and_by_uid_map_to_one_key():
 
 def test_saved_doc_without_uid_keys_on_url():
     doc = Doc(uid="", url="file:///docs/a.odt")
-    assert _resolve_mcp_doc_key("file:///docs/a.odt", doc) == "url:" + _normalize_doc_url("file:///docs/a.odt")
+    assert _resolve_mcp_doc_key("file:///docs/a.odt", doc) == "url:" + normalize_doc_url("file:///docs/a.odt")
 
 
 def test_unsaved_active_doc_keys_on_uid_not_sentinel():
@@ -45,7 +45,7 @@ def test_unsaved_active_doc_keys_on_uid_not_sentinel():
 
 
 def test_unresolved_doc_falls_back_to_request_url():
-    assert _resolve_mcp_doc_key("file:///docs/x.odt", None) == "url:" + _normalize_doc_url("file:///docs/x.odt")
+    assert _resolve_mcp_doc_key("file:///docs/x.odt", None) == "url:" + normalize_doc_url("file:///docs/x.odt")
 
 
 def test_unresolved_uid_request_cannot_collide_with_resolved_uid_key():

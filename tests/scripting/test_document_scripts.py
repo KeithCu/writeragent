@@ -20,6 +20,7 @@ from plugin.scripting.document_scripts import (
     delete_document_script,
     delete_user_script,
     document_script_display_name,
+    document_scripts_identity,
     get_document_scripts,
     handle_editor_script_message,
     has_document_scripts,
@@ -41,6 +42,14 @@ from plugin.tests.testing_utils import setup_uno_mocks
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
 setup_uno_mocks()
+
+
+def test_document_scripts_identity_uses_shared_trailing_slash_normalize():
+    doc = MagicMock()
+    doc.getURL.return_value = "file:///tmp/doc.odt/"
+    assert document_scripts_identity(doc) == "file:///tmp/doc.odt"
+    doc.getURL.return_value = ""
+    assert document_scripts_identity(doc) == ""
 
 
 def test_get_document_scripts_empty():

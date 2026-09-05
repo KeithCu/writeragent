@@ -1,13 +1,13 @@
 """Headless unit tests for document URL/excerpt helpers (not a native UNO suite)."""
 
 from plugin.doc.document_helpers import _inject_markers_into_excerpt
-from plugin.framework.uno_context import _normalize_doc_url
+from plugin.framework.uno_context import normalize_doc_url
 
 def test_normalize_doc_url():
-    assert _normalize_doc_url("file:///test/") == "file:///test"
-    assert _normalize_doc_url("file:///test") == "file:///test"
-    assert _normalize_doc_url("") == ""
-    assert _normalize_doc_url(None) == ""
+    assert normalize_doc_url("file:///test/") == "file:///test"
+    assert normalize_doc_url("file:///test") == "file:///test"
+    assert normalize_doc_url("") == ""
+    assert normalize_doc_url(None) == ""
 
 def test_inject_markers_into_excerpt():
     text = "0123456789"

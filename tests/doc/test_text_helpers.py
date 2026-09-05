@@ -1,6 +1,12 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from plugin.doc.text_helpers import get_full_writer_text, get_string_without_tracked_deletions, normalize_linebreaks
+from plugin.doc.text_helpers import (
+    get_document_path,
+    get_full_writer_text,
+    get_string_without_tracked_deletions,
+    normalize_file_url,
+    normalize_linebreaks,
+)
 
 
 def test_normalize_linebreaks():
@@ -17,6 +23,34 @@ def test_normalize_linebreaks():
     assert normalize_linebreaks("\r\r") == "\n\n"
     assert normalize_linebreaks("") == ""
     assert normalize_linebreaks(None) == ""
+
+
+def test_normalize_file_url_repairs_legacy_urljoin_form():
+    assert normalize_file_url("file:/home/user/Writing/Test.odt") == "file:///home/user/Writing/Test.odt"
+    assert normalize_file_url("file:///home/user/Writing/Test.odt") == "file:///home/user/Writing/Test.odt"
+    assert normalize_file_url("  file:/tmp/a.odt  ") == "file:///tmp/a.odt"
+    assert normalize_file_url("private:factory/swriter") == "private:factory/swriter"
+    assert normalize_file_url("") == ""
+
+
+def test_get_document_path_repairs_legacy_file_url_and_rejects_non_file():
+    def to_system_path(url):
+        assert url.startswith("file://")
+        return url[len("file://") :]
+
+    with patch("plugin.doc.text_helpers.uno.fileUrlToSystemPath", side_effect=to_system_path):
+        model = MagicMock()
+        model.getURL.return_value = "file:/tmp/legacy.odt"
+        assert get_document_path(model) == "/tmp/legacy.odt"
+
+        model.getURL.return_value = "file:///tmp/ok.odt"
+        assert get_document_path(model) == "/tmp/ok.odt"
+
+        model.getURL.return_value = ""
+        assert get_document_path(model) is None
+
+        model.getURL.return_value = "private:factory/swriter"
+        assert get_document_path(model) is None
 
 
 class _Enum:

@@ -216,12 +216,32 @@ def get_string_without_tracked_deletions(text_range) -> str:
     return "".join(parts)
 
 
+def normalize_file_url(url: str) -> str:
+    """Repair ``file:/path`` URLs from the old ``urljoin('file:', ...)`` form.
+
+    That join wrongly yields ``file:/home/...`` (two slashes).
+    ``loadComponentFromURL`` and ``fileUrlToSystemPath`` need ``file:///home/...``.
+    Shared by ``get_document_path`` and document-research URL→path.
+    Sandbox / session_manager keep their own stdlib copies (no UNO, Windows).
+    """
+    raw = str(url).strip()
+    if raw.startswith("file:///"):
+        return raw
+    if raw.startswith("file:/") and not raw.startswith("file://"):
+        return "file://" + raw[len("file:") :]
+    return raw
+
+
 @main_thread_only
 def get_document_path(model):
     """Return the local filesystem path for the document, or None if not a file URL (e.g. untitled)."""
     try:
         url = model.getURL()
-        if not url or not str(url).startswith("file://"):
+        if not url:
+            return None
+        # Legacy urljoin produced file:/path; require file:// after that repair.
+        url = normalize_file_url(str(url))
+        if not url.startswith("file://"):
             return None
         return str(uno.fileUrlToSystemPath(url))
     except Exception as e:
