@@ -711,11 +711,28 @@ def _update_menu_icons_impl():
         for cmd_url, (mod_name, prefix) in icon_cmds.items():
             key_cmds.setdefault((mod_name, prefix), []).append(cmd_url)
 
+        from plugin.framework.menu_icon_dpi import (
+            image_type_for_pixel_size,
+            menu_icon_filename,
+            resolve_menu_icon_pixel_size,
+        )
+
+        # One-shot DPI probe → pixel size (16 on HiDPI, larger on 1x).
+        # Warm StyleSettings host so startup race does not stick on hidpi-safe 16.
+        try:
+            from plugin.framework.appearance import get_style_window
+
+            get_style_window(ctx=ctx)
+        except Exception:
+            pass
+        icon_px = resolve_menu_icon_pixel_size(ctx)
+        image_type = image_type_for_pixel_size(icon_px)
+
         # Load graphics
         key_graphics = {}
         for key in key_cmds:
             mod_name, prefix = key
-            filename = "%s_16.png" % prefix
+            filename = menu_icon_filename(prefix, icon_px, ctx)
             graphic = _load_icon_graphic(mod_name, filename, ctx)
             if graphic:
                 key_graphics[key] = graphic
@@ -737,14 +754,23 @@ def _update_menu_icons_impl():
                     graphic = key_graphics.get(key)
                     if not graphic:
                         continue
+                    # Menus usually fetch SIZE_DEFAULT; also stamp LARGE/32 when we
+                    # chose a bigger asset so HiDPI/toolbars can pick either.
+                    type_set = {0, int(image_type)}
                     for cmd in cmds:
-                        try:
-                            if img_mgr.hasImage(0, cmd):
-                                img_mgr.replaceImages(0, (cmd,), (graphic,))
-                            else:
-                                img_mgr.insertImages(0, (cmd,), (graphic,))
-                        except Exception as e:
-                            log.warning("_update_menu_icons: failed to insert/replace image for %s: %s", cmd, e)
+                        for itype in sorted(type_set):
+                            try:
+                                if img_mgr.hasImage(itype, cmd):
+                                    img_mgr.replaceImages(itype, (cmd,), (graphic,))
+                                else:
+                                    img_mgr.insertImages(itype, (cmd,), (graphic,))
+                            except Exception as e:
+                                log.warning(
+                                    "_update_menu_icons: failed to insert/replace image for %s type=%s: %s",
+                                    cmd,
+                                    itype,
+                                    e,
+                                )
             except Exception as e:
                 log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
     except Exception:
