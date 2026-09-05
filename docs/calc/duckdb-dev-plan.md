@@ -60,12 +60,12 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 
 ### Current Implementation (as of latest increment)
 - Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads).
-- Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (named ranges on active doc), `data_range`, `headers`.
+- Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
 - Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading.
 - Worker: registers preloaded via `coerce_to_dataframe`, flat files via `read_csv`/`read_parquet` etc. under provided names. Read-only guards.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script.
 - Limitations: no write-back, no shared kernel cache yet, default first sheet for office files when `#SheetName` is omitted. Sibling `.xlsx`/`.ods` now read the sheet **used range** (same `createCursor` / `gotoStartOfUsedArea` / `gotoEndOfUsedArea` path as `SheetAnalyzer` / ingest) — open / missing-sheet / empty-range failures are tool errors. ODS mtime cache (`writeragent_ods_cache/`) is still pending.
-- Usage: Mix tables + files for joins, e.g. live ranges + sibling CSVs. See tool parameters and plan for request shapes.
+- Usage: Mix tables + files for joins, e.g. live sheet identity + sibling CSVs. See [Table source identity](#table-source-identity).
 
 **Audience:** Product, senior engineers, and future implementers. This doc captures why DuckDB fits WriterAgent, what users get, and how to build on existing Calc↔venv infrastructure without a new architectural pillar.
 
@@ -291,8 +291,8 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 ```json
 {
   "tables": {
-    "sales": {"range": "Sales.A1:F500", "headers": true},
-    "costs": {"range": "Costs.A1:D200", "headers": true}
+    "sales": {"sheet": "Sales", "headers": true},
+    "costs": {"named_range": "CostData", "headers": true}
   },
   "files": {
     "ledger": "ledger.parquet"
@@ -301,6 +301,8 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
   "sql": "SELECT s.region, SUM(s.amount) - SUM(c.cost) FROM sales s JOIN costs c ON ..."
 }
 ```
+
+Frozen A1 (`{"range": "Sales.A1:F500"}`) remains valid. Prefer `sheet` / `named_range` so the catalog does not drift — see [Table source identity](#table-source-identity).
 
 **Host responsibilities:**
 
@@ -317,6 +319,38 @@ Folder discovery aligns with [document research](../chat/multi-document-dev-plan
 - LLM-generated SQL injection: prefer host-supplied table **names** only; validate SQL is read-only.
 
 **Implementation note:** Host (tool) resolves all UNO-dependent data (ranges + office files) into `preloaded` + `flat_files`; worker registers by name and executes. `tables` + `files` (as dict) now supported in the tool. Legacy paths preserved.
+
+### Table source identity {#table-source-identity}
+
+The catalog stores **identity**, not expanded A1. Host resolves bounds **at read time** so a later insert/append does not require rewriting the catalog.
+
+| Spec | Meaning | Grows when |
+|------|---------|------------|
+| `{sheet: "Sales_Analytics"}` | Used range of that sheet on the active workbook | Rows/cols are added inside the used area |
+| `{named_range: "SalesData"}` | Calc **named range** or **database range** (current referred / data-area bounds) | The name’s definition expands (Calc updates named refs on insert; or the user edits the name) |
+| `{range: "Sales.A1:F500"}` | Frozen absolute A1 (also `Sheet.A1:F500`) | Never — leftover from Phase C; still accepted |
+| `{file: "budget.xlsx", sheet: "Sales"}` or `{file: "budget.xlsx#Sales"}` | Same sheet used-range identity on a **sibling** workbook | Same as `{sheet}` on that file |
+| `files={"sales": "budget.xlsx#Sales"}` | Same sibling sheet used-range; **dict key is the SQL table name** | Same as `{sheet}` |
+
+Bare string `tables={"sales": "Sales.A1:F500"}` is still `{range}`. `data_range` still becomes table `data` with frozen A1 — prefer `tables={data: {sheet}}` or `{named_range}` for a stable id.
+
+**Do not** store the resolved `C5:J40` back into the catalog. Re-query with the same `{sheet}` / `{named_range}` after the sheet grows.
+
+```json
+{
+  "tables": {
+    "sales": {"sheet": "Sales_Analytics"},
+    "costs": {"named_range": "CostData"}
+  },
+  "files": {
+    "income": "zip_income.csv",
+    "budget": "budget.xlsx#Actuals"
+  },
+  "sql": "SELECT s.region, SUM(s.amount) FROM sales s GROUP BY 1"
+}
+```
+
+Exactly one of `sheet`, `named_range`, or `range` per `tables` entry (a sibling `file` alone means first-sheet used range). Missing sheet / name / empty used-range fail loud.
 
 ---
 
@@ -435,3 +469,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | SQL_DuckDB live RESULTS `=PY()` formulas quote SQL with Python single quotes inside the formula `"…"` payload. Triple-double quotes closed the formula string early (Calc Err:508). |
 | 2026-09-05 | SQL_DuckDB RESULTS are formula-safe: SQL lives only in cells; the `=PY()` payload is a short runner that reads `data[1]` (SQL cell/range) plus `data[0]` (sheet range). |
 | 2026-09-05 | SQL_DuckDB sheet-only RESULTS leave 15 empty rows × 5 cols under the formula so a Region×Category spill (header+12) does not `#SPILL!` into the next section title. The live RESULTS formula cell is unmerged (no ODS `span_cols` / XLSX A:H) so spill targets are real cells. |
+| 2026-09-05 | Stable table identity: `{sheet}` (used range), `{named_range}` (named or database range), sibling `file.xlsx#Sheet` / `files={name: "file.xlsx#Sheet"}`. Frozen `{range: A1}` kept. Catalog does not store expanded A1. |

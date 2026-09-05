@@ -10,12 +10,13 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any
 
+from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcAnalysisBase
+from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.scripting.config_limits import configured_python_max_data_cells
-from plugin.calc.calc_addin_data import check_python_data_size
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -24,41 +25,70 @@ log = logging.getLogger("writeragent.calc.duckdb")
 
 
 class QueryFolderSqlTool(ToolCalcAnalysisBase):
-    """Run read-only SQL (DuckDB) over folder files and/or live active sheet ranges.
+    """Run read-only SQL (DuckDB) over folder files and/or live Calc table sources.
 
-    Supports files (direct + LO for spreadsheets) and data_range (active sheet -> table 'data').
-    Lives under analysis domain. Host performs all UNO reads and validation; worker registers tables
-    and executes read-only SQL.
+    ``tables`` catalog entries store a *stable identity* (sheet name, named /
+    database range, or frozen A1) — not expanded used-range bounds. Host
+    resolves bounds at read time so a later insert/append does not require
+    rewriting the catalog. Sibling ``files={"sales": "budget.xlsx#Sales"}``
+    is the same sheet used-range identity; the dict key is the SQL table name.
     """
 
     name = "query_folder_sql"
     description = (
         "Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). "
-        "Use tables={name: {range, headers}} for multiple named ranges from active doc. "
-        "files as list or {name: spec} for folder. "
-        "Tables registered by name (FROM sales etc). Host prepares all UNO data + validates."
+        "Prefer stable table identity: tables={name: {sheet: \"Sales_Analytics\"}} (sheet used range) "
+        "or {named_range: \"SalesData\"} (Calc named/database range). "
+        "Absolute range: {range: \"Sales.A1:F500\"} stays frozen A1. "
+        "Sibling sheet used-range: files={name: \"budget.xlsx#Sales\"} (dict key is the SQL table). "
+        "Optional tables file=\"budget.xlsx\" reads that sibling instead of the active doc. "
+        "Host prepares all UNO data + validates."
     )
     parameters = {
         "type": "object",
         "properties": {
-            "sql": {"type": "string", "description": "The SQL query. Use FROM data for active sheet range, or FROM 'file.csv' / 'budget.xlsx' for folder files."},
+            "sql": {"type": "string", "description": "The SQL query. Use FROM data for active sheet range, or FROM 'file.csv' / registered table names for folder files."},
             "files": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
-                "description": "Folder files as name -> basename/spec (e.g. {\"ledger\": \"ledger.parquet\"}). A list of basenames is still accepted. Office files auto-preloaded with name as table.",
+                "description": (
+                    "Folder files as name -> basename/spec. "
+                    "Sibling spreadsheet used-range: {\"sales\": \"budget.xlsx#Sales\"} "
+                    "(#SheetName is the sheet identity; the dict key is the SQL table). "
+                    "A list of basenames is still accepted."
+                ),
             },
-            "data_range": {"type": "string", "description": "A1 range on the active sheet (e.g. 'Sheet1.A1:F500' or 'A1:D100'). Becomes table 'data' (use headers param)."},
+            "data_range": {"type": "string", "description": "Frozen A1 on the active sheet (e.g. 'Sheet1.A1:F500'). Becomes table 'data'. Prefer tables={data: {sheet}} or {named_range} for stable identity."},
             "headers": {"type": "boolean", "description": "First row of data_range (or preloaded) contains column headers (default true)."},
             "tables": {
                 "type": "object",
                 "additionalProperties": {
                     "type": "object",
                     "properties": {
-                        "range": {"type": "string"},
-                        "headers": {"type": "boolean"}
-                    }
+                        "sheet": {
+                            "type": "string",
+                            "description": "Sheet name: register that sheet's used range (resolved at read time).",
+                        },
+                        "named_range": {
+                            "type": "string",
+                            "description": "Calc named range or database range; current referred bounds at read time.",
+                        },
+                        "range": {
+                            "type": "string",
+                            "description": "Frozen absolute A1 (e.g. 'Sales.A1:F500'). Does not grow with inserts.",
+                        },
+                        "file": {
+                            "type": "string",
+                            "description": "Sibling workbook basename, optionally #SheetName (budget.xlsx#Sales).",
+                        },
+                        "headers": {"type": "boolean"},
+                    },
                 },
-                "description": "Multi-table catalog for Phase C: named ranges from active doc. e.g. {\"sales\": {\"range\": \"Sales.A1:F500\", \"headers\": true}, \"costs\": {\"range\": \"Costs.A1:D200\"}}. Mix with files."
+                "description": (
+                    "Multi-table catalog. Exactly one identity per entry: sheet, named_range, or range. "
+                    "e.g. {\"sales\": {\"sheet\": \"Sales_Analytics\"}, \"costs\": {\"named_range\": \"CostData\"}}. "
+                    "Mix with files."
+                ),
             },
             "task_hint": {"type": "string", "description": "Optional hint for logging/context."},
         },
@@ -103,25 +133,22 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
             direct_files: list[str] = []
             flat_files: dict[str, str] = {}
 
-            # Phase C: named tables from ranges on the *active/current* document (multi supported)
+            # Catalog stores identity (sheet / named_range / frozen A1), not
+            # expanded used-range. Bounds are resolved at read time below.
             for tbl_name, spec in (tables or {}).items():
                 if not tbl_name:
                     continue
-                rng = spec.get("range") if isinstance(spec, dict) else spec
-                th = bool(spec.get("headers", headers)) if isinstance(spec, dict) else headers
-                if not rng:
-                    continue
                 try:
-                    from plugin.calc.inspector import CellInspector
-                    from plugin.calc.bridge import CalcBridge
-                    from plugin.calc.calc_addin_data import values_from_inspector_range
-                    bridge = CalcBridge(ctx.doc)
-                    inspector = CellInspector(bridge)
-                    raw = inspector.read_range(str(rng))
-                    grid = values_from_inspector_range(raw)
-                    preloaded[tbl_name] = {"grid": grid, "headers": th}
+                    parsed = parse_table_source_spec(spec, default_headers=headers)
+                    grid = read_table_source_grid(ctx.ctx, ctx.doc, scoped, parsed)
+                    preloaded[str(tbl_name)] = {"grid": grid, "headers": bool(parsed["headers"])}
+                except ToolExecutionError as exc:
+                    return self._tool_error(
+                        f"Failed to read table '{tbl_name}': {exc}",
+                        code=getattr(exc, "code", "DUCKDB_SQL_ERROR"),
+                    )
                 except Exception as e:
-                    return self._tool_error(f"Failed to read table '{tbl_name}' range '{rng}': {e}")
+                    return self._tool_error(f"Failed to read table '{tbl_name}': {e}")
 
             # Separate direct DuckDB-readable files from office files that need LO import.
             # Support "file.xlsx" or "file.xlsx#SheetName" syntax for sheets.
@@ -207,6 +234,285 @@ def _grid_has_usable_values(grid: list[list[Any]] | None) -> bool:
     return False
 
 
+def _sanitize_sql_table_name(raw: str) -> str:
+    tbl_name = "".join(c if c.isalnum() or c in "_$" else "_" for c in raw)
+    if not tbl_name or tbl_name[0].isdigit():
+        return "sheet_" + tbl_name
+    return tbl_name
+
+
+def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[str, Any]:
+    """Normalize a ``tables`` catalog entry to a source identity.
+
+    The catalog stores identity — sheet name, named/database range, or frozen
+    A1 — not the expanded used-range. Read-time helpers resolve current bounds
+    so callers can re-query after rows/columns are inserted without rewriting
+    A1 in the catalog.
+
+    Exactly one of ``sheet``, ``named_range``, or ``range`` is required, except
+    a sibling ``file`` alone (or ``file.xlsx#Sheet``) which means that sheet's
+    used range.
+    """
+    if isinstance(spec, str):
+        spec = {"range": spec}
+    if not isinstance(spec, dict):
+        raise ToolExecutionError(
+            f"Table spec must be a string range or an object with sheet, "
+            f"named_range, or range; got {type(spec).__name__}",
+            code="DUCKDB_SQL_ERROR",
+        )
+
+    headers = bool(spec.get("headers", default_headers))
+    file_spec = str(spec.get("file") or "").strip() or None
+    sheet = str(spec.get("sheet") or "").strip() or None
+    named_range = str(spec.get("named_range") or "").strip() or None
+    range_a1 = str(spec.get("range") or "").strip() or None
+
+    # Sibling shorthand: budget.xlsx#Sales is sheet used-range identity.
+    if file_spec and "#" in file_spec:
+        file_part, sheet_part = file_spec.rsplit("#", 1)
+        file_spec = os.path.basename(file_part.strip()) or None
+        hash_sheet = sheet_part.strip() or None
+        if hash_sheet:
+            if sheet and sheet != hash_sheet:
+                raise ToolExecutionError(
+                    f"Table spec file {file_spec!r}# sheet {hash_sheet!r} "
+                    f"disagrees with sheet {sheet!r}",
+                    code="DUCKDB_SQL_ERROR",
+                )
+            sheet = hash_sheet
+    elif file_spec:
+        file_spec = os.path.basename(file_spec)
+
+    present: list[str] = []
+    if sheet:
+        present.append("sheet")
+    if named_range:
+        present.append("named_range")
+    if range_a1:
+        present.append("range")
+
+    if len(present) > 1:
+        raise ToolExecutionError(
+            f"Table spec must use exactly one of sheet, named_range, or range "
+            f"(got {', '.join(present)})",
+            code="DUCKDB_SQL_ERROR",
+        )
+    if not present:
+        if file_spec:
+            kind = "sheet"
+        else:
+            raise ToolExecutionError(
+                "Table spec needs sheet (used range), named_range, or range (absolute A1)",
+                code="DUCKDB_SQL_ERROR",
+            )
+    else:
+        kind = present[0]
+
+    return {
+        "kind": kind,
+        "sheet": sheet,
+        "named_range": named_range,
+        "range": range_a1,
+        "file": file_spec,
+        "headers": headers,
+    }
+
+
+def _container_element_names(container: Any) -> list[str]:
+    if container is None or not hasattr(container, "getElementNames"):
+        return []
+    try:
+        return [str(n) for n in container.getElementNames()]
+    except Exception:
+        return []
+
+
+def _available_named_sources(doc: Any) -> str:
+    named = _container_element_names(getattr(doc, "NamedRanges", None))
+    db_ranges = _container_element_names(getattr(doc, "DatabaseRanges", None))
+    parts: list[str] = []
+    if named:
+        parts.append(", ".join(named))
+    if db_ranges:
+        parts.append(", ".join(f"{n} (database)" for n in db_ranges))
+    return "; ".join(parts)
+
+
+def _lookup_named_range_object(doc: Any, name: str) -> Any | None:
+    """Find a Calc NamedRange by name (global, sheet-qualified, or active-sheet local)."""
+    prefix, bare = split_sheet_prefix(name)
+
+    if prefix and hasattr(doc, "getSheets"):
+        sheets = doc.getSheets()
+        if sheets.hasByName(prefix):
+            sheet = sheets.getByName(prefix)
+            nrs = getattr(sheet, "NamedRanges", None)
+            if nrs is not None and nrs.hasByName(bare):
+                return nrs.getByName(bare)
+
+    nrs = getattr(doc, "NamedRanges", None)
+    if nrs is not None:
+        if nrs.hasByName(name):
+            return nrs.getByName(name)
+        if bare != name and nrs.hasByName(bare):
+            return nrs.getByName(bare)
+
+    try:
+        controller = doc.getCurrentController()
+        if controller is not None and hasattr(controller, "getActiveSheet"):
+            sheet = controller.getActiveSheet()
+            local = getattr(sheet, "NamedRanges", None)
+            if local is not None:
+                if local.hasByName(name):
+                    return local.getByName(name)
+                if local.hasByName(bare):
+                    return local.getByName(bare)
+    except Exception:
+        pass
+    return None
+
+
+def _lookup_database_range_object(doc: Any, name: str) -> Any | None:
+    dbrs = getattr(doc, "DatabaseRanges", None)
+    if dbrs is None or not hasattr(dbrs, "hasByName"):
+        return None
+    bare = split_sheet_prefix(name)[1]
+    for candidate in (name, bare):
+        if candidate and dbrs.hasByName(candidate):
+            return dbrs.getByName(candidate)
+    return None
+
+
+def _range_address_to_qualified_a1(doc: Any, addr: Any) -> str:
+    from plugin.calc.spreadsheet_import.ingest import used_range_string_from_address
+
+    sheet_idx = int(getattr(addr, "Sheet", 0))
+    sheet_name = str(doc.getSheets().getByIndex(sheet_idx).getName())
+    return _sheet_qualified_a1(sheet_name, used_range_string_from_address(addr))
+
+
+def used_range_qualified_a1(sheet: Any) -> str:
+    """Sheet used-range as sheet-qualified A1 (resolved now, not stored)."""
+    from plugin.calc.spreadsheet_import.ingest import _used_range_address, used_range_string_from_address
+
+    addr = _used_range_address(sheet)
+    return _sheet_qualified_a1(str(sheet.getName()), used_range_string_from_address(addr))
+
+
+def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:
+    addr = None
+    if hasattr(obj, "getReferredCells"):
+        try:
+            cells = obj.getReferredCells()
+        except Exception:
+            cells = None
+        if cells is not None and hasattr(cells, "getRangeAddress"):
+            addr = cells.getRangeAddress()
+    if addr is None and hasattr(obj, "getDataArea"):
+        try:
+            addr = obj.getDataArea()
+        except Exception:
+            addr = None
+    if addr is None:
+        raise ToolExecutionError(
+            f"{label} does not refer to a cell range",
+            code="DUCKDB_SQL_ERROR",
+        )
+    return _range_address_to_qualified_a1(doc, addr)
+
+
+def resolve_table_source_a1(model: Any, parsed: dict[str, Any]) -> str:
+    """Resolve a parsed identity to sheet-qualified A1 at read time.
+
+    Sheet → current used range. named_range → current NamedRanges /
+    DatabaseRanges bounds. range → the frozen A1 the caller stored.
+    """
+    from plugin.calc.bridge import CalcBridge
+
+    kind = parsed.get("kind")
+    if kind == "sheet":
+        bridge = CalcBridge(model)
+        sheet_name = parsed.get("sheet")
+        if sheet_name:
+            try:
+                target = bridge.get_sheet(str(sheet_name))
+            except ValueError as exc:
+                raise ToolExecutionError(str(exc), code="DUCKDB_SQL_ERROR") from exc
+        else:
+            sheets = model.getSheets()
+            if sheets.getCount() < 1:
+                raise ToolExecutionError("workbook has no sheets", code="DUCKDB_SQL_ERROR")
+            target = sheets.getByIndex(0)
+        return used_range_qualified_a1(target)
+
+    if kind == "named_range":
+        name = str(parsed.get("named_range") or "")
+        nr = _lookup_named_range_object(model, name)
+        if nr is not None:
+            return _named_object_to_qualified_a1(model, nr, label=f"Named range {name!r}")
+        dbr = _lookup_database_range_object(model, name)
+        if dbr is not None:
+            return _named_object_to_qualified_a1(model, dbr, label=f"Database range {name!r}")
+        available = _available_named_sources(model)
+        extra = f" Available: {available}" if available else ""
+        raise ToolExecutionError(
+            f"No named range or database range named {name!r}.{extra}",
+            code="DUCKDB_SQL_ERROR",
+        )
+
+    if kind == "range":
+        return str(parsed.get("range") or "")
+
+    raise ToolExecutionError(f"Unknown table identity {kind!r}", code="DUCKDB_SQL_ERROR")
+
+
+def read_model_table_grid(model: Any, parsed: dict[str, Any]) -> list[list[Any]]:
+    """Read values for a parsed identity from an already-open Calc model."""
+    from plugin.calc.bridge import CalcBridge
+    from plugin.calc.calc_addin_data import values_from_inspector_range
+    from plugin.calc.inspector import CellInspector
+
+    qualified = resolve_table_source_a1(model, parsed)
+    inspector = CellInspector(CalcBridge(model))
+    raw = inspector.read_range(qualified)
+    return values_from_inspector_range(raw)
+
+
+def read_table_source_grid(
+    ctx: Any,
+    active_doc: Any,
+    scoped_dir: str | None,
+    parsed: dict[str, Any],
+) -> list[list[Any]]:
+    """Read a catalog entry: active doc, or sibling ``file`` opened hidden."""
+    file_bn = parsed.get("file")
+    if not file_bn:
+        grid = read_model_table_grid(active_doc, parsed)
+        if parsed.get("kind") in ("sheet", "named_range") and not _grid_has_usable_values(grid):
+            raise ToolExecutionError(
+                f"Table identity {parsed.get('kind')} resolved to an empty range; "
+                "nothing to register for SQL",
+                code="DUCKDB_SQL_ERROR",
+            )
+        return grid
+
+    full_path = os.path.join(scoped_dir, str(file_bn)) if scoped_dir else str(file_bn)
+    if not os.path.isfile(full_path):
+        raise ToolExecutionError(
+            f"Sibling spreadsheet {file_bn!r} not found under the document folder",
+            code="DUCKDB_SQL_ERROR",
+        )
+    _tbl, grid = _read_sibling_office_file_as_grid(
+        ctx,
+        full_path,
+        sheet_hint=parsed.get("sheet"),
+        named_range=parsed.get("named_range"),
+        range_a1=parsed.get("range"),
+    )
+    return grid
+
+
 def _sheet_qualified_a1(sheet_name: str, range_str: str) -> str:
     """Qualify an A1 range so CellInspector hits *sheet_name* without setActiveSheet.
 
@@ -225,22 +531,49 @@ def _sibling_office_error(full_path: str, message: str, *, sheet: str | None = N
     return ToolExecutionError(f"Sibling spreadsheet {bn!r}: {message}", code=code)
 
 
-def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str | None = None) -> tuple[str, list[list[Any]]]:
-    """Open a sibling .xlsx/.ods hidden+readonly and read the sheet used range.
+def _read_sibling_office_file_as_grid(
+    ctx: Any,
+    full_path: str,
+    sheet_hint: str | None = None,
+    *,
+    named_range: str | None = None,
+    range_a1: str | None = None,
+) -> tuple[str, list[list[Any]]]:
+    """Open a sibling .xlsx/.ods hidden+readonly and read a table identity.
 
-    *sheet_hint* is the optional ``#SheetName`` from the files spec.
-    Returns ``(table_name, grid)``. Raises ``ToolExecutionError`` on open,
-    missing sheet, or empty/unusable used-range — never ``(None, None)``.
-
-    Used-range uses the same ``createCursor`` + ``gotoStart/EndOfUsedArea``
-    path as ``SheetAnalyzer`` / ``ingest._used_range_address``. The previous
-    hardcoded ``A1:AK2000`` / ``A1:AZ5000`` fallback padded most tables with
-    thousands of empty cells and hid open/sheet failures as a silent skip.
+    Default / ``#SheetName`` is that sheet's used range (same
+    ``createCursor`` + ``gotoStart/EndOfUsedArea`` path as ``SheetAnalyzer``).
+    ``named_range`` and ``range_a1`` are the same identities as the ``tables``
+    catalog. Returns ``(table_name, grid)``. Raises ``ToolExecutionError`` on
+    open, missing sheet/name, or empty/unusable used-range — never ``(None, None)``.
     """
-    from plugin.calc.bridge import CalcBridge
-    from plugin.calc.calc_addin_data import values_from_inspector_range
-    from plugin.calc.inspector import CellInspector
-    from plugin.calc.spreadsheet_import.ingest import _used_range_address, used_range_string_from_address
+    if named_range:
+        parsed: dict[str, Any] = {
+            "kind": "named_range",
+            "sheet": None,
+            "named_range": named_range,
+            "range": None,
+            "file": os.path.basename(full_path),
+            "headers": True,
+        }
+    elif range_a1:
+        parsed = {
+            "kind": "range",
+            "sheet": None,
+            "named_range": None,
+            "range": range_a1,
+            "file": os.path.basename(full_path),
+            "headers": True,
+        }
+    else:
+        parsed = {
+            "kind": "sheet",
+            "sheet": (sheet_hint or "").strip() or None,
+            "named_range": None,
+            "range": None,
+            "file": os.path.basename(full_path),
+            "headers": True,
+        }
 
     model = None
     opened_flag = False
@@ -251,39 +584,24 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, sheet_hint: str 
         if doc_type != "calc":
             raise _sibling_office_error(full_path, f"not a spreadsheet (type={doc_type!r})")
 
-        bridge = CalcBridge(model)
-        sheets = model.getSheets()
-        if sheet_hint:
-            # CalcBridge.get_sheet lists available names — do not fall back to sheet 0.
-            try:
-                target_sheet = bridge.get_sheet(sheet_hint)
-            except ValueError as exc:
-                raise _sibling_office_error(full_path, str(exc), sheet=sheet_hint) from exc
-        else:
-            if sheets.getCount() < 1:
-                raise _sibling_office_error(full_path, "workbook has no sheets")
-            target_sheet = sheets.getByIndex(0)
-
-        sheet_name = str(target_sheet.getName())
-        addr = _used_range_address(target_sheet)
-        range_str = used_range_string_from_address(addr)
-        qualified = _sheet_qualified_a1(sheet_name, range_str)
-
-        inspector = CellInspector(bridge)
-        raw = inspector.read_range(qualified)
-        grid = values_from_inspector_range(raw)
-        if not _grid_has_usable_values(grid):
+        try:
+            grid = read_model_table_grid(model, parsed)
+        except ToolExecutionError as exc:
+            identity = parsed.get("sheet") or parsed.get("named_range")
             raise _sibling_office_error(
                 full_path,
-                f"used range {range_str} is empty; nothing to register for SQL",
-                sheet=sheet_name,
+                str(exc),
+                sheet=str(identity) if identity else None,
+            ) from exc
+        if parsed["kind"] in ("sheet", "named_range") and not _grid_has_usable_values(grid):
+            identity = parsed.get("named_range") or parsed.get("sheet") or os.path.basename(full_path)
+            raise _sibling_office_error(
+                full_path,
+                "used range is empty; nothing to register for SQL",
+                sheet=str(identity) if identity else None,
             )
 
-        tbl_name = os.path.splitext(os.path.basename(full_path))[0]
-        tbl_name = "".join(c if c.isalnum() or c in "_$" else "_" for c in tbl_name)
-        if not tbl_name or tbl_name[0].isdigit():
-            tbl_name = "sheet_" + tbl_name
-
+        tbl_name = _sanitize_sql_table_name(os.path.splitext(os.path.basename(full_path))[0])
         return tbl_name, grid
     except ToolExecutionError:
         raise

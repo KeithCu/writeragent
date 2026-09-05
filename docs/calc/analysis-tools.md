@@ -14,7 +14,8 @@ Previously, tools lived under the **`analysis`** specialized domain (`delegate_t
 
 See [specialized-toolsets.md](specialized-toolsets.md) for delegation mechanics and [Analysis Sub-Agent](analysis-sub-agent.md) for the broader plan. DuckDB SQL support (up to Phase C): 
 - `query_folder_sql` for folder files (CSV/Parquet/JSON direct + .xlsx/.ods via LO import) and/or live ranges.
-- Use `tables` (named ranges), `files` (list or named dict), `data_range` (single range → 'data' table).
+- Use `tables` with a **stable identity**: `{sheet: "Sales"}` (used range), `{named_range: "SalesData"}` (named or database range), or frozen `{range: "Sales.A1:F500"}`. Sibling sheet: `files={"sales": "budget.xlsx#Sales"}` (dict key is the SQL table). See [duckdb-dev-plan.md § Table source identity](duckdb-dev-plan.md#table-source-identity).
+- `data_range` is still frozen A1 → table `data`.
 - Available in analysis domain chat or Run Python Script → SQL Helpers.
 Full plan and status: [duckdb-dev-plan.md](duckdb-dev-plan.md).
 

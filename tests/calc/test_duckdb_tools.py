@@ -14,6 +14,8 @@ from plugin.calc.address_utils import parse_range_string, split_sheet_prefix
 from plugin.calc.duckdb_tools import (
     QueryFolderSqlTool,
     _read_sibling_office_file_as_grid,
+    parse_table_source_spec,
+    resolve_table_source_a1,
 )
 from plugin.framework.errors import ToolExecutionError
 
@@ -86,12 +88,53 @@ def _fake_sheets(names: tuple[str, ...] = ("Actuals", "Summary"), addr=None):
     return Sheets()
 
 
-def _fake_model(sheets=None):
+def _named_container(items: dict | None = None):
+    items = items or {}
+
+    class Container:
+        def hasByName(self, name: str) -> bool:
+            return name in items
+
+        def getByName(self, name: str):
+            return items[name]
+
+        def getElementNames(self) -> tuple[str, ...]:
+            return tuple(items.keys())
+
+    return Container()
+
+
+def _fake_named_range(addr, *, sheet_idx: int = 0):
+    cells = SimpleNamespace(
+        getRangeAddress=lambda: SimpleNamespace(
+            Sheet=sheet_idx,
+            StartColumn=addr.StartColumn,
+            StartRow=addr.StartRow,
+            EndColumn=addr.EndColumn,
+            EndRow=addr.EndRow,
+        )
+    )
+    return SimpleNamespace(getReferredCells=lambda: cells, getDataArea=lambda: None)
+
+
+def _fake_database_range(addr, *, sheet_idx: int = 0):
+    data_area = SimpleNamespace(
+        Sheet=sheet_idx,
+        StartColumn=addr.StartColumn,
+        StartRow=addr.StartRow,
+        EndColumn=addr.EndColumn,
+        EndRow=addr.EndRow,
+    )
+    return SimpleNamespace(getReferredCells=lambda: None, getDataArea=lambda: data_area)
+
+
+def _fake_model(sheets=None, named_ranges=None, database_ranges=None):
     sheets = sheets or _fake_sheets()
     return SimpleNamespace(
         getSheets=lambda: sheets,
         getCurrentController=lambda: None,
-        NamedRanges=SimpleNamespace(hasByName=lambda _n: False),
+        NamedRanges=named_ranges if named_ranges is not None else _named_container(),
+        DatabaseRanges=database_ranges if database_ranges is not None else _named_container(),
     )
 
 
@@ -117,6 +160,11 @@ def test_query_folder_sql_tool_basic_schema():
     p = t.parameters
     assert "sql" in p["properties"]
     assert "sql" in p.get("required", [])
+    tbl_props = p["properties"]["tables"]["additionalProperties"]["properties"]
+    assert "sheet" in tbl_props
+    assert "named_range" in tbl_props
+    assert "range" in tbl_props
+    assert "file" in tbl_props
 
 
 def test_query_folder_sql_requires_sql():
@@ -365,3 +413,232 @@ def test_preload_path_bad_sheet_hint_errors(
     assert "MissingSheet" in res["message"]
     mock_run.assert_not_called()
     mock_read.assert_not_called()
+
+
+def test_parse_table_source_spec_identities():
+    sheet = parse_table_source_spec({"sheet": "Sales_Analytics", "headers": False})
+    assert sheet["kind"] == "sheet"
+    assert sheet["sheet"] == "Sales_Analytics"
+    assert sheet["range"] is None
+    assert sheet["headers"] is False
+
+    named = parse_table_source_spec({"named_range": "SalesData"})
+    assert named["kind"] == "named_range"
+    assert named["named_range"] == "SalesData"
+
+    frozen = parse_table_source_spec({"range": "Sales.A1:F500"})
+    assert frozen["kind"] == "range"
+    assert frozen["range"] == "Sales.A1:F500"
+
+    legacy = parse_table_source_spec("Costs.A1:D200")
+    assert legacy["kind"] == "range"
+    assert legacy["range"] == "Costs.A1:D200"
+
+    sibling = parse_table_source_spec({"file": "budget.xlsx#Sales"})
+    assert sibling["kind"] == "sheet"
+    assert sibling["sheet"] == "Sales"
+    assert sibling["file"] == "budget.xlsx"
+
+
+def test_parse_table_source_spec_rejects_mixed_or_empty():
+    try:
+        parse_table_source_spec({"sheet": "Sales", "range": "A1:B2"})
+    except ToolExecutionError as exc:
+        assert "exactly one" in str(exc)
+    else:
+        raise AssertionError("mixed sheet+range must fail")
+
+    try:
+        parse_table_source_spec({})
+    except ToolExecutionError as exc:
+        assert "sheet" in str(exc)
+        assert "named_range" in str(exc)
+    else:
+        raise AssertionError("empty spec must fail")
+
+
+def test_sheet_identity_rereads_used_range_not_cached_a1():
+    """Same {sheet} spec must pick up a grown used-range — catalog is not expanded A1."""
+    addr = _fake_addr(2, 4, 3, 5)
+    model = _fake_model(sheets=_fake_sheets(names=("Actuals",), addr=addr))
+    parsed = parse_table_source_spec({"sheet": "Actuals"})
+
+    first = resolve_table_source_a1(model, parsed)
+    assert first.endswith("C5:D6")
+    assert parsed["range"] is None
+    assert parsed["sheet"] == "Actuals"
+
+    addr.EndRow = 7
+    second = resolve_table_source_a1(model, parsed)
+    assert second.endswith("C5:D8")
+    assert parsed["range"] is None
+
+
+def test_named_range_identity_follows_referred_bounds():
+    addr = _fake_addr(2, 4, 3, 5)
+    nr = _fake_named_range(addr)
+    model = _fake_model(
+        sheets=_fake_sheets(names=("Actuals",), addr=addr),
+        named_ranges=_named_container({"SalesData": nr}),
+    )
+    parsed = parse_table_source_spec({"named_range": "SalesData"})
+
+    first = resolve_table_source_a1(model, parsed)
+    assert first.endswith("C5:D6")
+    addr.EndRow = 8
+    second = resolve_table_source_a1(model, parsed)
+    assert second.endswith("C5:D9")
+    assert parsed["named_range"] == "SalesData"
+    assert parsed["range"] is None
+
+
+def test_database_range_identity_uses_data_area():
+    addr = _fake_addr(0, 0, 1, 3)
+    dbr = _fake_database_range(addr)
+    model = _fake_model(
+        sheets=_fake_sheets(names=("Actuals",), addr=addr),
+        database_ranges=_named_container({"CostDB": dbr}),
+    )
+    parsed = parse_table_source_spec({"named_range": "CostDB"})
+    qualified = resolve_table_source_a1(model, parsed)
+    assert qualified.endswith("A1:B4")
+
+
+def test_named_range_identity_missing_errors():
+    model = _fake_model()
+    parsed = parse_table_source_spec({"named_range": "Nope"})
+    try:
+        resolve_table_source_a1(model, parsed)
+    except ToolExecutionError as exc:
+        assert "Nope" in str(exc)
+    else:
+        raise AssertionError("missing named range must fail loud")
+
+
+def test_frozen_range_identity_is_not_used_range():
+    addr = _fake_addr(2, 4, 3, 5)
+    model = _fake_model(sheets=_fake_sheets(names=("Actuals",), addr=addr))
+    parsed = parse_table_source_spec({"range": "Actuals.A1:B2"})
+    assert resolve_table_source_a1(model, parsed) == "Actuals.A1:B2"
+
+
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_execute_sheet_identity_preloads_used_range(mock_resolve, mock_run, mock_exec, mock_read):
+    mock_resolve.return_value = "/tmp/project"
+    mock_run.return_value = {"status": "ok", "total_rows": 1}
+    mock_exec.side_effect = lambda fn: fn()
+    mock_read.side_effect = _grid_for_requested_range
+
+    ctx = _mk_ctx()
+    ctx.doc = _fake_model()
+    res = QueryFolderSqlTool().execute(
+        ctx,
+        sql="SELECT * FROM sales",
+        tables={"sales": {"sheet": "Actuals"}},
+    )
+    assert res["status"] == "ok"
+    requested = mock_read.call_args[0][0]
+    assert "C5:D6" in requested
+    assert "AK2000" not in requested
+    pre = mock_run.call_args.kwargs.get("preloaded") or {}
+    assert "sales" in pre
+    assert pre["sales"]["grid"][0] == ["Region", "Sales"]
+
+
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_execute_named_range_identity(mock_resolve, mock_run, mock_exec, mock_read):
+    mock_resolve.return_value = "/tmp/project"
+    mock_run.return_value = {"status": "ok"}
+    mock_exec.side_effect = lambda fn: fn()
+    mock_read.side_effect = _grid_for_requested_range
+    addr = _fake_addr()
+    ctx = _mk_ctx()
+    ctx.doc = _fake_model(named_ranges=_named_container({"SalesData": _fake_named_range(addr)}))
+
+    res = QueryFolderSqlTool().execute(
+        ctx,
+        sql="SELECT * FROM sales",
+        tables={"sales": {"named_range": "SalesData"}},
+    )
+    assert res["status"] == "ok"
+    requested = mock_read.call_args[0][0]
+    assert "C5:D6" in requested
+    pre = mock_run.call_args.kwargs.get("preloaded") or {}
+    assert "sales" in pre
+
+
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_execute_frozen_range_stays_absolute(mock_resolve, mock_run, mock_exec, mock_read):
+    mock_resolve.return_value = "/tmp/project"
+    mock_run.return_value = {"status": "ok"}
+    mock_exec.side_effect = lambda fn: fn()
+    mock_read.side_effect = _grid_for_requested_range
+    ctx = _mk_ctx()
+    ctx.doc = _fake_model()
+
+    res = QueryFolderSqlTool().execute(
+        ctx,
+        sql="SELECT * FROM sales",
+        tables={"sales": {"range": "Actuals.A1:B2"}},
+    )
+    assert res["status"] == "ok"
+    requested = mock_read.call_args[0][0]
+    _prefix, bare = split_sheet_prefix(requested)
+    assert _prefix == "Actuals"
+    assert bare == "A1:B2"
+
+
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_execute_missing_named_range_does_not_run_sql(mock_resolve, mock_run, mock_exec):
+    mock_resolve.return_value = "/tmp/project"
+    mock_exec.side_effect = lambda fn: fn()
+    ctx = _mk_ctx()
+    ctx.doc = _fake_model()
+
+    res = QueryFolderSqlTool().execute(
+        ctx,
+        sql="SELECT * FROM sales",
+        tables={"sales": {"named_range": "MissingName"}},
+    )
+    assert res["status"] == "error"
+    assert "MissingName" in res["message"]
+    mock_run.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools.os.path.isfile", return_value=True)
+@patch("plugin.calc.duckdb_tools._read_sibling_office_file_as_grid")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_execute_tables_file_sheet_identity(
+    mock_resolve, mock_run, mock_exec, mock_read_office, _mock_isfile
+):
+    """tables={name: {file, sheet}} uses the sibling used-range path; catalog name is the key."""
+    mock_resolve.return_value = "/tmp/project"
+    mock_read_office.return_value = ("budget", [["Region", "Sales"], ["North", 100]])
+    mock_run.return_value = {"status": "ok"}
+    mock_exec.side_effect = lambda fn: fn()
+
+    res = QueryFolderSqlTool().execute(
+        _mk_ctx(),
+        sql="SELECT * FROM sales",
+        tables={"sales": {"file": "budget.xlsx", "sheet": "Actuals"}},
+    )
+    assert res["status"] == "ok"
+    _args, kwargs = mock_read_office.call_args
+    assert _args[1].endswith("budget.xlsx")
+    assert kwargs.get("sheet_hint") == "Actuals"
+    pre = mock_run.call_args.kwargs.get("preloaded") or {}
+    assert "sales" in pre
+    assert pre["sales"]["grid"][0] == ["Region", "Sales"]
