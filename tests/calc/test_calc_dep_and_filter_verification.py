@@ -109,8 +109,9 @@ def test_resolve_dep_range_and_table() -> None:
     assert dep3.kind == "anchor_snapshot"
     assert dep3.a1 == "A6:C10"
 
-    # Case folding still reaches the regex after the surface-shape gate.
-    dep4 = resolve_dep("table1[#all]", model)
+    # Suffix case folding still reaches the regex after the surface-shape gate.
+    # Table *name* lookup stays case-sensitive (``tables.get(name)``).
+    dep4 = resolve_dep("Table1[#all]", model)
     assert dep4.kind == "table_snapshot"
     assert dep4.a1 == "A1:D50"
 

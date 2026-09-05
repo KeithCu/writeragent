@@ -86,8 +86,9 @@ def _has_anchorarray_shape(raw: str) -> bool:
 def _has_table_all_shape(raw: str) -> bool:
     """True when *raw* can match ``_TABLE_ALL_RE`` (``Name[#All]``).
 
-    ``\[#All\]`` is the fragment CrossHair relib treats as an open ``[`` class
-    (check-all 33940151004). Junk like ``_`` / ``[`` must not reach ``re.match``.
+    The escaped ``[#All]`` suffix in ``_TABLE_ALL_RE`` is the fragment CrossHair
+    relib treats as an open ``[`` class (check-all 33940151004). Junk like
+    ``_`` / ``[`` must not reach ``re.match``.
     """
     return raw.upper().endswith("[#ALL]")
 
