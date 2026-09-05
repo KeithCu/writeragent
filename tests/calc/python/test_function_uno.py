@@ -18,6 +18,7 @@ from plugin.calc.calc_addin_data import calc_addin_data_to_python
 from plugin.calc.python.function import _py_scoped_dir_bindings
 from plugin.framework.uno_context import get_desktop
 from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.session_manager import clear_active_calc_session
 from plugin.testing_runner import native_test
 from plugin.writer.format import create_property_value
 
@@ -95,6 +96,7 @@ def test_xlsx_named_range_pack_from_results_row_keeps_header(ctx):
         join = _pack_named_range_from_row(doc, "SalesData", "SQL_DuckDB", 87)
         assert join[0][0] == "Order_ID"
     finally:
+        clear_active_calc_session()
         doc.close(True)
 
 
@@ -110,6 +112,7 @@ def test_ods_named_range_pack_from_results_row_keeps_header(ctx):
         marketing = _pack_named_range_from_row(doc, "MarketingData", "SQL_DuckDB", 51)
         assert marketing[0][1] == "Channel"
     finally:
+        clear_active_calc_session()
         doc.close(True)
 
 
@@ -132,6 +135,7 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
             assert os.path.samefile(folder, temp_dir), bindings
             assert os.path.isfile(os.path.join(folder, "zip_income.csv"))
         finally:
+            clear_active_calc_session()
             doc.close(True)
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
