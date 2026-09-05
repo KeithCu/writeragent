@@ -173,6 +173,60 @@ def _overlay_rect(qr: Any, rows: int, *, relative_to_ask: bool) -> tuple[int, in
     return (int(qr.X), int(qr.Y) - height - 2, width, height)
 
 
+def _status_bottom(send_listener: Any) -> int | None:
+    """Bottom Y of the Ready/status control, or None."""
+    status = getattr(send_listener, "status_control", None) if send_listener is not None else None
+    if status is None or not hasattr(status, "getPosSize"):
+        return None
+    try:
+        ps = status.getPosSize()
+        return int(ps.Y) + int(ps.Height)
+    except Exception:
+        return None
+
+
+def _gap_fit_overlay_rect(
+    qr: Any,
+    rows: int,
+    *,
+    status_bottom: int | None,
+) -> tuple[int, int, int, int, int]:
+    """Place popup in [status_bottom, Ask.top) when Ready would overlap Ask-relative placement.
+
+    Returns (x, y, w, h, rows_used).
+    """
+    width = max(20, int(getattr(qr, "Width", 0) or 0))
+    ask_y = int(getattr(qr, "Y", 0) or 0)
+    desired_h = _overlay_height(rows)
+    # Default: classic just-above-Ask.
+    y = ask_y - desired_h - 2
+    h = desired_h
+    rows_used = min(max(rows, 1), _POPUP_MAX_ROWS)
+    if status_bottom is not None and y < status_bottom:
+        # Sit flush below Ready; shrink height/rows to fit the gap.
+        y = int(status_bottom)
+        gap = ask_y - y - 2
+        if gap < 24:
+            gap = max(24, gap)
+        # How many rows fit at _POPUP_ROW_PX (+6 chrome)?
+        fit_rows = max(1, min(rows_used, (gap - 6) // _POPUP_ROW_PX))
+        h = _overlay_height(fit_rows)
+        if y + h > ask_y - 2:
+            h = max(24, ask_y - y - 2)
+        rows_used = fit_rows
+        _ovlog(
+            "gap_fit status_bottom=%s ask_y=%s gap=%s rows=%s->%s h=%s y=%s",
+            status_bottom,
+            ask_y,
+            gap,
+            rows,
+            rows_used,
+            h,
+            y,
+        )
+    return (int(qr.X), y, width, h, rows_used)
+
+
 def _row_index_at_y(y: int, n_rows: int) -> int | None:
     """List row under a mouse Y, or None when the click is not on a row."""
     if y < 0 or n_rows <= 0:
@@ -579,8 +633,15 @@ class SlashPopupController:
             qr = query.getPosSize()
             rows = min(len(self._matches) or 1, _POPUP_MAX_ROWS)
             relative_to_ask = self._overlay_parent is None
-            x, y, w, h = _overlay_rect(qr, rows, relative_to_ask=relative_to_ask)
-            # SIMPLE is dialog-local; _overlay_rect already computed x,y.
+            if relative_to_ask:
+                x, y, w, h = _overlay_rect(qr, rows, relative_to_ask=True)
+                rows_used = rows
+            else:
+                status_bottom = _status_bottom(self.send_listener)
+                x, y, w, h, rows_used = _gap_fit_overlay_rect(
+                    qr, rows, status_bottom=status_bottom
+                )
+            # SIMPLE is dialog-local; gap-fit avoids Ready overlap on HiDPI.
             _ovlog(
                 "reposition Ask=%sx%s@%s,%s popup_bounds=%s,%s %sx%s rows=%s toolkit=%s relative_to_ask=%s",
                 qr.Width,
@@ -591,7 +652,7 @@ class SlashPopupController:
                 y,
                 w,
                 h,
-                rows,
+                rows_used,
                 self._popup_window is not None,
                 relative_to_ask,
             )
