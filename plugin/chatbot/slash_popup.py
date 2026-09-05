@@ -74,8 +74,48 @@ def _ovdiag(obj: Any, label: str) -> None:
         bits.append("output=%sx%s" % (obj.getOutputWidth(), obj.getOutputHeight()))
     except Exception:
         pass
+    try:
+        osz = obj.getOutputSize()
+        bits.append("outputSize=%sx%s" % (osz.Width, osz.Height))
+    except Exception:
+        pass
+    try:
+        peer = obj.getPeer() if callable(getattr(obj, "getPeer", None)) else None
+        if peer is not None and peer is not obj:
+            try:
+                pps = peer.getPosSize()
+                bits.append("peerPos=%sx%s@%s,%s" % (pps.Width, pps.Height, pps.X, pps.Y))
+            except Exception:
+                pass
+            try:
+                bits.append("peerOutput=%sx%s" % (peer.getOutputWidth(), peer.getOutputHeight()))
+            except Exception:
+                pass
+            try:
+                posz = peer.getOutputSize()
+                bits.append("peerOutputSize=%sx%s" % (posz.Width, posz.Height))
+            except Exception:
+                pass
+    except Exception:
+        pass
     _ovlog("%s", " ".join(str(b) for b in bits))
 
+
+def _log_slash_clip_neighbors(send_listener: Any, *, popup_bounds: tuple[int, int, int, int] | None = None) -> None:
+    """Log status / response / rich-text geometry beside popup (Arch clip hypothesis)."""
+    if popup_bounds is not None:
+        x, y, w, h = popup_bounds
+        _ovlog("popup_bounds_for_clip=%s,%s %sx%s (y..y+h=%s..%s)", x, y, w, h, y, y + h)
+    if send_listener is None:
+        _ovlog("clip_neighbors send_listener None")
+        return
+    status = getattr(send_listener, "status_control", None)
+    response = getattr(send_listener, "response_control", None)
+    rich_widget = getattr(send_listener, "rich_text_widget", None)
+    rich_ctrl = getattr(rich_widget, "control", None) if rich_widget is not None else None
+    _ovdiag(status, "status")
+    _ovdiag(response, "response")
+    _ovdiag(rich_ctrl, "rich_text")
 
 # Feature flag: slash-command popup is currently disabled until stable.
 ENABLE_SLASH = False
@@ -425,6 +465,7 @@ class SlashPopupController:
             set_control_visible(host, True)
         set_control_visible(self.control, True)
         self.reposition()
+        self._bring_overlay_front()
         _ovlog("show complete SIMPLE in-dialog")
 
     def _late_attach_overlay_keys(self) -> None:
@@ -508,6 +549,25 @@ class SlashPopupController:
         self.accept_selected()
         return True
 
+    def _bring_overlay_front(self) -> None:
+        """Raise the toolkit listbox above Ready/transcript siblings (clip probe)."""
+        for label, obj in (
+            ("popup_window", self._popup_window),
+            ("popup_floater", getattr(self, "_popup_floater", None)),
+            ("control", self.control),
+        ):
+            if obj is None:
+                continue
+            to_front = getattr(obj, "toFront", None)
+            if not callable(to_front):
+                _ovlog("toFront skip %s (no method)", label)
+                continue
+            try:
+                to_front()
+                _ovlog("toFront ok %s", label)
+            except Exception:
+                _ovlog("toFront failed %s", label, exc_info=True)
+
     def reposition(self) -> None:
         """Size the overlay to the match rows and park it above Ask."""
         query = self.query_control
@@ -534,6 +594,7 @@ class SlashPopupController:
                 self._popup_window is not None,
                 relative_to_ask,
             )
+            _log_slash_clip_neighbors(self.send_listener, popup_bounds=(x, y, w, h))
             if self._popup_window is not None:
                 floater = getattr(self, "_popup_floater", None)
                 if floater is not None:
