@@ -1100,6 +1100,57 @@ def test_scalar_for_list_result_increments_with_unique_origin(monkeypatch: pytes
     assert c == 30
 
 
+def test_py_scoped_dir_bindings_none_doc() -> None:
+    assert python_function._py_scoped_dir_bindings(None) == {"scoped_dir": None}
+
+
+def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Yellow / #402: off-main recalc must not call getURL() on a cached model."""
+    called: list[int] = []
+
+    def boom(doc: object) -> str:
+        called.append(1)
+        raise AssertionError("must not touch UNO off-main")
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
+    assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": None}
+    assert called == []
+
+
+def test_py_scoped_dir_bindings_on_main_uses_document_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(
+        "plugin.doc.document_research.get_document_directory",
+        lambda doc: "/tmp/workbook-dir",
+    )
+    assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": "/tmp/workbook-dir"}
+
+
+def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    python_function.clear_python_addin_cache()
+    captured: dict[str, Any] = {}
+
+    def fake_run(*_a: object, **kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"status": "ok", "result": 1.0}
+
+    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr(
+        "plugin.doc.document_research.get_document_directory",
+        lambda doc: "/folder",
+    )
+    monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
+    monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
+    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
+    out = python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "1+1")
+    assert out == 1.0
+    assert captured.get("bindings") == {"scoped_dir": "/folder"}
+
+
 def test_format_error_for_display_distinguishes_timeout_error() -> None:
     """Issue #402: host marshal TimeoutError must not format as user venv settings guidance."""
     exc = TimeoutError("Main-thread execution of _workbook_session_id_impl timed out after 30.0s")

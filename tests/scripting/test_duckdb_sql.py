@@ -251,7 +251,7 @@ def test_pretty_demo_results_code_reads_sql_from_cell_range():
         CalcRange(_pretty_demo_sales_grid()),
         CalcRange([[line] for line in sql_query_lines(SQL_SALES_BY_REGION_CATEGORY)]),
     ]
-    ns: dict[str, object] = {"data": data}
+    ns: dict[str, object] = {"data": data, "session_duckdb": session_duckdb}
     exec(duckdb_sql_from_cell_code("sales"), ns)  # noqa: S102 — exact demo payload
     result = ns["result"]
     assert list(result.columns) == ["Region", "Category", "revenue", "orders"]
@@ -400,6 +400,69 @@ def test_query_folder_sql_corrupt_parquet_is_read_error(tmp_path):
     assert res["status"] == "error"
     assert res.get("code") == "FLAT_FILE_READ_ERROR"
     assert "ledger.parquet" in res.get("message", "")
+
+
+def test_pretty_demo_join_results_code_runs_via_run_sql():
+    """Live ZIP-join RESULTS payload: data[0] sheet ⨝ sibling CSV via run_sql."""
+    from plugin.scripting.calc_range import CalcRange
+    from scripts.generate_pretty_demo_spreadsheet import (
+        SQL_SALES_ZIP_INCOME_JOIN,
+        ZIP_INCOME_CSV_NAME,
+        duckdb_join_from_cell_code,
+        sql_query_lines,
+    )
+
+    csv_path = _zip_income_path()
+    data = [
+        CalcRange(_pretty_demo_sales_grid()),
+        CalcRange([[line] for line in sql_query_lines(SQL_SALES_ZIP_INCOME_JOIN)]),
+    ]
+    ns: dict[str, object] = {
+        "data": data,
+        "run_sql": run_sql,
+        "scoped_dir": str(csv_path.parent),
+    }
+    exec(duckdb_join_from_cell_code("sales", ZIP_INCOME_CSV_NAME), ns)  # noqa: S102
+    result = ns["result"]
+    cols = [str(c).lower() for c in result.columns]
+    assert "income_band" in cols and "revenue" in cols
+    assert len(result) >= 2
+    rev_col = result.columns[cols.index("revenue")]
+    joined_rev = float(result[rev_col].sum())
+    grid = _pretty_demo_sales_grid()
+    sheet_rev = sum(float(r[7]) for r in grid[1:])
+    assert abs(joined_rev - sheet_rev) < 0.02
+
+
+def test_run_sql_returns_dataframe_for_preloaded_and_sibling_csv(tmp_path: Path):
+    sales = tmp_path / "ignored.csv"
+    _write_csv(sales, "zip,amount\n02116,10\n")
+    income = tmp_path / "zip_income.csv"
+    _write_csv(income, "zip,median_household_income\n02116,120000\n")
+    df = run_sql(
+        "SELECT s.amount, z.median_household_income FROM sales s JOIN zip_income z ON s.zip = z.zip",
+        preloaded={"sales": [["zip", "amount"], ["02116", 10]]},
+        files={"zip_income": "zip_income.csv"},
+        scoped_dir=str(tmp_path),
+    )
+    assert list(df.columns) == ["amount", "median_household_income"]
+    assert len(df) == 1
+    assert int(df.iloc[0]["amount"]) == 10
+    assert int(df.iloc[0]["median_household_income"]) == 120000
+
+
+def test_run_sql_raises_when_scoped_dir_missing_for_files():
+    with pytest.raises(RuntimeError, match="scoped_dir"):
+        run_sql(
+            "SELECT 1",
+            files={"zip_income": "zip_income.csv"},
+            scoped_dir=None,
+        )
+
+
+def test_run_sql_raises_on_query_error():
+    with pytest.raises(RuntimeError):
+        run_sql("SELECT * FROM definitely_missing", preloaded={"sales": [["x"], [1]]})
 
 
 # --- Phase D: shared-kernel DuckDB session cache ---
@@ -575,6 +638,26 @@ def test_isolated_cell_session_duckdb_does_not_persist(_clean_duckdb_sessions):
         None,
     )
     assert second["status"] == "error"
+
+
+def test_injected_run_sql_joins_preloaded_to_sibling_csv(_clean_duckdb_sessions, tmp_path: Path):
+    """=PY() injects run_sql + scoped_dir; the join payload must not NameError."""
+    from plugin.scripting.venv.worker_harness import _execute_request
+
+    income = tmp_path / "zip_income.csv"
+    _write_csv(income, "zip,median_household_income\n02116,99000\n")
+    res = _execute_request(
+        "df = run_sql("
+        "'SELECT z.median_household_income AS inc FROM sales s JOIN zip_income z ON s.zip = z.zip',"
+        "{'sales': [['zip'], ['02116']]},"
+        "{'zip_income': 'zip_income.csv'},"
+        "scoped_dir)\n"
+        "result = int(df.iloc[0, 0])",
+        None,
+        bindings={"scoped_dir": str(tmp_path)},
+    )
+    assert res["status"] == "ok", res
+    assert res["result"] == 99000
 
 
 def test_query_folder_sql_uses_current_sandbox_session(_clean_duckdb_sessions):

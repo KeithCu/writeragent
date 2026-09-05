@@ -67,10 +67,11 @@ def _reset_session_duckdb(session_id: str | None) -> None:
 
 
 def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
-    """Bind ``session_duckdb`` / ``invalidate_session_tables`` when DuckDB helpers ship."""
+    """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers ship."""
     try:
         from plugin.scripting.venv.duckdb_sql import (
             invalidate_session_tables,
+            run_sql,
             session_duckdb,
         )
     except ImportError:
@@ -78,6 +79,7 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     helpers = {
         "session_duckdb": session_duckdb,
         "invalidate_session_tables": invalidate_session_tables,
+        "run_sql": run_sql,
     }
     executor.send_variables(helpers)
     executor.custom_tools.update(helpers)
@@ -97,6 +99,8 @@ _INIT_STATE_SKIP_KEYS = frozenset(
         "xl",  # binding-only Excel data bridge; re-injected each run
         "session_duckdb",  # rebound each execute; not an init-script binding
         "invalidate_session_tables",
+        "run_sql",
+        "scoped_dir",  # document folder; rebound each =PY() from the host
     }
 )
 

@@ -37,31 +37,41 @@ Back to [Enabling NumPy & Python in LibreOffice](../enabling_numpy_in_libreoffic
 
 ### Pretty demo (SQL / DuckDB sheet)
 
-The same ODS as the `=PY()` showcase — [`tests/fixtures/python_showcase_demo.ods`](../../tests/fixtures/python_showcase_demo.ods) — includes a **SQL_DuckDB** sheet. It reuses the Sales and Marketing ranges, keeps SQL **only in cells** (one line per row), and joins sheet sales to sibling [`zip_income.csv`](../../tests/fixtures/zip_income.csv) (ACS 2024 5-year B19013 / S1903-equivalent ZCTA median household income).
+The same ODS as the `=PY()` showcase — [`tests/fixtures/python_showcase_demo.ods`](../../tests/fixtures/python_showcase_demo.ods) — includes a **SQL_DuckDB** sheet. It reuses the Sales and Marketing identities, keeps SQL **only in cells** (one line per row), and **live-joins** sheet sales to sibling [`zip_income.csv`](../../tests/fixtures/zip_income.csv) (ACS 2024 5-year B19013 / S1903-equivalent ZCTA median household income).
 
-**RESULTS contract (sheet-only scenarios):** the live cell is a **short** `=PY()` / add-in formula — not a novel of nested quotes. SQL is an explicit formula argument:
+**What the sheet teaches:** catalog identity first, frozen A1 last.
+
+| In-sheet form | Catalog equivalent |
+|---------------|--------------------|
+| Named range `SalesData` / `MarketingData` (the `=PY()` data arg) | `{named_range: "SalesData"}` |
+| Cheat-sheet `{sheet: "Sales_Analytics"}` | used range of that sheet |
+| Sibling `zip_income.csv` via `run_sql(..., files={zip_income: "zip_income.csv"}, scoped_dir)` | `files={zip_income: "zip_income.csv"}` |
+| Sibling office `file#Sheet` (e.g. `budget.xlsx#Actuals`) | used range of that sheet in a sibling workbook |
+
+**RESULTS contract (all three scenarios):** the live cell is a **short** `=PY()` / add-in formula — not a novel of nested quotes. SQL is an explicit formula argument:
 
 ```text
-=PY("sql=chr(10).join(str(c) for r in data[1] for c in r if c); import duckdb; …",
-    Sales_Analytics!A4:J39, A11:A16)
+=PY("sql=chr(10).join(str(c) for r in data[1] for c in r if c); con=session_duckdb(); …",
+    SalesData, A11:A16)
 ```
 
-- `data[0]` is the sheet range (registered as `sales` / `marketing`).
+- `data[0]` is the named range (`SalesData` / `MarketingData`) — the Calc form of `{named_range}`, not a frozen A1.
 - `data[1]` is the SQL cell or multi-row block (joined with newlines).
 - Editing the SQL cells dirties RESULTS through Calc's normal DAG.
 - `data[` in the payload is required so the trailing SQL cell is not peeled as a matrix index.
-- Scenario 3 (ZIP ⨝ `zip_income.csv`) stays a `query_folder_sql` pointer — the sibling CSV is not a Calc argument.
+- Sheet-only RESULTS use injected `session_duckdb()` (Phase D shared-kernel catalog).
+- Scenario 3 (ZIP ⨝ `zip_income.csv`) is a live `=PY()` via injected `run_sql` + `scoped_dir` (the document folder). The sibling CSV is **not** a Calc argument — same catalog as `query_folder_sql`. Off-main recalc binds `scoped_dir=None` so the name exists (join then errors loud instead of `NameError`).
 
 ```bash
 python scripts/generate_pretty_demo_spreadsheet.py --format all
 ```
 
-That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path proof is `query_folder_sql` in [`tests/scripting/test_duckdb_sql.py`](../../tests/scripting/test_duckdb_sql.py) (sheet GROUP BY + sibling ZIP join), not the pretty file alone. See [`tests/fixtures/zip_income.README.md`](../../tests/fixtures/zip_income.README.md).
+That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path proof is `query_folder_sql` / `run_sql` in [`tests/scripting/test_duckdb_sql.py`](../../tests/scripting/test_duckdb_sql.py) (sheet GROUP BY + sibling ZIP join, including the exact RESULTS payload), not the pretty file alone. See [`tests/fixtures/zip_income.README.md`](../../tests/fixtures/zip_income.README.md).
 
 ### Current Implementation (as of latest increment)
-- Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads).
+- Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads). `run_sql` is the `=PY()` entry: guarded execute (honesty dict) or, with `preloaded` / `files` / `scoped_dir`, a DataFrame over that catalog.
 - Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (stable sheet / named-range / frozen A1 identity), `data_range`, `headers`.
-- Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading.
+- Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading. `=PY()` injects `session_duckdb` / `run_sql` and binds `scoped_dir` from the document folder on the UI thread only (off-main: `None`).
 - Worker: registers preloaded via `coerce_to_dataframe`; flat files via suffix binders (`read_csv` / `read_parquet` / `read_json`, including `.jsonl` / `.ndjson`) under provided names. Unknown suffixes and missing files fail loud (`UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`) instead of falling through to CSV. Read-only guards (`COPY`/`EXPORT`/`ATTACH`/`INSTALL`/`LOAD` + path/URI escapes). In-memory `CREATE VIEW` / register stay allowed.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script (sheet egress shows truncation flags).
 - `=PY()`: prefer `run_sql` / `session_duckdb()` (same firewall + honesty fields) over raw `import duckdb`. Shared-kernel `=PY()` reuses one DuckDB connection per workbook until Reset; Isolated / chat tools stay per-request. See [Phase D](#phase-d--shared-kernel-session-cache).
@@ -504,3 +514,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | Phase D: shared-kernel `session_duckdb()` + `query_folder_sql` table cache until Reset Python Session; Isolated / `writeragent:sql` stay per-request. Staleness: re-register on `data`/`preloaded`, else last snapshot. |
 | 2026-09-05 | Honesty + firewall polish: 200-row cap is visible (`warning`/`flags`/`message`/`tables`); deny-list is disk/network only (VIEW/register stay); `run_sql` / guarded `session_duckdb()` for `=PY()`; RPS SQL uses tabular egress. |
 | 2026-09-05 | Folder SQL flat binders: Parquet + JSON/JSONL/NDJSON register reliably via `flat_files` / `files` dict; unsupported and missing types return `UNSUPPORTED_FILE_TYPE` / `MISSING_FILE`. Sibling XLSX/ODS stay on the LO import path. |
+| 2026-09-05 | Pretty-demo polish: SQL_DuckDB teaches `{sheet}` / `{named_range}` / sibling `file#Sheet` (named ranges `SalesData` / `MarketingData` as the live `=PY()` data args). ZIP join is a live `=PY()` via `run_sql` + `scoped_dir` (same 15×5 spill gutter; SQL still only in cells). |

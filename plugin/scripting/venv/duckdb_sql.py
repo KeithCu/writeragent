@@ -475,7 +475,11 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
     from plugin.scripting.venv.coerce import coerce_to_dataframe
 
     for orig_name, data in preloaded.items():
-        if not orig_name or not data:
+        # CalcRange refuses ``bool()`` (ambiguous truth value). Empty list/dict
+        # is still a skip; a live =PY() range must register.
+        if not orig_name or data is None:
+            continue
+        if isinstance(data, (list, tuple, dict)) and not data:
             continue
         try:
             if isinstance(data, dict) and "grid" in data:
@@ -546,15 +550,50 @@ def _register_flat_files(
         _register_relation(con, name, rel)
 
 
-def run_sql(sql: str, con: Any | None = None, *, session_id: str | None = None) -> dict[str, Any]:
-    """Guarded SQL execute with the same honesty fields as ``query_folder_sql``.
+def run_sql(
+    sql: str,
+    con: Any | None = None,
+    files: list[str] | dict[str, str] | None = None,
+    scoped_dir: str | None = None,
+    *,
+    session_id: str | None = None,
+    preloaded: dict[str, Any] | None = None,
+) -> Any:
+    """Guarded SQL for ``=PY()`` — honesty dict, or a DataFrame for folder joins.
 
     Prefer this from ``=PY()`` / shared-kernel cells instead of raw
-    ``import duckdb``. With no ``con``, uses ``_acquire_duckdb`` so a persistable
-    sandbox session reuses the Phase D catalog. Isolated / omitted session:
-    one-shot connection.
+    ``import duckdb``.
+
+    * Execute: ``run_sql(sql)`` or ``run_sql(sql, con)`` returns the same
+      honesty dict as ``query_folder_sql``. No ``con`` uses ``_acquire_duckdb``
+      so a persistable sandbox session reuses the Phase D catalog.
+    * Folder join: a mapping as the second arg (or ``preloaded=`` / ``files`` /
+      ``scoped_dir``) runs ``query_folder_sql`` and returns a DataFrame for
+      spill. Pretty-demo RESULTS: ``run_sql(sql, {sales: data[0]}, {zip_income:
+      zip_income.csv}, scoped_dir)``.
     """
     helper = "run_sql"
+    folder_preloaded = preloaded
+    if isinstance(con, dict):
+        folder_preloaded = con
+        con = None
+
+    if folder_preloaded is not None or files is not None or scoped_dir is not None:
+        import pandas as pd
+
+        res = query_folder_sql(
+            scoped_dir,
+            sql,
+            files=files,
+            preloaded=folder_preloaded,
+            session_id=session_id,
+        )
+        if res.get("status") != "ok":
+            raise RuntimeError(str(res.get("message") or res.get("code") or "SQL failed"))
+        cols = res.get("columns") or []
+        rows = res.get("rows") or []
+        return pd.DataFrame(rows, columns=cols)
+
     try:
         import duckdb  # type: ignore[import-not-found]
     except ImportError:

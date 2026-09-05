@@ -18,4 +18,4 @@ This is boring census data you would **not** keep in the company sales workbook.
 python scripts/generate_pretty_demo_spreadsheet.py --format all
 ```
 
-The generator copies this file next to the ODS/XLSX. The `SQL_DuckDB` sheet joins `Sales_Analytics` ZIP to this extract through `query_folder_sql`.
+The generator copies this file next to the ODS/XLSX. The `SQL_DuckDB` sheet live-joins `{sheet: "Sales_Analytics"}` / named range `SalesData` to this extract through `=PY()` + `run_sql` (same catalog as `query_folder_sql`).

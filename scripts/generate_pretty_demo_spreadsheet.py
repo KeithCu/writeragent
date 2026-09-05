@@ -16,13 +16,17 @@ Usage (from repo root):
 Writes ``python_showcase_demo.ods`` / ``.xlsx`` and copies sibling ``zip_income.csv``
 (U.S. Census ACS 2024 5-year B19013 / S1903-equivalent median household income by
 ZCTA). The SQL_DuckDB sheet keeps query text **only** in cells (one line per
-row). Sheet-only RESULTS cells are a **short** ``=PY()`` that takes the data
-range as ``data[0]`` and an explicit SQL cell/range as ``data[1]`` (joined with
+row). RESULTS cells are a **short** ``=PY()`` that takes the data range as
+``data[0]`` and an explicit SQL cell/range as ``data[1]`` (joined with
 newlines). Editing the SQL cells dirties RESULTS through Calc's DAG. Do not
 embed SQL inside the formula string — long quoted SQL is how Calc hits Err:508
-/ comma→semicolon bugs. The sales⨝ZIP-income join stays the
-``query_folder_sql`` happy path (sibling CSV is not a Calc arg).
-Sheet-only RESULTS leave ``SQL_RESULTS_SPILL_GUTTER_ROWS`` empty rows under
+/ comma→semicolon bugs. Sheet-only RESULTS use injected ``session_duckdb()``.
+The sales⨝ZIP-income join is a live ``=PY()`` via injected ``run_sql`` plus
+the document folder (``scoped_dir``) so the sibling CSV is not a Calc arg.
+The sheet teaches stable catalog identity (``{sheet}``, ``{named_range}``,
+sibling ``file#Sheet``) — not only frozen A1. Named ranges ``SalesData`` /
+``MarketingData`` are the Calc form of ``{named_range}``.
+RESULTS leave ``SQL_RESULTS_SPILL_GUTTER_ROWS`` empty rows under
 the formula (``SQL_RESULTS_SPILL_GUTTER_COLS`` columns) so a 13-row
 Region×Category spill (header+12) does not hit the next title. The live
 RESULTS formula cell is unmerged — a span/merge over A:H covers the spill
@@ -221,6 +225,11 @@ MARKETING_RANGE_XLSX = "A4:G24"
 MARKETING_RANGE_ODS_CROSS = f"Statistics_ML.{MARKETING_RANGE_ODS}"
 MARKETING_RANGE_XLSX_CROSS = f"Statistics_ML!{MARKETING_RANGE_XLSX}"
 
+# Calc named ranges — the in-sheet form of {named_range: "SalesData"}.
+# Tool catalog prefers {sheet: "Sales_Analytics"} (used range) over frozen A1.
+SALES_NAMED_RANGE = "SalesData"
+MARKETING_NAMED_RANGE = "MarketingData"
+
 # Sheet-only RESULTS auto-spill: sales GROUP BY Region × Category is header + 12
 # data rows (13×4). The formula cell is the origin; leave this many *empty*
 # rows × columns under it so the next section title is not #SPILL!. Extra
@@ -268,11 +277,24 @@ ACS_INCOME_NOTE = (
     "Sibling zip_income.csv is U.S. Census ACS 2024 5-year table B19013 "
     "(median household income; S1903 subject-table equivalent) by ZIP Code "
     "Tabulation Area (ZCTA) — reference data you would not keep in the company "
-    "workbook. Sheet-only RESULTS: =PY(short code, data_range, sql_range) — "
-    "data[0] is the sheet range, data[1] is the SQL cells above (joined with "
-    "newlines). The ZIP join is query_folder_sql (chat or Run Python Script), "
-    "not a live =PY(), because the CSV is not a Calc argument. Regenerate: "
+    "workbook. RESULTS: =PY(short code, data_range, sql_range) — data[0] is "
+    "the sheet (named range SalesData / MarketingData), data[1] is the SQL "
+    "cells above (joined with newlines). Sheet-only uses session_duckdb(); "
+    "the ZIP join is live run_sql(..., files={zip_income: zip_income.csv}, "
+    "scoped_dir). Prefer catalog identity {sheet: \"Sales_Analytics\"} "
+    "(used range), {named_range: \"SalesData\"}, or sibling "
+    "file#Sheet (budget.xlsx#Actuals) — not frozen A1. Regenerate: "
     "python scripts/generate_pretty_demo_spreadsheet.py --format all"
+)
+
+# Compact cheat-sheet on the SQL tab — teaches the tool catalog, not A1.
+SQL_IDENTITY_TEACH = (
+    "Stable table identity (tool catalog — not frozen A1): "
+    "{sheet: \"Sales_Analytics\"} = used range of that sheet; "
+    "{named_range: \"SalesData\"} = this workbook's SalesData name; "
+    "files={zip_income: \"zip_income.csv\"} = sibling CSV; "
+    "files={budget: \"budget.xlsx#Actuals\"} = sibling sheet used range. "
+    "Live =PY() still passes a Calc name/range so RESULTS dirty when you edit."
 )
 
 # Quoted =PY() payload must stay short. SQL lives in cells; this is only the
@@ -291,12 +313,26 @@ def duckdb_sql_from_cell_code(table: str) -> str:
 
     ``data[1]`` may be one cell or a multi-row block. Lines are joined with
     newlines. No SQL text is inlined — the formula stays quote-safe.
+    Uses injected ``session_duckdb()`` (Phase D shared-kernel catalog).
     """
     return (
         "sql=chr(10).join(str(c) for r in data[1] for c in r if c); "
-        "import duckdb; con=duckdb.connect(); "
+        "con=session_duckdb(); "
         f"con.register('{table}', data[0].to_pandas()); "
         "result=con.sql(sql).df()"
+    )
+
+
+def duckdb_join_from_cell_code(table: str, csv_name: str) -> str:
+    """Short =PY() payload: live sheet ``data[0]`` ⨝ sibling *csv_name* via ``run_sql``.
+
+    SQL still lives in ``data[1]``. *csv_name* is a sibling basename under
+    injected ``scoped_dir`` (not a Calc argument).
+    """
+    stem = csv_name.rsplit(".", 1)[0]
+    return (
+        "sql=chr(10).join(str(c) for r in data[1] for c in r if c); "
+        f"result=run_sql(sql,{{{table!r}:data[0]}},{{{stem!r}:{csv_name!r}}},scoped_dir)"
     )
 
 
@@ -372,8 +408,9 @@ def sql_demo_scenarios() -> list[dict[str, str]]:
         {
             "title": "1. Sheet-only: sales by Region × Category",
             "blurb": (
-                "DuckDB GROUP BY on the Sales_Analytics range (no files). "
-                "Edit the SQL cells — RESULTS reads that range via =PY()."
+                "DuckDB GROUP BY on {sheet: \"Sales_Analytics\"} / "
+                "{named_range: \"SalesData\"} (used-range identity, not frozen A1). "
+                "Edit the SQL cells — RESULTS reads SalesData via =PY() + session_duckdb()."
             ),
             "sql": SQL_SALES_BY_REGION_CATEGORY,
             "kind": "sheet_sales",
@@ -381,18 +418,21 @@ def sql_demo_scenarios() -> list[dict[str, str]]:
         {
             "title": "2. Sheet-only: marketing channel ROAS",
             "blurb": (
-                "Aggregate KPI on the Statistics_ML campaign range. "
-                "Edit the SQL cells — RESULTS reads that range via =PY()."
+                "Aggregate KPI on {sheet: \"Statistics_ML\"} / "
+                "{named_range: \"MarketingData\"}. "
+                "Edit the SQL cells — RESULTS reads MarketingData via =PY() + session_duckdb()."
             ),
             "sql": SQL_MARKETING_CHANNEL_ROAS,
             "kind": "sheet_marketing",
         },
         {
-            "title": "3. Join: sales ⨝ sibling zip_income.csv",
+            "title": "3. Live join: sales {sheet} ⨝ sibling zip_income.csv",
             "blurb": (
-                "Sheet sales ZIP joined to ACS ZCTA median household income. "
-                "Run via query_folder_sql with tables={sales: Sales_Analytics range} "
-                f"and files={{zip_income: {ZIP_INCOME_CSV_NAME}}}."
+                "Live =PY() joins {sheet: \"Sales_Analytics\"} (SalesData) to sibling "
+                f"{ZIP_INCOME_CSV_NAME} via run_sql + scoped_dir. Same catalog as "
+                "query_folder_sql tables={{sales: {{sheet: \"Sales_Analytics\"}}}} "
+                f"files={{zip_income: {ZIP_INCOME_CSV_NAME}}}. Sibling office sheets "
+                "use file#Sheet (budget.xlsx#Actuals)."
             ),
             "sql": SQL_SALES_ZIP_INCOME_JOIN,
             "kind": "join_zip",
@@ -402,9 +442,21 @@ def sql_demo_scenarios() -> list[dict[str, str]]:
 
 def sql_results_gutter_rows(kind: str) -> int:
     """Empty rows under a RESULTS formula so a 13-row spill misses the next title."""
-    if kind in ("sheet_sales", "sheet_marketing"):
+    if kind in ("sheet_sales", "sheet_marketing", "join_zip"):
         return SQL_RESULTS_SPILL_GUTTER_ROWS
     return 2
+
+
+def _ods_named_range_address(sheet: str, a1: str) -> str:
+    """OpenFormula named-range address: ``$Sheet.$A$5:.$J$40``."""
+    start, end = a1.split(":")
+
+    def _abs_cell(cell: str) -> str:
+        col = "".join(ch for ch in cell if ch.isalpha())
+        row = "".join(ch for ch in cell if ch.isdigit())
+        return f"${col}${row}"
+
+    return f"${sheet}.{_abs_cell(start)}:.{_abs_cell(end)}"
 
 
 def _a1_col_range(start_row: int, end_row: int) -> str:
@@ -415,27 +467,28 @@ def _a1_col_range(start_row: int, end_row: int) -> str:
 
 
 def _scenario_result_formula(kind: str, sql_range: str, *, ods: bool) -> str | None:
-    """Live =PY()+DuckDB for sheet-only scenarios. SQL is a cell/range arg, not a string.
+    """Live =PY()+DuckDB. SQL is a cell/range arg, not a string.
 
-    Join stays ``query_folder_sql`` (sibling CSV is not a Calc argument).
+    Sheet-only uses ``session_duckdb()``. Join uses ``run_sql`` + sibling CSV
+    under ``scoped_dir`` (not a Calc argument). Data args are named ranges
+    (``{named_range}``) so they grow with the name, not frozen A1.
     """
     if kind == "sheet_sales":
-        table, data_range = "sales", SALES_RANGE_ODS_CROSS if ods else SALES_RANGE_XLSX_CROSS
+        data_range, code = SALES_NAMED_RANGE, duckdb_sql_from_cell_code("sales")
     elif kind == "sheet_marketing":
-        table, data_range = (
-            "marketing",
-            MARKETING_RANGE_ODS_CROSS if ods else MARKETING_RANGE_XLSX_CROSS,
-        )
+        data_range, code = MARKETING_NAMED_RANGE, duckdb_sql_from_cell_code("marketing")
+    elif kind == "join_zip":
+        data_range = SALES_NAMED_RANGE
+        code = duckdb_join_from_cell_code("sales", ZIP_INCOME_CSV_NAME)
     else:
         return None
-    code = duckdb_sql_from_cell_code(table)
     if ods:
         return f'=PY("{code}"; {data_range}; {sql_range})'
     return f'={CALC_PYTHON_ADDIN_FN}("{code}", {data_range}, {sql_range})'
 
 
 def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any) -> None:
-    """SQL / DuckDB tab: visible SQL in cells + live =PY() results for sheet ranges."""
+    """SQL / DuckDB tab: visible SQL in cells + live =PY() for sheet identities and the ZIP join."""
     tab = make_table("SQL_DuckDB")
     row_n = 0
 
@@ -452,7 +505,7 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
     r2 = make_row("sub")
     r2.addElement(
         make_cell(
-            "Read-only DuckDB SQL over Sales_Analytics / Statistics_ML ranges, plus a join to sibling zip_income.csv",
+            "Read-only DuckDB SQL over {sheet} / {named_range} identities, plus a live =PY() join to sibling zip_income.csv",
             "HeroSubtitle",
             span_cols=8,
         )
@@ -463,6 +516,11 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
     note = make_row("metric")
     note.addElement(make_cell(ACS_INCOME_NOTE, "InfoBox", span_cols=8))
     emit(note)
+    emit(make_row("spacer"))
+
+    ident = make_row("metric")
+    ident.addElement(make_cell(SQL_IDENTITY_TEACH, "InfoBox", span_cols=8))
+    emit(ident)
     emit(make_row("spacer"))
 
     for scenario in sql_demo_scenarios():
@@ -492,22 +550,14 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
         emit(res_hdr)
 
         formula = _scenario_result_formula(scenario["kind"], sql_range, ods=True)
+        if not formula:
+            raise RuntimeError(f"SQL_DuckDB scenario {scenario['kind']!r} must have a live =PY()")
         res_row = make_row("metric")
-        if formula:
-            # Unmerged origin: spill writes B/C/… of this row. number-columns-spanned
-            # covers those cells so only the top-left stays visible (no IsMerged handling).
-            res_row.addElement(
-                make_cell("Calculating via =PY() + DuckDB…", "FormulaResult", formula=formula)
-            )
-        else:
-            res_row.addElement(
-                make_cell(
-                    "Run this SQL with query_folder_sql (preloaded sales + flat_files zip_income). "
-                    "tests/scripting/test_duckdb_sql.py exercises that path against these assets.",
-                    "InfoBox",
-                    span_cols=8,
-                )
-            )
+        # Unmerged origin: spill writes B/C/… of this row. number-columns-spanned
+        # covers those cells so only the top-left stays visible (no IsMerged handling).
+        res_row.addElement(
+            make_cell("Calculating via =PY() + DuckDB…", "FormulaResult", formula=formula)
+        )
         emit(res_row)
         for gutter_i in range(sql_results_gutter_rows(scenario["kind"])):
             emit(make_row("spacer"))
@@ -618,7 +668,7 @@ def build_ods_showcase(out_path: Path) -> None:
         TableRowProperties,
         TextProperties,
     )
-    from odf.table import Table, TableCell, TableColumn, TableRow
+    from odf.table import NamedExpressions, NamedRange, Table, TableCell, TableColumn, TableRow
     from odf.text import P
 
     doc = OpenDocumentSpreadsheet()
@@ -1046,6 +1096,23 @@ def build_ods_showcase(out_path: Path) -> None:
     doc.spreadsheet.addElement(tab7)
 
     _add_ods_sql_sheet(doc, make_cell, make_table, make_row)
+
+    named = NamedExpressions()
+    named.addElement(
+        NamedRange(
+            name=SALES_NAMED_RANGE,
+            cellrangeaddress=_ods_named_range_address("Sales_Analytics", SALES_RANGE_ODS),
+            basecelladdress="$Sales_Analytics.$A$5",
+        )
+    )
+    named.addElement(
+        NamedRange(
+            name=MARKETING_NAMED_RANGE,
+            cellrangeaddress=_ods_named_range_address("Statistics_ML", MARKETING_RANGE_ODS),
+            basecelladdress="$Statistics_ML.$A$5",
+        )
+    )
+    doc.spreadsheet.addElement(named)
 
     # Save ODS
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1482,7 +1549,7 @@ def build_xlsx_showcase(out_path: Path) -> None:
     s8 = ws8["A2"]
     set_text_cell(
         s8,
-        "Read-only DuckDB SQL over Sales_Analytics / Statistics_ML ranges, plus a join to sibling zip_income.csv",
+        "Read-only DuckDB SQL over {sheet} / {named_range} identities, plus a live =PY() join to sibling zip_income.csv",
     )
     s8.fill = hero_fill
     s8.font = sub_font
@@ -1497,7 +1564,15 @@ def build_xlsx_showcase(out_path: Path) -> None:
     n8.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
     n8.border = thin_border
 
-    current = 8
+    ws8.merge_cells("A8:H10")
+    i8 = ws8["A8"]
+    set_text_cell(i8, SQL_IDENTITY_TEACH)
+    i8.fill = canvas_fill
+    i8.font = body_font
+    i8.alignment = Alignment(vertical="top", wrap_text=True, indent=1)
+    i8.border = thin_border
+
+    current = 12
     for scenario in sql_demo_scenarios():
         ws8.merge_cells(f"A{current}:H{current}")
         bcell = ws8[f"A{current}"]
@@ -1548,28 +1623,29 @@ def build_xlsx_showcase(out_path: Path) -> None:
         current += 1
 
         formula = _scenario_result_formula(scenario["kind"], sql_range, ods=False)
+        if not formula:
+            raise RuntimeError(f"SQL_DuckDB scenario {scenario['kind']!r} must have a live =PY()")
         rc = ws8[f"A{current}"]
-        if formula:
-            # Unmerged origin: spill writes B/C/… of this row. A:H merge covers
-            # those cells so only the top-left stays visible (no IsMerged handling).
-            set_formula_cell(rc, formula)
-            rc.fill = res_fill
-            rc.font = res_font
-        else:
-            ws8.merge_cells(f"A{current}:H{current}")
-            set_text_cell(
-                rc,
-                "Run this SQL with query_folder_sql (preloaded sales + flat_files zip_income). "
-                "tests/scripting/test_duckdb_sql.py exercises that path against these assets.",
-            )
-            rc.fill = canvas_fill
-            rc.font = body_font
+        # Unmerged origin: spill writes B/C/… of this row. A:H merge covers
+        # those cells so only the top-left stays visible (no IsMerged handling).
+        set_formula_cell(rc, formula)
+        rc.fill = res_fill
+        rc.font = res_font
         rc.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
         rc.border = thin_border
         ws8.row_dimensions[current].height = 36
         current += 1 + sql_results_gutter_rows(scenario["kind"])
 
     auto_fit_columns(ws8)
+
+    from openpyxl.workbook.defined_name import DefinedName
+
+    wb.defined_names.add(
+        DefinedName(name=SALES_NAMED_RANGE, attr_text=f"Sales_Analytics!{SALES_RANGE_XLSX}")
+    )
+    wb.defined_names.add(
+        DefinedName(name=MARKETING_NAMED_RANGE, attr_text=f"Statistics_ML!{MARKETING_RANGE_XLSX}")
+    )
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(str(out_path))

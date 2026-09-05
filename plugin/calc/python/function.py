@@ -1168,6 +1168,25 @@ def _code_uses_indexed_multi_data(code: str) -> bool:
     return "data[" in src or "ranges[" in src
 
 
+def _py_scoped_dir_bindings(doc: Any | None) -> dict[str, Any]:
+    """Document folder for in-cell folder SQL. UNO only on the UI thread.
+
+    Off-main recalc must not call ``getURL()`` on a cached model (Yellow / #402).
+    Bind ``scoped_dir`` as ``None`` so join formulas do not ``NameError``.
+    """
+    from plugin.framework.thread_guard import on_main_thread
+
+    if doc is None or not on_main_thread():
+        return {"scoped_dir": None}
+    try:
+        from plugin.doc.document_research import get_document_directory
+
+        return {"scoped_dir": get_document_directory(doc)}
+    except Exception:
+        log.debug("scoped_dir binding failed", exc_info=True)
+        return {"scoped_dir": None}
+
+
 def get_python_init_kwargs(ctx: Any, doc: Any | None = None) -> dict[str, Any]:
     try:
         from plugin.framework.thread_guard import on_main_thread
@@ -1455,6 +1474,7 @@ def _execute_python_addin_impl(
                 ctx,
                 code,
                 data=worker_data,
+                bindings=_py_scoped_dir_bindings(target_doc),
                 session_id=session_id,
                 # Formula recalc must not mutate the document via writeragent tools.
                 python_tool_domain="",

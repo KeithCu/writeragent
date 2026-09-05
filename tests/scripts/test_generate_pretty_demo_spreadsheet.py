@@ -12,9 +12,12 @@ from pathlib import Path
 
 from scripts.generate_pretty_demo_spreadsheet import (
     CALC_PYTHON_ADDIN_FN,
+    MARKETING_NAMED_RANGE,
     RESULTS_PY_CODE_MAX_LEN,
+    SALES_NAMED_RANGE,
     SALES_RANGE_ODS_CROSS,
     SALES_ZIPS_BY_REGION,
+    SQL_IDENTITY_TEACH,
     SQL_RESULTS_SPILL_GUTTER_COLS,
     SQL_RESULTS_SPILL_GUTTER_ROWS,
     SQL_SALES_BY_REGION_CATEGORY,
@@ -25,6 +28,7 @@ from scripts.generate_pretty_demo_spreadsheet import (
     _scenario_result_formula,
     build_ods_showcase,
     build_xlsx_showcase,
+    duckdb_join_from_cell_code,
     duckdb_sql_from_cell_code,
     get_sales_dataset,
     ods_formula,
@@ -116,6 +120,11 @@ def test_sales_dataset_has_zip_column_from_real_zctas() -> None:
     assert zips  # at least one assigned
 
 
+def _is_sql_results_formula(formula: str) -> bool:
+    """Live SQL_DuckDB RESULTS: sheet-only ``con.sql`` or join ``run_sql``."""
+    return "con.sql(sql)" in formula or "run_sql(" in formula
+
+
 def test_sql_demo_scenarios_include_sheet_and_join() -> None:
     kinds = {s["kind"] for s in sql_demo_scenarios()}
     assert kinds == {"sheet_sales", "sheet_marketing", "join_zip"}
@@ -123,6 +132,11 @@ def test_sql_demo_scenarios_include_sheet_and_join() -> None:
     assert "zip_income" in join["sql"]
     assert join["sql"] == SQL_SALES_ZIP_INCOME_JOIN
     assert "ZIP" in join["sql"] or "zip" in join["sql"]
+    teach = " ".join(s["blurb"] for s in sql_demo_scenarios()) + SQL_IDENTITY_TEACH
+    assert "{sheet" in teach
+    assert "{named_range" in teach
+    assert "file#Sheet" in teach or "budget.xlsx#Actuals" in teach
+    assert SALES_NAMED_RANGE in teach
 
 
 def test_zip_income_csv_is_fuller_acs_extract_and_covers_sales_zips() -> None:
@@ -163,6 +177,8 @@ def test_generated_ods_has_sql_duckdb_sheet(tmp_path: Path) -> None:
     text = "\n".join(str(p) for p in sql_sheet.getElementsByType(P))
     assert "zip_income" in text
     assert "GROUP BY" in text or "Region" in text
+    assert "{sheet" in text and "{named_range" in text
+    assert SALES_NAMED_RANGE in text
     _assert_ods_results_unmerged_with_clearance(sql_sheet)
 
 
@@ -181,13 +197,21 @@ def _assert_ods_formulas_and_layout(xml: str) -> None:
     # SQL text is cell content; RESULTS formulas are short OpenFormula runners.
     assert "SUM(Revenue)" in xml
     assert "SUM(Ad_Spend)" in xml
+    assert SALES_NAMED_RANGE in xml
+    assert MARKETING_NAMED_RANGE in xml
     formula_attrs = re.findall(r'table:formula="([^"]*)"', xml)
-    # ``data[1]`` also appears in Forecasting CGR; pin RESULTS on the DuckDB runner.
-    results = [f for f in formula_attrs if "con.sql(sql)" in f]
-    assert len(results) == 2
+    # ``data[1]`` also appears in Forecasting CGR; pin RESULTS on the DuckDB runners.
+    results = [f for f in formula_attrs if _is_sql_results_formula(f)]
+    assert len(results) == 3
+    sheet_only = [f for f in results if "con.sql(sql)" in f]
+    join = [f for f in results if "run_sql(" in f]
+    assert len(sheet_only) == 2
+    assert len(join) == 1
+    assert "session_duckdb()" in sheet_only[0]
+    assert "scoped_dir" in join[0] and "zip_income.csv" in join[0]
     for formula in results:
         assert "data[1]" in formula
-        assert "result=con.sql(sql).df()" in formula
+        assert SALES_NAMED_RANGE in formula or MARKETING_NAMED_RANGE in formula
         assert ".tolist()" not in formula
         assert "[.A" in formula  # explicit SQL cell/range, not magic-above
         assert len(formula) < 400
@@ -196,7 +220,7 @@ def _assert_ods_formulas_and_layout(xml: str) -> None:
     # Live RESULTS formula cells must be unmerged (no number-columns-spanned).
     for m in re.finditer(r"<table:table-cell\b([^>]*)>", xml):
         attrs = m.group(1)
-        if "con.sql(sql)" not in attrs:
+        if not _is_sql_results_formula(attrs):
             continue
         assert "number-columns-spanned" not in attrs, attrs
 
@@ -226,7 +250,7 @@ def _assert_ods_results_unmerged_with_clearance(sql_sheet: object) -> None:
     for idx, row in enumerate(rows):
         for cell in row.getElementsByType(TableCell):
             formula = cell.getAttribute("formula") or ""
-            if "con.sql(sql)" not in formula:
+            if not _is_sql_results_formula(formula):
                 continue
             found += 1
             span = cell.getAttribute("numbercolumnsspanned")
@@ -237,7 +261,7 @@ def _assert_ods_results_unmerged_with_clearance(sql_sheet: object) -> None:
                 empty += 1
                 probe += 1
             assert empty >= SQL_RESULTS_SPILL_GUTTER_ROWS, (idx, empty)
-    assert found == 2
+    assert found == 3
 
 
 def test_build_ods_showcase_formulas_and_layout(tmp_path: Path) -> None:
@@ -256,19 +280,31 @@ def test_shipped_ods_fixture_formulas_and_layout() -> None:
     _assert_ods_results_unmerged_with_clearance(sql_sheet)
 
 
-def _assert_results_formula_is_short_and_quote_safe(formula: str, *, sql_range: str) -> str:
+def _assert_results_formula_is_short_and_quote_safe(
+    formula: str, *, sql_range: str, join: bool = False
+) -> str:
     """RESULTS =PY() is a short runner: SQL is a cell/range arg, not a giant string."""
     assert formula.startswith("="), formula
     payload = _quoted_formula_payload(formula)
     rest = formula[formula.rindex('"') + 1 :]
     assert len(payload) <= RESULTS_PY_CODE_MAX_LEN, (len(payload), payload)
     assert '"""' not in formula
-    assert payload.count("'") <= 2  # only the table-name quotes in register('sales')
+    assert '"' not in payload
     assert "data[0]" in payload and "data[1]" in payload
-    assert "con.sql(sql)" in payload
-    assert "result=con.sql(sql).df()" in payload
+    if join:
+        assert "run_sql(" in payload
+        assert "scoped_dir" in payload
+        assert ZIP_INCOME_CSV_NAME in payload
+        assert "session_duckdb" not in payload
+    else:
+        # only the table-name quotes in register('sales') / register('marketing')
+        assert payload.count("'") <= 2
+        assert "session_duckdb()" in payload
+        assert "con.sql(sql)" in payload
+        assert "result=con.sql(sql).df()" in payload
     assert ".tolist()" not in payload
     assert sql_range in rest
+    assert SALES_NAMED_RANGE in rest or MARKETING_NAMED_RANGE in rest
     for marker in _SQL_EMBED_MARKERS:
         assert marker not in formula, marker
     # Premature string close made Calc treat SQL commas as OpenFormula
@@ -284,7 +320,7 @@ def test_sql_results_gutter_covers_region_category_spill() -> None:
     assert SQL_RESULTS_SPILL_GUTTER_COLS >= 5
     assert sql_results_gutter_rows("sheet_sales") == SQL_RESULTS_SPILL_GUTTER_ROWS
     assert sql_results_gutter_rows("sheet_marketing") == SQL_RESULTS_SPILL_GUTTER_ROWS
-    assert sql_results_gutter_rows("join_zip") == 2
+    assert sql_results_gutter_rows("join_zip") == SQL_RESULTS_SPILL_GUTTER_ROWS
 
 
 def _empty_rows_below_xlsx_results(ws: object) -> list[tuple[str, int]]:
@@ -323,7 +359,7 @@ def _assert_xlsx_results_unmerged_with_clearance(ws: object) -> None:
     from openpyxl.utils import coordinate_to_tuple
 
     formulas = _xlsx_sql_duckdb_result_formulas(ws)
-    assert len(formulas) == 2
+    assert len(formulas) == 3
     for coord, unused_formula in formulas:
         row, col = coordinate_to_tuple(coord)
         assert col == 1, coord
@@ -353,27 +389,32 @@ def test_generated_xlsx_results_have_spill_gutter(tmp_path: Path) -> None:
     build_xlsx_showcase(out)
     from openpyxl import load_workbook
 
-    ws = load_workbook(out)["SQL_DuckDB"]
+    wb = load_workbook(out)
+    ws = wb["SQL_DuckDB"]
     gaps = _empty_rows_below_xlsx_results(ws)
-    assert len(gaps) == 2
+    assert len(gaps) == 3
     for coord, empty in gaps:
         assert empty >= SQL_RESULTS_SPILL_GUTTER_ROWS, (coord, empty)
     _assert_xlsx_results_unmerged_with_clearance(ws)
+    assert SALES_NAMED_RANGE in wb.defined_names
+    assert MARKETING_NAMED_RANGE in wb.defined_names
 
 
 def test_sheet_only_result_formulas_are_short_and_read_sql_from_cell_arg() -> None:
     """SQL is not embedded; RESULTS passes an explicit SQL cell/range plus the data range."""
     # Ranges here are formula-builder examples (scenario 1 SQL stays A11:A16).
     cases = (
-        ("sheet_sales", "A11:A16"),
-        ("sheet_marketing", "A23:A29"),
+        ("sheet_sales", "A11:A16", False),
+        ("sheet_marketing", "A23:A29", False),
+        ("join_zip", "A40:A54", True),
     )
-    for kind, sql_range in cases:
+    for kind, sql_range, is_join in cases:
         for ods_fmt in (False, True):
             formula = _scenario_result_formula(kind, sql_range, ods=ods_fmt)
             assert formula is not None, kind
-            _assert_results_formula_is_short_and_quote_safe(formula, sql_range=sql_range)
-    assert _scenario_result_formula("join_zip", "A40:A54", ods=False) is None
+            _assert_results_formula_is_short_and_quote_safe(
+                formula, sql_range=sql_range, join=is_join
+            )
 
 
 def test_duckdb_sql_from_cell_code_is_quote_safe_and_under_cap() -> None:
@@ -382,21 +423,44 @@ def test_duckdb_sql_from_cell_code_is_quote_safe_and_under_cap() -> None:
         assert len(code) <= RESULTS_PY_CODE_MAX_LEN
         assert '"' not in code
         assert f"register('{table}'" in code
+        assert "session_duckdb()" in code
         assert "data[1]" in code
         assert "result=con.sql(sql).df()" in code
         assert ".tolist()" not in code
+
+
+def test_duckdb_join_from_cell_code_is_quote_safe_and_under_cap() -> None:
+    code = duckdb_join_from_cell_code("sales", ZIP_INCOME_CSV_NAME)
+    assert len(code) <= RESULTS_PY_CODE_MAX_LEN
+    assert '"' not in code
+    assert "run_sql(" in code
+    assert "scoped_dir" in code
+    assert ZIP_INCOME_CSV_NAME in code
+    assert "data[0]" in code and "data[1]" in code
 
 
 def test_ods_formula_sql_results_two_args_not_rematched() -> None:
     formula = _scenario_result_formula("sheet_sales", "A11:A16", ods=True)
     assert formula is not None
     out = ods_formula(formula)
-    assert "[$Sales_Analytics.A5:.J40]" in out
+    # Named-range identity stays a name — ods_formula must not invent [$Sales_…].
+    assert SALES_NAMED_RANGE in out
+    assert "[$Sales_Analytics.A5:.J40]" not in out
     assert "[.A11:.A16]" in out
     assert _NESTED_SHEET_REF.search(out) is None
     assert out.startswith(f"of:={CALC_PYTHON_ADDIN_FN}(")
     for marker in _SQL_EMBED_MARKERS:
         assert marker not in out
+
+
+def test_ods_formula_join_results_named_range_not_rematched() -> None:
+    formula = _scenario_result_formula("join_zip", "A40:A54", ods=True)
+    assert formula is not None
+    out = ods_formula(formula)
+    assert SALES_NAMED_RANGE in out
+    assert "run_sql(" in out
+    assert "[.A40:.A54]" in out
+    assert _NESTED_SHEET_REF.search(out) is None
 
 
 def test_sql_query_lines_keeps_visible_sql_out_of_the_formula() -> None:
@@ -426,28 +490,30 @@ def test_fixture_xlsx_sql_results_formulas_are_short_and_quote_safe() -> None:
     wb = load_workbook(path)
     ws = wb["SQL_DuckDB"]
     formulas = _xlsx_sql_duckdb_result_formulas(ws)
-    assert len(formulas) == 2
+    assert len(formulas) == 3
     sql_text = "\n".join(
         str(cell.value) for row in ws.iter_rows() for cell in row if isinstance(cell.value, str)
     )
     assert "SUM(Revenue)" in sql_text
     assert "SUM(Ad_Spend)" in sql_text
     assert "zip_income" in sql_text
+    assert "{sheet" in sql_text and "{named_range" in sql_text
+    assert SALES_NAMED_RANGE in wb.defined_names
+    assert MARKETING_NAMED_RANGE in wb.defined_names
+    join_formulas = [f for unused_coord, f in formulas if "run_sql(" in f]
+    sheet_formulas = [f for unused_coord, f in formulas if "con.sql(sql)" in f]
+    assert len(join_formulas) == 1
+    assert len(sheet_formulas) == 2
     for unused_coord, formula in formulas:
         # Trailing arg is the SQL cell/range on this sheet (sales stays A11:A16;
         # marketing sits below the RESULTS spill gutter).
         rest = formula[formula.rindex('"') + 1 :]
         sql_arg = rest.rsplit(",", 1)[-1].strip().rstrip(")")
-        _assert_results_formula_is_short_and_quote_safe(formula, sql_range=sql_arg)
+        _assert_results_formula_is_short_and_quote_safe(
+            formula, sql_range=sql_arg, join="run_sql(" in formula
+        )
     gaps = _empty_rows_below_xlsx_results(ws)
-    assert len(gaps) == 2
+    assert len(gaps) == 3
     for coord, empty in gaps:
         assert empty >= SQL_RESULTS_SPILL_GUTTER_ROWS, (coord, empty)
     _assert_xlsx_results_unmerged_with_clearance(ws)
-    join_notes = [
-        cell.value
-        for row in ws.iter_rows()
-        for cell in row
-        if isinstance(cell.value, str) and "query_folder_sql" in cell.value and not cell.value.startswith("=")
-    ]
-    assert join_notes, "ZIP join must stay a query_folder_sql pointer, not a live =PY()"
