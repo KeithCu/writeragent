@@ -90,5 +90,153 @@ Calc chat no longer delegates `domain="python"`; models must `write_formula_rang
 
 Scoring: dest vs parsed data range on `--backend string` (`CalcWorld` records dest + formula). LO later for spill. Next ranking run is live `--backend string` (do not regenerate golds first). Optimize output if needed: `optimized_calc_py_prompt.json`.
 
+### G. Calc sort/tax prompt lift (Sep 2026 — PR 610 / selective re-rank)
+
+Retrospective for the shared Calc prompt work that came out of
+[`oss-20b-eval.md`](oss-20b-eval.md). Keith may keep [PR 610](https://github.com/KeithCu/writeragent/pull/610)
+despite some catalog regressions; this section is the durable record of what
+shipped, what the factorial and selective re-measure actually showed, and
+what to do next. Product prompts and ranking JSON are **not** edited here.
+
+Source plan: [`oss-20b-eval.md`](oss-20b-eval.md) (gpt-oss-20b lift ideas from
+the Sep 1 ranking). Production still ships **one** Calc prompt for all
+models — there is no 20b-only fork.
+
+#### Starting point (Sep 1 catalog)
+
+17-task `--backend string` ranking in `benchmark_results*.json` (see
+[`benchmarks.md`](benchmarks.md)). The 20b failures called out in
+`oss-20b-eval.md` included:
+
+| Task | What 20b did | Kind |
+|------|--------------|------|
+| `data_sorting` | In-place `=PY` over the range; header destroyed | tool routing |
+| `tax_column` | Absolute `=B2*0.08` on every row instead of a relative per-row formula | per-row formulas |
+
+The same source plan also suggested Draw flowchart routing (#3) and Writer
+needle-token lines (#5). Those were **not** part of the 610 ship.
+
+#### What shipped in PR 610 (Calc patches kept)
+
+From the oss-20b-eval suggestions, Keith locked Calc patches **1+2+4** and
+dropped Draw #3 and Writer needle #5:
+
+1. **Sort routing.** Models should use specialized Calc `domain="ranges"` /
+   `sort_range`, not in-place `=PY` for sort.
+2. **Relative per-row formulas** for tax-style writes (Banana → `=B3*0.08`,
+   not a copied `B2`).
+4. **Tool-description** improvements for `sort_range` (and related).
+
+Also after factorial learning:
+
+- `sort_range` schema **always requires** `has_header`. Runtime already
+  defaulted `True` when the arg was omitted; models often passed
+  `has_header=false` **explicitly**, which bypassed that default.
+- Calc directives split into short **Do Z because Y** lines (sort routing +
+  `has_header`), not a mashed Don't+Do pair. Don't+Do was ~2× prompt; small
+  models parse DO+why better.
+- Shared prompt for all models. Nemotron-specific sort experiments stay
+  parked until the 20b/120b story is settled (see
+  [`nemotron-35-eval.md`](nemotron-35-eval.md)).
+
+#### Factorial A/B (method)
+
+- **k=3**, `data_sorting` only, `openai/gpt-oss-20b` and
+  `openai/gpt-oss-120b` via OpenRouter `:nitro`.
+- 8-variant grid on prompt/schema cells (routing / tool-desc /
+  `has_header` required / DO lines / combinations), with instrumented
+  `has_header` call logging.
+- Locked winner cell for the shared ship: **`both`** (prompt + schema
+  together). No further master prompt churn after that lock.
+- Factorial headline vs the master-like `neither` cell: **120b** sort
+  `1/3 → 3/3`; **20b** sort unchanged `1/3` in that cell (ties elsewhere
+  at `2/3`). Across calls, more explicit `has_header=false` than
+  `true`; fails often correlated with explicit false — hence required
+  `has_header` + DO lines.
+- Factorial k=3 sensitivity is **not** the same thing as a single-shot
+  catalog `hard_pass` bit. The later catalog re-run (below) is the
+  single-shot measure.
+
+#### Selective catalog re-run (PR 613)
+
+**Not** a full 17-task re-rank (spend-limited OpenRouter key). Re-ran only
+`data_sorting` + `tax_column` across the catalog, merged into the Sep 1
+summaries via `merge_benchmark_results.py`, and refreshed Pareto /
+[`benchmarks.md`](benchmarks.md). Comparison metric: per-model **hard_pass**
+vs the Sep 1 details for those two tasks.
+
+##### `data_sorting` vs Sep 1
+
+| Outcome | Models |
+|---------|--------|
+| **Helped (F→P)** | `deepseek/deepseek-v4-flash-0731`, `inception/mercury-2.5-preview`, `meta/muse-spark-1.3-contributor`, `openai/gpt-oss-20b` |
+| **Hurt (P→F)** | `z-ai/glm-5.3-flash` |
+| Unchanged pass | `google/gemma-4-31b-it`, `ibm-granite/granite-4.2-8b`, `meta/muse-glimmer-30b`, `openai/gpt-5.6-luna`, `openai/gpt-oss-120b`, `poolside/laguna-s-2.1`, `qwen/qwen3.8-27b`, `x-ai/grok-4.6`, `z-ai/glm-5.3` |
+| Unchanged fail | `bytedance-seed/seed-2.0-mini`, `google/gemini-3.5-flash-lite`, `minimax/minimax-m3`, `mistralai/mistral-small-2603`, `upstage/solar-pro4` |
+| Error / incomplete (no fair compare) | `google/gemma-4-26b-a4b-it`, `poolside/laguna-xs-2.1` |
+| New catalog rows (no Sep 1) | `qwen/qwen3.8-flash` pass; `nvidia/nemotron-3.5-lightning` fail |
+
+Headline: **net help on sort**. 20b helped (F→P). 120b unchanged pass
+(already green on Sep 1 — the factorial gain was vs `neither` under k=3,
+not vs the Sep 1 catalog bit).
+
+##### `tax_column` vs Sep 1
+
+| Outcome | Models |
+|---------|--------|
+| **Helped (F→P)** | `google/gemini-3.5-flash-lite`, `openai/gpt-oss-20b`, `poolside/laguna-s-2.1` |
+| **Hurt (P→F)** | `qwen/qwen3.8-27b`, `upstage/solar-pro4`, `z-ai/glm-5.3` |
+| Unchanged pass | `deepseek/deepseek-v4-flash-0731`, `google/gemma-4-31b-it`, `inception/mercury-2.5-preview`, `meta/muse-spark-1.3-contributor`, `minimax/minimax-m3`, `openai/gpt-oss-120b`, `x-ai/grok-4.6`, `z-ai/glm-5.3-flash` |
+| Unchanged fail | `bytedance-seed/seed-2.0-mini`, `google/gemma-4-26b-a4b-it`, `ibm-granite/granite-4.2-8b`, `meta/muse-glimmer-30b`, `mistralai/mistral-small-2603`, `nvidia/nemotron-3.5-lightning`, `openai/gpt-5.6-luna` |
+| Error / incomplete (no fair compare) | `poolside/laguna-xs-2.1` |
+| New catalog rows (no Sep 1) | `qwen/qwen3.8-flash` pass |
+
+##### Combined take
+
+Worth keeping 610 for the catalog needle move (especially 20b on **both**
+tasks). Regressions to work down:
+
+| Task | Hurt models |
+|------|-------------|
+| `data_sorting` | `z-ai/glm-5.3-flash` |
+| `tax_column` | `qwen/qwen3.8-27b`, `upstage/solar-pro4`, `z-ai/glm-5.3` |
+
+Catalog note for **future** ranking runs: drop `z-ai/glm-5.3`
+(expensive/overkill); keep `z-ai/glm-5.3-flash` as the more likely-used
+model. Keep `glm-5.3` in the current 613 snapshot since it already ran.
+
+#### Next steps
+
+1. Do per-regression failure forensics on the four hurt models
+   (`glm-5.3-flash` sort; `qwen3.8-27b` / `solar-pro4` / `glm-5.3` tax) —
+   read tool traces and args from the details JSON — **before** more prompt
+   churn, because shared prompts need surgical fixes, not another global
+   rewrite.
+2. Do a targeted A/B on `has_header` wording vs schema-only for
+   `z-ai/glm-5.3-flash` sort (it hurt on sort while tax stayed pass) to
+   isolate whether required bool + DO line over-constrained header
+   detection.
+3. Do a tax-only micro A/B for `qwen/qwen3.8-27b` / `upstage/solar-pro4` /
+   `z-ai/glm-5.3` on relative-formula wording **without** touching sort
+   lines, because the tax hurts did not all co-occur with sort hurts.
+4. Do keep factorial discipline: k≥3 on 20b+120b gate models before
+   shipping shared Calc prompt changes. Single-shot catalog `hard_pass` is
+   noisy (factorial k=3 sensitivity ≠ one catalog bit).
+5. Do selective re-measure (`data_sorting` + `tax_column` only) after the
+   next prompt tweak rather than a full 17-task catalog until spend allows
+   — merge into the prior snapshot the same way as [PR 613](https://github.com/KeithCu/writeragent/pull/613)
+   (`merge_benchmark_results.py`).
+6. Do park Nemotron-specific sort forks until the shared-prompt
+   regressions above are understood.
+7. Do optionally re-run the incomplete models (`google/gemma-4-26b-a4b-it`,
+   `poolside/laguna-xs-2.1`) when key budget allows so Pareto is not
+   carrying stale Sep 1 bits for those ids.
+
+Cross-links: [`oss-20b-eval.md`](oss-20b-eval.md),
+[PR 610](https://github.com/KeithCu/writeragent/pull/610),
+[PR 613](https://github.com/KeithCu/writeragent/pull/613),
+[`benchmarks.md`](benchmarks.md),
+[`nemotron-35-eval.md`](nemotron-35-eval.md).
+
 ---
-*Updated Dev Plan v2.2 — Phase F shipped (Aug 2026)*
+*Updated Dev Plan v2.3 — Phase G retrospective (Sep 2026; PR 610 / PR 613)*
