@@ -12,3 +12,14 @@ config:
     widget: number
     label: Max Rows Display
     public: true
+
+  ods_cache_enabled:
+    type: boolean
+    default: true
+    widget: checkbox
+    label: Cache Excel siblings as ODS
+    helper: >-
+      Convert sibling .xlsx/.xls to writeragent_ods_cache/ beside the folder so
+      repeated DuckDB SQL reuses the ODS. Native .ods and the live workbook are
+      never cached. Set calc.ods_cache_enabled false in writeragent.json to disable.
+    public: true

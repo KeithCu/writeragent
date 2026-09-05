@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -17,6 +18,7 @@ from plugin.calc.duckdb_tools import (
     parse_table_source_spec,
     resolve_table_source_a1,
 )
+from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry_paths, write_sidecar_meta
 from plugin.framework.errors import ToolExecutionError
 
 
@@ -642,3 +644,150 @@ def test_execute_tables_file_sheet_identity(
     pre = mock_run.call_args.kwargs.get("preloaded") or {}
     assert "sales" in pre
     assert pre["sales"]["grid"][0] == ["Region", "Sales"]
+
+
+def _fake_export_writes_ods(model, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"PK\x03\x04cached-ods")
+
+
+@patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)
+@patch("plugin.calc.duckdb_tools._export_model_to_cached_ods", side_effect=_fake_export_writes_ods)
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_xlsx_cache_miss_then_hit_mtime_invalidates(
+    mock_open, mock_read, _mock_close, _mock_export, _mock_open_wb, tmp_path
+):
+    """First XLSX open writes cache; second opens the ODS; mtime change misses."""
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    opened: list[str] = []
+
+    def _open(_ctx, path):
+        opened.append(os.path.normpath(str(path)))
+        return (_fake_model(), "calc", None, True)
+
+    mock_open.side_effect = _open
+    mock_read.side_effect = _grid_for_requested_range
+
+    _tbl, grid1 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    assert grid1[0] == ["Region", "Sales"]
+    assert opened[0] == os.path.normpath(str(xlsx))
+    paths = cache_entry_paths(str(xlsx))
+    assert paths is not None
+    cached_ods, meta_path = paths
+    assert cached_ods.is_file()
+    assert meta_path.is_file()
+
+    _tbl, grid2 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    assert grid2[0] == ["Region", "Sales"]
+    assert opened[1] == os.path.normpath(str(cached_ods))
+
+    st = os.stat(xlsx)
+    os.utime(xlsx, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    _tbl, grid3 = _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+    assert grid3[0] == ["Region", "Sales"]
+    assert opened[2] == os.path.normpath(str(xlsx))
+
+
+@patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)
+@patch("plugin.calc.duckdb_tools._export_model_to_cached_ods", side_effect=_fake_export_writes_ods)
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_ods_source_skips_cache(mock_open, mock_read, _mock_close, mock_export, _mock_open_wb, tmp_path):
+    _xlsx, ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_read.side_effect = _grid_for_requested_range
+
+    _read_sibling_office_file_as_grid(object(), str(ods))
+
+    mock_open.assert_called_once()
+    assert os.path.normpath(mock_open.call_args[0][1]) == os.path.normpath(str(ods))
+    mock_export.assert_not_called()
+    assert not (tmp_path / ODS_CACHE_DIRNAME).exists()
+
+
+@patch("plugin.calc.ods_cache.ods_cache_enabled", return_value=False)
+@patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)
+@patch("plugin.calc.duckdb_tools._export_model_to_cached_ods")
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_xlsx_skips_cache_when_disabled(
+    mock_open, mock_read, _mock_close, mock_export, _mock_open_wb, _enabled, tmp_path
+):
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_read.side_effect = _grid_for_requested_range
+
+    _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+
+    assert os.path.normpath(mock_open.call_args[0][1]) == os.path.normpath(str(xlsx))
+    mock_export.assert_not_called()
+    assert not (tmp_path / ODS_CACHE_DIRNAME).exists()
+
+
+@patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=True)
+@patch("plugin.calc.duckdb_tools._export_model_to_cached_ods")
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+def test_live_workbook_skips_cache(mock_open, mock_read, _mock_close, mock_export, _mock_open_wb, tmp_path):
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    mock_open.return_value = (_fake_model(), "calc", None, True)
+    mock_read.side_effect = _grid_for_requested_range
+
+    _read_sibling_office_file_as_grid(object(), str(xlsx), sheet_hint="Actuals")
+
+    assert os.path.normpath(mock_open.call_args[0][1]) == os.path.normpath(str(xlsx))
+    mock_export.assert_not_called()
+
+
+@patch("plugin.calc.duckdb_tools._source_is_open_workbook", return_value=False)
+@patch("plugin.calc.duckdb_tools.close_document_research_document")
+@patch("plugin.calc.inspector.CellInspector.read_range")
+@patch("plugin.calc.duckdb_tools.open_document_for_read")
+@patch("plugin.calc.duckdb_tools.execute_on_main_thread")
+@patch("plugin.scripting.client.run_folder_sql")
+@patch("plugin.calc.duckdb_tools.resolve_listing_directory")
+def test_sql_path_uses_cache_on_second_query(
+    mock_resolve, mock_run, mock_exec, mock_open, mock_read, _mock_close, _mock_open_wb, tmp_path
+):
+    """query_folder_sql still preloads the used-range grid when the open is a cache hit."""
+    xlsx, _ods = _write_office_fixtures(tmp_path)
+    (tmp_path / "sales.csv").write_text("region,amount\nNorth,1\n")
+    mock_resolve.return_value = str(tmp_path)
+    mock_run.return_value = {"status": "ok", "helper": "query_folder_sql", "total_rows": 1}
+    mock_exec.side_effect = lambda fn: fn()
+    mock_read.side_effect = _grid_for_requested_range
+
+    opened: list[str] = []
+
+    def _open(_ctx, path):
+        opened.append(os.path.normpath(str(path)))
+        return (_fake_model(), "calc", None, True)
+
+    mock_open.side_effect = _open
+
+    # Seed a valid cache entry so the SQL open is a hit.
+    paths = cache_entry_paths(str(xlsx))
+    assert paths is not None
+    cached_ods, meta_path = paths
+    cached_ods.parent.mkdir(parents=True, exist_ok=True)
+    cached_ods.write_bytes(b"PK\x03\x04cached-ods")
+    write_sidecar_meta(meta_path, str(xlsx))
+
+    t = QueryFolderSqlTool()
+    res = t.execute(
+        _mk_ctx(),
+        sql="SELECT * FROM budget",
+        files=["sales.csv", "budget.xlsx#Actuals"],
+    )
+    assert res["status"] == "ok"
+    assert opened == [os.path.normpath(str(cached_ods))]
+    pre = mock_run.call_args.kwargs.get("preloaded") or {}
+    assert "budget.xlsx" in pre
+    assert pre["budget.xlsx"]["grid"] == [["Region", "Sales"], ["North", 100]]
+    flat = mock_run.call_args.kwargs.get("flat_files") or {}
+    assert any(str(v).endswith("sales.csv") for v in flat.values())

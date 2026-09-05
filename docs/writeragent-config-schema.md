@@ -67,6 +67,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | `max_rows_display` | `int` | `1000` | `100`–`100000` | Max Rows Display |
+| `ods_cache_enabled` | `boolean` | `true` |  | Convert sibling .xlsx/.xls to writeragent_ods_cache/ beside the folder so repeated DuckDB SQL reuses the ODS. Native .ods and the live workbook are never cached. Set calc.ods_cache_enabled false in writeragent.json to disable. |
 
 ## MCP (`mcp`)
 

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 
 import uno
@@ -17,6 +18,7 @@ from plugin.calc.duckdb_tools import (
     parse_table_source_spec,
     read_model_table_grid,
 )
+from plugin.calc.ods_cache import ODS_CACHE_DIRNAME, cache_entry_paths, lookup_cached_ods
 from plugin.framework.errors import ToolExecutionError
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
@@ -49,15 +51,7 @@ def _store_sibling(doc, path: str, *, xlsx: bool = False) -> None:
 def _cleanup_dir(temp_dir: str) -> None:
     if not temp_dir or not os.path.isdir(temp_dir):
         return
-    for name in os.listdir(temp_dir):
-        try:
-            os.remove(os.path.join(temp_dir, name))
-        except OSError:
-            pass
-    try:
-        os.rmdir(temp_dir)
-    except OSError:
-        pass
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @native_test
@@ -298,3 +292,64 @@ def test_query_folder_sql_sheet_identity_host_path(ctx, doc):
     assert grid is not None
     assert len(grid) == 2
     assert grid[0][0] == "Region"
+
+
+@native_test
+@with_native_doc("calc")
+def test_sibling_xlsx_writes_ods_cache_and_reuses_it(ctx, doc):
+    """Miss: LO import + Save As cache. Hit: cached ODS has the same used-range grid."""
+    temp_dir = tempfile.mkdtemp(prefix="wa_duckdb_odscache_")
+    sibling = TestingFactory.create_native_doc(ctx, "calc", hidden=True)
+    try:
+        _fill_offset_table(sibling)
+        xlsx_path = os.path.join(temp_dir, "budget.xlsx")
+        _store_sibling(sibling, xlsx_path, xlsx=True)
+        TestingFactory.close_doc(sibling)
+        sibling = None
+
+        _tbl, grid1 = _read_sibling_office_file_as_grid(ctx, xlsx_path, sheet_hint="Actuals")
+        assert grid1[0][0] == "Region"
+        assert len(grid1) == 2
+
+        cached = lookup_cached_ods(xlsx_path)
+        assert cached is not None, "first XLSX read must write writeragent_ods_cache/"
+        assert cached.is_file()
+        paths = cache_entry_paths(xlsx_path)
+        assert paths is not None
+        assert paths[1].is_file()
+        assert os.path.isdir(os.path.join(temp_dir, ODS_CACHE_DIRNAME))
+
+        _tbl2, grid_from_cache = _read_sibling_office_file_as_grid(
+            ctx, str(cached), sheet_hint="Actuals"
+        )
+        assert len(grid_from_cache) == 2
+        assert grid_from_cache[0][0] == "Region"
+
+        _tbl3, grid2 = _read_sibling_office_file_as_grid(ctx, xlsx_path, sheet_hint="Actuals")
+        assert grid2[0][0] == "Region"
+        assert len(grid2) == 2
+    finally:
+        if sibling is not None:
+            TestingFactory.close_doc(sibling)
+        _cleanup_dir(temp_dir)
+
+
+@native_test
+@with_native_doc("calc")
+def test_sibling_ods_does_not_write_ods_cache(ctx, doc):
+    temp_dir = tempfile.mkdtemp(prefix="wa_duckdb_odsskip_")
+    sibling = TestingFactory.create_native_doc(ctx, "calc", hidden=True)
+    try:
+        _fill_offset_table(sibling)
+        ods_path = os.path.join(temp_dir, "budget.ods")
+        _store_sibling(sibling, ods_path)
+        TestingFactory.close_doc(sibling)
+        sibling = None
+
+        _read_sibling_office_file_as_grid(ctx, ods_path, sheet_hint="Actuals")
+        cache_dir = os.path.join(temp_dir, ODS_CACHE_DIRNAME)
+        assert not os.path.isdir(cache_dir), "native .ods must not create writeragent_ods_cache/"
+    finally:
+        if sibling is not None:
+            TestingFactory.close_doc(sibling)
+        _cleanup_dir(temp_dir)

@@ -13,7 +13,7 @@ todos:
     status: completed
   - id: phase-a-plus-ods-cache
     content: "Phase A+: writeragent_ods_cache/ beside folder; mtime invalidation for xlsx/xls → cached ods; open cache on hit"
-    status: pending
+    status: completed
   - id: phase-a-tests
     content: "Phase A: pytest for path guard + folder SQL round-trip (temp dir fixtures)"
     status: completed
@@ -33,7 +33,7 @@ isProject: false
 
 Back to [Enabling NumPy & Python in LibreOffice](../enabling_numpy_in_libreoffice.md).
 
-**Status:** Phase A + A+ + B + C landed (multi-table catalog with named ranges + named folder files). Phase D deferred. See execution plan and implementation notes below.
+**Status:** Phase A + A+ (including ODS mtime cache) + B + C landed (multi-table catalog with named ranges + named folder files). Phase D deferred. See execution plan and implementation notes below.
 
 ### Pretty demo (SQL / DuckDB sheet)
 
@@ -64,7 +64,7 @@ That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path pr
 - Host handles: scoped dir resolution, hidden LO opens for .xlsx/.ods, active doc reads for ranges, size limits, preloading.
 - Worker: registers preloaded via `coerce_to_dataframe`, flat files via `read_csv`/`read_parquet` etc. under provided names. Read-only guards.
 - Templates: `[SQL] query_folder_sql` and `query_sheet_sql` in Run Python Script.
-- Limitations: no write-back, no shared kernel cache yet, default first sheet for office files when `#SheetName` is omitted. Sibling `.xlsx`/`.ods` now read the sheet **used range** (same `createCursor` / `gotoStartOfUsedArea` / `gotoEndOfUsedArea` path as `SheetAnalyzer` / ingest) — open / missing-sheet / empty-range failures are tool errors. ODS mtime cache (`writeragent_ods_cache/`) is still pending.
+- Limitations: no write-back, no shared kernel cache yet, default first sheet for office files when `#SheetName` is omitted. Sibling `.xlsx`/`.ods` now read the sheet **used range** (same `createCursor` / `gotoStartOfUsedArea` / `gotoEndOfUsedArea` path as `SheetAnalyzer` / ingest) — open / missing-sheet / empty-range failures are tool errors. Sibling `.xlsx`/`.xls` reuse `writeragent_ods_cache/` (mtime+size key; `calc.ods_cache_enabled`, default true). Native `.ods` and the live workbook are not cached.
 - Usage: Mix tables + files for joins, e.g. live sheet identity + sibling CSVs. See [Table source identity](#table-source-identity).
 
 **Audience:** Product, senior engineers, and future implementers. This doc captures why DuckDB fits WriterAgent, what users get, and how to build on existing Calc↔venv infrastructure without a new architectural pillar.
@@ -99,7 +99,7 @@ CSV / Parquet / JSON remain **direct DuckDB file reads** in the venv (no UNO).
 
 **Question:** Should WriterAgent maintain an `ods_cache` (or `writeragent_ods_cache/`) beside the document folder and reuse converted ODS files instead of re-importing XLSX every time?
 
-**Recommendation: yes, with mtime invalidation — but not in Phase A (CSV-only).** Add when sibling XLSX ingress ships (Phase A+).
+**Recommendation: yes, with mtime invalidation.** Shipped in Phase A+ (`plugin/calc/ods_cache.py`).
 
 | Approach | Pros | Cons |
 |----------|------|------|
@@ -125,11 +125,11 @@ CSV / Parquet / JSON remain **direct DuckDB file reads** in the venv (no UNO).
 
 **Do not cache:** native `.ods` / live active workbook (open source directly). **Do cache:** `.xlsx`, `.xls` only.
 
-**Settings (optional):** `duckdb.ods_cache_enabled` (default `true`), `duckdb.ods_cache_max_mb` prune LRU.
+**Settings:** `calc.ods_cache_enabled` (default `true`; plan name was `duckdb.ods_cache_enabled`). `duckdb.ods_cache_max_mb` LRU prune is still optional / not shipped.
 
 **Why not skip cache:** SQL workflows often re-query the same sibling Excel file many times (chat iterations, `=PY()` recalc, analysis sub-agent). LO’s XLSX filter is the fidelity win; cache makes that win **affordable**.
 
-**MVP shortcut:** Phase A+ can ship **mtime-checked cache** only (no LRU) — enough for v1.
+**Shipped MVP:** mtime+size-checked cache only (no LRU). Disable with `calc.ods_cache_enabled: false` in `writeragent.json`.
 
 ---
 
@@ -435,7 +435,7 @@ No cloud telemetry required. Suggested signals:
 | 1 | Separate `sql` specialized domain vs helpers under `analysis`? | PM + API |
 | 2 | Allow LLM-authored SQL verbatim vs template-only (file list from host)? | Security |
 | 3 | ~~XLSX via DuckDB vs host~~ | **Resolved:** LO import + UNO read (this doc § Decision). |
-| 4 | ~~ODS cache on disk?~~ | **Resolved:** per-folder `writeragent_ods_cache/` with mtime invalidation (§ ODS cache directory). Defer until XLSX ingress. |
+| 4 | ~~ODS cache on disk?~~ | **Resolved / shipped:** per-folder `writeragent_ods_cache/` with mtime+size invalidation (§ ODS cache directory). |
 | 5 | Auto-export sheet snapshot to temp Parquet for huge ranges (Phase C perf) | Eng, defer |
 | 6 | Relationship to deferred **pyarrow** / Parquet export from Calc | Roadmap |
 
@@ -470,3 +470,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | SQL_DuckDB RESULTS are formula-safe: SQL lives only in cells; the `=PY()` payload is a short runner that reads `data[1]` (SQL cell/range) plus `data[0]` (sheet range). |
 | 2026-09-05 | SQL_DuckDB sheet-only RESULTS leave 15 empty rows × 5 cols under the formula so a Region×Category spill (header+12) does not `#SPILL!` into the next section title. The live RESULTS formula cell is unmerged (no ODS `span_cols` / XLSX A:H) so spill targets are real cells. |
 | 2026-09-05 | Stable table identity: `{sheet}` (used range), `{named_range}` (named or database range), sibling `file.xlsx#Sheet` / `files={name: "file.xlsx#Sheet"}`. Frozen `{range: A1}` kept. Catalog does not store expanded A1. |
+| 2026-09-05 | Phase A+ ODS cache: sibling `.xlsx`/`.xls` → `writeragent_ods_cache/` (hash of abs path + mtime + size); open cached ODS on hit; native `.ods` and the live workbook skip cache. Setting `calc.ods_cache_enabled` (default true). |

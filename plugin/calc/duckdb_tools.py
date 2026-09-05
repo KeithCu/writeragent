@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import split_sheet_prefix
@@ -531,6 +532,97 @@ def _sibling_office_error(full_path: str, message: str, *, sheet: str | None = N
     return ToolExecutionError(f"Sibling spreadsheet {bn!r}: {message}", code=code)
 
 
+def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
+    """True when *full_path* is already loaded on the desktop.
+
+    The live workbook must not go through the ODS cache: unsaved edits would
+    be skipped, and ``storeToURL`` would export a user-visible document.
+    """
+    try:
+        import uno
+
+        from plugin.framework.uno_context import resolve_document_by_url
+
+        url = uno.systemPathToFileUrl(os.path.normpath(os.path.abspath(full_path)))
+        existing, _typ = resolve_document_by_url(ctx, url)
+        return existing is not None
+    except Exception:
+        return False
+
+
+def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
+    """Save As ODS to *dest* (atomic replace via a ``.partial`` sibling)."""
+    import uno
+
+    from plugin.writer.format import create_property_value
+
+    store = getattr(model, "storeToURL", None)
+    if not callable(store):
+        raise TypeError("document cannot storeToURL")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_name(dest.name + ".partial")
+    try:
+        if tmp.exists():
+            tmp.unlink()
+        url = uno.systemPathToFileUrl(str(tmp.resolve()))
+        props = (
+            create_property_value("FilterName", "calc8"),
+            create_property_value("Overwrite", True),
+        )
+        store(url, props)
+        os.replace(str(tmp), str(dest))
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool]:
+    """Return ``(path_to_open, cache_hit)`` for a sibling spreadsheet.
+
+    Cache only ``.xlsx``/``.xls`` that are not already open. Native ``.ods``
+    and the live workbook always open the source path.
+    """
+    from plugin.calc.ods_cache import is_cacheable_office_source, lookup_cached_ods, ods_cache_enabled
+
+    if not is_cacheable_office_source(full_path) or not ods_cache_enabled():
+        return full_path, False
+    if _source_is_open_workbook(ctx, full_path):
+        return full_path, False
+    hit = lookup_cached_ods(full_path)
+    if hit is not None:
+        return str(hit), True
+    return full_path, False
+
+
+def _maybe_write_ods_cache(ctx: Any, model: Any, full_path: str, *, opened_flag: bool, cache_hit: bool) -> None:
+    """On a conversion miss, Save As the imported XLSX/XLS into the folder cache."""
+    from plugin.calc.ods_cache import (
+        cache_entry_paths,
+        is_cacheable_office_source,
+        ods_cache_enabled,
+        write_sidecar_meta,
+    )
+
+    if cache_hit or not opened_flag:
+        return
+    if not is_cacheable_office_source(full_path) or not ods_cache_enabled():
+        return
+    if _source_is_open_workbook(ctx, full_path):
+        return
+    paths = cache_entry_paths(full_path)
+    if paths is None:
+        return
+    ods_path, meta_path = paths
+    try:
+        _export_model_to_cached_ods(model, ods_path)
+        write_sidecar_meta(meta_path, full_path)
+    except Exception:
+        log.exception("Failed to write ODS cache for %s", full_path)
+
+
 def _read_sibling_office_file_as_grid(
     ctx: Any,
     full_path: str,
@@ -546,6 +638,11 @@ def _read_sibling_office_file_as_grid(
     ``named_range`` and ``range_a1`` are the same identities as the ``tables``
     catalog. Returns ``(table_name, grid)``. Raises ``ToolExecutionError`` on
     open, missing sheet/name, or empty/unusable used-range — never ``(None, None)``.
+
+    Sibling ``.xlsx``/``.xls`` reuse ``writeragent_ods_cache/`` when the
+    source mtime/size still match. Native ``.ods`` and the live workbook
+    skip the cache. Table name stays the *source* stem so a cache-hit open
+    does not register a hash filename.
     """
     if named_range:
         parsed: dict[str, Any] = {
@@ -575,10 +672,24 @@ def _read_sibling_office_file_as_grid(
             "headers": True,
         }
 
+    open_path, cache_hit = _resolve_sibling_open_path(ctx, full_path)
     model = None
     opened_flag = False
     try:
-        model, doc_type, err, opened_flag = open_document_for_read(ctx, full_path)
+        model, doc_type, err, opened_flag = open_document_for_read(ctx, open_path)
+        if cache_hit and (err or model is None):
+            # Stale or unreadable cache file: fall back to the source XLSX/XLS
+            # and rewrite the cache after a successful read.
+            log.warning("Cached ODS unreadable for %s; re-importing source", full_path)
+            if model is not None and opened_flag:
+                try:
+                    close_document_research_document(model, opened_for_document_research=opened_flag)
+                except Exception:
+                    pass
+            model = None
+            opened_flag = False
+            cache_hit = False
+            model, doc_type, err, opened_flag = open_document_for_read(ctx, full_path)
         if err or model is None:
             raise _sibling_office_error(full_path, err or "LibreOffice failed to open the file")
         if doc_type != "calc":
@@ -600,6 +711,8 @@ def _read_sibling_office_file_as_grid(
                 "used range is empty; nothing to register for SQL",
                 sheet=str(identity) if identity else None,
             )
+
+        _maybe_write_ods_cache(ctx, model, full_path, opened_flag=opened_flag, cache_hit=cache_hit)
 
         tbl_name = _sanitize_sql_table_name(os.path.splitext(os.path.basename(full_path))[0])
         return tbl_name, grid
