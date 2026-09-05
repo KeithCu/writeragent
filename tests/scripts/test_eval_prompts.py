@@ -50,42 +50,51 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
 
 
 # gpt-oss-20b data_sorting / tax_column routing (docs/eval/oss-20b-eval.md).
-# Rule shape: Don't X because Y; do Z instead. Shared prompt — no 20b fork.
+# Rule shape: Do Z because Y (lead with Do). Shared prompt — no 20b fork.
 _CALC_SORT_ROUTING = (
-    "Don't sort or reorder rows with write_formula_range or =PY because that "
-    "overwrites the range (including headers) and fights Calc's own sort; do "
-    'delegate_to_specialized_calc_toolset(domain="ranges") then sort_range instead '
-    "(multi-key sorts are two stable one-column passes)."
+    'Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range '
+    "to reorder rows (multi-key sorts are two stable one-column passes). "
+    "Prefer that over write_formula_range or =PY for sort because those "
+    "overwrite the range including headers."
+)
+_CALC_HAS_HEADER = (
+    "Do pass has_header=true on sort_range when row 1 is labels because "
+    "otherwise the header sorts like a value and leaves the top of the sheet."
 )
 _CALC_RELATIVE_FORMULA = (
-    "Don't copy one prototype formula onto every fill row because cell refs stay "
-    "pinned to the first row; do write each row's formula with that row's cells "
-    "instead (e.g. Banana row uses B3, not a stamped B2)."
+    "Do write each row's formula with that row's cells because copying one "
+    "prototype pins cell refs to the first row (e.g. Banana row uses B3, not a "
+    "stamped B2)."
 )
-_WRITE_FORMULA_RANGE_SORT_ONLY = (
-    "Don't use this tool to reorder rows because it overwrites the range "
-    "(including headers); do delegate_to_specialized_calc_toolset"
-    '(domain="ranges") then sort_range instead.'
+_SORT_RANGE_HAS_HEADER = (
+    "Do pass has_header=true when row 1 is labels because otherwise the header "
+    "sorts like a value and leaves the top of the sheet."
 )
 
 
 def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:
+    from plugin.framework.prompts import CALC_WORKFLOW
+
     calc = get_calc_eval_chat_system_prompt()
     assert _CALC_SORT_ROUTING in calc
+    assert _CALC_HAS_HEADER in calc
     assert _CALC_RELATIVE_FORMULA in calc
+    # Slim surface: sort routing lives in CALC_CORE_DIRECTIVES only.
+    assert _CALC_SORT_ROUTING not in CALC_WORKFLOW
     # Writer/Draw needle lines stay out of this shared Calc prompt.
     assert "NEMA 4" not in calc
     assert "flowchart" not in calc.lower()
 
 
-def test_calc_tool_descriptions_pin_sort_routing_not_tax() -> None:
+def test_calc_tool_descriptions_pin_sort_has_header_not_tax() -> None:
     from plugin.calc.cells import SortRange, WriteCellRange
 
     write_desc = WriteCellRange.description
-    assert _WRITE_FORMULA_RANGE_SORT_ONLY in write_desc
+    assert "sort_range" not in write_desc
     assert "Banana" not in write_desc
     assert "stamped B2" not in write_desc
     sort_desc = SortRange.description
     assert "Stable one-column sort" in sort_desc
     assert "Multi-key sorts are multiple calls" in sort_desc
     assert "two stable one-column passes" in sort_desc
+    assert _SORT_RANGE_HAS_HEADER in sort_desc

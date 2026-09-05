@@ -384,15 +384,15 @@ CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_H
 - You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_calc_toolset(domain="web_research").
 Python on sheet data: write_formula_range of =PY (that tool's description).
-Don't sort or reorder rows with write_formula_range or =PY because that overwrites the range (including headers) and fights Calc's own sort; do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range instead (multi-key sorts are two stable one-column passes).
-Don't copy one prototype formula onto every fill row because cell refs stay pinned to the first row; do write each row's formula with that row's cells instead (e.g. Banana row uses B3, not a stamped B2)."""
+Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes). Prefer that over write_formula_range or =PY for sort because those overwrite the range including headers.
+Do pass has_header=true on sort_range when row 1 is labels because otherwise the header sorts like a value and leaves the top of the sheet.
+Do write each row's formula with that row's cells because copying one prototype pins cell refs to the first row (e.g. Banana row uses B3, not a stamped B2)."""
 
 
 CALC_WORKFLOW = """WORKFLOW:
 1. get_sheet_summary for size/headers.
    read_cell_range only for a small peek (headers or a few dozen cells).
    A large range in chat overloads the model context — for transforms, pass the A1 address to =PY instead of reading the values.
-   Don't sort or reorder rows with write_formula_range or =PY because that overwrites the range (including headers) and fights Calc's own sort; do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range instead (multi-key sorts are two stable one-column passes).
 2. Do the work with tools. Use ranges, not one cell at a time.
 3. Short confirmation; if you changed cells, name the range (e.g. "Wrote totals in B5:B8")."""
 
