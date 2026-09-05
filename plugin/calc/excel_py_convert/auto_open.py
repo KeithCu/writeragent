@@ -107,6 +107,19 @@ def _geometric_open_job(ctx: Any, doc: Any) -> None:
     from plugin.calc.python.geometric_recalc import maybe_geometric_on_document_open
 
     maybe_geometric_on_document_open(ctx, doc)
+    # Geometric record uses getURL (not get_desktop), so a Dummy-thread
+    # OnLoadFinished still adds calc:file:…. The desktop scan then dies on
+    # the thread guard and never prunes. Wire OnUnload here so closing the
+    # showcase file drops that id — client-side clear cannot reach soffice.
+    if _is_calc_doc(doc):
+        try:
+            from plugin.calc.python.workbook_lifecycle import (
+                ensure_calc_workbook_unload_resets_python,
+            )
+
+            ensure_calc_workbook_unload_resets_python(ctx, doc)
+        except Exception:
+            log.debug("excel_py lifecycle: unload listener install failed", exc_info=True)
     try:
         _record_desktop_calc_sessions(ctx)
     except Exception:

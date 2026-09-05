@@ -428,6 +428,28 @@ def test_oncreate_without_resolvable_doc_still_scans_desktop():
         scan.assert_called_once_with(ctx)
 
 
+def test_geometric_open_job_wires_unload_listener_when_scan_cannot_run():
+    """Dummy-thread OnLoadFinished still records calc:file:; OnUnload must drop it.
+
+    The desktop scan uses get_desktop (thread-guarded) and often fails there.
+    Closing the showcase file is the only soffice-side clear.
+    """
+    import plugin.calc.excel_py_convert.auto_open as mod
+
+    doc = CalcDocStub()
+    ctx = MagicMock()
+    with (
+        patch("plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open") as open_geo,
+        patch(
+            "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python"
+        ) as ensure_unload,
+        patch.object(mod, "_record_desktop_calc_sessions", side_effect=RuntimeError("guard")),
+    ):
+        mod._geometric_open_job(ctx, doc)
+    open_geo.assert_called_once_with(ctx, doc)
+    ensure_unload.assert_called_once_with(ctx, doc)
+
+
 def test_record_desktop_calc_sessions_records_only_exactly_one_calc():
     """Two Calcs must not be recorded — leftover then Isolated (recorded=2)."""
     import plugin.calc.excel_py_convert.auto_open as mod
