@@ -10,8 +10,9 @@ placeholder is ``dlg:menulist`` (LibreOffice dialog.dtd has no ``listbox``).
 PR 564 parked an in-dialog ListBox in the Ready/Ask gap (siblings cannot
 paint over the rich-text transcript). PR 575/584 tried TOP then SIMPLE for
 Ask focus. Arch HiDPI: SIMPLE gap-fit still crushed under Ready/query_label.
-Product placement: ~6 rows **above Ready** over the transcript, which needs
-a TOP host window (SIMPLE siblings lose paint). Fill before show, idle post
+Product placement: ~6 rows **above Ready** over the transcript via a TOP
+host (SIMPLE siblings lose paint). Do **not** resize or hide rich-text —
+chrome/title bar is acceptable for z-order. Fill before show, idle post
 from textChanged, and return focus to Ask after map.
 """
 
@@ -423,9 +424,6 @@ def _awt_window_constants() -> tuple[Any, Any, int, int, int] | None:
     return Rectangle, WindowDescriptor, 0, 3, 16
 
 
-def _rich_text_control(send_listener: Any) -> Any:
-    rich_widget = getattr(send_listener, "rich_text_widget", None) if send_listener is not None else None
-    return getattr(rich_widget, "control", None) if rich_widget is not None else None
 
 
 def _create_ask_peer_listbox(
@@ -434,14 +432,12 @@ def _create_ask_peer_listbox(
     frame: Any = None,
     send_listener: Any = None,
 ) -> Any:
-    """Dialog-local SIMPLE listbox above Ready. No OS chrome.
+    """TOP host + SIMPLE listbox child so the menu paints over rich-text above Ready.
 
-    Siblings cannot paint over rich-text, and TOP windows either draw title
-    chrome or miss the screen. Shrink the transcript to end at the popup top
-    while open so the list has clear dialog-local space; restore on hide.
-    Never set SHOW at create (PR 584 deadlock).
+    History stays full size — do not shrink/hide the transcript. TOP may show
+    window chrome; Keith accepts that for z-order. Never set SHOW at create
+    (PR 584 deadlock). Fill before show, then setVisible, then return focus to Ask.
     """
-    del frame
     ask_peer = _query_peer(query_control)
     parent = ask_peer
     if parent_control is not None:
@@ -459,30 +455,69 @@ def _create_ask_peer_listbox(
     consts = _awt_window_constants()
     if consts is None:
         return None
-    rectangle_cls, descriptor_cls, _top, simple, _attrs = consts
+    rectangle_cls, descriptor_cls, top, simple, _attrs = consts
+    # Prefer NODECORATION; if the toolkit still draws chrome, that is OK for z-order.
+    # Never SHOW at create (maps before addItems → VCL deadlock).
+    host_attrs = 512  # WindowAttribute.NODECORATION
+    child_attrs = 16  # BORDER
     qr = query_control.getPosSize() if hasattr(query_control, "getPosSize") else None
     if qr is None:
         qr = type("R", (), {"X": 0, "Y": 0, "Width": 142, "Height": 30})()
     status_top = _status_top(send_listener)
-    x, y, w, h = _above_ready_rect(qr, _POPUP_MAX_ROWS, status_top=status_top)
+    dx, dy, w, h = _above_ready_rect(qr, _POPUP_MAX_ROWS, status_top=status_top)
+    screen = _screen_bounds_above_ready(
+        qr,
+        _POPUP_MAX_ROWS,
+        query_control=query_control,
+        send_listener=send_listener,
+        overlay_parent=parent_control,
+        ask_peer=ask_peer,
+        frame=frame,
+    )
+    if screen is not None:
+        x, y, w, h = screen
+    else:
+        x, y = dx, dy
+        _ovlog("TOP dialog-local fallback bounds=%s,%s %sx%s", x, y, w, h)
+    host_desc = descriptor_cls()
+    host_desc.Type = top
+    host_desc.WindowServiceName = "window"
+    host_desc.Parent = parent
+    host_desc.ParentIndex = -1
+    host_desc.Bounds = rectangle_cls(x, y, w, h)
+    host_desc.WindowAttributes = host_attrs
+    _ovlog("createWindow TOP window bounds=%s,%s %sx%s attrs=%s", x, y, w, h, host_attrs)
+    try:
+        host = toolkit.createWindow(host_desc)
+    except Exception:
+        _ovlog("createWindow TOP window FAILED", exc_info=True)
+        host = None
+    if host is None:
+        log.warning("slash popup: TOP overlay window could not be created")
+        return None
+    _ovdiag(host, "overlay-TOP")
     desc = descriptor_cls()
     desc.Type = simple
     desc.WindowServiceName = "listbox"
-    desc.Parent = parent
+    desc.Parent = host
     desc.ParentIndex = -1
-    desc.Bounds = rectangle_cls(x, y, w, h)
-    desc.WindowAttributes = 16  # BORDER only
-    _ovlog("createWindow SIMPLE-above-Ready bounds=%s,%s %sx%s", x, y, w, h)
+    desc.Bounds = rectangle_cls(0, 0, w, h)
+    desc.WindowAttributes = child_attrs
+    _ovlog("createWindow listbox in TOP %sx%s", w, h)
     try:
         win = toolkit.createWindow(desc)
     except Exception:
-        _ovlog("createWindow SIMPLE FAILED", exc_info=True)
+        _ovlog("createWindow listbox FAILED", exc_info=True)
         win = None
     if win is None:
-        log.warning("slash popup: listbox could not be created")
+        log.warning("slash popup: listbox in TOP window could not be created")
+        try:
+            host.dispose()
+        except Exception:
+            pass
         return None
-    _ovdiag(win, "listbox-SIMPLE-dialog")
-    return win, None, "dialog"
+    _ovdiag(win, "listbox-in-TOP")
+    return win, host, None
 
 
 class SlashPopupController:
@@ -514,7 +549,6 @@ class SlashPopupController:
         self._matches: list[SlashCommand] = []
         self._selected = 0
         self._listeners_attached = False
-        self._rich_pos_backup: tuple[int, int, int, int] | None = None
         # Do not createWindow here. Overlay is born on first `/`.
         # Live XDL placeholder is a real ListBox with no Ask-peer test mock —
         # do not attach keys to it or the toolkit window never gets them.
@@ -558,7 +592,6 @@ class SlashPopupController:
         _ovlog("hide open_was=%s toolkit=%s", self._open, self._popup_window is not None)
         self._detach_frame_keys()
         self._detach_toolkit_keys()
-        self._restore_rich_text_after_overlay()
         self._open = False
         self._matches = []
         self._selected = 0
@@ -655,13 +688,6 @@ class SlashPopupController:
         self._refresh_list()
         self._open = True
         self.reposition()
-        # Free dialog-local space: shorten transcript to the popup top.
-        try:
-            py = int(self.control.getPosSize().Y) if self.control is not None else 0
-        except Exception:
-            py = 0
-        if py:
-            self._shrink_rich_text_for_overlay(py)
         set_control_visible(self._placeholder, False)
         self._fill_visible_list()
         _ovlog("filled before show")
@@ -694,7 +720,7 @@ class SlashPopupController:
                 post_to_main_thread(_refocus_ask)
             except Exception:
                 _ovlog("Ask idle refocus post failed", exc_info=True)
-        _ovlog("show complete SIMPLE-shrink floater=%s rich_backup=%s", host is not None, getattr(self, "_rich_pos_backup", None) is not None)
+        _ovlog("show complete TOP-above-Ready floater=%s", host is not None)
 
     def _late_attach_overlay_keys(self) -> None:
         """Mouse + overlay keys after SIMPLE show. Ask QueryKeyListener still gets Esc."""
@@ -778,44 +804,7 @@ class SlashPopupController:
         return True
 
 
-    def _shrink_rich_text_for_overlay(self, popup_y: int) -> None:
-        """Shorten transcript so its bottom sits at popup_y; keep history visible."""
-        ctrl = _rich_text_control(self.send_listener)
-        if ctrl is None or not hasattr(ctrl, "getPosSize"):
-            return
-        try:
-            ps = ctrl.getPosSize()
-            top = int(ps.Y)
-            height = int(ps.Height)
-            new_h = int(popup_y) - top - 2
-            if new_h < 40 or new_h >= height:
-                _ovlog("rich_text shrink skip top=%s h=%s popup_y=%s", top, height, popup_y)
-                return
-            if getattr(self, "_rich_pos_backup", None) is None:
-                self._rich_pos_backup = (int(ps.X), top, int(ps.Width), height)
-            ctrl.setPosSize(int(ps.X), top, int(ps.Width), new_h, _POS_SIZE_FLAGS)
-            _ovlog("rich_text shrunk %s -> %s (popup_y=%s)", height, new_h, popup_y)
-        except Exception:
-            _ovlog("rich_text shrink failed", exc_info=True)
-
-    def _restore_rich_text_after_overlay(self) -> None:
-        backup = getattr(self, "_rich_pos_backup", None)
-        if backup is None:
-            return
-        ctrl = _rich_text_control(self.send_listener)
-        self._rich_pos_backup = None
-        if ctrl is None:
-            return
-        try:
-            x, y, w, h = backup
-            ctrl.setPosSize(x, y, w, h, _POS_SIZE_FLAGS)
-            _ovlog("rich_text restored %sx%s@%s,%s", w, h, x, y)
-        except Exception:
-            _ovlog("rich_text restore failed", exc_info=True)
-
     def _bring_overlay_front(self) -> None:
-
-
         """Raise the toolkit listbox above Ready/transcript siblings (clip probe)."""
         for label, obj in (
             ("popup_window", self._popup_window),
