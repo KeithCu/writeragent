@@ -50,15 +50,15 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
 
 
 # gpt-oss-20b data_sorting / tax_column routing (docs/eval/oss-20b-eval.md).
-# Rule shape: Do Z because Y (two short sort lines). Shared prompt — no 20b fork.
+# Teachings stay; shape is split so flash models cannot merge three adjacent
+# identical Do-because lines. Because-clause text is PR 616's (no write tools).
 _CALC_SORT_ROUTING = (
     'Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range '
     "to reorder rows (multi-key sorts are two stable one-column passes) "
     "because rewriting values by hand loses the header row."
 )
 _CALC_HAS_HEADER = (
-    "Do pass has_header=true on sort_range when row 1 is labels because "
-    "otherwise labels sort as values."
+    "When row 1 is labels, pass has_header=true — otherwise labels sort as values."
 )
 _CALC_RELATIVE_FORMULA = (
     "Do write each row's formula with that row's cells because copying one "
@@ -72,7 +72,7 @@ _SORT_RANGE_HAS_HEADER = (
 
 
 def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:
-    from plugin.framework.prompts import CALC_WORKFLOW
+    from plugin.framework.prompts import CALC_CORE_DIRECTIVES, CALC_WORKFLOW
 
     calc = get_calc_eval_chat_system_prompt()
     assert _CALC_SORT_ROUTING in calc
@@ -83,6 +83,13 @@ def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:
     sort_line = next(line for line in calc.splitlines() if "then sort_range" in line)
     assert "write_formula_range" not in sort_line
     assert "=PY" not in sort_line
+    # Headers + different shapes: not three adjacent identical Do-because lines.
+    assert "FORMULAS:" in CALC_CORE_DIRECTIVES
+    assert "SORT:" in CALC_CORE_DIRECTIVES
+    assert "Do pass has_header=true" not in CALC_CORE_DIRECTIVES
+    formulas_at = CALC_CORE_DIRECTIVES.index("FORMULAS:")
+    sort_at = CALC_CORE_DIRECTIVES.index("SORT:")
+    assert formulas_at < sort_at
     # Slim surface: sort routing lives in CALC_CORE_DIRECTIVES only.
     assert _CALC_SORT_ROUTING not in CALC_WORKFLOW
     assert _CALC_HAS_HEADER not in CALC_WORKFLOW

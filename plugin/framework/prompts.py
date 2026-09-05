@@ -379,14 +379,26 @@ DEFAULT_WRITER_GREETING = "AI: I can edit or translate your document instantly w
 # ---------------------------------------------------------------------------
 
 # : str so checkers keep this as str (Writer/Draw already are, via a str-returning call).
+#
+# Sort / header / per-row formula used to be three adjacent identical
+# "Do Z because Y" lines. Small models (glm-5.3-flash) merged that blob and
+# dropped routing (hand-rolled write_formula_range instead of sort_range) while
+# still keeping the last teaching. Keep all three meanings, but give each a
+# different shape and a short header, and put SORT last (recency) because that
+# is the line flash dropped. Routing stays the only "Do … then tool" line;
+# has_header is a plain constraint under SORT. Do not restack Don't+Do
+# (duplicates, ~2× prompt). Because-clause is PR 616's: rewriting by hand
+# loses the header row — do not name write_formula_range / =PY in the why.
 CALC_CORE_DIRECTIVES: str = f"""When the user wants {DELEGATION_USER_FILE_DATA_HINT} (another file/sheet by name or path, e.g. "my spreadsheet", "cell A9 from PythonInCalc"):
 - You MUST NOT ask the user where the file is stored, or to upload, paste, or share its contents.
 - You MUST call delegate_to_specialized_calc_toolset(domain="document_research") once with their described file(s) and task in task; nearby files are matched (paths not required).
 When the user wants {DELEGATION_PUBLIC_WEB_HINT}, delegate_to_specialized_calc_toolset(domain="web_research").
 Python on sheet data: write_formula_range of =PY (that tool's description).
+FORMULAS:
+Do write each row's formula with that row's cells because copying one prototype pins cell refs to the first row (e.g. Banana row uses B3, not a stamped B2).
+SORT:
 Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
-Do pass has_header=true on sort_range when row 1 is labels because otherwise labels sort as values.
-Do write each row's formula with that row's cells because copying one prototype pins cell refs to the first row (e.g. Banana row uses B3, not a stamped B2)."""
+When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 
 CALC_WORKFLOW = """WORKFLOW:
