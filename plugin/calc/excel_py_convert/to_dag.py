@@ -189,7 +189,9 @@ def _header_mode_from_keywords(node: ast.Call) -> HeaderMode:
 
 
 @deal.pre(
-    lambda src, i, *_unused, **__: str_bounded(src, _DEAL_REWRITE_SRC)
+    # Match wrapper alphabet/len (_deal_excel_src_ok); _DEAL_REWRITE_SRC=1 was
+    # tighter than CrossHair wrappers (len<=2) and CHECK-failed on _find_xl_calls('\t"').
+    lambda src, i, *_unused, **__: _deal_excel_src_ok(src)
     and type(i) is int
     and 0 <= i < len(src)
 )
@@ -680,11 +682,21 @@ def convert_cell_to_dag(
 
 
 @deal.pre(
+    # Also bound each cell like convert_cell_to_dag — otherwise CrossHair builds
+    # models that pass this wrapper then PreconditionFail inside the loop
+    # (check-all 33928341275: deps=['','',''] with _DEAL_CONVERT_LIST=1).
     lambda model, *_unused, **__: isinstance(model.scripts, list)
     and len(model.scripts) <= _DEAL_CONVERT_LIST
     and all(isinstance(s, str) and str_bounded(s, _DEAL_CONVERT_STR) for s in model.scripts)
     and isinstance(model.cells, list)
     and len(model.cells) <= _DEAL_CONVERT_LIST
+    and all(
+        type(c.script_index) is int
+        and isinstance(c.deps, list)
+        and len(c.deps) <= _DEAL_CONVERT_LIST
+        and all(isinstance(d, str) and ascii_bounded(d, _DEAL_CONVERT_STR) for d in c.deps)
+        for c in model.cells
+    )
 )
 def convert_model_to_dag(model: ExcelWorkbookModel, *, best_effort: bool = False) -> ConversionReport:
     """Convert every PY cell in *model* to DAG-style ``=PY`` formulas."""

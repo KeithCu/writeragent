@@ -36,6 +36,26 @@ _deal_sentence_locale_ok = (
 )
 
 
+# NUL/controls are isascii() but ICU SentenceBreaker TypeErrors on them
+# (check-all 33928341275: split_passage_to_sentences('\x00', locale=DEFAULT)).
+def _deal_passage_text_ok_pytest(text: object) -> bool:
+    return str_bounded(text, DEAL_MAX_SOURCE)
+
+
+def _deal_passage_text_ok_crosshair(text: object) -> bool:
+    return (
+        isinstance(text, str)
+        and len(text) <= _DEAL_PASSAGE_LEN
+        and text.isascii()
+        and all(c.isprintable() or c in "\n\t\r" for c in text)
+    )
+
+
+_deal_passage_text_ok = (
+    _deal_passage_text_ok_crosshair if UNDER_CROSSHAIR else _deal_passage_text_ok_pytest
+)
+
+
 def _embeddings_pip_install_hint() -> str:
     from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
 
@@ -60,7 +80,7 @@ def _import_splitter() -> Any:
 
 
 @deal.pre(
-    lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: str_bounded(text, _DEAL_PASSAGE_LEN)
+    lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: _deal_passage_text_ok(text)
     and _deal_sentence_locale_ok(locale)
 )
 def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
@@ -294,11 +314,24 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
 
 
 @deal.pre(
+    # Match split_passage_to_chunk_meta meta bounds — weak dict-only pre let
+    # CrossHair pass {'': '\x80'} then PreconditionFail on the nested call
+    # (check-all 33928341275).
     lambda text, runs, base_meta, *_unused, **__: ascii_bounded(text, _DEAL_PASSAGE_LEN)
     and isinstance(runs, list)
     and len(runs) <= _DEAL_SENT_LIST_LEN
-    and isinstance(base_meta, dict)
+    and type(base_meta) is dict
     and len(base_meta) <= _DEAL_SENT_LIST_LEN
+    and all(
+        type(k) is str
+        and ascii_bounded(k, DEAL_MAX_TOKEN)
+        and (
+            v is None
+            or type(v) in (int, float, bool)
+            or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN))
+        )
+        for k, v in base_meta.items()
+    )
 )
 def split_passage_locale_runs_to_chunk_meta(
     text: str,
