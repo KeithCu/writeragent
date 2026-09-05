@@ -127,6 +127,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/uno_context.py",
     "plugin/framework/worker_pool.py",
     "plugin/framework/appearance.py",
+    "plugin/framework/menu_icon_dpi.py",
     "plugin/framework/async_drain_guard.py",
     "plugin/framework/async_stream.py",
     "plugin/framework/sidebar_column.py",

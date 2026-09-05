@@ -58,7 +58,12 @@ class TestHamburgerMenu:
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
-        assert any(c.args[-1] == "gear_32.png" for c in load_g.call_args_list)
+        assert any(
+            isinstance(c.args[-1], str)
+            and c.args[-1].startswith("gear_")
+            and c.args[-1].endswith(".png")
+            for c in load_g.call_args_list
+        )
         labels = [c.args[1] for c in popup.insertItem.call_args_list]
         assert not any("Jupyter" in str(label) for label in labels)
         # Plain Writer (no WriterAgentNotebookJson): specialized notebook chrome stays off.
