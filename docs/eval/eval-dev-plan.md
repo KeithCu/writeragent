@@ -251,6 +251,24 @@ Forensics on the four catalog "hurts" (item 1 above):
   row" — still `domain="ranges"` then `sort_range`, no tool names in
   the why.
 
+#### Follow-on: split Do-lines + `write_formula_range` length check
+
+Optional later bucket after the 610/613 retrospective (not a tax-oracle
+change; keeps the PR 616 because-clause above):
+
+- **Prompt shape.** The three Calc teachings stay in
+  `CALC_CORE_DIRECTIVES`, but are no longer three adjacent identical
+  Do-because lines. `FORMULAS:` keeps the per-row Do-because; `SORT:`
+  (last, recency) keeps the only “Do … then tool” routing line; `has_header`
+  is a plain constraint under `SORT`. Hypothesis: identically-shaped
+  adjacent lines blur together for flash models, which then attend to one
+  and drop routing.
+- **Length mismatch.** `write_formula_range` now fails loud when a JSON
+  array’s leaf count does not match the A1 cell count (the schema already
+  said “exactly”; solar-pro4 still passed 4 values into an 8-cell range and
+  zip-style writes silently corrupted the extra cells). Same gate in the
+  string `CalcWorld`.
+
 Cross-links: [`oss-20b-eval.md`](oss-20b-eval.md),
 [PR 610](https://github.com/KeithCu/writeragent/pull/610),
 [PR 613](https://github.com/KeithCu/writeragent/pull/613),
@@ -258,4 +276,4 @@ Cross-links: [`oss-20b-eval.md`](oss-20b-eval.md),
 [`nemotron-35-eval.md`](nemotron-35-eval.md).
 
 ---
-*Updated Dev Plan v2.3 — Phase G retrospective (Sep 2026; PR 610 / PR 613); oracle/sort follow-up*
+*Updated Dev Plan v2.3 — Phase G retrospective (Sep 2026; PR 610 / PR 613); oracle/sort follow-up; Do-line split + length check*

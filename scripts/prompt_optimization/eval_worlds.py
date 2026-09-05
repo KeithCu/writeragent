@@ -168,6 +168,33 @@ def range_cell_count(rng: str) -> int:
     return max(0, (c1 - c0 + 1) * (r1 - r0 + 1))
 
 
+def _leaf_write_count(values: list[Any]) -> int:
+    n = 0
+    for item in values:
+        n += len(item) if isinstance(item, list) else 1
+    return n
+
+
+def _write_values_length_mismatch(rng: str, values: list[Any]) -> str:
+    """Fail loud when a JSON/list write does not cover every cell (no zip-truncate)."""
+    n_cells = range_cell_count(rng)
+    if n_cells <= 0:
+        return ""
+    n_vals = _leaf_write_count(values)
+    if n_vals == 0:
+        return ""  # empty array clears, same as production
+    # Single scalar fills the whole range — same as production write_formula_range.
+    if n_vals == 1 and n_cells > 1:
+        return ""
+    if n_vals == n_cells:
+        return ""
+    return (
+        f"Array has {n_vals} values but range {rng} has {n_cells} cells. "
+        "JSON array must match range size exactly, or pass a single string to "
+        "fill the whole range."
+    )
+
+
 def normalize_apply_content(content: Any) -> str:
     """Mirror ApplyDocumentContent list/string normalization (content.py)."""
     if isinstance(content, str):
@@ -914,6 +941,9 @@ class CalcWorld:
         dests: list[str] = []
         if ranges:
             for rng in ranges:
+                mismatch = _write_values_length_mismatch(str(rng), values)
+                if mismatch:
+                    return {"status": "error", "message": mismatch}
                 dests.append(str(rng).split(":")[0].split(".")[-1])
                 written += self._write_a1_range(str(rng), values, raw_values)
         elif self._grid and values:

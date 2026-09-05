@@ -29,7 +29,7 @@ from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.tool import ToolBase
-from plugin.calc.address_utils import index_to_column, split_sheet_prefix
+from plugin.calc.address_utils import index_to_column, parse_range_string, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.inspector import CellInspector
@@ -105,6 +105,69 @@ def _preview_if_large(bridge, range_name: str) -> dict[str, Any] | None:
     except Exception:
         log.exception("Could not size range %s for read_cell_range cap; reading in full", range_name)
         return None
+
+
+def _leaf_value_count(payload: Any) -> int:
+    """Count scalar cells in a JSON array (nested rows flatten)."""
+    if not isinstance(payload, list):
+        return 1
+    n = 0
+    for item in payload:
+        n += _leaf_value_count(item) if isinstance(item, list) else 1
+    return n
+
+
+def _json_array_value_count(fov: Any) -> int | None:
+    """How many cells a JSON/list ``values`` payload names, or None if not an array write.
+
+    Scalar strings fill the whole range; empty / ``[]`` clears. Those are not
+    length-checked. Named ranges are handled by the caller (unparseable A1).
+    """
+    data: Any
+    if isinstance(fov, list):
+        data = fov
+    elif isinstance(fov, str):
+        stripped = fov.strip()
+        if not stripped.startswith("["):
+            return None
+        try:
+            data = json.loads(stripped)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        if not isinstance(data, list):
+            return None
+    else:
+        return None
+    if not data:
+        return None
+    return _leaf_value_count(data)
+
+
+def _a1_range_shape(range_name: str) -> tuple[int, int, int] | None:
+    """``(cell_count, rows, cols)`` for an A1 range, or None for named/invalid refs."""
+    try:
+        _unused_sheet, local = split_sheet_prefix(range_name)
+        (c0, r0), (c1, r1) = parse_range_string(local)
+    except Exception:
+        # Named ranges and deal.pre misses skip this gate; manipulator still checks 1-D.
+        return None
+    cols = abs(c1 - c0) + 1
+    rows = abs(r1 - r0) + 1
+    return cols * rows, rows, cols
+
+
+def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, rows: int, cols: int) -> str:
+    """Loud error so the model can resize the array or the range (no silent zip/pad)."""
+    hint = ""
+    if cols == 1 and rows > 1:
+        hint = " Write one value per row (each formula uses that row's cells)."
+    elif rows == 1 and cols > 1:
+        hint = " Write one value per column."
+    return (
+        f"Array has {n_vals} values but range {range_name} has {n_cells} cells "
+        f"({rows}×{cols}). JSON array must match range size exactly, or pass a "
+        f"single string to fill the whole range.{hint}"
+    )
 
 
 class ReadCellRange(ToolBase):
@@ -245,6 +308,23 @@ class WriteCellRange(ToolBase):
 
         if len(rn) == 0:
             return self._tool_error("range is required")
+
+        # Schema already says JSON array length must match the range. Models
+        # (solar-pro4) still passed 4 values into an 8-cell range; zip-style
+        # writes silently corrupt the extra cells. Fail before undo so the
+        # model can resize the array or the range. Named/unparseable A1 is
+        # left to the manipulator (it already errors on a 1-D mismatch).
+        n_vals = _json_array_value_count(fov)
+        if n_vals is not None:
+            for r in rn:
+                shape = _a1_range_shape(r)
+                if shape is None:
+                    continue
+                n_cells, rows, cols = shape
+                if n_vals != n_cells:
+                    return self._tool_error(
+                        _values_length_mismatch_message(r, n_vals, n_cells, rows, cols)
+                    )
 
         undo = WriterCompoundUndo(ctx.doc, "WriterAgent: Write formulas")
         try:

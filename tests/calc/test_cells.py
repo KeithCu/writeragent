@@ -595,3 +595,76 @@ def test_write_cell_range_tool_error_return():
         res = tool.execute(ctx, range=["A1"], values="123")
     assert res["status"] == "error"
     assert "UNO write failure" in res["message"]
+
+
+def test_json_array_value_count_and_a1_shape():
+    from plugin.calc.cells import _a1_range_shape, _json_array_value_count
+
+    assert _json_array_value_count('["a", "b", "c", "d"]') == 4
+    assert _json_array_value_count(["a", "b", "c", "d"]) == 4
+    assert _json_array_value_count([["a"], ["b"], ["c"], ["d"]]) == 4
+    assert _json_array_value_count("=B2+1") is None
+    assert _json_array_value_count("") is None
+    assert _json_array_value_count("[]") is None
+    assert _a1_range_shape("C2:C9") == (8, 8, 1)
+    assert _a1_range_shape("Sheet1.C2:C9") == (8, 8, 1)
+    assert _a1_range_shape("A1:B1") == (2, 1, 2)
+    assert _a1_range_shape("SalesData") is None
+
+
+def test_write_formula_range_rejects_json_length_mismatch():
+    """4 values into an 8-cell column must fail loud — no silent zip/pad."""
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+    ):
+        result = WriteCellRange().execute(
+            ctx, range=["C2:C9"], values='["a", "b", "c", "d"]'
+        )
+
+    assert result["status"] == "error"
+    assert "4 values" in result["message"]
+    assert "8 cells" in result["message"]
+    assert "one value per row" in result["message"]
+    manip_cls.return_value.write_formula_range.assert_not_called()
+
+
+def test_write_formula_range_rejects_list_length_mismatch():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+    ):
+        result = WriteCellRange().execute(
+            ctx, range=["A1:B4"], values=["a", "b", "c", "d"]
+        )
+
+    assert result["status"] == "error"
+    assert "4 values" in result["message"]
+    assert "8 cells" in result["message"]
+    manip_cls.return_value.write_formula_range.assert_not_called()
+
+
+def test_write_formula_range_accepts_matching_json_and_scalar_fill():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.writer.edit_review.WriterCompoundUndo"),
+    ):
+        manip_cls.return_value.write_formula_range.return_value = "wrote"
+        matched = WriteCellRange().execute(ctx, range=["A1:A2"], values='["x", "y"]')
+        filled = WriteCellRange().execute(ctx, range=["A1:A8"], values="=B2+1")
+        cleared = WriteCellRange().execute(ctx, range=["A1:A8"], values="")
+
+    assert matched["status"] == "ok"
+    assert filled["status"] == "ok"
+    assert cleared["status"] == "ok"
+    assert manip_cls.return_value.write_formula_range.call_count == 3

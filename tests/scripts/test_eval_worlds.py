@@ -99,6 +99,23 @@ def test_sort_two_pass_stable_device_before_widget() -> None:
     assert names == ["Tool", "Device", "Widget", "Gadget", "Aardvark"]
 
 
+def test_calc_write_formula_range_rejects_length_mismatch() -> None:
+    calc = CalcWorld("Item\tAmt\nAnn\t1\nBea\t2\nCal\t3\nDee\t4")
+    res = calc.write_formula_range(range=["C2:C9"], values=["a", "b", "c", "d"])
+    assert res["status"] == "error"
+    assert "4 values" in res["message"]
+    assert "8 cells" in res["message"]
+    # Must not zip-truncate into the extra rows.
+    assert calc.writes == []
+
+
+def test_calc_write_formula_range_accepts_scalar_fill() -> None:
+    calc = CalcWorld("Item\tAmt\nAnn\t1")
+    res = calc.write_formula_range(range=["C2:C5"], values="=B2+1")
+    assert res["status"] == "ok"
+    assert res["written"] == 4
+
+
 def test_sheet_summary_includes_all_rows() -> None:
     calc = CalcWorld("Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5\nNote\tn/a\nTotal\t?")
     summary = calc.get_sheet_summary()
