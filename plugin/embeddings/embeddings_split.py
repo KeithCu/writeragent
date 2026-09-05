@@ -75,6 +75,26 @@ _deal_sentence_locale_ok = (
 )
 
 
+# NUL/controls are isascii() but ICU SentenceBreaker TypeErrors on them
+# (check-all 33928341275: split_passage_to_sentences('\x00', locale=DEFAULT)).
+def _deal_passage_text_ok_pytest(text: object) -> bool:
+    return str_bounded(text, DEAL_MAX_SOURCE)
+
+
+def _deal_passage_text_ok_crosshair(text: object) -> bool:
+    return (
+        isinstance(text, str)
+        and len(text) <= _DEAL_PASSAGE_LEN
+        and text.isascii()
+        and all(c.isprintable() or c in "\n\t\r" for c in text)
+    )
+
+
+_deal_passage_text_ok = (
+    _deal_passage_text_ok_crosshair if UNDER_CROSSHAIR else _deal_passage_text_ok_pytest
+)
+
+
 def _embeddings_pip_install_hint() -> str:
     from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
 
@@ -99,7 +119,7 @@ def _import_splitter() -> Any:
 
 
 @deal.pre(
-    lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: str_bounded(text, _DEAL_PASSAGE_LEN)
+    lambda text, locale=DEFAULT_SENTENCE_LOCALE, *_unused, **__: _deal_passage_text_ok(text)
     and _deal_sentence_locale_ok(locale)
 )
 def split_passage_to_sentences(text: str, locale: str = DEFAULT_SENTENCE_LOCALE) -> list[tuple[int, int, str]]:
