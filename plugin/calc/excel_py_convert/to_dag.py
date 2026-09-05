@@ -78,7 +78,10 @@ _EXCEL_PLACEHOLDER_CHARS = frozenset(
 # Tiny rewrite walk + convert lists. Defined before _deal_excel_src_ok so the
 # CrossHair src pre cannot exceed _skip_string's str_bounded(_DEAL_REWRITE_SRC).
 _DEAL_CONVERT_LIST = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
-_DEAL_CONVERT_STR = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+# CrossHair convert deps must be real A1 (letter+digit). Len-1 junk like ``M`` /
+# ``_`` resolves unresolved with a long note, then nested-fails ``_normalize_bindings``
+# (``_DEAL_NOTE_LEN=1``; check-all 33954468213). Pytest keeps DEAL_MAX_SOURCE.
+_DEAL_CONVERT_STR = 2 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 _DEAL_REWRITE_SRC = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 
 
@@ -578,16 +581,14 @@ def _deal_convert_scripts_ok(model: object) -> bool:
     )
 
 
-# CrossHair convert deps are A1-ish fragments only. ``ascii_bounded`` allows
-# ``_`` / ``[`` / NUL; with ``_DEAL_CONVERT_STR=1`` CrossHair synthesized
-# ``deps=['_']`` then relib ``PatternError`` on ``_TABLE_ALL_RE`` / ``_RANGE_RE``
-# (check-all 33940151004). Pytest keeps ascii_bounded so ``_xlfn.ANCHORARRAY``
-# and ``Table[#All]`` stay legal in unit tests. Different hole from #599
-# (NUL *scripts* nested PreconditionFailed / ``_deal_excel_src_ok``).
-_CONVERT_DEP_CHARS = frozenset(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-    ".!:'$ "
-)
+# CrossHair convert deps are exact two-char A1 (``A1``…``Z9``). Broader
+# ``ascii_bounded`` / A1-ish alphabets allowed ``deps=['_']`` (relib PatternError,
+# check-all 33940151004) and ``deps=['M']`` (unresolved long note → nested
+# ``_normalize_bindings`` PreconditionFailed on ``_DEAL_NOTE_LEN=1``, check-all
+# 33954468213). Pytest keeps ascii_bounded so ``_xlfn.ANCHORARRAY`` /
+# ``Table[#All]`` stay legal. Different hole from #599 (NUL *scripts*).
+_CONVERT_DEP_A1_LETTER = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+_CONVERT_DEP_A1_DIGIT = frozenset("0123456789")
 
 
 def _deal_convert_dep_ok_pytest(dep: object) -> bool:
@@ -595,10 +596,13 @@ def _deal_convert_dep_ok_pytest(dep: object) -> bool:
 
 
 def _deal_convert_dep_ok_crosshair(dep: object) -> bool:
+    # Exact A1 so resolve_dep returns kind=range with empty note (passes the
+    # off'd ``_normalize_bindings`` note bound without widening that pre).
     return (
         isinstance(dep, str)
-        and ascii_bounded(dep, _DEAL_CONVERT_STR)
-        and all(c in _CONVERT_DEP_CHARS for c in dep)
+        and len(dep) == _DEAL_CONVERT_STR
+        and dep[0] in _CONVERT_DEP_A1_LETTER
+        and dep[1] in _CONVERT_DEP_A1_DIGIT
     )
 
 
