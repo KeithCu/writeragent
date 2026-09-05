@@ -58,6 +58,7 @@ from plugin.calc.excel_py_convert.resolve_refs import ResolvedDep, resolve_deps
 from plugin.framework.deal_shim import (
     DEAL_MAX_CELL_REF,
     DEAL_MAX_CMD_ARGS,
+    DEAL_MAX_PATH,
     DEAL_MAX_PLACEHOLDER_INDEX,
     DEAL_MAX_SOURCE,
     DEAL_MAX_XL_EXPR,
@@ -110,7 +111,9 @@ _AST_OFFSET_CHARS = frozenset("AB \n")
 _DEAL_BINDING_A1_LEN = DEAL_MAX_CELL_REF if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 _DEAL_RESOLVED_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_CMD_ARGS
 # Note/convert still multi-10m at len 4 (33211730747); floor to 1.
-_DEAL_NOTE_LEN = 1 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
+# Unresolved resolve_dep notes are ~9–40 chars; floor=1 nested-failed convert_model_to_dag check
+# (33940151004 follow-up) even though this helper is crosshair-off.
+_DEAL_NOTE_LEN = 48 if UNDER_CROSSHAIR else DEAL_MAX_SOURCE
 # Pytest notes include Unicode (e.g. ``ANCHORARRAY(A6) → A6:B254``); CrossHair is ascii-only.
 _deal_note_ok = ascii_bounded if UNDER_CROSSHAIR else str_bounded
 _RESOLVED_KINDS = frozenset(("range", "unresolved", "table_snapshot", "anchor_snapshot"))
@@ -495,7 +498,7 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
 
 
 @deal.pre(
-    lambda resolved, header_modes: type(resolved) is list
+    lambda resolved, header_modes: isinstance(resolved, list)
     and len(resolved) <= _DEAL_RESOLVED_LEN
     and all(
         isinstance(r, ResolvedDep)
@@ -505,7 +508,7 @@ def _prefer_excel_dep_token(current: str, candidate: str) -> str:
         and (r.original is None or ascii_bounded(r.original, _DEAL_BINDING_A1_LEN))
         for r in resolved
     )
-    and type(header_modes) is dict
+    and isinstance(header_modes, dict)
     and len(header_modes) <= _DEAL_RESOLVED_LEN
     and all(
         type(k) is int
@@ -578,6 +581,24 @@ def _deal_convert_scripts_ok(model: object) -> bool:
     )
 
 
+def _deal_convert_cell_str_ok_pytest(s: object) -> bool:
+    return str_bounded(s, DEAL_MAX_SOURCE)
+
+
+def _deal_convert_cell_str_ok_crosshair(s: object) -> bool:
+    # ascii_bounded allows NUL; CrossHair follow-up on 33940151004 used formula_raw='\x00'.
+    return (
+        isinstance(s, str)
+        and len(s) <= _DEAL_CONVERT_STR
+        and all(c.isprintable() or c in "\t" for c in s)
+    )
+
+
+_deal_convert_cell_str_ok = (
+    _deal_convert_cell_str_ok_crosshair if UNDER_CROSSHAIR else _deal_convert_cell_str_ok_pytest
+)
+
+
 def _deal_convert_cell_ok(cell: object) -> bool:
     """Cell fields ``convert_cell_to_dag`` requires; script_index range is body-checked."""
     script_index = getattr(cell, "script_index", None)
@@ -587,6 +608,10 @@ def _deal_convert_cell_ok(cell: object) -> bool:
         and isinstance(deps, list)
         and len(deps) <= _DEAL_CONVERT_LIST
         and all(isinstance(d, str) and ascii_bounded(d, _DEAL_CONVERT_STR) for d in deps)
+        and _deal_convert_cell_str_ok(getattr(cell, "sheet", ""))
+        and _deal_convert_cell_str_ok(getattr(cell, "cell", ""))
+        and _deal_convert_cell_str_ok(getattr(cell, "formula_raw", ""))
+        and _deal_convert_cell_str_ok(getattr(cell, "array_ref", ""))
     )
 
 
@@ -701,8 +726,28 @@ def convert_cell_to_dag(
     return base
 
 
+def _deal_convert_source_path_ok_pytest(path: object) -> bool:
+    return str_bounded(path, DEAL_MAX_PATH)
+
+
+def _deal_convert_source_path_ok_crosshair(path: object) -> bool:
+    # ascii_bounded allows NUL; CrossHair relib PatternError on convert_model_to_dag
+    # (check-all 33940151004: source_path='\x00', best_effort=True).
+    return (
+        isinstance(path, str)
+        and len(path) <= DEAL_MAX_PATH
+        and all(c.isprintable() or c in "/\\._-: " for c in path)
+    )
+
+
+_deal_convert_source_path_ok = (
+    _deal_convert_source_path_ok_crosshair if UNDER_CROSSHAIR else _deal_convert_source_path_ok_pytest
+)
+
+
 @deal.pre(
     lambda model, *_unused, **__: _deal_convert_scripts_ok(model)
+    and _deal_convert_source_path_ok(getattr(model, "source_path", ""))
     and isinstance(model.cells, list)
     and len(model.cells) <= _DEAL_CONVERT_LIST
     # convert_cell_to_dag's cell.deps bound is tighter than this wrapper used to be
