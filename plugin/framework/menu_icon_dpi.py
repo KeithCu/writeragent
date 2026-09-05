@@ -97,9 +97,14 @@ def probe_toolbar_icon_config_px(ctx: Any = None) -> int | None:
         import uno
         from com.sun.star.beans import PropertyValue
 
+        from plugin.framework.uno_context import get_service_manager
+
         if ctx is None:
             ctx = uno.getComponentContext()
-        sm = getattr(ctx, "ServiceManager", None) or ctx.getServiceManager()
+        # ty rejects ctx.getServiceManager() on Any; use the shared getattr helper.
+        sm = get_service_manager(ctx)
+        if sm is None:
+            return None
         cfg_prov = sm.createInstanceWithContext(
             "com.sun.star.configuration.ConfigurationProvider", ctx
         )
