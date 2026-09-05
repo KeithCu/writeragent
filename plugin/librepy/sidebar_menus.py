@@ -32,12 +32,13 @@ HEADER_BUTTON_IDS = (
 
 def _librepy_hamburger_specs() -> tuple[tuple[str, str, str | None, str], ...]:
     # Labels at call time so gettext sees the current locale.
+    # Icon field is a menu_icon_filename *prefix* (resolved at build time), or None.
     return (
-        (_("Run Python Script..."), "scripting.run_python_dialog", "python_32.png", "always"),
-        (_("Edit Python in Cell..."), "scripting.edit_python_cell", "python_cell_32.png", "calc"),
-        (_("Insert LaTeX Math..."), "writer.insert_latex_dialog", "latex_32.png", "writer"),
+        (_("Run Python Script..."), "scripting.run_python_dialog", "python", "always"),
+        (_("Edit Python in Cell..."), "scripting.edit_python_cell", "python_cell", "calc"),
+        (_("Insert LaTeX Math..."), "writer.insert_latex_dialog", "latex", "writer"),
         (_("Text Analytics..."), "textanalytics.open_dialog", None, "writer"),
-        (_("Settings"), "main.settings", "gear_32.png", "always"),
+        (_("Settings"), "main.settings", "gear", "always"),
         (_("Vision OCR Settings..."), "vision.open_settings", None, "always"),
         (_("Reset Python Session"), "scripting.reset_python_session", None, "always"),
         (_("Run All"), "notebook.run_all", None, "notebook"),
@@ -170,7 +171,12 @@ def librepy_hamburger_actions(
                 continue
         if lookup(action) is None:
             continue
-        out.append((label, action, icon))
+        filename = None
+        if icon:
+            from plugin.framework.menu_icon_dpi import menu_icon_filename
+
+            filename = menu_icon_filename(icon)
+        out.append((label, action, filename))
     return out
 
 
@@ -318,20 +324,23 @@ def wire_sidebar_header_buttons(
     from plugin.framework.uno_context import get_extension_url
 
     ext_url = get_extension_url(ctx)
+    from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
+
     if calc_doc:
         third_action = "scripting.edit_python_cell"
         third_tip = _("Edit Python in Cell...")
-        third_icon = "assets/python_cell_32.png"
+        third_icon = menu_icon_asset_rel("python_cell", ctx=ctx)
         third_label = ""
     else:
         third_action = "writer.insert_latex_dialog"
         third_tip = _("Insert LaTeX Math...")
+        # Keep √x glyph (not an emoji asset); only PNG buttons use the DPI resolver.
         third_icon = None
         third_label = "√x"
 
     specs: list[tuple[str, str, str, str | None, str | None]] = [
-        ("btn_hdr_settings", "main.settings", _("Settings"), None, None),
-        ("btn_python", "scripting.run_python_dialog", _("Run Python Script..."), "assets/python_32.png", ""),
+        ("btn_hdr_settings", "main.settings", _("Settings"), menu_icon_asset_rel("gear", ctx=ctx), ""),
+        ("btn_python", "scripting.run_python_dialog", _("Run Python Script..."), menu_icon_asset_rel("python", ctx=ctx), ""),
         ("btn_latex", third_action, third_tip, third_icon, third_label),
     ]
     for btn_id, action, tooltip, icon_rel, label_text in specs:

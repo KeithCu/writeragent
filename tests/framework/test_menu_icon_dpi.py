@@ -36,3 +36,33 @@ def test_probe_env_scale_gdk(monkeypatch):
     m.reset_menu_icon_dpi_cache()
     monkeypatch.setenv("GDK_SCALE", "2")
     assert m.probe_env_scale() == 2.0
+
+
+def test_menu_icon_filename_picks_nearest_shipped(monkeypatch, tmp_path):
+    from plugin.framework import menu_icon_dpi as m
+
+    m.reset_menu_icon_dpi_cache()
+    # Only 16 + 26 for MCP-style prefixes
+    for px in (16, 26):
+        (tmp_path / ("running_%s.png" % px)).write_bytes(b"x")
+
+    monkeypatch.setattr(
+        "plugin.framework.uno_context.menu_icon_filesystem_paths",
+        lambda name: [str(tmp_path / name)],
+    )
+    assert m.menu_icon_filename("running", px=16) == "running_16.png"
+    assert m.menu_icon_filename("running", px=32) == "running_26.png"
+    assert m.menu_icon_asset_rel("running", px=16) == "assets/running_16.png"
+
+
+def test_menu_icon_filename_uses_only_32_when_that_is_all(monkeypatch, tmp_path):
+    from plugin.framework import menu_icon_dpi as m
+
+    m.reset_menu_icon_dpi_cache()
+    (tmp_path / "python_32.png").write_bytes(b"x")
+    monkeypatch.setattr(
+        "plugin.framework.uno_context.menu_icon_filesystem_paths",
+        lambda name: [str(tmp_path / name)],
+    )
+    # Even at 1×, only shipped size wins until smaller assets exist.
+    assert m.menu_icon_filename("python", px=16) == "python_32.png"

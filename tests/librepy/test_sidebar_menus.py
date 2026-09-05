@@ -47,7 +47,9 @@ def test_calc_hamburger_includes_python_and_cell_not_search():
     assert "scripting.reset_python_session" in actions
     assert "main.settings" in actions
     by_action = {a: icon for _label, a, icon in rows}
-    assert by_action["main.settings"] == "gear_32.png"
+    assert by_action["main.settings"] is not None
+    assert by_action["main.settings"].startswith("gear_")
+    assert by_action["main.settings"].endswith(".png")
     assert "vision.open_settings" in actions
     assert "main.report_bug" in actions
     assert "embeddings.search_dialog" not in actions
@@ -216,7 +218,11 @@ def test_wire_header_no_search_control():
     assert "btn_search" not in controls
     controls["btn_python"].addActionListener.assert_called()
     controls["btn_hamburger"].addActionListener.assert_called()
-    assert controls["btn_latex"].getModel.return_value.ImageURL.endswith("python_cell_32.png")
+    latex_url = controls["btn_latex"].getModel.return_value.ImageURL
+    assert "/assets/python_cell_" in latex_url
+    assert latex_url.endswith(".png")
+    settings_url = controls["btn_hdr_settings"].getModel.return_value.ImageURL
+    assert "/assets/gear_" in settings_url
 
 
 def test_menu_icon_filesystem_paths_include_oxt_and_checkout_layouts():

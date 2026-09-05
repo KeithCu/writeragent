@@ -902,16 +902,26 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         ext_url = get_extension_url(self.ctx)
         calc_doc = is_calc(model)
 
+        from plugin.framework.menu_icon_dpi import menu_icon_asset_rel
+
         if calc_doc:
-            third_btn = ("btn_latex", PythonCellButtonListener(self.ctx), _("Edit Python in Cell..."), "assets/python_cell_32.png", "")
+            third_btn = (
+                "btn_latex",
+                PythonCellButtonListener(self.ctx),
+                _("Edit Python in Cell..."),
+                menu_icon_asset_rel("python_cell", ctx=self.ctx),
+                "",
+            )
         else:
+            # Keep √x glyph; PNG toolbar icons use the DPI resolver.
             third_btn = ("btn_latex", LatexButtonListener(self.ctx), _("Insert LaTeX Math..."), None, "√x")
 
         for btn_id, listener_obj, tooltip_text, icon_rel_path, label_text in (
-            ("btn_settings", SettingsButtonListener(self.ctx), _("Settings"), None, None),
-            ("btn_python", PythonButtonListener(self.ctx), _("Run Python Script..."), "assets/python_32.png", ""),
+            ("btn_settings", SettingsButtonListener(self.ctx), _("Settings"), menu_icon_asset_rel("gear", ctx=self.ctx), ""),
+            ("btn_python", PythonButtonListener(self.ctx), _("Run Python Script..."), menu_icon_asset_rel("python", ctx=self.ctx), ""),
             third_btn,
-            ("btn_search", SearchButtonListener(self.ctx), _("Search Nearby Files..."), None, None),
+            ("btn_search", SearchButtonListener(self.ctx), _("Search Nearby Files..."), menu_icon_asset_rel("search", ctx=self.ctx), ""),
+            # Hamburger stays ☰ — no shipped hamburger PNG yet.
             ("btn_hamburger", HamburgerButtonListener(self.ctx, self.xFrame), _("More actions..."), None, None),
         ):
             if controls.get(btn_id):

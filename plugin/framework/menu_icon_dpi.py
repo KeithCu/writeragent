@@ -314,6 +314,11 @@ def menu_icon_filename(prefix: str, px: int | None = None, ctx: Any = None) -> s
     return "%s_%s.png" % (prefix, best)
 
 
+def menu_icon_asset_rel(prefix: str, px: int | None = None, ctx: Any = None) -> str:
+    """Return ``assets/{prefix}_{px}.png`` for button ``ImageURL`` paths."""
+    return "assets/" + menu_icon_filename(prefix, px, ctx)
+
+
 __all__ = [
     "reset_menu_icon_dpi_cache",
     "probe_vcl_dpi_scale",
@@ -323,4 +328,5 @@ __all__ = [
     "resolve_menu_icon_pixel_size",
     "image_type_for_pixel_size",
     "menu_icon_filename",
+    "menu_icon_asset_rel",
 ]

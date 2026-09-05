@@ -16,6 +16,7 @@ from typing import Any
 from plugin.doc.doc_type import is_calc, is_draw, is_writer
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
+from plugin.framework.menu_icon_dpi import menu_icon_filename
 from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger("writeragent.hamburger_menu")
@@ -93,20 +94,20 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         pos += 1
 
         # 3. Main feature actions
-        add_item(popup, _("Run Python Script..."), "scripting.run_python_dialog", pos, "python_32.png")
+        add_item(popup, _("Run Python Script..."), "scripting.run_python_dialog", pos, menu_icon_filename("python", ctx=ctx))
         pos += 1
 
         if is_calc_doc:
-            add_item(popup, _("Edit Python in Cell..."), "scripting.edit_python_cell", pos, "python_cell_32.png")
+            add_item(popup, _("Edit Python in Cell..."), "scripting.edit_python_cell", pos, menu_icon_filename("python_cell", ctx=ctx))
             pos += 1
             add_item(popup, _("Convert Sheet to Python..."), "calc.convert_spreadsheet_to_python", pos)
             pos += 1
 
-        add_item(popup, _("Search Nearby Files..."), "embeddings.search_dialog", pos, "search_32.png")
+        add_item(popup, _("Search Nearby Files..."), "embeddings.search_dialog", pos, menu_icon_filename("search", ctx=ctx))
         pos += 1
 
         if is_writer_doc:
-            add_item(popup, _("Insert LaTeX Math..."), "writer.insert_latex_dialog", pos, "latex_32.png")
+            add_item(popup, _("Insert LaTeX Math..."), "writer.insert_latex_dialog", pos, menu_icon_filename("latex", ctx=ctx))
             pos += 1
             add_item(popup, _("Text Analytics..."), "textanalytics.open_dialog", pos)
             pos += 1
@@ -116,7 +117,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         pos += 1
 
         # 5. Settings & Servers with Dynamic MCP Status
-        add_item(popup, _("Settings"), "main.settings", pos, "gear_32.png")
+        add_item(popup, _("Settings"), "main.settings", pos, menu_icon_filename("gear", ctx=ctx))
         pos += 1
         add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
         pos += 1
@@ -128,7 +129,9 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         pos += 1
 
         mcp_running = _get_menu_icon("mcp.server_status") == "running"
-        mcp_status_icon = "running_16.png" if mcp_running else "stopped_16.png"
+        mcp_status_icon = menu_icon_filename(
+            "running" if mcp_running else "stopped", ctx=ctx
+        )
         mcp_status_text = _("MCP Server (Running)") if mcp_running else _("MCP Server (Stopped)")
         add_item(popup, mcp_status_text, "mcp.server_status", pos, mcp_status_icon)
         pos += 1
