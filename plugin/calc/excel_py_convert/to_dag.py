@@ -578,6 +578,33 @@ def _deal_convert_scripts_ok(model: object) -> bool:
     )
 
 
+# CrossHair convert deps are A1-ish fragments only. ``ascii_bounded`` allows
+# ``_`` / ``[`` / NUL; with ``_DEAL_CONVERT_STR=1`` CrossHair synthesized
+# ``deps=['_']`` then relib ``PatternError`` on ``_TABLE_ALL_RE`` / ``_RANGE_RE``
+# (check-all 33940151004). Pytest keeps ascii_bounded so ``_xlfn.ANCHORARRAY``
+# and ``Table[#All]`` stay legal in unit tests. Different hole from #599
+# (NUL *scripts* nested PreconditionFailed / ``_deal_excel_src_ok``).
+_CONVERT_DEP_CHARS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    ".!:'$ "
+)
+
+
+def _deal_convert_dep_ok_pytest(dep: object) -> bool:
+    return isinstance(dep, str) and ascii_bounded(dep, _DEAL_CONVERT_STR)
+
+
+def _deal_convert_dep_ok_crosshair(dep: object) -> bool:
+    return (
+        isinstance(dep, str)
+        and ascii_bounded(dep, _DEAL_CONVERT_STR)
+        and all(c in _CONVERT_DEP_CHARS for c in dep)
+    )
+
+
+_deal_convert_dep_ok = _deal_convert_dep_ok_crosshair if UNDER_CROSSHAIR else _deal_convert_dep_ok_pytest
+
+
 def _deal_convert_cell_ok(cell: object) -> bool:
     """Cell fields ``convert_cell_to_dag`` requires; script_index range is body-checked."""
     script_index = getattr(cell, "script_index", None)
@@ -586,7 +613,7 @@ def _deal_convert_cell_ok(cell: object) -> bool:
         type(script_index) is int
         and isinstance(deps, list)
         and len(deps) <= _DEAL_CONVERT_LIST
-        and all(isinstance(d, str) and ascii_bounded(d, _DEAL_CONVERT_STR) for d in deps)
+        and all(_deal_convert_dep_ok(d) for d in deps)
     )
 
 
