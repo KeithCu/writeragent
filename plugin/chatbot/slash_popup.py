@@ -399,6 +399,7 @@ class SlashPopupController:
     def on_query_text(self, text: str) -> None:
         """Open or narrow the popup from the current Ask-box contents."""
         if not ENABLE_SLASH:
+            _ovlog("on_query_text disabled (ENABLE_SLASH=False)")
             return
         prefix = slash_typed_prefix(text)
         _ovlog("on_query_text prefix=%r text=%r", prefix, (text[:40] if isinstance(text, str) else text))
