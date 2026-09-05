@@ -97,3 +97,107 @@ def test_query_folder_sql_requires_scoped_and_files(tmp_path):
     res = query_folder_sql(str(tmp_path), "select 1", files=[])
     assert res["status"] == "error"
     assert "NO_ALLOWED" in res.get("code", "") or "allowed" in res.get("message", "").lower()
+
+
+def _pretty_demo_sales_grid():
+    from scripts.generate_pretty_demo_spreadsheet import get_sales_dataset
+
+    return get_sales_dataset()
+
+
+def _pretty_demo_marketing_grid():
+    from scripts.generate_pretty_demo_spreadsheet import get_marketing_dataset
+
+    return get_marketing_dataset()
+
+
+def _zip_income_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "zip_income.csv"
+
+
+def test_pretty_demo_sheet_sql_sales_groupby_region_category():
+    """Happy path: real DuckDB GROUP BY on the pretty-demo sales grid (not wallpaper)."""
+    from scripts.generate_pretty_demo_spreadsheet import SQL_SALES_BY_REGION_CATEGORY
+
+    res = query_folder_sql(
+        None,
+        SQL_SALES_BY_REGION_CATEGORY,
+        preloaded={"sales": _pretty_demo_sales_grid()},
+    )
+    assert res["status"] == "ok", res
+    assert res["helper"] == "query_folder_sql"
+    cols = [str(c).lower() for c in res["columns"]]
+    assert "region" in cols and "category" in cols and "revenue" in cols
+    assert res["total_rows"] >= 8
+    # Independent pandas check — proves DuckDB actually aggregated the grid.
+    import pandas as pd
+
+    grid = _pretty_demo_sales_grid()
+    df = pd.DataFrame(grid[1:], columns=grid[0])
+    expected = df.groupby(["Region", "Category"], as_index=False)["Revenue"].sum()
+    got = { (r[cols.index("region")], r[cols.index("category")]): float(r[cols.index("revenue")]) for r in res["rows"] }
+    for rec in expected.itertuples(index=False):
+        assert abs(got[(rec.Region, rec.Category)] - float(rec.Revenue)) < 1e-6
+
+
+def test_pretty_demo_sheet_sql_marketing_channel_roas():
+    """Second sheet-only KPI: marketing ROAS via the same query_folder_sql helper."""
+    from scripts.generate_pretty_demo_spreadsheet import SQL_MARKETING_CHANNEL_ROAS
+
+    res = query_folder_sql(
+        None,
+        SQL_MARKETING_CHANNEL_ROAS,
+        preloaded={"marketing": _pretty_demo_marketing_grid()},
+    )
+    assert res["status"] == "ok", res
+    cols = [str(c).lower() for c in res["columns"]]
+    assert "channel" in cols and "roas" in cols
+    assert res["total_rows"] >= 4
+    import pandas as pd
+
+    grid = _pretty_demo_marketing_grid()
+    df = pd.DataFrame(grid[1:], columns=grid[0])
+    search = df[df["Channel"] == "Search Ads"]
+    expected_roas = round(float(search["Revenue"].sum() / search["Ad_Spend"].sum()), 2)
+    roas_idx = cols.index("roas")
+    ch_idx = cols.index("channel")
+    search_row = next(r for r in res["rows"] if r[ch_idx] == "Search Ads")
+    assert abs(float(search_row[roas_idx]) - expected_roas) < 1e-6
+
+
+def test_pretty_demo_join_sales_to_sibling_zip_income():
+    """Happy path: sheet sales ⨝ sibling ACS zip_income.csv through query_folder_sql."""
+    from scripts.generate_pretty_demo_spreadsheet import (
+        SQL_SALES_ZIP_INCOME_JOIN,
+        SALES_ZIPS_BY_REGION,
+    )
+
+    csv_path = _zip_income_path()
+    assert csv_path.is_file()
+    scoped = str(csv_path.parent)
+    res = query_folder_sql(
+        scoped,
+        SQL_SALES_ZIP_INCOME_JOIN,
+        preloaded={"sales": _pretty_demo_sales_grid()},
+        flat_files={"zip_income": str(csv_path)},
+    )
+    assert res["status"] == "ok", res
+    assert res["helper"] == "query_folder_sql"
+    cols = [str(c).lower() for c in res["columns"]]
+    assert "income_band" in cols and "revenue" in cols and "avg_zip_income" in cols
+    assert res["total_rows"] >= 2
+    # Every sales ZIP must exist in the ACS extract or the join would drop rows.
+    sales_zips = {z for zips in SALES_ZIPS_BY_REGION.values() for z in zips}
+    csv_zips = {
+        line.split(",", 1)[0]
+        for line in csv_path.read_text(encoding="utf-8").splitlines()[1:]
+        if line.strip()
+    }
+    assert sales_zips <= csv_zips
+    # Revenue across bands equals full sales revenue (inner join kept every order).
+    rev_idx = cols.index("revenue")
+    joined_rev = sum(float(r[rev_idx]) for r in res["rows"])
+    grid = _pretty_demo_sales_grid()
+    sheet_rev = sum(float(r[7]) for r in grid[1:])
+    assert abs(joined_rev - sheet_rev) < 0.02
+    assert "zip_income" in str(res.get("files_used", []))

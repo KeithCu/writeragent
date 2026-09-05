@@ -35,6 +35,16 @@ Back to [Enabling NumPy & Python in LibreOffice](../enabling_numpy_in_libreoffic
 
 **Status:** Phase A + A+ + B + C landed (multi-table catalog with named ranges + named folder files). Phase D deferred. See execution plan and implementation notes below.
 
+### Pretty demo (SQL / DuckDB sheet)
+
+The same ODS as the `=PY()` showcase — [`tests/fixtures/python_showcase_demo.ods`](../../tests/fixtures/python_showcase_demo.ods) — includes a **SQL_DuckDB** sheet. It reuses the Sales and Marketing ranges, keeps SQL **in cells**, and joins sheet sales to sibling [`zip_income.csv`](../../tests/fixtures/zip_income.csv) (ACS 2024 5-year B19013 / S1903-equivalent ZCTA median household income).
+
+```bash
+python scripts/generate_pretty_demo_spreadsheet.py --format all
+```
+
+That writes the ODS/XLSX and copies `zip_income.csv` next to them. Happy-path proof is `query_folder_sql` in [`tests/scripting/test_duckdb_sql.py`](../../tests/scripting/test_duckdb_sql.py) (sheet GROUP BY + sibling ZIP join), not the pretty file alone. See [`tests/fixtures/zip_income.README.md`](../../tests/fixtures/zip_income.README.md).
+
 ### Current Implementation (as of latest increment)
 - Core: `query_folder_sql` in venv (supports `sql`, legacy `files` list, `preloaded` grids, `flat_files` for named direct reads).
 - Tool: `query_folder_sql` (analysis domain) accepts `sql`, `files` (list or `{name: spec}`), `tables` (named ranges on active doc), `data_range`, `headers`.
@@ -407,3 +417,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-06-18 | A+ polish: sibling .xlsx/.xls/.ods via `open_document_for_read` + `CellInspector` + preloaded grids; sheet#hint syntax; size limits; clean stem + orig basename registration + aliases; improved reader + tests. |
 | 2026-06-18 | Phase B: data_range support in tool for active sheet (registers as 'data' table, respects headers). Unified preloaded handling (structured for headers), template for query_sheet_sql, descriptions. |
 | 2026-06-18 | Phase C: multi-table 'tables' param (named ranges on active), files as dict for named flat+office. Worker supports flat_files dict for direct named registration (no chdir). Host prepares preloaded + flat_files. Tool + client updated. |
+| 2026-09-05 | Pretty demo: same ODS as the =PY() showcase gets a SQL_DuckDB sheet (SQL in cells) + ZIP on sales + sibling ACS `zip_income.csv`. Tests run `query_folder_sql` against those assets. |
