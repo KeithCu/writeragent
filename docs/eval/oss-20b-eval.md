@@ -14,7 +14,7 @@ when omitted). `sort_range` now **requires** `has_header`. Calc directives
 are two short **Do Z because Y** lines (sort routing + `has_header`), not
 a mashed one-liner. Tax relative rule stayed helpful for 120b. Shared
 prompt; no 20b fork. Selective catalog re-measure (PR 613) and next
-steps: [eval-dev-plan.md § G](eval-dev-plan.md#g-calc-sorttax-prompt-lift-sep-2026--pr-610--selective-re-rank).
+steps: [eval-dev-plan.md § G](eval-dev-plan.md#g-calc-sorttax-prompt-lift-current--prs-616--617--618).
 
 ## Snapshot
 
