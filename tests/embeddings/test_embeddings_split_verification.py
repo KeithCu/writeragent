@@ -17,6 +17,7 @@ import pytest
 
 from plugin.embeddings.embeddings_fs import LocaleTextRun
 from plugin.embeddings.embeddings_split import (
+    _deal_chunk_base_meta_ok,
     _deal_passage_text_ok,
     _merge_small_sentences_to_spans,
     _meta_chunks_from_spans,
@@ -74,6 +75,13 @@ def test_deal_passage_text_ok_pytest_accepts_normal_text() -> None:
     assert _deal_passage_text_ok("Hello\nworld")
     assert _deal_passage_text_ok("")
     assert _deal_passage_text_ok("\x00")  # pytest: str_bounded; CrossHair pre rejects
+
+
+def test_chunk_meta_accepts_file_url_doc_url() -> None:
+    """Production base_meta.doc_url is a file:// path; TOKEN (64) is too short."""
+    url = "file:///home/runner/work/writeragent/writeragent/tmp/pytest-0/test_paragraph_chunks_from_path0/a.odt"
+    assert len(url) > 64
+    assert _deal_chunk_base_meta_ok({"doc_url": url, "para_index": 0, "file_mtime": 1.0})
 
 
 def test_merge_small_sentences_rejects_out_of_order_spans() -> None:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, DEAL_MAX_URL, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 64
@@ -35,7 +35,7 @@ def _deal_sentence_locale_ok_crosshair(locale: object) -> bool:
 
 
 def _deal_chunk_base_meta_ok(base_meta: object) -> bool:
-    """Same meta bound as ``split_passage_to_chunk_meta`` (ascii keys/values)."""
+    """Ascii keys (token) + ascii values (URL). ``doc_url`` is a file:// path, not a token."""
     return (
         type(base_meta) is dict
         and len(base_meta) <= _DEAL_SENT_LIST_LEN
@@ -45,7 +45,7 @@ def _deal_chunk_base_meta_ok(base_meta: object) -> bool:
             and (
                 v is None
                 or type(v) in (int, float, bool)
-                or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN))
+                or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_URL))
             )
             for k, v in base_meta.items()
         )
