@@ -567,16 +567,98 @@ def oracle_py_dest(doc: str) -> list[str]:
     return []
 
 
-def _tax_formula_ok(text: str, row_1based: int) -> bool:
-    compact = (
+# Ranking after PR 610 writes commutated / percent 8% forms (=0.08*B2,
+# =B2*8%). A literal "=B{n}*0.08" match false-failed those.
+_TAX_RATE = 0.08
+_TAX_NUM_RE = re.compile(r"^(?P<body>\d*[.,]?\d+)(?P<pct>%)?$")
+_TAX_FORMULA_RE = re.compile(r"=[^=]+")
+
+
+def _normalize_tax_formula(text: str) -> str:
+    """Strip $, spaces, and newlines; treat LO ';' as ',' (decimal/args)."""
+    return (
         (text or "")
         .replace(" ", "")
+        .replace("\t", "")
         .replace("$", "")
-        .replace(";", "")
+        .replace(";", ",")
         .replace("\n", "")
+        .replace("\r", "")
         .upper()
     )
-    return f"=B{row_1based}*0.08" in compact
+
+
+def _parse_tax_factor(token: str) -> float | None:
+    """Parse 0.08, 0,08, 8%, or 8/100. None for cell refs or other junk."""
+    if not token:
+        return None
+    if "/" in token:
+        left, right = token.split("/", 1)
+        if "/" in right:
+            return None
+        num = _parse_tax_factor(left)
+        den = _parse_tax_factor(right)
+        if num is None or den is None or den == 0:
+            return None
+        return num / den
+    match = _TAX_NUM_RE.fullmatch(token)
+    if match is None:
+        return None
+    body = match.group("body").replace(",", ".")
+    if body in {".", ""}:
+        return None
+    try:
+        value = float(body)
+    except ValueError:
+        return None
+    if match.group("pct"):
+        return value / 100.0
+    return value
+
+
+def _tax_formula_candidates(text: str) -> list[str]:
+    """Split fill-down blobs so each '=…' formula is checked on its own."""
+    chunks: list[str] = []
+    for part in re.split(r"[\n\r]+", text or ""):
+        part = part.strip()
+        if not part:
+            continue
+        found = _TAX_FORMULA_RE.findall(part)
+        chunks.extend(found if found else [part])
+    return chunks
+
+
+def _tax_formula_one(text: str, row_1based: int) -> bool:
+    """True when text is a simple product of this row's B cell and 0.08."""
+    compact = _normalize_tax_formula(text)
+    if not compact.startswith("="):
+        return False
+    expr = compact[1:].strip(",")
+    # Functions / quoted =PY / ranges are not a relative Price*8% write.
+    if not expr or any(ch in expr for ch in "()[]{}\"'\\:"):
+        return False
+    parts = expr.split("*")
+    if len(parts) != 2:
+        return False
+    left, right = parts
+    price = f"B{row_1based}"
+    if left == price:
+        factor = _parse_tax_factor(right)
+    elif right == price:
+        factor = _parse_tax_factor(left)
+    else:
+        return False
+    return factor is not None and abs(factor - _TAX_RATE) < 1e-12
+
+
+def _tax_formula_ok(text: str, row_1based: int) -> bool:
+    """Accept a relative 8% of this row's Price (B), including equivalent forms.
+
+    Must reference B{row} and multiply by 0.08 (0.08, 8%, 8/100; either
+    order; $, spaces, decimal comma). Wrong row, wrong factor, other
+    columns, and non-relative junk still fail.
+    """
+    return any(_tax_formula_one(chunk, row_1based) for chunk in _tax_formula_candidates(text))
 
 
 def oracle_tax_column(doc: str) -> list[str]:

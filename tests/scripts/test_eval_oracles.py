@@ -16,6 +16,7 @@ if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
 from oracles import (  # noqa: E402
+    _tax_formula_ok,
     check_oracle,
     haystack_has,
     uses_llm_judge,
@@ -376,6 +377,103 @@ def test_py_dest_d1_with_a1_c8() -> None:
         .replace("A1:H500", "A1:C8")
     )
     assert check_oracle("py_no_bulk_read", doc) == []
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        "=B2*0.08",
+        "=0.08*B2",
+        "=B2*8%",
+        "=8%*B2",
+        "=B2*8/100",
+        "=8/100*B2",
+        "= $B2 * 0.08",
+        "=B2*0,08",
+        "=B2*0.08;",
+    ],
+)
+def test_tax_formula_ok_accepts_equivalent_relative_forms(formula: str) -> None:
+    assert _tax_formula_ok(formula, 2)
+    assert not _tax_formula_ok(formula, 3)
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        "=B3*0.08",
+        "=0.08*B3",
+        "=B$3*0.08",
+        "=$B$3*0.08",
+        "=B2*0.10",
+        "=B2*0.8",
+        "=B2*8",
+        "=C2*0.08",
+        "=A2*0.08",
+        "=B2",
+        "=0.08",
+        "=B2+0.08",
+        "=B2*B2*0.08",
+        '=PY("result = B2*0.08")',
+        "=SUM(B2)*0.08",
+        "=B2:B5*0.08",
+    ],
+)
+def test_tax_formula_ok_rejects_wrong_row_factor_and_junk(formula: str) -> None:
+    assert not _tax_formula_ok(formula, 2)
+
+
+def test_tax_equivalent_relative_forms_pass_oracle() -> None:
+    doc = json.dumps(
+        {
+            "status": "ok",
+            "snapshot": True,
+            "headers": ["Item", "Price", "Tax"],
+            "formulas": {
+                "C2": "=0.08*B2",
+                "C3": "=B3*8%",
+                "C4": "=8%*B4",
+                "C5": "=B5*0.08",
+            },
+            "grid": [
+                ["Item", "Price", "Tax"],
+                ["Apple", 10, "=0.08*B2"],
+                ["Banana", 5, "=B3*8%"],
+                ["Orange", 8, "=8%*B4"],
+                ["Pear", 12.5, "=B5*0.08"],
+                ["Note", "n/a", ""],
+                ["Total", "?", ""],
+            ],
+        }
+    )
+    assert check_oracle("tax_column", doc) == []
+
+
+def test_tax_formula_wrong_row_still_fails_oracle() -> None:
+    doc = json.dumps(
+        {
+            "status": "ok",
+            "snapshot": True,
+            "headers": ["Item", "Price", "Tax"],
+            "formulas": {
+                "C2": "=B2*0.08",
+                "C3": "=B2*0.08",
+                "C4": "=B4*0.08",
+                "C5": "=B5*0.08",
+            },
+            "grid": [
+                ["Item", "Price", "Tax"],
+                ["Apple", 10, "=B2*0.08"],
+                ["Banana", 5, "=B2*0.08"],
+                ["Orange", 8, "=B4*0.08"],
+                ["Pear", 12.5, "=B5*0.08"],
+                ["Note", "n/a", ""],
+                ["Total", "?", ""],
+            ],
+        }
+    )
+    fails = check_oracle("tax_column", doc)
+    assert any("Banana" in f and "relative" in f.lower() for f in fails), fails
 
 
 def test_tax_fill_down_blob_passes() -> None:
