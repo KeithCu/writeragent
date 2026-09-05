@@ -52,6 +52,24 @@ def _deal_chunk_base_meta_ok(base_meta: object) -> bool:
     )
 
 
+def _deal_run_locale_ok_pytest(locale: object) -> bool:
+    return locale is None or ascii_bounded(locale, DEAL_MAX_TOKEN)
+
+
+def _deal_run_locale_ok_crosshair(locale: object) -> bool:
+    # None keeps _split_prose_passage_to_spans on the default-locale call
+    # (split_passage_to_sentences(passage)). A BCP-47 string is rewritten to a
+    # new ICU tag that fails the CrossHair `is DEFAULT_SENTENCE_LOCALE` pre.
+    return locale is None
+
+
+_deal_run_locale_ok = _deal_run_locale_ok_crosshair if UNDER_CROSSHAIR else _deal_run_locale_ok_pytest
+
+
+def _deal_locale_run_ok(run: object) -> bool:
+    return _deal_run_locale_ok(getattr(run, "locale_bcp47", None))
+
+
 _deal_sentence_locale_ok = (
     _deal_sentence_locale_ok_crosshair if UNDER_CROSSHAIR else _deal_sentence_locale_ok_pytest
 )
@@ -315,10 +333,12 @@ def _split_non_prose_passage_to_spans(passage: str) -> list[tuple[int, int]]:
 
 
 @deal.pre(
-    lambda text, runs, base_meta, *_unused, **__: ascii_bounded(text, _DEAL_PASSAGE_LEN)
+    lambda text, runs, base_meta, *args, **kwargs: ascii_bounded(text, _DEAL_PASSAGE_LEN)
     and isinstance(runs, list)
     and len(runs) <= _DEAL_SENT_LIST_LEN
     and _deal_chunk_base_meta_ok(base_meta)
+    and all(_deal_locale_run_ok(r) for r in runs)
+    and _deal_run_locale_ok(kwargs.get("doc_default_locale"))
 )
 def split_passage_locale_runs_to_chunk_meta(
     text: str,

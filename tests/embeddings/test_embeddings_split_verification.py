@@ -15,6 +15,7 @@ from hypothesis import strategies as st
 import deal
 import pytest
 
+from plugin.embeddings.embeddings_fs import LocaleTextRun
 from plugin.embeddings.embeddings_split import (
     _merge_small_sentences_to_spans,
     _meta_chunks_from_spans,
@@ -57,6 +58,14 @@ def test_embeddings_split_overflow_pre_fails_closed() -> None:
         # Non-ascii meta values pass the old isinstance(dict) wrapper pre, then
         # fail split_passage_to_chunk_meta's ascii_bounded value bound.
         split_passage_locale_runs_to_chunk_meta("x", [0], {"": "\x80"}, prose=False)
+    with pytest.raises(deal.PreContractError):
+        # Non-ascii run locale fails _split_prose_passage_to_spans's ascii bound.
+        split_passage_locale_runs_to_chunk_meta(
+            "x",
+            [LocaleTextRun(char_start=0, char_end=1, locale_bcp47="\x80\x00")],
+            {},
+            prose=True,
+        )
 
 
 def test_merge_small_sentences_rejects_out_of_order_spans() -> None:
