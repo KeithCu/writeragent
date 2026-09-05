@@ -41,7 +41,12 @@ def test_python_addin_execution(ctx):
             res = func.py("result = 21 * 2")
             assert res == 42.0
             mock_run.assert_called_with(
-                func.ctx, "result = 21 * 2", data=None, session_id=None, python_tool_domain=""
+                func.ctx,
+                "result = 21 * 2",
+                data=None,
+                bindings={"scoped_dir": None},
+                session_id=None,
+                python_tool_domain="",
             )
 
             mock_run.reset_mock()
@@ -49,7 +54,12 @@ def test_python_addin_execution(ctx):
             res = func.python("result = 21 * 2")
             assert res == 42.0
             mock_run.assert_called_with(
-                func.ctx, "result = 21 * 2", data=None, session_id=None, python_tool_domain=""
+                func.ctx,
+                "result = 21 * 2",
+                data=None,
+                bindings={"scoped_dir": None},
+                session_id=None,
+                python_tool_domain="",
             )
 
             mock_run.reset_mock()
@@ -111,6 +121,7 @@ def test_python_addin_execution(ctx):
                 func.ctx,
                 "[sp.prime(x) for x in range(1000, 1006)]",
                 data=None,
+                bindings={"scoped_dir": None},
                 session_id=None,
                 python_tool_domain="",
             )
