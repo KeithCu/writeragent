@@ -6,6 +6,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
 from typing import get_args, get_origin, get_type_hints
 
 import pytest
@@ -14,6 +18,7 @@ from hypothesis import given, strategies as st
 import deal
 from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel
 from plugin.calc.excel_py_convert.to_dag import (
+    _deal_convert_scripts_ok,
     _find_xl_calls,
     _normalize_bindings,
     _normalize_excel_placeholders,
@@ -132,6 +137,61 @@ def test_find_xl_calls_accepts_tab_then_quote() -> None:
     calls, issues = _find_xl_calls('\t"')
     assert calls == []
     assert isinstance(issues, list)
+
+
+def test_deal_convert_scripts_ok_pytest_accepts_unicode_and_nul() -> None:
+    """Pytest domain keeps str_bounded Excel scripts; CrossHair rejects NUL."""
+    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["df = xl(%P2%)"], cells=[]))
+    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["café"], cells=[]))
+    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
+    assert _deal_convert_scripts_ok(ExcelWorkbookModel(scripts=[""], cells=[]))
+
+
+def test_convert_scripts_nul_pre_fails_under_crosshair() -> None:
+    """Wrapper must reject scripts rewrite_excel_code rejects under CrossHair."""
+    if not deal_pre_present(convert_model_to_dag):
+        pytest.skip("@deal.pre stripped in release bundle")
+    # Pytest (this process) still admits NUL; product Excel scripts may be Unicode.
+    convert_model_to_dag(ExcelWorkbookModel(scripts=["\x00"], cells=[]))
+    script = textwrap.dedent(
+        """
+        import os
+        os.environ["WRITERAGENT_CROSSHAIR"] = "1"
+        import deal
+        from plugin.calc.excel_py_convert.models import ExcelPyCell, ExcelWorkbookModel
+        from plugin.calc.excel_py_convert.to_dag import (
+            _deal_convert_scripts_ok,
+            convert_cell_to_dag,
+            convert_model_to_dag,
+        )
+        nul_model = ExcelWorkbookModel(scripts=["\\x00"], cells=[])
+        assert not _deal_convert_scripts_ok(nul_model), "NUL script must fail CrossHair pre"
+        try:
+            convert_model_to_dag(nul_model)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("convert_model_to_dag(scripts=['\\\\x00']) must fail under CrossHair")
+        cell = ExcelPyCell(sheet="", cell="", script_index=0, return_type=0, deps=[])
+        try:
+            convert_cell_to_dag(ExcelWorkbookModel(scripts=["\\x00"], cells=[]), cell)
+        except deal.PreContractError:
+            pass
+        else:
+            raise SystemExit("convert_cell_to_dag(scripts=['\\\\x00']) must fail under CrossHair")
+        ok_model = ExcelWorkbookModel(scripts=["x"], cells=[])
+        assert _deal_convert_scripts_ok(ok_model)
+        convert_model_to_dag(ok_model)
+        """
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=os.getcwd(),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "WRITERAGENT_CROSSHAIR": "1"},
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 def test_convert_cell_to_dag_script_index_oor_fail_closed() -> None:

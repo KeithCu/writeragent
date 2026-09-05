@@ -567,11 +567,16 @@ def _normalize_bindings(
 
 
 def _deal_convert_scripts_ok(model: object) -> bool:
+    # convert_*_to_dag calls rewrite_excel_code, whose pre is _deal_excel_src_ok.
+    # Length-only str_bounded used to admit scripts=['\x00']; CrossHair then
+    # PreconditionFailed inside convert_cell_to_dag (check-all 33935176527).
+    # Pytest _deal_excel_src_ok stays str_bounded(DEAL_MAX_SOURCE) so Unicode
+    # Excel scripts remain legal; CrossHair adds the placeholder alphabet.
     scripts = getattr(model, "scripts", None)
     return (
         isinstance(scripts, list)
         and len(scripts) <= _DEAL_CONVERT_LIST
-        and all(isinstance(s, str) and str_bounded(s, _DEAL_CONVERT_STR) for s in scripts)
+        and all(_deal_excel_src_ok(s) for s in scripts)
     )
 
 
