@@ -15,6 +15,7 @@ from scripts.generate_pretty_demo_spreadsheet import (
     RESULTS_PY_CODE_MAX_LEN,
     SALES_RANGE_ODS_CROSS,
     SALES_ZIPS_BY_REGION,
+    SQL_RESULTS_SPILL_GUTTER_ROWS,
     SQL_SALES_BY_REGION_CATEGORY,
     SQL_SALES_ZIP_INCOME_JOIN,
     ZIP_INCOME_CSV_NAME,
@@ -22,11 +23,13 @@ from scripts.generate_pretty_demo_spreadsheet import (
     _ODS_SHEET_COLUMNS,
     _scenario_result_formula,
     build_ods_showcase,
+    build_xlsx_showcase,
     duckdb_sql_from_cell_code,
     get_sales_dataset,
     ods_formula,
     sql_demo_scenarios,
     sql_query_lines,
+    sql_results_gutter_rows,
     write_zip_income_csv,
 )
 
@@ -218,8 +221,49 @@ def _assert_results_formula_is_short_and_quote_safe(formula: str, *, sql_range: 
     return payload
 
 
+def test_sql_results_gutter_covers_region_category_spill() -> None:
+    """Sheet-only RESULTS need 13 empty rows (header + 12 Region×Category)."""
+    assert SQL_RESULTS_SPILL_GUTTER_ROWS >= 13
+    assert sql_results_gutter_rows("sheet_sales") == SQL_RESULTS_SPILL_GUTTER_ROWS
+    assert sql_results_gutter_rows("sheet_marketing") == SQL_RESULTS_SPILL_GUTTER_ROWS
+    assert sql_results_gutter_rows("join_zip") == 2
+
+
+def _empty_rows_below_xlsx_results(ws: object) -> list[tuple[str, int]]:
+    """(RESULTS coordinate, consecutive empty rows in column A until the next value)."""
+    from openpyxl.utils import coordinate_to_tuple
+
+    gaps: list[tuple[str, int]] = []
+    for coord, unused_formula in _xlsx_sql_duckdb_result_formulas(ws):
+        row = coordinate_to_tuple(coord)[0]  # (row, column), 1-based
+        empty = 0
+        probe = row + 1
+        while probe <= ws.max_row:  # type: ignore[attr-defined]
+            val = ws[f"A{probe}"].value  # type: ignore[index]
+            if val not in (None, ""):
+                break
+            empty += 1
+            probe += 1
+        gaps.append((coord, empty))
+    return gaps
+
+
+def test_generated_xlsx_results_have_spill_gutter(tmp_path: Path) -> None:
+    """A 13-row spill from A19 must not hit the next section title."""
+    out = tmp_path / "python_showcase_demo.xlsx"
+    build_xlsx_showcase(out)
+    from openpyxl import load_workbook
+
+    ws = load_workbook(out)["SQL_DuckDB"]
+    gaps = _empty_rows_below_xlsx_results(ws)
+    assert len(gaps) == 2
+    for coord, empty in gaps:
+        assert empty >= SQL_RESULTS_SPILL_GUTTER_ROWS, (coord, empty)
+
+
 def test_sheet_only_result_formulas_are_short_and_read_sql_from_cell_arg() -> None:
     """SQL is not embedded; RESULTS passes an explicit SQL cell/range plus the data range."""
+    # Ranges here are formula-builder examples (scenario 1 SQL stays A11:A16).
     cases = (
         ("sheet_sales", "A11:A16"),
         ("sheet_marketing", "A23:A29"),
@@ -288,10 +332,15 @@ def test_fixture_xlsx_sql_results_formulas_are_short_and_quote_safe() -> None:
     assert "SUM(Ad_Spend)" in sql_text
     assert "zip_income" in sql_text
     for unused_coord, formula in formulas:
-        # Trailing arg is the SQL cell/range on this sheet (A11:A16 or A11).
+        # Trailing arg is the SQL cell/range on this sheet (sales stays A11:A16;
+        # marketing sits below the RESULTS spill gutter).
         rest = formula[formula.rindex('"') + 1 :]
         sql_arg = rest.rsplit(",", 1)[-1].strip().rstrip(")")
         _assert_results_formula_is_short_and_quote_safe(formula, sql_range=sql_arg)
+    gaps = _empty_rows_below_xlsx_results(ws)
+    assert len(gaps) == 2
+    for coord, empty in gaps:
+        assert empty >= SQL_RESULTS_SPILL_GUTTER_ROWS, (coord, empty)
     join_notes = [
         cell.value
         for row in ws.iter_rows()

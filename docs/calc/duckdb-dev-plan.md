@@ -434,3 +434,4 @@ No cloud telemetry required. Suggested signals:
 | 2026-09-05 | Sibling office ingress: used-range (not `A1:AK2000` / `A1:AZ5000`); fail loud on open / `#SheetName` / empty range. ODS mtime cache still pending. |
 | 2026-09-05 | SQL_DuckDB live RESULTS `=PY()` formulas quote SQL with Python single quotes inside the formula `"…"` payload. Triple-double quotes closed the formula string early (Calc Err:508). |
 | 2026-09-05 | SQL_DuckDB RESULTS are formula-safe: SQL lives only in cells; the `=PY()` payload is a short runner that reads `data[1]` (SQL cell/range) plus `data[0]` (sheet range). |
+| 2026-09-05 | SQL_DuckDB sheet-only RESULTS leave 13 empty rows under the formula so a Region×Category spill does not `#SPILL!` into the next section title. |

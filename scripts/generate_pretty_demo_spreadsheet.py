@@ -22,6 +22,8 @@ newlines). Editing the SQL cells dirties RESULTS through Calc's DAG. Do not
 embed SQL inside the formula string — long quoted SQL is how Calc hits Err:508
 / comma→semicolon bugs. The sales⨝ZIP-income join stays the
 ``query_folder_sql`` happy path (sibling CSV is not a Calc arg).
+Sheet-only RESULTS leave ``SQL_RESULTS_SPILL_GUTTER_ROWS`` empty rows under
+the formula so a ~13-row Region×Category spill does not hit the next title.
 
 ODS-only notes (XLSX never calls these paths):
 - ``ods_formula()`` rewrites Calc refs to OpenFormula in one pass so names like
@@ -216,6 +218,11 @@ MARKETING_RANGE_XLSX = "A4:G24"
 MARKETING_RANGE_ODS_CROSS = f"Statistics_ML.{MARKETING_RANGE_ODS}"
 MARKETING_RANGE_XLSX_CROSS = f"Statistics_ML!{MARKETING_RANGE_XLSX}"
 
+# Sheet-only RESULTS auto-spill: sales GROUP BY Region × Category is header + 12
+# data rows (13×4). The formula cell is the origin; leave this many *empty*
+# rows under it so the next section title is not #SPILL!.
+SQL_RESULTS_SPILL_GUTTER_ROWS = 13
+
 # Shared with tests — do not invent a second copy of these queries.
 SQL_SALES_BY_REGION_CATEGORY = """\
 SELECT Region, Category,
@@ -388,6 +395,13 @@ def sql_demo_scenarios() -> list[dict[str, str]]:
     ]
 
 
+def sql_results_gutter_rows(kind: str) -> int:
+    """Empty rows under a RESULTS formula so a ~13-row spill misses the next title."""
+    if kind in ("sheet_sales", "sheet_marketing"):
+        return SQL_RESULTS_SPILL_GUTTER_ROWS
+    return 2
+
+
 def _a1_col_range(start_row: int, end_row: int) -> str:
     """A1 range for a vertical SQL block (single cell when start==end)."""
     if start_row == end_row:
@@ -488,8 +502,8 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
                 )
             )
         emit(res_row)
-        emit(make_row("spacer"))
-        emit(make_row("spacer"))
+        for gutter_i in range(sql_results_gutter_rows(scenario["kind"])):
+            emit(make_row("spacer"))
 
     doc.spreadsheet.addElement(tab)
 
@@ -1544,7 +1558,7 @@ def build_xlsx_showcase(out_path: Path) -> None:
         rc.alignment = Alignment(vertical="center", wrap_text=True, indent=1)
         rc.border = thin_border
         ws8.row_dimensions[current].height = 36
-        current += 3
+        current += 1 + sql_results_gutter_rows(scenario["kind"])
 
     auto_fit_columns(ws8)
 
