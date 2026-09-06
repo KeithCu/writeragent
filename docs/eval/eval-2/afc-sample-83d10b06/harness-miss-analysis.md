@@ -39,6 +39,8 @@ Reading A1:H1517 returns truncated peek + “pass this A1 address to =PY”. Mod
 **Evidence:** gpt-oss-2047/2054 “Range is too large…” then `write_formula_range`/`=PY`; deepseek **195** range-too-large hits; grok J1 `=PY("df = data.to_pandas()…")` then “formula got truncated”; muse J2 InterpreterError on `data[:,0]`.  
 **Implication:** The “safe” large-range affordance teaches the wrong workflow for this eval.
 
+**Minimal deterministic repro (no Population, no headed eval):** any range with **>80** cells hits `_READ_CELL_RANGE_MAX_CELLS` and returns `truncated` plus the =PY steer. Committed 9×9 (81-cell) dummy ODS: [`fixtures/min-range-too-large.ods`](fixtures/min-range-too-large.ods). Unit test (mocks, no soffice): `tests/calc/test_cells.py::test_read_cell_range_min_over_cap_steers_to_py`. Product message is unchanged; this only pins current behavior.
+
 ### 3) Sheets domain is create-ish, not “build the sample” (gpt-oss both; specialized path)
 `delegate_to_specialized_calc_toolset(domain=sheets, create Sample…)` creates tab names; copying filtered population rows / writing K does not reliably follow. Specialized agent even narrates “user may need to manually copy rows.”  
 **Evidence:** 2054 log: `sheet named 'Sample' created` + empty Sample sheet; create_sheet appears inside specialized turns, outer tool counts show **0** direct `create_sheet` from parent on several runs.  
