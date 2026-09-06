@@ -18,6 +18,23 @@ config:
     widget: number
     label: Max Tool Rounds
 
+  # Headed eval-2 / long Calc trials. Off for everyday chat so users keep 15.
+  # Active when true or when soffice is launched with WRITERAGENT_EVAL=1.
+  eval_mode:
+    type: boolean
+    default: false
+    internal: true
+
+  eval_max_tool_rounds:
+    type: int
+    default: 50
+    min: 1
+    max: 50
+    widget: number
+    label: Eval Max Tool Rounds
+    helper: "Tool-loop cap when chatbot.eval_mode or WRITERAGENT_EVAL=1 (headed eval-2). Everyday chat stays at max_tool_rounds."
+    internal: true
+
   context_strategy:
     type: string
     default: "auto"

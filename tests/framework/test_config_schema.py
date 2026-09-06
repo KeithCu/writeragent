@@ -95,6 +95,8 @@ def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
     assert _get_schema_default("scripting.python_geometric_recalc_order") is False
     assert _get_schema_default("doc.agent_edit_review_mode") == "off"
     assert _get_schema_default("chatbot.max_tool_rounds") == 15
+    assert _get_schema_default("chatbot.eval_mode") is False
+    assert _get_schema_default("chatbot.eval_max_tool_rounds") == 50
     assert schema.CONFIG_DEFAULTS["scripting.python_max_data_cells"] == 250000
     assert schema.MODULES is schema._DEFAULT_MODULES
 

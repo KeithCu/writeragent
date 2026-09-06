@@ -795,6 +795,29 @@ def set_api_key_for_endpoint(endpoint, key):
 
 # --- Bundled API config ---
 
+# Headed eval-2 / long Calc trials. Not WRITERAGENT_EVAL_HARNESS: that flag
+# is the 17-task string/LO harness, which already passes its own round budget.
+_EVAL_TOOL_LOOP_ENV = "WRITERAGENT_EVAL"
+
+
+def eval_tool_loop_active() -> bool:
+    """True when the sidebar tool loop should use ``chatbot.eval_max_tool_rounds``.
+
+    Everyday chat stays on ``chatbot.max_tool_rounds`` (15). Eval-2 headed
+    runs opt in via ``chatbot.eval_mode`` (writeragent.json, once per profile)
+    or ``WRITERAGENT_EVAL=1`` on the soffice process.
+    """
+    if os.environ.get(_EVAL_TOOL_LOOP_ENV) == "1":
+        return True
+    return get_config_bool("chatbot.eval_mode")
+
+
+def effective_max_tool_rounds() -> int:
+    """Sidebar tool-loop cap. 15 normally; ``eval_max_tool_rounds`` (50) in eval mode."""
+    if eval_tool_loop_active():
+        return get_config_int("chatbot.eval_max_tool_rounds")
+    return get_config_int("chatbot.max_tool_rounds")
+
 
 def get_api_config():
     """Build API config dict for LlmClient. Pass to LlmClient(config, ctx)."""
@@ -821,7 +844,7 @@ def get_api_config():
         "is_openrouter": is_openrouter,
         "seed": get_config_str("seed"),
         "request_timeout": get_config_int("request_timeout"),
-        "chat_max_tool_rounds": get_config_int("chatbot.max_tool_rounds"),
+        "chat_max_tool_rounds": effective_max_tool_rounds(),
     }
 
     temp = get_config_float("temperature")

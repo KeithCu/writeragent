@@ -11,6 +11,8 @@ This plan covers the WriterAgent prompt optimization + evaluation system (`scrip
 
 ## Current Status
 
+**Headed eval-2 / long Calc trials** (sidebar, not `run_eval`): everyday `chatbot.max_tool_rounds` stays **15**. Opt in to **50** via `WRITERAGENT_EVAL=1` or `"chatbot.eval_mode": true` (`chatbot.eval_max_tool_rounds`). See [`eval-2/README.md`](eval-2/README.md).
+
 The evaluation system lives in `scripts/prompt_optimization/`:
 - `run_eval.py` / `run_eval_multi.py`: Main entrypoints (`LlmClient` + tool loop from `llm_chat_eval.py`). Eval does not set sampling temperature (LlmClient / provider default). `run_eval_multi.py` **refuses** a full catalog sweep unless `--models` or `--yes-all-models` is set. `--gold-model` runs only with `--generate-golds`.
 - Default: `--backend string` (Writer/Draw/Calc worlds in `eval_worlds.py` via `string_eval_tools.py`). Core schemas from `ToolRegistry.get_schemas`. Flowchart uses `delegate_to_specialized_draw_toolset(domain="shapes")`; sort uses `delegate_to_specialized_calc_toolset(domain="ranges")` then one-column `sort_range` (two stable passes for Product then Revenue).

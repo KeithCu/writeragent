@@ -5,8 +5,13 @@ Manual Calc chat trial. Not wired into `dataset.py` / `run_eval`.
 ## Setup
 
 1. Open `fixtures/Population v2.xlsx` (or `fixtures/Population v2.ods` if present) in LibreOffice Calc.
-2. Set the chat model to `openai/gpt-oss-120b:nitro`.
-3. Paste the full contents of `prompt.writeragent.txt` as the user message. Do not paste `prompt.gdpval.txt`.
+2. Give the sidebar the **eval tool-loop budget (50 rounds)**. Everyday chat stays at `chatbot.max_tool_rounds` (15). Either:
+   - Launch soffice with `WRITERAGENT_EVAL=1` (no JSON edit), or
+   - Set `"chatbot.eval_mode": true` once in `writeragent.json` (LibreOffice user profile). Optional override: `"chatbot.eval_max_tool_rounds": 50`.
+3. Set the chat model to `openai/gpt-oss-120b:nitro`.
+4. Paste the full contents of `prompt.writeragent.txt` as the user message. Do not paste `prompt.gdpval.txt`.
+
+Confirm the debug log line `Tool-calling loop START (max 50 rounds)` before treating a 15-round stop as a model miss.
 
 ## After the run
 
