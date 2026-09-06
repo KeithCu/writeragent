@@ -18,7 +18,6 @@ import os
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -84,7 +83,7 @@ def _parse_config_object(text: str) -> dict[str, object]:
 def temporary_max_tool_rounds(
     config_path: Path,
     rounds: int = EVAL_2_MAX_TOOL_ROUNDS,
-) -> Iterator[Path]:
+):
     """Set chatbot.max_tool_rounds for the block; restore prior file bytes after."""
     existed = config_path.is_file()
     original = config_path.read_text(encoding="utf-8") if existed else None
