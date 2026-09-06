@@ -62,6 +62,7 @@ Start here by task.
 | Threading architecture (pool, marshal, MCP) | [framework/threading.md](framework/threading.md) |
 | UNO thread-safety enforcement | [framework/uno-thread-safety.md](framework/uno-thread-safety.md) |
 | Smol vs main chat HTTP | [chat/smol-tool-architecture.md](chat/smol-tool-architecture.md) |
+| Writer ↔ Calc peer-ask (design) | [chat/writer-calc-peer-messaging.md](chat/writer-calc-peer-messaging.md) |
 | Writer specialized tool tiers | [writer/specialized-toolsets.md](writer/specialized-toolsets.md) |
 | Styles / LLM styling | [writer/llm-styles.md](writer/llm-styles.md) |
 | Writer API references | [writer/bookmarks-api-reference.md](writer/bookmarks-api-reference.md), [writer/footnotes-api-reference.md](writer/footnotes-api-reference.md), [writer/page-api-reference.md](writer/page-api-reference.md), [writer/tracking-api-reference.md](writer/tracking-api-reference.md) |
