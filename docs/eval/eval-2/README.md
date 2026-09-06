@@ -6,4 +6,4 @@ Each subdirectory is one experiment. First: `afc-sample-83d10b06/` (GDPval audit
 
 See each task’s `run.md` for how to execute a trial.
 
-Headed GDPval/AFC runs auto-use 50 tool-loop rounds via `scripts/eval_2_headed.py` (temporary `chatbot.max_tool_rounds` bump + restore). Everyday default stays 15.
+Headed GDPval/AFC: run `scripts/eval_2_headed.py` (writes `chatbot.max_tool_rounds` to 50, restores when done). Do not hand-edit `writeragent.json`. Everyday default stays 15.
