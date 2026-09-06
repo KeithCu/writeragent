@@ -176,11 +176,9 @@ def format_delegate_running_chat_line(func_args: Mapping[str, Any]) -> str:
 
 
 @deal.pre(
-    lambda func_args, result_data: _deal_func_args_ok(func_args)
-    and type(result_data) is dict
-    and len(result_data) <= _DEAL_FUNC_ARG_DICT_LEN
-    and all(type(k) is str and ascii_bounded(k, _DEAL_FUNC_ARG_TOKEN_LEN) for k in result_data)
-    and all(v is None or (isinstance(v, str) and ascii_bounded(v, _DEAL_FUNC_ARG_TOKEN_LEN)) for v in result_data.values())
+    # result_data is a real tool payload (nested dicts, long messages) — only require a plain dict.
+    # Tiny ascii value caps here crashed live debug chat after sheets delegate (AFC eval).
+    lambda func_args, result_data: _deal_func_args_ok(func_args) and type(result_data) is dict
 )
 def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: Mapping[str, Any]) -> str:
     # crosshair: off  # dual Mapping + web_research import (cover-all 33569420452: 2249 examples / ~307s est). Doable later.

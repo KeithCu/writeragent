@@ -59,8 +59,8 @@ def _truncate_reasoning_string(value: str) -> str:
 
 
 @deal.pre(
+    # Streaming can exceed DEAL_MAX_SHAPE_DIM (grid side); chunk count is not a shape dim.
     lambda text_parts, meta, delta: isinstance(text_parts, list)
-    and len(text_parts) <= DEAL_MAX_SHAPE_DIM
     and type(meta) is dict
     and (meta.get("source") is None or meta.get("source") in _STREAMING_SOURCE_VALUES)
 )

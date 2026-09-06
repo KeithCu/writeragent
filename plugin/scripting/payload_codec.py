@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
+    DEAL_MAX_COL_INDEX,
+    DEAL_MAX_ROW_INDEX,
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_SHAPE_RANK,
     DEAL_MAX_SOURCE,
@@ -337,6 +339,30 @@ def _deal_grid_ok(grid: object) -> bool:
     return True
 
 
+def _deal_product_grid_ok(grid: object) -> bool:
+    """Deal domain for live Calc→worker pack (``host_pack_*`` / flatten).
+
+    ``_deal_grid_ok`` stays ``DEAL_MAX_SHAPE_DIM``-sized for CrossHair/small helpers.
+    Product pack must accept real sheet ranges (Population A1:H1517 tripped the
+    256-row SHAPE_DIM cap: PreContractError surfaced as =PY cell Error text).
+    Caps at Calc sheet bounds (``DEAL_MAX_ROW_INDEX`` / ``DEAL_MAX_COL_INDEX``).
+    """
+    if not _is_grid_sequence(grid) or not isinstance(grid, (list, tuple)):
+        return False
+    max_rows = DEAL_MAX_ROW_INDEX + 1
+    max_cols = DEAL_MAX_COL_INDEX + 1
+    if len(grid) > max_rows:
+        return False
+    if len(grid) == 0:
+        return True
+    first = grid[0]
+    if isinstance(first, (list, tuple)):
+        for row in grid:
+            if not isinstance(row, (list, tuple)) or len(row) > max_cols:
+                return False
+    return True
+
+
 def _deal_numeric_cell_ok(value: object) -> bool:
     """CrossHair domain for ``is_numeric_coercible`` / ``is_numeric_grid`` cells.
 
@@ -393,14 +419,18 @@ def _deal_dict_ok_at(obj: object, *, depth: int) -> bool:
     return True
 
 
-def _deal_dict_ok(obj: object) -> bool:
-    """Finite dict domain for envelope detectors. Non-dicts stay allowed (pre True).
+def _deal_wire_dict_ok(obj: object) -> bool:
+    """Shallow deal domain for live wire envelope detectors (is_split_grid, etc).
 
-    Unbounded dicts / Any values let deep check wander. Pytest 256 keys fits
-    real wire envelopes; CrossHair uses 4. Keys are length-capped str or small
-    int (split_grid ``strings``); nested list/dict values are size-capped leaves.
+    _deal_dict_ok_at deep-walks nested dicts and caps them at DEAL_MAX_SHAPE_DIM.
+    Real split_grid.strings maps have thousands of cell entries (Gemini AFC: 7588);
+    worker is_split_grid(data) raised PreContractError after host pack succeeded.
+    Top-level envelope key count stays small; do not deep-walk.
+    Detectors are already crosshair: off.
     """
-    return _deal_dict_ok_at(obj, depth=0)
+    if not isinstance(obj, dict):
+        return True
+    return len(obj) <= DEAL_MAX_SHAPE_DIM
 
 
 def _is_multi_data_envelope(envelope: object) -> bool:
@@ -417,7 +447,7 @@ def _is_multi_data_envelope(envelope: object) -> bool:
     return all(isinstance(item, (list, dict)) for item in items)
 
 
-@deal.pre(lambda obj: _deal_dict_ok(obj))
+@deal.pre(lambda obj: _deal_wire_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @inverse_ensure(
     lambda obj, result: not result
@@ -444,7 +474,7 @@ def _is_image_payload_envelope(envelope: object) -> bool:
     )
 
 
-@deal.pre(lambda obj: _deal_dict_ok(obj))
+@deal.pre(lambda obj: _deal_wire_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @inverse_ensure(
     lambda obj, result: not result
@@ -515,7 +545,7 @@ def _is_dataframe_envelope(envelope: object) -> bool:
     return isinstance(data, (list, tuple, dict)) or data is None or _is_ndarray(data)
 
 
-@deal.pre(lambda obj: _deal_dict_ok(obj))
+@deal.pre(lambda obj: _deal_wire_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @inverse_ensure(
     lambda obj, result: not result
@@ -546,7 +576,7 @@ def _is_calc_range_envelope(envelope: object) -> bool:
     return "data" in env_dict
 
 
-@deal.pre(lambda obj: _deal_dict_ok(obj))
+@deal.pre(lambda obj: _deal_wire_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @inverse_ensure(
     lambda obj, result: not result
@@ -580,7 +610,7 @@ def _is_split_grid_envelope(envelope: object) -> bool:
     return isinstance(env_dict.get("buffer"), bytes) or isinstance(env_dict.get("b64"), str)
 
 
-@deal.pre(lambda obj: _deal_dict_ok(obj))
+@deal.pre(lambda obj: _deal_wire_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 def _is_any_payload_envelope(obj: object) -> bool:
     # crosshair: off  # combinatoric Any/envelope detector (cover-all 33418536119: payload_codec 11581s after PR 523). Doable later with a closed envelope alphabet.
@@ -623,7 +653,7 @@ def _uniform_column_kind(kinds: list[str]) -> str | None:
 
 
 @deal.pre(
-    lambda envelope, *_unused, ncols=0, **__: _deal_dict_ok(envelope)
+    lambda envelope, *_unused, ncols=0, **__: _deal_wire_dict_ok(envelope)
     and isinstance(ncols, int)
     and 0 <= ncols <= DEAL_MAX_SHAPE_DIM
 )
@@ -732,16 +762,18 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
 
 
 def _deal_shape_ok(shape: object) -> bool:
-    """True iff *shape* is a rank-bounded tuple of small dims.
+    """True iff *shape* is a rank-bounded tuple of Calc-sized dims.
 
     Unbounded rank or dims let CrossHair deep multiply forever in ``cell_count``.
-    Dims are capped at ``DEAL_MAX_SHAPE_DIM`` (our product logic), not Calc's
-    million-row grid.
+    Dims follow ``DEAL_MAX_ROW_INDEX`` (CrossHair 20; pytest/debug full Calc rows),
+    not ``DEAL_MAX_SHAPE_DIM`` (256) — Gemini AFC hit PreContractError on (300, 1)
+    in ``should_use_binary_envelope`` after grid/wire-dict fixes.
     """
+    max_dim = DEAL_MAX_ROW_INDEX + 1
     return (
         isinstance(shape, tuple)
         and len(shape) <= DEAL_MAX_SHAPE_RANK
-        and all(isinstance(d, int) and 0 <= d <= DEAL_MAX_SHAPE_DIM for d in shape)
+        and all(isinstance(d, int) and 0 <= d <= max_dim for d in shape)
     )
 
 
@@ -843,7 +875,7 @@ def is_numeric_coercible(value: Any) -> bool:
     return _is_numeric_coercible_impl(value)
 
 
-@deal.pre(lambda grid: isinstance(grid, list) and _deal_grid_ok(grid))
+@deal.pre(lambda grid: isinstance(grid, list) and _deal_product_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), bool))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: len(grid) > 0 or _deal_return(*a, result=result) is True)
 def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
@@ -886,7 +918,7 @@ def wire_cell_count(data: Any) -> int:
     return len(data)
 
 
-@deal.pre(lambda grid: isinstance(grid, list) and _deal_grid_ok(grid))
+@deal.pre(lambda grid: isinstance(grid, list) and _deal_product_grid_ok(grid))
 @deal.post(lambda result: isinstance(result, list))
 def grid_from_nested_list(grid: list[Any] | list[list[Any]]) -> list[Any] | list[list[Any]]:
     """Normalize to flat or 2D Python lists for small grids (below BINARY_MIN_CELLS) or non-split_grid results."""
@@ -1047,7 +1079,7 @@ def _iter_split_grid_cells(
         yield 0, idx, val
 
 
-@deal.pre(lambda grid: _deal_grid_ok(grid))
+@deal.pre(lambda grid: _deal_product_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and isinstance(r, tuple) and len(r) == 4 and isinstance(r[0], array.array) and isinstance(r[1], dict) and isinstance(r[2], list) and isinstance(r[3], list))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: (r := _deal_return(*a, result=result)) is not None and (not grid) == (len(r[0]) == 0 and r[1] == {} and r[2] == [] and r[3] == [0]))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: all(isinstance(key, int) for key in _deal_return(*a, result=result)[1].keys()))
@@ -1183,7 +1215,7 @@ def _flatten_grid_to_components(
     return buf, strings, column_kinds, shape
 
 
-@deal.pre(lambda grid: _deal_grid_ok(grid))
+@deal.pre(lambda grid: _deal_product_grid_ok(grid))
 @deal.post(lambda *a, result=_DEAL_RETURN, **k: isinstance(_deal_return(*a, result=result), dict))
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result).get("__wa_payload__") == PAYLOAD_SPLIT_GRID)
 @deal.ensure(lambda grid, *a, result=_DEAL_RETURN, **k: _deal_return(*a, result=result).get("dtype") == SPLIT_GRID_WIRE_DTYPE)
@@ -1238,7 +1270,7 @@ def host_pack_split_grid(
     return envelope
 
 
-@deal.pre(lambda grid, *_unused, **__: _deal_grid_ok(grid))
+@deal.pre(lambda grid, *_unused, **__: _deal_product_grid_ok(grid))
 # Same force/min_cells gate as should_use_binary_envelope so CrossHair cannot call pack with invalid policy kwargs.
 @deal.pre(
     lambda grid, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
@@ -1281,7 +1313,7 @@ def host_pack_data(
         raise
 
 
-@deal.pre(lambda grids, *_unused, **__: isinstance(grids, list) and len(grids) <= DEAL_MAX_SHAPE_DIM and all(_deal_grid_ok(g) for g in grids))
+@deal.pre(lambda grids, *_unused, **__: isinstance(grids, list) and len(grids) <= DEAL_MAX_SHAPE_DIM and all(_deal_product_grid_ok(g) for g in grids))
 @deal.pre(
     lambda grids, *_unused, min_cells=BINARY_MIN_CELLS, force="auto", **__: force in ("auto", "always", "never")
     and isinstance(min_cells, int)
@@ -1419,7 +1451,7 @@ def host_unpack_data(wire: Any, *, as_nested_list: bool = True) -> Any:
     return wire
 
 
-@deal.pre(lambda obj: _deal_dict_ok(obj))
+@deal.pre(lambda obj: _deal_wire_dict_ok(obj))
 @deal.post(lambda result: isinstance(result, bool))
 @inverse_ensure(
     lambda obj, result: not result

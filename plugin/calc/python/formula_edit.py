@@ -675,9 +675,17 @@ def py_code_arg_is_cell_ref(code: str) -> bool:
     bare = rest.replace("$", "").strip()
     if not bare:
         return False
+    # Probe only: long =PY source must not trip parse_address @deal.pre (DEAL_MAX_CELL_REF).
+    from plugin.framework.deal_shim import DEAL_MAX_CELL_REF, ascii_bounded
+
+    if not ascii_bounded(bare, DEAL_MAX_CELL_REF, min_len=1):
+        return False
     try:
         parse_address(bare)
     except ValueError:
+        return False
+    except Exception:
+        # Live deal.PreContractError if length slipped past the guard; treat as not-a-ref.
         return False
     return True
 
