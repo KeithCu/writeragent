@@ -8,10 +8,51 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
+import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from xml.etree import ElementTree as ET
 
 from plugin.tests.testing_utils import TestingFactory
+
+# Smallest AFC-style repro for the chat cap: 9×9 = 81 cells (cap is 80).
+# Full Population (1517×8) is not required; this ODS is a few KB of dummy numbers.
+_MIN_RANGE_TOO_LARGE_ODS = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "eval"
+    / "eval-2"
+    / "afc-sample-83d10b06"
+    / "fixtures"
+    / "min-range-too-large.ods"
+)
+_TABLE_NS = "urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+_TABLE_ROW = f"{{{_TABLE_NS}}}table-row"
+_TABLE_CELL = f"{{{_TABLE_NS}}}table-cell"
+_COVERED_CELL = f"{{{_TABLE_NS}}}covered-table-cell"
+_NCOLS_REP = f"{{{_TABLE_NS}}}number-columns-repeated"
+_NROWS_REP = f"{{{_TABLE_NS}}}number-rows-repeated"
+
+
+def _used_shape_from_ods(path: Path) -> tuple[int, int]:
+    """``(rows, cols)`` of the first table in a tiny ODS. No LibreOffice."""
+    with zipfile.ZipFile(path) as zf:
+        root = ET.fromstring(zf.read("content.xml"))
+    table = root.find(f".//{{{_TABLE_NS}}}table")
+    assert table is not None, f"no table in {path}"
+    rows = 0
+    cols = 0
+    for row in table.findall(_TABLE_ROW):
+        row_repeat = int(row.get(_NROWS_REP, 1))
+        row_cols = 0
+        for cell in row:
+            if cell.tag not in (_TABLE_CELL, _COVERED_CELL):
+                continue
+            row_cols += int(cell.get(_NCOLS_REP, 1))
+        rows += row_repeat
+        cols = max(cols, row_cols)
+    return rows, cols
 
 
 def test_cells_parse_color():
@@ -333,6 +374,53 @@ def test_read_cell_range_tool_truncates_large_range():
     assert result["message"] == _READ_CELL_RANGE_TRUNCATED_MSG
     assert "overload" in result["message"]
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
+
+
+def test_read_cell_range_min_over_cap_steers_to_py():
+    """9×9 fixture (81 cells) is the smallest range-too-large repro; message steers to =PY.
+
+    Chat `read_cell_range` caps at 80 cells. Models then follow the steer instead of
+    chunked native Calc. This binds that wire to a committed ODS without opening
+    Population or running a headed eval.
+    """
+    from plugin.calc.cells import (
+        ReadCellRange,
+        _READ_CELL_RANGE_MAX_CELLS,
+        _READ_CELL_RANGE_TRUNCATED_MSG,
+    )
+
+    assert _MIN_RANGE_TOO_LARGE_ODS.is_file(), _MIN_RANGE_TOO_LARGE_ODS
+    rows, cols = _used_shape_from_ods(_MIN_RANGE_TOO_LARGE_ODS)
+    cells = rows * cols
+    assert cells > _READ_CELL_RANGE_MAX_CELLS
+    assert (rows, cols, cells) == (9, 9, 81)
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    sample = [[{"value": "ID"}] * cols]
+    range_name = "A1:I9"
+    with (
+        patch("plugin.calc.cells.CalcBridge") as bridge_cls,
+        patch("plugin.calc.cells.CellInspector") as inspector_cls,
+    ):
+        # 9×9 used range in min-range-too-large.ods (A1:I9).
+        bridge_cls.return_value.resolve_range_or_address.return_value = _range_addr(
+            start_col=0, end_col=cols - 1, start_row=0, end_row=rows - 1
+        )
+        inspector_cls.return_value.read_range.return_value = sample
+        result = ReadCellRange().execute(ctx, range=[range_name])
+
+    assert result["status"] == "ok"
+    assert result["truncated"] is True
+    assert result["cells"] == 81
+    assert result["rows"] == 9
+    assert result["columns"] == 9
+    assert result["range"] == range_name
+    assert result["message"] == _READ_CELL_RANGE_TRUNCATED_MSG
+    assert "=PY" in result["message"]
+    assert "pass this A1 address to =PY instead of re-reading" in result["message"]
+    # Preview clips rows to 10; 9 data rows stay A1:I9 but still mark truncated.
+    assert result["preview_range"] == "A1:I9"
+    inspector_cls.return_value.read_range.assert_called_once_with("A1:I9", include_format_info=True)
 
 
 def test_read_cell_range_tool_keeps_small_range_full():
