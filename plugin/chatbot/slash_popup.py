@@ -8,13 +8,12 @@ A native ``PopupMenu`` is modal — the user could not keep typing. The XDL
 placeholder is ``dlg:menulist`` (LibreOffice dialog.dtd has no ``listbox``).
 
 PR 564 parked an in-dialog ListBox in the Ready/Ask gap (siblings cannot
-paint over the rich-text transcript). PR 575 tried ``Dropdown=True`` plus
-accessible ``togglePopup`` so VCL would drop a floating list. Headed
-sign-off: typing ``/`` left a one-line closed combo in the transcript
-(``togglePopup`` did not open), and clicking the combo arrow ran ``/help``
-into the chat. This controller hides that placeholder and shows a toolkit
-``listbox`` window parented to the Ask field's peer — a tall overlay above
-Ask, opened by the slash prefix, not by a click.
+paint over the rich-text transcript). PR 575/584 tried TOP then SIMPLE for
+Ask focus. Arch HiDPI: SIMPLE gap-fit still crushed under Ready/query_label.
+Product placement: ~6 rows **above Ready** over the transcript via a TOP
+host (SIMPLE siblings lose paint). Do **not** resize or hide rich-text —
+chrome/title bar is acceptable for z-order. Fill before show, idle post
+from textChanged, and return focus to Ask after map.
 """
 
 from __future__ import annotations
@@ -74,8 +73,72 @@ def _ovdiag(obj: Any, label: str) -> None:
         bits.append("output=%sx%s" % (obj.getOutputWidth(), obj.getOutputHeight()))
     except Exception:
         pass
+    try:
+        osz = obj.getOutputSize()
+        bits.append("outputSize=%sx%s" % (osz.Width, osz.Height))
+    except Exception:
+        pass
+    try:
+        peer = obj.getPeer() if callable(getattr(obj, "getPeer", None)) else None
+        if peer is not None and peer is not obj:
+            try:
+                pps = peer.getPosSize()
+                bits.append("peerPos=%sx%s@%s,%s" % (pps.Width, pps.Height, pps.X, pps.Y))
+            except Exception:
+                pass
+            try:
+                bits.append("peerOutput=%sx%s" % (peer.getOutputWidth(), peer.getOutputHeight()))
+            except Exception:
+                pass
+            try:
+                posz = peer.getOutputSize()
+                bits.append("peerOutputSize=%sx%s" % (posz.Width, posz.Height))
+            except Exception:
+                pass
+    except Exception:
+        pass
     _ovlog("%s", " ".join(str(b) for b in bits))
 
+
+def _resolve_query_label(send_listener: Any, overlay_parent: Any = None) -> Any:
+    """Ask/instruct label control — may sit in the Ready↔Ask gap on HiDPI."""
+    label = getattr(send_listener, "query_label", None) if send_listener is not None else None
+    if label is not None:
+        return label
+    parent = overlay_parent
+    if parent is None and send_listener is not None:
+        popup = getattr(send_listener, "slash_popup", None)
+        parent = getattr(popup, "_overlay_parent", None) if popup is not None else None
+    if parent is not None and hasattr(parent, "getControl"):
+        try:
+            return parent.getControl("query_label")
+        except Exception:
+            return None
+    return None
+
+
+def _log_slash_clip_neighbors(
+    send_listener: Any,
+    *,
+    popup_bounds: tuple[int, int, int, int] | None = None,
+    overlay_parent: Any = None,
+) -> None:
+    """Log status / query_label / response / rich-text geometry beside popup (Arch clip)."""
+    if popup_bounds is not None:
+        x, y, w, h = popup_bounds
+        _ovlog("popup_bounds_for_clip=%s,%s %sx%s (y..y+h=%s..%s)", x, y, w, h, y, y + h)
+    if send_listener is None:
+        _ovlog("clip_neighbors send_listener None")
+        return
+    status = getattr(send_listener, "status_control", None)
+    response = getattr(send_listener, "response_control", None)
+    query_label = _resolve_query_label(send_listener, overlay_parent)
+    rich_widget = getattr(send_listener, "rich_text_widget", None)
+    rich_ctrl = getattr(rich_widget, "control", None) if rich_widget is not None else None
+    _ovdiag(status, "status")
+    _ovdiag(query_label, "query_label")
+    _ovdiag(response, "response")
+    _ovdiag(rich_ctrl, "rich_text")
 
 # Feature flag: slash-command popup is currently disabled until stable.
 ENABLE_SLASH = False
@@ -131,6 +194,165 @@ def _overlay_rect(qr: Any, rows: int, *, relative_to_ask: bool) -> tuple[int, in
         return _popup_bounds(width, rows)
     height = _overlay_height(rows)
     return (int(qr.X), int(qr.Y) - height - 2, width, height)
+
+
+def _status_control(send_listener: Any) -> Any:
+    return getattr(send_listener, "status_control", None) if send_listener is not None else None
+
+
+def _status_top(send_listener: Any) -> int | None:
+    """Top Y of the Ready/status control (dialog-local), or None."""
+    status = _status_control(send_listener)
+    if status is None or not hasattr(status, "getPosSize"):
+        return None
+    try:
+        return int(status.getPosSize().Y)
+    except Exception:
+        return None
+
+
+def _location_on_screen(obj: Any) -> tuple[int, int] | None:
+    """Screen origin of an AWT window/control, or None."""
+    if obj is None:
+        return None
+    get_acc = getattr(obj, "getAccessibleContext", None)
+    if not callable(get_acc):
+        return None
+    try:
+        acc = get_acc()
+    except Exception:
+        return None
+    fn = getattr(acc, "getLocationOnScreen", None) if acc is not None else None
+    if not callable(fn):
+        return None
+    try:
+        pt = fn()
+        x = getattr(pt, "X", None)
+        y = getattr(pt, "Y", None)
+        if x is None or y is None:
+            return None
+        return int(x), int(y)
+    except Exception:
+        return None
+
+
+def _is_parent_local(pt: tuple[int, int], local_x: int, local_y: int, width: int) -> bool:
+    """True when getLocationOnScreen echoed PosSize (dialog-local) instead of screen."""
+    if abs(pt[0] - local_x) > 2 or abs(pt[1] - local_y) > 2:
+        return False
+    return int(width) < 800
+
+
+def _trusted_ask_screen(
+    query_control: Any,
+    ask_peer: Any,
+    parent: Any,
+    frame: Any,
+    qr: Any,
+) -> tuple[int, int] | None:
+    """Ask screen origin. Never treat dialog-local (8,360) as screen (lands on document)."""
+    qr_x = int(getattr(qr, "X", 0) or 0)
+    qr_y = int(getattr(qr, "Y", 0) or 0)
+    qr_w = int(getattr(qr, "Width", 0) or 0)
+    ask = _location_on_screen(query_control) or _location_on_screen(ask_peer)
+    if ask is not None and not _is_parent_local(ask, qr_x, qr_y, qr_w):
+        _ovlog("Ask screen from accessible %s", ask)
+        return ask
+    if ask is not None:
+        _ovlog("Ask accessible parent-local %s ignored", ask)
+    dlg = _location_on_screen(parent)
+    dw = 0
+    try:
+        if parent is not None and hasattr(parent, "getPosSize"):
+            dw = int(parent.getPosSize().Width or 0)
+    except Exception:
+        dw = 0
+    if dlg is not None and not _is_parent_local(dlg, 0, 0, dw or 1):
+        origin = (dlg[0] + qr_x, dlg[1] + qr_y)
+        _ovlog("Ask screen from dialog %s -> %s", dlg, origin)
+        return origin
+    get = getattr(frame, "getContainerWindow", None) if frame is not None else None
+    win = None
+    if callable(get):
+        try:
+            win = get()
+        except Exception:
+            win = None
+    fw = _location_on_screen(win)
+    fw_w = 0
+    get_ps = getattr(win, "getPosSize", None) if win is not None else None
+    if fw is None and callable(get_ps):
+        try:
+            r = get_ps()
+            fw = (int(getattr(r, "X", 0) or 0), int(getattr(r, "Y", 0) or 0))
+            fw_w = int(getattr(r, "Width", 0) or 0)
+        except Exception:
+            fw = None
+    elif callable(get_ps):
+        try:
+            fw_w = int(getattr(get_ps(), "Width", 0) or 0)
+        except Exception:
+            fw_w = 0
+    if fw is not None and dw and fw_w and dw < fw_w:
+        # Right-docked sidebar: panel is on the trailing edge of the frame.
+        origin = (fw[0] + fw_w - dw + qr_x, fw[1] + qr_y)
+        _ovlog("Ask screen from frame estimate %s (fw=%s dw=%s)", origin, fw, dw)
+        return origin
+    return None
+
+
+def _above_ready_rect(
+    qr: Any,
+    rows: int,
+    *,
+    status_top: int | None,
+) -> tuple[int, int, int, int]:
+    """Dialog-local rect: ~6 rows above Ready (over transcript), else classic above Ask."""
+    width = max(20, int(getattr(qr, "Width", 0) or 0))
+    h = _overlay_height(rows)
+    x = int(getattr(qr, "X", 0) or 0)
+    if status_top is not None:
+        y = int(status_top) - h - 2
+        _ovlog("above_ready status_top=%s y=%s h=%s rows=%s", status_top, y, h, rows)
+        return x, y, width, h
+    return x, int(getattr(qr, "Y", 0) or 0) - h - 2, width, h
+
+
+def _screen_bounds_above_ready(
+    qr: Any,
+    rows: int,
+    *,
+    query_control: Any,
+    send_listener: Any,
+    overlay_parent: Any = None,
+    ask_peer: Any = None,
+    frame: Any = None,
+) -> tuple[int, int, int, int] | None:
+    """TOP Bounds are screen coords. Use trusted Ask origin (reject parent-local echo)."""
+    h = _overlay_height(rows)
+    w = max(20, int(getattr(qr, "Width", 0) or 0))
+    status_top = _status_top(send_listener)
+    ask_y = int(getattr(qr, "Y", 0) or 0)
+    local_y = (int(status_top) - h - 2) if status_top is not None else (ask_y - h - 2)
+    ask_screen = _trusted_ask_screen(
+        query_control, ask_peer, overlay_parent, frame, qr
+    )
+    if ask_screen is None:
+        _ovlog("TOP screen: no trusted Ask origin")
+        return None
+    x = int(ask_screen[0])
+    y = int(ask_screen[1]) - (ask_y - local_y)
+    _ovlog(
+        "TOP screen trusted status_top=%s local_y=%s -> %s,%s %sx%s ask_screen=%s",
+        status_top,
+        local_y,
+        x,
+        y,
+        w,
+        h,
+        ask_screen,
+    )
+    return x, y, w, h
 
 
 def _row_index_at_y(y: int, n_rows: int) -> int | None:
@@ -202,18 +424,28 @@ def _awt_window_constants() -> tuple[Any, Any, int, int, int] | None:
     return Rectangle, WindowDescriptor, 0, 3, 16
 
 
-def _create_ask_peer_listbox(query_control: Any, parent_control: Any = None, frame: Any = None) -> Any:
-    """Native VCL ListBox. Headed: Ask peer is ~49px; Y=-92 is clipped. Parent the dialog instead."""
+
+
+def _create_ask_peer_listbox(
+    query_control: Any,
+    parent_control: Any = None,
+    frame: Any = None,
+    send_listener: Any = None,
+) -> Any:
+    """TOP host + SIMPLE listbox child so the menu paints over rich-text above Ready.
+
+    History stays full size — do not shrink/hide the transcript. TOP may show
+    window chrome; Keith accepts that for z-order. Never set SHOW at create
+    (PR 584 deadlock). Fill before show, then setVisible, then return focus to Ask.
+    """
     ask_peer = _query_peer(query_control)
     parent = ask_peer
-    relative_to_ask = True
     if parent_control is not None:
         overlay_peer = _query_peer(parent_control, label="dialog")
         if overlay_peer is not None:
             parent = overlay_peer
-            relative_to_ask = overlay_peer is ask_peer
             _ovdiag(overlay_peer, "dialog/overlay parent peer")
-            _ovlog("relative_to_ask=%s", relative_to_ask)
+            _ovlog("relative_to_ask=%s", overlay_peer is ask_peer)
     if parent is None:
         return None
     toolkit = _toolkit_for_peer(parent)
@@ -223,33 +455,69 @@ def _create_ask_peer_listbox(query_control: Any, parent_control: Any = None, fra
     consts = _awt_window_constants()
     if consts is None:
         return None
-    rectangle_cls, descriptor_cls, _top, simple, attrs = consts
+    rectangle_cls, descriptor_cls, top, simple, _attrs = consts
+    # Prefer NODECORATION; if the toolkit still draws chrome, that is OK for z-order.
+    # Never SHOW at create (maps before addItems → VCL deadlock).
+    host_attrs = 512  # WindowAttribute.NODECORATION
+    child_attrs = 16  # BORDER
     qr = query_control.getPosSize() if hasattr(query_control, "getPosSize") else None
     if qr is None:
         qr = type("R", (), {"X": 0, "Y": 0, "Width": 142, "Height": 30})()
-    x, y, w, h = _overlay_rect(qr, _POPUP_MAX_ROWS, relative_to_ask=relative_to_ask)
-    # SIMPLE child of the dialog: dialog-local coords, no TOP window focus steal.
-    _ovlog("SIMPLE dialog-local bounds=%s,%s %sx%s relative_to_ask=%s", x, y, w, h, relative_to_ask)
+    status_top = _status_top(send_listener)
+    dx, dy, w, h = _above_ready_rect(qr, _POPUP_MAX_ROWS, status_top=status_top)
+    screen = _screen_bounds_above_ready(
+        qr,
+        _POPUP_MAX_ROWS,
+        query_control=query_control,
+        send_listener=send_listener,
+        overlay_parent=parent_control,
+        ask_peer=ask_peer,
+        frame=frame,
+    )
+    if screen is not None:
+        x, y, w, h = screen
+    else:
+        x, y = dx, dy
+        _ovlog("TOP dialog-local fallback bounds=%s,%s %sx%s", x, y, w, h)
+    host_desc = descriptor_cls()
+    host_desc.Type = top
+    host_desc.WindowServiceName = "window"
+    host_desc.Parent = parent
+    host_desc.ParentIndex = -1
+    host_desc.Bounds = rectangle_cls(x, y, w, h)
+    host_desc.WindowAttributes = host_attrs
+    _ovlog("createWindow TOP window bounds=%s,%s %sx%s attrs=%s", x, y, w, h, host_attrs)
+    try:
+        host = toolkit.createWindow(host_desc)
+    except Exception:
+        _ovlog("createWindow TOP window FAILED", exc_info=True)
+        host = None
+    if host is None:
+        log.warning("slash popup: TOP overlay window could not be created")
+        return None
+    _ovdiag(host, "overlay-TOP")
     desc = descriptor_cls()
     desc.Type = simple
     desc.WindowServiceName = "listbox"
-    desc.Parent = parent
+    desc.Parent = host
     desc.ParentIndex = -1
-    desc.Bounds = rectangle_cls(x, y, w, h)
-    desc.WindowAttributes = attrs
-    _ovlog("createWindow SIMPLE listbox bounds=%s,%s %sx%s", x, y, w, h)
+    desc.Bounds = rectangle_cls(0, 0, w, h)
+    desc.WindowAttributes = child_attrs
+    _ovlog("createWindow listbox in TOP %sx%s", w, h)
     try:
         win = toolkit.createWindow(desc)
     except Exception:
         _ovlog("createWindow listbox FAILED", exc_info=True)
         win = None
     if win is None:
-        log.warning("slash popup: listbox could not be created")
+        log.warning("slash popup: listbox in TOP window could not be created")
+        try:
+            host.dispose()
+        except Exception:
+            pass
         return None
-    return win, None, None
-
-    log.warning("slash popup: toolkit listbox overlay could not be created")
-    return None
+    _ovdiag(win, "listbox-in-TOP")
+    return win, host, None
 
 
 class SlashPopupController:
@@ -295,7 +563,7 @@ class SlashPopupController:
     def _bind_overlay(self) -> None:
         if self._popup_window is not None:
             return
-        created = _create_ask_peer_listbox(self.query_control, self._overlay_parent, frame=getattr(self.send_listener, "frame", None))
+        created = _create_ask_peer_listbox(self.query_control, self._overlay_parent, frame=getattr(self.send_listener, "frame", None), send_listener=self.send_listener)
         if created is None:
             return
         win, floater, origin = created
@@ -330,7 +598,10 @@ class SlashPopupController:
         set_control_visible(self._placeholder, False)
         if self._popup_window is not None:
             win = self._popup_window
+            floater = getattr(self, "_popup_floater", None)
             set_control_visible(win, False)
+            if floater is not None and floater is not win:
+                set_control_visible(floater, False)
             dispose = getattr(win, "dispose", None)
             if callable(dispose):
                 try:
@@ -338,8 +609,7 @@ class SlashPopupController:
                     _ovlog("hide disposed toolkit window")
                 except Exception:
                     _ovlog("hide dispose failed", exc_info=True)
-            floater = getattr(self, "_popup_floater", None)
-            if floater is not None:
+            if floater is not None and floater is not win:
                 dispose_f = getattr(floater, "dispose", None)
                 if callable(dispose_f):
                     try:
@@ -359,6 +629,7 @@ class SlashPopupController:
     def on_query_text(self, text: str) -> None:
         """Open or narrow the popup from the current Ask-box contents."""
         if not ENABLE_SLASH:
+            _ovlog("on_query_text disabled (ENABLE_SLASH=False)")
             return
         prefix = slash_typed_prefix(text)
         _ovlog("on_query_text prefix=%r text=%r", prefix, (text[:40] if isinstance(text, str) else text))
@@ -421,11 +692,35 @@ class SlashPopupController:
         self._fill_visible_list()
         _ovlog("filled before show")
         host = getattr(self, "_popup_floater", None)
-        if host is not None:
+        if host is not None and host is not self.control:
             set_control_visible(host, True)
         set_control_visible(self.control, True)
         self.reposition()
-        _ovlog("show complete SIMPLE in-dialog")
+        self._bring_overlay_front()
+        self._late_attach_overlay_keys()
+        self._attach_frame_keys()
+        self._attach_toolkit_keys()
+        # TOP host steals caret unless we return it — keep typing in Ask.
+        set_focus = getattr(self.query_control, "setFocus", None)
+        if callable(set_focus):
+            with suppress_disposed("slash popup return focus", logger=log):
+                set_focus()
+                _ovlog("Ask setFocus after TOP show")
+            # Idle re-focus: toFront/map can race past the first setFocus.
+            try:
+                from plugin.framework.queue_executor import post_to_main_thread
+
+                def _refocus_ask() -> None:
+                    sf = getattr(self.query_control, "setFocus", None)
+                    if callable(sf):
+                        with suppress_disposed("slash popup idle refocus", logger=log):
+                            sf()
+                            _ovlog("Ask setFocus idle refocus")
+
+                post_to_main_thread(_refocus_ask)
+            except Exception:
+                _ovlog("Ask idle refocus post failed", exc_info=True)
+        _ovlog("show complete TOP-above-Ready floater=%s", host is not None)
 
     def _late_attach_overlay_keys(self) -> None:
         """Mouse + overlay keys after SIMPLE show. Ask QueryKeyListener still gets Esc."""
@@ -508,8 +803,28 @@ class SlashPopupController:
         self.accept_selected()
         return True
 
+
+    def _bring_overlay_front(self) -> None:
+        """Raise the toolkit listbox above Ready/transcript siblings (clip probe)."""
+        for label, obj in (
+            ("popup_window", self._popup_window),
+            ("popup_floater", getattr(self, "_popup_floater", None)),
+            ("control", self.control),
+        ):
+            if obj is None:
+                continue
+            to_front = getattr(obj, "toFront", None)
+            if not callable(to_front):
+                _ovlog("toFront skip %s (no method)", label)
+                continue
+            try:
+                to_front()
+                _ovlog("toFront ok %s", label)
+            except Exception:
+                _ovlog("toFront failed %s", label, exc_info=True)
+
     def reposition(self) -> None:
-        """Size the overlay to the match rows and park it above Ask."""
+        """Size the overlay to the match rows and park it above Ready (TOP) or Ask."""
         query = self.query_control
         ctrl = self.control
         if query is None or ctrl is None or not hasattr(query, "getPosSize"):
@@ -518,10 +833,13 @@ class SlashPopupController:
             qr = query.getPosSize()
             rows = min(len(self._matches) or 1, _POPUP_MAX_ROWS)
             relative_to_ask = self._overlay_parent is None
-            x, y, w, h = _overlay_rect(qr, rows, relative_to_ask=relative_to_ask)
-            # SIMPLE is dialog-local; _overlay_rect already computed x,y.
+            status_top = _status_top(self.send_listener)
+            if relative_to_ask:
+                x, y, w, h = _overlay_rect(qr, rows, relative_to_ask=True)
+            else:
+                x, y, w, h = _above_ready_rect(qr, rows, status_top=status_top)
             _ovlog(
-                "reposition Ask=%sx%s@%s,%s popup_bounds=%s,%s %sx%s rows=%s toolkit=%s relative_to_ask=%s",
+                "reposition Ask=%sx%s@%s,%s popup_bounds=%s,%s %sx%s rows=%s toolkit=%s relative_to_ask=%s origin=%s",
                 qr.Width,
                 qr.Height,
                 qr.X,
@@ -533,13 +851,30 @@ class SlashPopupController:
                 rows,
                 self._popup_window is not None,
                 relative_to_ask,
+                getattr(self, "_ask_origin", None),
+            )
+            _log_slash_clip_neighbors(
+                self.send_listener,
+                popup_bounds=(x, y, w, h),
+                overlay_parent=self._overlay_parent,
+            )
+            # Arch diag: trusted screen even for dialog-local list.
+            _screen_bounds_above_ready(
+                qr,
+                rows,
+                query_control=query,
+                send_listener=self.send_listener,
+                overlay_parent=self._overlay_parent,
+                ask_peer=_query_peer(query),
+                frame=getattr(self.send_listener, "frame", None),
             )
             if self._popup_window is not None:
                 floater = getattr(self, "_popup_floater", None)
-                if floater is not None:
+                if floater is not None and floater is not ctrl:
                     floater.setPosSize(x, y, w, h, _POS_SIZE_FLAGS)
                     ctrl.setPosSize(0, 0, w, h, _POS_SIZE_FLAGS)
                 else:
+                    # Dialog-local SIMPLE (or single-window floater).
                     ctrl.setPosSize(x, y, w, h, _POS_SIZE_FLAGS)
                 return
             # Mock list in unit tests: tall rectangle above Ask, never 14px closed.

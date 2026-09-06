@@ -215,14 +215,21 @@ class QueryTextListener(BaseTextListener):
             callable(on_text),
             (raw[:40] if isinstance(raw, str) else raw),
         )
+        from plugin.chatbot.slash_commands import slash_typed_prefix
+        from plugin.chatbot.slash_popup import ENABLE_SLASH
         if callable(on_text):
+            owner = getattr(on_text, "__self__", None)
+            log.info(
+                "[SLASH-OV] query_text invoking on_query_text ENABLE_SLASH=%s id=%s",
+                bool(ENABLE_SLASH),
+                id(owner) if owner is not None else None,
+            )
             try:
                 on_text(raw)
             except Exception:
                 log.exception("[SLASH-OV] query_text on_query_text raised")
+            log.info("[SLASH-OV] query_text on_query_text returned")
         # UpdateUI after creating/mapping a TOP overlay deadlocks VCL.
-        from plugin.chatbot.slash_commands import slash_typed_prefix
-        from plugin.chatbot.slash_popup import ENABLE_SLASH
         if ENABLE_SLASH and slash_typed_prefix(raw) is not None:
             log.info("[SLASH-OV] query_text skip TEXT_UPDATED slash prefix")
             return
