@@ -47,10 +47,15 @@ class FieldsList(ToolWriterFieldBase):
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields.")
 
+        # Deferred: plugin.writer.search pulls the UNO document helpers in, and this module is
+        # imported wherever the field tools are registered.
+        from ..search import describe_match_location
+
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
 
         results = []
+        hf_labels = {}
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
@@ -96,7 +101,16 @@ class FieldsList(ToolWriterFieldBase):
                 except Exception:
                     pass
 
-            results.append({"id": count, "presentation": presentation, "content": content, "properties": props})
+            # Where the field lives decides whether deleting it is safe: getTextFields() returns
+            # header and footer fields mixed in with the body's, and a page number in a footer
+            # looks exactly like one in the text. Same labels the search path reports.
+            try:
+                location = describe_match_location(field.getAnchor(), doc, hf_labels)
+            except Exception:
+                location = "unknown"
+
+            results.append({"id": count, "presentation": presentation, "content": content,
+                            "location": location, "properties": props})
 
         return {"status": "ok", "field_count": count, "fields": results}
 
@@ -114,10 +128,13 @@ class FieldsDelete(ToolWriterFieldBase):
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields.")
 
+        from ..search import describe_match_location  # deferred, see FieldsList.execute
+
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
 
         fields_to_delete = []
+        hf_labels = {}
         count = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
@@ -129,16 +146,29 @@ class FieldsDelete(ToolWriterFieldBase):
             return {"status": "ok", "deleted_count": 0, "message": "No matching fields found to delete."}
 
         deleted_count = 0
+        deleted = []
         for field in fields_to_delete:
             try:
                 # Text fields can be deleted by removing their anchor content
                 anchor = field.getAnchor()
+                # Report the region before the anchor is emptied: a page number removed from a
+                # footer and one removed from the body read identically afterwards.
+                try:
+                    where = describe_match_location(anchor, doc, hf_labels)
+                except Exception:
+                    where = "unknown"
+                try:
+                    what = field.getPresentation(True)  # the field's identity, not its rendering
+                except Exception:
+                    what = ""
                 anchor.setString("")
                 deleted_count += 1
+                deleted.append({"content": what, "location": where})
             except Exception as e:
                 return self._tool_error(f"Failed to delete field: {str(e)}")
 
-        return {"status": "ok", "message": f"Successfully deleted {deleted_count} field(s).", "deleted_count": deleted_count}
+        return {"status": "ok", "message": f"Successfully deleted {deleted_count} field(s).",
+                "deleted_count": deleted_count, "deleted": deleted}
 
 
 class FieldsInsert(ToolWriterFieldBase):

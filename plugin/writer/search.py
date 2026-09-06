@@ -433,7 +433,9 @@ def _header_footer_label(text_obj, doc=None, label_cache=None):
                     pass
                 for attr, region in (
                     ("HeaderText", "header"), ("HeaderTextLeft", "header"), ("HeaderTextRight", "header"),
+                    ("HeaderTextFirst", "first-page header"),
                     ("FooterText", "footer"), ("FooterTextLeft", "footer"), ("FooterTextRight", "footer"),
+                    ("FooterTextFirst", "first-page footer"),
                 ):
                     try:
                         if getattr(st, attr, None) == text_obj:

@@ -53,7 +53,10 @@ from .target_resolver import resolve_target_cursor
 
 log = logging.getLogger("writeragent.writer")
 
-_STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles"]
+# Families style_list will report and enumerate. PageStyles is listed because the page tools take
+# a page-style NAME and a document converted from .docx rarely uses "Standard" — without it the
+# only way to learn the real names was to guess one and read them off the error.
+_STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles", "PageStyles"]
 
 _CONDITIONAL_CONTEXTS = [
     "TableHeader", "Table", "Frame", "Section", "Footnote", "Endnote",
@@ -116,7 +119,7 @@ class StyleList(ToolWriterStyleBase):
 
     name = "style_list"
     description = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
-    parameters = {"type": "object", "properties": {"family": {"type": "string", "enum": ["ParagraphStyles", "CharacterStyles"], "description": ("Style family (ParagraphStyles or CharacterStyles). Default: ParagraphStyles.")}}, "required": []}
+    parameters = {"type": "object", "properties": {"family": {"type": "string", "enum": _STYLE_FAMILIES, "description": ("Style family. Default: ParagraphStyles. Use PageStyles to find the page-style name the page tools need.")}}, "required": []}
 
     def execute(self, ctx, **kwargs):
         family = kwargs.get("family")
@@ -231,6 +234,13 @@ class StyleGetInfo(ToolWriterStyleBase):
         style_name = kwargs.get("style", "")
         family = kwargs.get("family", "ParagraphStyles")
 
+        # style_list reports PageStyles, but the property set read here is text-style shaped and
+        # would come back empty for one. Send the caller to the tool that does answer.
+        if family == "PageStyles":
+            return self._tool_error(
+                "style_get_info does not read page styles. Use page_get_style_properties(style='%s') "
+                "for margins, size and header/footer state." % (style_name or "Standard"))
+
         doc = ctx.doc
         style_family = self.get_item(doc, "getStyleFamilies", family, missing_msg="Document does not support style families.", not_found_msg="Unknown style family: %s" % family)
         if isinstance(style_family, dict):
@@ -268,7 +278,9 @@ class ApplyStyle(FrameworkToolBase):
         "styles (e.g. Source Text). Use 'No Character Style' "
         "with family='CharacterStyles' to remove a character style. "
         "Use target='selection' (default), 'beginning', 'end', 'full_document', "
-        "or 'search' with old_content."
+        "or 'search' with old_content. "
+        "If the result reports preserved_char_overrides, the target had hand-set formatting that "
+        "overrides the style and nothing changed on screen — re-apply with clear_direct='style_props'."
     )
     parameters = {
         "type": "object",
@@ -279,6 +291,14 @@ class ApplyStyle(FrameworkToolBase):
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
+            "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "description": (
+                "What to do with direct (hand-set) formatting on the target, ParagraphStyles only. "
+                "'none' (default) keeps it — but direct formatting OVERRIDES the style, so on a document "
+                "formatted by hand the style will have no visible effect. 'style_props' drops the font "
+                "name/size override and the paragraph indents/alignment so the style's own values show, "
+                "keeping bold/italic/colour. 'all' drops every direct override (Ctrl+M). "
+                "Not allowed with target='full_document' — clearing the whole document flattens the "
+                "formatting that tells one kind of paragraph from another; style each range instead.")},
         },
         "required": ["style"],
     }
@@ -288,11 +308,35 @@ class ApplyStyle(FrameworkToolBase):
     # Maps family to the UNO property that holds the style name.
     _PROPERTY_MAP = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
 
-    def _apply_one(self, ctx, family, uno_prop, uno_value, cursor):
+    def _apply_one(self, ctx, family, uno_prop, uno_value, cursor, clear_direct="none"):
+        """Apply the style to one cursor. Returns the direct-formatting report (or None)."""
         if family == "ParagraphStyles":
-            apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value)
-        else:
-            cursor.setPropertyValue(uno_prop, uno_value)
+            return apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value, clear_direct)
+        cursor.setPropertyValue(uno_prop, uno_value)
+        return None
+
+    @staticmethod
+    def _merge_reports(reports):
+        """Fold per-range reports into the fields echoed on the tool result."""
+        out: dict[str, Any] = {}
+        for rep in reports:
+            if not rep:
+                continue
+            # One value per property across all ranges (last one wins). This is a signal that
+            # direct formatting was in play, not a per-range ledger.
+            for key in ("preserved_char_overrides", "removed_char_overrides"):
+                if rep.get(key):
+                    out.setdefault(key, {}).update(rep[key])
+            for key in ("cleared_char_properties", "cleared_paragraph_properties"):
+                if rep.get(key):
+                    out[key] = rep[key]  # same list for every range; last one wins
+        if out.get("preserved_char_overrides"):
+            # The whole point of the echo: a style apply that changed nothing visible used to be
+            # indistinguishable from one that worked.
+            out["hint"] = ("Direct formatting on the target overrides this style, so the document "
+                           "may look unchanged. Re-apply with clear_direct='style_props' to let the "
+                           "style's font, size and indents show.")
+        return out
 
     def execute(self, ctx, **kwargs):
         style_name = str(kwargs.get("style") or "").strip()
@@ -333,6 +377,21 @@ class ApplyStyle(FrameworkToolBase):
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
+        clear_direct = str(kwargs.get("clear_direct") or "none").strip()
+        if clear_direct not in ("none", "style_props", "all"):
+            return self._tool_error("clear_direct must be one of: none, style_props, all.")
+        if clear_direct != "none":
+            if family != "ParagraphStyles":
+                return self._tool_error("clear_direct only applies to family='ParagraphStyles'.")
+            if target == "full_document":
+                # Clearing the whole document erases the direct formatting that distinguishes a
+                # block quote from body text — and the caller needs that distinction to pick which
+                # style each range gets. Force the per-range path instead.
+                return self._tool_error(
+                    "clear_direct is not allowed with target='full_document': it would flatten the "
+                    "whole document, including the formatting that tells body text from quotes and "
+                    "headings. Style each range separately (target='search') instead.")
+
         # Multi-occurrence styling (target='search' only). resolve_target_cursor styles only the
         # first match; all_matches / occurrence let a defined term or repeated quote lead be
         # styled everywhere. Each match gets a cursor in its OWN text object (cell/frame safe).
@@ -360,17 +419,19 @@ class ApplyStyle(FrameworkToolBase):
                     return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
                 ranges = [ranges[occ]]
             applied = 0
+            reports = []
             for found in ranges:
                 try:
                     ftext = found.getText()
                     c = ftext.createTextCursorByRange(found.getStart())
                     c.gotoRange(found.getEnd(), True)
-                    self._apply_one(ctx, family, uno_prop, uno_value, c)
+                    reports.append(self._apply_one(ctx, family, uno_prop, uno_value, c, clear_direct))
                     applied += 1
                 except Exception as e:
                     return self._tool_error("Applied to %d of %d; failed on one match: %s" % (applied, len(ranges), e))
             result = {"status": "ok", "message": "Applied style '%s' (%s) to %d match(es)." % (style_name, family, applied),
                       "style_name": style_name, "family": family, "target": "search", "applied": True, "matched": True, "applied_count": applied}
+            result.update(self._merge_reports(reports))
             from plugin.writer.edit_review import review_recording_enabled
             if review_recording_enabled(ctx.ctx):
                 result["style_unreviewed"] = True
@@ -391,11 +452,12 @@ class ApplyStyle(FrameworkToolBase):
             return self._tool_error("Failed to resolve target location.")
 
         try:
-            self._apply_one(ctx, family, uno_prop, uno_value, cursor)
+            report = self._apply_one(ctx, family, uno_prop, uno_value, cursor, clear_direct)
         except Exception as e:
             return self._tool_error("Could not apply style: %s" % e)
         result = {"status": "ok", "message": "Applied style '%s' (%s) to %s." % (style_name, family, target),
                   "style_name": style_name, "family": family, "target": target, "applied": True}
+        result.update(self._merge_reports([report]))
         if target == "search":
             result["matched"] = True  # a search miss would have errored earlier in resolve_target_cursor
         # A style change is applied directly and does NOT become a tracked change (LibreOffice

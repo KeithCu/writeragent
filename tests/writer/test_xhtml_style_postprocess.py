@@ -9,6 +9,7 @@
 # Pure pytest unit tests (no LibreOffice) for the XHTML style post-process pipeline.
 # Fixtures mirror the real "XHTML Writer File" output captured from LibreOffice.
 from plugin.writer.xhtml_style_postprocess import (
+    extract_autostyle_overrides_from_fodt,
     compact_lo_style_name,
     decode_lo_css_class_suffix,
     extract_autostyle_parents_from_fodt,
@@ -159,17 +160,44 @@ def test_autostyle_ambiguous_match_omitted():
     assert "paragraph-" not in out, out
 
 
-# --- Issue 1 characterization: whole-paragraph direct overrides are dropped ---
+# --- Issue 1: whole-paragraph direct overrides are REPORTED (read-only), not applied ---
 
-def test_whole_paragraph_direct_override_is_dropped():
-    """KNOWN LIMITATION: a Standard paragraph with whole-paragraph center+colour (autostyle P2,
-    a superset of the body style) is emitted WITHOUT a token and WITHOUT the override CSS.
-    Alignment/whole-paragraph colour do not round-trip in v1 (documented for the maintainer)."""
-    out = xhtml_to_semantic_html(REFERENCE_XHTML)
+_FODT_OVERRIDES = """<office:document>
+ <style:style style:name="P1" style:family="paragraph" style:parent-style-name="Standard">
+  <style:text-properties fo:font-size="12pt" style:font-name="Times New Roman"/>
+ </style:style>
+ <style:style style:name="P2" style:family="paragraph" style:parent-style-name="Standard">
+  <style:paragraph-properties fo:margin-left="3.25cm" fo:text-indent="0cm" fo:text-align="start"/>
+ </style:style>
+ <style:style style:name="Standard" style:family="paragraph">
+  <style:paragraph-properties fo:margin-left="0cm"/>
+ </style:style>
+</office:document>"""
+
+
+def test_extract_autostyle_overrides_reads_only_the_direct_values():
+    """A flat-ODF automatic style lists exactly what was set on top of its parent."""
+    out = extract_autostyle_overrides_from_fodt(_FODT_OVERRIDES)
+    assert out["P2"] == "margin-left:3.25cm; text-indent:0cm; text-align:left"  # ODF 'start' -> CSS
+    assert out["P1"] == "font-family:Times New Roman; font-size:12pt"
+    assert "Standard" not in out  # named styles are not overrides
+
+
+def test_whole_paragraph_override_is_reported_from_the_fodt_map():
+    """The paragraph geometry AND its hand-set font reach the agent as read-only data-lo-para --
+    without it an indented block quote is indistinguishable from body text."""
+    out = xhtml_to_semantic_html(REFERENCE_XHTML, None, extract_autostyle_overrides_from_fodt(_FODT_OVERRIDES))
     line = next(ln for ln in out.splitlines() if "centered red whole paragraph" in ln)
-    assert "data-lo-style" not in line, line          # base style not recoverable -> omitted
-    assert "text-align" not in line and "center" not in line.replace("centered", ""), line
-    assert "ff0000" not in line.lower() and "color" not in line, line  # the override is dropped
+    assert 'data-lo-para="margin-left:3.25cm; text-indent:0cm; text-align:left"' in line, line
+    body = next(ln for ln in out.splitlines() if "normal " in ln and "BOLD" in ln)
+    assert 'data-lo-para="font-family:Times New Roman; font-size:12pt"' in body, body
+
+
+def test_no_para_override_reported_without_the_fodt_map():
+    """The XHTML rule for an autostyle is FLATTENED (base + override merged, and no rule is emitted
+    for the base at all), so with no sidecar nothing is reported rather than a guess."""
+    out = xhtml_to_semantic_html(REFERENCE_XHTML)
+    assert "data-lo-para" not in out, out
 
 
 # --- Issue 2: token collision (two styles compacting to the same token) -------

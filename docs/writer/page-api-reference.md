@@ -45,9 +45,18 @@ Headers and footers are also controlled via the Page Style properties. Each page
 - **`HeaderIsShared`** / **`FooterIsShared`** (`bool`): If true, the same header/footer is used for left and right pages.
 - **`HeaderText`** / **`FooterText`** (`com.sun.star.text.XText`): The text object representing the header/footer content. This is a full text object, just like the main document body.
 - **`HeaderIsDynamicHeight`** / **`FooterIsDynamicHeight`** (`bool`): When true, the region grows with its content. Needed when inserting a logo via `insert_image(target="header"|"footer")` — without it a taller image keeps the fixed header height and spills into the body. WriterAgent enables this by default for header/footer image inserts (`auto_height`, also on `page_set_header_footer_text`).
-- **`HeaderLeftText`** / **`HeaderRightText`** / **`FooterLeftText`** / **`FooterRightText`**: Used when left and right pages have different headers/footers (i.e., when `HeaderIsShared` is False).
+- **`HeaderTextLeft`** / **`HeaderTextRight`** / **`FooterTextLeft`** / **`FooterTextRight`**: Used when left and right pages have different headers/footers (i.e., when `HeaderIsShared` is False).
+- **`FirstIsShared`** (`bool`): If false, the first page has its own header/footer — the usual setup for a letterhead. Its content then lives in **`HeaderTextFirst`** / **`FooterTextFirst`**, which are separate text objects: `HeaderText` does not reach them.
+
+These variants are exposed as the `region` values of `page_get_header_footer_text` / `page_set_header_footer_text`: `header`, `footer`, `header_first`, `footer_first`, `header_left`, `footer_left`. When the matching `*IsShared` flag is on, the variant mirrors the shared text, so asking for it is always safe. `page_get_style_properties` reports `first_is_shared`, and `page_set_style_properties` writes it.
 
 Images in a header/footer must be anchored **`AS_CHARACTER`** (in the text flow). A floating `AT_CHARACTER` image does not contribute to line height, so even with dynamic height the region may not grow.
+
+### Writing: `setString` is destructive
+
+`XText.setString()` replaces the whole region with unformatted text, so a letterhead logo, a page-number field and every paragraph but the first are deleted with no way back. `getString()` cannot show any of that — an image reads back as an empty line and a field as its rendered digits — so the loss is invisible on both sides.
+
+`page_get_header_footer_text` therefore also reports the region's `images`, `fields` and `paragraph_count`, and `page_set_header_footer_text` refuses when either is present (`force=true` overrides, and the result then lists what it deleted). To change the wording while keeping them, edit with `apply_document_content(target='search')`: `XSearchable.findFirst` on the document reaches header and footer text, so the edit lands in place and keeps the formatting.
 
 ### Python Example: Enabling and Writing to a Header
 ```python

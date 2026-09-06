@@ -230,13 +230,43 @@ StarWriter HTML import does not understand `data-lo-style`. Write path:
 
 ---
 
+## Direct formatting on read
+
+An autostyle's XHTML rule is flattened — base style and override merged, with no rule emitted for
+the base at all — so the XHTML alone cannot say which values were hand-set. The flat-ODF sidecar
+already exported for the `Pn -> parent` map holds the automatic style's **own** properties, which
+are exactly the direct overrides. `extract_autostyle_overrides_from_fodt()` reads them from that
+same export (no extra `storeToURL`) and `_rewrite_block` emits them as `data-lo-para`, e.g.
+`<p data-lo-style="Standard" data-lo-para="margin-left:3.25cm; font-size:12pt">`.
+
+Geometry (margins, indent, alignment, line height) and the paragraph-level font are both reported:
+a `.docx` reused as a model carries its font as a whole-paragraph override, which is what makes an
+applied style look like it did nothing. Nothing is reported when the sidecar is unavailable, rather
+than guessing from the flattened CSS.
+
+The range read reports it too. `_range_to_content_via_temp_doc` used to copy plain text plus the
+paragraph style name, so every override — `data-lo-para` and character runs alike — was already
+gone before the export. It now carries the source paragraph's direct `Para*` and paints each text
+portion's direct `Char*` onto the copy, skipping anything the paragraph style already provides so
+an inherited value is not reported as hand-set. A range slice that crosses a bold run therefore
+reads back with the bold in place.
+
+`data-lo-para` is **read-only**: the write path still cannot restore `Para*` when applying a named
+style, which is why it is not emitted as `style=""` — that would round-trip back and be swallowed.
+To make a style win over hand-set values, `apply_style` takes `clear_direct`
+(`none` | `style_props` | `all`), which resets the style-governed `Char*` and the paragraph
+properties to default so the style shows. It is refused on `target='full_document'`: clearing the
+whole document erases the very formatting that distinguishes body text from quotes and headings.
+With `clear_direct='none'` the result echoes `preserved_char_overrides` — the overrides that kept
+the style invisible — so a no-op apply is no longer indistinguishable from a successful one.
+
 ## v1 limitations (shipped)
 
 These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtml_style_postprocess.py`](../../tests/writer/test_xhtml_style_postprocess.py), [`test_content_style_model_uno.py`](../../tests/writer/test_content_style_model_uno.py)).
 
 | Limitation | v1 behavior | Workaround for agents/users | Post-v1 direction |
 |------------|-------------|----------------------------|-------------------|
-| **Whole-paragraph direct overrides** (center, para colour, margins baked into autostyle CSS) | Read omits token and drops override CSS; FODT recovers the **base style name** only | Prefer named styles; use inline `style` on **spans** for char exceptions | UNO index + optional Para* snapshot; or dedicated `get_paragraph_metadata` for debugging |
+| **Whole-paragraph direct overrides** (center, para colour, margins, whole-paragraph font) | Do not round-trip on **write**. Read REPORTS them as read-only `data-lo-para`, taken from the FODT automatic style (see [Direct formatting on read](#direct-formatting-on-read)) | Read `data-lo-para` to tell an indented quote from body text; apply a named style per range with `apply_style(clear_direct='style_props')` so the style wins over the hand-set values | Make `data-lo-para` writable |
 | **Table cell paragraph styles** | `paragraph-*` stripped inside `<table>`; no `data-lo-style` on cell blocks | `apply_style` on cell text; don't rely on agent HTML for table styling | Table-aware style index or cell-level tokens |
 | **Partial edits** (`end` / `search` / `selection` / `beginning`) | Content inserted; `data-lo-style` **not** applied (would restyle merged adjacent text) | `target='full_document'` for styled rewrites; `apply_style` to restyle existing text | Apply only to genuinely new paragraphs after import |
 | **Dual export cost** | Every full read (and range read via temp doc) runs XHTML + FODT `storeToURL` | `scope=range`, `get_document_tree`, `search_in_document` before full reads | Cached UNO paragraph-style index; drop FODT on `scope=full` |

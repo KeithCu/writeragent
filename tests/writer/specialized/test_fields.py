@@ -125,3 +125,67 @@ def test_fields_delete(mock_ctx):
     assert res["deleted_count"] == 1
     mock_anchor_1.setString.assert_not_called()
     mock_anchor_2.setString.assert_called_with("")
+
+
+# --- where a field lives decides whether deleting it is safe -------------------------------
+
+
+def _one_field_doc(doc, field):
+    fields, enum = MagicMock(), MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = field
+    fields.createEnumeration.return_value = enum
+    doc.getTextFields.return_value = fields
+
+
+def test_fields_list_reports_where_each_field_is(mock_ctx, monkeypatch):
+    """getTextFields() mixes header and footer fields in with the body's, and a page number in a
+    footer is indistinguishable from one in the text without this."""
+    from plugin.writer import search as search_mod
+
+    field = MagicMock()
+    field.getPresentation.side_effect = ["Page 1", "1"]
+    field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    _one_field_doc(mock_ctx.doc, field)
+    monkeypatch.setattr(search_mod, "describe_match_location", lambda *a, **k: "footer (page style 'Standard')")
+
+    res = FieldsList().execute(mock_ctx)
+
+    assert res["fields"][0]["location"] == "footer (page style 'Standard')"
+
+
+def test_fields_list_location_falls_back_when_it_cannot_be_resolved(mock_ctx, monkeypatch):
+    """An unlabelable anchor must not sink the whole listing."""
+    from plugin.writer import search as search_mod
+
+    field = MagicMock()
+    field.getPresentation.side_effect = ["Page 1", "1"]
+    field.getPropertySetInfo.return_value.hasPropertyByName.return_value = False
+    _one_field_doc(mock_ctx.doc, field)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("no anchor")
+
+    monkeypatch.setattr(search_mod, "describe_match_location", boom)
+
+    res = FieldsList().execute(mock_ctx)
+
+    assert res["status"] == "ok"
+    assert res["fields"][0]["location"] == "unknown"
+
+
+def test_fields_delete_says_what_it_removed_and_from_where(mock_ctx, monkeypatch):
+    """Reported before the anchor is emptied — afterwards the two are indistinguishable."""
+    from plugin.writer import search as search_mod
+
+    field = MagicMock()
+    field.getPresentation.return_value = "Page Number"
+    anchor = field.getAnchor.return_value
+    _one_field_doc(mock_ctx.doc, field)
+    monkeypatch.setattr(search_mod, "describe_match_location", lambda *a, **k: "footer (page style 'Standard')")
+
+    res = FieldsDelete().execute(mock_ctx, ids=[1])
+
+    assert res["deleted_count"] == 1
+    assert res["deleted"] == [{"content": "Page Number", "location": "footer (page style 'Standard')"}]
+    anchor.setString.assert_called_with("")

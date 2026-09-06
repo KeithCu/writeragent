@@ -14,8 +14,11 @@
 #     (when supplied), else CSS fingerprint, else omitted
 #
 # v1 limitations (see docs/writer/html-style-model-plan.md#v1-limitations-shipped):
-#   - Whole-paragraph Para* overrides (center, para colour, margins) are dropped on read;
+#   - Whole-paragraph Para* overrides (center, para colour, margins) do not round-trip on WRITE;
 #     FODT recovers the base style NAME only. Char-level overrides via text-* spans survive.
+#     Read REPORTS the hand-set paragraph formatting as read-only data-lo-para, taken from the
+#     flat-ODF sidecar (see extract_autostyle_overrides_from_fodt): the XHTML CSS is flattened
+#     and cannot tell an override from an inherited value.
 #   - Inside <table>: paragraph-* classes stripped; no data-lo-style (cell styles out of scope).
 #   - Colliding compact tokens (two UNO names -> same token): token omitted on read.
 #
@@ -105,6 +108,85 @@ def _normalize_decl(decl):
     return ";".join(sorted(parts))
 
 
+# Direct paragraph overrides surfaced to the agent as read-only ``data-lo-para``. v1 dropped them
+# entirely, so an agent could not tell an indented block quote from body text, nor verify an
+# indent it had just set.
+#
+# Read from the flat-ODF sidecar, NOT from the XHTML CSS: an autostyle's XHTML rule is FLATTENED
+# (base style + override merged, with no rule emitted for the base at all), so it cannot say which
+# values were hand-set — reporting it would present a style's own indent as a direct override. The
+# .fodt automatic style holds exactly the overrides and nothing inherited.
+#
+# Both the geometry and the paragraph-level font are reported: a .docx reused as a model carries
+# its font as a whole-paragraph override, which is precisely what makes an applied style look like
+# it did nothing.
+#
+# INFORMATIONAL only — the write path ignores ``data-lo-para`` (it still cannot restore Para* when
+# applying a named style), which is why it is not emitted as ``style=""``: that would round-trip
+# back and be silently swallowed. ODF attribute -> CSS name, in emit order.
+_FODT_OVERRIDE_ATTRS = (
+    ("fo:margin-left", "margin-left"),
+    ("fo:margin-right", "margin-right"),
+    ("fo:margin-top", "margin-top"),
+    ("fo:margin-bottom", "margin-bottom"),
+    ("fo:text-indent", "text-indent"),
+    ("fo:text-align", "text-align"),
+    ("fo:line-height", "line-height"),
+    ("style:font-name", "font-family"),
+    ("fo:font-family", "font-family"),
+    ("fo:font-size", "font-size"),
+    ("fo:font-weight", "font-weight"),
+    ("fo:font-style", "font-style"),
+)
+
+# ODF writes alignment relative to writing direction; the agent reads CSS.
+_ODF_TEXT_ALIGN = {"start": "left", "end": "right"}
+
+_FODT_PARA_STYLE_RE = re.compile(
+    r'<style:style\b([^>]*?)style:family="paragraph"([^>]*?)(?:/>|>(.*?)</style:style>)',
+    re.IGNORECASE | re.DOTALL)
+
+
+def _fodt_override_css(style_block):
+    """CSS-ish ``prop: value`` list for one flat-ODF automatic paragraph style's own attributes."""
+    parts = []
+    seen = set()
+    for odf_attr, css_name in _FODT_OVERRIDE_ATTRS:
+        if css_name in seen:
+            continue
+        m = re.search(r'\b%s="([^"]*)"' % re.escape(odf_attr), style_block)
+        if not m:
+            continue
+        value = _html.unescape(m.group(1)).strip()
+        if not value:
+            continue
+        if css_name == "text-align":
+            value = _ODF_TEXT_ALIGN.get(value, value)
+        parts.append("%s:%s" % (css_name, value))
+        seen.add(css_name)
+    return "; ".join(parts)
+
+
+def extract_autostyle_overrides_from_fodt(fodt):
+    """Map automatic paragraph style name (``P1``, ...) -> its DIRECT overrides as CSS text.
+
+    Companion to :func:`extract_autostyle_parents_from_fodt`, parsed from the same export. An
+    automatic style in flat ODF lists only what was set on top of its parent, so what comes back
+    is exactly the hand-set formatting — the thing the XHTML projection cannot express.
+    """
+    out = {}
+    text = fodt if type(fodt) is str else ""
+    for m in _FODT_PARA_STYLE_RE.finditer(text):
+        head = (m.group(1) or "") + (m.group(2) or "")
+        name = re.search(r'style:name="([^"]*)"', head)
+        if not name or not _AUTOSTYLE_RE.match(name.group(1)):
+            continue
+        css = _fodt_override_css(head + (m.group(3) or ""))
+        if css:
+            out[name.group(1)] = css
+    return out
+
+
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], dict))
 def parse_style_block(xhtml):
     """Return ``(raw_map, norm_map)`` for every class rule in the ``<style>`` block(s).
@@ -166,10 +248,11 @@ class _SemanticTransformer(HTMLParser):
     attributes we change are rewritten with string ops.
     """
 
-    def __init__(self, raw_map, norm_map, autostyle_parents=None):
+    def __init__(self, raw_map, norm_map, autostyle_parents=None, autostyle_overrides=None):
         super().__init__(convert_charrefs=False)
         self._raw = raw_map
         self._autostyle_parents = autostyle_parents or {}
+        self._autostyle_overrides = autostyle_overrides or {}
         # Map a named paragraph rule's fingerprint -> list of its compact tokens.
         self._named_fingerprint = {}
         # Map a compact token -> set of distinct UNO names that compact to it. When more than
@@ -231,13 +314,21 @@ class _SemanticTransformer(HTMLParser):
         classes = _attr_value(attrs, "class")
         para_classes = _PARA_CLASS_RE.findall(classes)
         token = None
+        para_css = ""
         if para_classes and self._table_depth == 0:
             suffix = para_classes[0][len("paragraph-"):]
             token = self._paragraph_token(suffix)
+            # Only an autostyle (Pn) carries direct overrides — a plain named-style class
+            # describes the style itself — and only the flat-ODF sidecar can say which values
+            # those are, so without it nothing is reported rather than a guess.
+            if _AUTOSTYLE_RE.match(suffix):
+                para_css = self._autostyle_overrides.get(suffix, "")
         # Strip every paragraph-* class (top-level or cell) so it never leaks to the agent.
         raw = _strip_class_names(raw, _PARA_CLASS_RE)
         if token:
             raw = _inject_attr(raw, ' data-lo-style="%s"' % token)
+        if para_css:
+            raw = _inject_attr(raw, ' data-lo-para="%s"' % para_css)
         return raw
 
     def _rewrite_span(self, raw, attrs):
@@ -303,7 +394,7 @@ def _strip_class_names(start_tag, name_re):
     return re.sub(r'\s+class=(["\'])(.*?)\1', _sub, start_tag)
 
 
-def xhtml_to_semantic_html(full_xhtml, autostyle_parents=None):
+def xhtml_to_semantic_html(full_xhtml, autostyle_parents=None, autostyle_overrides=None):
     """Convert raw LO ``XHTML Writer File`` output to the agent-facing semantic HTML.
 
     Single entry point: parse the ``<style>`` block, extract the body, inline char overrides,
@@ -318,7 +409,7 @@ def xhtml_to_semantic_html(full_xhtml, autostyle_parents=None):
     # crosshair: off  # HTMLParser over unbounded XHTML (cover-all 33418536119: xhtml_style_postprocess 1141s). Doable later with UNDER_CROSSHAIR dual-profile + DEAL_MAX_HTML_CHUNK (pytest fixtures exceed 512).
     raw_map, norm_map = parse_style_block(full_xhtml)
     body = _strip_body(full_xhtml)
-    tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents)
+    tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents, autostyle_overrides)
     tr.feed(body)
     tr.close()
     out = _drop_trailing_empty_paragraphs(tr.result())

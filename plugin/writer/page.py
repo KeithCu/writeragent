@@ -19,18 +19,124 @@
 Page styles, margins, headers/footers, columns, and page breaks.
 """
 
+from typing import Any
+
 from .specialized_base import ToolWriterPageBase
 
 # region name -> (is_on property, text property)
+#
+# The *_first and *_left variants are separate UNO text objects, not views of the same one: a
+# "different first page" letterhead (FirstIsShared=False) lives ONLY in HeaderTextFirst, and with
+# HeaderIsShared=False the plain HeaderText covers right-hand pages alone. Exposing just the
+# shared pair left both cases unreachable — read and write silently hit the wrong page.
+# When the corresponding *IsShared* flag is on, the variant mirrors the shared text, so asking for
+# it is always safe.
 _REGION_PROPS = {
     "header": ("HeaderIsOn", "HeaderText"),
     "footer": ("FooterIsOn", "FooterText"),
+    "header_first": ("HeaderIsOn", "HeaderTextFirst"),
+    "footer_first": ("FooterIsOn", "FooterTextFirst"),
+    "header_left": ("HeaderIsOn", "HeaderTextLeft"),
+    "footer_left": ("FooterIsOn", "FooterTextLeft"),
 }
+
+_REGIONS = tuple(_REGION_PROPS)
+
+# Walk caps for _scan_region_content. A header/footer is small; these only bound a runaway.
+_SCAN_PARA_LIMIT = 5000
+_SCAN_PORTION_LIMIT = 5000
+_SCAN_SHAPE_LIMIT = 5000
+
+
+def _region_kind(region: str) -> str:
+    """'header' or 'footer' for any region name (the shared one or a first/left variant)."""
+    return "header" if region.startswith("header") else "footer"
+
+
+def _empty_scan() -> dict[str, Any]:
+    """The shape _scan_region_content returns, for a region with nothing to scan."""
+    return {"fields": [], "images": [], "paragraph_count": 0}
+
+
+def _describe_region_contents(scan: dict[str, Any]) -> str:
+    """Human-readable summary of a scan, e.g. ``1 image(s): TIMBRE, 1 field(s): Page number``.
+
+    Empty when the region is plain text, so callers can use it as the "is this destructive?" test
+    and as the message in one go.
+    """
+    parts = []
+    if scan["images"]:
+        parts.append("%d image(s): %s" % (len(scan["images"]), ", ".join(scan["images"])))
+    if scan["fields"]:
+        parts.append("%d field(s): %s" % (len(scan["fields"]), ", ".join(f["content"] for f in scan["fields"])))
+    return ", ".join(parts)
+
+
+def _scan_region_content(doc, text_obj) -> dict[str, Any]:
+    """Report what a header/footer holds beyond plain text: fields and anchored images.
+
+    ``getString()`` flattens both away — a letterhead logo reads back as an empty line and a
+    page-number field as the literal digit — so a caller cannot see what a plain-text overwrite
+    is about to delete. Returns ``{"fields": [...], "images": [...], "paragraph_count": int}``.
+    """
+    out = _empty_scan()
+    try:
+        para_enum = text_obj.createEnumeration()
+    except Exception:
+        return out
+    # `is True` and the hard caps match the enumeration walk in format.py: a UNO enumeration that
+    # misbehaves otherwise spins here forever.
+    while para_enum.hasMoreElements() is True and out["paragraph_count"] < _SCAN_PARA_LIMIT:
+        try:
+            para = para_enum.nextElement()
+        except Exception:
+            break
+        out["paragraph_count"] += 1
+        try:
+            portions = para.createEnumeration()
+        except Exception:
+            continue
+        seen_portions = 0
+        while portions.hasMoreElements() is True and seen_portions < _SCAN_PORTION_LIMIT:
+            seen_portions += 1
+            try:
+                portion = portions.nextElement()
+                if portion.getPropertyValue("TextPortionType") != "TextField":
+                    continue
+                field = portion.getPropertyValue("TextField")
+            except Exception:
+                break
+            try:
+                # Same argument sense as fields_list: presentation is what the reader sees
+                # ("1"), content is what the field IS ("Page number"). Swapping them would have
+                # the two tools describe the same field in opposite terms.
+                out["fields"].append({"presentation": field.getPresentation(False),
+                                      "content": field.getPresentation(True)})
+            except Exception:
+                out["fields"].append({"presentation": "", "content": ""})
+    # Images anchored in the region live on the draw page, whatever their anchor type, so they are
+    # found by matching the anchor's text object rather than by walking portions.
+    try:
+        draw_page = doc.getDrawPage()
+        for i in range(min(int(draw_page.getCount()), _SCAN_SHAPE_LIMIT)):
+            shape = draw_page.getByIndex(i)
+            try:
+                if shape.getAnchor().getText() != text_obj:
+                    continue
+            except Exception:
+                continue
+            try:
+                out["images"].append(str(shape.getName()) or "unnamed")
+            except Exception:
+                out["images"].append("unnamed")
+    except Exception:
+        pass
+    return out
 
 
 def _height_props(region: str) -> tuple[str, str, str]:
     """Return the (dynamic-height, dynamic-spacing, height) property names."""
-    prefix = "Header" if region == "header" else "Footer"
+    prefix = "Header" if _region_kind(region) == "header" else "Footer"
     return (prefix + "IsDynamicHeight", prefix + "DynamicSpacing", prefix + "Height")
 
 
@@ -107,6 +213,14 @@ class PageGetStyleProperties(ToolWriterPageBase):
                 "footnote_height_mm": style.getPropertyValue("FootnoteHeight") / 100.0,
                 "register_paragraph_style": style.getPropertyValue("RegisterParagraphStyle"),
             }
+            # False means the first page has its OWN header/footer — the usual setup for a
+            # letterhead — reachable only through the header_first / footer_first regions. Fetched
+            # separately: not every page style offers it, and one missing property must not sink
+            # the whole read.
+            try:
+                props["first_is_shared"] = style.getPropertyValue("FirstIsShared")
+            except Exception:
+                pass
             # Attempt to safely fetch PageStyleLayout enum
             try:
                 psl = style.getPropertyValue("PageStyleLayout")
@@ -144,6 +258,9 @@ class PageSetStyleProperties(ToolWriterPageBase):
             "footer_is_on": {"type": "boolean", "description": "Enable or disable footer."},
             "header_is_shared": {"type": "boolean", "description": "Share header between left/right pages."},
             "footer_is_shared": {"type": "boolean", "description": "Share footer between left/right pages."},
+            "first_is_shared": {"type": "boolean", "description": (
+                "Share the header/footer with the first page. Set false for a 'different first page' "
+                "letterhead; its content then lives in the header_first / footer_first regions.")},
             "header_height_mm": {"type": "number", "description": "Absolute header height in mm."},
             "footer_height_mm": {"type": "number", "description": "Absolute footer height in mm."},
             "header_body_distance_mm": {"type": "number", "description": "Spacing from header to body in mm."},
@@ -210,6 +327,9 @@ class PageSetStyleProperties(ToolWriterPageBase):
             if "footer_is_shared" in kwargs:
                 style.setPropertyValue("FooterIsShared", kwargs["footer_is_shared"])
                 updated.append("footer_is_shared")
+            if "first_is_shared" in kwargs:
+                style.setPropertyValue("FirstIsShared", kwargs["first_is_shared"])
+                updated.append("first_is_shared")
             if "header_height_mm" in kwargs:
                 style.setPropertyValue("HeaderHeight", int(kwargs["header_height_mm"] * 100))
                 updated.append("header_height")
@@ -270,8 +390,12 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
             },
             "region": {
                 "type": "string",
-                "enum": ["header", "footer"],
-                "description": "Whether to get the header or footer text.",
+                "enum": list(_REGIONS),
+                "description": (
+                    "Which region to read. 'header'/'footer' are the shared ones. Use the "
+                    "'_first' variants for a 'different first page' letterhead and the '_left' "
+                    "variants when left/right pages differ (see first_is_shared / header_is_shared "
+                    "in page_get_style_properties)."),
             },
         },
         "required": ["region"],
@@ -281,7 +405,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         style_name = kwargs.get("style", "Standard")
         region = kwargs.get("region")
         if region not in _REGION_PROPS:
-            return self._tool_error("region is required ('header' or 'footer').")
+            return self._tool_error("region is required, one of: %s." % ", ".join(_REGIONS))
 
         try:
             style, style_name = resolve_page_style(ctx.doc, style_name)
@@ -294,13 +418,28 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
                 return {"status": "ok", "style_name": style_name, "region": region, "content": "", "is_on": False}
             text_obj = style.getPropertyValue(text_prop)
             content = text_obj.getString() if text_obj else ""
-            result = {
+            result: dict[str, Any] = {
                 "status": "ok",
                 "style_name": style_name,
                 "region": region,
                 "content": content,
                 "is_on": True,
             }
+            # content is plain text: a logo shows up as an empty line and a page-number field as
+            # its rendered digits. Report both so the caller knows what is really in there before
+            # deciding how to edit it.
+            scan = _scan_region_content(ctx.doc, text_obj)
+            result["paragraph_count"] = scan["paragraph_count"]
+            if scan["fields"]:
+                result["fields"] = scan["fields"]
+            if scan["images"]:
+                result["images"] = scan["images"]
+            held = _describe_region_contents(scan)
+            if held:
+                result["warning"] = (
+                    "This %s holds %s, which plain text cannot represent. page_set_header_footer_text "
+                    "would delete them; change the wording with apply_document_content(target='search') "
+                    "instead — it reaches headers and footers and keeps them." % (_region_kind(region), held))
             dyn_prop, _unused_spacing, height_prop = _height_props(region)
             try:
                 result["auto_height"] = bool(style.getPropertyValue(dyn_prop))
@@ -336,8 +475,10 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             },
             "region": {
                 "type": "string",
-                "enum": ["header", "footer"],
-                "description": "Whether to set the header or footer text.",
+                "enum": list(_REGIONS),
+                "description": (
+                    "Which region to set. 'header'/'footer' are the shared ones; '_first' targets a "
+                    "'different first page' letterhead and '_left' the left-hand pages."),
             },
             "content": {"type": "string", "description": "The text to insert into the header or footer."},
             "auto_height": {
@@ -346,6 +487,13 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
                     "Let the region grow with its content so taller content is not clipped "
                     "and does not overlap the body. Left unchanged when omitted."
                 ),
+            },
+            "force": {
+                "type": "boolean",
+                "description": (
+                    "Overwrite even when the region holds images or fields that plain text cannot "
+                    "carry. Without it such a call is refused, because the replacement is silent "
+                    "and permanent."),
             },
         },
         "required": ["region", "content"],
@@ -358,7 +506,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         content = kwargs.get("content", "")
 
         if region not in _REGION_PROPS:
-            return self._tool_error("region is required ('header' or 'footer').")
+            return self._tool_error("region is required, one of: %s." % ", ".join(_REGIONS))
 
         try:
             style, style_name = resolve_page_style(ctx.doc, style_name)
@@ -367,6 +515,24 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
 
         try:
             is_on_prop, text_prop = _REGION_PROPS[region]
+
+            # setString replaces the whole region with unformatted text: a letterhead logo and any
+            # field (page number, date) are destroyed with no way back and no sign in the result.
+            # Refuse rather than report ok, and point at the edit that keeps them. Checked BEFORE
+            # the region is enabled or resized, so a refusal leaves the document untouched.
+            scan = _empty_scan()
+            if style.getPropertyValue(is_on_prop):
+                existing = style.getPropertyValue(text_prop)
+                if existing:
+                    scan = _scan_region_content(ctx.doc, existing)
+            held = _describe_region_contents(scan)
+            if held and not kwargs.get("force"):
+                return self._tool_error(
+                    "This %s holds %s. Writing plain text would delete them permanently. To change "
+                    "the wording and keep them, use apply_document_content(target='search') with the "
+                    "existing text as old_content — it reaches headers and footers. Pass force=true "
+                    "only if deleting them is what you want." % (_region_kind(region), held))
+
             style.setPropertyValue(is_on_prop, True)
             auto_height = kwargs.get("auto_height")
             if auto_height is not None:
@@ -375,8 +541,14 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             text_obj = style.getPropertyValue(text_prop)
             if not text_obj:
                 return self._tool_error(f"Could not retrieve text object for {region} on style '{style_name}'.")
+
             text_obj.setString(content)
-            result = {"status": "ok", "style_name": style_name, "region": region, "updated": True}
+            result: dict[str, Any] = {"status": "ok", "style_name": style_name, "region": region, "updated": True}
+            if held:
+                result["deleted"] = {"images": scan["images"], "fields": [f["content"] for f in scan["fields"]]}
+            dropped = scan["paragraph_count"] - (content.count("\n") + 1)
+            if dropped > 0:
+                result["paragraphs_dropped"] = dropped
             if auto_height is not None:
                 result["auto_height"] = bool(auto_height)
             return result

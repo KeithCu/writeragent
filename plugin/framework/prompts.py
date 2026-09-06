@@ -280,9 +280,12 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
 - target='search': old_content may span paragraphs, but each interior line must match a WHOLE paragraph.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
-- Reach: body, table cells, text frames.
+- Reach: body, table cells, text frames, headers and footers.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags.
+- Headers/footers: reword with target='search' — that keeps the letterhead logo, the fields and the formatting.
+  page_set_header_footer_text writes PLAIN TEXT over the whole region and deletes them; it refuses when it would, and page_get_header_footer_text lists the images and fields the text alone hides.
+  A "different first page" letterhead lives in header_first / footer_first (page_get_style_properties reports first_is_shared); style_list(family='PageStyles') gives the page-style names.
 - `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
   We wrap in <html>/<body>.
 {HTML_FRAGMENT_RULES}
@@ -294,7 +297,10 @@ WRITER_APPLY_DOCUMENT_HTML_RULES = f"""APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
   data-lo-style applies only on target='full_document' — on 'beginning'/'end'/'selection'/'search' it is ignored because it would restyle adjacent text (use apply_style or a full_document rewrite).
-  v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip.
+  v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
+- Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. READ-ONLY — send it back and the result says it was ignored; it is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
+  Direct formatting OVERRIDES styles, so there apply_style/style_update alone change nothing on screen; apply_style then echoes `preserved_char_overrides`.
+  Re-apply that range with clear_direct='style_props' to let the style's font, size and indent show (bold/italic survive). One range at a time — it is refused on target='full_document', which would erase the very formatting that tells the paragraphs apart.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]

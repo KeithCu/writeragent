@@ -27,6 +27,7 @@ from tests.strip_bundle import deal_pre_present
 from plugin.writer.xhtml_style_postprocess import (
     compact_lo_style_name,
     decode_lo_css_class_suffix,
+    extract_autostyle_overrides_from_fodt,
     extract_autostyle_parents_from_fodt,
     parse_style_block,
 )
@@ -97,6 +98,16 @@ def test_hypothesis_compact_lo_style_name_removes_spaces(name: str) -> None:
 @settings(max_examples=vhs_max_examples(40, 400), deadline=None)
 def test_hypothesis_extract_autostyle_parents_from_fodt_invariant(fodt: str) -> None:
     res = extract_autostyle_parents_from_fodt(fodt)
+    assert isinstance(res, dict)
+    for k, v in res.items():
+        assert isinstance(k, str)
+        assert isinstance(v, str)
+
+
+@given(fodt=_SHORT_TEXT)
+@settings(max_examples=vhs_max_examples(40, 400), deadline=None)
+def test_hypothesis_extract_autostyle_overrides_from_fodt_invariant(fodt: str) -> None:
+    res = extract_autostyle_overrides_from_fodt(fodt)
     assert isinstance(res, dict)
     for k, v in res.items():
         assert isinstance(k, str)

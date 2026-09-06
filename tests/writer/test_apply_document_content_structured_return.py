@@ -74,3 +74,47 @@ def test_search_all_matches_no_match_errors(monkeypatch):
     assert res["status"] == "error", res
     assert res["replaced_count"] == 0, res
     assert res["message"].startswith("Replaced 0 occurrence"), res
+
+
+# --- data-lo-para is a read report, not an instruction --------------------------------------
+
+
+def test_read_only_attribute_sent_back_is_flagged():
+    """The write path drops data-lo-para. Say so: a silent no-op is the failure this tool's
+    callers already get bitten by."""
+    from plugin.writer.content import _note_read_only_attrs
+
+    res = _note_read_only_attrs(
+        {"status": "ok", "message": "Replaced entire document."},
+        ['<p data-lo-para="margin-left:3.25cm">A quoted clause.</p>'])
+
+    assert res["ignored_attributes"] == ["data-lo-para"]
+    assert "apply_style" in res["message"]
+
+
+def test_content_without_the_attribute_is_untouched():
+    from plugin.writer.content import _note_read_only_attrs
+
+    original = {"status": "ok", "message": "Replaced entire document."}
+    res = _note_read_only_attrs(original, ["<p>A quoted clause.</p>"])
+
+    assert res == original
+    assert "ignored_attributes" not in res
+
+
+def test_failed_write_is_not_annotated():
+    """Nothing was written, so there is nothing to say about what was ignored."""
+    from plugin.writer.content import _note_read_only_attrs
+
+    original = {"status": "error", "message": "old_content not found."}
+
+    assert _note_read_only_attrs(original, ['<p data-lo-para="margin-left:3cm">x</p>']) == original
+
+
+def test_plain_string_content_is_accepted():
+    """content is normally a list, but the checker must not choke on a bare string."""
+    from plugin.writer.content import _note_read_only_attrs
+
+    res = _note_read_only_attrs({"status": "ok"}, '<p data-lo-para="text-align:center">x</p>')
+
+    assert res["ignored_attributes"] == ["data-lo-para"]

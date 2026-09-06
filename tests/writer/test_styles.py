@@ -84,7 +84,10 @@ def test_list_styles_filtering():
     res = tool.execute(mock_ctx, family="")
     assert "ParagraphStyles" in res["families"]
     assert "CharacterStyles" in res["families"]
-    assert "PageStyles" not in res["families"]
+    # PageStyles is reported: the page tools take a page-style NAME, and a converted .docx rarely
+    # uses "Standard" — without this the only way to learn the real names was to guess and read
+    # them off the error message.
+    assert "PageStyles" in res["families"]
 
     res = tool.execute(mock_ctx, family="ParagraphStyles")
     assert res["status"] == "ok"
@@ -149,8 +152,78 @@ def test_apply_style_paragraph(mock_resolve, mock_preserve, mock_ctx):
 
     assert res["status"] == "ok"
     assert res["family"] == "ParagraphStyles"
-    mock_preserve.assert_called_once_with(mock_ctx.doc, cursor, "Heading 1")
+    mock_preserve.assert_called_once_with(mock_ctx.doc, cursor, "Heading 1", "none")
     cursor.setPropertyValue.assert_not_called()
+
+
+@patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
+@patch("plugin.writer.styles.resolve_target_cursor")
+def test_apply_style_clear_direct_is_forwarded(mock_resolve, mock_preserve, mock_ctx):
+    """clear_direct reaches the apply helper, which decides what happens to direct formatting."""
+    mock_resolve.return_value = MagicMock()
+    mock_preserve.return_value = {"direct_formatting": "cleared", "clear_direct": "style_props",
+                                  "removed_char_overrides": {"CharFontName": "Times New Roman"},
+                                  "cleared_char_properties": ["CharFontName", "CharHeight"],
+                                  "cleared_paragraph_properties": ["ParaLeftMargin"]}
+
+    res = ApplyStyle().execute(mock_ctx, style="Heading 1", target="selection", clear_direct="style_props")
+
+    assert res["status"] == "ok"
+    assert mock_preserve.call_args[0][3] == "style_props"
+    assert res["removed_char_overrides"] == {"CharFontName": "Times New Roman"}
+    assert res["cleared_char_properties"] == ["CharFontName", "CharHeight"]
+    assert res["cleared_paragraph_properties"] == ["ParaLeftMargin"]
+    assert "hint" not in res  # nothing was preserved -> nothing to warn about
+
+
+@patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
+@patch("plugin.writer.styles.resolve_target_cursor")
+def test_apply_style_reports_preserved_overrides_with_hint(mock_resolve, mock_preserve, mock_ctx):
+    """The default path echoes the direct formatting that overrode the style — otherwise a style
+    apply that changed nothing on screen is indistinguishable from one that worked."""
+    mock_resolve.return_value = MagicMock()
+    mock_preserve.return_value = {"direct_formatting": "preserved", "clear_direct": "none",
+                                  "preserved_char_overrides": {"CharFontName": "Times New Roman", "CharHeight": 12.0}}
+
+    res = ApplyStyle().execute(mock_ctx, style="Standard", target="selection")
+
+    assert res["preserved_char_overrides"]["CharHeight"] == 12.0
+    assert "clear_direct='style_props'" in res["hint"]
+
+
+@patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
+@patch("plugin.writer.styles.resolve_target_cursor")
+def test_apply_style_clear_direct_rejected_on_full_document(mock_resolve, mock_preserve, mock_ctx):
+    """Clearing the whole document erases the very formatting used to tell paragraph kinds apart."""
+    mock_resolve.return_value = MagicMock()
+
+    res = ApplyStyle().execute(mock_ctx, style="Standard", target="full_document", clear_direct="style_props")
+
+    assert res["status"] == "error"
+    assert "full_document" in res["message"]
+    mock_preserve.assert_not_called()
+
+
+@patch("plugin.writer.styles.resolve_target_cursor")
+def test_apply_style_clear_direct_rejected_for_character_styles(mock_resolve, mock_ctx):
+    """Character styles do not go through the paragraph apply path, so the flag would be a no-op."""
+    mock_resolve.return_value = MagicMock()
+
+    res = ApplyStyle().execute(mock_ctx, style="Source Text", family="CharacterStyles",
+                               target="selection", clear_direct="all")
+
+    assert res["status"] == "error"
+    assert "ParagraphStyles" in res["message"]
+
+
+@patch("plugin.writer.styles.resolve_target_cursor")
+def test_apply_style_rejects_unknown_clear_direct(mock_resolve, mock_ctx):
+    mock_resolve.return_value = MagicMock()
+
+    res = ApplyStyle().execute(mock_ctx, style="Standard", target="selection", clear_direct="yes")
+
+    assert res["status"] == "error"
+    assert "clear_direct" in res["message"]
 
 
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")

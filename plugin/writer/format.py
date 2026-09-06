@@ -209,13 +209,89 @@ def _strip_html_boilerplate(html_string):  # pyright: ignore[reportUnusedFunctio
 #   plugin/writer/format.py   — replace_single_range_with_content style restore (~595)
 #   plugin/notebook/writer_importer.py — resolved paragraph style on import (~621)
 #   plugin/notebook/notebook_runner.py — output cell paragraph style (~177)
-def apply_paragraph_style_preserving_direct_char(doc, cursor, style_name):
-    """Set *cursor*'s ParaStyleName to *style_name* without wiping direct Char* formatting.
+# Char properties a paragraph style is expected to govern. With clear_direct="style_props" these
+# are the ONLY captured overrides not restored after the style is applied, so the style's font and
+# size finally show while hand-set bold/italic/colour survive. See CLEARABLE_PARA_PROPERTIES for
+# the paragraph half (indents/alignment), which setting ParaStyleName does NOT reset on its own.
+STYLE_GOVERNED_CHAR_PROPERTIES = (
+    "CharFontName", "CharFontNameAsian", "CharFontNameComplex",
+    "CharHeight", "CharHeightAsian", "CharHeightComplex",
+)
 
-    LibreOffice resets hand-set Char* properties to the new paragraph style's defaults
-    when ParaStyleName is set — across the WHOLE paragraph, even for a sub-range cursor.
+# Whole-paragraph direct overrides cleared by clear_direct. Mirrors _KNOWN_PARAGRAPH_PROPERTIES in
+# plugin/writer/styles.py (kept here to avoid a styles -> format -> styles import cycle); keep the
+# two in sync. Deliberately NOT setAllPropertiesToDefault — that also wipes numbering, borders and
+# language, which no caller asked to lose.
+CLEARABLE_PARA_PROPERTIES = (
+    "ParaTopMargin", "ParaBottomMargin", "ParaLeftMargin", "ParaRightMargin",
+    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaKeepTogether", "ParaSplit",
+)
+
+# Scalar, JSON-safe subset reported back to the agent. The capture itself still covers every Char*
+# property; only the report is narrowed (CharLocale and friends are UNO structs).
+REPORTED_CHAR_PROPERTIES = ("CharFontName", "CharHeight", "CharWeight", "CharPosture", "CharColor")
+
+
+def _reset_properties_to_default(cursor, names):
+    """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style.
+
+    This is Format > Clear Direct Formatting, narrowed to the names the caller asks for. It is the
+    only reliable way to remove an override: re-applying a paragraph's existing style leaves its
+    direct Char* standing (LibreOffice 26.2), so imposing a house font on a document whose
+    paragraphs are all already 'Standard' silently keeps the old font without this.
+
+    Returns the names actually cleared.
+    """
+    names = tuple(names)
+    if not names:
+        return []
+    try:
+        cursor.setPropertiesToDefault(names)
+        return list(names)
+    except Exception:
+        pass  # no XMultiPropertyStates on this range — fall back to one at a time
+    cleared = []
+    for name in names:
+        try:
+            cursor.setPropertyToDefault(name)
+            cleared.append(name)
+        except Exception:
+            continue
+    return cleared
+
+
+def _summarize_char_overrides(overrides):
+    """Flat, JSON-safe {prop: value} of the captured direct Char* overrides (first portion wins)."""
+    summary = {}
+    for _pc, props in overrides:
+        for name in REPORTED_CHAR_PROPERTIES:
+            if name in props and name not in summary:
+                val = props[name]
+                if isinstance(val, (str, int, float, bool)):
+                    summary[name] = val
+    return summary
+
+
+def apply_paragraph_style_preserving_direct_char(doc, cursor, style_name, clear_direct="none"):
+    """Set *cursor*'s ParaStyleName to *style_name*, deciding what happens to direct formatting.
+
+    Setting ParaStyleName to a DIFFERENT style resets hand-set Char* properties to that style's
+    defaults — across the WHOLE paragraph, even for a sub-range cursor — which is what the capture
+    below exists to undo. Re-applying the style a paragraph already has does not reset them (it
+    does still drop the paragraph's direct Para*), so clearing an override is never a side effect
+    to rely on; see _reset_properties_to_default.
     ``getPropertyState`` is unreliable at the text-portion level, so overrides are
     detected by VALUE (Char* differs from the paragraph's current style default).
+
+    *clear_direct* decides what happens to those captured overrides:
+      ``"none"`` (default) restores all of them — the historical behaviour, which keeps a
+      document's hand-set font but also means an updated style is invisible on screen;
+      ``"style_props"`` restores everything except STYLE_GOVERNED_CHAR_PROPERTIES and clears
+      CLEARABLE_PARA_PROPERTIES, so font/size/indent obey the style and bold/italic survive;
+      ``"all"`` restores nothing and clears the paragraph properties too (Ctrl+M semantics).
+
+    Returns a report dict so callers can tell the agent what actually happened — a style apply
+    that silently kept the old font used to be indistinguishable from success.
 
     KNOWN LIMITATION: a direct override whose value equals the old style default is not
     captured; applying a style with a different default can change that property visibly.
@@ -307,13 +383,47 @@ def apply_paragraph_style_preserving_direct_char(doc, cursor, style_name):
 
     capture_cursor = _expand_to_full_paragraphs(cursor) or cursor
     overrides = _capture_direct_char_overrides(capture_cursor)
+    found = _summarize_char_overrides(overrides)
     cursor.setPropertyValue("ParaStyleName", style_name)
-    for pc, props in overrides:
-        for name, val in props.items():
-            try:
-                pc.setPropertyValue(name, val)
-            except Exception:
-                pass
+
+    if clear_direct == "all":
+        skip = None  # restore nothing
+    elif clear_direct == "style_props":
+        skip = set(STYLE_GOVERNED_CHAR_PROPERTIES)
+    else:
+        skip = set()  # historical behaviour: restore everything
+
+    if skip is not None:
+        for pc, props in overrides:
+            for name, val in props.items():
+                if name in skip:
+                    continue
+                try:
+                    pc.setPropertyValue(name, val)
+                except Exception:
+                    pass
+
+    report: dict[str, Any] = {"direct_formatting": "preserved" if clear_direct == "none" else "cleared",
+                              "clear_direct": clear_direct}
+    if clear_direct == "none":
+        # What the caller can act on: these overrode the style and are the reason it looks like
+        # the apply did nothing.
+        if found:
+            report["preserved_char_overrides"] = found
+    else:
+        # Only what was really dropped — under "style_props" bold and italic were restored, and
+        # listing them as removed would send the caller chasing a change that never happened.
+        removed = found if skip is None else {k: v for k, v in found.items() if k in skip}
+        if removed:
+            report["removed_char_overrides"] = removed
+        # Clear explicitly rather than leaning on the ParaStyleName side effect, which leaves
+        # direct Char* on the text portions standing. "all" targets exactly the overrides that
+        # were found, so nothing unrelated is touched.
+        char_targets = (STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props"
+                        else sorted({n for _pc, props in overrides for n in props}))
+        report["cleared_char_properties"] = _reset_properties_to_default(capture_cursor, char_targets)
+        report["cleared_paragraph_properties"] = _reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
+    return report
 
 
 # ---------------------------------------------------------------------------
