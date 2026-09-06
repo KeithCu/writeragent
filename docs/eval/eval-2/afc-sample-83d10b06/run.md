@@ -4,8 +4,14 @@ Manual Calc chat trial. Not wired into `dataset.py` / `run_eval`.
 
 ## Setup
 
-1. Open `fixtures/Population v2.xlsx` (or `fixtures/Population v2.ods` if present) in LibreOffice Calc.
-2. For this long GDPval/AFC headed run, set `"chatbot.max_tool_rounds": 50` in `writeragent.json` (LibreOffice user profile). Schema default is 15; max is already 50. Confirm in the debug log: `Tool-calling loop START (max 50 rounds)`. Set back to 15 after if desired.
+1. From the repo root, start the headed helper (bumps `chatbot.max_tool_rounds` to **50**, restores the previous `writeragent.json` when you press Enter or Ctrl-C):
+
+   ```bash
+   .venv/bin/python scripts/eval_2_headed.py
+   ```
+
+   It opens Calc / the Population fixture when soffice and the file are available. Use `--no-launch` if LibreOffice is already up. Confirm in the debug log: `Tool-calling loop START (max 50 rounds)`. Everyday chat stays at 15 after the helper exits.
+2. If the workbook did not open, open `fixtures/Population v2.xlsx` (or `fixtures/Population v2.ods` if present) in LibreOffice Calc.
 3. Set the chat model to `openai/gpt-oss-120b:nitro`.
 4. Paste the full contents of `prompt.writeragent.txt` as the user message. Do not paste `prompt.gdpval.txt`.
 
