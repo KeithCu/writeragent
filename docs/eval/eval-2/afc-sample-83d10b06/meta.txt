@@ -1,0 +1,5 @@
+task_id: 83d10b06-26d1-4636-a32c-23f92c57f30b
+sector: Professional, Scientific, and Technical Services
+occupation: Accountants and Auditors
+source: https://huggingface.co/datasets/openai/gdpval
+license: see dataset card / OpenAI GDPval terms
