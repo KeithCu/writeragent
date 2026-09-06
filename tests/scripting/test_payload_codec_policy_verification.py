@@ -17,7 +17,12 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 import deal
-from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_SHAPE_RANK
+from plugin.framework.deal_shim import (
+    DEAL_MAX_COL_INDEX,
+    DEAL_MAX_ROW_INDEX,
+    DEAL_MAX_SHAPE_DIM,
+    DEAL_MAX_SHAPE_RANK,
+)
 from plugin.scripting.payload_codec import (
     PAYLOAD_CALC_RANGE,
     PAYLOAD_DATAFRAME,
@@ -100,17 +105,30 @@ def test_zero_dim_shape_cell_count() -> None:
 def test_cell_count_overflow_pre_fails_closed() -> None:
     if not deal_pre_present(cell_count):
         pytest.skip("@deal.pre stripped in release bundle")
+    # Shape dims follow Calc row bound (AFC (300, 1) must pass), not SHAPE_DIM.
+    assert cell_count((300, 1)) == 300
     with pytest.raises(deal.PreContractError):
-        cell_count((DEAL_MAX_SHAPE_DIM + 1,))
+        cell_count((DEAL_MAX_ROW_INDEX + 2,))
     with pytest.raises(deal.PreContractError):
         cell_count(tuple([1] * (DEAL_MAX_SHAPE_RANK + 1)))
     with pytest.raises(deal.PreContractError):
         should_use_binary_envelope((1,), min_cells=DEAL_MAX_SHAPE_DIM + 1)
+    # Product grid uses sheet bounds; SHAPE_DIM+1 stays legal (Population A1:H1517).
+    assert is_numeric_grid([0] * (DEAL_MAX_SHAPE_DIM + 1)) is True
+    assert is_numeric_grid([[0] * (DEAL_MAX_SHAPE_DIM + 1)]) is True
+
+    class _OverRow(list):
+        def __len__(self) -> int:
+            return DEAL_MAX_ROW_INDEX + 2
+
+    class _OverCol(list):
+        def __len__(self) -> int:
+            return DEAL_MAX_COL_INDEX + 2
+
     with pytest.raises(deal.PreContractError):
-        is_numeric_grid([0] * (DEAL_MAX_SHAPE_DIM + 1))
+        is_numeric_grid(_OverRow([0]))
     with pytest.raises(deal.PreContractError):
-        is_numeric_grid([[0] * (DEAL_MAX_SHAPE_DIM + 1)])
-    assert is_numeric_grid([0] * DEAL_MAX_SHAPE_DIM) is True
+        is_numeric_grid([_OverCol([0])])
 
 
 def test_host_pack_split_grid_empty() -> None:

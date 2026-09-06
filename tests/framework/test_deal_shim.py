@@ -58,8 +58,9 @@ def test_ascii_bounded_unicode_rejected() -> None:
 
 
 def test_ascii_bounded_length_limits() -> None:
-    assert ascii_bounded("A" * 32, DEAL_MAX_CELL_REF) is True
-    assert ascii_bounded("A" * 33, DEAL_MAX_CELL_REF) is False
+    # Pytest/debug CELL_REF is 256 (sheet-qualified live ranges); not the old 32.
+    assert ascii_bounded("A" * DEAL_MAX_CELL_REF, DEAL_MAX_CELL_REF) is True
+    assert ascii_bounded("A" * (DEAL_MAX_CELL_REF + 1), DEAL_MAX_CELL_REF) is False
     assert ascii_bounded("abc", 5, min_len=4) is False
     assert ascii_bounded("abcd", 5, min_len=4) is True
 
@@ -86,7 +87,7 @@ def test_deal_shim_constants_match_pytest_profile() -> None:
     wide = deal_maxima(crosshair=False)
     assert DEAL_MAX_COL_LETTERS == wide.col_letters == 3
     assert DEAL_MAX_COL_INDEX == wide.col_index == 26 + 26**2 + 26**3 - 1 == 18277
-    assert DEAL_MAX_CELL_REF == wide.cell_ref == 32
+    assert DEAL_MAX_CELL_REF == wide.cell_ref == 256
     assert DEAL_MAX_TOKEN == wide.token == 64
     assert DEAL_MAX_XL_EXPR == wide.xl_expr == 64
     assert DEAL_MAX_ORIGIN == wide.origin == 256
@@ -103,7 +104,7 @@ def test_deal_shim_constants_match_pytest_profile() -> None:
     assert DEAL_MAX_RETRY == wide.retry == 8
     assert DEAL_MAX_BACKOFF == wide.backoff == 300.0
     assert DEAL_MAX_BACKOFF_FACTOR == wide.backoff_factor == 10.0
-    assert DEAL_MAX_HTML_CHUNK == wide.html_chunk == 512
+    assert DEAL_MAX_HTML_CHUNK == wide.html_chunk == 4096
     assert inverse_ensure is deal.ensure
 
 
@@ -134,7 +135,7 @@ def test_deal_maxima_crosshair_profile_stays_tiny() -> None:
 
 def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
     """WRITERAGENT_CROSSHAIR=1 rebinds DEAL_MAX_* at import; pytest width must still work here."""
-    from plugin.framework.html_stripper import strip_html_tags
+    from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
     from plugin.framework.i18n import _
     from plugin.mcp.cors import is_safe_origin, normalize_cors_origin
     from tests.strip_bundle import deal_pre_present
@@ -152,8 +153,10 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
     is_safe_origin(product_origin)
     with pytest.raises(deal.PreContractError):
         is_safe_origin("h" * (DEAL_MAX_ORIGIN + 1))
+    # strip_html_tags chunks through feed(); overflow is per-chunk, not whole-string.
+    strip_html_tags("x" * (DEAL_MAX_HTML_CHUNK + 1))
     with pytest.raises(deal.PreContractError):
-        strip_html_tags("x" * (DEAL_MAX_HTML_CHUNK + 1))
+        StreamingHTMLStripper().feed("x" * (DEAL_MAX_HTML_CHUNK + 1))
     strip_html_tags("x" * 256)
 
     script = textwrap.dedent(
@@ -171,7 +174,7 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
         assert DEAL_MAX_URL == 32, DEAL_MAX_URL
         assert DEAL_MAX_HTML_CHUNK == 16, DEAL_MAX_HTML_CHUNK
         import deal
-        from plugin.framework.html_stripper import strip_html_tags
+        from plugin.framework.html_stripper import StreamingHTMLStripper, strip_html_tags
         from plugin.framework.i18n import _
         from plugin.mcp.cors import is_safe_origin
         try:
@@ -181,12 +184,14 @@ def test_crosshair_env_binds_short_table_and_rejects_pytest_width() -> None:
         else:
             raise SystemExit("origin 33 must fail under CrossHair table")
         strip_html_tags("x" * 16)
+        strip_html_tags("x" * 17)
+        StreamingHTMLStripper().feed("x" * 16)
         try:
-            strip_html_tags("x" * 17)
+            StreamingHTMLStripper().feed("x" * 17)
         except deal.PreContractError:
             pass
         else:
-            raise SystemExit("html 17 must fail under CrossHair table")
+            raise SystemExit("html feed 17 must fail under CrossHair table")
         _("x" * 1024)
         try:
             _("x" * 1025)
@@ -328,7 +333,7 @@ def test_cover_all_workers_bind_short_deal_table(monkeypatch) -> None:
     short = deal_maxima(crosshair=True)
     assert DEAL_MAX_COL_INDEX == wide.col_index == 18277
     assert DEAL_MAX_ROW_INDEX == wide.row_index == 1_048_575
-    assert DEAL_MAX_CELL_REF == wide.cell_ref == 32
+    assert DEAL_MAX_CELL_REF == wide.cell_ref == 256
     assert (short.col_index, short.row_index, short.cell_ref) == (25, 20, 4)
 
     ctx = multiprocessing.get_context("spawn")
@@ -344,4 +349,4 @@ def test_cover_all_workers_bind_short_deal_table(monkeypatch) -> None:
     assert os.environ.get(CROSSHAIR_ENV) != "1"
     assert DEAL_MAX_COL_INDEX == 18277
     assert DEAL_MAX_ROW_INDEX == 1_048_575
-    assert DEAL_MAX_CELL_REF == 32
+    assert DEAL_MAX_CELL_REF == 256

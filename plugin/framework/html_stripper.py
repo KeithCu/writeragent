@@ -28,8 +28,9 @@ from plugin.framework.deal_shim import (
 )
 
 # Wider than DEAL_MAX_SOURCE (16 under CrossHair): feed() must still reach the
-# 256-char tag flush under pytest. Pytest binds DEAL_MAX_HTML_CHUNK=512 so that
-# path stays live; CrossHair uses 16.
+# 256-char tag flush under pytest. Pytest binds DEAL_MAX_HTML_CHUNK=4096 so
+# long tool-result HTML chunks; CrossHair uses 16. strip_html_tags has no
+# whole-string @deal.pre — it feeds in DEAL_MAX_HTML_CHUNK slices.
 _DEAL_MAX_HTML_CHUNK = DEAL_MAX_HTML_CHUNK
 # Import-time only: pytest keeps Unicode body text (café); CrossHair uses ASCII
 # so SMT is not on 16-char Unicode (strip_html_tags 2:16, check-all 32877875221).

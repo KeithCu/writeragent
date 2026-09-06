@@ -12,7 +12,7 @@ See docs/framework/formal-verification.md §8.1 E for string contract convention
 ``DEAL_MAX_*`` are finite ``@deal.pre`` domains, not production limits (release
 OXTs strip ``@deal.*``; LibreOffice uses this shim as a no-op). Pytest /
 ``make test`` bind the wide, product-faithful table (ZZZ, Calc max row,
-CELL_REF=32). CrossHair binds the short table only when
+CELL_REF=256). CrossHair binds the short table only when
 ``WRITERAGENT_CROSSHAIR=1`` at import, which check-all, cover-all (including
 process-pool workers), and ``scripts/crosshair_stream.py run`` set before
 spawning CrossHair. Do not sniff ``sys.modules["crosshair"]`` or
