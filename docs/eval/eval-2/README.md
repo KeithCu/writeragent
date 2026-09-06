@@ -6,4 +6,4 @@ Each subdirectory is one experiment. First: `afc-sample-83d10b06/` (GDPval audit
 
 See each task’s `run.md` for how to execute a trial.
 
-**Tool-loop budget:** headed Calc trials need more than the everyday 15 rounds. Set `WRITERAGENT_EVAL=1` on soffice or `"chatbot.eval_mode": true` in `writeragent.json` so the sidebar uses `chatbot.eval_max_tool_rounds` (default **50**). Do not raise the product default. The 17-task string harness (`WRITERAGENT_EVAL_HARNESS`) keeps its own cap (25).
+Long headed GDPval/AFC runs: set `"chatbot.max_tool_rounds": 50` in `writeragent.json` (schema already allows it; default stays 15).

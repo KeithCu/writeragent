@@ -33,7 +33,6 @@ from plugin.framework.client.errors import (
     local_model_overflow_message,
 )
 from plugin.framework.config import (
-    effective_max_tool_rounds,
     get_api_config,
     get_config,
     get_config_int,
@@ -674,7 +673,7 @@ class ToolCallingMixin:
         on message type, keeping the UI responsive via processEventsToIdle().
         """
         if max_tool_rounds is None:
-            max_tool_rounds = effective_max_tool_rounds()
+            max_tool_rounds = get_config_int("chatbot.max_tool_rounds")
         log.info("=== Tool-calling loop START (max %d rounds) ===" % max_tool_rounds)
         self._append_response("\nAI: ")
         self._record_assistant_start = True

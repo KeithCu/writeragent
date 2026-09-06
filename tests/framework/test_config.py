@@ -326,46 +326,6 @@ class TestConfigSyncFileIO(unittest.TestCase):
         cfg = get_api_config()
         self.assertEqual(cfg.get("temperature"), 0.3)
 
-    def test_effective_max_tool_rounds_stays_15_without_eval_mode(self):
-        from plugin.framework.config import effective_max_tool_rounds, get_api_config
-
-        if os.path.exists(self.config_path):
-            os.remove(self.config_path)
-        reset_config_for_tests()
-        with patch.dict(os.environ, {"WRITERAGENT_EVAL": "0"}):
-            self.assertEqual(effective_max_tool_rounds(), 15)
-            self.assertEqual(get_api_config()["chat_max_tool_rounds"], 15)
-
-    def test_effective_max_tool_rounds_uses_eval_budget_when_eval_mode(self):
-        from plugin.framework.config import effective_max_tool_rounds, get_api_config
-
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump({"chatbot.eval_mode": True}, f)
-        reset_config_for_tests()
-        with patch.dict(os.environ, {"WRITERAGENT_EVAL": "0"}):
-            self.assertEqual(effective_max_tool_rounds(), 50)
-            self.assertEqual(get_api_config()["chat_max_tool_rounds"], 50)
-
-    def test_effective_max_tool_rounds_uses_eval_env_without_json(self):
-        from plugin.framework.config import effective_max_tool_rounds, get_api_config
-
-        if os.path.exists(self.config_path):
-            os.remove(self.config_path)
-        reset_config_for_tests()
-        with patch.dict(os.environ, {"WRITERAGENT_EVAL": "1"}):
-            self.assertEqual(effective_max_tool_rounds(), 50)
-            self.assertEqual(get_api_config()["chat_max_tool_rounds"], 50)
-
-    def test_eval_harness_env_does_not_raise_sidebar_round_budget(self):
-        """WRITERAGENT_EVAL_HARNESS is the 17-task pack; it keeps its own 25-round cap."""
-        from plugin.framework.config import effective_max_tool_rounds
-
-        if os.path.exists(self.config_path):
-            os.remove(self.config_path)
-        reset_config_for_tests()
-        with patch.dict(os.environ, {"WRITERAGENT_EVAL_HARNESS": "1", "WRITERAGENT_EVAL": "0"}):
-            self.assertEqual(effective_max_tool_rounds(), 15)
-
     def test_failed_api_key_write_does_not_leak_into_cache(self):
         reset_config_for_tests()
         with patch("plugin.framework.config._write_config_file", side_effect=OSError("disk full")):
@@ -409,8 +369,6 @@ class TestConfigSyncFileIO(unittest.TestCase):
         self.assertEqual(get_config_bool('scripting.python_geometric_recalc_order'), False)
         self.assertEqual(get_config('doc.agent_edit_review_mode'), 'off')
         self.assertEqual(get_config_int('chatbot.max_tool_rounds'), 15)
-        self.assertEqual(get_config_bool('chatbot.eval_mode'), False)
-        self.assertEqual(get_config_int('chatbot.eval_max_tool_rounds'), 50)
         self.assertEqual(get_config_int('web_research_cache_jaccard_percent'), 60)
         self.assertEqual(get_config_int('web_research_cache_embedding_percent'), 75)
         self.assertEqual(get_config_int('web_research_cache_min_overlap'), 8)

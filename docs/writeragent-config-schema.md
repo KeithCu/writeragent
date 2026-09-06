@@ -88,8 +88,6 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | `max_tool_rounds` | `int` | `15` | `1`–`50` | Max Tool Rounds |
-| `eval_mode` | `boolean` | `false` |  | Internal |
-| `eval_max_tool_rounds` | `int` | `50` | `1`–`50` | Internal. Tool-loop cap when chatbot.eval_mode or WRITERAGENT_EVAL=1 (headed eval-2). Everyday chat stays at max_tool_rounds. |
 | `context_strategy` | `string` | `"auto"` |  | How much document content to include in LLM context Options: auto (Auto (by document size)), full (Full document text), page (Pages around cursor), tree (Outline + excerpt), stats (Stats + outline only) |
 | `extend_selection_max_tokens` | `int` | `1000` | `10`–`4096` | Internal. Extend max tokens |
 | `edit_selection_max_new_tokens` | `int` | `1000` | `0`–`4096` | Internal. Extra tokens beyond original text length. 0 = same length as original. |
