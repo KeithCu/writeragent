@@ -753,6 +753,37 @@ def test_native_doc_windows_reuses_writer_when_leftovers_open(monkeypatch):
         tu._NATIVE_DOC_POOL.clear()
 
 
+def test_native_doc_windows_reuses_calc_when_leftovers_open(monkeypatch):
+    """GHA 34643210006: leftover _wa_scalc hung; reuse=False must not factory-load."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    calc = MagicMock(name="pooled_calc")
+    created = []
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "reset_native_doc", lambda *a, **k: None)
+    monkeypatch.setattr(
+        TestingFactory,
+        "create_native_doc",
+        lambda *a, **k: created.append("create") or calc,
+    )
+    tu._NATIVE_DOC_POOL.clear()
+    tu._set_windows_leftover_open(5)
+    ctx = object()
+    try:
+        with TestingFactory.native_doc(ctx, "calc") as first:
+            assert first is calc
+        with TestingFactory.native_doc(ctx, "calc", reuse=False) as second:
+            assert second is calc
+        assert created == ["create"]
+    finally:
+        tu._set_windows_leftover_open(saved)
+        tu._NATIVE_DOC_POOL.clear()
+
+
 def test_create_native_doc_posix_does_not_prepare_writer_factory(monkeypatch):
     from unittest.mock import MagicMock, patch
 

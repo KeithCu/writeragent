@@ -1062,6 +1062,21 @@ def _windows_should_reuse_writer(ctx) -> bool:
     return prepare_windows_writer_factory(ctx) > 0
 
 
+def _windows_should_reuse_calc(ctx) -> bool:
+    """True when a leftover scalc factory would hang.
+
+    GHA 34643210006: ``test_calc_reuse_false_still_empty`` loaded leftover
+    ``target=_wa_scalc`` at leftover_open=5 and hung 30s (office alive).
+    Unique leftover ``_wa_factory_N`` already failed then hung
+    (34633295036). Cached leftover count only — do not enumerate
+    (getComponents after paste close can hang). Do not close leftover
+    paste Writers (34556185752).
+    """
+    if ctx is None or sys.platform != "win32":
+        return False
+    return _windows_leftover_open() > 0
+
+
 # Same CREATE|GLOBAL as insert_cell_html_rich (8|55=63). Named target with
 # flags 0 can search instead of creating. Do not reuse "_blank" / "_default"
 # while leftover paste Writers are open — see _windows_factory_load_args.
@@ -2038,6 +2053,13 @@ class TestingFactory:
 
                 reuse = True
                 _progress("native_doc: leftover writer reuse")
+        # reuse=False still calls create_native_doc. Leftover _wa_scalc
+        # hung 30s (34643210006). Wipe-and-reuse the pooled Calc instead.
+        if doc_type == "calc" and not reuse and _windows_should_reuse_calc(ctx):
+            from plugin.testing_runner import _progress
+
+            reuse = True
+            _progress("native_doc: leftover calc reuse")
         use_pool = bool(reuse) and doc_type in ("writer", "calc")
         doc = None
         pooled = False

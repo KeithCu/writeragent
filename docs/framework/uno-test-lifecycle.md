@@ -352,6 +352,15 @@ The UNO env now copies `Budget_read.ods` on Windows and Hidden-opens
 that copy — a URL the pooled Calc never owned. No second factory Calc.
 Do not close leftover paste Writers.
 
+GHA 34643210006 (`60c827a8`): `document_research_uno` 3/3 OK
+(`copied budget for hidden open`, `open_document_for_read done err=-`).
+Later `test_calc_reuse_false_still_empty` leftover `target=_wa_scalc`
+at leftover_open=5 hung 30s. `_wa_scalc` is not a safe leftover Calc
+factory. `native_doc` now wipe-and-reuses the pooled Calc instead of
+loading leftover scalc (`native_doc: leftover calc reuse`). Notebook
+`test_notebook_runner_uno` had two leftover-writer-reuse assertion
+fails on the same run; those are not this leftover-scalc path.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
