@@ -1453,10 +1453,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
     _progress(f"SUITE start {name} python_pid={os.getpid()} soffice.bin={_soffice_pids()}")
     # GHA 34643210006: leftover HTML-paste Writers forced leftover Writer
     # reuse into notebook_runner. Isolate those suites on _wa_notebook_host.
-    try:
-        from tests.testing_utils import set_windows_notebook_host
-    except ImportError:
-        from plugin.tests.testing_utils import set_windows_notebook_host
+    from tests.testing_utils import set_windows_notebook_host
 
     set_windows_notebook_host(
         name.endswith("test_notebook_runner_uno")
@@ -1642,10 +1639,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
                     suite_log.append(f"TEARDOWN EXCEPTION: {e}")
                     suite_log.append(traceback.format_exc())
 
-    try:
-        from tests.testing_utils import set_windows_notebook_host as _clear_nb_host
-    except ImportError:
-        from plugin.tests.testing_utils import set_windows_notebook_host as _clear_nb_host
+    from tests.testing_utils import set_windows_notebook_host as _clear_nb_host
 
     _clear_nb_host(False)
     _progress(f"SUITE end {name} passed={total_passed} failed={total_failed}")
