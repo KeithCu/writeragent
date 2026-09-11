@@ -1243,16 +1243,113 @@ def _draw_family_raw_close() -> bool:
 def _draw_family_doc_label(doc) -> str:
     """Harness-only: impress / draw / unknown for close breadcrumbs."""
     try:
-        if doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+        # ``is True``: MagicMock.supportsService() is truthy and must not
+        # look like Draw-family during unit tests (Windows pytest).
+        if doc.supportsService("com.sun.star.presentation.PresentationDocument") is True:
             return "impress"
     except Exception:
         pass
     try:
-        if doc.supportsService("com.sun.star.drawing.DrawingDocument"):
+        if doc.supportsService("com.sun.star.drawing.DrawingDocument") is True:
             return "draw"
     except Exception:
         pass
     return "unknown"
+
+
+# plugin/draw/math_insert.py MATH_CLSID. close_doc of a Draw that still
+# holds this OLE killed soffice (GHA 34607010446, exit 0).
+_MATH_OLE_CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
+_WINDOWS_MATH_OLE_UIDS: set[str] = set()
+
+
+def mark_windows_math_ole_doc(doc) -> None:
+    """Harness-only: this Draw/Impress still holds a Math OLE.
+
+    GHA 34607010446: ``test_insert_math_draw`` body returned, then
+    ``close_doc`` ``dispose`` of that Draw killed soffice (exit 0).
+    Nine earlier Draw ``close_doc`` calls in the same suite survived.
+    Remember the uid on both testing_utils copies so teardown can skip
+    the close. Not a product fix.
+    """
+    if sys.platform != "win32" or not doc:
+        return
+    try:
+        uid = str(getattr(doc, "RuntimeUID", None) or "")
+    except Exception:
+        uid = ""
+    if not uid:
+        return
+    for mod in _testing_utils_holders():
+        uids = getattr(mod, "_WINDOWS_MATH_OLE_UIDS", None)
+        if uids is None:
+            mod._WINDOWS_MATH_OLE_UIDS = set()
+            uids = mod._WINDOWS_MATH_OLE_UIDS
+        uids.add(uid)
+
+
+def _windows_math_ole_uids() -> set[str]:
+    uids = set(_WINDOWS_MATH_OLE_UIDS)
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        other = getattr(mod, "_WINDOWS_MATH_OLE_UIDS", None)
+        if other:
+            uids.update(other)
+    return uids
+
+
+def _draw_doc_has_math_ole(doc) -> bool:
+    """True when a Draw/Impress page still has a Math OLE2Shape."""
+    if not doc:
+        return False
+    try:
+        pages = doc.getDrawPages()
+        n_pages = pages.getCount()
+    except Exception:
+        return False
+    try:
+        page_count = int(n_pages)
+    except (TypeError, ValueError):
+        return False
+    for i in range(page_count):
+        try:
+            page = pages.getByIndex(i)
+            n_shapes = int(page.getCount())
+        except Exception:
+            continue
+        for j in range(n_shapes):
+            try:
+                shape = page.getByIndex(j)
+                clsid = str(getattr(shape, "CLSID", "") or "")
+            except Exception:
+                continue
+            if clsid == _MATH_OLE_CLSID:
+                return True
+    return False
+
+
+def _windows_should_skip_math_ole_close(doc, uid: str = "") -> bool:
+    """True when Windows must not ``close_doc`` this Draw/Impress.
+
+    What was wrong: GHA 34607010446 (master ``3720c175``) printed
+    ``TEST call`` / factory ``load done uid=48``, then
+    ``LIFECYCLE close_doc dispose`` (pids still live) and
+    ``office dead after close doc_type=draw`` (pids gone). soffice
+    exited 0. ``get_draw_tree`` and eight earlier Draw closes on the
+    same office returned.
+
+    How: do not ``gc`` + ``close(True)`` a Windows Draw that still
+    holds Math OLE. Leftover stays; reactivate the keeper so it is
+    not desktop current. Do **not** recycle mid-run (34551644954).
+    POSIX still closes. Not a product fix.
+    """
+    if sys.platform != "win32" or not doc:
+        return False
+    if uid and uid in _windows_math_ole_uids():
+        return True
+    return _draw_doc_has_math_ole(doc)
 
 
 def close_draw_family_doc(doc):
@@ -1827,6 +1924,25 @@ class TestingFactory:
                     _progress(
                         "close_doc: skip writer close leftovers open=%s uid=%s"
                         % (leftover_open, uid or "-")
+                    )
+                    return
+                if doc_svc in ("draw", "impress") and _windows_should_skip_math_ole_close(
+                    doc, uid
+                ):
+                    # GHA 34607010446: close_doc dispose of Math OLE Draw
+                    # killed soffice (exit 0). Do not close; leftover is
+                    # not current after keeper reactivate.
+                    reactivate_harness_keeper()
+                    _progress(
+                        "close_doc: skip math ole close (windows) uid=%s svc=%s "
+                        "leftovers=%s keeper=%s pids=%s"
+                        % (
+                            uid or "-",
+                            doc_svc,
+                            leftover_open,
+                            _HARNESS_KEEPER_UID or "-",
+                            _soffice_pids(),
+                        )
                     )
                     return
         for key, pooled in list(_NATIVE_DOC_POOL.items()):
