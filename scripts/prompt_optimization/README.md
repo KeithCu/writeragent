@@ -164,42 +164,36 @@ python merge_benchmark_results.py \
 - **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables. Shared via `eval_core` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks by hard pass / agent / quality; C²/$ is secondary. `--models` is required.
 
-### Benchmark results (2026-09-05, 17-task string harness)
+### Benchmark results (2026-09-11, 17-task string harness)
 
-Selective post-#616/#617 re-rank (`data_sorting` + `tax_column` only after dropping catalog `z-ai/glm-5.3`; other tasks carried from post-#613). Artifacts: `benchmark_results.json`, `benchmark_results_details.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
-
-**Excluded from this table (1 of 23 models):**
- 
-| Model | Reason |
-|-------|--------|
-| `qwen/qwen3.8-flash` | Infra: OpenRouter upstream 429 on all 17 tasks |
+Calc-only selective refresh (`data_sorting` + `tax_column`) for 20 catalog models; Luna / Qwen Flash / DeepSeek V4.1 Flash keep prior Calc rows. Other 15 tasks carried forward. Artifacts: `benchmark_results.json`, `benchmark_results_details.json`, plus `benchmark_results_calc_selective_2026-09-11*.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
 
 Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squared ÷ avg $/task (`intelligence_per_dollar_metric`). **Quality** = LLM judge average among judged creative/table passes only (`—` if none judged). Models with `n_err` > 0 kept when errors are model-side (empty response, tool-loop limit), not infra/harness.
 
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ | n_err |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
-| 1 | deepseek/deepseek-v4-flash-0731 | 1.000 | 1.000 | 0.987 | 0.96 | 44789 | 0.00356 | 151.1 | 0 |
-| 2 | meta/muse-glimmer-30b | 1.000 | 1.000 | 0.987 | 0.96 | 30319 | 0.01147 | 42.7 | 0 |
-| 3 | x-ai/grok-4.6 | 1.000 | 1.000 | 0.982 | 0.94 | 21834 | 0.04871 | 12.0 | 0 |
-| 4 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.979 | 0.93 | 25641 | 0.00274 | 190.5 | 0 |
-| 5 | openai/gpt-oss-120b | 1.000 | 1.000 | 0.971 | 0.90 | 15866 | 0.00073 | 902.8 | 0 |
-| 6 | google/gemma-4-31b-it | 0.941 | 0.941 | 0.918 | 0.90 | 15706 | 0.00151 | 416.9 | 0 |
-| 7 | bytedance-seed/seed-2.0-mini | 0.941 | 0.941 | 0.918 | 0.90 | 26715 | 0.00420 | 103.5 | 0 |
-| 8 | openai/gpt-5.6-luna | 0.941 | 0.941 | 0.916 | 0.90 | 20031 | 0.00449 | 116.6 | 0 |
-| 9 | z-ai/glm-5.3-flash | 0.941 | 0.941 | 0.913 | 0.90 | 43403 | 0.00431 | 104.2 | 0 |
-| 10 | deepseek/deepseek-v4.1-flash | 0.882 | 0.882 | 0.935 | 0.97 | 51291 | 0.00944 | 39.2 | 2 |
-| 11 | qwen/qwen3.8-27b | 0.882 | 0.882 | 0.922 | 0.92 | 44898 | 0.02603 | 12.5 | 1 |
-| 12 | poolside/laguna-xs-2.1 | 0.882 | 0.882 | 0.826 | 0.81 | 19401 | 0.00119 | 344.2 | 1 |
-| 13 | inception/mercury-2.5-preview | 0.824 | 0.824 | 0.811 | 0.95 | 31317 | 0.00885 | 31.8 | 0 |
+| 1 | meta/muse-glimmer-30b | 1.000 | 1.000 | 0.987 | 0.96 | 27041 | 0.01025 | 50.1 | 0 |
+| 2 | deepseek/deepseek-v4-flash-0731 | 1.000 | 1.000 | 0.987 | 0.96 | 46613 | 0.00369 | 138.7 | 0 |
+| 3 | x-ai/grok-4.6 | 1.000 | 1.000 | 0.982 | 0.94 | 24613 | 0.05418 | 10.0 | 0 |
+| 4 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.979 | 0.93 | 28777 | 0.00307 | 155.7 | 0 |
+| 5 | openai/gpt-5.6-luna | 0.941 | 0.941 | 0.916 | 0.90 | 20031 | 0.00449 | 116.6 | 0 |
+| 6 | z-ai/glm-5.3-flash | 0.941 | 0.941 | 0.913 | 0.90 | 43404 | 0.00426 | 105.6 | 0 |
+| 7 | deepseek/deepseek-v4.1-flash | 0.882 | 0.882 | 0.935 | 0.97 | 51291 | 0.00944 | 39.2 | 2 |
+| 8 | bytedance-seed/seed-2.0-mini | 0.882 | 0.882 | 0.859 | 0.90 | 23817 | 0.00381 | 107.1 | 0 |
+| 9 | openai/gpt-oss-120b | 0.882 | 0.882 | 0.853 | 0.90 | 12150 | 0.00056 | 999.4 | 0 |
+| 10 | poolside/laguna-xs-2.1 | 0.882 | 0.882 | 0.826 | 0.81 | 38787 | 0.00238 | 155.6 | 1 |
+| 11 | qwen/qwen3.8-27b | 0.824 | 0.824 | 0.922 | 0.92 | 54296 | 0.03051 | 9.3 | 2 |
+| 12 | ibm-granite/granite-4.2-8b | 0.824 | 0.824 | 0.861 | 0.93 | 69637 | 0.00777 | 25.2 | 1 |
+| 13 | inception/mercury-2.5-preview | 0.824 | 0.824 | 0.811 | 0.95 | 30675 | 0.00869 | 33.2 | 0 |
 | 14 | qwen/qwen3.8-flash | 0.824 | 0.824 | 0.805 | 0.89 | 45001 | 0.00755 | 37.2 | 1 |
-| 15 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 58977 | 0.02090 | 17.1 | 1 |
-| 16 | google/gemini-3.5-flash-lite | 0.765 | 0.765 | 0.806 | 0.93 | 16008 | 0.00561 | 79.4 | 0 |
-| 17 | ibm-granite/granite-4.2-8b | 0.765 | 0.765 | 0.802 | 0.93 | 69505 | 0.00776 | 20.9 | 1 |
-| 18 | upstage/solar-pro4 | 0.765 | 0.765 | 0.741 | 0.90 | 21716 | 0.00069 | 463.8 | 0 |
-| 19 | poolside/laguna-s-2.1 | 0.706 | 0.706 | 0.759 | 0.90 | 21664 | 0.00220 | 151.3 | 2 |
-| 20 | openai/gpt-oss-20b | 0.706 | 0.706 | 0.687 | 0.89 | 19290 | 0.00078 | 449.3 | 0 |
-| 21 | google/gemma-4-26b-a4b-it | 0.706 | 0.706 | 0.680 | 0.89 | 18931 | 0.00140 | 199.3 | 0 |
-| 22 | mistralai/mistral-small-2603 | 0.647 | 0.647 | 0.629 | 0.85 | 13419 | 0.00211 | 139.2 | 0 |
-| 23 | nvidia/nemotron-3.5-lightning | 0.353 | 0.353 | 0.315 | 0.68 | 32965 | 0.00270 | 16.4 | 0 |
+| 15 | google/gemma-4-31b-it | 0.824 | 0.824 | 0.800 | 0.90 | 17235 | 0.00165 | 289.3 | 0 |
+| 16 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 63655 | 0.02252 | 13.4 | 1 |
+| 17 | openai/gpt-oss-20b | 0.765 | 0.765 | 0.746 | 0.89 | 14664 | 0.00060 | 668.0 | 0 |
+| 18 | upstage/solar-pro4 | 0.706 | 0.706 | 0.682 | 0.90 | 29828 | 0.00094 | 301.5 | 0 |
+| 19 | google/gemma-4-26b-a4b-it | 0.706 | 0.706 | 0.680 | 0.89 | 19093 | 0.00141 | 197.0 | 0 |
+| 20 | poolside/laguna-s-2.1 | 0.647 | 0.647 | 0.700 | 0.90 | 19806 | 0.00200 | 150.7 | 2 |
+| 21 | google/gemini-3.5-flash-lite | 0.647 | 0.647 | 0.688 | 0.93 | 15741 | 0.00545 | 60.9 | 0 |
+| 22 | mistralai/mistral-small-2603 | 0.588 | 0.588 | 0.571 | 0.85 | 17137 | 0.00267 | 89.5 | 0 |
+| 23 | nvidia/nemotron-3.5-lightning | 0.353 | 0.353 | 0.315 | 0.68 | 29840 | 0.00245 | 18.1 | 0 |
 
 Re-run: `make run_eval EVAL_ARGS="--models … -j 20"` or edit `model_configs.py`. User-facing summary: [`docs/eval/benchmarks.md`](../../docs/eval/benchmarks.md).
