@@ -808,11 +808,78 @@ _HARNESS_KEEPER_UID = ""
 _HARNESS_KEEPER_DOC = None
 
 
+def _testing_utils_holders():
+    """Modules that share this file's keeper globals.
+
+    ``python -m plugin.testing_runner`` imports ``tests.testing_utils`` to
+    record the keeper. Suites import ``plugin.tests.testing_utils``
+    (``plugin/tests/__init__.py`` points ``__path__`` at ``tests/``). Same
+    file, second object. GHA 34595675515: every factory prepare printed
+    ``keeper=-`` and treated uid=1 as a leftover — #720 never reactivated.
+    Same dual-module family as #719 recycle. Touch both.
+    """
+    import os
+
+    seen = []
+    try:
+        here_file = os.path.normcase(os.path.realpath(__file__))
+    except Exception:
+        here_file = ""
+    for name in ("tests.testing_utils", "plugin.tests.testing_utils", __name__):
+        mod = sys.modules.get(name)
+        if mod is None or mod in seen:
+            continue
+        other = getattr(mod, "__file__", None)
+        if other and here_file:
+            try:
+                if os.path.normcase(os.path.realpath(other)) != here_file:
+                    continue
+            except Exception:
+                continue
+        seen.append(mod)
+    return seen or [sys.modules[__name__]]
+
+
+def _ensure_testing_utils_aliases() -> None:
+    """Import both sys.modules names so set/adopt can write both copies."""
+    try:
+        import tests.testing_utils as _tests_tu  # noqa: F401
+    except Exception:
+        pass
+    try:
+        import plugin.tests.testing_utils as _plugin_tu  # noqa: F401
+    except Exception:
+        pass
+
+
 def set_harness_keeper_uid(uid: str, doc=None) -> None:
     """Record the hidden keeper Writer (uid + doc) for later setActiveFrame."""
+    _ensure_testing_utils_aliases()
+    uid_s = str(uid or "")
+    if uid_s == "-":
+        uid_s = ""
+    doc_s = doc if uid_s else None
+    for mod in _testing_utils_holders():
+        mod._HARNESS_KEEPER_UID = uid_s
+        mod._HARNESS_KEEPER_DOC = doc_s
+
+
+def _adopt_keeper_from_sibling() -> bool:
+    """Copy keeper uid/doc from the other testing_utils module if we have none."""
     global _HARNESS_KEEPER_UID, _HARNESS_KEEPER_DOC
-    _HARNESS_KEEPER_UID = str(uid or "")
-    _HARNESS_KEEPER_DOC = doc if _HARNESS_KEEPER_UID else None
+    if _HARNESS_KEEPER_UID:
+        return False
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        uid = str(getattr(mod, "_HARNESS_KEEPER_UID", "") or "")
+        if not uid or uid == "-":
+            continue
+        _HARNESS_KEEPER_UID = uid
+        _HARNESS_KEEPER_DOC = getattr(mod, "_HARNESS_KEEPER_DOC", None)
+        return True
+    return False
 
 
 def _writer_doc_uid(doc) -> str:
@@ -864,6 +931,11 @@ def reactivate_harness_keeper(desktop=None) -> bool:
     """
     from plugin.testing_runner import _progress
 
+    if _adopt_keeper_from_sibling():
+        _progress(
+            "html_paste_writer: keeper adopted from sibling uid=%s"
+            % (_HARNESS_KEEPER_UID or "-")
+        )
     doc = _HARNESS_KEEPER_DOC
     if doc is None:
         return False
@@ -895,12 +967,21 @@ def prepare_windows_writer_factory(ctx) -> int:
     Why this: enum leftovers (read-only; safe before load) and
     ``setActiveFrame`` the keeper. Do not close leftovers. Returns how
     many non-keeper Writers are still open. Windows-only caller.
+
+    GHA 34593327841: the next hang was ``private:factory/scalc`` in
+    ``document_research_uno`` ``_create_nearby_test_env``, not swriter.
+    Call this before every Windows ``private:factory/`` load.
     """
     if ctx is None:
         return 0
     from plugin.framework.uno_context import get_desktop
     from plugin.testing_runner import _progress
 
+    if _adopt_keeper_from_sibling():
+        _progress(
+            "html_paste_writer: keeper adopted from sibling uid=%s"
+            % (_HARNESS_KEEPER_UID or "-")
+        )
     desktop = get_desktop(ctx)
     keeper = _HARNESS_KEEPER_UID
     leftover_uids = []
@@ -910,12 +991,109 @@ def prepare_windows_writer_factory(ctx) -> int:
             continue
         leftover_uids.append(uid)
         leftover_frames.append(_writer_frame_name(doc) or "-")
+    leftover_open = len(leftover_uids)
+    _set_windows_leftover_open(leftover_open)
     _progress(
         "html_paste_writer: leftovers open=%s uids=%s frames=%s keeper=%s"
-        % (len(leftover_uids), leftover_uids, leftover_frames, keeper or "-")
+        % (leftover_open, leftover_uids, leftover_frames, keeper or "-")
     )
     reactivate_harness_keeper(desktop)
-    return len(leftover_uids)
+    return leftover_open
+
+
+# Last leftover count from prepare. close_doc / native_doc reuse read this
+# instead of enumerating again (getComponents after paste close can hang).
+_WINDOWS_LEFTOVER_OPEN = 0
+
+
+def _set_windows_leftover_open(n: int) -> None:
+    """Write leftover count on both testing_utils module copies."""
+    n_i = int(n or 0)
+    for mod in _testing_utils_holders():
+        mod._WINDOWS_LEFTOVER_OPEN = n_i
+
+
+def _windows_leftover_open() -> int:
+    n = int(_WINDOWS_LEFTOVER_OPEN or 0)
+    if n > 0:
+        return n
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        other = int(getattr(mod, "_WINDOWS_LEFTOVER_OPEN", 0) or 0)
+        if other > 0:
+            return other
+    return 0
+
+
+def _windows_should_reuse_writer(ctx) -> bool:
+    """True when a later Windows Writer factory would hang after leftovers.
+
+    GHA 34601787293 / 34602219973: unique ``_wa_factory_N`` loaded three
+    leftover Calc factories and the first leftover swriter (uid=34).
+    ``close_doc`` of that Writer returned; the next unique swriter hung
+    30s. Reuse the first leftover Writer instead of close + factory.
+    """
+    if ctx is None or sys.platform != "win32":
+        return False
+    return prepare_windows_writer_factory(ctx) > 0
+
+
+# Same CREATE|GLOBAL as insert_cell_html_rich (8|55=63). Named target with
+# flags 0 can search instead of creating. Do not reuse "_blank" / "_default"
+# while leftover paste Writers are open — see _windows_factory_load_args.
+_WINDOWS_FACTORY_SEARCH_FLAGS = 8 | 55
+# Leftover Hidden swriter only. rich_html reuses one CREATE|GLOBAL name
+# (_wa_calc_html). Unique _wa_factory_N stacked empty frames after close
+# and the second leftover swriter hung (GHA 34602219973, _wa_factory_5).
+_WINDOWS_FACTORY_TARGET = "_wa_factory"
+# Leftover Calc/Draw/Impress still increment. document_research_uno holds
+# a pooled @with_native_doc Calc and a second create_native_doc budget
+# Calc at once — a shared name would replace the live pooled workbook.
+_WINDOWS_FACTORY_SEQ = 0
+
+
+def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[str, int]:
+    """Target + FrameSearchFlag for a Windows factory load.
+
+    GHA 34597506651: keeper sync worked (``keeper=1``, reactivated).
+    First text_helpers ``_blank`` swriter + leftovers returned (uid=34,
+    close_doc OK). The *next* ``_blank`` swriter hung 30s after the same
+    leftover log + keeper reactivate.
+
+    GHA 34599838644: same leftovers + ``keeper=1``, but Calc ``_blank``
+    failed in ~1s (PyUNO traceback conversion on
+    ``loadComponentFromURL(scalc)``) and the next Calc ``_blank`` hung
+    30s — ``document_research_uno`` never finished, so the swriter-only
+    named target was never reached. ``setActiveFrame`` is not enough
+    for Hidden ``_blank`` while leftover ``_wa_calc_html`` frames exist
+    (rich_html.py: not ``_blank`` / ``_default``).
+
+    GHA 34602219973 (``ec40ed29``): unique ``_wa_factory_N`` loaded
+    leftover Calc (``document_research_uno`` passed=3, targets
+    ``_wa_factory_1/2/3``) and the first leftover Hidden swriter
+    (``doc.test_text_helpers_uno.test_get_string_without_tracked_deletions_paragraph_bold_run_no_newline``,
+    ``target=_wa_factory_4``, uid=34, ``close_doc`` OK). The *next*
+    leftover Hidden swriter
+    (``…_multi_para_joins_with_newline``, ``target=_wa_factory_5``)
+    hung 30s in ``loadComponentFromURL`` — no RuntimeException. Unique
+    CREATE stacks empty named frames after harness Writer close; it
+    does not fix consecutive leftover Hidden swriter (same hang family
+    as 34597506651). Reuse one CREATE|GLOBAL name for leftover
+    ``swriter`` so CREATE replaces/reuses instead of stacking. Keep
+    unique names for leftover Calc — concurrent pooled + budget Calc.
+    Do not close leftover paste Writers (34556185752).
+    """
+    global _WINDOWS_FACTORY_SEQ
+    if leftover_open <= 0 or not factory_url.startswith("private:factory/"):
+        return "_blank", 0
+    # One stable name, like rich_html._wa_calc_html. CREATE|GLOBAL finds
+    # the empty frame left by the previous leftover-mode Writer close.
+    if factory_url == "private:factory/swriter":
+        return _WINDOWS_FACTORY_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
+    _WINDOWS_FACTORY_SEQ += 1
+    return "_wa_factory_%s" % _WINDOWS_FACTORY_SEQ, _WINDOWS_FACTORY_SEARCH_FLAGS
 
 
 def _reraise_native_open_failure(
@@ -1531,13 +1709,21 @@ class TestingFactory:
         from plugin.testing_runner import probe_uno_bridge
 
         leftover_open = 0
-        if sys.platform == "win32" and factory_url == "private:factory/swriter":
+        target, flags = "_blank", 0
+        # GHA 34593327841 / 34599838644 / 34602219973: leftover paste
+        # Writers as desktop current hung the next factory (30s). #720
+        # only prepared swriter. Reactivate the keeper. Leftover swriter
+        # reuses one CREATE|GLOBAL name (_wa_factory). Leftover Calc and
+        # other factories keep a unique _wa_factory_N so a live pooled
+        # Calc is not replaced.
+        if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
+            target, flags = _windows_factory_load_args(factory_url, leftover_open)
             from plugin.testing_runner import _progress
 
             _progress(
-                "create_native_doc: windows writer factory leftover_open=%s"
-                % leftover_open
+                "create_native_doc: windows factory leftover_open=%s url=%s target=%s flags=%s"
+                % (leftover_open, factory_url, target, flags)
             )
 
         # Distinguish "bridge already dead" (previous test) from "died during load".
@@ -1550,7 +1736,26 @@ class TestingFactory:
             )
             raise
         try:
-            doc = desktop.loadComponentFromURL(factory_url, "_blank", 0, tuple(props))
+            if sys.platform == "win32" and leftover_open:
+                from plugin.testing_runner import _progress
+
+                _progress(
+                    "create_native_doc: load start url=%s target=%s flags=%s"
+                    % (factory_url, target, flags)
+                )
+            doc = desktop.loadComponentFromURL(factory_url, target, flags, tuple(props))
+            if sys.platform == "win32" and leftover_open:
+                from plugin.testing_runner import _progress
+
+                uid = ""
+                try:
+                    uid = str(getattr(doc, "RuntimeUID", None) or "")
+                except Exception:
+                    uid = ""
+                _progress(
+                    "create_native_doc: load done url=%s target=%s uid=%s"
+                    % (factory_url, target, uid or "-")
+                )
         except Exception as exc:
             _reraise_native_open_failure(exc, factory_url, pre_open=pre_open)
             raise
@@ -1561,6 +1766,34 @@ class TestingFactory:
         """Safely closes a document instance if available."""
         if not doc:
             return
+        # Skip leftover-window Writer close *before* dropping the pool entry
+        # so reuse can still find the doc (34602219973).
+        uid = ""
+        is_writer = False
+        if sys.platform == "win32":
+            try:
+                uid = str(getattr(doc, "RuntimeUID", None) or "")
+                is_writer = bool(doc.supportsService("com.sun.star.text.TextDocument"))
+            except Exception:
+                is_writer = False
+            if is_writer:
+                from plugin.testing_runner import _progress
+
+                leftover_open = _windows_leftover_open()
+                _progress(
+                    "close_doc: start uid=%s leftovers=%s" % (uid or "-", leftover_open)
+                )
+                if leftover_open > 0:
+                    # GHA 34602219973: close uid=34 returned; next unique
+                    # _wa_factory_5 swriter hung 30s. Do not close a
+                    # harness Writer while paste leftovers remain (same
+                    # ban as leftover paste close, 34556185752).
+                    reactivate_harness_keeper()
+                    _progress(
+                        "close_doc: skip writer close leftovers open=%s uid=%s"
+                        % (leftover_open, uid or "-")
+                    )
+                    return
         for key, pooled in list(_NATIVE_DOC_POOL.items()):
             if pooled is doc:
                 del _NATIVE_DOC_POOL[key]
@@ -1573,21 +1806,6 @@ class TestingFactory:
         try:
             import gc
             import time
-
-            uid = ""
-            is_writer = False
-            if sys.platform == "win32":
-                try:
-                    uid = str(getattr(doc, "RuntimeUID", None) or "")
-                    is_writer = bool(
-                        doc.supportsService("com.sun.star.text.TextDocument")
-                    )
-                except Exception:
-                    is_writer = False
-                if is_writer:
-                    from plugin.testing_runner import _progress
-
-                    _progress("close_doc: start uid=%s" % (uid or "-"))
 
             # Release PyUNO sequences before Calc tears down the document.
             # Large getDataArray results held across close can abort soffice (glibc double-free).
@@ -1623,6 +1841,11 @@ class TestingFactory:
         """Yield a native LO document. Calc defaults to experimental wipe-and-reuse; Writer does not."""
         if reuse is None:
             reuse = _default_native_doc_reuse(doc_type)
+            if doc_type == "writer" and _windows_should_reuse_writer(ctx):
+                from plugin.testing_runner import _progress
+
+                reuse = True
+                _progress("native_doc: leftover writer reuse")
         use_pool = bool(reuse) and doc_type in ("writer", "calc")
         doc = None
         pooled = False
@@ -1633,14 +1856,31 @@ class TestingFactory:
                 try:
                     reset_native_doc(candidate, doc_type, ctx)
                     if doc_type == "writer" and not _writer_pool_is_clean(candidate):
-                        TestingFactory.close_doc(candidate)
-                        doc = None
+                        if sys.platform == "win32" and _windows_leftover_open() > 0:
+                            from plugin.testing_runner import _progress
+
+                            # close + factory hangs (34602219973). Wipe again
+                            # and keep the leftover-window Writer.
+                            _progress("native_doc: leftover writer pool dirty; keep")
+                            reset_native_doc(candidate, doc_type, ctx)
+                            doc = candidate
+                            pooled = True
+                        else:
+                            TestingFactory.close_doc(candidate)
+                            doc = None
                     else:
                         doc = candidate
                         pooled = True
                 except Exception:
-                    TestingFactory.close_doc(candidate)
-                    doc = None
+                    if sys.platform == "win32" and _windows_leftover_open() > 0:
+                        from plugin.testing_runner import _progress
+
+                        _progress("native_doc: leftover writer reset failed; keep")
+                        doc = candidate
+                        pooled = True
+                    else:
+                        TestingFactory.close_doc(candidate)
+                        doc = None
             if doc is None:
                 doc = TestingFactory.create_native_doc(ctx, doc_type=doc_type, hidden=hidden)
                 _NATIVE_DOC_POOL[key] = doc

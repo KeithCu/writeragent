@@ -282,8 +282,21 @@ def _office_model_from_desktop_element(elem: Any) -> Any | None:
     if elem is None:
         return None
     model = elem
-    if hasattr(elem, "getController") and elem.getController():
-        model = elem.getController().getModel()
+    try:
+        if hasattr(elem, "getController") and elem.getController():
+            model = elem.getController().getModel()
+    except Exception as exc:
+        # GHA 34593327841: leftover HTML-paste Writers (close skipped
+        # pasted=True) stay on the desktop. getController/getModel on those
+        # can raise, including PyUNO "Couldn't convert traceback … getTypes".
+        # An uncaught raise aborted list_nearby_files. Skip this component.
+        # Do not log exc_info: formatting a UNO exception can raise the same
+        # traceback-conversion RuntimeException.
+        log.debug(
+            "_office_model_from_desktop_element: skip component (%s)",
+            type(exc).__name__,
+        )
+        return None
     if model is None:
         return None
     from plugin.framework.thread_guard import guard_uno
@@ -308,25 +321,50 @@ def _collect_open_file_urls(
         if not comps:
             return out
         enum = comps.createEnumeration()
-        while enum and enum.hasMoreElements():
-            elem = enum.nextElement()
-            model = _office_model_from_desktop_element(elem)
-            if model is None or not hasattr(model, "getURL"):
+        # Same MagicMock / leftover-component guard as get_open_documents:
+        # a truthy mock or one broken paste Writer must not abort the walk.
+        while enum is not None:
+            try:
+                more = enum.hasMoreElements()
+            except Exception:
+                break
+            if more is not True and more != 1:
+                break
+            try:
+                elem = enum.nextElement()
+            except Exception:
+                break
+            try:
+                model = _office_model_from_desktop_element(elem)
+                if model is None or not hasattr(model, "getURL"):
+                    continue
+                url = model.getURL()
+                if not url or not str(url).startswith("file://"):
+                    continue
+                path = _system_path_from_url(str(url))
+                if not path:
+                    continue
+                if exclude_norm and _normalize_path(path) == exclude_norm:
+                    continue
+                ext = os.path.splitext(path)[1].lower()
+                if ext not in extensions:
+                    continue
+                out[_normalize_path(path)] = str(url)
+            except Exception as exc:
+                # GHA 34593327841: one leftover/broken component raised
+                # through getURL and aborted the whole nearby listing.
+                log.debug(
+                    "_collect_open_file_urls: skip component (%s)",
+                    type(exc).__name__,
+                )
                 continue
-            url = model.getURL()
-            if not url or not str(url).startswith("file://"):
-                continue
-            path = _system_path_from_url(str(url))
-            if not path:
-                continue
-            if exclude_norm and _normalize_path(path) == exclude_norm:
-                continue
-            ext = os.path.splitext(path)[1].lower()
-            if ext not in extensions:
-                continue
-            out[_normalize_path(path)] = str(url)
     except Exception:
-        log.exception("_collect_open_file_urls failed")
+        try:
+            log.exception("_collect_open_file_urls failed")
+        except Exception:
+            # PyUNO: logging a UNO exception can raise
+            # "Couldn't convert traceback … getTypes" (GHA 34593327841).
+            pass
     return out
 
 

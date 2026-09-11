@@ -345,8 +345,124 @@ def test_prepare_windows_writer_factory_keeper_only_still_reactivates(monkeypatc
         tu.set_harness_keeper_uid("")
 
 
+def test_set_harness_keeper_uid_writes_sibling_testing_utils_module(monkeypatch):
+    """GHA 34595675515: runner set tests.testing_utils; factory read plugin.tests copy."""
+    import sys
+    import types
+
+    from plugin.tests import testing_utils as tu
+
+    sibling = types.ModuleType("tests.testing_utils")
+    sibling.__file__ = tu.__file__
+    sibling._HARNESS_KEEPER_UID = ""
+    sibling._HARNESS_KEEPER_DOC = None
+    monkeypatch.setitem(sys.modules, "tests.testing_utils", sibling)
+    keeper_doc = object()
+    try:
+        tu.set_harness_keeper_uid("1", keeper_doc)
+        assert tu._HARNESS_KEEPER_UID == "1"
+        assert sibling._HARNESS_KEEPER_UID == "1"
+        assert sibling._HARNESS_KEEPER_DOC is keeper_doc
+    finally:
+        tu.set_harness_keeper_uid("")
+
+
+def test_prepare_windows_writer_factory_adopts_keeper_from_sibling(monkeypatch):
+    """Same dual-module miss: prepare saw keeper=- and counted uid=1 as leftover."""
+    import sys
+    import types
+    from unittest.mock import MagicMock
+
+    from plugin.tests import testing_utils as tu
+
+    sibling = types.ModuleType("tests.testing_utils")
+    sibling.__file__ = tu.__file__
+    keeper = MagicMock(name="keeper")
+    keeper.RuntimeUID = "1"
+    keeper.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    frame = MagicMock(name="keeper_frame")
+    keeper.getCurrentController.return_value.getFrame.return_value = frame
+    leftover = MagicMock(name="leftover")
+    leftover.RuntimeUID = "26"
+    leftover.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    sibling._HARNESS_KEEPER_UID = "1"
+    sibling._HARNESS_KEEPER_DOC = keeper
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = _Enum(
+        [keeper, leftover]
+    )
+    monkeypatch.setitem(sys.modules, "tests.testing_utils", sibling)
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda _ctx: desktop)
+    tu._HARNESS_KEEPER_UID = ""
+    tu._HARNESS_KEEPER_DOC = None
+    try:
+        assert tu.prepare_windows_writer_factory(object()) == 1
+        leftover.close.assert_not_called()
+        desktop.setActiveFrame.assert_called_once_with(frame)
+        assert tu._HARNESS_KEEPER_UID == "1"
+    finally:
+        tu.set_harness_keeper_uid("")
+
+
+def test_windows_factory_load_args_named_for_any_leftover_factory():
+    """GHA 34602219973: leftover swriter reuses _wa_factory; Calc stays unique."""
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_FACTORY_SEQ
+    tu._WINDOWS_FACTORY_SEQ = 0
+    try:
+        assert tu._windows_factory_load_args("private:factory/swriter", 0) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/scalc", 0) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory",
+            8 | 55,
+        )
+        # Consecutive leftover Hidden swriter must reuse the same CREATE
+        # name (rich_html._wa_calc_html). Unique _wa_factory_5 hung.
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
+            "_wa_factory_1",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/sdraw", 2) == (
+            "_wa_factory_2",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
+            "_wa_factory_3",
+            8 | 55,
+        )
+        # Writer reuse must not consume the Calc/Draw seq.
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory",
+            8 | 55,
+        )
+    finally:
+        tu._WINDOWS_FACTORY_SEQ = saved
+
+
 def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypatch):
-    """Second text_helpers Writer factory hung after leftovers + one close_doc."""
+    """GHA 34602219973: second leftover Hidden swriter hung at target=_wa_factory_5.
+
+    First leftover swriter (_wa_factory_4) + close_doc returned. Unique
+    CREATE stacked an empty named frame; the next unique name hung 30s
+    in loadComponentFromURL. Consecutive leftover Hidden
+    create_native_doc(writer) must reuse one CREATE|GLOBAL name.
+    """
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -355,21 +471,47 @@ def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypat
     desktop = MagicMock()
     desktop.loadComponentFromURL.return_value = MagicMock()
     calls = []
+    saved_seq = tu._WINDOWS_FACTORY_SEQ
+    tu._WINDOWS_FACTORY_SEQ = 0
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
         tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 2
     )
-    with (
-        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-        patch("uno.createUnoStruct", return_value=MagicMock()),
-        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
-    ):
-        TestingFactory.create_native_doc(object(), "writer")
-    assert calls == ["prepare"]
-    desktop.loadComponentFromURL.assert_called_once()
+    try:
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("uno.createUnoStruct", return_value=MagicMock()),
+            patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+        ):
+            TestingFactory.create_native_doc(object(), "writer")
+            assert calls == ["prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/swriter"
+            assert args[1] == "_wa_factory"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "writer")
+            assert calls == ["prepare", "prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/swriter"
+            assert args[1] == "_wa_factory"
+            assert args[2] == (8 | 55)
+            # Leftover Calc still increments so a live pooled Calc is not replaced.
+            TestingFactory.create_native_doc(object(), "calc")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/scalc"
+            assert args[1] == "_wa_factory_1"
+            assert args[2] == (8 | 55)
+    finally:
+        tu._WINDOWS_FACTORY_SEQ = saved_seq
 
 
-def test_create_native_doc_windows_calc_does_not_prepare_writer_factory(monkeypatch):
+def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
+    """GHA 34599838644 / 34602219973: leftover scalc stays unique under leftover_open>0.
+
+    document_research_uno holds a pooled Calc and a budget Calc at once.
+    Consecutive leftover Hidden create_native_doc(calc) must not share a
+    frame name. Writer reuse uses _wa_factory and must not steal the seq.
+    """
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -378,17 +520,111 @@ def test_create_native_doc_windows_calc_does_not_prepare_writer_factory(monkeypa
     desktop = MagicMock()
     desktop.loadComponentFromURL.return_value = MagicMock()
     calls = []
+    saved_seq = tu._WINDOWS_FACTORY_SEQ
+    tu._WINDOWS_FACTORY_SEQ = 0
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
-        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare")
+        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 2
     )
-    with (
-        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-        patch("uno.createUnoStruct", return_value=MagicMock()),
-        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
-    ):
-        TestingFactory.create_native_doc(object(), "calc")
-    assert calls == []
+    try:
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("uno.createUnoStruct", return_value=MagicMock()),
+            patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+        ):
+            TestingFactory.create_native_doc(object(), "calc")
+            assert calls == ["prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/scalc"
+            assert args[1] == "_wa_factory_1"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "calc")
+            assert calls == ["prepare", "prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/scalc"
+            assert args[1] == "_wa_factory_2"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "writer")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/swriter"
+            assert args[1] == "_wa_factory"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "calc")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/scalc"
+            assert args[1] == "_wa_factory_3"
+            assert args[2] == (8 | 55)
+    finally:
+        tu._WINDOWS_FACTORY_SEQ = saved_seq
+
+
+def test_windows_should_reuse_writer_only_with_leftovers(monkeypatch):
+    """GHA 34602219973: second leftover swriter hung after close of uid=34."""
+    import plugin.tests.testing_utils as tu
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+    assert tu._windows_should_reuse_writer(object()) is True
+    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 0)
+    assert tu._windows_should_reuse_writer(object()) is False
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+    assert tu._windows_should_reuse_writer(object()) is False
+    assert tu._windows_should_reuse_writer(None) is False
+
+
+def test_close_doc_skips_windows_writer_when_leftovers_open(monkeypatch):
+    """GHA 34602219973: close_doc uid=34 returned; next unique swriter hung."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    doc.RuntimeUID = "34"
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    tu._WINDOWS_LEFTOVER_OPEN = 2
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "reactivate_harness_keeper", lambda desktop=None: True)
+    try:
+        TestingFactory.close_doc(doc)
+        doc.close.assert_not_called()
+    finally:
+        tu._WINDOWS_LEFTOVER_OPEN = saved
+
+
+def test_native_doc_windows_reuses_writer_when_leftovers_open(monkeypatch):
+    """Second leftover swriter must not factory-load after the first close."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    writer = MagicMock(name="pooled_writer")
+    created = []
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+    monkeypatch.setattr(tu, "reset_native_doc", lambda *a, **k: None)
+    monkeypatch.setattr(tu, "_writer_pool_is_clean", lambda _doc: True)
+    monkeypatch.setattr(
+        TestingFactory,
+        "create_native_doc",
+        lambda *a, **k: created.append("create") or writer,
+    )
+    monkeypatch.setattr(
+        TestingFactory, "close_doc", lambda *a, **k: created.append("close")
+    )
+    tu._NATIVE_DOC_POOL.clear()
+    ctx = object()
+    try:
+        with TestingFactory.native_doc(ctx, "writer") as first:
+            assert first is writer
+        with TestingFactory.native_doc(ctx, "writer") as second:
+            assert second is writer
+        assert created == ["create"]
+    finally:
+        tu._NATIVE_DOC_POOL.clear()
 
 
 def test_create_native_doc_posix_does_not_prepare_writer_factory(monkeypatch):
@@ -519,6 +755,8 @@ def test_close_doc_windows_writer_reactivates_keeper(monkeypatch):
     monkeypatch.setattr("gc.collect", lambda: None)
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     tu.set_harness_keeper_uid("1", keeper)
+    saved_leftover = tu._WINDOWS_LEFTOVER_OPEN
+    tu._WINDOWS_LEFTOVER_OPEN = 0
     doc = MagicMock()
     doc.RuntimeUID = "99"
     doc.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
@@ -527,6 +765,7 @@ def test_close_doc_windows_writer_reactivates_keeper(monkeypatch):
         doc.close.assert_called_once_with(True)
         desktop.setActiveFrame.assert_called_once_with(frame)
     finally:
+        tu._WINDOWS_LEFTOVER_OPEN = saved_leftover
         tu.set_harness_keeper_uid("")
 
 

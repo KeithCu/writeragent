@@ -156,6 +156,77 @@ docs still close — that returned on 34554275072), reactivate the
 keeper again (`html_paste_writer: leftovers open=…`,
 `html_paste_writer: keeper reactivated`).
 
+GHA 34593327841 (master `754620ba`, tip of `#720`): first Windows UNO
+run after that merge. `insert_cell_html_rich` again left uid=26/27
+(`close skipped pasted=True`). Calc + chatbot suites stayed green.
+`test_list_nearby_excludes_active` failed in ~1s with PyUNO
+`Couldn't convert <traceback object> … getTypes` (no Python traceback;
+office alive). The next test hung 30s in
+`create_native_doc(private:factory/scalc)` inside
+`_create_nearby_test_env`. `#720` only prepared *Writer* factory loads.
+Leftover paste Writers as desktop current also wedge a later **Calc**
+factory, and `list_nearby_files` walked those leftovers without a
+per-component try/except. Product: skip a broken desktop component in
+`_office_model_from_desktop_element` / `_collect_open_file_urls` (do
+not `log.exception` that walk — formatting a UNO exception can raise
+the same traceback conversion). Harness: `prepare_windows_writer_factory`
+before every Windows `private:factory/` load. Breadcrumbs:
+`document_research_uno: create/store/close/list_nearby start/done`.
+
+GHA 34595675515 (`#722` first tip): breadcrumbs named the fail
+*after* `create budget calc start` + `leftovers open=3
+uids=['27','26','1'] keeper=-` and *before* `create budget calc done`.
+The traceback exception is `loadComponentFromURL(scalc)`, not
+`list_nearby_files`. `#720` stored the keeper on `tests.testing_utils`;
+suites import `plugin.tests.testing_utils` (same file, second object)
+so every prepare printed `keeper=-` and never `setActiveFrame`. Same
+dual-module family as #719 recycle. `set_harness_keeper_uid` now
+imports both names and writes both; `prepare` / `reactivate` adopt
+from the sibling if this copy is empty
+(`html_paste_writer: keeper adopted from sibling`).
+
+GHA 34597506651 (`054a03e0`, second #722 tip): keeper sync worked.
+`document_research_uno` all three tests passed (`leftovers open=2
+uids=['27','26'] frames=['-','-'] keeper=1`, `keeper reactivated`,
+Calc factory loads finished, `list_nearby_files done status=ok`).
+Linux PR CI 34597434533 was green. Hang moved to
+`doc.test_text_helpers_uno`: first swriter (`…_paragraph_bold_run_no_newline`)
+printed leftovers + keeper reactivate, created uid=34, `close_doc` OK.
+The *next* swriter (`…_multi_para_joins_with_newline`) hung 30s in
+`create_native_doc` after the same leftover log + keeper reactivate.
+`setActiveFrame` is not enough for a second consecutive Hidden `_blank`
+while leftover `_wa_calc_html` frames remain (same Windows frame-manager
+collision `rich_html.py` already avoids).
+
+GHA 34599838644 (`afae5938`, swriter-only named target): Linux PR CI
+34599725706 green. Windows `workflow_dispatch` never reached
+text_helpers. Same leftovers + `keeper=1` + reactivate, then Calc
+`_blank` failed in ~1s (`Couldn't convert <traceback object> … getTypes`
+on `loadComponentFromURL(scalc)`) and the next Calc `_blank` hung 30s
+in `create_native_doc`. Calc `_blank` + leftovers is not reliable.
+With leftovers open, leftover Hidden `swriter` reuses one CREATE|GLOBAL
+name `_wa_factory` (same pattern as `rich_html._wa_calc_html`). Leftover
+Calc/Draw/Impress still use a unique `_wa_factory_N` so a live pooled
+Calc is not replaced. Do not close leftovers (34556185752).
+
+GHA 34601787293 (`fc34f0c6`) and 34602219973 (`ec40ed29`): Linux PR CI
+34602130908 green. Unique targets loaded leftover Calc
+(`document_research_uno` passed=3, `_wa_factory_1/2/3`) and the first
+leftover Hidden swriter
+(`doc.test_text_helpers_uno.test_get_string_without_tracked_deletions_paragraph_bold_run_no_newline`,
+`target=_wa_factory_4`, uid=34, `close_doc` OK, leftovers still
+uids=`['27','26']`). The *next* leftover Hidden swriter
+(`…_multi_para_joins_with_newline`, `target=_wa_factory_5`) hung 30s in
+`loadComponentFromURL` — no RuntimeException. Unique CREATE stacked
+empty named frames after harness Writer close; it did not fix the
+original consecutive leftover Hidden swriter hang (34597506651).
+Windows then (1) reuses one CREATE|GLOBAL name `_wa_factory` for
+leftover `swriter` so a direct `create_native_doc(writer)` replaces
+instead of stacking, and (2) pools that first leftover Writer and
+skips Writer `close_doc` while leftovers remain
+(`native_doc: leftover writer reuse`,
+`close_doc: skip writer close leftovers`).
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
@@ -165,16 +236,28 @@ POSIX still `close_doc`. Breadcrumbs:
 `peer_message_uno: close_doc start/done uid=…` (POSIX).
 `html_paste_writer: leftovers open=N uids=…`,
 `html_paste_writer: keeper reactivated`,
-`create_native_doc: windows writer factory leftover_open=N`,
-`close_doc: start/done uid=…` (Windows Writer). Do **not** fold
+`create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
+`create_native_doc: load start/done` (leftover Windows factory),
+`document_research_uno: create/store/close/list_nearby start/done`,
+`close_doc: start/done uid=…` (Windows Writer),
+`native_doc: leftover writer reuse`,
+`close_doc: skip writer close leftovers open=N uid=…`. Do **not** fold
 Draw-family settle into `close_doc`. Not a product fix.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
-`html_paste_writer: leftovers open` and `keeper reactivated` before
-the first text_helpers Writer load, both text_helpers tests
-`TEST end … OK`, later suites including the peer file last (six peer
-`TEST end … OK`), then
+`html_paste_writer: leftovers open` with a real `keeper=` uid (not
+`-`), optional `keeper adopted from sibling`, and `keeper reactivated` before
+Windows `private:factory/` loads (Writer **and** Calc), leftover
+swriter loads using `target=_wa_factory` (not `_blank` / not
+`_wa_factory_N`) plus leftover Calc using `target=_wa_factory_N`,
+`create_native_doc: load done`, `native_doc: leftover writer reuse` and
+no second leftover swriter factory after the first text_helpers Writer,
+`document_research_uno` three tests
+`TEST end … OK`, both text_helpers tests `TEST end … OK` (no 30s
+Timeout in `create_native_doc` on
+`…_multi_para_joins_with_newline` / `target=_wa_factory_5`), later
+suites including the peer file last (six peer `TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 

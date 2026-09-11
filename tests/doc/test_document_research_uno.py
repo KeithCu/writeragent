@@ -16,21 +16,38 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
 
+def _nearby_progress(msg: str) -> None:
+    """Name the last UNO call if Windows GHA fails without a Python traceback."""
+    from plugin.testing_runner import _progress
+
+    _progress("document_research_uno: %s" % msg)
+
+
 def _create_nearby_test_env(ctx, active_doc):
     temp_dir = tempfile.mkdtemp(prefix="wa_nearby_")
 
+    # GHA 34593327841: first fail had no Python traceback; the next scalc
+    # factory hung 30s. Breadcrumbs name store/close vs list_nearby.
+    _nearby_progress("create budget calc start")
     budget = TestingFactory.create_native_doc(ctx, "calc", hidden=True)
+    _nearby_progress("create budget calc done")
     sheet = budget.Sheets.getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula("100")
     sheet.getCellByPosition(0, 1).setFormula("Q4")
     sheet.getCellByPosition(1, 1).setFormula("42")
 
     budget_path = os.path.join(temp_dir, "Budget_2026.ods")
+    _nearby_progress("store budget start")
     budget.storeAsURL(uno.systemPathToFileUrl(budget_path), ())
+    _nearby_progress("store budget done")
+    _nearby_progress("close budget start")
     TestingFactory.close_doc(budget)
+    _nearby_progress("close budget done")
 
     active_path = os.path.join(temp_dir, "Report.ods")
+    _nearby_progress("store active start")
     active_doc.storeAsURL(uno.systemPathToFileUrl(active_path), ())
+    _nearby_progress("store active done")
 
     return temp_dir, budget_path
 
@@ -53,7 +70,9 @@ def _cleanup_nearby_test_env(temp_dir):
 def test_list_nearby_excludes_active(ctx, doc):
     temp_dir, _ = _create_nearby_test_env(ctx, doc)
     try:
+        _nearby_progress("list_nearby_files start")
         result = list_nearby_files(ctx, doc)
+        _nearby_progress("list_nearby_files done status=%s" % result.get("status"))
         assert result["status"] == "ok"
         names = {f["name"] for f in result["files"]}
         assert "Budget_2026.ods" in names
