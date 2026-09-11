@@ -13,7 +13,7 @@ _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
-from eval_catalog import _headless_registry, build_eval_tool_schemas
+from eval_catalog import apply_schema_patches, _headless_registry, build_eval_tool_schemas
 from eval_worlds import CalcWorld, DrawWorld, WriterWorld
 from string_eval_tools import dispatch_string_tool
 
@@ -83,6 +83,42 @@ def test_calc_ranges_domain_advertises_sort() -> None:
     names = {_schema_name(s) for s in build_eval_tool_schemas(kind="calc", active_domain="ranges")}
     assert {"sort_range", "specialized_workflow_finished"} <= names
     assert "sort_range" not in _names("calc")
+
+
+def test_apply_schema_patches_rewrites_sort_range_description() -> None:
+    schemas = build_eval_tool_schemas(kind="calc", active_domain="ranges")
+    patched = apply_schema_patches(
+        schemas, {"sort_range": {"description": "PATCHED_SORT_DESC"}}
+    )
+    found = False
+    for row in patched:
+        fn = row.get("function") if isinstance(row.get("function"), dict) else row
+        if fn.get("name") == "sort_range":
+            assert fn["description"] == "PATCHED_SORT_DESC"
+            found = True
+    assert found
+    # Original catalog object is not mutated (deepcopy).
+    original = next(
+        row
+        for row in schemas
+        if (row.get("function") or row).get("name") == "sort_range"
+    )
+    orig_fn = original.get("function") or original
+    assert orig_fn["description"] != "PATCHED_SORT_DESC"
+
+
+def test_apply_schema_patches_rewrites_values_param() -> None:
+    schemas = build_eval_tool_schemas(kind="calc")
+    patched = apply_schema_patches(
+        schemas,
+        {"write_formula_range": {"parameters": {"values": "PATCHED_VALUES_DESC"}}},
+    )
+    fn = next(
+        (row.get("function") or row)
+        for row in patched
+        if (row.get("function") or row).get("name") == "write_formula_range"
+    )
+    assert fn["parameters"]["properties"]["values"]["description"] == "PATCHED_VALUES_DESC"
 
 
 def test_unsupported_core_names() -> None:

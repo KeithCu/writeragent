@@ -8,10 +8,34 @@ from typing import Any, Callable, Optional
 
 # Token penalty weight: score -= LAMBDA * (total_tokens / 1000)
 TOKEN_PENALTY_LAMBDA = 0.01
+# Soft cap: winners should stay under ~2× the seed slice. Overflow is
+# (len / (ratio * baseline) - 1); weight 1.0 zeros a perfect score at 4×.
+SLICE_LENGTH_MAX_RATIO = 2.0
+SLICE_LENGTH_PENALTY_LAMBDA = 1.0
+
+
+def slice_length_penalty(
+    slice_text: str,
+    baseline_len: int,
+    *,
+    max_ratio: float = SLICE_LENGTH_MAX_RATIO,
+    weight: float = SLICE_LENGTH_PENALTY_LAMBDA,
+) -> float:
+    """Penalty for a proposed slice longer than ``max_ratio`` × the seed."""
+    if baseline_len <= 0 or max_ratio <= 0 or weight <= 0:
+        return 0.0
+    limit = max_ratio * baseline_len
+    n = len(slice_text or "")
+    if n <= limit:
+        return 0.0
+    return weight * (n / limit - 1.0)
 
 
 def _get_total_tokens(pred: Any) -> int:
-    """Extract total tokens from prediction (DSPy get_lm_usage)."""
+    """Extract total tokens from prediction (DSPy get_lm_usage or live attrs)."""
+    direct = getattr(pred, "total_tokens", None)
+    if isinstance(direct, int) and direct > 0:
+        return direct
     try:
         usage = pred.get_lm_usage()
         if usage and isinstance(usage, dict):
@@ -32,6 +56,8 @@ def _get_total_tokens(pred: Any) -> int:
 def make_judge_metric(
     judge_lm: Any,
     token_penalty_lambda: float = TOKEN_PENALTY_LAMBDA,
+    slice_length_max_ratio: float = SLICE_LENGTH_MAX_RATIO,
+    slice_length_penalty_lambda: float = SLICE_LENGTH_PENALTY_LAMBDA,
 ) -> Callable[[Any, Any, Optional[Any]], float]:
     """
     Return a metric callable (example, pred, trace=None) -> float for MIPROv2.
@@ -63,6 +89,15 @@ def make_judge_metric(
             score = hard
         total_tokens = _get_total_tokens(pred)
         penalty = token_penalty_lambda * (total_tokens / 1000.0)
+        slice_text = getattr(pred, "slice_text", None)
+        baseline_len = getattr(pred, "baseline_slice_len", None)
+        if isinstance(slice_text, str) and isinstance(baseline_len, int):
+            penalty += slice_length_penalty(
+                slice_text,
+                baseline_len,
+                max_ratio=slice_length_max_ratio,
+                weight=slice_length_penalty_lambda,
+            )
         return max(0.0, score - penalty)
 
     return metric

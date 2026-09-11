@@ -46,6 +46,8 @@ Override model for optimize:
 
 - `python run_optimize.py --model google/gemini-3.5-flash-lite` / `--api-base ...` / `--api-key ...`
 
+**Optimize students:** `--student llm` (default) wraps the same `llm_chat_eval` tool loop as `run_eval.py`. `--student react-mock` is the old DSPy ReAct + `tools_lo` path (comparison only; do not paste that JSON into `prompts.py`).
+
 ## Run
 
 **Eval only (see per-example success without optimizing):**
@@ -65,12 +67,19 @@ python run_eval.py --backend lo --student scripted --no-bust-cache -v   # headle
 
 Shows for each example: task_id, expected/reject/oracle pass or miss, correctness, tokens, score, and a short doc snippet. Pytest covers the string pack (`tests/scripts/test_scripted_eval_pack.py`). The LO pack is skipped unless `soffice` and real `uno` are importable. Do **not** set `WRITERAGENT_TESTING=1` for LO eval. Do not use `tests/eval_runner.py`. Use `-v`/`--verbose` to print each tool call. Use `--compare-with` to run both the current prompt and the prompt from a DSPy JSON file, then report which scores higher. Cache-busting is enabled by default (unique suffix per example) to avoid OpenRouter prompt cache; use `--no-bust-cache` to disable.
 
-**Full optimization (MIPROv2):**
+**Full optimization (MIPROv2, live student):**
+
+Default `--student llm` proposes replacements for a **named slice** (not the whole ambient system prompt) and scores each candidate by running `run_eval` / `llm_chat_eval` (production tool schemas + sidebar-like tool loop). Instruction-only: `max_bootstrapped_demos=0`, `max_labeled_demos=0`. A length penalty prefers winners under ~2× the current slice. Output is `optimized_slice.json` plus `optimized_slice_slice.json` (plain instruction text). **Do not auto-merge** into `plugin/framework/prompts.py` or `plugin/calc/cells.py` — copy by hand after a ranking re-run.
 
 ```bash
 export OPENROUTER_API_KEY="your-key"
-python run_optimize.py
+python run_optimize.py --auto light -j 1 \
+  -e data_sorting,tax_column --slice calc_core
 ```
+
+That is the cheap Calc-slice smoke: light MIPRO, one worker, the two Calc ranking tasks, `CALC_CORE_DIRECTIVES` only.
+
+Other slices: `writer_core`, `sort_range`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
 
 Pick a different model:
 
@@ -79,12 +88,14 @@ python run_optimize.py --model google/gemini-3.5-flash-lite
 python run_optimize.py -m openai/gpt-oss-120b:nitro -k sk-...
 ```
 
-This runs MIPROv2 in **0-shot instruction-only** mode: it proposes alternative system prompts and keeps the one that scores best on the **judge-based metric** (same LLM-as-a-Judge as `run_eval_multi`, plus token penalty). Output is saved to `optimized_writer_prompt.json`.
-
+- **`--student llm|react-mock`**: live eval loop (default) vs DSPy ReAct mocks.
+- **`--slice NAME`**: fragment MIPROv2 rewrites (`calc_core` default).
+- **`-e` / `--example`**: comma-separated `task_id` filter (same idea as `run_eval.py`).
 - **`--judge`** / **`-J`**: Judge model for grading (default `openai/gpt-oss-120b:nitro`). Same dataset and `gold_standards.json` as run_eval_multi. Golds are hand-written from the rubrics; `--generate-golds` is an optional teacher merge, not a ranking prerequisite.
-- **`-j N`** / **`--jobs N`**: parallel evals (default 4).
+- **`-j N`** / **`--jobs N`**: parallel evals (default 4). Use `1` for a smoke.
 - **`--auto light|medium|heavy`**: exploration level (default `light`). Use `medium` or `heavy` for more tries when your prompt is complicated.
 - **`-t N`** / **`--trials N`**: explicit number of Bayesian optimization trials (overrides `--auto`; uses more exploration).
+- **`--no-length-penalty`**: disable the ~2× slice-length penalty.
 
 ## Metric
 
@@ -112,11 +123,11 @@ Hard pass is the **exported final document** plus process oracles (`oracles.py` 
 
 `-j N` in `run_eval_multi.py` is **ThreadPoolExecutor** over **models** (default **20**; each model still runs its 17 tasks serially). UNO is already serialized on `_lo_thread`. Do **not** `ProcessPoolExecutor` against one soffice. Scripted green runs use `-j 1`. Per-task banners include `model=` so interleaved workers are readable.
 
-DSPy `build_program()` can still pass `tool_names` to restrict which tools the model sees (for “how many tools is too many” sweeps).
+DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to restrict which tools the ReAct mock sees (for “how many tools is too many” sweeps). Live `--student llm` uses `eval_catalog.build_eval_tool_schemas` (same as `run_eval_multi`).
 
 ## Applying the result
 
-After a run, open `optimized_writer_prompt.json` and copy the optimized instruction text into `core/constants.py` as `DEFAULT_CHAT_SYSTEM_PROMPT` (or merge with `FORMAT_RULES` as in the current prompt). Then test in WriterAgent with the same evaluation tasks.
+After a live run, open `optimized_slice_slice.json` and copy **only that slice** into the matching production constant (`CALC_CORE_DIRECTIVES`, `WRITER_CORE_DIRECTIVES`, or the tool description in `plugin/calc/cells.py`). Then re-run `run_eval.py` / `run_eval_multi.py` on the same tasks. Do not paste a ReAct `optimized_writer_prompt.json` into the sidebar prompt.
 
 ## Multi-model evaluation (intelligence per dollar)
 
@@ -160,8 +171,8 @@ python merge_benchmark_results.py \
 - **Dataset** (`dataset.py`): 17 fixed tasks (12 Writer + Draw flowchart + 2 Calc + 2 `=PY` dest) with assigned `category` (structural or creative).
 - **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces.
 - **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-5.6-luna`; not used during ranking).
-- **Program** (`program.py`): DSPy `WriterAssistant` (ReAct) with mock environment.
-- **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables. Shared via `eval_core` for `run_optimize` (MIPROv2) and `run_eval_multi`.
+- **Program**: default `program_llm.LiveEvalStudent` injects a named slice then calls `llm_chat_eval` (same student as `run_eval_multi`). Optional `program.py` `WriterAssistant` (ReAct + mocks) behind `--student react-mock`.
+- **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables; token penalty; slice-length penalty (~2× seed). Shared via `eval_core` / `metric.py` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks by hard pass / agent / quality; C²/$ is secondary. `--models` is required.
 
 ### Benchmark results (2026-09-11, 17-task string harness)
