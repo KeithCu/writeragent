@@ -527,6 +527,75 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
         tu._WINDOWS_FACTORY_SEQ = saved_seq
 
 
+def test_windows_should_reuse_writer_only_with_leftovers(monkeypatch):
+    """GHA 34602219973: second leftover swriter hung after close of uid=34."""
+    import plugin.tests.testing_utils as tu
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+    assert tu._windows_should_reuse_writer(object()) is True
+    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 0)
+    assert tu._windows_should_reuse_writer(object()) is False
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+    assert tu._windows_should_reuse_writer(object()) is False
+    assert tu._windows_should_reuse_writer(None) is False
+
+
+def test_close_doc_skips_windows_writer_when_leftovers_open(monkeypatch):
+    """GHA 34602219973: close_doc uid=34 returned; next unique swriter hung."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    doc.RuntimeUID = "34"
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    tu._WINDOWS_LEFTOVER_OPEN = 2
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "reactivate_harness_keeper", lambda desktop=None: True)
+    try:
+        TestingFactory.close_doc(doc)
+        doc.close.assert_not_called()
+    finally:
+        tu._WINDOWS_LEFTOVER_OPEN = saved
+
+
+def test_native_doc_windows_reuses_writer_when_leftovers_open(monkeypatch):
+    """Second leftover swriter must not factory-load after the first close."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    writer = MagicMock(name="pooled_writer")
+    created = []
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+    monkeypatch.setattr(tu, "reset_native_doc", lambda *a, **k: None)
+    monkeypatch.setattr(tu, "_writer_pool_is_clean", lambda _doc: True)
+    monkeypatch.setattr(
+        TestingFactory,
+        "create_native_doc",
+        lambda *a, **k: created.append("create") or writer,
+    )
+    monkeypatch.setattr(
+        TestingFactory, "close_doc", lambda *a, **k: created.append("close")
+    )
+    tu._NATIVE_DOC_POOL.clear()
+    ctx = object()
+    try:
+        with TestingFactory.native_doc(ctx, "writer") as first:
+            assert first is writer
+        with TestingFactory.native_doc(ctx, "writer") as second:
+            assert second is writer
+        assert created == ["create"]
+    finally:
+        tu._NATIVE_DOC_POOL.clear()
+
+
 def test_create_native_doc_posix_does_not_prepare_writer_factory(monkeypatch):
     from unittest.mock import MagicMock, patch
 
@@ -655,6 +724,8 @@ def test_close_doc_windows_writer_reactivates_keeper(monkeypatch):
     monkeypatch.setattr("gc.collect", lambda: None)
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     tu.set_harness_keeper_uid("1", keeper)
+    saved_leftover = tu._WINDOWS_LEFTOVER_OPEN
+    tu._WINDOWS_LEFTOVER_OPEN = 0
     doc = MagicMock()
     doc.RuntimeUID = "99"
     doc.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
@@ -663,6 +734,7 @@ def test_close_doc_windows_writer_reactivates_keeper(monkeypatch):
         doc.close.assert_called_once_with(True)
         desktop.setActiveFrame.assert_called_once_with(frame)
     finally:
+        tu._WINDOWS_LEFTOVER_OPEN = saved_leftover
         tu.set_harness_keeper_uid("")
 
 

@@ -208,6 +208,16 @@ With leftovers open, every Windows `private:factory/` load uses a unique
 `_wa_factory_N` target and CREATE|GLOBAL (`8|55`), not `_blank`. Do not
 close leftovers (34556185752).
 
+GHA 34601787293 (`fc34f0c6`) and 34602219973 (`ec40ed29`): unique
+targets loaded all three leftover Calc factories (`_wa_factory_1..3`,
+`document_research_uno` passed=3) and the first leftover swriter
+(`_wa_factory_4` uid=34, `close_doc` done). The *next* unique swriter
+(`_wa_factory_5`) hung 30s. Unique CREATE is not enough after a harness
+Writer `close_doc` while leftovers remain. Windows then reuses that
+first leftover Writer (wipe-and-reuse pool) and skips Writer `close_doc`
+while leftovers are open (`native_doc: leftover writer reuse`,
+`close_doc: skip writer close leftovers`).
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
@@ -220,7 +230,9 @@ POSIX still `close_doc`. Breadcrumbs:
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: create/store/close/list_nearby start/done`,
-`close_doc: start/done uid=…` (Windows Writer). Do **not** fold
+`close_doc: start/done uid=…` (Windows Writer),
+`native_doc: leftover writer reuse`,
+`close_doc: skip writer close leftovers open=N uid=…`. Do **not** fold
 Draw-family settle into `close_doc`. Not a product fix.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
@@ -229,7 +241,9 @@ branch: `os=windows-latest`, `ci_debug=true`. Look for
 `-`), optional `keeper adopted from sibling`, and `keeper reactivated` before
 Windows `private:factory/` loads (Writer **and** Calc), leftover
 factory loads using `target=_wa_factory_N` (not `_blank`) plus
-`create_native_doc: load done`, `document_research_uno` three tests
+`create_native_doc: load done`, `native_doc: leftover writer reuse` and
+no second leftover swriter factory after the first text_helpers Writer,
+`document_research_uno` three tests
 `TEST end … OK`, both text_helpers tests `TEST end … OK` (no 30s
 Timeout in `create_native_doc`), later suites including the peer
 file last (six peer `TEST end … OK`), then
