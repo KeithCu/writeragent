@@ -206,8 +206,8 @@ on `loadComponentFromURL(scalc)`) and the next Calc `_blank` hung 30s
 in `create_native_doc`. Calc `_blank` + leftovers is not reliable.
 With leftovers open, leftover Hidden `swriter` reuses one CREATE|GLOBAL
 name `_wa_factory` (same pattern as `rich_html._wa_calc_html`). Leftover
-Calc/Draw/Impress still use a unique `_wa_factory_N` so a live pooled
-Calc is not replaced. Do not close leftovers (34556185752).
+Draw/Impress still use a unique `_wa_factory_N`. Leftover Calc later
+moved to `_wa_scalc` (34633295036). Do not close leftovers (34556185752).
 
 GHA 34601787293 (`fc34f0c6`) and 34602219973 (`ec40ed29`): Linux PR CI
 34602130908 green. Unique targets loaded leftover Calc
@@ -286,7 +286,9 @@ POSIX still `close_doc`. Breadcrumbs:
 `html_paste_writer: keeper reactivated`,
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `create_native_doc: load start/done` (leftover Windows factory),
-`document_research_uno: create/store/close/list_nearby start/done`,
+`document_research_uno: store budget via active start/done`,
+`document_research_uno: open_document_for_read start/done`,
+`document_research_uno: store/list_nearby start/done`,
 `close_doc: start/done uid= leftovers=` (Windows Writer),
 `native_doc: leftover writer reuse`,
 `close_doc: skip writer close leftovers open=N uid=…`,
@@ -312,13 +314,47 @@ survived, so leftover-Writer reuse is not a proven Draw-close killer.
 both runner copies. Windows now **skips** that Math OLE `close_doc`
 (see the 34607010446 paragraph above). No product change.
 
+GHA 34633295036 (master `bdb421bb`, tip of `#724`): typecheck + mock
+pytest OK. `insert_cell_html_rich` again left uid=26 then uid=27
+(`close skipped pasted=True`, `_wa_calc_html`). Chatbot suites OK;
+grep suite skipped. `test_list_nearby_excludes_active` printed
+`leftovers open=2 uids=['27','26'] frames=['-','-'] keeper=1`,
+`keeper reactivated`, then unique leftover `scalc`
+`target=_wa_factory_1 flags=63` failed in ~766ms (`Couldn't convert
+<traceback object> … getTypes`; office alive; `pre_open` not a
+dispose). `test_open_document_for_read_hidden_readonly` then hung 30s
+on `target=_wa_factory_2`. Unique leftover Calc names are the same
+stacking family as leftover swriter `_wa_factory_5` (34602219973).
+The pooled `@with_native_doc` Calc is still the leftover_open=0
+`_blank` workbook, so a shared leftover-Calc name does not replace
+it. Leftover `scalc` now reuses one CREATE|GLOBAL name `_wa_scalc`.
+`document_research_uno` writes Budget/Report via that pooled Calc
+(`store budget via active`) and does **not** open a second factory
+Calc. Draw/Impress stay unique `_wa_factory_N`.
+
+GHA 34636251918 (this branch, after store-via-active):
+`test_list_nearby_excludes_active` OK. `open_document_for_read` of
+that Budget file then `loadComponentFromURL(..., "_default", 0)`
+raised `Could not create system bitmap!` The next sibling open hung
+30s at the same call (office alive). Leftover Hidden `_wa_calc_html`
+frames poison `_default` / `_blank` (34597506651). Product
+`open_document_for_read` now uses one CREATE|GLOBAL name
+`_wa_doc_research` on Windows (same pattern as `rich_html._wa_calc_html`).
+Hidden+ReadOnly and the reuse / close-flag contract are unchanged.
+POSIX keeps `_default`.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
 `-`), optional `keeper adopted from sibling`, and `keeper reactivated` before
 Windows `private:factory/` loads (Writer **and** Calc), leftover
 swriter loads using `target=_wa_factory` (not `_blank` / not
-`_wa_factory_N`) plus leftover Calc using `target=_wa_factory_N`,
+`_wa_factory_N`) plus leftover Calc using `target=_wa_scalc` (not
+`_blank` / not `_wa_factory_N`),
+`document_research_uno: store budget via active start/done` (no
+`create budget calc` / no leftover `scalc` `target=_wa_factory_1`),
+`open_document_for_read` of the sibling using `target=_wa_doc_research`
+(not `_default` / `_blank`) on Windows,
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
 no second leftover swriter factory after the first text_helpers Writer,
 `document_research_uno` three tests

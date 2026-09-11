@@ -419,7 +419,7 @@ def test_prepare_windows_writer_factory_adopts_keeper_from_sibling(monkeypatch):
 
 
 def test_windows_factory_load_args_named_for_any_leftover_factory():
-    """GHA 34602219973: leftover swriter reuses _wa_factory; Calc stays unique."""
+    """GHA 34633295036: leftover swriter/_wa_factory; leftover scalc/_wa_scalc."""
     import plugin.tests.testing_utils as tu
 
     saved = tu._WINDOWS_FACTORY_SEQ
@@ -437,21 +437,27 @@ def test_windows_factory_load_args_named_for_any_leftover_factory():
             "_wa_factory",
             8 | 55,
         )
+        # GHA 34633295036: unique leftover scalc _wa_factory_1 failed,
+        # _wa_factory_2 hung 30s. Stable _wa_scalc; Draw stays unique.
         assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
+            "_wa_scalc",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/sdraw", 2) == (
             "_wa_factory_1",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
+            "_wa_scalc",
+            8 | 55,
+        )
+        # Writer reuse must not consume the Draw seq.
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory",
             8 | 55,
         )
         assert tu._windows_factory_load_args("private:factory/sdraw", 2) == (
             "_wa_factory_2",
-            8 | 55,
-        )
-        assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
-            "_wa_factory_3",
-            8 | 55,
-        )
-        # Writer reuse must not consume the Calc/Draw seq.
-        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
-            "_wa_factory",
             8 | 55,
         )
     finally:
@@ -498,22 +504,23 @@ def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypat
             assert args[0] == "private:factory/swriter"
             assert args[1] == "_wa_factory"
             assert args[2] == (8 | 55)
-            # Leftover Calc still increments so a live pooled Calc is not replaced.
+            # Leftover Calc reuses _wa_scalc (GHA 34633295036).
             TestingFactory.create_native_doc(object(), "calc")
             args = desktop.loadComponentFromURL.call_args.args
             assert args[0] == "private:factory/scalc"
-            assert args[1] == "_wa_factory_1"
+            assert args[1] == "_wa_scalc"
             assert args[2] == (8 | 55)
     finally:
         tu._WINDOWS_FACTORY_SEQ = saved_seq
 
 
 def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
-    """GHA 34599838644 / 34602219973: leftover scalc stays unique under leftover_open>0.
+    """GHA 34633295036: leftover scalc reuses _wa_scalc under leftover_open>0.
 
-    document_research_uno holds a pooled Calc and a budget Calc at once.
-    Consecutive leftover Hidden create_native_doc(calc) must not share a
-    frame name. Writer reuse uses _wa_factory and must not steal the seq.
+    Unique _wa_factory_1 failed (~766ms traceback wrap); _wa_factory_2
+    hung 30s. Consecutive leftover Hidden create_native_doc(calc) must
+    reuse one CREATE|GLOBAL name. Writer reuse uses _wa_factory and
+    must not steal the Draw seq.
     """
     from unittest.mock import MagicMock, patch
 
@@ -539,13 +546,13 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
             assert calls == ["prepare"]
             args = desktop.loadComponentFromURL.call_args.args
             assert args[0] == "private:factory/scalc"
-            assert args[1] == "_wa_factory_1"
+            assert args[1] == "_wa_scalc"
             assert args[2] == (8 | 55)
             TestingFactory.create_native_doc(object(), "calc")
             assert calls == ["prepare", "prepare"]
             args = desktop.loadComponentFromURL.call_args.args
             assert args[0] == "private:factory/scalc"
-            assert args[1] == "_wa_factory_2"
+            assert args[1] == "_wa_scalc"
             assert args[2] == (8 | 55)
             TestingFactory.create_native_doc(object(), "writer")
             args = desktop.loadComponentFromURL.call_args.args
@@ -555,7 +562,12 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
             TestingFactory.create_native_doc(object(), "calc")
             args = desktop.loadComponentFromURL.call_args.args
             assert args[0] == "private:factory/scalc"
-            assert args[1] == "_wa_factory_3"
+            assert args[1] == "_wa_scalc"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "draw")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/sdraw"
+            assert args[1] == "_wa_factory_1"
             assert args[2] == (8 | 55)
     finally:
         tu._WINDOWS_FACTORY_SEQ = saved_seq
