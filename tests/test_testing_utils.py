@@ -415,8 +415,36 @@ def test_prepare_windows_writer_factory_adopts_keeper_from_sibling(monkeypatch):
         tu.set_harness_keeper_uid("")
 
 
+def test_windows_factory_load_args_named_only_for_leftover_swriter():
+    """GHA 34597506651: second consecutive _blank swriter hung; unique CREATE target."""
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_FACTORY_SEQ
+    tu._WINDOWS_FACTORY_SEQ = 0
+    try:
+        assert tu._windows_factory_load_args("private:factory/swriter", 0) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/scalc", 2) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/sdraw", 2) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory_1",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory_2",
+            8 | 55,
+        )
+    finally:
+        tu._WINDOWS_FACTORY_SEQ = saved
+
+
 def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypatch):
-    """Second text_helpers Writer factory hung after leftovers + one close_doc."""
+    """Second text_helpers Writer factory hung after leftovers + one close_doc.
+
+    GHA 34597506651: keeper reactivate printed, first swriter _blank returned,
+    the next _blank hung 30s. Named CREATE|GLOBAL target matches HTML paste
+    (rich_html._wa_calc_html) and must increment so two consecutive factories
+    do not share a frame name.
+    """
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -425,18 +453,31 @@ def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypat
     desktop = MagicMock()
     desktop.loadComponentFromURL.return_value = MagicMock()
     calls = []
+    saved_seq = tu._WINDOWS_FACTORY_SEQ
+    tu._WINDOWS_FACTORY_SEQ = 0
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
         tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 2
     )
-    with (
-        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-        patch("uno.createUnoStruct", return_value=MagicMock()),
-        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
-    ):
-        TestingFactory.create_native_doc(object(), "writer")
-    assert calls == ["prepare"]
-    desktop.loadComponentFromURL.assert_called_once()
+    try:
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("uno.createUnoStruct", return_value=MagicMock()),
+            patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+        ):
+            TestingFactory.create_native_doc(object(), "writer")
+            assert calls == ["prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/swriter"
+            assert args[1] == "_wa_factory_1"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "writer")
+            assert calls == ["prepare", "prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[1] == "_wa_factory_2"
+            assert args[2] == (8 | 55)
+    finally:
+        tu._WINDOWS_FACTORY_SEQ = saved_seq
 
 
 def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
@@ -460,7 +501,11 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
     ):
         TestingFactory.create_native_doc(object(), "calc")
     assert calls == ["prepare"]
-    desktop.loadComponentFromURL.assert_called_once()
+    args = desktop.loadComponentFromURL.call_args.args
+    assert args[0] == "private:factory/scalc"
+    # Calc _blank already succeeds with leftovers; only swriter needs a named target.
+    assert args[1] == "_blank"
+    assert args[2] == 0
 
 
 def test_create_native_doc_posix_does_not_prepare_writer_factory(monkeypatch):

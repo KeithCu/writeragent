@@ -999,6 +999,33 @@ def prepare_windows_writer_factory(ctx) -> int:
     return len(leftover_uids)
 
 
+# Same CREATE|GLOBAL as insert_cell_html_rich (8|55=63). Named target with
+# flags 0 can search instead of creating. Do not reuse "_blank" / "_default"
+# while leftover paste Writers are open — see _windows_factory_load_args.
+_WINDOWS_FACTORY_SEARCH_FLAGS = 8 | 55
+_WINDOWS_FACTORY_SEQ = 0
+
+
+def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[str, int]:
+    """Target + FrameSearchFlag for a Windows factory load.
+
+    GHA 34597506651: keeper sync worked (``keeper=1``, reactivated).
+    First text_helpers ``_blank`` swriter + leftovers returned (uid=34,
+    close_doc OK). The *next* ``_blank`` swriter hung 30s after the same
+    leftover log + keeper reactivate. ``setActiveFrame`` is not enough
+    for a second consecutive Hidden ``_blank`` while leftover
+    ``_wa_calc_html`` frames exist (rich_html.py: not ``_blank`` /
+    ``_default``). Unique CREATE target avoids that collision. Do not
+    close leftovers (34556185752). Calc ``_blank`` already succeeds
+    with leftovers — only swriter needs the named target.
+    """
+    global _WINDOWS_FACTORY_SEQ
+    if leftover_open <= 0 or factory_url != "private:factory/swriter":
+        return "_blank", 0
+    _WINDOWS_FACTORY_SEQ += 1
+    return "_wa_factory_%s" % _WINDOWS_FACTORY_SEQ, _WINDOWS_FACTORY_SEARCH_FLAGS
+
+
 def _reraise_native_open_failure(
     exc: BaseException, factory_url: str, pre_open: str = "no_probe"
 ) -> None:
@@ -1612,16 +1639,18 @@ class TestingFactory:
         from plugin.testing_runner import probe_uno_bridge
 
         leftover_open = 0
+        target, flags = "_blank", 0
         # GHA 34593327841: leftover paste Writers as desktop current hung
         # the next scalc factory (30s) after list_nearby failed. #720 only
         # prepared swriter. Reactivate the keeper before any factory load.
         if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
+            target, flags = _windows_factory_load_args(factory_url, leftover_open)
             from plugin.testing_runner import _progress
 
             _progress(
-                "create_native_doc: windows factory leftover_open=%s url=%s"
-                % (leftover_open, factory_url)
+                "create_native_doc: windows factory leftover_open=%s url=%s target=%s flags=%s"
+                % (leftover_open, factory_url, target, flags)
             )
 
         # Distinguish "bridge already dead" (previous test) from "died during load".
@@ -1634,7 +1663,26 @@ class TestingFactory:
             )
             raise
         try:
-            doc = desktop.loadComponentFromURL(factory_url, "_blank", 0, tuple(props))
+            if sys.platform == "win32" and leftover_open:
+                from plugin.testing_runner import _progress
+
+                _progress(
+                    "create_native_doc: load start url=%s target=%s flags=%s"
+                    % (factory_url, target, flags)
+                )
+            doc = desktop.loadComponentFromURL(factory_url, target, flags, tuple(props))
+            if sys.platform == "win32" and leftover_open:
+                from plugin.testing_runner import _progress
+
+                uid = ""
+                try:
+                    uid = str(getattr(doc, "RuntimeUID", None) or "")
+                except Exception:
+                    uid = ""
+                _progress(
+                    "create_native_doc: load done url=%s target=%s uid=%s"
+                    % (factory_url, target, uid or "-")
+                )
         except Exception as exc:
             _reraise_native_open_failure(exc, factory_url, pre_open=pre_open)
             raise

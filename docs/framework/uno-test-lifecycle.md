@@ -185,6 +185,22 @@ imports both names and writes both; `prepare` / `reactivate` adopt
 from the sibling if this copy is empty
 (`html_paste_writer: keeper adopted from sibling`).
 
+GHA 34597506651 (`054a03e0`, second #722 tip): keeper sync worked.
+`document_research_uno` all three tests passed (`leftovers open=2
+uids=['27','26'] frames=['-','-'] keeper=1`, `keeper reactivated`,
+Calc factory loads finished, `list_nearby_files done status=ok`).
+Linux PR CI 34597434533 was green. Hang moved to
+`doc.test_text_helpers_uno`: first swriter (`…_paragraph_bold_run_no_newline`)
+printed leftovers + keeper reactivate, created uid=34, `close_doc` OK.
+The *next* swriter (`…_multi_para_joins_with_newline`) hung 30s in
+`create_native_doc` after the same leftover log + keeper reactivate.
+`setActiveFrame` is not enough for a second consecutive Hidden `_blank`
+while leftover `_wa_calc_html` frames remain (same Windows frame-manager
+collision `rich_html.py` already avoids). With leftovers open, Windows
+swriter factories now use a unique `_wa_factory_N` target and CREATE|GLOBAL
+(`8|55`), not `_blank`. Do not close leftovers (34556185752). Calc stays
+`_blank`.
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
@@ -194,7 +210,8 @@ POSIX still `close_doc`. Breadcrumbs:
 `peer_message_uno: close_doc start/done uid=…` (POSIX).
 `html_paste_writer: leftovers open=N uids=…`,
 `html_paste_writer: keeper reactivated`,
-`create_native_doc: windows factory leftover_open=N url=…`,
+`create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
+`create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: create/store/close/list_nearby start/done`,
 `close_doc: start/done uid=…` (Windows Writer). Do **not** fold
 Draw-family settle into `close_doc`. Not a product fix.
@@ -203,9 +220,11 @@ Draw-family settle into `close_doc`. Not a product fix.
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
 `-`), optional `keeper adopted from sibling`, and `keeper reactivated` before
-Windows `private:factory/` loads (Writer **and** Calc),
-`document_research_uno` three tests `TEST end … OK`, both
-text_helpers tests `TEST end … OK`, later suites including the peer
+Windows `private:factory/` loads (Writer **and** Calc), leftover
+swriter loads using `target=_wa_factory_N` (not `_blank`) plus
+`create_native_doc: load done`, `document_research_uno` three tests
+`TEST end … OK`, both text_helpers tests `TEST end … OK` (no 30s
+Timeout in `create_native_doc`), later suites including the peer
 file last (six peer `TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
