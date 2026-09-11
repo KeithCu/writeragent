@@ -445,3 +445,6 @@ def test_nearby_uno_env_does_not_open_second_scalc_factory():
     # system bitmap after ``_wa_doc_research``. Windows opens a copy.
     assert "Budget_read.ods" in src
     assert "shutil.copy2" in src
+    # GHA 34655847157: first Hidden copy bitmap-failed; next hung 30s.
+    assert "note_windows_hidden_open_bitmap" in src
+    assert "skip_windows_hidden_open_after_bitmap" in src
