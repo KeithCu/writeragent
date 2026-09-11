@@ -116,6 +116,34 @@ def test_calc_write_formula_range_accepts_scalar_fill() -> None:
     assert res["written"] == 4
 
 
+def test_calc_single_formula_fill_down_adjusts_relative_refs() -> None:
+    """One formula string into a 1-D Tax column matches production fill-down."""
+    calc = CalcWorld("Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5")
+    res = calc.write_formula_range(range=["C2:C5"], values="=B2*0.08")
+    assert res["status"] == "ok"
+    assert res["written"] == 4
+    assert calc.formulas["C2"] == "=B2*0.08"
+    assert calc.formulas["C3"] == "=B3*0.08"
+    assert calc.formulas["C4"] == "=B4*0.08"
+    assert calc.formulas["C5"] == "=B5*0.08"
+    assert calc._grid[2][2] == "=B3*0.08"
+    assert calc._grid[3][2] == "=B4*0.08"
+
+
+def test_calc_json_array_of_identical_formulas_stays_pinned() -> None:
+    """JSON array is exact per-cell; repeating =B2*0.08 still pins every row."""
+    calc = CalcWorld("Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5")
+    pinned = '["=B2*0.08","=B2*0.08","=B2*0.08","=B2*0.08"]'
+    res = calc.write_formula_range(range=["C2:C5"], values=pinned)
+    assert res["status"] == "ok"
+    assert res["written"] == 4
+    assert calc.formulas["C2"] == "=B2*0.08"
+    assert calc.formulas["C3"] == "=B2*0.08"
+    assert calc.formulas["C4"] == "=B2*0.08"
+    assert calc.formulas["C5"] == "=B2*0.08"
+    assert calc._grid[2][2] == "=B2*0.08"
+
+
 def test_sheet_summary_includes_all_rows() -> None:
     calc = CalcWorld("Item\tPrice\nApple\t10\nBanana\t5\nOrange\t8\nPear\t12.5\nNote\tn/a\nTotal\t?")
     summary = calc.get_sheet_summary()

@@ -137,6 +137,13 @@ No formula evaluator. Tax column can still write `0.8` as a value.
 `=PY("result = …"; A1:H500)` is stored as formula text at dest; process
 oracles parse dest vs DataRange.
 
+A single formula string into a **1-D** range fill-down/across-adjusts
+relative A1 refs via [`formula_fill.expand_single_formula`](../../plugin/calc/formula_fill.py)
+(same as production `write_formula_range`). A JSON array of formula
+strings stays exact per-cell (pin). 2-D + one formula, or an import
+failure, falls back to the honest pin. Snapshot `formulas` stores the
+**per-cell** text, not the original pin source on every address.
+
 `sort_range` is production-shaped: one 0-based column, stable,
 non-numeric last (tie-break = two calls). `get_sheet_summary` returns
 the full grid. Snapshot JSON grows `formulas` / `writes` without
