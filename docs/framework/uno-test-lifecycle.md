@@ -357,9 +357,18 @@ GHA 34643210006 (`60c827a8`): `document_research_uno` 3/3 OK
 Later `test_calc_reuse_false_still_empty` leftover `target=_wa_scalc`
 at leftover_open=5 hung 30s. `_wa_scalc` is not a safe leftover Calc
 factory. `native_doc` now wipe-and-reuses the pooled Calc instead of
-loading leftover scalc (`native_doc: leftover calc reuse`). Notebook
-`test_notebook_runner_uno` had two leftover-writer-reuse assertion
-fails on the same run; those are not this leftover-scalc path.
+loading leftover scalc (`native_doc: leftover calc reuse`).
+
+The same run's notebook fails were leftover-driven, not independent:
+HTML-paste Writers (uids 26/27, `close skipped pasted=True`) set
+`leftover_open>0`, so `close_doc` skipped **all** Writer closes —
+including import-filter `_wa_notebook` leftovers (uids 41/42) that
+still held form listeners. `form_run_listeners()` / 
+`wired_run_listener_count` counted every leftover doc
+(`duplicate listeners: 3`). Counts are now per-document. Notebook
+suites use `_wa_notebook_host` (not leftover HTML-paste reuse).
+`close_doc` still skips leftover paste Writers, but closes
+notebook-registry leftovers.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
