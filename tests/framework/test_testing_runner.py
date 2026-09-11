@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from plugin.testing_runner import (
@@ -16,6 +17,8 @@ from plugin.testing_runner import (
     _function_name_matches,
     _is_case_id,
     _module_matches_filters,
+    _native_suite_sort_key,
+    _should_rebootstrap_after_recycle,
     _test_function_filters,
     collect_post_test_death,
     consume_application_error,
@@ -236,6 +239,27 @@ def test_collect_post_test_death_soffice_exit() -> None:
     reset_office_death_signals(clear_proc=True)
 
 
+def test_native_suite_sort_key_windows_puts_peer_last(monkeypatch) -> None:
+    """GHA 34551644954: other suites must run before leftover peer docs."""
+    import plugin.testing_runner as tr
+
+    monkeypatch.setattr(tr.sys, "platform", "win32")
+    paths = [
+        "/tmp/tests/chatbot/test_peer_message_uno.py",
+        "/tmp/tests/doc/test_text_helpers_uno.py",
+        "/tmp/tests/chatbot/test_slash_popup_uno.py",
+    ]
+    ordered = sorted(paths, key=_native_suite_sort_key)
+    assert ordered[-1].endswith("test_peer_message_uno.py")
+    assert ordered[0].endswith("test_slash_popup_uno.py")
+
+
+def test_should_not_rebootstrap_when_no_remaining_suites() -> None:
+    """GHA 34551644954: recycled office hung the next scalc factory load."""
+    assert _should_rebootstrap_after_recycle(more_suites=True) is True
+    assert _should_rebootstrap_after_recycle(more_suites=False) is False
+
+
 def test_office_recycle_request_is_consumed_once() -> None:
     """Windows Impress teardown asks the runner to recycle after the suite."""
     import plugin.testing_runner as tr
@@ -245,6 +269,24 @@ def test_office_recycle_request_is_consumed_once() -> None:
     request_office_recycle_after_suite()
     assert consume_office_recycle_request() is True
     assert consume_office_recycle_request() is False
+
+
+def test_office_recycle_request_reaches_minus_m_main(monkeypatch) -> None:
+    """GHA 34549510317: ``-m`` is ``__main__``; tests import the package name."""
+    import types
+
+    import plugin.testing_runner as tr
+
+    fake_main = types.ModuleType("__main__")
+    fake_main.__file__ = tr.__file__
+    fake_main._recycle_office_after_suite = False
+    monkeypatch.setitem(sys.modules, "__main__", fake_main)
+    tr._recycle_office_after_suite = False
+    request_office_recycle_after_suite()
+    assert fake_main._recycle_office_after_suite is True
+    assert consume_office_recycle_request() is True
+    assert fake_main._recycle_office_after_suite is False
+    assert tr._recycle_office_after_suite is False
 
 
 def test_fail_reason_with_lifecycle_keeps_crumb_after_cap() -> None:

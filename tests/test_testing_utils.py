@@ -581,8 +581,10 @@ def test_teardown_peer_pair_windows_closes_impress_skips_writer(monkeypatch):
     """GHA 34540353452: Impress raw close returned; Writer close_doc hung."""
     from unittest.mock import MagicMock
 
+    import tests.chatbot.test_peer_message_uno as peer
     from tests.chatbot.test_peer_message_uno import _teardown_peer_pair
 
+    peer._windows_impress_raw_closed = False
     order = []
     monkeypatch.setattr(
         "tests.chatbot.test_peer_message_uno._draw_family_raw_close",
@@ -612,14 +614,72 @@ def test_teardown_peer_pair_windows_closes_impress_skips_writer(monkeypatch):
         "plugin.testing_runner.request_office_recycle_after_suite",
         lambda: recycle_calls.append("recycle"),
     )
-    out_writer, out_impress = _teardown_peer_pair(writer, impress, ctx)
-    assert out_writer is None and out_impress is None
-    assert order == [
-        ("close_draw_family", impress),
-        "post_settle",
-        ("reactivate", ctx, writer),
-    ]
-    assert recycle_calls == ["recycle"]
+    try:
+        out_writer, out_impress = _teardown_peer_pair(writer, impress, ctx)
+        assert out_writer is None and out_impress is None
+        assert order == [
+            ("close_draw_family", impress),
+            "post_settle",
+            ("reactivate", ctx, writer),
+        ]
+        assert recycle_calls == ["recycle"]
+        assert peer._windows_impress_raw_closed is True
+    finally:
+        peer._windows_impress_raw_closed = False
+
+
+def test_teardown_peer_pair_windows_skips_second_impress_close(capsys, monkeypatch):
+    """GHA 34547869791: second Impress raw close exited soffice 0."""
+    from unittest.mock import MagicMock
+
+    import tests.chatbot.test_peer_message_uno as peer
+    from tests.chatbot.test_peer_message_uno import _teardown_peer_pair
+
+    peer._windows_impress_raw_closed = False
+    order = []
+    monkeypatch.setattr(
+        "tests.chatbot.test_peer_message_uno._draw_family_raw_close",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "tests.chatbot.test_peer_message_uno._close",
+        lambda doc: order.append(("close_doc", doc)) or None,
+    )
+    monkeypatch.setattr(
+        "tests.chatbot.test_peer_message_uno.close_draw_family_doc",
+        lambda doc: order.append(("close_draw_family", doc)),
+    )
+    monkeypatch.setattr(
+        "tests.chatbot.test_peer_message_uno.settle_after_draw_family_close",
+        lambda: order.append("post_settle"),
+    )
+    monkeypatch.setattr(
+        "tests.chatbot.test_peer_message_uno._reactivate_writer_after_impress",
+        lambda ctx, doc: order.append(("reactivate", ctx, doc)),
+    )
+    recycle_calls = []
+    monkeypatch.setattr(
+        "plugin.testing_runner.request_office_recycle_after_suite",
+        lambda: recycle_calls.append("recycle"),
+    )
+    writer1 = MagicMock(name="writer1")
+    impress1 = MagicMock(name="impress1")
+    writer2 = MagicMock(name="writer2")
+    impress2 = MagicMock(name="impress2")
+    ctx = MagicMock(name="ctx")
+    try:
+        _teardown_peer_pair(writer1, impress1, ctx)
+        _teardown_peer_pair(writer2, impress2, ctx)
+        assert order == [
+            ("close_draw_family", impress1),
+            "post_settle",
+            ("reactivate", ctx, writer1),
+        ]
+        assert recycle_calls == ["recycle", "recycle"]
+        err = capsys.readouterr().err
+        assert "peer_message_uno: skip second impress close (windows)" in err
+    finally:
+        peer._windows_impress_raw_closed = False
 
 
 def test_reactivate_writer_after_impress_sets_active_frame(monkeypatch):

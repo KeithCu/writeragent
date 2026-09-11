@@ -1050,6 +1050,39 @@ def _terminate_bootstrap_soffice() -> None:
         pass
 
 
+def _same_testing_runner_file(mod: Any) -> bool:
+    """True when ``mod`` is this file loaded under another ``sys.modules`` name."""
+    other = getattr(mod, "__file__", None)
+    if not other or not __file__:
+        return False
+    try:
+        return os.path.normcase(os.path.realpath(other)) == os.path.normcase(
+            os.path.realpath(__file__)
+        )
+    except Exception:
+        return False
+
+
+def _office_recycle_holders() -> list[Any]:
+    """Modules that share this file's recycle flag.
+
+    ``python -m plugin.testing_runner`` executes as ``__main__``. Peer
+    tests ``import plugin.testing_runner`` and get a second module
+    object. GHA 34549510317: all six peer tests OK, but recycle never
+    ran — the flag was set on the import copy and consumed on
+    ``__main__``. Touch both. Not a product fix.
+    """
+    seen: list[Any] = []
+    for name in ("__main__", "plugin.testing_runner", __name__):
+        mod = sys.modules.get(name)
+        if mod is None or mod in seen:
+            continue
+        if name != __name__ and not _same_testing_runner_file(mod):
+            continue
+        seen.append(mod)
+    return seen or [sys.modules[__name__]]
+
+
 def request_office_recycle_after_suite() -> None:
     """Ask ``run_all_tests`` to kill+rebootstrap soffice after this suite.
 
@@ -1058,16 +1091,37 @@ def request_office_recycle_after_suite() -> None:
     34542928132: Writer close after Impress). Recycle so later suites
     are not poisoned. Not a product fix.
     """
-    global _recycle_office_after_suite
-    _recycle_office_after_suite = True
+    for mod in _office_recycle_holders():
+        mod._recycle_office_after_suite = True
 
 
 def consume_office_recycle_request() -> bool:
     """Return-and-clear the after-suite recycle flag."""
-    global _recycle_office_after_suite
-    wanted = _recycle_office_after_suite
-    _recycle_office_after_suite = False
+    wanted = False
+    for mod in _office_recycle_holders():
+        if getattr(mod, "_recycle_office_after_suite", False):
+            wanted = True
+        mod._recycle_office_after_suite = False
     return wanted
+
+
+def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
+    """Windows: run the peer suite last so leftover docs do not poison later loads.
+
+    GHA 34551644954: recycle *did* start a new soffice, then the next Calc
+    factory raised ``Could not create system bitmap`` and hung. Other
+    suites must keep the original office. Peer leftovers die with process
+    teardown, not in-process rebootstrap.
+    """
+    name = os.path.basename(module_path)
+    if sys.platform == "win32" and name == "test_peer_message_uno.py":
+        return (1, module_path)
+    return (0, module_path)
+
+
+def _should_rebootstrap_after_recycle(*, more_suites: bool) -> bool:
+    """False when this was the last suite — do not start a second soffice."""
+    return more_suites
 
 
 def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
@@ -1737,6 +1791,7 @@ def run_all_tests(ctx: Any) -> str:
                         test_candidates.append(full_path)
 
         soak_rounds = max(1, _soak_repeat)
+        skip_keeper_close = False
         if soak_rounds > 1:
             _progress(
                 "SOAK start rounds=%s suites=%s filter=%s"
@@ -1748,7 +1803,9 @@ def run_all_tests(ctx: Any) -> str:
             if _urp_bridge_dead:
                 _progress("SOAK stop: URP already disposed")
                 break
-            for module_path in sorted(test_candidates):
+            ordered_candidates = sorted(test_candidates, key=_native_suite_sort_key)
+            skip_keeper_close = False
+            for i, module_path in enumerate(ordered_candidates):
                 if _urp_bridge_dead:
                     _progress("SUITE skip remaining: URP already disposed")
                     break
@@ -1796,7 +1853,16 @@ def run_all_tests(ctx: Any) -> str:
                     total_passed += p
                     total_failed += f
                     if consume_office_recycle_request():
-                        ctx, keeper_doc = _recycle_harness_office(ctx)
+                        more = i + 1 < len(ordered_candidates)
+                        if _should_rebootstrap_after_recycle(more_suites=more):
+                            ctx, keeper_doc = _recycle_harness_office(ctx)
+                        else:
+                            # GHA 34551644954: rebootstrap then hung the next
+                            # scalc load. No remaining suites — just kill.
+                            _progress(
+                                "LIFECYCLE recycle office skipped; no remaining suites"
+                            )
+                            skip_keeper_close = True
                 except ImportError as e:
                     print(f"Skipping {filename} due to ImportError: {e}")
                 except Exception as e:
@@ -1810,6 +1876,12 @@ def run_all_tests(ctx: Any) -> str:
                             else:
                                 sys.modules[k] = v
 
+        if skip_keeper_close:
+            # Leftover peer docs / Impress: do not close(True). Kill soffice.
+            _progress("LIFECYCLE terminate office after peer leftovers start")
+            _terminate_bootstrap_soffice()
+            _progress("LIFECYCLE terminate office after peer leftovers done")
+            keeper_doc = None
         if keeper_doc is not None:
             try:
                 _progress("KEEPER close start")

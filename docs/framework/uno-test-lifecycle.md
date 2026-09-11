@@ -97,19 +97,55 @@ Windows `_close` therefore drops the proxy on every Writer/Calc
 (`LIFECYCLE recycle office after impress`) after this suite. Impress
 still runs last; teardown keeps the raw Impress `close(True)` +
 `setActiveFrame` path and does not `close_doc` the sibling Writer.
+
+GHA 34547869791 (master `0e570b15`, tip of `#718`): all four Writer/Calc
+peer tests `TEST end … OK` (`skip close (windows)`). First Impress
+raw close returned in ~21 ms (`writer reactivated`). Second Impress
+`raw close(True)` raised `DisposedException` after ~7 s and soffice
+**exited 0** — fail-closed
+`test_peer_catalog_draw_label_is_not_enough_for_impress` and skipped
+remaining suites. Two Windows Impress raw closes in one soffice (after
+leftover skipped Writer docs) is the killer. Skip the *second* Impress
+close (`skip second impress close (windows)`); leftover last Impress
+dies with recycle. Do not skip the first close — leftover Impress
+before a later Writer load hangs (34537826720).
+
+GHA 34549510317 (`#719`): all six peer tests `TEST end … OK` (skip
+second Impress close printed). Recycle **did not run** — next suite
+started on the same soffice (`6052,1752`). Later
+`doc.test_text_helpers_uno` hung 30s in `create_native_doc` (leftover
+Impress + skipped Writer docs; office still alive). Cause:
+`python -m plugin.testing_runner` is `__main__`; tests imported
+`plugin.testing_runner` and set the recycle flag on that copy.
+`request_office_recycle_after_suite` / `consume_office_recycle_request`
+now touch both module objects.
+
+GHA 34551644954 (`0177648d`): recycle **did** run (`start` / `done`
+pids=`8188,6868`). `test_slash_popup` OK on the new office. Then
+`test_list_nearby_excludes_active` failed `Could not create system
+bitmap!` and the next Calc `create_native_doc` hung 30s. In-process
+rebootstrap is not a healthy office. Windows now runs
+`test_peer_message_uno` **last** so other suites keep the original
+office; after that suite, skip rebootstrap and terminate soffice
+(`recycle office skipped; no remaining suites`).
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
 `peer_message_uno: skip writer close after impress`,
+`peer_message_uno: skip second impress close (windows)`,
 `peer_message_uno: skip close (windows) uid=…`,
 `peer_message_uno: close_doc start/done uid=…` (POSIX). Do **not**
 fold Draw-family settle into `close_doc`. Not a product fix.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
-branch: `os=windows-latest`, `ci_debug=true`. Look for
-`skip close (windows)`, all six peer tests `TEST end … OK`, then
-`LIFECYCLE recycle office after impress done`. Ubuntu PR CI is the
-automatic gate; this cloud agent cannot run `windows-latest`.
+branch: `os=windows-latest`, `ci_debug=true`. Look for other UNO
+suites finishing *before* the peer file, then `skip close (windows)`,
+first Impress `raw close(True)`, `skip second impress close (windows)`,
+all six peer tests `TEST end … OK`, then
+`LIFECYCLE recycle office skipped; no remaining suites` and
+`LIFECYCLE terminate office after peer leftovers done`. Ubuntu PR CI
+is the automatic gate; this cloud agent cannot run `windows-latest`.
 
 **Harness-only attribution (not a product fix):** if a test body returns OK
 but the office already aborted, the runner fails *that* test instead of
