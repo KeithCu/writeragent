@@ -419,7 +419,7 @@ def test_prepare_windows_writer_factory_adopts_keeper_from_sibling(monkeypatch):
 
 
 def test_windows_factory_load_args_named_for_any_leftover_factory():
-    """GHA 34633295036: leftover swriter/_wa_factory; leftover scalc/_wa_scalc."""
+    """GHA 34633295036 / 34657826349: leftover Writer/Calc/Draw/Impress names."""
     import plugin.tests.testing_utils as tu
 
     saved = tu._WINDOWS_FACTORY_SEQ
@@ -427,6 +427,8 @@ def test_windows_factory_load_args_named_for_any_leftover_factory():
     try:
         assert tu._windows_factory_load_args("private:factory/swriter", 0) == ("_blank", 0)
         assert tu._windows_factory_load_args("private:factory/scalc", 0) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/sdraw", 0) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/simpress", 0) == ("_blank", 0)
         assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
             "_wa_factory",
             8 | 55,
@@ -438,25 +440,49 @@ def test_windows_factory_load_args_named_for_any_leftover_factory():
             8 | 55,
         )
         # GHA 34633295036: unique leftover scalc _wa_factory_1 failed,
-        # _wa_factory_2 hung 30s. Stable _wa_scalc; Draw stays unique.
+        # _wa_factory_2 hung 30s. Stable _wa_scalc.
         assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
             "_wa_scalc",
             8 | 55,
         )
+        # GHA 34657826349: unique leftover simpress _wa_factory_10 hung
+        # 30s at leftover_open=15. Stable leftover Draw / leftover
+        # Impress names; consecutive leftover loads reuse the same name.
         assert tu._windows_factory_load_args("private:factory/sdraw", 2) == (
-            "_wa_factory_1",
+            "_wa_sdraw",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/simpress", 2) == (
+            "_wa_simpress",
             8 | 55,
         )
         assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
             "_wa_scalc",
             8 | 55,
         )
-        # Writer reuse must not consume the Draw seq.
+        # Writer / Draw / Impress reuse must not consume the leftover
+        # seq (unknown leftover factory URLs only).
         assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
             "_wa_factory",
             8 | 55,
         )
         assert tu._windows_factory_load_args("private:factory/sdraw", 2) == (
+            "_wa_sdraw",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/simpress", 2) == (
+            "_wa_simpress",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/smath", 2) == (
+            "_wa_factory_1",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/sdraw", 2) == (
+            "_wa_sdraw",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/smath", 2) == (
             "_wa_factory_2",
             8 | 55,
         )
@@ -519,8 +545,8 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
 
     Unique _wa_factory_1 failed (~766ms traceback wrap); _wa_factory_2
     hung 30s. Consecutive leftover Hidden create_native_doc(calc) must
-    reuse one CREATE|GLOBAL name. Writer reuse uses _wa_factory and
-    must not steal the Draw seq.
+    reuse one CREATE|GLOBAL name. Writer reuse uses _wa_factory.
+    Leftover Draw reuses _wa_sdraw (GHA 34657826349).
     """
     from unittest.mock import MagicMock, patch
 
@@ -567,7 +593,68 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
             TestingFactory.create_native_doc(object(), "draw")
             args = desktop.loadComponentFromURL.call_args.args
             assert args[0] == "private:factory/sdraw"
-            assert args[1] == "_wa_factory_1"
+            assert args[1] == "_wa_sdraw"
+            assert args[2] == (8 | 55)
+    finally:
+        tu._WINDOWS_FACTORY_SEQ = saved_seq
+
+
+def test_create_native_doc_windows_impress_reuses_stable_name(monkeypatch):
+    """GHA 34657826349: leftover unique simpress _wa_factory_10 hung 30s.
+
+    leftover_open climbed to 15 after notebook/importer skipped Writer
+    close. Stable leftover swriter _wa_factory at leftover_open=15
+    returned; unique leftover simpress _wa_factory_10 hung in
+    loadComponentFromURL. Consecutive leftover Hidden
+    create_native_doc(impress) must reuse one CREATE|GLOBAL name.
+    Draw reuse uses _wa_sdraw and must not steal leftover Impress.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = MagicMock()
+    calls = []
+    saved_seq = tu._WINDOWS_FACTORY_SEQ
+    tu._WINDOWS_FACTORY_SEQ = 0
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(
+        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 15
+    )
+    try:
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("uno.createUnoStruct", return_value=MagicMock()),
+            patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+        ):
+            TestingFactory.create_native_doc(object(), "impress")
+            assert calls == ["prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/simpress"
+            assert args[1] == "_wa_simpress"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "impress")
+            assert calls == ["prepare", "prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/simpress"
+            assert args[1] == "_wa_simpress"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "draw")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/sdraw"
+            assert args[1] == "_wa_sdraw"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "impress")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/simpress"
+            assert args[1] == "_wa_simpress"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "writer")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/swriter"
+            assert args[1] == "_wa_factory"
             assert args[2] == (8 | 55)
     finally:
         tu._WINDOWS_FACTORY_SEQ = saved_seq
