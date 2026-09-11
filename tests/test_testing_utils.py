@@ -659,17 +659,14 @@ def test_skip_windows_leftover_hidden_load_noop_without_leftovers(monkeypatch):
         tu._set_windows_leftover_open(saved)
 
 
-def test_windows_should_reuse_writer_only_with_leftovers(monkeypatch):
-    """GHA 34602219973: second leftover swriter hung after close of uid=34."""
+def test_windows_should_reuse_writer_even_without_leftovers(monkeypatch):
+    """GHA 34652644656: leftover_open=0 second Hidden _blank swriter hung."""
     import plugin.tests.testing_utils as tu
 
     monkeypatch.setattr(tu.sys, "platform", "win32")
-    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+    tu.set_windows_notebook_host(False)
     assert tu._windows_should_reuse_writer(object()) is True
-    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 0)
-    assert tu._windows_should_reuse_writer(object()) is False
     monkeypatch.setattr(tu.sys, "platform", "linux")
-    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
     assert tu._windows_should_reuse_writer(object()) is False
     assert tu._windows_should_reuse_writer(None) is False
 

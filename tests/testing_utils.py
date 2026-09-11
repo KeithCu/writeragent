@@ -1050,12 +1050,20 @@ def _windows_leftover_open() -> int:
 
 
 def _windows_should_reuse_writer(ctx) -> bool:
-    """True when a later Windows Writer factory would hang after leftovers.
+    """True when a later Windows Writer factory would hang.
 
     GHA 34601787293 / 34602219973: unique ``_wa_factory_N`` loaded three
     leftover Calc factories and the first leftover swriter (uid=34).
     ``close_doc`` of that Writer returned; the next unique swriter hung
     30s. Reuse the first leftover Writer instead of close + factory.
+
+    GHA 34652644656 (paste suites deferred): leftover_open=0,
+    ``document_research_uno`` 3/3 and slash OK, then first text_helpers
+    Hidden ``_blank`` + ``close_doc`` uid=29 returned; the next Hidden
+    ``_blank`` hung 30s. Consecutive Hidden ``_blank`` swriter is unsafe
+    even without paste leftovers (34597506651 with leftovers). Reuse
+    the first Windows Writer. Notebook suites still use
+    ``_wa_notebook_host``.
     """
     if ctx is None or sys.platform != "win32":
         return False
@@ -1063,7 +1071,7 @@ def _windows_should_reuse_writer(ctx) -> bool:
     # Writers (GHA 34643210006: leftover reuse + global listener counts).
     if _windows_notebook_host():
         return False
-    return prepare_windows_writer_factory(ctx) > 0
+    return True
 
 
 def _windows_should_reuse_calc(ctx) -> bool:

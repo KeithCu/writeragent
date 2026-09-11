@@ -389,6 +389,16 @@ defers those two suites until after slash, `document_research_uno`
 `test_draw_uno`). HTML-paste UNO tests `note_windows_html_paste_leftover`
 after a successful paste. Do not close leftover paste Writers.
 
+GHA 34652644656 (`3d39d9f2`, paste suites deferred): slash OK.
+`document_research_uno` 3/3 (`copied budget for hidden open`,
+`open_document_for_read done err=-`, leftovers still 0). First
+text_helpers Hidden `_blank` + `close_doc` uid=29 leftovers=0
+returned; the next Hidden `_blank`
+(`…_multi_para_joins_with_newline`) hung 30s. Consecutive Hidden
+`_blank` swriter is unsafe even without paste leftovers.
+`_windows_should_reuse_writer` now reuses the first Windows Writer
+without requiring leftover_open>0 (notebook host still isolated).
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
