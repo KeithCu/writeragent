@@ -441,3 +441,7 @@ def test_nearby_uno_env_does_not_open_second_scalc_factory():
         src = handle.read()
     assert "create_native_doc" not in src
     assert "store budget via active" in src
+    # GHA 34639913692: Hidden load of the storeAsURL path still raised
+    # system bitmap after ``_wa_doc_research``. Windows opens a copy.
+    assert "Budget_read.ods" in src
+    assert "shutil.copy2" in src

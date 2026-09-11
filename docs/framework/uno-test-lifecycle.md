@@ -343,6 +343,33 @@ frames poison `_default` / `_blank` (34597506651). Product
 Hidden+ReadOnly and the reuse / close-flag contract are unchanged.
 POSIX keeps `_default`.
 
+GHA 34639913692 (`e0e75cc2`, after `_wa_doc_research`): factory hang
+stayed gone (`store budget via active`, `test_list_nearby_excludes_active`
+OK). Hidden sibling open of that same `storeAsURL` path still raised
+`Could not create system bitmap!` in ~20ms; the next sibling open hung
+30s. 34602219973 passed 3/3 when Budget lived on a closed factory Calc.
+The UNO env now copies `Budget_read.ods` on Windows and Hidden-opens
+that copy — a URL the pooled Calc never owned. No second factory Calc.
+Do not close leftover paste Writers.
+
+GHA 34643210006 (`60c827a8`): `document_research_uno` 3/3 OK
+(`copied budget for hidden open`, `open_document_for_read done err=-`).
+Later `test_calc_reuse_false_still_empty` leftover `target=_wa_scalc`
+at leftover_open=5 hung 30s. `_wa_scalc` is not a safe leftover Calc
+factory. `native_doc` now wipe-and-reuses the pooled Calc instead of
+loading leftover scalc (`native_doc: leftover calc reuse`).
+
+The same run's notebook fails were leftover-driven, not independent:
+HTML-paste Writers (uids 26/27, `close skipped pasted=True`) set
+`leftover_open>0`, so `close_doc` skipped **all** Writer closes —
+including import-filter `_wa_notebook` leftovers (uids 41/42) that
+still held form listeners. `form_run_listeners()` / 
+`wired_run_listener_count` counted every leftover doc
+(`duplicate listeners: 3`). Counts are now per-document. Notebook
+suites use `_wa_notebook_host` (not leftover HTML-paste reuse).
+`close_doc` still skips leftover paste Writers, but closes
+notebook-registry leftovers.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -353,8 +380,9 @@ swriter loads using `target=_wa_factory` (not `_blank` / not
 `_blank` / not `_wa_factory_N`),
 `document_research_uno: store budget via active start/done` (no
 `create budget calc` / no leftover `scalc` `target=_wa_factory_1`),
-`open_document_for_read` of the sibling using `target=_wa_doc_research`
-(not `_default` / `_blank`) on Windows,
+`copied budget for hidden open` then `open_document_for_read done err=-`
+(Windows opens `Budget_read.ods`, not the `storeAsURL` path; no
+`Could not create system bitmap`, no 30s hang),
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
 no second leftover swriter factory after the first text_helpers Writer,
 `document_research_uno` three tests

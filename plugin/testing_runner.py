@@ -1451,6 +1451,14 @@ def run_module_suite(ctx, module, name, doc_model=None):
     # Do not reset the lifecycle trail here: the first test of this suite may
     # fail on factory open because the *previous suite's last test* killed URP.
     _progress(f"SUITE start {name} python_pid={os.getpid()} soffice.bin={_soffice_pids()}")
+    # GHA 34643210006: leftover HTML-paste Writers forced leftover Writer
+    # reuse into notebook_runner. Isolate those suites on _wa_notebook_host.
+    from tests.testing_utils import set_windows_notebook_host
+
+    set_windows_notebook_host(
+        name.endswith("test_notebook_runner_uno")
+        or name.endswith("test_writer_importer_uno")
+    )
     name_filters = _test_function_filters(_cli_filters)
     if _cli_exact_function_names:
         exact = set(_cli_exact_function_names)
@@ -1462,6 +1470,7 @@ def run_module_suite(ctx, module, name, doc_model=None):
     if (name_filters or _cli_exact_function_names) and not selected:
         msg = f"No tests matched filters {name_filters!r} in {name}"
         _progress(f"SUITE filter miss {name}: {name_filters}")
+        set_windows_notebook_host(False)
         _progress(f"SUITE end {name} passed=0 failed=1")
         return 0, 1, [msg]
     if name_filters:
@@ -1630,6 +1639,9 @@ def run_module_suite(ctx, module, name, doc_model=None):
                     suite_log.append(f"TEARDOWN EXCEPTION: {e}")
                     suite_log.append(traceback.format_exc())
 
+    from tests.testing_utils import set_windows_notebook_host as _clear_nb_host
+
+    _clear_nb_host(False)
     _progress(f"SUITE end {name} passed={total_passed} failed={total_failed}")
     return total_passed, total_failed, suite_log
 

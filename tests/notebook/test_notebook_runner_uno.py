@@ -165,7 +165,6 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
 
     from plugin.notebook.form_lookup import find_form_control_model_by_name
     from plugin.notebook.notebook_controls import (
-        _doc_key,
         _query_interface,
         form_run_listeners,
         get_control_view_for_model,
@@ -187,9 +186,8 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
     evt.Source = control
     evt.ActionCommand = str(getattr(model, "Name", "") or "")
     prune_dead_listeners()
-    key = _doc_key(doc)
-    n = wired_run_listener_count(hex_id)
-    matched = [lis for lis in form_run_listeners() if getattr(lis, "_doc_key_val", None) == key]
+    n = wired_run_listener_count(hex_id, doc)
+    matched = form_run_listeners(doc)
     assert len(matched) == 1, f"form listener list mismatch: {len(matched)} (count={n})"
     # Fire the shared listener — a real click delivers one ActionEvent with Source=button.
     for lis in matched:
@@ -214,8 +212,8 @@ def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
         state = load_registry(doc)
         assert state is not None and len(state.code_cells) == 1
         hex_id = cell_id_to_hex(state.code_cells[0].cell_id)
-        assert len(form_run_listeners()) == 1
-        assert wired_run_listener_count(hex_id) == 1
+        assert len(form_run_listeners(doc)) == 1
+        assert wired_run_listener_count(hex_id, doc) == 1
 
         fake_result = {"status": "ok", "stdout": f"{_SENTINEL}\n", "result": None}
         runs: list[str] = []
@@ -235,8 +233,8 @@ def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
 
         wire_all_notebook_run_buttons(ctx, doc)
         wire_all_notebook_run_buttons(ctx, doc)
-        assert len(form_run_listeners()) == 1
-        assert wired_run_listener_count(hex_id) == 1
+        assert len(form_run_listeners(doc)) == 1
+        assert wired_run_listener_count(hex_id, doc) == 1
         runs.clear()
         with (
             patch("plugin.notebook.notebook_runner.msgbox", lambda *_a, **_k: None),
@@ -515,8 +513,8 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
         ensure_form_design_mode_off(doc)
         wire_all_notebook_run_buttons(ctx, doc)
         wire_all_notebook_run_buttons(ctx, doc)
-        assert wired_run_listener_count(hex_id) == 1, (
-            f"extra wire_all attached duplicate listeners: {wired_run_listener_count(hex_id)}"
+        assert wired_run_listener_count(hex_id, doc) == 1, (
+            f"extra wire_all attached duplicate listeners: {wired_run_listener_count(hex_id, doc)}"
         )
         _assert_controls_present(doc, cell)
 
