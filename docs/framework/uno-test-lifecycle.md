@@ -144,10 +144,16 @@ uid=27, `writers_open` 1→2. Calc teardown does not close them. Product
 must not close those Writers during a live paste (33771766524). After
 the first harness Writer `close_doc`, desktop current becomes a leftover
 paste Writer; the next factory then hangs (same family as leftover
-Impress, 34537826720). CharWeight itself is not the hung call. Before a
-Windows Writer factory the harness now closes non-keeper leftover
-Writers and `setActiveFrame`s the keeper
-(`html_paste_writer: close leftover start/done`,
+Impress, 34537826720). CharWeight itself is not the hung call.
+
+GHA 34556185752 (`#720` leftover-close attempt): first text_helpers
+factory called leftover `close(True)` on uid=27 (`frame=-`) and hung
+30s *inside that close* — same “do not close after paste” rule, still
+true minutes later. Do **not** close leftover paste Writers from the
+harness. Before a Windows Writer factory, log leftovers and
+`setActiveFrame` the keeper. After a Windows Writer `close_doc` (test
+docs still close — that returned on 34554275072), reactivate the
+keeper again (`html_paste_writer: leftovers open=…`,
 `html_paste_writer: keeper reactivated`).
 
 POSIX still `close_doc`. Breadcrumbs:
@@ -157,16 +163,16 @@ POSIX still `close_doc`. Breadcrumbs:
 `peer_message_uno: skip second impress close (windows)`,
 `peer_message_uno: skip close (windows) uid=…`,
 `peer_message_uno: close_doc start/done uid=…` (POSIX).
-`html_paste_writer: close leftover start/done uid=…`,
+`html_paste_writer: leftovers open=N uids=…`,
 `html_paste_writer: keeper reactivated`,
-`create_native_doc: windows writer factory leftover_closed=N`,
+`create_native_doc: windows writer factory leftover_open=N`,
 `close_doc: start/done uid=…` (Windows Writer). Do **not** fold
 Draw-family settle into `close_doc`. Not a product fix.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
-`html_paste_writer: close leftover` before the first text_helpers
-Writer load, `keeper reactivated`, both text_helpers tests
+`html_paste_writer: leftovers open` and `keeper reactivated` before
+the first text_helpers Writer load, both text_helpers tests
 `TEST end … OK`, later suites including the peer file last (six peer
 `TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI

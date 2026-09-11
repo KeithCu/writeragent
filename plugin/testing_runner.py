@@ -1171,7 +1171,8 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
                 from tests.testing_utils import set_harness_keeper_uid
 
                 set_harness_keeper_uid(
-                    str(getattr(new_keeper, "RuntimeUID", None) or "")
+                    str(getattr(new_keeper, "RuntimeUID", None) or ""),
+                    new_keeper,
                 )
             except Exception:
                 pass
@@ -1687,7 +1688,7 @@ def run_all_tests(ctx: Any) -> str:
             try:
                 from tests.testing_utils import set_harness_keeper_uid
 
-                set_harness_keeper_uid(keeper_uid)
+                set_harness_keeper_uid(keeper_uid, keeper_doc)
             except Exception:
                 pass
     except Exception as e:

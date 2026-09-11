@@ -800,14 +800,19 @@ def _native_teardown_progress(msg: str) -> None:
     _progress(msg)
 
 
-# testing_runner keeper RuntimeUID. insert_cell_html_rich leaves extra
-# Writers open (close skipped after paste). Never close this uid.
+# testing_runner keeper. insert_cell_html_rich leaves extra Writers open
+# (close skipped after paste). Never close those leftovers — GHA
+# 34556185752 hung 30s in leftover close(True). Reactivate this keeper
+# so a later Writer factory is not against a leftover current component.
 _HARNESS_KEEPER_UID = ""
+_HARNESS_KEEPER_DOC = None
 
-def set_harness_keeper_uid(uid: str) -> None:
-    """Record the hidden keeper Writer so leftover-paste cleanup skips it."""
-    global _HARNESS_KEEPER_UID
+
+def set_harness_keeper_uid(uid: str, doc=None) -> None:
+    """Record the hidden keeper Writer (uid + doc) for later setActiveFrame."""
+    global _HARNESS_KEEPER_UID, _HARNESS_KEEPER_DOC
     _HARNESS_KEEPER_UID = str(uid or "")
+    _HARNESS_KEEPER_DOC = doc if _HARNESS_KEEPER_UID else None
 
 
 def _writer_doc_uid(doc) -> str:
@@ -848,32 +853,48 @@ def _iter_open_writer_docs(desktop):
             continue
 
 
-def close_leftover_html_paste_writers(ctx) -> int:
-    """Harness-only: close leftover ``_wa_calc_html`` Writers before a Writer factory.
+def reactivate_harness_keeper(desktop=None) -> bool:
+    """``setActiveFrame`` the keeper. Does not close leftover paste Writers.
 
-    What was wrong: GHA 34554275072 / 34553944171 hung 30s in
-    ``create_native_doc`` on the *second* text_helpers Writer load.
-    Leftovers were already open: ``insert_cell_html_rich`` left uid=26
-    then uid=27 (``close skipped pasted=True``, ``reused_existing=False``)
-    and Calc teardown does not close them. The *first* text_helpers
-    Writer factory + ``close_doc`` returned on that same office
-    (CharWeight close is not itself the hung call).
-    ``document_research_uno`` between leftovers and text_helpers is
-    Calc-only — it is not a successful Writer factory cycle.
+    GHA 34556185752: leftover ``close(True)`` hung 30s (uid=27). GHA
+    34554275072: first text_helpers Writer factory + ``close_doc``
+    returned; the *next* factory hung. After a test Writer close,
+    desktop current becomes a leftover paste Writer. Reactivate the
+    keeper so the next ``swriter`` load is not against that leftover.
+    """
+    from plugin.testing_runner import _progress
 
-    How it happened: product must not close those Writers during a live
-    paste (GHA 33771766524 hung ``getComponents`` after ``close``). After
-    the first harness Writer ``close_doc``, desktop current becomes a
-    leftover paste Writer. The next ``private:factory/swriter`` then
-    hung 30s — same family as leftover Impress poisoning the next Writer
-    load (34537826720).
+    doc = _HARNESS_KEEPER_DOC
+    if doc is None:
+        return False
+    try:
+        frame = doc.getCurrentController().getFrame()
+        if desktop is None:
+            desktop = frame.getCreator()
+        desktop.setActiveFrame(frame)
+        _progress("html_paste_writer: keeper reactivated uid=%s" % _HARNESS_KEEPER_UID)
+        return True
+    except Exception as exc:
+        _progress(
+            "html_paste_writer: keeper reactivate failed uid=%s err=%s"
+            % (_HARNESS_KEEPER_UID or "-", type(exc).__name__)
+        )
+        return False
 
-    Why this: minutes later, before a harness Writer factory, close
-    every non-keeper Writer with a bare ``close(True)`` (frame name may
-    be empty because reuse failed) and ``setActiveFrame`` the keeper.
-    Do not re-enumerate after close. Do not fold this into ``close_doc``.
-    Returns how many closes were attempted. Windows-only caller. Not a
-    product fix.
+
+def prepare_windows_writer_factory(ctx) -> int:
+    """Harness-only: log leftover paste Writers and reactivate the keeper.
+
+    What was wrong: GHA 34554275072 / 34553944171 hung 30s on the
+    *second* text_helpers Writer factory. Leftovers uid=26/27 were
+    already open (``close skipped pasted=True``). The first factory +
+    ``close_doc`` returned. GHA 34556185752 then hung 30s *inside*
+    leftover ``close(True)`` — product and harness must not close those
+    Writers after paste (33771766524).
+
+    Why this: enum leftovers (read-only; safe before load) and
+    ``setActiveFrame`` the keeper. Do not close leftovers. Returns how
+    many non-keeper Writers are still open. Windows-only caller.
     """
     if ctx is None:
         return 0
@@ -882,45 +903,19 @@ def close_leftover_html_paste_writers(ctx) -> int:
 
     desktop = get_desktop(ctx)
     keeper = _HARNESS_KEEPER_UID
-    keeper_doc = None
-    to_close = []
+    leftover_uids = []
+    leftover_frames = []
     for uid, doc in _iter_open_writer_docs(desktop):
-        if uid and uid == keeper:
-            keeper_doc = doc
+        if not uid or uid == keeper:
             continue
-        if not uid:
-            continue
-        # Reuse of _wa_calc_html failed (reused_existing=False), so leftovers
-        # may have an empty frame name. At harness Writer-factory time the
-        # only extra Writers are paste leftovers — close every non-keeper.
-        to_close.append((uid, doc))
-    closed = 0
-    for uid, doc in to_close:
-        _progress(
-            "html_paste_writer: close leftover start uid=%s frame=%s"
-            % (uid, _writer_frame_name(doc) or "-")
-        )
-        try:
-            if hasattr(doc, "close"):
-                doc.close(True)
-            closed += 1
-            _progress("html_paste_writer: close leftover done uid=%s" % uid)
-        except Exception as exc:
-            _progress(
-                "html_paste_writer: close leftover failed uid=%s err=%s"
-                % (uid, type(exc).__name__)
-            )
-    if closed and keeper_doc is not None:
-        try:
-            frame = keeper_doc.getCurrentController().getFrame()
-            desktop.setActiveFrame(frame)
-            _progress("html_paste_writer: keeper reactivated uid=%s" % keeper)
-        except Exception as exc:
-            _progress(
-                "html_paste_writer: keeper reactivate failed uid=%s err=%s"
-                % (keeper, type(exc).__name__)
-            )
-    return closed
+        leftover_uids.append(uid)
+        leftover_frames.append(_writer_frame_name(doc) or "-")
+    _progress(
+        "html_paste_writer: leftovers open=%s uids=%s frames=%s keeper=%s"
+        % (len(leftover_uids), leftover_uids, leftover_frames, keeper or "-")
+    )
+    reactivate_harness_keeper(desktop)
+    return len(leftover_uids)
 
 
 def _reraise_native_open_failure(
@@ -1535,14 +1530,14 @@ class TestingFactory:
 
         from plugin.testing_runner import probe_uno_bridge
 
-        leftover_closed = 0
+        leftover_open = 0
         if sys.platform == "win32" and factory_url == "private:factory/swriter":
-            leftover_closed = close_leftover_html_paste_writers(ctx)
+            leftover_open = prepare_windows_writer_factory(ctx)
             from plugin.testing_runner import _progress
 
             _progress(
-                "create_native_doc: windows writer factory leftover_closed=%s"
-                % leftover_closed
+                "create_native_doc: windows writer factory leftover_open=%s"
+                % leftover_open
             )
 
         # Distinguish "bridge already dead" (previous test) from "died during load".
@@ -1611,6 +1606,10 @@ class TestingFactory:
             if sys.platform == "win32" and is_writer:
                 from plugin.testing_runner import _progress
 
+                # Test Writer close returned (34554275072). Leftover close
+                # hangs (34556185752). Reactivate keeper so the next factory
+                # is not against a leftover paste Writer as current.
+                reactivate_harness_keeper()
                 _progress("close_doc: done uid=%s" % (uid or "-"))
         except Exception as exc:
             # Harness-only: close used to swallow DisposedException, so the
