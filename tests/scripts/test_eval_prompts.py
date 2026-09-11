@@ -109,6 +109,17 @@ def test_calc_tool_descriptions_pin_sort_has_header_not_tax() -> None:
     assert "Multi-key sorts are multiple calls" in sort_desc
     assert "two stable one-column passes" in sort_desc
     assert _SORT_RANGE_HAS_HEADER in sort_desc
+    assert "Do call sort_range to reorder rows" in sort_desc
+    assert "not rewrite the block with write_formula_range" in sort_desc
+    assert "Pick sort_column for the metric" in sort_desc
+    assert "ascending=false when largest values should come first" in sort_desc
     assert SortRange.parameters["required"] == ["range", "has_header"]
     assert "true when row 1 is labels" in SortRange.parameters["properties"]["has_header"]["description"]
     assert "false only for a headerless block" in SortRange.parameters["properties"]["has_header"]["description"]
+    assert "0 = leftmost" in SortRange.parameters["properties"]["sort_column"]["description"]
+    assert "largest/highest first" in SortRange.parameters["properties"]["ascending"]["description"]
+    values = WriteCellRange.parameters["properties"]["values"]["description"]
+    assert "fill-down/across" in values
+    assert "pins every row to the first ref" in values
+    assert "Banana" not in values
+    assert "stamped B2" not in values

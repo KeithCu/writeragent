@@ -945,3 +945,44 @@ def test_write_formula_range_description_teaches_source_copy():
     assert "do not pass values" in desc
     assert WriteCellRange.parameters["required"] == ["range"]
     assert "source" in WriteCellRange.parameters["properties"]
+
+
+def test_write_formula_range_values_teaches_fill_down_not_json_pin():
+    from plugin.calc.cells import WriteCellRange
+
+    values = WriteCellRange.parameters["properties"]["values"]["description"]
+    assert "Required unless source is set" in values
+    assert "One ordinary formula into a multi-cell" in values
+    assert "fill-down/across" in values
+    assert "relative A1 refs" in values
+    assert "rate or tax column" in values
+    assert "exact per-cell contents" in values
+    assert "pins every row to the first ref" in values
+    assert "one formula string over the whole column" in values
+    # Fixture names stay out of tool text (eval tax/sort sheets).
+    assert "Banana" not in values
+    assert "Product" not in values
+    assert "Revenue" not in values
+    # Schema stays Gemini-safe string; meaning of values is unchanged.
+    assert WriteCellRange.parameters["properties"]["values"]["type"] == "string"
+
+
+def test_sort_range_description_teaches_reorder_key_and_direction():
+    from plugin.calc.cells import SortRange
+
+    desc = SortRange.description
+    assert "Do call sort_range to reorder rows" in desc
+    assert "not rewrite the block with write_formula_range" in desc
+    assert "labels mid-table" in desc
+    assert "Pick sort_column for the metric" in desc
+    assert "ascending=false when largest values should come first" in desc
+    sort_col = SortRange.parameters["properties"]["sort_column"]["description"]
+    assert "0 = leftmost" in sort_col
+    assert "numeric/metric column" in sort_col
+    assert "not the label column" in sort_col
+    ascending = SortRange.parameters["properties"]["ascending"]["description"]
+    assert "largest/highest first" in ascending
+    assert "smallest first" in ascending
+    assert "Banana" not in desc
+    assert "Product" not in desc
+    assert "Revenue" not in desc

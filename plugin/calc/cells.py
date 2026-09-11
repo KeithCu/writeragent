@@ -403,15 +403,25 @@ class WriteCellRange(ToolBase):
                     "With source, this is the paste top-left (source extent is copied)."
                 ),
             },
+            # Pin vs fill-down fork lives on values (not CALC_CORE FORMULAS
+            # and not the main tool description). #657 replaced the old
+            # pin-workaround with fill-down teaching; a JSON array of copied
+            # =B2*… still pins every row to the first ref.
             "values": {
                 "type": "string",
                 "description": (
                     "Required unless source is set (do not pass both). "
                     "Single string: fills the entire range with that value or formula "
-                    "(use '=' prefix for formulas). In formulas, other sheets are Sheet.A1 "
-                    "(dot), not Excel Sheet!A1. JSON array: must have exactly as many "
-                    "elements as cells in the range (e.g. '[\"a\", \"b\"]' for 2 cells). "
-                    "Empty string/array clears the range."
+                    "(use '=' prefix for formulas). One ordinary formula into a "
+                    "multi-cell column or row is fill-down/across — relative A1 refs "
+                    "adjust per cell ($ stays absolute). Prefer that for a related "
+                    "rate or tax column. In formulas, other sheets are Sheet.A1 "
+                    "(dot), not Excel Sheet!A1. JSON array: exact per-cell contents; "
+                    "must have exactly as many elements as cells in the range "
+                    "(e.g. '[\"a\", \"b\"]' for 2 cells). Repeating the same "
+                    "=B2*…-style formula in every element pins every row to the "
+                    "first ref — use one formula string over the whole column "
+                    "range instead. Empty string/array clears the range."
                 ),
             },
             "source": {
@@ -740,9 +750,16 @@ class SortRange(ToolCalcRangeBase):
 
     name = "sort_range"
     intent = "edit"
+    # Action-time key/direction and "use this tool, don't rewrite the
+    # block" live here. Do not restack another SORT Don't/Do into
+    # CALC_CORE (flash merges adjacent identical shapes).
     description = (
         "Stable one-column sort of the specified range(s) by values in one column. "
         "Multi-key sorts are multiple calls (two stable one-column passes). "
+        "Do call sort_range to reorder rows (not rewrite the block with "
+        "write_formula_range) because hand-written order often leaves labels mid-table. "
+        "Pick sort_column for the metric to order by (0-based within the range); "
+        "set ascending=false when largest values should come first. "
         "Do pass has_header=true when row 1 is labels because otherwise labels "
         "sort as values. "
         "Supports lists for non-contiguous areas."
@@ -751,8 +768,20 @@ class SortRange(ToolCalcRangeBase):
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).')},
-            "sort_column": {"type": "integer", "description": ("0-based column index within the range to sort by (default: 0)")},
-            "ascending": {"type": "boolean", "description": ("True for ascending, False for descending (default: true)")},
+            "sort_column": {
+                "type": "integer",
+                "description": (
+                    "0-based index of the key column inside the range "
+                    "(0 = leftmost; default: 0). Use the numeric/metric column, "
+                    "not the label column, when sorting by amount."
+                ),
+            },
+            "ascending": {
+                "type": "boolean",
+                "description": (
+                    "true = smallest first (default); false = largest/highest first."
+                ),
+            },
             "has_header": {
                 "type": "boolean",
                 "description": (
