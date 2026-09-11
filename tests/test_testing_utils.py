@@ -309,6 +309,7 @@ def test_prepare_windows_writer_factory_logs_leftovers_and_does_not_close(monkey
         keeper.close.assert_not_called()
         desktop.setActiveFrame.assert_called_once_with(frame)
     finally:
+        tu._set_windows_leftover_open(0)
         tu.set_harness_keeper_uid("")
 
 
@@ -342,6 +343,7 @@ def test_prepare_windows_writer_factory_keeper_only_still_reactivates(monkeypatc
         keeper.close.assert_not_called()
         desktop.setActiveFrame.assert_called_once_with(frame)
     finally:
+        tu._set_windows_leftover_open(0)
         tu.set_harness_keeper_uid("")
 
 
@@ -412,6 +414,7 @@ def test_prepare_windows_writer_factory_adopts_keeper_from_sibling(monkeypatch):
         desktop.setActiveFrame.assert_called_once_with(frame)
         assert tu._HARNESS_KEEPER_UID == "1"
     finally:
+        tu._set_windows_leftover_open(0)
         tu.set_harness_keeper_uid("")
 
 
@@ -726,17 +729,59 @@ def test_close_doc_logs_urp_dispose(capsys, monkeypatch):
     from unittest.mock import MagicMock
 
     import plugin.testing_runner as tr
+    from plugin.tests import testing_utils as tu
     from plugin.tests.testing_utils import TestingFactory
 
+    # GHA 34609539461: prepare left leftover=1; MagicMock looked like Writer
+    # and Windows skip-close hid the dispose breadcrumb.
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "8")
     tr.reset_lifecycle_breadcrumb()
     tr.record_test_start("draw.test_draw_uno.test_get_draw_tree")
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    tu._set_windows_leftover_open(0)
     doc = MagicMock()
     doc.close.side_effect = RuntimeError("Binary URP bridge disposed during call")
-    TestingFactory.close_doc(doc)
-    err = capsys.readouterr().err
-    assert "LIFECYCLE close_doc dispose" in err
-    tr.reset_lifecycle_breadcrumb()
+    try:
+        TestingFactory.close_doc(doc)
+        err = capsys.readouterr().err
+        assert "LIFECYCLE close_doc dispose" in err
+    finally:
+        tu._set_windows_leftover_open(saved)
+        tr.reset_lifecycle_breadcrumb()
+
+
+def test_close_doc_windows_untyped_mock_still_logs_dispose(capsys, monkeypatch):
+    """GHA 34609539461: leftover=1 + MagicMock Writer skip hid the dispose log."""
+    from unittest.mock import MagicMock
+
+    import plugin.testing_runner as tr
+    from plugin.tests import testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tr, "_soffice_pids", lambda: "8")
+    monkeypatch.setattr("gc.collect", lambda: None)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    tu._set_windows_leftover_open(1)
+    doc = MagicMock()
+    doc.close.side_effect = RuntimeError("Binary URP bridge disposed during call")
+    try:
+        TestingFactory.close_doc(doc)
+        err = capsys.readouterr().err
+        assert "LIFECYCLE close_doc dispose" in err
+        assert "skip writer close" not in err
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_native_doc_svc_magicmock_is_not_writer():
+    """GHA 34609539461: truthy MagicMock.supportsService classified mocks as Writer."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import _native_doc_svc
+
+    assert _native_doc_svc(MagicMock()) == ""
 
 
 def test_close_doc_windows_draw_logs_close_steps(capsys, monkeypatch):

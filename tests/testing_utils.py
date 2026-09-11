@@ -899,15 +899,21 @@ def _writer_frame_name(doc) -> str:
 
 
 def _native_doc_svc(doc) -> str:
-    """Harness breadcrumb: writer / calc / impress / draw. Impress first."""
+    """Harness breadcrumb: writer / calc / impress / draw. Impress first.
+
+    ``is True``: MagicMock.supportsService() is truthy and would classify
+    every mock as Writer. GHA 34609539461: leftover=1 from a prior prepare
+    test then skipped close on an untyped mock, so
+    ``test_close_doc_logs_urp_dispose`` never saw the dispose breadcrumb.
+    """
     try:
-        if doc.supportsService("com.sun.star.text.TextDocument"):
+        if doc.supportsService("com.sun.star.text.TextDocument") is True:
             return "writer"
-        if doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+        if doc.supportsService("com.sun.star.sheet.SpreadsheetDocument") is True:
             return "calc"
-        if doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+        if doc.supportsService("com.sun.star.presentation.PresentationDocument") is True:
             return "impress"
-        if doc.supportsService("com.sun.star.drawing.DrawingDocument"):
+        if doc.supportsService("com.sun.star.drawing.DrawingDocument") is True:
             return "draw"
     except Exception:
         return ""
