@@ -287,6 +287,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: store budget via active start/done`,
+`document_research_uno: open_document_for_read start/done`,
 `document_research_uno: store/list_nearby start/done`,
 `close_doc: start/done uid= leftovers=` (Windows Writer),
 `native_doc: leftover writer reuse`,
@@ -329,7 +330,18 @@ The pooled `@with_native_doc` Calc is still the leftover_open=0
 it. Leftover `scalc` now reuses one CREATE|GLOBAL name `_wa_scalc`.
 `document_research_uno` writes Budget/Report via that pooled Calc
 (`store budget via active`) and does **not** open a second factory
-Calc. Draw/Impress stay unique `_wa_factory_N`. No product change.
+Calc. Draw/Impress stay unique `_wa_factory_N`.
+
+GHA 34636251918 (this branch, after store-via-active):
+`test_list_nearby_excludes_active` OK. `open_document_for_read` of
+that Budget file then `loadComponentFromURL(..., "_default", 0)`
+raised `Could not create system bitmap!` The next sibling open hung
+30s at the same call (office alive). Leftover Hidden `_wa_calc_html`
+frames poison `_default` / `_blank` (34597506651). Product
+`open_document_for_read` now uses one CREATE|GLOBAL name
+`_wa_doc_research` on Windows (same pattern as `rich_html._wa_calc_html`).
+Hidden+ReadOnly and the reuse / close-flag contract are unchanged.
+POSIX keeps `_default`.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
@@ -341,6 +353,8 @@ swriter loads using `target=_wa_factory` (not `_blank` / not
 `_blank` / not `_wa_factory_N`),
 `document_research_uno: store budget via active start/done` (no
 `create budget calc` / no leftover `scalc` `target=_wa_factory_1`),
+`open_document_for_read` of the sibling using `target=_wa_doc_research`
+(not `_default` / `_blank`) on Windows,
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
 no second leftover swriter factory after the first text_helpers Writer,
 `document_research_uno` three tests

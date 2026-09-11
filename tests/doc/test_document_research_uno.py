@@ -85,7 +85,9 @@ def test_list_nearby_excludes_active(ctx, doc):
 def test_open_document_for_read_hidden_readonly(ctx, doc):
     temp_dir, budget_path = _create_nearby_test_env(ctx, doc)
     try:
+        _nearby_progress("open_document_for_read start")
         model, doc_type, err, opened_for_document_research = open_document_for_read(ctx, budget_path)
+        _nearby_progress("open_document_for_read done err=%s" % (err or "-"))
         assert err is None
         assert doc_type == "calc"
         assert model is not None
