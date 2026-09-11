@@ -291,6 +291,11 @@ def test_master_slides(ctx, doc):
 @native_test
 @with_native_doc("draw")
 def test_get_draw_tree(ctx, doc):
+    from plugin.testing_runner import _progress
+
+    # GHA 34606276107: this TEST end OK; the next insert_math_draw close
+    # killed soffice. Name the tree call vs teardown.
+    _progress("get_draw_tree: body start")
     # Ensure there is at least one shape to build a tree with
     _exec_tool(doc, ctx, "shape_upsert", {
         "action": "create",
@@ -302,6 +307,7 @@ def test_get_draw_tree(ctx, doc):
 
     result = _exec_tool(doc, ctx, "get_draw_tree", {"page": _active_draw_page_index(doc)})
     data = json.loads(result)
+    _progress("get_draw_tree: execute done status=%s" % data.get("status"))
     assert data.get("status") == "ok", f"get_draw_tree failed: {result}"
     tree = data.get("tree", [])
     assert len(tree) > 0, "Draw tree is empty"
@@ -313,11 +319,17 @@ def test_get_draw_tree(ctx, doc):
             found = True
             break
     assert found, "Created shape not found in draw tree"
+    _progress("get_draw_tree: body done")
 
 
 @native_test
 @with_native_doc("draw")
 def test_insert_math_draw(ctx, doc):
+    from plugin.testing_runner import _progress
+
+    # GHA 34606276107: load done uid=48 then ~8s later close_doc dispose
+    # and soffice exited 0. Name insert_math vs close_doc teardown.
+    _progress("insert_math_draw: insert_math start")
     # Insert math (formula_type + formula + page + x + y; size from UNO/heuristic)
     result = _exec_tool(doc, ctx, "insert_math", {
         "formula_type": "latex",
@@ -328,6 +340,7 @@ def test_insert_math_draw(ctx, doc):
     })
 
     data = json.loads(result)
+    _progress("insert_math_draw: insert_math done status=%s" % data.get("status"))
     assert data.get("status") == "ok", f"insert_math failed: {result}"
 
     # insert_math used page_index 0 — read shape from that page (current slide may differ after prior tests).
@@ -337,6 +350,7 @@ def test_insert_math_draw(ctx, doc):
     assert shape.CLSID == "078B7ABA-54FC-457F-8551-6147e776a997"
     sz = shape.getSize()
     assert sz.Width >= 400 and sz.Height >= 300, f"expected plausible size, got {sz.Width}x{sz.Height}"
+    _progress("insert_math_draw: body done")
 
 
 @native_test

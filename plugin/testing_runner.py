@@ -166,6 +166,20 @@ _lifecycle_current_qual: str = ""
 _lifecycle_current_start_pids: str = ""
 _lifecycle_current_start_mono: float = 0.0
 _lifecycle_current_bridge: str = ""
+# ``python -m plugin.testing_runner`` records on ``__main__``. close_doc
+# imports ``plugin.testing_runner`` (second object). GHA 34606276107
+# printed previous=- current=- on close_doc dispose. Touch both.
+_LIFECYCLE_ATTRS = (
+    "_lifecycle_last_qual",
+    "_lifecycle_last_result",
+    "_lifecycle_last_end_pids",
+    "_lifecycle_last_ok_qual",
+    "_lifecycle_last_end_mono",
+    "_lifecycle_current_qual",
+    "_lifecycle_current_start_pids",
+    "_lifecycle_current_start_mono",
+    "_lifecycle_current_bridge",
+)
 
 # ``--repeat N`` / ``WRITERAGENT_UNO_SOAK``: re-run selected suites in one office.
 _soak_repeat: int = 1
@@ -223,6 +237,7 @@ def reset_lifecycle_breadcrumb() -> None:
     _lifecycle_current_start_pids = ""
     _lifecycle_current_start_mono = 0.0
     _lifecycle_current_bridge = ""
+    _sync_lifecycle_to_holders()
     reset_office_death_signals()
 
 
@@ -387,6 +402,44 @@ def probe_uno_bridge(ctx: Any = None) -> str:
     return "alive"
 
 
+def _sync_lifecycle_to_holders() -> None:
+    """Write lifecycle trail on ``__main__`` and ``plugin.testing_runner``."""
+    here = sys.modules.get(__name__)
+    for mod in _office_recycle_holders():
+        if mod is here:
+            continue
+        for attr in _LIFECYCLE_ATTRS:
+            setattr(mod, attr, getattr(here, attr))
+
+
+def _adopt_lifecycle_from_sibling() -> bool:
+    """Copy lifecycle trail from the other runner module if this copy is empty.
+
+    GHA 34606276107: ``close_doc`` dispose printed ``previous=- current=-``
+    because ``-m`` recorded on ``__main__`` and testing_utils imported
+    ``plugin.testing_runner``. Same dual-module family as recycle (#719).
+    """
+    global _lifecycle_last_qual, _lifecycle_last_result, _lifecycle_last_end_pids
+    global _lifecycle_last_ok_qual, _lifecycle_last_end_mono
+    global _lifecycle_current_qual, _lifecycle_current_start_pids
+    global _lifecycle_current_start_mono, _lifecycle_current_bridge
+    if _lifecycle_current_qual or _lifecycle_last_qual:
+        return False
+    here = sys.modules.get(__name__)
+    for mod in _office_recycle_holders():
+        if mod is here:
+            continue
+        if not (
+            getattr(mod, "_lifecycle_current_qual", "")
+            or getattr(mod, "_lifecycle_last_qual", "")
+        ):
+            continue
+        for attr in _LIFECYCLE_ATTRS:
+            globals()[attr] = getattr(mod, attr)
+        return True
+    return False
+
+
 def record_test_start(qual: str, ctx: Any = None) -> None:
     """Remember the test about to run, soffice PIDs, and a cheap bridge probe."""
     global _lifecycle_current_qual, _lifecycle_current_start_pids
@@ -395,6 +448,7 @@ def record_test_start(qual: str, ctx: Any = None) -> None:
     _lifecycle_current_start_pids = _soffice_pids()
     _lifecycle_current_start_mono = time.monotonic()
     _lifecycle_current_bridge = probe_uno_bridge(ctx)
+    _sync_lifecycle_to_holders()
 
 
 def record_test_end(qual: str, result: str) -> None:
@@ -413,6 +467,7 @@ def record_test_end(qual: str, result: str) -> None:
     _lifecycle_current_start_pids = ""
     _lifecycle_current_start_mono = 0.0
     _lifecycle_current_bridge = ""
+    _sync_lifecycle_to_holders()
 
 
 def format_lifecycle_breadcrumb() -> str:
@@ -424,6 +479,7 @@ def format_lifecycle_breadcrumb() -> str:
     elapsed ms since that end, whether soffice PIDs changed, and a cheap
     getServiceManager probe.
     """
+    _adopt_lifecycle_from_sibling()
     prev = _lifecycle_last_qual or "-"
     prev_result = _lifecycle_last_result or "-"
     prev_pids = _lifecycle_last_end_pids or "-"

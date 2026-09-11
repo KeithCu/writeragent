@@ -739,6 +739,35 @@ def test_close_doc_logs_urp_dispose(capsys, monkeypatch):
     tr.reset_lifecycle_breadcrumb()
 
 
+def test_close_doc_windows_draw_logs_close_steps(capsys, monkeypatch):
+    """GHA 34606276107: Draw close_doc dispose had no start/close(True) trail."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests import testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr("gc.collect", lambda: None)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("plugin.testing_runner._soffice_pids", lambda: "7196,5792")
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    tu._WINDOWS_LEFTOVER_OPEN = 3
+    tu.set_harness_keeper_uid("1")
+    doc = MagicMock()
+    doc.RuntimeUID = "48"
+    doc.supportsService.side_effect = lambda svc: svc.endswith("DrawingDocument")
+    try:
+        TestingFactory.close_doc(doc)
+        doc.close.assert_called_once_with(True)
+        err = capsys.readouterr().err
+        assert "close_doc: start uid=48 svc=draw leftovers=3 keeper=1 pids=7196,5792" in err
+        assert "close_doc: close(True) start uid=48 svc=draw leftovers=3 pids=7196,5792" in err
+        assert "close_doc: close(True) done uid=48 svc=draw pids=7196,5792" in err
+    finally:
+        tu._WINDOWS_LEFTOVER_OPEN = saved
+        tu.set_harness_keeper_uid("")
+
+
 def test_close_doc_windows_writer_reactivates_keeper(monkeypatch):
     """GHA 34554275072: after test Writer close, keep leftover off current."""
     from unittest.mock import MagicMock
