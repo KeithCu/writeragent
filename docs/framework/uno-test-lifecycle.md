@@ -129,22 +129,53 @@ rebootstrap is not a healthy office. Windows now runs
 office; after that suite, skip rebootstrap and terminate soffice
 (`recycle office skipped; no remaining suites`).
 
+GHA 34554275072 (master `633f8a39`, tip of `#719`) and 34553944171
+(pre-merge `#719` tip): peer suite never reached. `document_research_uno`
+(including `test_list_nearby_excludes_active`) passed — those tests are
+**Calc** (`@with_native_doc("calc")`), not a Writer factory cycle. Then
+`doc.test_text_helpers_uno.test_get_string_without_tracked_deletions_paragraph_bold_run_no_newline`
+OK (first Writer factory after leftovers + `close_doc` returned; same
+soffice pids `4480,2176`). The next test,
+`…_multi_para_joins_with_newline`, hung 30s in `create_native_doc`
+(`loadComponentFromURL(private:factory/swriter)`). Earlier
+`insert_cell_html_rich` left temp Writers open
+(`close skipped pasted=True`; `reused_existing=False`): uid=26 then
+uid=27, `writers_open` 1→2. Calc teardown does not close them. Product
+must not close those Writers during a live paste (33771766524). After
+the first harness Writer `close_doc`, desktop current becomes a leftover
+paste Writer; the next factory then hangs (same family as leftover
+Impress, 34537826720). CharWeight itself is not the hung call.
+
+GHA 34556185752 (`#720` leftover-close attempt): first text_helpers
+factory called leftover `close(True)` on uid=27 (`frame=-`) and hung
+30s *inside that close* — same “do not close after paste” rule, still
+true minutes later. Do **not** close leftover paste Writers from the
+harness. Before a Windows Writer factory, log leftovers and
+`setActiveFrame` the keeper. After a Windows Writer `close_doc` (test
+docs still close — that returned on 34554275072), reactivate the
+keeper again (`html_paste_writer: leftovers open=…`,
+`html_paste_writer: keeper reactivated`).
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
 `peer_message_uno: skip writer close after impress`,
 `peer_message_uno: skip second impress close (windows)`,
 `peer_message_uno: skip close (windows) uid=…`,
-`peer_message_uno: close_doc start/done uid=…` (POSIX). Do **not**
-fold Draw-family settle into `close_doc`. Not a product fix.
+`peer_message_uno: close_doc start/done uid=…` (POSIX).
+`html_paste_writer: leftovers open=N uids=…`,
+`html_paste_writer: keeper reactivated`,
+`create_native_doc: windows writer factory leftover_open=N`,
+`close_doc: start/done uid=…` (Windows Writer). Do **not** fold
+Draw-family settle into `close_doc`. Not a product fix.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
-branch: `os=windows-latest`, `ci_debug=true`. Look for other UNO
-suites finishing *before* the peer file, then `skip close (windows)`,
-first Impress `raw close(True)`, `skip second impress close (windows)`,
-all six peer tests `TEST end … OK`, then
-`LIFECYCLE recycle office skipped; no remaining suites` and
-`LIFECYCLE terminate office after peer leftovers done`. Ubuntu PR CI
+branch: `os=windows-latest`, `ci_debug=true`. Look for
+`html_paste_writer: leftovers open` and `keeper reactivated` before
+the first text_helpers Writer load, both text_helpers tests
+`TEST end … OK`, later suites including the peer file last (six peer
+`TEST end … OK`), then
+`LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 
 **Harness-only attribution (not a product fix):** if a test body returns OK
