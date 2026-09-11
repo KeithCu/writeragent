@@ -1167,6 +1167,14 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
             new_keeper = get_desktop(new_ctx).loadComponentFromURL(
                 "private:factory/swriter", "_blank", 0, (hidden_prop,)
             )
+            try:
+                from tests.testing_utils import set_harness_keeper_uid
+
+                set_harness_keeper_uid(
+                    str(getattr(new_keeper, "RuntimeUID", None) or "")
+                )
+            except Exception:
+                pass
         _progress(
             "LIFECYCLE recycle office after impress done pids=%s"
             % _soffice_pids()
@@ -1676,6 +1684,12 @@ def run_all_tests(ctx: Any) -> str:
                 "KEEPER load done ok=%s uid=%s python_pid=%s soffice=%s"
                 % (keeper_doc is not None, keeper_uid, os.getpid(), _soffice_pids())
             )
+            try:
+                from tests.testing_utils import set_harness_keeper_uid
+
+                set_harness_keeper_uid(keeper_uid)
+            except Exception:
+                pass
     except Exception as e:
         log.warning("run_all_tests: could not create keeper document: %s", e)
         if _is_uno_bridge_disposed(e):

@@ -272,6 +272,145 @@ def test_reraise_native_open_failure_passthrough_non_urp():
             _reraise_native_open_failure(exc, "private:factory/sdraw")
 
 
+def test_close_leftover_html_paste_writers_skips_keeper_and_closes_others(monkeypatch):
+    """GHA 34554275072: leftover _wa_calc_html Writers must not stay open."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests import testing_utils as tu
+
+    keeper = MagicMock(name="keeper")
+    keeper.RuntimeUID = "1"
+    leftover = MagicMock(name="leftover")
+    leftover.RuntimeUID = "26"
+    leftover.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    keeper.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    frame = MagicMock(name="keeper_frame")
+    keeper.getCurrentController.return_value.getFrame.return_value = frame
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = _Enum(
+        [keeper, leftover]
+    )
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda _ctx: desktop)
+    tu.set_harness_keeper_uid("1")
+    try:
+        assert tu.close_leftover_html_paste_writers(object()) == 1
+        leftover.close.assert_called_once_with(True)
+        keeper.close.assert_not_called()
+        desktop.setActiveFrame.assert_called_once_with(frame)
+    finally:
+        tu.set_harness_keeper_uid("")
+
+
+def test_close_leftover_html_paste_writers_keeper_only_skips_reactivate(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from plugin.tests import testing_utils as tu
+
+    keeper = MagicMock(name="keeper")
+    keeper.RuntimeUID = "1"
+    keeper.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = _Enum([keeper])
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda _ctx: desktop)
+    tu.set_harness_keeper_uid("1")
+    try:
+        assert tu.close_leftover_html_paste_writers(object()) == 0
+        keeper.close.assert_not_called()
+        desktop.setActiveFrame.assert_not_called()
+    finally:
+        tu.set_harness_keeper_uid("")
+
+
+def test_create_native_doc_windows_closes_leftover_writers_before_load(monkeypatch):
+    """Second text_helpers Writer factory hung after leftovers + one close_doc."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = MagicMock()
+    calls = []
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(
+        tu, "close_leftover_html_paste_writers", lambda _ctx: calls.append("close_leftovers")
+    )
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("uno.createUnoStruct", return_value=MagicMock()),
+        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+    ):
+        TestingFactory.create_native_doc(object(), "writer")
+    assert calls == ["close_leftovers"]
+    desktop.loadComponentFromURL.assert_called_once()
+
+
+def test_create_native_doc_windows_calc_does_not_close_leftover_writers(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = MagicMock()
+    calls = []
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(
+        tu, "close_leftover_html_paste_writers", lambda _ctx: calls.append("close_leftovers")
+    )
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("uno.createUnoStruct", return_value=MagicMock()),
+        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+    ):
+        TestingFactory.create_native_doc(object(), "calc")
+    assert calls == []
+
+
+def test_create_native_doc_posix_does_not_close_leftover_writers(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = MagicMock()
+    calls = []
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    monkeypatch.setattr(
+        tu, "close_leftover_html_paste_writers", lambda _ctx: calls.append("close_leftovers")
+    )
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("uno.createUnoStruct", return_value=MagicMock()),
+        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+    ):
+        TestingFactory.create_native_doc(object(), "writer")
+    assert calls == []
+
+
 def test_create_native_doc_skips_load_when_bridge_already_dead(monkeypatch):
     from unittest.mock import MagicMock, patch
 
