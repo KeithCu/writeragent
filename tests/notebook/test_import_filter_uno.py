@@ -91,6 +91,10 @@ def test_import_filter_uno_load_component(ctx):
         assert "In [" in doc.getText().getString()
     finally:
         # Raw close(True) + next Hidden _blank hung detect (34619751330).
+        # GHA 34646877587: close_doc of leftover _wa_notebook uid=41
+        # returned; the next Hidden _wa_notebook hung 30s. close_doc
+        # skips leftover Writers; windows_notebook_load_args uses a
+        # fresh name for the next load.
         TestingFactory.close_doc(doc)
 
 

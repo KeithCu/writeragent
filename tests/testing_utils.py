@@ -1156,6 +1156,15 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
 # after leftover Writers — consecutive Hidden _blank hung detect
 # (GHA 34619751330) the same way as leftover swriter (34597506651).
 _WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
+# Consecutive leftover Hidden _wa_notebook after close hung (34646877587).
+_WINDOWS_NOTEBOOK_SEQ = 0
+
+
+def _set_windows_notebook_seq(n: int) -> None:
+    for mod in _testing_utils_holders():
+        mod._WINDOWS_NOTEBOOK_SEQ = int(n)
+
+
 # Notebook-runner host while leftover HTML-paste Writers stay open.
 # Not leftover ``_wa_factory`` (reuses paste leftovers) and not
 # import-filter ``_wa_notebook`` (GHA 34643210006 leftover listeners).
@@ -1190,13 +1199,32 @@ def windows_notebook_load_args() -> tuple[str, int]:
     Hidden ``_blank`` + FilterName returned, then raw ``close(True)``.
     ``test_import_filter_uno_detect_without_filtername`` Hidden ``_blank``
     hung 30s (soffice still ``2444,5124``). Same consecutive leftover
-    Hidden ``_blank`` family as 34597506651. Use one CREATE|GLOBAL name
-    and ``TestingFactory.close_doc`` (skips Writer close while leftovers
-    remain). POSIX keeps ``_blank``.
+    Hidden ``_blank`` family as 34597506651. POSIX keeps ``_blank``.
+
+    GHA 34646877587: first Hidden ``_wa_notebook`` load+close notebook
+    leftover uid=41 returned; the next Hidden ``_wa_notebook`` hung 30s
+    (paste leftovers still open=3). Sharing a just-closed CREATE|GLOBAL
+    name is the leftover unique-factory stacking family. Do not close
+    leftover notebook docs (same skip as paste Writers). Each leftover
+    Hidden .ipynb load uses a new name (``_wa_notebook``, then
+    ``_wa_notebook_2``). First-use of ``_wa_notebook`` succeeded.
     """
     if sys.platform != "win32":
         return "_blank", 0
-    return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
+    n = int(_WINDOWS_NOTEBOOK_SEQ or 0)
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        other = int(getattr(mod, "_WINDOWS_NOTEBOOK_SEQ", 0) or 0)
+        if other > n:
+            n = other
+    n += 1
+    for mod in _testing_utils_holders():
+        mod._WINDOWS_NOTEBOOK_SEQ = n
+    if n == 1:
+        return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
+    return "%s_%s" % (_WINDOWS_NOTEBOOK_TARGET, n), _WINDOWS_FACTORY_SEARCH_FLAGS
 
 
 def _reraise_native_open_failure(
@@ -2025,30 +2053,17 @@ class TestingFactory:
                     # _wa_factory_5 swriter hung 30s. Do not close a
                     # harness Writer while paste leftovers remain (same
                     # ban as leftover paste close, 34556185752).
-                    # GHA 34643210006: that skip also kept import-filter
-                    # ``_wa_notebook`` leftovers (uids 41/42) and their
-                    # form listeners. Close notebook-registry leftovers.
-                    # Do not close leftover paste Writers.
-                    close_notebook = False
-                    try:
-                        from plugin.notebook.cell_registry import (
-                            has_notebook_registry,
-                        )
-
-                        close_notebook = has_notebook_registry(doc) is True
-                    except Exception:
-                        close_notebook = False
-                    if not close_notebook:
-                        reactivate_harness_keeper()
-                        _progress(
-                            "close_doc: skip writer close leftovers open=%s uid=%s"
-                            % (leftover_open, uid or "-")
-                        )
-                        return
+                    # GHA 34646877587: close notebook leftover uid=41
+                    # returned; next Hidden ``_wa_notebook`` hung 30s.
+                    # Per-doc listener counts + ``_wa_notebook_host``
+                    # isolate notebook_runner. Do not close leftover
+                    # notebook docs or leftover paste Writers.
+                    reactivate_harness_keeper()
                     _progress(
-                        "close_doc: close notebook leftover uid=%s leftovers=%s"
-                        % (uid or "-", leftover_open)
+                        "close_doc: skip writer close leftovers open=%s uid=%s"
+                        % (leftover_open, uid or "-")
                     )
+                    return
         for key, pooled in list(_NATIVE_DOC_POOL.items()):
             if pooled is doc:
                 del _NATIVE_DOC_POOL[key]

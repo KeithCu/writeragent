@@ -577,12 +577,20 @@ def test_windows_notebook_load_args_avoids_blank(monkeypatch):
     """GHA 34619751330: second Hidden _blank .ipynb hung after raw close."""
     import plugin.tests.testing_utils as tu
 
+    saved = tu._WINDOWS_NOTEBOOK_SEQ
     monkeypatch.setattr(tu.sys, "platform", "win32")
-    target, flags = tu.windows_notebook_load_args()
-    assert target == "_wa_notebook"
-    assert flags == (8 | 55)
-    monkeypatch.setattr(tu.sys, "platform", "linux")
-    assert tu.windows_notebook_load_args() == ("_blank", 0)
+    tu._set_windows_notebook_seq(0)
+    try:
+        target, flags = tu.windows_notebook_load_args()
+        assert target == "_wa_notebook"
+        assert flags == (8 | 55)
+        target2, flags2 = tu.windows_notebook_load_args()
+        assert target2 == "_wa_notebook_2"
+        assert flags2 == (8 | 55)
+        monkeypatch.setattr(tu.sys, "platform", "linux")
+        assert tu.windows_notebook_load_args() == ("_blank", 0)
+    finally:
+        tu._set_windows_notebook_seq(saved)
 
 
 def test_windows_should_reuse_writer_only_with_leftovers(monkeypatch):
@@ -699,8 +707,8 @@ def test_close_doc_posix_closes_math_ole_draw(monkeypatch):
     doc.close.assert_called_once_with(True)
 
 
-def test_close_doc_closes_windows_notebook_leftover(monkeypatch):
-    """GHA 34643210006: skip-all-Writer close kept import-filter leftovers."""
+def test_close_doc_skips_windows_notebook_leftover(monkeypatch):
+    """GHA 34646877587: close notebook leftover then next _wa_notebook hung."""
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -712,14 +720,14 @@ def test_close_doc_closes_windows_notebook_leftover(monkeypatch):
     saved = tu._WINDOWS_LEFTOVER_OPEN
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(tu, "reactivate_harness_keeper", lambda desktop=None: True)
-    tu._set_windows_leftover_open(5)
+    tu._set_windows_leftover_open(3)
     try:
         with patch(
             "plugin.notebook.cell_registry.has_notebook_registry",
             return_value=True,
         ):
             TestingFactory.close_doc(doc)
-        doc.close.assert_called_once_with(True)
+        doc.close.assert_not_called()
     finally:
         tu._set_windows_leftover_open(saved)
 

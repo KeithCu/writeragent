@@ -367,8 +367,11 @@ still held form listeners. `form_run_listeners()` /
 `wired_run_listener_count` counted every leftover doc
 (`duplicate listeners: 3`). Counts are now per-document. Notebook
 suites use `_wa_notebook_host` (not leftover HTML-paste reuse).
-`close_doc` still skips leftover paste Writers, but closes
-notebook-registry leftovers.
+`close_doc` still skips leftover paste Writers. GHA 34646877587
+closed notebook leftover uid=41 then hung 30s on the next Hidden
+`_wa_notebook` (leftovers open=3). Do not close leftover notebook
+docs. Consecutive leftover Hidden .ipynb loads use `_wa_notebook`
+then `_wa_notebook_2` (do not share a just-closed name).
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
