@@ -488,7 +488,7 @@ def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypat
 
 
 def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
-    """GHA 34593327841: leftover paste Writer as current hung the next scalc load."""
+    """GHA 34599838644: leftover scalc _blank failed then hung; named CREATE target."""
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -510,13 +510,19 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
             patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
         ):
             TestingFactory.create_native_doc(object(), "calc")
-        assert calls == ["prepare"]
-        args = desktop.loadComponentFromURL.call_args.args
-        assert args[0] == "private:factory/scalc"
-        # GHA 34599838644: leftover Calc _blank failed then hung. Same named
-        # CREATE target as leftover swriter.
-        assert args[1] == "_wa_factory_1"
-        assert args[2] == (8 | 55)
+            assert calls == ["prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/scalc"
+            assert args[1] == "_wa_factory_1"
+            assert args[2] == (8 | 55)
+            # Same hang family as leftover consecutive Hidden _blank swriter:
+            # the next leftover scalc must not reuse the frame name.
+            TestingFactory.create_native_doc(object(), "calc")
+            assert calls == ["prepare", "prepare"]
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/scalc"
+            assert args[1] == "_wa_factory_2"
+            assert args[2] == (8 | 55)
     finally:
         tu._WINDOWS_FACTORY_SEQ = saved_seq
 

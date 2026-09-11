@@ -1645,9 +1645,10 @@ class TestingFactory:
 
         leftover_open = 0
         target, flags = "_blank", 0
-        # GHA 34593327841: leftover paste Writers as desktop current hung
-        # the next scalc factory (30s) after list_nearby failed. #720 only
-        # prepared swriter. Reactivate the keeper before any factory load.
+        # GHA 34593327841 / 34599838644: leftover paste Writers as desktop
+        # current hung the next scalc factory (30s). #720 only prepared
+        # swriter. Reactivate the keeper, then use a unique CREATE target
+        # for any leftover private:factory/ load (not only swriter).
         if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
             target, flags = _windows_factory_load_args(factory_url, leftover_open)
