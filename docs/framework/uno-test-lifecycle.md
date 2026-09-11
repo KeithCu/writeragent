@@ -248,12 +248,11 @@ POSIX still `close_doc`. Breadcrumbs:
 `insert_math_draw: insert_math start/done` and `body done`. Do **not** fold
 Draw-family settle into `close_doc`. Not a product fix.
 
-GHA 34606276107 (`248da30d`, leftover hang fixed): leftover paste +
-leftover-window Writer stayed open (`leftovers open=3 uids=['34','27','26']
-keeper=1`). `document_research_uno` 3/3 and both `text_helpers_uno`
-tests OK. Draw factories `_wa_factory_4`…`_wa_factory_16` loaded and
-closed; `test_get_draw_tree` OK (`uid=47`). `test_insert_math_draw`
-loaded `target=_wa_factory_17 uid=48`, then ~8s later
+GHA 34606276107 (`248da30d`, leftover hang fixed) and master
+34607010446 (`3720c175`, #722 merge): leftover paste + leftover-window
+Writer stayed open (`leftovers open=3`). `document_research_uno` 3/3
+and both `text_helpers_uno` tests OK. Draw factories loaded and
+closed; `test_get_draw_tree` OK. `test_insert_math_draw` then
 `LIFECYCLE close_doc dispose` (pids still live) and
 `office dead after close doc_type=draw pids=-`. TEST returned; soffice
 exited 0. `close_doc` dispose printed `previous=- current=-` — `-m`
