@@ -898,6 +898,22 @@ def _writer_frame_name(doc) -> str:
         return ""
 
 
+def _native_doc_svc(doc) -> str:
+    """Harness breadcrumb: writer / calc / impress / draw. Impress first."""
+    try:
+        if doc.supportsService("com.sun.star.text.TextDocument"):
+            return "writer"
+        if doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+            return "calc"
+        if doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+            return "impress"
+        if doc.supportsService("com.sun.star.drawing.DrawingDocument"):
+            return "draw"
+    except Exception:
+        return ""
+    return ""
+
+
 def _iter_open_writer_docs(desktop):
     """Yield (uid, doc) for open TextDocuments. Read-only enum; no close."""
     try:
@@ -1770,20 +1786,33 @@ class TestingFactory:
         # so reuse can still find the doc (34602219973).
         uid = ""
         is_writer = False
+        doc_svc = ""
+        leftover_open = 0
         if sys.platform == "win32":
             try:
                 uid = str(getattr(doc, "RuntimeUID", None) or "")
-                is_writer = bool(doc.supportsService("com.sun.star.text.TextDocument"))
+                doc_svc = _native_doc_svc(doc)
+                is_writer = doc_svc == "writer"
             except Exception:
                 is_writer = False
-            if is_writer:
-                from plugin.testing_runner import _progress
+            leftover_open = _windows_leftover_open()
+            if is_writer or doc_svc in ("draw", "impress"):
+                from plugin.testing_runner import _progress, _soffice_pids
 
-                leftover_open = _windows_leftover_open()
+                # GHA 34606276107: insert_math_draw close_doc dispose then
+                # soffice exited 0. Writer-only start hid Draw teardown.
+                # leftovers/keeper name leftover-window reuse vs Draw close.
                 _progress(
-                    "close_doc: start uid=%s leftovers=%s" % (uid or "-", leftover_open)
+                    "close_doc: start uid=%s svc=%s leftovers=%s keeper=%s pids=%s"
+                    % (
+                        uid or "-",
+                        doc_svc or "-",
+                        leftover_open,
+                        _HARNESS_KEEPER_UID or "-",
+                        _soffice_pids(),
+                    )
                 )
-                if leftover_open > 0:
+                if is_writer and leftover_open > 0:
                     # GHA 34602219973: close uid=34 returned; next unique
                     # _wa_factory_5 swriter hung 30s. Do not close a
                     # harness Writer while paste leftovers remain (same
@@ -1817,10 +1846,24 @@ class TestingFactory:
             # settle lets ~SvxShape finish before close. Unscoped: Writer
             # ControlShape / charts use the same pool. Post-close wait did not help.
             time.sleep(_CLOSE_DOC_URP_SETTLE_S)
+            if sys.platform == "win32" and doc_svc in ("draw", "impress"):
+                from plugin.testing_runner import _progress, _soffice_pids
+
+                _progress(
+                    "close_doc: close(True) start uid=%s svc=%s leftovers=%s pids=%s"
+                    % (uid or "-", doc_svc, leftover_open, _soffice_pids())
+                )
             if hasattr(doc, "close"):
                 doc.close(True)
             elif hasattr(doc, "dispose"):
                 doc.dispose()
+            if sys.platform == "win32" and doc_svc in ("draw", "impress"):
+                from plugin.testing_runner import _progress, _soffice_pids
+
+                _progress(
+                    "close_doc: close(True) done uid=%s svc=%s pids=%s"
+                    % (uid or "-", doc_svc, _soffice_pids())
+                )
             if sys.platform == "win32" and is_writer:
                 from plugin.testing_runner import _progress
 

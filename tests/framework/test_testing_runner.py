@@ -271,6 +271,31 @@ def test_office_recycle_request_is_consumed_once() -> None:
     assert consume_office_recycle_request() is False
 
 
+def test_lifecycle_breadcrumb_adopts_from_minus_m_main(monkeypatch) -> None:
+    """GHA 34606276107: close_doc dispose printed previous=- current=-."""
+    import types
+
+    import plugin.testing_runner as tr
+
+    reset_lifecycle_breadcrumb()
+    fake_main = types.ModuleType("__main__")
+    fake_main.__file__ = tr.__file__
+    fake_main._lifecycle_last_qual = "draw.test_draw_uno.test_get_draw_tree"
+    fake_main._lifecycle_last_result = "OK"
+    fake_main._lifecycle_last_end_pids = "7196,5792"
+    fake_main._lifecycle_last_ok_qual = "draw.test_draw_uno.test_get_draw_tree"
+    fake_main._lifecycle_last_end_mono = 1.0
+    fake_main._lifecycle_current_qual = "draw.test_draw_uno.test_insert_math_draw"
+    fake_main._lifecycle_current_start_pids = "7196,5792"
+    fake_main._lifecycle_current_start_mono = 2.0
+    fake_main._lifecycle_current_bridge = "alive"
+    monkeypatch.setitem(sys.modules, "__main__", fake_main)
+    crumb = format_lifecycle_breadcrumb()
+    assert "previous=draw.test_draw_uno.test_get_draw_tree" in crumb
+    assert "current=draw.test_draw_uno.test_insert_math_draw" in crumb
+    reset_lifecycle_breadcrumb()
+
+
 def test_office_recycle_request_reaches_minus_m_main(monkeypatch) -> None:
     """GHA 34549510317: ``-m`` is ``__main__``; tests import the package name."""
     import types
