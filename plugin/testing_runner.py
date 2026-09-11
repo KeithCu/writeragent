@@ -1105,6 +1105,25 @@ def consume_office_recycle_request() -> bool:
     return wanted
 
 
+def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
+    """Windows: run the peer suite last so leftover docs do not poison later loads.
+
+    GHA 34551644954: recycle *did* start a new soffice, then the next Calc
+    factory raised ``Could not create system bitmap`` and hung. Other
+    suites must keep the original office. Peer leftovers die with process
+    teardown, not in-process rebootstrap.
+    """
+    name = os.path.basename(module_path)
+    if sys.platform == "win32" and name == "test_peer_message_uno.py":
+        return (1, module_path)
+    return (0, module_path)
+
+
+def _should_rebootstrap_after_recycle(*, more_suites: bool) -> bool:
+    """False when this was the last suite — do not start a second soffice."""
+    return more_suites
+
+
 def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
     """Kill the current soffice and bootstrap a fresh one.
 
@@ -1772,6 +1791,7 @@ def run_all_tests(ctx: Any) -> str:
                         test_candidates.append(full_path)
 
         soak_rounds = max(1, _soak_repeat)
+        skip_keeper_close = False
         if soak_rounds > 1:
             _progress(
                 "SOAK start rounds=%s suites=%s filter=%s"
@@ -1783,7 +1803,9 @@ def run_all_tests(ctx: Any) -> str:
             if _urp_bridge_dead:
                 _progress("SOAK stop: URP already disposed")
                 break
-            for module_path in sorted(test_candidates):
+            ordered_candidates = sorted(test_candidates, key=_native_suite_sort_key)
+            skip_keeper_close = False
+            for i, module_path in enumerate(ordered_candidates):
                 if _urp_bridge_dead:
                     _progress("SUITE skip remaining: URP already disposed")
                     break
@@ -1831,7 +1853,16 @@ def run_all_tests(ctx: Any) -> str:
                     total_passed += p
                     total_failed += f
                     if consume_office_recycle_request():
-                        ctx, keeper_doc = _recycle_harness_office(ctx)
+                        more = i + 1 < len(ordered_candidates)
+                        if _should_rebootstrap_after_recycle(more_suites=more):
+                            ctx, keeper_doc = _recycle_harness_office(ctx)
+                        else:
+                            # GHA 34551644954: rebootstrap then hung the next
+                            # scalc load. No remaining suites — just kill.
+                            _progress(
+                                "LIFECYCLE recycle office skipped; no remaining suites"
+                            )
+                            skip_keeper_close = True
                 except ImportError as e:
                     print(f"Skipping {filename} due to ImportError: {e}")
                 except Exception as e:
@@ -1845,6 +1876,12 @@ def run_all_tests(ctx: Any) -> str:
                             else:
                                 sys.modules[k] = v
 
+        if skip_keeper_close:
+            # Leftover peer docs / Impress: do not close(True). Kill soffice.
+            _progress("LIFECYCLE terminate office after peer leftovers start")
+            _terminate_bootstrap_soffice()
+            _progress("LIFECYCLE terminate office after peer leftovers done")
+            keeper_doc = None
         if keeper_doc is not None:
             try:
                 _progress("KEEPER close start")

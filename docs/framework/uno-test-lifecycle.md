@@ -120,6 +120,15 @@ Impress + skipped Writer docs; office still alive). Cause:
 `request_office_recycle_after_suite` / `consume_office_recycle_request`
 now touch both module objects.
 
+GHA 34551644954 (`0177648d`): recycle **did** run (`start` / `done`
+pids=`8188,6868`). `test_slash_popup` OK on the new office. Then
+`test_list_nearby_excludes_active` failed `Could not create system
+bitmap!` and the next Calc `create_native_doc` hung 30s. In-process
+rebootstrap is not a healthy office. Windows now runs
+`test_peer_message_uno` **last** so other suites keep the original
+office; after that suite, skip rebootstrap and terminate soffice
+(`recycle office skipped; no remaining suites`).
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
@@ -130,12 +139,13 @@ POSIX still `close_doc`. Breadcrumbs:
 fold Draw-family settle into `close_doc`. Not a product fix.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
-branch: `os=windows-latest`, `ci_debug=true`. Look for
-`skip close (windows)`, first Impress `raw close(True)` +
-`skip second impress close (windows)`, all six peer tests
-`TEST end … OK`, then `LIFECYCLE recycle office after impress done`.
-Ubuntu PR CI is the automatic gate; this cloud agent cannot run
-`windows-latest`.
+branch: `os=windows-latest`, `ci_debug=true`. Look for other UNO
+suites finishing *before* the peer file, then `skip close (windows)`,
+first Impress `raw close(True)`, `skip second impress close (windows)`,
+all six peer tests `TEST end … OK`, then
+`LIFECYCLE recycle office skipped; no remaining suites` and
+`LIFECYCLE terminate office after peer leftovers done`. Ubuntu PR CI
+is the automatic gate; this cloud agent cannot run `windows-latest`.
 
 **Harness-only attribution (not a product fix):** if a test body returns OK
 but the office already aborted, the runner fails *that* test instead of
