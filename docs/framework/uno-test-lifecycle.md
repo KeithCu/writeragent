@@ -255,9 +255,18 @@ walked pages/shapes and `_native_doc_svc` before `close(True)`.
 Unmarked Draw close is again RuntimeUID + GC + 50 ms + `close(True)`
 only. Do not walk for Math CLSID at teardown.
 `test_insert_math_draw` runs last in `test_draw_uno.py` so a leftover
-is not current for later tests in that file. Trail start/end now
-writes both runner modules; `format_lifecycle_breadcrumb` adopts from
-the sibling if this copy is empty.
+is not current for later tests in that file. On Windows the runner
+also sorts `test_draw_uno.py` just before the peer suite
+(`_native_suite_sort_key` band 1, peer band 2). GHA 34616287301:
+skip printed `close_doc: skip math ole close (windows) uid=50
+leftovers=3 keeper=1`, `test_insert_math_draw` OK, later Impress
+suites OK, then `notebook.test_import_filter_uno_detect_without_filtername`
+hung 30s on `loadComponentFromURL` (soffice still `9124,6920`).
+Deferring the leftover Math Draw until leftover-Impress + process
+teardown keeps notebook import-filter on the original office
+without `close(True)` and without mid-run recycle. Trail start/end
+now writes both runner modules; `format_lifecycle_breadcrumb`
+adopts from the sibling if this copy is empty.
 
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
@@ -312,8 +321,10 @@ Timeout in `create_native_doc` on
 that close), `insert_math_draw: insert_math start/done` then
 `close_doc: skip math ole close (windows)` (not
 `LIFECYCLE close_doc dispose` / `office dead after close doc_type=draw`),
-`TEST end draw.test_draw_uno.test_insert_math_draw OK`, later
-suites including the peer file last (six peer `TEST end … OK`), then
+`TEST end draw.test_draw_uno.test_insert_math_draw OK` **after**
+`notebook.test_import_filter_uno` both tests `TEST end … OK` (no 30s
+Timeout on `detect_without_filtername`), later leftover-Impress
+suites, then the peer file last (six peer `TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 

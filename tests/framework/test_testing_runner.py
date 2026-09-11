@@ -254,6 +254,41 @@ def test_native_suite_sort_key_windows_puts_peer_last(monkeypatch) -> None:
     assert ordered[0].endswith("test_slash_popup_uno.py")
 
 
+def test_native_suite_sort_key_windows_puts_draw_uno_before_peer(
+    monkeypatch,
+) -> None:
+    """GHA 34616287301: leftover Math Draw hung notebook import-filter load."""
+    import plugin.testing_runner as tr
+
+    monkeypatch.setattr(tr.sys, "platform", "win32")
+    paths = [
+        "/tmp/tests/chatbot/test_peer_message_uno.py",
+        "/tmp/tests/draw/test_draw_uno.py",
+        "/tmp/tests/notebook/test_import_filter_uno.py",
+        "/tmp/tests/draw/test_draw_forms_uno.py",
+        "/tmp/tests/impress/test_impress_uno.py",
+    ]
+    ordered = sorted(paths, key=_native_suite_sort_key)
+    names = [p.rsplit("/", 1)[-1] for p in ordered]
+    assert names[-1] == "test_peer_message_uno.py"
+    assert names[-2] == "test_draw_uno.py"
+    assert names.index("test_import_filter_uno.py") < names.index("test_draw_uno.py")
+    assert names.index("test_draw_forms_uno.py") < names.index("test_draw_uno.py")
+
+
+def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
+    """Linux PR CI must not defer draw_uno; POSIX still closes Math OLE."""
+    import plugin.testing_runner as tr
+
+    monkeypatch.setattr(tr.sys, "platform", "linux")
+    paths = [
+        "/tmp/tests/chatbot/test_peer_message_uno.py",
+        "/tmp/tests/draw/test_draw_uno.py",
+        "/tmp/tests/notebook/test_import_filter_uno.py",
+    ]
+    assert sorted(paths, key=_native_suite_sort_key) == sorted(paths)
+
+
 def test_should_not_rebootstrap_when_no_remaining_suites() -> None:
     """GHA 34551644954: recycled office hung the next scalc factory load."""
     assert _should_rebootstrap_after_recycle(more_suites=True) is True

@@ -1162,15 +1162,28 @@ def consume_office_recycle_request() -> bool:
 
 
 def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
-    """Windows: run the peer suite last so leftover docs do not poison later loads.
+    """Windows: leftover-leaving suites run last so they do not poison later loads.
 
     GHA 34551644954: recycle *did* start a new soffice, then the next Calc
     factory raised ``Could not create system bitmap`` and hung. Other
     suites must keep the original office. Peer leftovers die with process
     teardown, not in-process rebootstrap.
+
+    GHA 34616287301: skipping Math OLE ``close_doc`` kept Draw uid=50
+    open (``leftovers=3 keeper=1``). Impress suites after that skip still
+    ``TEST end … OK``. ``notebook.test_import_filter_uno_detect_without_filtername``
+    then hung 30s on ``loadComponentFromURL`` (soffice still
+    ``9124,6920``). Run ``test_draw_uno`` just before the peer suite so
+    the leftover Math Draw exists only for leftover-Impress tests and
+    process teardown. Do **not** ``close(True)`` that Draw (34607010446
+    exit 0) and do **not** recycle mid-run (34551644954).
     """
     name = os.path.basename(module_path)
-    if sys.platform == "win32" and name == "test_peer_message_uno.py":
+    if sys.platform != "win32":
+        return (0, module_path)
+    if name == "test_peer_message_uno.py":
+        return (2, module_path)
+    if name == "test_draw_uno.py":
         return (1, module_path)
     return (0, module_path)
 

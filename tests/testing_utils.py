@@ -1270,7 +1270,10 @@ def mark_windows_math_ole_doc(doc) -> None:
     ``close_doc`` ``dispose`` of that Draw killed soffice (exit 0).
     Nine earlier Draw ``close_doc`` calls in the same suite survived.
     Remember the uid on both testing_utils copies so teardown can skip
-    the close. Not a product fix.
+    the close. The runner then defers ``test_draw_uno`` until just
+    before the peer suite so the leftover Draw does not hang later
+    factory loads (GHA 34616287301 notebook import-filter). Not a
+    product fix.
     """
     if sys.platform != "win32" or not doc:
         return
