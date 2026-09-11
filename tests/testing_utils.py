@@ -1223,6 +1223,72 @@ def windows_leftover_hidden_load_unsafe() -> bool:
     return sys.platform == "win32" and _windows_leftover_open() > 0
 
 
+# GHA 34655847157 (master f88b8749, leftovers=0, paste deferred): first
+# Hidden Budget_read.ods raised ``Could not create system bitmap!`` in
+# ~20ms; the next sibling Hidden open hung 30s. 34652644656 was 3/3 on
+# the same copy path. After a bitmap, do not Hidden-open again.
+_WINDOWS_HIDDEN_OPEN_BITMAP = False
+
+
+def _set_windows_hidden_open_bitmap(on: bool) -> None:
+    flag = bool(on)
+    for mod in _testing_utils_holders():
+        mod._WINDOWS_HIDDEN_OPEN_BITMAP = flag
+
+
+def _windows_hidden_open_bitmap() -> bool:
+    if bool(_WINDOWS_HIDDEN_OPEN_BITMAP):
+        return True
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        if bool(getattr(mod, "_WINDOWS_HIDDEN_OPEN_BITMAP", False)):
+            return True
+    return False
+
+
+def windows_hidden_open_bitmap_err(err: str | None) -> bool:
+    """True when a Windows Hidden sibling open failed with system bitmap."""
+    if sys.platform != "win32" or not err:
+        return False
+    return "system bitmap" in str(err).lower()
+
+
+def skip_windows_hidden_open_after_bitmap(reason: str) -> None:
+    """Skip a later Hidden sibling open after a fast Windows bitmap fail.
+
+    GHA 34655847157: leftover_open=0, slash OK, list_nearby OK, then
+    Hidden ``Budget_read.ods`` bitmap-failed; the next
+    ``open_document_for_read`` hung 30s. Attempt the first Hidden-open
+    (34652644656 was 3/3). After bitmap, skip — do not hang.
+    """
+    if not _windows_hidden_open_bitmap():
+        return
+    import unittest
+
+    print(
+        "windows hidden skip: %s after system bitmap" % reason,
+        file=sys.stderr,
+        flush=True,
+    )
+    raise unittest.SkipTest(
+        "Windows Hidden skip after system bitmap (%s)" % reason
+    )
+
+
+def note_windows_hidden_open_bitmap(err: str | None) -> None:
+    """Record a Windows Hidden bitmap so later sibling opens skip."""
+    if not windows_hidden_open_bitmap_err(err):
+        return
+    _set_windows_hidden_open_bitmap(True)
+    print(
+        "windows hidden bitmap: later Hidden opens skip",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 # Notebook-runner host while leftover HTML-paste Writers stay open.
 # Not leftover ``_wa_factory`` (reuses paste leftovers) and not
 # import-filter ``_wa_notebook`` (GHA 34643210006 leftover listeners).

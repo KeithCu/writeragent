@@ -659,6 +659,48 @@ def test_skip_windows_leftover_hidden_load_noop_without_leftovers(monkeypatch):
         tu._set_windows_leftover_open(saved)
 
 
+def test_windows_hidden_open_bitmap_err_and_skip(monkeypatch):
+    """GHA 34655847157: leftover_open=0 Hidden Budget_read bitmap then hang."""
+    import unittest
+
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_HIDDEN_OPEN_BITMAP
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_hidden_open_bitmap(False)
+    try:
+        assert tu.windows_hidden_open_bitmap_err(None) is False
+        assert tu.windows_hidden_open_bitmap_err("Failed to open x") is False
+        assert tu.windows_hidden_open_bitmap_err(
+            "Failed to open Budget_read.ods: Could not create system bitmap!"
+        ) is True
+        tu.skip_windows_hidden_open_after_bitmap("unit")
+        tu.note_windows_hidden_open_bitmap(
+            "Failed to open Budget_read.ods: Could not create system bitmap!"
+        )
+        assert tu._windows_hidden_open_bitmap() is True
+        try:
+            tu.skip_windows_hidden_open_after_bitmap("unit")
+        except unittest.SkipTest as exc:
+            assert "unit" in str(exc)
+            assert "system bitmap" in str(exc)
+        else:
+            raise AssertionError("expected SkipTest")
+    finally:
+        tu._set_windows_hidden_open_bitmap(saved)
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    tu._set_windows_hidden_open_bitmap(False)
+    try:
+        assert tu.windows_hidden_open_bitmap_err(
+            "Could not create system bitmap!"
+        ) is False
+        tu.note_windows_hidden_open_bitmap("Could not create system bitmap!")
+        assert tu._windows_hidden_open_bitmap() is False
+        tu.skip_windows_hidden_open_after_bitmap("unit")
+    finally:
+        tu._set_windows_hidden_open_bitmap(saved)
+
+
 def test_windows_should_reuse_writer_even_without_leftovers(monkeypatch):
     """GHA 34652644656: leftover_open=0 second Hidden _blank swriter hung."""
     import plugin.tests.testing_utils as tu

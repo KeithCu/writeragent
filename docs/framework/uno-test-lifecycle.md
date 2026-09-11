@@ -399,6 +399,15 @@ returned; the next Hidden `_blank`
 `_windows_should_reuse_writer` now reuses the first Windows Writer
 without requiring leftover_open>0 (notebook host still isolated).
 
+GHA 34655847157 (master `f88b8749`): leftover_open=0, paste suites
+deferred, slash OK, `test_list_nearby_excludes_active` OK. Hidden
+`Budget_read.ods` then `Could not create system bitmap!` in ~20ms;
+`test_inner_read_cell_range_on_opened_sibling` hung 30s at
+`open_document_for_read`. Same copy path was 3/3 on 34652644656.
+After a Windows bitmap, later Hidden sibling opens
+`skip_windows_hidden_open_after_bitmap` — do not hang. Still attempt
+the first Hidden-open. Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -410,8 +419,8 @@ swriter loads using `target=_wa_factory` (not `_blank` / not
 `document_research_uno: store budget via active start/done` (no
 `create budget calc` / no leftover `scalc` `target=_wa_factory_1`),
 `copied budget for hidden open` then `open_document_for_read done err=-`
-(Windows opens `Budget_read.ods`, not the `storeAsURL` path; no
-`Could not create system bitmap`, no 30s hang) **before**
+or `windows hidden bitmap` / Hidden-open `TEST end … SKIP` after
+system bitmap (no 30s hang on the next sibling open) **before**
 `html_paste_writer: noted leftover_open` (formulas / rich_html are
 deferred),
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
