@@ -882,20 +882,8 @@ def reactivate_harness_keeper(desktop=None) -> bool:
         return False
 
 
-def prepare_windows_writer_factory(ctx) -> int:
-    """Harness-only: log leftover paste Writers and reactivate the keeper.
-
-    What was wrong: GHA 34554275072 / 34553944171 hung 30s on the
-    *second* text_helpers Writer factory. Leftovers uid=26/27 were
-    already open (``close skipped pasted=True``). The first factory +
-    ``close_doc`` returned. GHA 34556185752 then hung 30s *inside*
-    leftover ``close(True)`` — product and harness must not close those
-    Writers after paste (33771766524).
-
-    Why this: enum leftovers (read-only; safe before load) and
-    ``setActiveFrame`` the keeper. Do not close leftovers. Returns how
-    many non-keeper Writers are still open. Windows-only caller.
-    """
+def log_open_writer_leftovers(ctx) -> int:
+    """Read-only leftover Writer count. Does not close or setActiveFrame."""
     if ctx is None:
         return 0
     from plugin.framework.uno_context import get_desktop
@@ -914,8 +902,30 @@ def prepare_windows_writer_factory(ctx) -> int:
         "html_paste_writer: leftovers open=%s uids=%s frames=%s keeper=%s"
         % (len(leftover_uids), leftover_uids, leftover_frames, keeper or "-")
     )
-    reactivate_harness_keeper(desktop)
     return len(leftover_uids)
+
+
+def prepare_windows_writer_factory(ctx) -> int:
+    """Harness-only: log leftover paste Writers and reactivate the keeper.
+
+    What was wrong: GHA 34554275072 / 34553944171 hung 30s on the
+    *second* text_helpers Writer factory. Leftovers uid=26/27 were
+    already open (``close skipped pasted=True``). The first factory +
+    ``close_doc`` returned. GHA 34556185752 then hung 30s *inside*
+    leftover ``close(True)`` — product and harness must not close those
+    Writers after paste (33771766524).
+
+    Why this: enum leftovers (read-only; safe before load) and
+    ``setActiveFrame`` the keeper. Do not close leftovers. Returns how
+    many non-keeper Writers are still open. Windows-only caller.
+    """
+    if ctx is None:
+        return 0
+    from plugin.framework.uno_context import get_desktop
+
+    leftover_open = log_open_writer_leftovers(ctx)
+    reactivate_harness_keeper(get_desktop(ctx))
+    return leftover_open
 
 
 def _reraise_native_open_failure(
@@ -1531,13 +1541,16 @@ class TestingFactory:
         from plugin.testing_runner import probe_uno_bridge
 
         leftover_open = 0
-        if sys.platform == "win32" and factory_url == "private:factory/swriter":
-            leftover_open = prepare_windows_writer_factory(ctx)
+        if sys.platform == "win32":
             from plugin.testing_runner import _progress
 
+            if factory_url == "private:factory/swriter":
+                leftover_open = prepare_windows_writer_factory(ctx)
+            else:
+                leftover_open = log_open_writer_leftovers(ctx)
             _progress(
-                "create_native_doc: windows writer factory leftover_open=%s"
-                % leftover_open
+                "create_native_doc: load start url=%s leftover_open=%s"
+                % (factory_url, leftover_open)
             )
 
         # Distinguish "bridge already dead" (previous test) from "died during load".
@@ -1554,6 +1567,18 @@ class TestingFactory:
         except Exception as exc:
             _reraise_native_open_failure(exc, factory_url, pre_open=pre_open)
             raise
+        if sys.platform == "win32":
+            from plugin.testing_runner import _progress
+
+            uid = ""
+            try:
+                uid = str(getattr(doc, "RuntimeUID", None) or "")
+            except Exception:
+                uid = ""
+            _progress(
+                "create_native_doc: load done url=%s ok=%s uid=%s"
+                % (factory_url, doc is not None, uid or "-")
+            )
         return doc
 
     @staticmethod
@@ -1576,18 +1601,24 @@ class TestingFactory:
 
             uid = ""
             is_writer = False
+            is_calc = False
             if sys.platform == "win32":
                 try:
                     uid = str(getattr(doc, "RuntimeUID", None) or "")
                     is_writer = bool(
                         doc.supportsService("com.sun.star.text.TextDocument")
                     )
+                    is_calc = bool(
+                        doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")
+                    )
                 except Exception:
                     is_writer = False
-                if is_writer:
+                    is_calc = False
+                if is_writer or is_calc:
                     from plugin.testing_runner import _progress
 
-                    _progress("close_doc: start uid=%s" % (uid or "-"))
+                    kind = "writer" if is_writer else "calc"
+                    _progress("close_doc: start kind=%s uid=%s" % (kind, uid or "-"))
 
             # Release PyUNO sequences before Calc tears down the document.
             # Large getDataArray results held across close can abort soffice (glibc double-free).
@@ -1603,14 +1634,18 @@ class TestingFactory:
                 doc.close(True)
             elif hasattr(doc, "dispose"):
                 doc.dispose()
-            if sys.platform == "win32" and is_writer:
+            if sys.platform == "win32" and (is_writer or is_calc):
                 from plugin.testing_runner import _progress
 
                 # Test Writer close returned (34554275072). Leftover close
                 # hangs (34556185752). Reactivate keeper so the next factory
                 # is not against a leftover paste Writer as current.
-                reactivate_harness_keeper()
-                _progress("close_doc: done uid=%s" % (uid or "-"))
+                # GHA 34593327841: after list_nearby FAIL, the *next* Calc
+                # factory hung — log Calc close too.
+                if is_writer:
+                    reactivate_harness_keeper()
+                kind = "writer" if is_writer else "calc"
+                _progress("close_doc: done kind=%s uid=%s" % (kind, uid or "-"))
         except Exception as exc:
             # Harness-only: close used to swallow DisposedException, so the
             # *next* factory open became the named victim. Log the trail here.

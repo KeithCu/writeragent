@@ -272,6 +272,43 @@ def test_reraise_native_open_failure_passthrough_non_urp():
             _reraise_native_open_failure(exc, "private:factory/sdraw")
 
 
+def test_log_open_writer_leftovers_does_not_close_or_reactivate(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from plugin.tests import testing_utils as tu
+
+    keeper = MagicMock(name="keeper")
+    keeper.RuntimeUID = "1"
+    leftover = MagicMock(name="leftover")
+    leftover.RuntimeUID = "26"
+    leftover.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    keeper.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = _Enum(
+        [keeper, leftover]
+    )
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda _ctx: desktop)
+    tu.set_harness_keeper_uid("1", keeper)
+    try:
+        assert tu.log_open_writer_leftovers(object()) == 1
+        leftover.close.assert_not_called()
+        keeper.close.assert_not_called()
+        desktop.setActiveFrame.assert_not_called()
+    finally:
+        tu.set_harness_keeper_uid("")
+
+
 def test_prepare_windows_writer_factory_logs_leftovers_and_does_not_close(monkeypatch):
     """GHA 34556185752: leftover close(True) hung 30s. Log + reactivate only."""
     from unittest.mock import MagicMock
@@ -369,7 +406,7 @@ def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypat
     desktop.loadComponentFromURL.assert_called_once()
 
 
-def test_create_native_doc_windows_calc_does_not_prepare_writer_factory(monkeypatch):
+def test_create_native_doc_windows_calc_logs_leftovers_without_prepare(monkeypatch):
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -382,13 +419,16 @@ def test_create_native_doc_windows_calc_does_not_prepare_writer_factory(monkeypa
     monkeypatch.setattr(
         tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare")
     )
+    monkeypatch.setattr(
+        tu, "log_open_writer_leftovers", lambda _ctx: calls.append("log") or 2
+    )
     with (
         patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
         patch("uno.createUnoStruct", return_value=MagicMock()),
         patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
     ):
         TestingFactory.create_native_doc(object(), "calc")
-    assert calls == []
+    assert calls == ["log"]
 
 
 def test_create_native_doc_posix_does_not_prepare_writer_factory(monkeypatch):

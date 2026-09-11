@@ -178,6 +178,24 @@ the first text_helpers Writer load, both text_helpers tests
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 
+GHA 34593327841 (master `754620ba`, `#720` merge, windows-latest):
+keeper reactivate **never ran** — no Writer factory yet. Leftovers
+uid=26/27 still open after `insert_cell_html_rich`. Then
+`doc.test_document_research_uno.test_list_nearby_excludes_active`
+FAIL (`Couldn't convert <traceback object> to a UNO type` /
+`getTypes`) in ~1s. Next test
+`test_open_document_for_read_hidden_readonly` hung 30s in
+`create_native_doc` `loadComponentFromURL(private:factory/scalc)`
+inside `_create_nearby_test_env` (line 22). Office stayed alive
+(`1568,4728`). On earlier `#719` tips this Calc pair passed and the
+hang was the *second* text_helpers Writer factory. Cause of the
+list_nearby FAIL vs Calc-factory hang is not proven — do not guess a
+product fix. Windows factory/close now log
+`create_native_doc: load start/done url=… leftover_open=N` and
+`close_doc: start/done kind=writer|calc`; the nearby helper logs
+`nearby_env: …` around budget create/store/close and
+`list_nearby_files`.
+
 **Harness-only attribution (not a product fix):** if a test body returns OK
 but the office already aborted, the runner fails *that* test instead of
 letting the next factory open be the named victim:
