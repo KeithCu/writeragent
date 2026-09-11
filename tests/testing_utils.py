@@ -1300,6 +1300,18 @@ def _windows_math_ole_uids() -> set[str]:
     return uids
 
 
+def _clear_windows_math_ole_uids() -> None:
+    """Unit-test reset. ``mark_windows_math_ole_doc`` writes both copies."""
+    _WINDOWS_MATH_OLE_UIDS.clear()
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        other = getattr(mod, "_WINDOWS_MATH_OLE_UIDS", None)
+        if other is not None:
+            other.clear()
+
+
 def _draw_doc_has_math_ole(doc) -> bool:
     """True when a Draw/Impress page still has a Math OLE2Shape."""
     if not doc:

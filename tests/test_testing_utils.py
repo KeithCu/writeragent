@@ -609,8 +609,7 @@ def test_close_doc_windows_skips_math_ole_draw(monkeypatch, capsys):
     doc.supportsService.side_effect = lambda svc: svc.endswith("DrawingDocument")
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(tu, "reactivate_harness_keeper", lambda desktop=None: True)
-    saved = set(tu._WINDOWS_MATH_OLE_UIDS)
-    tu._WINDOWS_MATH_OLE_UIDS.clear()
+    tu._clear_windows_math_ole_uids()
     try:
         mark_windows_math_ole_doc(doc)
         TestingFactory.close_doc(doc)
@@ -618,8 +617,7 @@ def test_close_doc_windows_skips_math_ole_draw(monkeypatch, capsys):
         err = capsys.readouterr().err
         assert "close_doc: skip math ole close (windows) uid=48 svc=draw" in err
     finally:
-        tu._WINDOWS_MATH_OLE_UIDS.clear()
-        tu._WINDOWS_MATH_OLE_UIDS.update(saved)
+        tu._clear_windows_math_ole_uids()
 
 
 def test_close_doc_windows_draw_without_math_still_closes(monkeypatch, capsys):
@@ -645,7 +643,7 @@ def test_close_doc_windows_draw_without_math_still_closes(monkeypatch, capsys):
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
     monkeypatch.setattr(tu, "_windows_leftover_open", lambda: 3)
     tu._HARNESS_KEEPER_UID = "1"
-    tu._WINDOWS_MATH_OLE_UIDS.clear()
+    tu._clear_windows_math_ole_uids()
     try:
         TestingFactory.close_doc(doc)
         doc.close.assert_called_once_with(True)
@@ -656,7 +654,7 @@ def test_close_doc_windows_draw_without_math_still_closes(monkeypatch, capsys):
         assert "skip math ole close" not in err
     finally:
         tu._HARNESS_KEEPER_UID = ""
-        tu._WINDOWS_MATH_OLE_UIDS.clear()
+        tu._clear_windows_math_ole_uids()
 
 
 def test_close_doc_posix_closes_math_ole_draw(monkeypatch):
@@ -898,8 +896,7 @@ def test_close_doc_windows_draw_logs_close_steps(capsys, monkeypatch):
     saved = tu._WINDOWS_LEFTOVER_OPEN
     tu._WINDOWS_LEFTOVER_OPEN = 3
     tu.set_harness_keeper_uid("1")
-    saved_math = set(tu._WINDOWS_MATH_OLE_UIDS)
-    tu._WINDOWS_MATH_OLE_UIDS.clear()
+    tu._clear_windows_math_ole_uids()
     doc = MagicMock()
     doc.RuntimeUID = "48"
     doc.supportsService.side_effect = lambda svc: svc.endswith("DrawingDocument")
@@ -914,8 +911,7 @@ def test_close_doc_windows_draw_logs_close_steps(capsys, monkeypatch):
     finally:
         tu._WINDOWS_LEFTOVER_OPEN = saved
         tu.set_harness_keeper_uid("")
-        tu._WINDOWS_MATH_OLE_UIDS.clear()
-        tu._WINDOWS_MATH_OLE_UIDS.update(saved_math)
+        tu._clear_windows_math_ole_uids()
 
 
 def test_close_doc_windows_writer_reactivates_keeper(monkeypatch):
