@@ -213,6 +213,14 @@ MODELS: list[ModelConfig] = [
         output_cost_per_million=0.18,
         notes="DeepSeek 284B/13B-active MoE Flash; replaces V3.2.",
     ),
+    ModelConfig(
+        openrouter_id="deepseek/deepseek-v4.1-flash",
+        display_name="DeepSeek: DeepSeek V4.1 Flash",
+        context_window_tokens=1_048_576,
+        input_cost_per_million=0.15,
+        output_cost_per_million=0.6,
+        notes="DeepSeek V4.1 Flash; newer Flash tier vs V4 Flash 0731.",
+    ),
 ]
 
 # Smoke / optimize / run_eval.py student. :nitro is OpenRouter routing

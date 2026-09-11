@@ -23,7 +23,6 @@ from run_eval_multi import (  # noqa: E402
 DEFAULT_EXCLUDE = frozenset(
     {
         "nvidia/nemotron-3.5-lightning",
-        "qwen/qwen3.8-flash",
         "minimax/minimax-m3",
     }
 )
@@ -52,7 +51,7 @@ LABEL_OFFSETS = (
 )
 
 FOOTNOTE = (
-    "Source: OpenRouter string-harness run, 2026-09-01. "
+    "Source: OpenRouter string-harness run (selective refresh 2026-09-11). "
     "Each point is labeled with model name and average correctness."
 )
 
@@ -90,6 +89,7 @@ SHORT_NAMES: dict[str, str] = {
     "meta/muse-spark-1.2-contributor": "Muse Spark 1.2",
     "meta/muse-glimmer-30b": "Muse Glimmer 30B 1.0",
     "deepseek/deepseek-v4-flash-0731": "DeepSeek F 0731",
+    "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1F",
     "z-ai/glm-5.3-flash": "GLM 5.3F",
     "z-ai/glm-5.3": "GLM 5.3",
     "x-ai/grok-4.6": "Grok 4.6",

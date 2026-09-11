@@ -107,7 +107,7 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. The **2026-09-01 snapshot** uses the **17-task string harness** — it emulates document and tool behavior without running LibreOffice (OpenRouter, live token pricing). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+WriterAgent's **LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. The **2026-09-11 snapshot** uses the **17-task string harness** — it emulates document and tool behavior without running LibreOffice (OpenRouter, live token pricing). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 
@@ -124,11 +124,13 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | google/gemma-4-26b-a4b-it | 0.680 | 329 |
 | deepseek/deepseek-v4-flash-0731 | 0.987 | 274 |
 | poolside/laguna-s-2.1 | 0.759 | 262 |
-| openai/gpt-5.6-luna | 0.981 | 219 |
 | bytedance-seed/seed-2.0-mini | 0.918 | 200 |
 | z-ai/glm-5.3-flash | 0.913 | 193 |
 | mistralai/mistral-small-2603 | 0.629 | 188 |
+| openai/gpt-5.6-luna | 0.916 | 187 |
 | google/gemini-3.5-flash-lite | 0.806 | 116 |
+| deepseek/deepseek-v4.1-flash | 0.935 | 93 |
+| qwen/qwen3.8-flash | 0.805 | 86 |
 | meta/muse-glimmer-30b | 0.987 | 85 |
 | ibm-granite/granite-4.2-8b | 0.802 | 83 |
 | inception/mercury-2.5-preview | 0.811 | 74 |
@@ -136,7 +138,6 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | qwen/qwen3.8-27b | 0.922 | 33 |
 | minimax/minimax-m3 | 0.820 | 32 |
 | x-ai/grok-4.6 | 0.982 | 20 |
-| qwen/qwen3.8-flash | 0.118 | 12 |
 
 ---
 
