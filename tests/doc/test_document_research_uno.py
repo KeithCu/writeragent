@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import sys
 import tempfile
 
 import uno
@@ -41,6 +43,21 @@ def _create_nearby_test_env(ctx, active_doc):
     budget_path = os.path.join(temp_dir, "Budget_2026.ods")
     active_doc.storeAsURL(uno.systemPathToFileUrl(budget_path), ())
     _nearby_progress("store budget via active done")
+
+    # GHA 34639913692: Hidden+ReadOnly load of this same storeAsURL path
+    # raised ``Could not create system bitmap!`` then the next sibling
+    # open hung 30s. Product ``_wa_doc_research`` did not help.
+    # 34602219973 passed 3/3 when Budget lived on a *closed* factory
+    # Calc — a URL this pooled component never owned. Copy so the
+    # Hidden load is not the live document's recent URL. Do not open a
+    # second factory Calc (34633295036). Do not close leftover paste
+    # Writers (34556185752).
+    open_path = budget_path
+    if sys.platform == "win32":
+        open_path = os.path.join(temp_dir, "Budget_read.ods")
+        shutil.copy2(budget_path, open_path)
+        _nearby_progress("copied budget for hidden open")
+
     reset_native_doc(active_doc, "calc", ctx)
 
     active_path = os.path.join(temp_dir, "Report.ods")
@@ -48,7 +65,7 @@ def _create_nearby_test_env(ctx, active_doc):
     active_doc.storeAsURL(uno.systemPathToFileUrl(active_path), ())
     _nearby_progress("store active done")
 
-    return temp_dir, budget_path
+    return temp_dir, budget_path, open_path
 
 
 def _cleanup_nearby_test_env(temp_dir):
@@ -67,7 +84,7 @@ def _cleanup_nearby_test_env(temp_dir):
 @native_test
 @with_native_doc("calc")
 def test_list_nearby_excludes_active(ctx, doc):
-    temp_dir, _ = _create_nearby_test_env(ctx, doc)
+    temp_dir, _unused_budget, _unused_open = _create_nearby_test_env(ctx, doc)
     try:
         _nearby_progress("list_nearby_files start")
         result = list_nearby_files(ctx, doc)
@@ -83,10 +100,10 @@ def test_list_nearby_excludes_active(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_open_document_for_read_hidden_readonly(ctx, doc):
-    temp_dir, budget_path = _create_nearby_test_env(ctx, doc)
+    temp_dir, _unused_budget, open_path = _create_nearby_test_env(ctx, doc)
     try:
         _nearby_progress("open_document_for_read start")
-        model, doc_type, err, opened_for_document_research = open_document_for_read(ctx, budget_path)
+        model, doc_type, err, opened_for_document_research = open_document_for_read(ctx, open_path)
         _nearby_progress("open_document_for_read done err=%s" % (err or "-"))
         assert err is None
         assert doc_type == "calc"
@@ -109,9 +126,9 @@ def test_open_document_for_read_hidden_readonly(ctx, doc):
 @with_native_doc("calc")
 def test_inner_read_cell_range_on_opened_sibling(ctx, doc):
     """Outer document_research path opens sibling; inner uses read_cell_range (no live LLM)."""
-    temp_dir, budget_path = _create_nearby_test_env(ctx, doc)
+    temp_dir, _unused_budget, open_path = _create_nearby_test_env(ctx, doc)
     try:
-        model, doc_type, err, _opened = open_document_for_read(ctx, budget_path)
+        model, doc_type, err, unused_opened = open_document_for_read(ctx, open_path)
         assert err is None and doc_type == "calc"
         try:
             tctx = ToolContext(model, ctx, "calc", get_services(), "test", read_only_target=True)

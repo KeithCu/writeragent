@@ -85,7 +85,7 @@ flowchart LR
 ```
 
 - [`resolve_document_by_url`](../../plugin/framework/uno_context.py) scans **already open** components only — it does **not** open closed files.
-- New load props: **`Hidden=True`** and **`ReadOnly=True`** (today [`plugin/writer/format.py`](../../plugin/writer/format.py) uses `Hidden` only for temp docs). Windows uses CREATE|GLOBAL target `_wa_doc_research` instead of `_default` so leftover Hidden `_wa_calc_html` paste Writers do not raise `Could not create system bitmap!` (GHA 34636251918). POSIX keeps `_default`.
+- New load props: **`Hidden=True`** and **`ReadOnly=True`** (today [`plugin/writer/format.py`](../../plugin/writer/format.py) uses `Hidden` only for temp docs). Windows uses CREATE|GLOBAL target `_wa_doc_research` instead of `_default` (GHA 34636251918). POSIX keeps `_default`. UNO tests on Windows Hidden-open a `Budget_read.ods` copy, not the pooled Calc `storeAsURL` path (GHA 34639913692).
 - If a sibling is already open **editable** in another window, reuse that component via URL match; inner agent still gets a **read-only allowlist** (schema enforcement, not LO mode alone).
 
 ### Fuzzy name matching (Phase 0)
