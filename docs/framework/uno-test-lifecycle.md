@@ -239,10 +239,29 @@ POSIX still `close_doc`. Breadcrumbs:
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: create/store/close/list_nearby start/done`,
-`close_doc: start/done uid=…` (Windows Writer),
+`close_doc: start uid= svc= leftovers= keeper= pids=` (Windows Writer/Draw/Impress),
+`close_doc: close(True) start/done` (Windows Draw/Impress),
+`close_doc: done uid=…` (Windows Writer),
 `native_doc: leftover writer reuse`,
-`close_doc: skip writer close leftovers open=N uid=…`. Do **not** fold
+`close_doc: skip writer close leftovers open=N uid=…`,
+`get_draw_tree: body start/execute done/body done`,
+`insert_math_draw: insert_math start/done` and `body done`. Do **not** fold
 Draw-family settle into `close_doc`. Not a product fix.
+
+GHA 34606276107 (`248da30d`, leftover hang fixed) and master
+34607010446 (`3720c175`, #722 merge): leftover paste + leftover-window
+Writer stayed open (`leftovers open=3`). `document_research_uno` 3/3
+and both `text_helpers_uno` tests OK. Draw factories loaded and
+closed; `test_get_draw_tree` OK. `test_insert_math_draw` then
+`LIFECYCLE close_doc dispose` (pids still live) and
+`office dead after close doc_type=draw pids=-`. TEST returned; soffice
+exited 0. `close_doc` dispose printed `previous=- current=-` — `-m`
+lifecycle lives on `__main__`, close_doc imported
+`plugin.testing_runner`. Nine Draw closes with the same leftovers
+survived, so leftover-Writer reuse is not a proven Draw-close killer;
+this may be the known `get_draw_tree` → `insert_math_draw` flake now
+reachable. No product change. Breadcrumbs now name Draw `close(True)`
+and adopt the lifecycle trail across both runner module copies.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
