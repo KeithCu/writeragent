@@ -257,16 +257,23 @@ only. Do not walk for Math CLSID at teardown.
 `test_insert_math_draw` runs last in `test_draw_uno.py` so a leftover
 is not current for later tests in that file. On Windows the runner
 also sorts `test_draw_uno.py` just before the peer suite
-(`_native_suite_sort_key` band 1, peer band 2). GHA 34616287301:
-skip printed `close_doc: skip math ole close (windows) uid=50
-leftovers=3 keeper=1`, `test_insert_math_draw` OK, later Impress
-suites OK, then `notebook.test_import_filter_uno_detect_without_filtername`
-hung 30s on `loadComponentFromURL` (soffice still `9124,6920`).
-Deferring the leftover Math Draw until leftover-Impress + process
-teardown keeps notebook import-filter on the original office
-without `close(True)` and without mid-run recycle. Trail start/end
-now writes both runner modules; `format_lifecycle_breadcrumb`
-adopts from the sibling if this copy is empty.
+(`_native_suite_sort_key` band 1, peer band 2) so that leftover Draw
+is not `close(True)`'d (34607010446) and is not recycled mid-run
+(34551644954). GHA 34616287301: skip printed
+`close_doc: skip math ole close (windows) uid=50 leftovers=3 keeper=1`,
+`test_insert_math_draw` OK, later Impress suites OK, then
+`notebook.test_import_filter_uno_detect_without_filtername` hung 30s.
+GHA 34619751330 deferred `test_draw_uno` and the same notebook detect
+hang happened *before* `insert_math` (soffice still `2444,5124`,
+leftovers `['34','27','26']`). Leftover Math Draw is not that hang.
+`test_import_filter_uno_load_component` Hidden `_blank` + FilterName
+returned, then raw `close(True)`; the next Hidden `_blank` detect
+hung — consecutive leftover Hidden `_blank` (34597506651). Windows
+notebook loads now use `windows_notebook_load_args` (`_wa_notebook`,
+CREATE|GLOBAL) and `TestingFactory.close_doc` (skip Writer close
+while leftovers remain). Trail start/end now writes both runner
+modules; `format_lifecycle_breadcrumb` adopts from the sibling if
+this copy is empty.
 
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
@@ -285,8 +292,10 @@ POSIX still `close_doc`. Breadcrumbs:
 `close_doc: skip writer close leftovers open=N uid=…`,
 `get_draw_tree: body start/execute done/body done`,
 `close_doc: skip math ole close (windows) uid= leftovers= keeper= pids=`,
-`insert_math_draw: insert_math start/done` and `body done`. Do **not** fold
-Draw-family settle into `close_doc`. Not a product fix.
+`insert_math_draw: insert_math start/done` and `body done`,
+`import_filter_uno: load start/done` (`target=_wa_notebook` on
+Windows). Do **not** fold Draw-family settle into `close_doc`. Not a
+product fix.
 
 GHA 34606276107 (`248da30d`, leftover hang fixed) and master
 34607010446 (`3720c175`, #722 merge): leftover paste + leftover-window
@@ -321,9 +330,14 @@ Timeout in `create_native_doc` on
 that close), `insert_math_draw: insert_math start/done` then
 `close_doc: skip math ole close (windows)` (not
 `LIFECYCLE close_doc dispose` / `office dead after close doc_type=draw`),
-`TEST end draw.test_draw_uno.test_insert_math_draw OK` **after**
-`notebook.test_import_filter_uno` both tests `TEST end … OK` (no 30s
-Timeout on `detect_without_filtername`), later leftover-Impress
+`import_filter_uno: load start target=_wa_notebook` (not `_blank`)
+for both notebook import-filter tests, `close_doc: skip writer close`
+or `close_doc: start` (not raw `doc.close(True)`), both
+`notebook.test_import_filter_uno` tests `TEST end … OK` (no 30s
+Timeout on `detect_without_filtername`), **then**
+`TEST end draw.test_draw_uno.test_insert_math_draw OK` after
+`insert_math_draw: insert_math start/done` and
+`close_doc: skip math ole close (windows)`, leftover-Impress
 suites, then the peer file last (six peer `TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.

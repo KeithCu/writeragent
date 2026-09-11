@@ -462,7 +462,8 @@ def test_insert_math_draw(ctx, doc):
     # killed soffice (GHA 34607010446, exit 0). Run after the other tests
     # so a skipped leftover is not desktop current for later cases here.
     # The runner also defers this file until just before the peer suite
-    # (GHA 34616287301: leftover uid=50 hung notebook import-filter load).
+    # so this leftover is not closed (34607010446). Notebook detect hang
+    # on 34619751330 was leftover Hidden _blank, not this Draw.
     from plugin.testing_runner import _progress
     from plugin.tests.testing_utils import mark_windows_math_ole_doc
 

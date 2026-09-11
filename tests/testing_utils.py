@@ -1118,6 +1118,29 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
     return "_wa_factory_%s" % _WINDOWS_FACTORY_SEQ, _WINDOWS_FACTORY_SEARCH_FLAGS
 
 
+# Stable CREATE|GLOBAL name for Hidden .ipynb loads. Do not use "_blank"
+# after leftover Writers — consecutive Hidden _blank hung detect
+# (GHA 34619751330) the same way as leftover swriter (34597506651).
+_WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
+
+
+def windows_notebook_load_args() -> tuple[str, int]:
+    """Target + FrameSearchFlag for a Hidden Jupyter ``loadComponentFromURL``.
+
+    GHA 34619751330 (``5377a87e``, ``test_draw_uno`` already deferred):
+    leftover Math Draw had **not** run. ``test_import_filter_uno_load_component``
+    Hidden ``_blank`` + FilterName returned, then raw ``close(True)``.
+    ``test_import_filter_uno_detect_without_filtername`` Hidden ``_blank``
+    hung 30s (soffice still ``2444,5124``). Same consecutive leftover
+    Hidden ``_blank`` family as 34597506651. Use one CREATE|GLOBAL name
+    and ``TestingFactory.close_doc`` (skips Writer close while leftovers
+    remain). POSIX keeps ``_blank``.
+    """
+    if sys.platform != "win32":
+        return "_blank", 0
+    return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
+
+
 def _reraise_native_open_failure(
     exc: BaseException, factory_url: str, pre_open: str = "no_probe"
 ) -> None:
@@ -1271,9 +1294,9 @@ def mark_windows_math_ole_doc(doc) -> None:
     Nine earlier Draw ``close_doc`` calls in the same suite survived.
     Remember the uid on both testing_utils copies so teardown can skip
     the close. The runner then defers ``test_draw_uno`` until just
-    before the peer suite so the leftover Draw does not hang later
-    factory loads (GHA 34616287301 notebook import-filter). Not a
-    product fix.
+    before the peer suite so this leftover is not ``close(True)``'d
+    (34607010446). Notebook detect hang is leftover Hidden ``_blank``
+    (34619751330), not this Draw. Not a product fix.
     """
     if sys.platform != "win32" or not doc:
         return

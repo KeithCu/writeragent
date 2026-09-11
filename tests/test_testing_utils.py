@@ -561,6 +561,18 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
         tu._WINDOWS_FACTORY_SEQ = saved_seq
 
 
+def test_windows_notebook_load_args_avoids_blank(monkeypatch):
+    """GHA 34619751330: second Hidden _blank .ipynb hung after raw close."""
+    import plugin.tests.testing_utils as tu
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    target, flags = tu.windows_notebook_load_args()
+    assert target == "_wa_notebook"
+    assert flags == (8 | 55)
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    assert tu.windows_notebook_load_args() == ("_blank", 0)
+
+
 def test_windows_should_reuse_writer_only_with_leftovers(monkeypatch):
     """GHA 34602219973: second leftover swriter hung after close of uid=34."""
     import plugin.tests.testing_utils as tu

@@ -1170,13 +1170,12 @@ def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
     teardown, not in-process rebootstrap.
 
     GHA 34616287301: skipping Math OLE ``close_doc`` kept Draw uid=50
-    open (``leftovers=3 keeper=1``). Impress suites after that skip still
-    ``TEST end … OK``. ``notebook.test_import_filter_uno_detect_without_filtername``
-    then hung 30s on ``loadComponentFromURL`` (soffice still
-    ``9124,6920``). Run ``test_draw_uno`` just before the peer suite so
-    the leftover Math Draw exists only for leftover-Impress tests and
-    process teardown. Do **not** ``close(True)`` that Draw (34607010446
-    exit 0) and do **not** recycle mid-run (34551644954).
+    open. GHA 34619751330 deferred this file and the notebook detect
+    hang still happened *before* ``insert_math`` — leftover Math Draw
+    is not that hang. Still run ``test_draw_uno`` just before the peer
+    suite so the leftover Math Draw is not closed (34607010446 exit 0)
+    and does not recycle mid-run (34551644954). Notebook Hidden
+    ``_blank`` isolation is ``windows_notebook_load_args``.
     """
     name = os.path.basename(module_path)
     if sys.platform != "win32":
