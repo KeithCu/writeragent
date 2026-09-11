@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 import time
 from unittest.mock import MagicMock, patch
@@ -400,6 +401,16 @@ def test_open_document_for_read_reuses_existing_without_close_flag(mock_isfile, 
     mock_resolve.assert_called_once()
 
 
+def test_hidden_readonly_load_args_named_on_windows(monkeypatch):
+    """GHA 34636251918: leftover Hidden _default file load raised system bitmap."""
+    import plugin.doc.document_research as dr
+
+    monkeypatch.setattr(dr.sys, "platform", "win32")
+    assert dr._hidden_readonly_load_args() == ("_wa_doc_research", 8 | 55)
+    monkeypatch.setattr(dr.sys, "platform", "linux")
+    assert dr._hidden_readonly_load_args() == ("_default", 0)
+
+
 @patch("plugin.doc.document_research.get_document_type")
 @patch("plugin.framework.uno_context.get_desktop")
 @patch("plugin.doc.document_research.resolve_document_by_url", return_value=(None, None))
@@ -415,3 +426,22 @@ def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_re
     assert doc_type == "calc"
     assert model is opened_model
     assert opened_for_document_research is True
+    args = mock_desktop.return_value.loadComponentFromURL.call_args.args
+    target, flags = (
+        ("_wa_doc_research", 8 | 55) if sys.platform == "win32" else ("_default", 0)
+    )
+    assert args[1] == target
+    assert args[2] == flags
+
+
+def test_nearby_uno_env_does_not_open_second_scalc_factory():
+    """GHA 34633295036: leftover unique scalc factory failed then hung."""
+    path = os.path.join(os.path.dirname(__file__), "test_document_research_uno.py")
+    with open(path, encoding="utf-8") as handle:
+        src = handle.read()
+    assert "create_native_doc" not in src
+    assert "store budget via active" in src
+    # GHA 34639913692: Hidden load of the storeAsURL path still raised
+    # system bitmap after ``_wa_doc_research``. Windows opens a copy.
+    assert "Budget_read.ods" in src
+    assert "shutil.copy2" in src

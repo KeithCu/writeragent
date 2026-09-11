@@ -190,7 +190,7 @@ Internationalization in WriterAgent extends far beyond translating user-interfac
 
 #### The "Lab": Internal Evaluation
 
-An in-LibreOffice **LLM Evaluation Suite** benchmarks models on real Writer/Calc/Draw tasks, scoring structural tasks against **result oracles** (exported HTML/Draw-tree/Calc grid) and creative tasks with an **LLM judge**. Models are ranked by **Value (C²/$)** — average correctness² ÷ average dollars per run using live OpenRouter pricing. A **DSPy MIPROv2** loop (`scripts/prompt_optimization/run_optimize.py`) searches instruction variants of the system prompt to maximize judge quality, feeding the results back into the shipped prompts.
+An in-LibreOffice **LLM Evaluation Suite** benchmarks models on real Writer/Calc/Draw tasks, scoring structural tasks against **result oracles** (exported HTML/Draw-tree/Calc grid) and creative tasks with an **LLM judge**. Models are ranked by **Value (C²/$)** — average correctness² ÷ average dollars per run using live OpenRouter pricing. A **DSPy MIPROv2** loop (`scripts/prompt_optimization/run_optimize.py`) is an **offline** optimizer: default student is the live `llm_chat_eval` tool loop, rewriting a named prompt/tool slice (not ReAct on the sidebar). Winning text is copied by hand after a ranking re-run.
 
 #### Cross-Document Intelligence
 

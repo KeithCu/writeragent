@@ -11,10 +11,12 @@ from plugin.notebook.notebook_controls import (
     NotebookFormContainerListener,
     NotebookFormRunListener,
     NotebookRunButtonListener,
+    form_run_listeners,
     get_control_view_for_model,
     prune_dead_listeners,
     wire_all_notebook_run_buttons,
     wire_run_button_listener,
+    wired_run_listener_count,
 )
 from plugin.tests.testing_utils import setup_uno_mocks
 
@@ -312,6 +314,25 @@ def test_wire_all_attaches_one_form_listener_without_getcontrol():
     container.addContainerListener.assert_called_once()
     form_lis = [lis for lis in notebook_controls._listener_refs if getattr(lis, "_form_level", False)]
     assert len(form_lis) == 1
+
+
+def test_listener_counts_exclude_leftover_docs():
+    """GHA 34643210006: leftover import-filter listeners inflated global counts."""
+    leftover = MagicMock()
+    leftover._form_level = True
+    leftover._doc_key_val = "uid:41"
+    leftover._hex_id = None
+    current = MagicMock()
+    current._form_level = True
+    current._doc_key_val = "uid:99"
+    current._hex_id = None
+    notebook_controls._listener_refs = [leftover, current]
+    doc = MagicMock()
+    with patch("plugin.notebook.notebook_controls._doc_key", return_value="uid:99"):
+        assert len(form_run_listeners(doc)) == 1
+        assert wired_run_listener_count("cell1", doc) == 1
+        assert len(form_run_listeners()) == 2
+        assert wired_run_listener_count("cell1") == 2
 
 
 def test_prune_keeps_container_listener():

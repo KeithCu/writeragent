@@ -46,6 +46,8 @@ Override model for optimize:
 
 - `python run_optimize.py --model google/gemini-3.5-flash-lite` / `--api-base ...` / `--api-key ...`
 
+**Optimize students:** `--student llm` (default) wraps the same `llm_chat_eval` tool loop as `run_eval.py`. `--student react-mock` is the old DSPy ReAct + `tools_lo` path (comparison only; do not paste that JSON into `prompts.py`).
+
 ## Run
 
 **Eval only (see per-example success without optimizing):**
@@ -65,12 +67,19 @@ python run_eval.py --backend lo --student scripted --no-bust-cache -v   # headle
 
 Shows for each example: task_id, expected/reject/oracle pass or miss, correctness, tokens, score, and a short doc snippet. Pytest covers the string pack (`tests/scripts/test_scripted_eval_pack.py`). The LO pack is skipped unless `soffice` and real `uno` are importable. Do **not** set `WRITERAGENT_TESTING=1` for LO eval. Do not use `tests/eval_runner.py`. Use `-v`/`--verbose` to print each tool call. Use `--compare-with` to run both the current prompt and the prompt from a DSPy JSON file, then report which scores higher. Cache-busting is enabled by default (unique suffix per example) to avoid OpenRouter prompt cache; use `--no-bust-cache` to disable.
 
-**Full optimization (MIPROv2):**
+**Full optimization (MIPROv2, live student):**
+
+Default `--student llm` proposes replacements for a **named slice** (not the whole ambient system prompt) and scores each candidate by running `run_eval` / `llm_chat_eval` (production tool schemas + sidebar-like tool loop). Instruction-only: `max_bootstrapped_demos=0`, `max_labeled_demos=0`. A length penalty prefers winners under ~2× the current slice. Output is `optimized_slice.json` plus `optimized_slice_slice.json` (plain instruction text). **Do not auto-merge** into `plugin/framework/prompts.py` or `plugin/calc/cells.py` — copy by hand after a ranking re-run.
 
 ```bash
 export OPENROUTER_API_KEY="your-key"
-python run_optimize.py
+python run_optimize.py --auto light -j 1 \
+  -e data_sorting,tax_column --slice calc_core
 ```
+
+That is the cheap Calc-slice smoke: light MIPRO, one worker, the two Calc ranking tasks, `CALC_CORE_DIRECTIVES` only.
+
+Other slices: `writer_core`, `sort_range`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
 
 Pick a different model:
 
@@ -79,12 +88,14 @@ python run_optimize.py --model google/gemini-3.5-flash-lite
 python run_optimize.py -m openai/gpt-oss-120b:nitro -k sk-...
 ```
 
-This runs MIPROv2 in **0-shot instruction-only** mode: it proposes alternative system prompts and keeps the one that scores best on the **judge-based metric** (same LLM-as-a-Judge as `run_eval_multi`, plus token penalty). Output is saved to `optimized_writer_prompt.json`.
-
+- **`--student llm|react-mock`**: live eval loop (default) vs DSPy ReAct mocks.
+- **`--slice NAME`**: fragment MIPROv2 rewrites (`calc_core` default).
+- **`-e` / `--example`**: comma-separated `task_id` filter (same idea as `run_eval.py`).
 - **`--judge`** / **`-J`**: Judge model for grading (default `openai/gpt-oss-120b:nitro`). Same dataset and `gold_standards.json` as run_eval_multi. Golds are hand-written from the rubrics; `--generate-golds` is an optional teacher merge, not a ranking prerequisite.
-- **`-j N`** / **`--jobs N`**: parallel evals (default 4).
+- **`-j N`** / **`--jobs N`**: parallel evals (default 4). Use `1` for a smoke.
 - **`--auto light|medium|heavy`**: exploration level (default `light`). Use `medium` or `heavy` for more tries when your prompt is complicated.
 - **`-t N`** / **`--trials N`**: explicit number of Bayesian optimization trials (overrides `--auto`; uses more exploration).
+- **`--no-length-penalty`**: disable the ~2× slice-length penalty.
 
 ## Metric
 
@@ -112,11 +123,11 @@ Hard pass is the **exported final document** plus process oracles (`oracles.py` 
 
 `-j N` in `run_eval_multi.py` is **ThreadPoolExecutor** over **models** (default **20**; each model still runs its 17 tasks serially). UNO is already serialized on `_lo_thread`. Do **not** `ProcessPoolExecutor` against one soffice. Scripted green runs use `-j 1`. Per-task banners include `model=` so interleaved workers are readable.
 
-DSPy `build_program()` can still pass `tool_names` to restrict which tools the model sees (for “how many tools is too many” sweeps).
+DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to restrict which tools the ReAct mock sees (for “how many tools is too many” sweeps). Live `--student llm` uses `eval_catalog.build_eval_tool_schemas` (same as `run_eval_multi`).
 
 ## Applying the result
 
-After a run, open `optimized_writer_prompt.json` and copy the optimized instruction text into `core/constants.py` as `DEFAULT_CHAT_SYSTEM_PROMPT` (or merge with `FORMAT_RULES` as in the current prompt). Then test in WriterAgent with the same evaluation tasks.
+After a live run, open `optimized_slice_slice.json` and copy **only that slice** into the matching production constant (`CALC_CORE_DIRECTIVES`, `WRITER_CORE_DIRECTIVES`, or the tool description in `plugin/calc/cells.py`). Then re-run `run_eval.py` / `run_eval_multi.py` on the same tasks. Do not paste a ReAct `optimized_writer_prompt.json` into the sidebar prompt.
 
 ## Multi-model evaluation (intelligence per dollar)
 
@@ -160,45 +171,40 @@ python merge_benchmark_results.py \
 - **Dataset** (`dataset.py`): 17 fixed tasks (12 Writer + Draw flowchart + 2 Calc + 2 `=PY` dest) with assigned `category` (structural or creative).
 - **Result oracles** (`oracles.py`): Structural correctness from the exported final doc (table Total, 8% tax, Revenue desc, heading order, …). Not tool-name traces.
 - **Gold Standards** (`gold_standards.json`): Hand-written references matching current rubrics. Used only as the quality-judge reference for resume / rewrite / summary / tables. `--generate-golds` can merge a teacher run with `--gold-model` (default `openai/gpt-5.6-luna`; not used during ranking).
-- **Program** (`program.py`): DSPy `WriterAssistant` (ReAct) with mock environment.
-- **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables. Shared via `eval_core` for `run_optimize` (MIPROv2) and `run_eval_multi`.
+- **Program**: default `program_llm.LiveEvalStudent` injects a named slice then calls `llm_chat_eval` (same student as `run_eval_multi`). Optional `program.py` `WriterAssistant` (ReAct + mocks) behind `--student react-mock`.
+- **Metric**: Hard gate (document + process); quality judge after the gate for resume/rewrite/summary/tables; token penalty; slice-length penalty (~2× seed). Shared via `eval_core` / `metric.py` for `run_optimize` (MIPROv2) and `run_eval_multi`.
 - **Multi-model**: `run_eval_multi.py` ranks by hard pass / agent / quality; C²/$ is secondary. `--models` is required.
 
-### Benchmark results (2026-09-05, 17-task string harness)
+### Benchmark results (2026-09-11, 17-task string harness)
 
-Selective post-#616/#617 re-rank (`data_sorting` + `tax_column` only after dropping catalog `z-ai/glm-5.3`; other tasks carried from post-#613). Artifacts: `benchmark_results.json`, `benchmark_results_details.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
-
-**Excluded from this table (1 of 23 models):**
- 
-| Model | Reason |
-|-------|--------|
-| `qwen/qwen3.8-flash` | Infra: OpenRouter upstream 429 on all 17 tasks |
+Calc-only selective refresh (`data_sorting` + `tax_column`) for 20 catalog models; Luna / Qwen Flash / DeepSeek V4.1 Flash keep prior Calc rows. Other 15 tasks carried forward. Artifacts: `benchmark_results.json`, `benchmark_results_details.json`, plus `benchmark_results_calc_selective_2026-09-11*.json`. Cost–quality charts: [`docs/eval/pareto-fronts.svg`](../../docs/eval/pareto-fronts.svg) (successive fronts) and [`docs/eval/pareto-distance.svg`](../../docs/eval/pareto-distance.svg) (distance to F1); regenerate with `python scripts/prompt_optimization/plot_pareto.py`. Triage: [`docs/eval/benchmark-failure-analysis-2026-09-01.md`](../../docs/eval/benchmark-failure-analysis-2026-09-01.md).
 
 Ranked by **hard pass → agent score → metric**. **C²/$** = metric score squared ÷ avg $/task (`intelligence_per_dollar_metric`). **Quality** = LLM judge average among judged creative/table passes only (`—` if none judged). Models with `n_err` > 0 kept when errors are model-side (empty response, tool-loop limit), not infra/harness.
 
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ | n_err |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
-| 1 | deepseek/deepseek-v4-flash-0731 | 1.000 | 1.000 | 0.987 | 0.96 | 44789 | 0.00356 | 151.1 | 0 |
-| 2 | meta/muse-glimmer-30b | 1.000 | 1.000 | 0.987 | 0.96 | 30319 | 0.01147 | 42.7 | 0 |
-| 3 | x-ai/grok-4.6 | 1.000 | 1.000 | 0.982 | 0.94 | 21834 | 0.04871 | 12.0 | 0 |
-| 4 | openai/gpt-5.6-luna | 1.000 | 1.000 | 0.981 | 0.94 | 19093 | 0.00439 | 142.1 | 0 |
-| 5 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.979 | 0.93 | 25641 | 0.00274 | 190.5 | 0 |
-| 6 | openai/gpt-oss-120b | 1.000 | 1.000 | 0.971 | 0.90 | 15866 | 0.00073 | 902.8 | 0 |
-| 7 | google/gemma-4-31b-it | 0.941 | 0.941 | 0.918 | 0.90 | 15706 | 0.00151 | 416.9 | 0 |
-| 8 | bytedance-seed/seed-2.0-mini | 0.941 | 0.941 | 0.918 | 0.90 | 26715 | 0.00420 | 103.5 | 0 |
-| 9 | z-ai/glm-5.3-flash | 0.941 | 0.941 | 0.913 | 0.90 | 43403 | 0.00431 | 104.2 | 0 |
-| 10 | qwen/qwen3.8-27b | 0.882 | 0.882 | 0.922 | 0.92 | 44898 | 0.02603 | 12.5 | 1 |
-| 11 | poolside/laguna-xs-2.1 | 0.882 | 0.882 | 0.826 | 0.81 | 19401 | 0.00119 | 344.2 | 1 |
-| 12 | inception/mercury-2.5-preview | 0.824 | 0.824 | 0.811 | 0.95 | 31317 | 0.00885 | 31.8 | 0 |
-| 13 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 58977 | 0.02090 | 17.1 | 1 |
-| 14 | google/gemini-3.5-flash-lite | 0.765 | 0.765 | 0.806 | 0.93 | 16008 | 0.00561 | 79.4 | 0 |
-| 15 | ibm-granite/granite-4.2-8b | 0.765 | 0.765 | 0.802 | 0.93 | 69505 | 0.00776 | 20.9 | 1 |
-| 16 | upstage/solar-pro4 | 0.765 | 0.765 | 0.741 | 0.90 | 21716 | 0.00069 | 463.8 | 0 |
-| 17 | poolside/laguna-s-2.1 | 0.706 | 0.706 | 0.759 | 0.90 | 21664 | 0.00220 | 151.3 | 2 |
-| 18 | openai/gpt-oss-20b | 0.706 | 0.706 | 0.687 | 0.89 | 19290 | 0.00078 | 449.3 | 0 |
-| 19 | google/gemma-4-26b-a4b-it | 0.706 | 0.706 | 0.680 | 0.89 | 18931 | 0.00140 | 199.3 | 0 |
-| 20 | mistralai/mistral-small-2603 | 0.647 | 0.647 | 0.629 | 0.85 | 13419 | 0.00211 | 139.2 | 0 |
-| 21 | nvidia/nemotron-3.5-lightning | 0.353 | 0.353 | 0.315 | 0.68 | 32965 | 0.00270 | 16.4 | 0 |
-| 22 | qwen/qwen3.8-flash | 0.118 | 0.118 | 0.118 | — | 6815 | 0.00113 | 5.5 | 15 |
+| 1 | meta/muse-glimmer-30b | 1.000 | 1.000 | 0.987 | 0.96 | 27041 | 0.01025 | 50.1 | 0 |
+| 2 | deepseek/deepseek-v4-flash-0731 | 1.000 | 1.000 | 0.987 | 0.96 | 46613 | 0.00369 | 138.7 | 0 |
+| 3 | x-ai/grok-4.6 | 1.000 | 1.000 | 0.982 | 0.94 | 24613 | 0.05418 | 10.0 | 0 |
+| 4 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.979 | 0.93 | 28777 | 0.00307 | 155.7 | 0 |
+| 5 | openai/gpt-5.6-luna | 0.941 | 0.941 | 0.916 | 0.90 | 20031 | 0.00449 | 116.6 | 0 |
+| 6 | z-ai/glm-5.3-flash | 0.941 | 0.941 | 0.913 | 0.90 | 43404 | 0.00426 | 105.6 | 0 |
+| 7 | deepseek/deepseek-v4.1-flash | 0.882 | 0.882 | 0.935 | 0.97 | 51291 | 0.00944 | 39.2 | 2 |
+| 8 | bytedance-seed/seed-2.0-mini | 0.882 | 0.882 | 0.859 | 0.90 | 23817 | 0.00381 | 107.1 | 0 |
+| 9 | openai/gpt-oss-120b | 0.882 | 0.882 | 0.853 | 0.90 | 12150 | 0.00056 | 999.4 | 0 |
+| 10 | poolside/laguna-xs-2.1 | 0.882 | 0.882 | 0.826 | 0.81 | 38787 | 0.00238 | 155.6 | 1 |
+| 11 | qwen/qwen3.8-27b | 0.824 | 0.824 | 0.922 | 0.92 | 54296 | 0.03051 | 9.3 | 2 |
+| 12 | ibm-granite/granite-4.2-8b | 0.824 | 0.824 | 0.861 | 0.93 | 69637 | 0.00777 | 25.2 | 1 |
+| 13 | inception/mercury-2.5-preview | 0.824 | 0.824 | 0.811 | 0.95 | 30675 | 0.00869 | 33.2 | 0 |
+| 14 | qwen/qwen3.8-flash | 0.824 | 0.824 | 0.805 | 0.89 | 45001 | 0.00755 | 37.2 | 1 |
+| 15 | google/gemma-4-31b-it | 0.824 | 0.824 | 0.800 | 0.90 | 17235 | 0.00165 | 289.3 | 0 |
+| 16 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 63655 | 0.02252 | 13.4 | 1 |
+| 17 | openai/gpt-oss-20b | 0.765 | 0.765 | 0.746 | 0.89 | 14664 | 0.00060 | 668.0 | 0 |
+| 18 | upstage/solar-pro4 | 0.706 | 0.706 | 0.682 | 0.90 | 29828 | 0.00094 | 301.5 | 0 |
+| 19 | google/gemma-4-26b-a4b-it | 0.706 | 0.706 | 0.680 | 0.89 | 19093 | 0.00141 | 197.0 | 0 |
+| 20 | poolside/laguna-s-2.1 | 0.647 | 0.647 | 0.700 | 0.90 | 19806 | 0.00200 | 150.7 | 2 |
+| 21 | google/gemini-3.5-flash-lite | 0.647 | 0.647 | 0.688 | 0.93 | 15741 | 0.00545 | 60.9 | 0 |
+| 22 | mistralai/mistral-small-2603 | 0.588 | 0.588 | 0.571 | 0.85 | 17137 | 0.00267 | 89.5 | 0 |
+| 23 | nvidia/nemotron-3.5-lightning | 0.353 | 0.353 | 0.315 | 0.68 | 29840 | 0.00245 | 18.1 | 0 |
 
 Re-run: `make run_eval EVAL_ARGS="--models … -j 20"` or edit `model_configs.py`. User-facing summary: [`docs/eval/benchmarks.md`](../../docs/eval/benchmarks.md).

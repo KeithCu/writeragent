@@ -42,6 +42,7 @@ EXPECTED_DEFAULT_IDS = [
     "bytedance-seed/seed-2.0-mini",
     "minimax/minimax-m3",
     "deepseek/deepseek-v4-flash-0731",
+    "deepseek/deepseek-v4.1-flash",
 ]
 
 EXPECTED_GOLD_ONLY_IDS: list[str] = []

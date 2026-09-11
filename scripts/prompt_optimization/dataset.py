@@ -532,19 +532,40 @@ def to_dspy_examples(examples=None, with_inputs=True):
             is_non_trivial=ex.get("is_non_trivial", False),
             category=ex.get("category", "structural"),
             use_quality_judge=ex.get("use_quality_judge", False),
-        ).with_inputs("document_content", "user_question") if with_inputs else dspy.Example(**ex)
+        ).with_inputs("document_content", "user_question", "task_id") if with_inputs else dspy.Example(**ex)
         out.append(e)
     return out
 
 
-def get_trainset_valset(split=0.8, seed=42):
-    """Split ALL_EXAMPLES into train and val. Returns (trainset, valset) as list of dicts."""
+def parse_task_id_filter(spec: str | None) -> list[str] | None:
+    """Comma-separated ``-e`` list, or None when unset."""
+    if spec is None or not str(spec).strip():
+        return None
+    return [part.strip() for part in str(spec).split(",") if part.strip()]
+
+
+def filter_examples(examples=None, task_ids=None, n=None):
+    """Filter ALL_EXAMPLES (or ``examples``) by task_id list and optional cap."""
+    if examples is None:
+        examples = ALL_EXAMPLES
+    out = list(examples)
+    if task_ids:
+        wanted = set(task_ids)
+        out = [ex for ex in out if ex.get("task_id", "") in wanted]
+    if n is not None:
+        out = out[: int(n)]
+    return out
+
+
+def get_trainset_valset(split=0.8, seed=42, examples=None):
+    """Split examples into train and val. Returns (trainset, valset) as list of dicts."""
     import random
+    pool = list(ALL_EXAMPLES if examples is None else examples)
     rng = random.Random(seed)
-    indices = list(range(len(ALL_EXAMPLES)))
+    indices = list(range(len(pool)))
     rng.shuffle(indices)
-    n = int(len(ALL_EXAMPLES) * split)
+    n = int(len(pool) * split)
     train_idx = set(indices[:n])
-    trainset = [ALL_EXAMPLES[i] for i in range(len(ALL_EXAMPLES)) if i in train_idx]
-    valset = [ALL_EXAMPLES[i] for i in range(len(ALL_EXAMPLES)) if i not in train_idx]
+    trainset = [pool[i] for i in range(len(pool)) if i in train_idx]
+    valset = [pool[i] for i in range(len(pool)) if i not in train_idx]
     return trainset, valset

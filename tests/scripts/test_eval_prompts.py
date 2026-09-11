@@ -17,6 +17,7 @@ from scripts.prompt_optimization.eval_prompts import (
     get_calc_eval_chat_system_prompt,
     get_draw_eval_chat_system_prompt,
     get_writer_eval_chat_system_prompt,
+    replace_prompt_slice,
 )
 
 
@@ -68,6 +69,12 @@ _SORT_RANGE_HAS_HEADER = (
     "Do pass has_header=true when row 1 is labels because otherwise labels "
     "sort as values."
 )
+
+
+def test_replace_prompt_slice_swaps_once_and_ignores_missing() -> None:
+    assert replace_prompt_slice("aa CORE bb CORE", "CORE", "NEW") == "aa NEW bb CORE"
+    assert replace_prompt_slice("aa bb", "CORE", "NEW") == "aa bb"
+    assert replace_prompt_slice("aa CORE", "CORE", "CORE") == "aa CORE"
 
 
 def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:

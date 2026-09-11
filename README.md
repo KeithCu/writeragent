@@ -107,7 +107,7 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ## Benchmarks & Evaluation
 
-WriterAgent's **LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. The **2026-09-01 snapshot** uses the **17-task string harness** — it emulates document and tool behavior without running LibreOffice (OpenRouter, live token pricing). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
+WriterAgent's **LLM Evaluation Suite** benchmarks models on Writer, Calc, and Draw tasks. The **2026-09-11 snapshot** uses the **17-task string harness** — it emulates document and tool behavior without running LibreOffice (OpenRouter, live token pricing). Full methodology: [docs/eval/benchmarks.md](docs/eval/benchmarks.md).
 
 ![Cost–quality Pareto fronts](docs/eval/pareto-fronts.svg)
 
@@ -115,28 +115,29 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 
 | Model | Correctness<br>avg task score (0–1) | Value<br>Correctness² ÷ $/task |
 | ----- | ----- | ----- |
-| openai/gpt-oss-120b | 0.971 | 1290 |
-| upstage/solar-pro4 | 0.741 | 800 |
-| openai/gpt-oss-20b | 0.687 | 606 |
-| poolside/laguna-xs-2.1 | 0.826 | 571 |
-| google/gemma-4-31b-it | 0.918 | 559 |
-| meta/muse-spark-1.3-contributor | 0.979 | 350 |
-| google/gemma-4-26b-a4b-it | 0.680 | 329 |
-| deepseek/deepseek-v4-flash-0731 | 0.987 | 274 |
-| poolside/laguna-s-2.1 | 0.759 | 262 |
-| openai/gpt-5.6-luna | 0.981 | 219 |
-| bytedance-seed/seed-2.0-mini | 0.918 | 200 |
-| z-ai/glm-5.3-flash | 0.913 | 193 |
-| mistralai/mistral-small-2603 | 0.629 | 188 |
-| google/gemini-3.5-flash-lite | 0.806 | 116 |
-| meta/muse-glimmer-30b | 0.987 | 85 |
-| ibm-granite/granite-4.2-8b | 0.802 | 83 |
-| inception/mercury-2.5-preview | 0.811 | 74 |
-| nvidia/nemotron-3.5-lightning | 0.315 | 37 |
-| qwen/qwen3.8-27b | 0.922 | 33 |
-| minimax/minimax-m3 | 0.820 | 32 |
-| x-ai/grok-4.6 | 0.982 | 20 |
-| qwen/qwen3.8-flash | 0.118 | 12 |
+| openai/gpt-oss-120b | 0.853 | 1299 |
+| openai/gpt-oss-20b | 0.746 | 922 |
+| upstage/solar-pro4 | 0.682 | 493 |
+| google/gemma-4-31b-it | 0.800 | 389 |
+| google/gemma-4-26b-a4b-it | 0.680 | 327 |
+| meta/muse-spark-1.3-contributor | 0.979 | 312 |
+| poolside/laguna-xs-2.1 | 0.826 | 286 |
+| deepseek/deepseek-v4-flash-0731 | 0.987 | 264 |
+| poolside/laguna-s-2.1 | 0.700 | 245 |
+| z-ai/glm-5.3-flash | 0.913 | 196 |
+| bytedance-seed/seed-2.0-mini | 0.859 | 194 |
+| openai/gpt-5.6-luna | 0.916 | 187 |
+| mistralai/mistral-small-2603 | 0.571 | 122 |
+| meta/muse-glimmer-30b | 0.987 | 95 |
+| ibm-granite/granite-4.2-8b | 0.861 | 95 |
+| deepseek/deepseek-v4.1-flash | 0.935 | 93 |
+| google/gemini-3.5-flash-lite | 0.688 | 87 |
+| qwen/qwen3.8-flash | 0.805 | 86 |
+| inception/mercury-2.5-preview | 0.811 | 76 |
+| nvidia/nemotron-3.5-lightning | 0.315 | 41 |
+| minimax/minimax-m3 | 0.820 | 30 |
+| qwen/qwen3.8-27b | 0.922 | 28 |
+| x-ai/grok-4.6 | 0.982 | 18 |
 
 ---
 

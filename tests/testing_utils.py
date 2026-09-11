@@ -1059,7 +1059,26 @@ def _windows_should_reuse_writer(ctx) -> bool:
     """
     if ctx is None or sys.platform != "win32":
         return False
+    # Notebook suites use ``_wa_notebook_host``, not leftover HTML-paste
+    # Writers (GHA 34643210006: leftover reuse + global listener counts).
+    if _windows_notebook_host():
+        return False
     return prepare_windows_writer_factory(ctx) > 0
+
+
+def _windows_should_reuse_calc(ctx) -> bool:
+    """True when a leftover scalc factory would hang.
+
+    GHA 34643210006: ``test_calc_reuse_false_still_empty`` loaded leftover
+    ``target=_wa_scalc`` at leftover_open=5 and hung 30s (office alive).
+    Unique leftover ``_wa_factory_N`` already failed then hung
+    (34633295036). Cached leftover count only — do not enumerate
+    (getComponents after paste close can hang). Do not close leftover
+    paste Writers (34556185752).
+    """
+    if ctx is None or sys.platform != "win32":
+        return False
+    return _windows_leftover_open() > 0
 
 
 # Same CREATE|GLOBAL as insert_cell_html_rich (8|55=63). Named target with
@@ -1070,9 +1089,11 @@ _WINDOWS_FACTORY_SEARCH_FLAGS = 8 | 55
 # (_wa_calc_html). Unique _wa_factory_N stacked empty frames after close
 # and the second leftover swriter hung (GHA 34602219973, _wa_factory_5).
 _WINDOWS_FACTORY_TARGET = "_wa_factory"
-# Leftover Calc/Draw/Impress still increment. document_research_uno holds
-# a pooled @with_native_doc Calc and a second create_native_doc budget
-# Calc at once — a shared name would replace the live pooled workbook.
+# Leftover Calc uses one CREATE|GLOBAL name. The pooled @with_native_doc
+# Calc is opened at leftover_open=0 as Hidden ``_blank`` — ``_wa_scalc``
+# does not replace it. Unique ``_wa_factory_N`` stacked after a failed
+# leftover scalc load (GHA 34633295036). Draw/Impress still increment.
+_WINDOWS_CALC_FACTORY_TARGET = "_wa_scalc"
 _WINDOWS_FACTORY_SEQ = 0
 
 
@@ -1103,9 +1124,18 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
     CREATE stacks empty named frames after harness Writer close; it
     does not fix consecutive leftover Hidden swriter (same hang family
     as 34597506651). Reuse one CREATE|GLOBAL name for leftover
-    ``swriter`` so CREATE replaces/reuses instead of stacking. Keep
-    unique names for leftover Calc — concurrent pooled + budget Calc.
-    Do not close leftover paste Writers (34556185752).
+    ``swriter`` so CREATE replaces/reuses instead of stacking.
+
+    GHA 34633295036 (master ``bdb421bb``, post #724): same leftover
+    paste Writers (uids ``27``/``26``, ``frames=['-','-']``,
+    ``keeper=1``) then unique leftover ``scalc`` ``target=_wa_factory_1``
+    failed in ~766ms (PyUNO traceback wrap on
+    ``loadComponentFromURL``). The next unique ``_wa_factory_2`` hung
+    30s — same stacking family as leftover swriter unique names.
+    Pooled Calc is still the leftover_open=0 ``_blank`` workbook.
+    Leftover ``scalc`` now reuses one CREATE|GLOBAL name ``_wa_scalc``.
+    Draw/Impress stay unique. Do not close leftover paste Writers
+    (34556185752).
     """
     global _WINDOWS_FACTORY_SEQ
     if leftover_open <= 0 or not factory_url.startswith("private:factory/"):
@@ -1113,7 +1143,11 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
     # One stable name, like rich_html._wa_calc_html. CREATE|GLOBAL finds
     # the empty frame left by the previous leftover-mode Writer close.
     if factory_url == "private:factory/swriter":
+        if _windows_notebook_host():
+            return _WINDOWS_NOTEBOOK_HOST_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
         return _WINDOWS_FACTORY_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
+    if factory_url == "private:factory/scalc":
+        return _WINDOWS_CALC_FACTORY_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
     _WINDOWS_FACTORY_SEQ += 1
     return "_wa_factory_%s" % _WINDOWS_FACTORY_SEQ, _WINDOWS_FACTORY_SEARCH_FLAGS
 
@@ -1122,6 +1156,30 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
 # after leftover Writers — consecutive Hidden _blank hung detect
 # (GHA 34619751330) the same way as leftover swriter (34597506651).
 _WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
+# Notebook-runner host while leftover HTML-paste Writers stay open.
+# Not leftover ``_wa_factory`` (reuses paste leftovers) and not
+# import-filter ``_wa_notebook`` (GHA 34643210006 leftover listeners).
+_WINDOWS_NOTEBOOK_HOST_TARGET = "_wa_notebook_host"
+_WINDOWS_NOTEBOOK_HOST = False
+
+
+def set_windows_notebook_host(on: bool) -> None:
+    """Writer leftover reuse off; leftover factory uses ``_wa_notebook_host``."""
+    flag = bool(on)
+    for mod in _testing_utils_holders():
+        mod._WINDOWS_NOTEBOOK_HOST = flag
+
+
+def _windows_notebook_host() -> bool:
+    if bool(_WINDOWS_NOTEBOOK_HOST):
+        return True
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        if bool(getattr(mod, "_WINDOWS_NOTEBOOK_HOST", False)):
+            return True
+    return False
 
 
 def windows_notebook_load_args() -> tuple[str, int]:
@@ -1863,12 +1921,12 @@ class TestingFactory:
 
         leftover_open = 0
         target, flags = "_blank", 0
-        # GHA 34593327841 / 34599838644 / 34602219973: leftover paste
-        # Writers as desktop current hung the next factory (30s). #720
-        # only prepared swriter. Reactivate the keeper. Leftover swriter
-        # reuses one CREATE|GLOBAL name (_wa_factory). Leftover Calc and
-        # other factories keep a unique _wa_factory_N so a live pooled
-        # Calc is not replaced.
+        # GHA 34593327841 / 34599838644 / 34602219973 / 34633295036:
+        # leftover paste Writers as desktop current hung the next factory
+        # (30s). #720 only prepared swriter. Reactivate the keeper.
+        # Leftover swriter reuses one CREATE|GLOBAL name (_wa_factory).
+        # Leftover Calc reuses _wa_scalc (unique _wa_factory_N failed
+        # then hung, 34633295036). Draw/Impress stay unique.
         if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
             target, flags = _windows_factory_load_args(factory_url, leftover_open)
@@ -1967,12 +2025,30 @@ class TestingFactory:
                     # _wa_factory_5 swriter hung 30s. Do not close a
                     # harness Writer while paste leftovers remain (same
                     # ban as leftover paste close, 34556185752).
-                    reactivate_harness_keeper()
+                    # GHA 34643210006: that skip also kept import-filter
+                    # ``_wa_notebook`` leftovers (uids 41/42) and their
+                    # form listeners. Close notebook-registry leftovers.
+                    # Do not close leftover paste Writers.
+                    close_notebook = False
+                    try:
+                        from plugin.notebook.cell_registry import (
+                            has_notebook_registry,
+                        )
+
+                        close_notebook = has_notebook_registry(doc) is True
+                    except Exception:
+                        close_notebook = False
+                    if not close_notebook:
+                        reactivate_harness_keeper()
+                        _progress(
+                            "close_doc: skip writer close leftovers open=%s uid=%s"
+                            % (leftover_open, uid or "-")
+                        )
+                        return
                     _progress(
-                        "close_doc: skip writer close leftovers open=%s uid=%s"
-                        % (leftover_open, uid or "-")
+                        "close_doc: close notebook leftover uid=%s leftovers=%s"
+                        % (uid or "-", leftover_open)
                     )
-                    return
         for key, pooled in list(_NATIVE_DOC_POOL.items()):
             if pooled is doc:
                 del _NATIVE_DOC_POOL[key]
@@ -2025,6 +2101,13 @@ class TestingFactory:
 
                 reuse = True
                 _progress("native_doc: leftover writer reuse")
+        # reuse=False still calls create_native_doc. Leftover _wa_scalc
+        # hung 30s (34643210006). Wipe-and-reuse the pooled Calc instead.
+        if doc_type == "calc" and not reuse and _windows_should_reuse_calc(ctx):
+            from plugin.testing_runner import _progress
+
+            reuse = True
+            _progress("native_doc: leftover calc reuse")
         use_pool = bool(reuse) and doc_type in ("writer", "calc")
         doc = None
         pooled = False

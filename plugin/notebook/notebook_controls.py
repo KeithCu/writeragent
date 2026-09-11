@@ -507,10 +507,20 @@ def _hex_id_from_event(rEvent: Any) -> str | None:
     return _hex_id_from_control_name(_control_name(getattr(rEvent, "Source", None)))
 
 
-def wired_run_listener_count(hex_id: str) -> int:
-    """How many live ▶ handlers would run *hex_id* (form-level counts as one)."""
+def wired_run_listener_count(hex_id: str, doc: Any | None = None) -> int:
+    """How many live ▶ handlers would run *hex_id* (form-level counts as one).
+
+    GHA 34643210006: leftover HTML-paste Writers left leftover_open>0, so
+    ``close_doc`` skipped import-filter ``_wa_notebook`` leftovers. Global
+    ``_listener_refs`` then counted those leftover form listeners
+    (``duplicate listeners: 3``). Pass *doc* to count only that document.
+    A leftover doc's listener does not fire this doc's ▶.
+    """
+    doc_key = _doc_key(doc) if doc is not None else None
     n = 0
     for lis in _listener_refs:
+        if doc_key is not None and getattr(lis, "_doc_key_val", None) != doc_key:
+            continue
         if getattr(lis, "_form_level", False):
             n += 1
         elif getattr(lis, "_hex_id", None) == hex_id:
@@ -518,9 +528,17 @@ def wired_run_listener_count(hex_id: str) -> int:
     return n
 
 
-def form_run_listeners() -> list[Any]:
-    """Shared form-level ▶ listeners (tests fire these with a real ActionEvent)."""
-    return [lis for lis in _listener_refs if getattr(lis, "_form_level", False)]
+def form_run_listeners(doc: Any | None = None) -> list[Any]:
+    """Shared form-level ▶ listeners (tests fire these with a real ActionEvent).
+
+    Pass *doc* to exclude leftover import-filter / leftover-reuse Writers
+    (GHA 34643210006).
+    """
+    out = [lis for lis in _listener_refs if getattr(lis, "_form_level", False)]
+    if doc is None:
+        return out
+    key = _doc_key(doc)
+    return [lis for lis in out if getattr(lis, "_doc_key_val", None) == key]
 
 
 @main_thread_only

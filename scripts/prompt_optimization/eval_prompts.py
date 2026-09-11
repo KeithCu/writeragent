@@ -93,3 +93,18 @@ def get_eval_system_prompt(task_id: str = "") -> str:
     from dataset import task_kind
 
     return _prompt_for_kind(task_kind(task_id))
+
+
+def replace_prompt_slice(prompt: str, original: str, replacement: str) -> str:
+    """Swap one exact fragment in an assembled eval prompt.
+
+    MIPROv2 proposes replacements for a named slice (e.g. CALC_CORE), not
+    the whole ambient prompt. Missing baseline means this task kind does
+    not carry that fragment — leave the prompt unchanged so Writer rows
+    stay stable during a Calc-slice run.
+    """
+    if not original or original == replacement:
+        return prompt
+    if original not in prompt:
+        return prompt
+    return prompt.replace(original, replacement, 1)

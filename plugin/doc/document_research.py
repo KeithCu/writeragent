@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import uno
@@ -571,6 +572,34 @@ def resolve_path_or_name(
     return None, f"No file matching {raw!r}"
 
 
+# Same CREATE|GLOBAL as rich_html._wa_calc_html (8|55). Named target with
+# flags 0 can search instead of creating.
+_HIDDEN_READONLY_SEARCH_FLAGS = 8 | 55
+_WINDOWS_HIDDEN_READONLY_TARGET = "_wa_doc_research"
+
+
+def _hidden_readonly_load_args() -> tuple[str, int]:
+    """Target + FrameSearchFlag for Hidden+ReadOnly sibling open.
+
+    What was wrong: GHA 34636251918 stored Budget via the pooled Calc
+    (``store budget via active`` OK; ``test_list_nearby_excludes_active``
+    OK). ``open_document_for_read`` then ``loadComponentFromURL`` of that
+    file with ``_default`` flags=0 raised ``Could not create system
+    bitmap!`` The next sibling open hung 30s at the same call.
+
+    How: leftover Hidden ``_wa_calc_html`` paste Writers (uids 26/27)
+    poison ``_default`` / ``_blank`` — same family as leftover Hidden
+    factory (34597506651 / 34599838644) and leftover notebook detect
+    (34619751330). ``rich_html.py`` already avoids those names.
+
+    Why this: one CREATE|GLOBAL name. Hidden+ReadOnly and the reuse /
+    close-flag contract stay the same. POSIX keeps ``_default``.
+    """
+    if sys.platform == "win32":
+        return _WINDOWS_HIDDEN_READONLY_TARGET, _HIDDEN_READONLY_SEARCH_FLAGS
+    return "_default", 0
+
+
 def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str | None, str | None, bool]:
     """Open or reuse a document hidden+read-only.
 
@@ -606,7 +635,8 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
             create_property_value("Hidden", True),
             create_property_value("ReadOnly", True),
         )
-        model = desktop.loadComponentFromURL(url, "_default", 0, load_props)
+        target, flags = _hidden_readonly_load_args()
+        model = desktop.loadComponentFromURL(url, target, flags, load_props)
         if model is None:
             return None, None, f"Failed to open {path}", False
         doc_type = doc_type_label_for_enum(get_document_type(model), impress_as_draw=True)
