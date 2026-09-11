@@ -614,8 +614,10 @@ def test_close_doc_windows_skips_math_ole_draw(monkeypatch, capsys):
         mark_windows_math_ole_doc(doc)
         TestingFactory.close_doc(doc)
         doc.close.assert_not_called()
+        doc.supportsService.assert_not_called()
         err = capsys.readouterr().err
-        assert "close_doc: skip math ole close (windows) uid=48 svc=draw" in err
+        assert "close_doc: skip math ole close (windows) uid=48" in err
+        assert "svc=draw" not in err
     finally:
         tu._clear_windows_math_ole_uids()
 
@@ -647,11 +649,10 @@ def test_close_doc_windows_draw_without_math_still_closes(monkeypatch, capsys):
     try:
         TestingFactory.close_doc(doc)
         doc.close.assert_called_once_with(True)
+        doc.getDrawPages.assert_not_called()
         err = capsys.readouterr().err
-        assert "close_doc: start uid=47 svc=draw leftovers=3 keeper=1" in err
-        assert "close_doc: close(True) start uid=47 svc=draw" in err
-        assert "close_doc: close(True) done uid=47 svc=draw" in err
         assert "skip math ole close" not in err
+        assert "svc=draw" not in err
     finally:
         tu._HARNESS_KEEPER_UID = ""
         tu._clear_windows_math_ole_uids()
@@ -904,10 +905,11 @@ def test_close_doc_windows_draw_logs_close_steps(capsys, monkeypatch):
         TestingFactory.close_doc(doc)
         doc.close.assert_called_once_with(True)
         err = capsys.readouterr().err
-        assert "close_doc: start uid=48 svc=draw leftovers=3 keeper=1 pids=7196,5792" in err
-        assert "close_doc: close(True) start uid=48 svc=draw leftovers=3 pids=7196,5792" in err
-        assert "close_doc: close(True) done uid=48 svc=draw pids=7196,5792" in err
+        # GHA 34612145495: Draw svc probe + page walk before close(True)
+        # killed the first forms Draw. Unmarked Draw must close like master.
         assert "skip math ole close" not in err
+        assert "close_doc: start uid=48 svc=draw" not in err
+        assert "close_doc: close(True) start uid=48" not in err
     finally:
         tu._WINDOWS_LEFTOVER_OPEN = saved
         tu.set_harness_keeper_uid("")

@@ -1342,26 +1342,22 @@ def _draw_doc_has_math_ole(doc) -> bool:
     return False
 
 
-def _windows_should_skip_math_ole_close(doc, uid: str = "") -> bool:
-    """True when Windows must not ``close_doc`` this Draw/Impress.
+def _windows_should_skip_math_ole_close(uid: str = "") -> bool:
+    """True when Windows must not ``close_doc`` this marked Math OLE uid.
 
-    What was wrong: GHA 34607010446 (master ``3720c175``) printed
-    ``TEST call`` / factory ``load done uid=48``, then
-    ``LIFECYCLE close_doc dispose`` (pids still live) and
-    ``office dead after close doc_type=draw`` (pids gone). soffice
-    exited 0. ``get_draw_tree`` and eight earlier Draw closes on the
-    same office returned.
+    What was wrong: GHA 34607010446 (master ``3720c175``) closed a Draw
+    after ``insert_math`` and soffice exited 0. GHA 34612145495 then
+    died on the *first* Draw forms ``close(True)`` after this helper
+    walked pages/shapes and ``_native_doc_svc`` probed the model.
+    Master closed ordinary Draw docs without that extra UNO.
 
-    How: do not ``gc`` + ``close(True)`` a Windows Draw that still
-    holds Math OLE. Leftover stays; reactivate the keeper so it is
-    not desktop current. Do **not** recycle mid-run (34551644954).
-    POSIX still closes. Not a product fix.
+    How: skip only when ``mark_windows_math_ole_doc`` recorded the uid.
+    Do not walk the document. Unmarked Draw close stays GC + 50 ms +
+    ``close(True)``. Not a product fix.
     """
-    if sys.platform != "win32" or not doc:
+    if sys.platform != "win32" or not uid:
         return False
-    if uid and uid in _windows_math_ole_uids():
-        return True
-    return _draw_doc_has_math_ole(doc)
+    return uid in _windows_math_ole_uids()
 
 
 def close_draw_family_doc(doc):
@@ -1901,33 +1897,46 @@ class TestingFactory:
         # so reuse can still find the doc (34602219973).
         uid = ""
         is_writer = False
-        doc_svc = ""
         leftover_open = 0
         if sys.platform == "win32":
             try:
                 uid = str(getattr(doc, "RuntimeUID", None) or "")
-                doc_svc = _native_doc_svc(doc)
-                is_writer = doc_svc == "writer"
             except Exception:
-                is_writer = False
-            leftover_open = _windows_leftover_open()
-            if is_writer or doc_svc in ("draw", "impress"):
+                uid = ""
+            # GHA 34612145495: _native_doc_svc + page walk before the first
+            # Draw forms close(True) killed soffice (exit 0). Master
+            # 34607010446 closed that same forms Draw. Check the Math
+            # mark from RuntimeUID only — no supportsService / getDrawPages.
+            if _windows_should_skip_math_ole_close(uid):
                 from plugin.testing_runner import _progress, _soffice_pids
 
-                # GHA 34606276107: insert_math_draw close_doc dispose then
-                # soffice exited 0. Writer-only start hid Draw teardown.
-                # leftovers/keeper name leftover-window reuse vs Draw close.
+                leftover_open = _windows_leftover_open()
+                reactivate_harness_keeper()
                 _progress(
-                    "close_doc: start uid=%s svc=%s leftovers=%s keeper=%s pids=%s"
+                    "close_doc: skip math ole close (windows) uid=%s "
+                    "leftovers=%s keeper=%s pids=%s"
                     % (
                         uid or "-",
-                        doc_svc or "-",
                         leftover_open,
                         _HARNESS_KEEPER_UID or "-",
                         _soffice_pids(),
                     )
                 )
-                if is_writer and leftover_open > 0:
+                return
+            try:
+                is_writer = bool(
+                    doc.supportsService("com.sun.star.text.TextDocument") is True
+                )
+            except Exception:
+                is_writer = False
+            leftover_open = _windows_leftover_open()
+            if is_writer:
+                from plugin.testing_runner import _progress
+
+                _progress(
+                    "close_doc: start uid=%s leftovers=%s" % (uid or "-", leftover_open)
+                )
+                if leftover_open > 0:
                     # GHA 34602219973: close uid=34 returned; next unique
                     # _wa_factory_5 swriter hung 30s. Do not close a
                     # harness Writer while paste leftovers remain (same
@@ -1936,25 +1945,6 @@ class TestingFactory:
                     _progress(
                         "close_doc: skip writer close leftovers open=%s uid=%s"
                         % (leftover_open, uid or "-")
-                    )
-                    return
-                if doc_svc in ("draw", "impress") and _windows_should_skip_math_ole_close(
-                    doc, uid
-                ):
-                    # GHA 34607010446: close_doc dispose of Math OLE Draw
-                    # killed soffice (exit 0). Do not close; leftover is
-                    # not current after keeper reactivate.
-                    reactivate_harness_keeper()
-                    _progress(
-                        "close_doc: skip math ole close (windows) uid=%s svc=%s "
-                        "leftovers=%s keeper=%s pids=%s"
-                        % (
-                            uid or "-",
-                            doc_svc,
-                            leftover_open,
-                            _HARNESS_KEEPER_UID or "-",
-                            _soffice_pids(),
-                        )
                     )
                     return
         for key, pooled in list(_NATIVE_DOC_POOL.items()):
@@ -1980,24 +1970,10 @@ class TestingFactory:
             # settle lets ~SvxShape finish before close. Unscoped: Writer
             # ControlShape / charts use the same pool. Post-close wait did not help.
             time.sleep(_CLOSE_DOC_URP_SETTLE_S)
-            if sys.platform == "win32" and doc_svc in ("draw", "impress"):
-                from plugin.testing_runner import _progress, _soffice_pids
-
-                _progress(
-                    "close_doc: close(True) start uid=%s svc=%s leftovers=%s pids=%s"
-                    % (uid or "-", doc_svc, leftover_open, _soffice_pids())
-                )
             if hasattr(doc, "close"):
                 doc.close(True)
             elif hasattr(doc, "dispose"):
                 doc.dispose()
-            if sys.platform == "win32" and doc_svc in ("draw", "impress"):
-                from plugin.testing_runner import _progress, _soffice_pids
-
-                _progress(
-                    "close_doc: close(True) done uid=%s svc=%s pids=%s"
-                    % (uid or "-", doc_svc, _soffice_pids())
-                )
             if sys.platform == "win32" and is_writer:
                 from plugin.testing_runner import _progress
 

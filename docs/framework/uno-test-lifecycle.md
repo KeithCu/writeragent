@@ -241,9 +241,19 @@ uids=`['34','27','26']` keeper=1). `test_insert_math_draw` printed
 `plugin.testing_runner` (same dual-module family as #719 recycle).
 Nine ordinary Draw `close_doc` calls survived, so leftover-Writer
 reuse is not the Draw-close killer. `close_doc` of a Draw that still
-holds Math OLE is. Windows therefore **skips** that close
+holds Math OLE is. Windows therefore **skips** that close when
+`mark_windows_math_ole_doc` recorded the uid
 (`close_doc: skip math ole close (windows)`), reactivates the keeper,
 and does **not** recycle mid-run (34551644954). POSIX still closes.
+
+GHA 34609996253 / 34612145495 (this skip on the PR tip): leftover
+Writer reuse and text_helpers still OK, then the *first* Draw close
+(`draw.test_draw_forms_uno.test_draw_form_lifecycle`, uid=35) printed
+`close_doc: start` / `close(True) start` and soffice exited 0.
+Master 34607010446 closed that same forms Draw. The skip path had
+walked pages/shapes and `_native_doc_svc` before `close(True)`.
+Unmarked Draw close is again RuntimeUID + GC + 50 ms + `close(True)`
+only. Do not walk for Math CLSID at teardown.
 `test_insert_math_draw` runs last in `test_draw_uno.py` so a leftover
 is not current for later tests in that file. Trail start/end now
 writes both runner modules; `format_lifecycle_breadcrumb` adopts from
@@ -261,13 +271,11 @@ POSIX still `close_doc`. Breadcrumbs:
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: create/store/close/list_nearby start/done`,
-`close_doc: start uid= svc= leftovers= keeper= pids=` (Windows Writer/Draw/Impress),
-`close_doc: close(True) start/done` (Windows Draw/Impress),
-`close_doc: done uid=…` (Windows Writer),
+`close_doc: start/done uid= leftovers=` (Windows Writer),
 `native_doc: leftover writer reuse`,
 `close_doc: skip writer close leftovers open=N uid=…`,
 `get_draw_tree: body start/execute done/body done`,
-`close_doc: skip math ole close (windows) uid= svc= leftovers= keeper= pids=`,
+`close_doc: skip math ole close (windows) uid= leftovers= keeper= pids=`,
 `insert_math_draw: insert_math start/done` and `body done`. Do **not** fold
 Draw-family settle into `close_doc`. Not a product fix.
 
@@ -299,7 +307,9 @@ no second leftover swriter factory after the first text_helpers Writer,
 `TEST end … OK`, both text_helpers tests `TEST end … OK` (no 30s
 Timeout in `create_native_doc` on
 `…_multi_para_joins_with_newline` / `target=_wa_factory_5`),
-`insert_math_draw: insert_math start/done` then
+`draw.test_draw_forms_uno` four tests `TEST end … OK` (first Draw
+`close(True)` must return; no `close_doc: start uid= svc=draw` before
+that close), `insert_math_draw: insert_math start/done` then
 `close_doc: skip math ole close (windows)` (not
 `LIFECYCLE close_doc dispose` / `office dead after close doc_type=draw`),
 `TEST end draw.test_draw_uno.test_insert_math_draw OK`, later
