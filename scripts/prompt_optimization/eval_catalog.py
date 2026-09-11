@@ -8,6 +8,7 @@ Headless ``ToolRegistry`` + module ``initialize`` (no ``plugin.main.bootstrap``)
 """
 from __future__ import annotations
 
+import copy
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -62,3 +63,50 @@ def build_eval_tool_schemas(
         kwargs["active_domain"] = active_domain
         kwargs["exclude_tiers"] = ()
     return _headless_registry().get_schemas("openai", **kwargs)
+
+
+def _schema_function(row: dict[str, Any]) -> dict[str, Any] | None:
+    """OpenAI ``{type, function}`` or a bare function dict."""
+    fn = row.get("function")
+    if isinstance(fn, dict):
+        return fn
+    if isinstance(row.get("name"), str):
+        return row
+    return None
+
+
+def apply_schema_patches(
+    schemas: list[dict[str, Any]],
+    patches: dict[str, dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Return a copy of ``schemas`` with named tool description / param text replaced.
+
+    ``patches`` keys are tool names. Each value may include ``description``
+    (tool-level) and/or ``parameters`` (``{param_name: description}``).
+    Unknown tools or params are ignored so a Calc-only patch is a no-op on
+    Writer catalogs. Always copies: ``get_schemas`` may reuse nested dicts.
+    """
+    if not patches:
+        return schemas
+    out = copy.deepcopy(schemas)
+    for row in out:
+        fn = _schema_function(row)
+        if fn is None:
+            continue
+        name = str(fn.get("name") or "")
+        patch = patches.get(name)
+        if not isinstance(patch, dict):
+            continue
+        desc = patch.get("description")
+        if isinstance(desc, str):
+            fn["description"] = desc
+        param_descs = patch.get("parameters")
+        if not isinstance(param_descs, dict):
+            continue
+        props = (fn.get("parameters") or {}).get("properties")
+        if not isinstance(props, dict):
+            continue
+        for pname, pdesc in param_descs.items():
+            if pname in props and isinstance(pdesc, str) and isinstance(props[pname], dict):
+                props[pname]["description"] = pdesc
+    return out

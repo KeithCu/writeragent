@@ -1,7 +1,8 @@
 """
-DSPy program for Writer prompt optimization (MIPROv2 / run_optimize.py only).
+Legacy DSPy ReAct student (``run_optimize.py --student react-mock``).
 
-Benchmarks use LlmClient + llm_chat_eval (run_eval.py); this module stays ReAct + tools_lo.
+Default MIPROv2 student is ``program_llm.LiveEvalStudent`` (live
+``llm_chat_eval``). This module stays ReAct + tools_lo for comparison.
 """
 from __future__ import annotations
 
@@ -39,7 +40,8 @@ class WriterAssistant(dspy.Module):
         )
         self.react = dspy.ReAct(sig, tools=tools, max_iters=10)
 
-    def forward(self, document_content: str, user_question: str):
+    def forward(self, document_content: str, user_question: str, task_id: str = ""):
+        # task_id is a DSPy input on the live student; ReAct mocks ignore kind.
         set_document(document_content)
         # Pass document as context so the model can read it via get_document_content (or it's already in the prompt).
         document_context = document_content
@@ -48,6 +50,9 @@ class WriterAssistant(dspy.Module):
         if not html:
             raise RuntimeError("get_content_as_html() returned empty; document export failed.")
         pred.final_document = html
+        pred.slice_text = self.instruction
+        pred.baseline_slice_len = len(self.instruction or "")
+        pred.task_id = task_id
         return pred
 
 

@@ -56,19 +56,17 @@ that tool for sort.
 
 ## Why the current DSPy job will not move this score
 
-`run_optimize.py` / `program.py` optimize a **DSPy ReAct** agent with three
-Writer mocks (`get_document_content`, `apply_document_content`, `find_text`).
-Ranking uses **`LlmClient` + production schemas + an inner specialized
-loop** (`llm_chat_eval.py`, `--backend string`).
-
-`optimized_writer_prompt.json` is a ReAct script (`Next Thought:` /
-`Next Tool Name:`). It cannot be pasted into
+Default `run_optimize.py --student llm` now wraps **`llm_chat_eval`**
+(same LlmClient + production schemas + inner specialized loop as
+`make run_eval`) and rewrites a **named slice** (`--slice calc_core`,
+`sort_range`, …). `--student react-mock` still exists for comparison:
+that path is DSPy ReAct + three Writer mocks; its
+`optimized_writer_prompt.json` (`Next Thought:` / `Next Tool Name:`)
+must not be pasted into
 [`plugin/framework/prompts.py`](../../plugin/framework/prompts.py).
 
-MIPROv2 on that ReAct program optimizes a prompt 20b never sees in
-`make run_eval`. A second mismatch: production is **three** prompts, not
-one `DEFAULT_CHAT_SYSTEM_PROMPT`. 20b’s misses live in Calc/Draw
-directives and **tool descriptions**.
+Do not optimize one giant Writer instruction over all 17 tasks. 20b’s
+misses live in Calc/Draw directives and **tool descriptions**.
 
 [string-harness-upgrade.md](string-harness-upgrade.md) deferred MIPROv2
 until the metric was honest. Worlds, process oracles, and specialized
@@ -218,5 +216,6 @@ production-compatible version of a demo is 2–3 lines in
 - [ ] Re-A/B after required `has_header` + split DO lines
 - [ ] Full 17 if the A/B is a win and 120b does not regress
 - [ ] Tool-subset sweep if `data_sorting` still fails
-- [ ] Wrap `llm_chat_eval` as a DSPy module; GEPA on Calc/Draw blobs
+- [x] Wrap `llm_chat_eval` as a DSPy module (`program_llm.py`; MIPROv2 `--student llm`)
+- [ ] GEPA on Calc/Draw blobs (still optional; MIPROv2 slice path is the first wrap)
 - [x] Prompt-text pins in `tests/scripts/test_eval_prompts.py` for shipped Calc wording

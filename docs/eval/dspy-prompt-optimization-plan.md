@@ -7,6 +7,8 @@ isProject: false
 
 # DSPy for optimal DEFAULT_CHAT_SYSTEM_PROMPT
 
+**Shipped (2026-09):** MIPROv2 default student is `program_llm.LiveEvalStudent` wrapping `llm_chat_eval` (same loop as `run_eval_multi`), optimizing a **named slice** — see [`scripts/prompt_optimization/README.md`](../../scripts/prompt_optimization/README.md). This file is the original ReAct-mock plan; `--student react-mock` still runs that path. Do not put ReAct on the sidebar.
+
 ## Can DSPy help? Yes.
 
 DSPy is built for exactly this: **optimizing prompts (instructions) to maximize a metric** without hand-tuning. Its optimizers (especially **MIPROv2**) propose and search over natural-language instructions using your program, a small train/val set, and a scoring function. So your goal—find a better system prompt—maps directly onto DSPy’s instruction optimization.
