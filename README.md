@@ -115,29 +115,29 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 
 | Model | Correctness<br>avg task score (0–1) | Value<br>Correctness² ÷ $/task |
 | ----- | ----- | ----- |
-| openai/gpt-oss-120b | 0.853 | 1299 |
-| openai/gpt-oss-20b | 0.746 | 922 |
-| upstage/solar-pro4 | 0.682 | 493 |
-| google/gemma-4-31b-it | 0.800 | 389 |
-| google/gemma-4-26b-a4b-it | 0.680 | 327 |
-| meta/muse-spark-1.3-contributor | 0.979 | 312 |
-| poolside/laguna-xs-2.1 | 0.826 | 286 |
-| deepseek/deepseek-v4-flash-0731 | 0.987 | 264 |
-| poolside/laguna-s-2.1 | 0.700 | 245 |
-| z-ai/glm-5.3-flash | 0.913 | 196 |
-| bytedance-seed/seed-2.0-mini | 0.859 | 194 |
-| openai/gpt-5.6-luna | 0.916 | 187 |
-| mistralai/mistral-small-2603 | 0.571 | 122 |
-| meta/muse-glimmer-30b | 0.987 | 95 |
-| ibm-granite/granite-4.2-8b | 0.861 | 95 |
-| deepseek/deepseek-v4.1-flash | 0.935 | 93 |
-| google/gemini-3.5-flash-lite | 0.688 | 87 |
-| qwen/qwen3.8-flash | 0.805 | 86 |
-| inception/mercury-2.5-preview | 0.811 | 76 |
-| nvidia/nemotron-3.5-lightning | 0.315 | 41 |
-| minimax/minimax-m3 | 0.820 | 30 |
-| qwen/qwen3.8-27b | 0.922 | 28 |
-| x-ai/grok-4.6 | 0.982 | 18 |
+| openai/gpt-oss-120b | 0.971 | 1475 |
+| openai/gpt-oss-20b | 0.805 | 911 |
+| upstage/solar-pro4 | 0.741 | 819 |
+| poolside/laguna-xs-2.1 | 0.885 | 574 |
+| google/gemma-4-31b-it | 0.918 | 548 |
+| google/gemma-4-26b-a4b-it | 0.739 | 385 |
+| meta/muse-spark-1.3-contributor | 0.979 | 354 |
+| deepseek/deepseek-v4-flash-0731 | 0.987 | 278 |
+| poolside/laguna-s-2.1 | 0.759 | 270 |
+| bytedance-seed/seed-2.0-mini | 0.918 | 222 |
+| openai/gpt-5.6-luna | 0.916 | 210 |
+| z-ai/glm-5.3-flash | 0.854 | 185 |
+| deepseek/deepseek-v4.1-flash | 0.935 | 105 |
+| google/gemini-3.5-flash-lite | 0.747 | 103 |
+| meta/muse-glimmer-30b | 0.987 | 99 |
+| ibm-granite/granite-4.2-8b | 0.861 | 96 |
+| mistralai/mistral-small-2603 | 0.629 | 94 |
+| inception/mercury-2.5-preview | 0.869 | 83 |
+| qwen/qwen3.8-flash | 0.805 | 82 |
+| nvidia/nemotron-3.5-lightning | 0.374 | 52 |
+| qwen/qwen3.8-27b | 0.922 | 36 |
+| minimax/minimax-m3 | 0.820 | 32 |
+| x-ai/grok-4.6 | 0.982 | 20 |
 
 ---
 
