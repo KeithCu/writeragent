@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 from plugin.doc.document_research import (
     NEARBY_FILE_EXTENSIONS,
     NEARBY_IMAGE_EXTENSIONS,
+    _collect_open_file_urls,
     _system_path_from_url,
     close_document_research_document,
     guess_doc_type_from_path,
@@ -282,6 +283,99 @@ def test_list_nearby_files_file_kind_documents_explicit():
                     result = list_nearby_files(ctx, model, file_kind="documents")
         assert result["status"] == "ok"
         assert [f["name"] for f in result["files"]] == ["Budget.ods"]
+
+
+def test_collect_open_file_urls_skips_broken_desktop_component():
+    """GHA 34593327841: leftover paste Writer must not abort the nearby walk."""
+    with tempfile.TemporaryDirectory() as tmp:
+        budget = os.path.join(tmp, "Budget_2026.ods")
+        with open(budget, "wb"):
+            pass
+        budget_url = path_to_file_url(budget)
+        budget_norm = os.path.normpath(os.path.abspath(budget))
+
+        broken = MagicMock(name="leftover_paste_writer")
+        broken.getController.side_effect = RuntimeError(
+            "Couldn't convert <traceback object> to a UNO type"
+        )
+
+        good = MagicMock(name="saved_calc")
+        good.getController.return_value = None
+        good.getURL.return_value = budget_url
+
+        class _Enum:
+            def __init__(self, items):
+                self._items = list(items)
+
+            def hasMoreElements(self):
+                return bool(self._items)
+
+            def nextElement(self):
+                return self._items.pop(0)
+
+        desktop = MagicMock()
+        desktop.getComponents.return_value.createEnumeration.return_value = _Enum(
+            [broken, good]
+        )
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch(
+                "plugin.doc.document_research._system_path_from_url",
+                side_effect=lambda url: budget_norm if url == budget_url else None,
+            ),
+            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
+        ):
+            out = _collect_open_file_urls(
+                object(), exclude_path=None, extensions=NEARBY_FILE_EXTENSIONS
+            )
+        assert out == {budget_norm: budget_url}
+
+
+def test_collect_open_file_urls_skips_geturl_failure():
+    """Same leftover family: getURL raise must not abort later components."""
+    with tempfile.TemporaryDirectory() as tmp:
+        budget = os.path.join(tmp, "Budget_2026.ods")
+        with open(budget, "wb"):
+            pass
+        budget_url = path_to_file_url(budget)
+        budget_norm = os.path.normpath(os.path.abspath(budget))
+
+        broken = MagicMock(name="leftover_no_url")
+        broken.getController.return_value = None
+        broken.getURL.side_effect = RuntimeError(
+            "Couldn't convert <traceback object> to a UNO type"
+        )
+
+        good = MagicMock(name="saved_calc")
+        good.getController.return_value = None
+        good.getURL.return_value = budget_url
+
+        class _Enum:
+            def __init__(self, items):
+                self._items = list(items)
+
+            def hasMoreElements(self):
+                return bool(self._items)
+
+            def nextElement(self):
+                return self._items.pop(0)
+
+        desktop = MagicMock()
+        desktop.getComponents.return_value.createEnumeration.return_value = _Enum(
+            [broken, good]
+        )
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch(
+                "plugin.doc.document_research._system_path_from_url",
+                side_effect=lambda url: budget_norm if url == budget_url else None,
+            ),
+            patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda obj: obj),
+        ):
+            out = _collect_open_file_urls(
+                object(), exclude_path=None, extensions=NEARBY_FILE_EXTENSIONS
+            )
+        assert out == {budget_norm: budget_url}
 
 
 def test_close_document_research_document_skips_reused_open():

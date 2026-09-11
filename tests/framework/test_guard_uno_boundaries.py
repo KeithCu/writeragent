@@ -217,6 +217,19 @@ class TestGuardUnoBoundaries(unittest.TestCase):
         self.assertIs(out, elem)
         mock_guard.assert_called_once_with(elem)
 
+    def test_office_model_from_desktop_element_skips_broken_controller(self) -> None:
+        """GHA 34593327841: leftover paste Writer getController must not abort listing."""
+        elem = MagicMock(name="leftover_paste_writer")
+        elem.getController.side_effect = RuntimeError(
+            "Couldn't convert <traceback object> to a UNO type"
+        )
+        with patch("plugin.framework.thread_guard.guard_uno") as mock_guard:
+            from plugin.doc.document_research import _office_model_from_desktop_element
+
+            out = _office_model_from_desktop_element(elem)
+        self.assertIsNone(out)
+        mock_guard.assert_not_called()
+
     def test_get_active_calc_cell_wraps_model(self) -> None:
         model = MagicMock()
         model.getSheets = MagicMock()

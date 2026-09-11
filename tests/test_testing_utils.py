@@ -369,7 +369,8 @@ def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypat
     desktop.loadComponentFromURL.assert_called_once()
 
 
-def test_create_native_doc_windows_calc_does_not_prepare_writer_factory(monkeypatch):
+def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
+    """GHA 34593327841: leftover paste Writer as current hung the next scalc load."""
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -380,7 +381,7 @@ def test_create_native_doc_windows_calc_does_not_prepare_writer_factory(monkeypa
     calls = []
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
-        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare")
+        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 2
     )
     with (
         patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
@@ -388,7 +389,8 @@ def test_create_native_doc_windows_calc_does_not_prepare_writer_factory(monkeypa
         patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
     ):
         TestingFactory.create_native_doc(object(), "calc")
-    assert calls == []
+    assert calls == ["prepare"]
+    desktop.loadComponentFromURL.assert_called_once()
 
 
 def test_create_native_doc_posix_does_not_prepare_writer_factory(monkeypatch):

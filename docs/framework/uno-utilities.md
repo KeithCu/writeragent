@@ -401,7 +401,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | `uno_context.normalize_doc_url` vs `document_scripts._normalize_doc_url` | Trailing-slash strip | **Landed.** Script identity imports `normalize_doc_url`; the document_scripts copy is gone. |
 | `document_research._path_to_file_url` vs `embeddings_fs.path_to_file_url` vs `format._file_url` | `Path(abspath).as_uri()` | **Landed.** Shared `url_utils.path_to_file_url` (filesystem section). Old copies deleted; no aliases. |
 | `text_helpers.normalize_file_url` vs sandbox vs session_manager `file:/` repair | `file:/` → `file://` + rest | **Landed for UNO callers** (`get_document_path` + research). Sandbox / session_manager stay stdlib. |
-| Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. |
+| Desktop component walks | `resolve_document_by_url`, `get_open_documents`, `_collect_open_file_urls` | All enumerate `desktop.getComponents()`. Research already has `_office_model_from_desktop_element`; resolve has a slightly different frame-vs-model walk. GHA 34593327841: leftover HTML-paste Writers must be skipped per-component (`getController` / `getURL` can raise PyUNO traceback-conversion); do not abort the whole nearby listing. |
 
 ### 3.2 Intentional splits (do not collapse)
 

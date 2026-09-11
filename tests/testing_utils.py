@@ -895,6 +895,10 @@ def prepare_windows_writer_factory(ctx) -> int:
     Why this: enum leftovers (read-only; safe before load) and
     ``setActiveFrame`` the keeper. Do not close leftovers. Returns how
     many non-keeper Writers are still open. Windows-only caller.
+
+    GHA 34593327841: the next hang was ``private:factory/scalc`` in
+    ``document_research_uno`` ``_create_nearby_test_env``, not swriter.
+    Call this before every Windows ``private:factory/`` load.
     """
     if ctx is None:
         return 0
@@ -1531,13 +1535,16 @@ class TestingFactory:
         from plugin.testing_runner import probe_uno_bridge
 
         leftover_open = 0
-        if sys.platform == "win32" and factory_url == "private:factory/swriter":
+        # GHA 34593327841: leftover paste Writers as desktop current hung
+        # the next scalc factory (30s) after list_nearby failed. #720 only
+        # prepared swriter. Reactivate the keeper before any factory load.
+        if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
             from plugin.testing_runner import _progress
 
             _progress(
-                "create_native_doc: windows writer factory leftover_open=%s"
-                % leftover_open
+                "create_native_doc: windows factory leftover_open=%s url=%s"
+                % (leftover_open, factory_url)
             )
 
         # Distinguish "bridge already dead" (previous test) from "died during load".

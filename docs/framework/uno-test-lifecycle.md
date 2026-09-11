@@ -156,6 +156,23 @@ docs still close — that returned on 34554275072), reactivate the
 keeper again (`html_paste_writer: leftovers open=…`,
 `html_paste_writer: keeper reactivated`).
 
+GHA 34593327841 (master `754620ba`, tip of `#720`): first Windows UNO
+run after that merge. `insert_cell_html_rich` again left uid=26/27
+(`close skipped pasted=True`). Calc + chatbot suites stayed green.
+`test_list_nearby_excludes_active` failed in ~1s with PyUNO
+`Couldn't convert <traceback object> … getTypes` (no Python traceback;
+office alive). The next test hung 30s in
+`create_native_doc(private:factory/scalc)` inside
+`_create_nearby_test_env`. `#720` only prepared *Writer* factory loads.
+Leftover paste Writers as desktop current also wedge a later **Calc**
+factory, and `list_nearby_files` walked those leftovers without a
+per-component try/except. Product: skip a broken desktop component in
+`_office_model_from_desktop_element` / `_collect_open_file_urls` (do
+not `log.exception` that walk — formatting a UNO exception can raise
+the same traceback conversion). Harness: `prepare_windows_writer_factory`
+before every Windows `private:factory/` load. Breadcrumbs:
+`document_research_uno: create/store/close/list_nearby start/done`.
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
@@ -165,16 +182,18 @@ POSIX still `close_doc`. Breadcrumbs:
 `peer_message_uno: close_doc start/done uid=…` (POSIX).
 `html_paste_writer: leftovers open=N uids=…`,
 `html_paste_writer: keeper reactivated`,
-`create_native_doc: windows writer factory leftover_open=N`,
+`create_native_doc: windows factory leftover_open=N url=…`,
+`document_research_uno: create/store/close/list_nearby start/done`,
 `close_doc: start/done uid=…` (Windows Writer). Do **not** fold
 Draw-family settle into `close_doc`. Not a product fix.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` and `keeper reactivated` before
-the first text_helpers Writer load, both text_helpers tests
-`TEST end … OK`, later suites including the peer file last (six peer
-`TEST end … OK`), then
+Windows `private:factory/` loads (Writer **and** Calc),
+`document_research_uno` three tests `TEST end … OK`, both
+text_helpers tests `TEST end … OK`, later suites including the peer
+file last (six peer `TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 
