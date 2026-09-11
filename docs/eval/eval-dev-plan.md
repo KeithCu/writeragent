@@ -114,6 +114,9 @@ Source plan: [`oss-20b-eval.md`](oss-20b-eval.md). Scores:
   without loosening wrong-row, wrong-factor, or Price-column junk.
 - `write_formula_range` fails loud when a JSON leaf count does not match
   the A1 cell count (string `CalcWorld` too).
+- String `CalcWorld` fill-down of one formula into a 1-D range uses
+  `formula_fill.expand_single_formula` (production); JSON arrays stay
+  pinned. Snapshot `formulas` stores the per-cell expanded text.
 - Ranking catalog: `z-ai/glm-5.3-flash` only.
 
 #### What shipped

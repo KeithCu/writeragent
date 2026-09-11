@@ -976,7 +976,25 @@ class CalcWorld:
                 cells.append((row_i, col_i))
         if not cells:
             return 0
-        if len(values) == 1 and len(cells) > 1:
+        # Production write_formula_range fill-down-adjusts relative A1 refs
+        # (plugin.calc.formula_fill) when one formula string hits a 1-D range.
+        # The harness used values * n and pinned the same text on every cell,
+        # so Tip A / tax_column false-red'd a correct =B2*0.08 into C2:C5
+        # (Banana stayed =B2*0.08). JSON arrays stay exact. 2-D / import
+        # failure keeps the honest pin.
+        formula_src = raw_values if isinstance(raw_values, str) else ""
+        single = values[0] if values else None
+        is_formula = isinstance(single, str) and single.lstrip().startswith("=")
+        if len(values) == 1 and len(cells) > 1 and is_formula:
+            num_rows = r1 - r0 + 1
+            num_cols = c1 - c0 + 1
+            try:
+                from plugin.calc.formula_fill import expand_single_formula
+
+                fill = expand_single_formula(str(values[0]), num_rows, num_cols)
+            except Exception:
+                fill = values * len(cells)
+        elif len(values) == 1 and len(cells) > 1:
             fill = values * len(cells)
         else:
             fill = values
@@ -988,11 +1006,15 @@ class CalcWorld:
             row = self._grid[row_i]
             while len(row) <= max_col:
                 row.append("")
-        formula_src = raw_values if isinstance(raw_values, str) else ""
         for (row_i, col_i), val in zip(cells, fill):
             self._grid[row_i][col_i] = val
             addr = col_row_to_a1(col_i, row_i)
-            if formula_src.lstrip().startswith("="):
+            # Prefer the per-cell fill (adjusted or exact array entry), not
+            # the original pin source on every addr.
+            cell_txt = val if isinstance(val, str) else ""
+            if cell_txt.lstrip().startswith("="):
+                self.formulas[addr] = cell_txt
+            elif formula_src.lstrip().startswith("="):
                 self.formulas[addr] = formula_src
         if self._grid:
             self._headers = [str(c) if c is not None else "" for c in self._grid[0]]
