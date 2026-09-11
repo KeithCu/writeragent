@@ -330,8 +330,9 @@ def test_insert_result_into_calc_undo(ctx, doc):
     }
 
     insert_result_into_calc(doc, ctx, primes_result)
-    # Close skipped after paste. Cached leftover_open so later Hidden/AWT
-    # skips see these Writers (34649699848). Do not enum getComponents.
+    # Close skipped after paste. Windows defers this suite until after
+    # document_research_uno 3/3 (34648929578). Cached leftover_open
+    # for later leftover reuse. Do not enum getComponents.
     note_windows_html_paste_leftover()
     assert active_sheet.getCellByPosition(0, 0).getString() == "Prime Numbers in Range"
     assert active_sheet.getCellByPosition(0, 2).getString() == "position"

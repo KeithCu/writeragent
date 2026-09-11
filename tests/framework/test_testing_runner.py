@@ -276,6 +276,34 @@ def test_native_suite_sort_key_windows_puts_draw_uno_before_peer(
     assert names.index("test_draw_forms_uno.py") < names.index("test_draw_uno.py")
 
 
+def test_native_suite_sort_key_windows_defers_html_paste_after_doc_research(
+    monkeypatch,
+) -> None:
+    """GHA 34648929578: leftover paste Writers poisoned Hidden Budget_read."""
+    import plugin.testing_runner as tr
+
+    monkeypatch.setattr(tr.sys, "platform", "win32")
+    paths = [
+        "/tmp/tests/calc/test_formulas_uno.py",
+        "/tmp/tests/calc/test_rich_html_uno.py",
+        "/tmp/tests/chatbot/test_slash_popup_uno.py",
+        "/tmp/tests/doc/test_document_research_uno.py",
+        "/tmp/tests/notebook/test_import_filter_uno.py",
+        "/tmp/tests/draw/test_draw_uno.py",
+        "/tmp/tests/chatbot/test_peer_message_uno.py",
+    ]
+    ordered = sorted(paths, key=_native_suite_sort_key)
+    names = [p.rsplit("/", 1)[-1] for p in ordered]
+    assert names.index("test_slash_popup_uno.py") < names.index("test_formulas_uno.py")
+    assert names.index("test_document_research_uno.py") < names.index(
+        "test_formulas_uno.py"
+    )
+    assert names.index("test_import_filter_uno.py") < names.index("test_rich_html_uno.py")
+    assert names.index("test_formulas_uno.py") < names.index("test_draw_uno.py")
+    assert names.index("test_rich_html_uno.py") < names.index("test_draw_uno.py")
+    assert names[-1] == "test_peer_message_uno.py"
+
+
 def test_native_suite_sort_key_posix_keeps_path_order(monkeypatch) -> None:
     """Linux PR CI must not defer draw_uno; POSIX still closes Math OLE."""
     import plugin.testing_runner as tr

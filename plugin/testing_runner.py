@@ -1176,13 +1176,25 @@ def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
     suite so the leftover Math Draw is not closed (34607010446 exit 0)
     and does not recycle mid-run (34551644954). Notebook Hidden
     ``_blank`` isolation is ``windows_notebook_load_args``.
+
+    GHA 34648929578 / 34649699848: leftover HTML-paste Writers
+    (``test_formulas_uno`` / ``test_rich_html_uno``) bitmap-failed
+    Hidden ``Budget_read.ods`` and hung slash ``createPeer``. Those
+    suites did **not** change ``_wa_doc_research``. Defer them until
+    after slash, ``document_research_uno``, and import-filter so the
+    copy Hidden-open stays 3/3. Same band as ``test_draw_uno`` (calc
+    paths sort first). Do not skip the Hidden-open tests.
     """
     name = os.path.basename(module_path)
     if sys.platform != "win32":
         return (0, module_path)
     if name == "test_peer_message_uno.py":
         return (2, module_path)
-    if name == "test_draw_uno.py":
+    if name in (
+        "test_draw_uno.py",
+        "test_formulas_uno.py",
+        "test_rich_html_uno.py",
+    ):
         return (1, module_path)
     return (0, module_path)
 

@@ -373,21 +373,21 @@ closed notebook leftover uid=41 then hung 30s on the next Hidden
 `_wa_notebook` (leftovers open=3). Do not close leftover notebook
 docs. Unique leftover `_wa_notebook_2` is the same stacking family
 as leftover `_wa_factory_N`. The detect reload
-`skip_windows_leftover_hidden_load`s instead of a second Hidden
-`.ipynb` load.
+`skip_windows_leftover_hidden_load`s when leftovers are already
+open. Do **not** skip `document_research_uno` Hidden
+`Budget_read.ods`.
 
-GHA 34648929578 (`86279d14`, after `_wa_notebook_2`): slash OK.
-Hidden `Budget_read.ods` then `Could not create system bitmap!`;
-the next sibling Hidden open hung 30s at `open_document_for_read`.
-GHA 34649699848 (same SHA): slash `dlg.createPeer` hung 30s
-(office alive) and never reached document_research. Paste leftovers
-were open, but pooled Calc reuse left the cached leftover count at
-0. HTML-paste UNO tests now `note_windows_html_paste_leftover`
-(no `getComponents` enum). Slash `createPeer`, leftover Hidden
-`Budget_read.ods`, and the import-filter detect reload skip when
-that cached count is >0. `test_list_nearby_excludes_active` and the
-first import-filter load still run. Do not close leftover paste
-Writers.
+GHA 34648929578 / 34649699848 (`86279d14`): `#732`'s
+`windows_notebook_load_args` / leftover-notebook `close_doc` skip
+do **not** run until `notebook.test_import_filter_uno` (after
+`document_research_uno`). They do not change `_wa_doc_research`.
+The bitmap fail / slash `createPeer` hang are leftover
+`_wa_calc_html` paste Writers from `test_formulas_uno` /
+`test_rich_html_uno` (same GDI family as 34636251918). Windows
+defers those two suites until after slash, `document_research_uno`
+3/3, and import-filter (`_native_suite_sort_key` band 1 with
+`test_draw_uno`). HTML-paste UNO tests `note_windows_html_paste_leftover`
+after a successful paste. Do not close leftover paste Writers.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
@@ -399,16 +399,16 @@ swriter loads using `target=_wa_factory` (not `_blank` / not
 `_blank` / not `_wa_factory_N`),
 `document_research_uno: store budget via active start/done` (no
 `create budget calc` / no leftover `scalc` `target=_wa_factory_1`),
-`html_paste_writer: noted leftover_open=1` after the first HTML
-paste, then `windows leftover skip:` for slash `createPeer`, leftover
-Hidden `Budget_read.ods`, and import-filter detect (no second
-`import_filter_uno: load start`, no `Could not create system bitmap`,
-no 30s hang),
+`copied budget for hidden open` then `open_document_for_read done err=-`
+(Windows opens `Budget_read.ods`, not the `storeAsURL` path; no
+`Could not create system bitmap`, no 30s hang) **before**
+`html_paste_writer: noted leftover_open` (formulas / rich_html are
+deferred),
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
 no second leftover swriter factory after the first text_helpers Writer,
-`document_research_uno` `test_list_nearby_excludes_active`
-`TEST end … OK` and the two Hidden-open tests `TEST end … SKIP`,
-both text_helpers tests `TEST end … OK` (no 30s
+`document_research_uno` three tests
+`TEST end … OK`, slash `TEST end … OK`, both text_helpers tests
+`TEST end … OK` (no 30s
 Timeout in `create_native_doc` on
 `…_multi_para_joins_with_newline` / `target=_wa_factory_5`),
 `draw.test_draw_forms_uno` four tests `TEST end … OK` (first Draw
@@ -417,10 +417,13 @@ that close), `insert_math_draw: insert_math start/done` then
 `close_doc: skip math ole close (windows)` (not
 `LIFECYCLE close_doc dispose` / `office dead after close doc_type=draw`),
 `import_filter_uno: load start target=_wa_notebook` (not `_blank`)
-for `test_import_filter_uno_load_component` only, `close_doc: skip writer close`
-or `close_doc: start` (not raw `doc.close(True)`), that load
-`TEST end … OK` and detect `TEST end … SKIP` (no 30s
-Timeout on `detect_without_filtername`), **then**
+for both notebook import-filter tests when leftovers are not yet
+open, `close_doc: skip writer close` or `close_doc: start` (not raw
+`doc.close(True)`), both `notebook.test_import_filter_uno` tests
+`TEST end … OK` or detect `TEST end … SKIP` if leftovers already
+exist (no 30s Timeout on `detect_without_filtername`), **then**
+`html_paste_writer: noted leftover_open=1` from deferred formulas /
+rich_html, **then**
 `TEST end draw.test_draw_uno.test_insert_math_draw OK` after
 `insert_math_draw: insert_math start/done` and
 `close_doc: skip math ole close (windows)`, leftover-Impress

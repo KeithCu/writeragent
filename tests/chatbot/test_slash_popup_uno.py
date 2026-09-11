@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_load
 
 
 @native_test
@@ -17,8 +16,6 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN
     from plugin.chatbot.slash_popup import SlashPopupController, uses_toolkit_overlay
 
-    # GHA 34649699848: leftover paste Writers then dlg.createPeer hung 30s.
-    skip_windows_leftover_hidden_load("slash createPeer")
     slash_popup.ENABLE_SLASH = True
 
     smgr = ctx.getServiceManager()

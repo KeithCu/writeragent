@@ -1190,11 +1190,10 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
     GHA 34646877587: first leftover Hidden ``_wa_notebook`` + close
     returned; the next Hidden ``_wa_notebook`` hung 30s. Unique leftover
     names (``_wa_notebook_2``, ``_wa_factory_N``) are the same stacking
-    family as leftover ``_wa_scalc`` / ``_wa_factory_5``. GHA 34648929578:
-    Hidden ``Budget_read.ods`` raised ``Could not create system bitmap!``;
-    the next sibling Hidden open hung 30s. GHA 34649699848: slash
-    ``dlg.createPeer`` hung 30s. Cached leftover count only — do not
-    enum. Do not close leftover paste Writers (34556185752).
+    family as leftover ``_wa_scalc`` / ``_wa_factory_5``. Import-filter
+    detect uses this; do **not** skip ``document_research_uno`` Hidden
+    ``Budget_read.ods`` (34643210006 was 3/3). Cached leftover count
+    only — do not enum. Do not close leftover paste Writers (34556185752).
     """
     if not windows_leftover_hidden_load_unsafe():
         return
