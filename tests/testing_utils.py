@@ -1012,15 +1012,20 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
     GHA 34597506651: keeper sync worked (``keeper=1``, reactivated).
     First text_helpers ``_blank`` swriter + leftovers returned (uid=34,
     close_doc OK). The *next* ``_blank`` swriter hung 30s after the same
-    leftover log + keeper reactivate. ``setActiveFrame`` is not enough
-    for a second consecutive Hidden ``_blank`` while leftover
-    ``_wa_calc_html`` frames exist (rich_html.py: not ``_blank`` /
-    ``_default``). Unique CREATE target avoids that collision. Do not
-    close leftovers (34556185752). Calc ``_blank`` already succeeds
-    with leftovers — only swriter needs the named target.
+    leftover log + keeper reactivate.
+
+    GHA 34599838644: same leftovers + ``keeper=1``, but Calc ``_blank``
+    failed in ~1s (PyUNO traceback conversion on
+    ``loadComponentFromURL(scalc)``) and the next Calc ``_blank`` hung
+    30s — ``document_research_uno`` never finished, so the swriter-only
+    named target was never reached. ``setActiveFrame`` is not enough
+    for Hidden ``_blank`` while leftover ``_wa_calc_html`` frames exist
+    (rich_html.py: not ``_blank`` / ``_default``). Unique CREATE target
+    for every leftover Windows factory. Do not close leftovers
+    (34556185752).
     """
     global _WINDOWS_FACTORY_SEQ
-    if leftover_open <= 0 or factory_url != "private:factory/swriter":
+    if leftover_open <= 0 or not factory_url.startswith("private:factory/"):
         return "_blank", 0
     _WINDOWS_FACTORY_SEQ += 1
     return "_wa_factory_%s" % _WINDOWS_FACTORY_SEQ, _WINDOWS_FACTORY_SEARCH_FLAGS

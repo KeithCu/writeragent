@@ -196,10 +196,17 @@ The *next* swriter (`…_multi_para_joins_with_newline`) hung 30s in
 `create_native_doc` after the same leftover log + keeper reactivate.
 `setActiveFrame` is not enough for a second consecutive Hidden `_blank`
 while leftover `_wa_calc_html` frames remain (same Windows frame-manager
-collision `rich_html.py` already avoids). With leftovers open, Windows
-swriter factories now use a unique `_wa_factory_N` target and CREATE|GLOBAL
-(`8|55`), not `_blank`. Do not close leftovers (34556185752). Calc stays
-`_blank`.
+collision `rich_html.py` already avoids).
+
+GHA 34599838644 (`afae5938`, swriter-only named target): Linux PR CI
+34599725706 green. Windows `workflow_dispatch` never reached
+text_helpers. Same leftovers + `keeper=1` + reactivate, then Calc
+`_blank` failed in ~1s (`Couldn't convert <traceback object> … getTypes`
+on `loadComponentFromURL(scalc)`) and the next Calc `_blank` hung 30s
+in `create_native_doc`. Calc `_blank` + leftovers is not reliable.
+With leftovers open, every Windows `private:factory/` load uses a unique
+`_wa_factory_N` target and CREATE|GLOBAL (`8|55`), not `_blank`. Do not
+close leftovers (34556185752).
 
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
@@ -221,7 +228,7 @@ branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
 `-`), optional `keeper adopted from sibling`, and `keeper reactivated` before
 Windows `private:factory/` loads (Writer **and** Calc), leftover
-swriter loads using `target=_wa_factory_N` (not `_blank`) plus
+factory loads using `target=_wa_factory_N` (not `_blank`) plus
 `create_native_doc: load done`, `document_research_uno` three tests
 `TEST end … OK`, both text_helpers tests `TEST end … OK` (no 30s
 Timeout in `create_native_doc`), later suites including the peer

@@ -415,22 +415,29 @@ def test_prepare_windows_writer_factory_adopts_keeper_from_sibling(monkeypatch):
         tu.set_harness_keeper_uid("")
 
 
-def test_windows_factory_load_args_named_only_for_leftover_swriter():
-    """GHA 34597506651: second consecutive _blank swriter hung; unique CREATE target."""
+def test_windows_factory_load_args_named_for_any_leftover_factory():
+    """GHA 34597506651 / 34599838644: leftover _blank hangs Writer and Calc."""
     import plugin.tests.testing_utils as tu
 
     saved = tu._WINDOWS_FACTORY_SEQ
     tu._WINDOWS_FACTORY_SEQ = 0
     try:
         assert tu._windows_factory_load_args("private:factory/swriter", 0) == ("_blank", 0)
-        assert tu._windows_factory_load_args("private:factory/scalc", 2) == ("_blank", 0)
-        assert tu._windows_factory_load_args("private:factory/sdraw", 2) == ("_blank", 0)
-        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+        assert tu._windows_factory_load_args("private:factory/scalc", 0) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
             "_wa_factory_1",
             8 | 55,
         )
-        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+        assert tu._windows_factory_load_args("private:factory/sdraw", 2) == (
             "_wa_factory_2",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory_3",
+            8 | 55,
+        )
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory_4",
             8 | 55,
         )
     finally:
@@ -490,22 +497,28 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
     desktop = MagicMock()
     desktop.loadComponentFromURL.return_value = MagicMock()
     calls = []
+    saved_seq = tu._WINDOWS_FACTORY_SEQ
+    tu._WINDOWS_FACTORY_SEQ = 0
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
         tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 2
     )
-    with (
-        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
-        patch("uno.createUnoStruct", return_value=MagicMock()),
-        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
-    ):
-        TestingFactory.create_native_doc(object(), "calc")
-    assert calls == ["prepare"]
-    args = desktop.loadComponentFromURL.call_args.args
-    assert args[0] == "private:factory/scalc"
-    # Calc _blank already succeeds with leftovers; only swriter needs a named target.
-    assert args[1] == "_blank"
-    assert args[2] == 0
+    try:
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("uno.createUnoStruct", return_value=MagicMock()),
+            patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+        ):
+            TestingFactory.create_native_doc(object(), "calc")
+        assert calls == ["prepare"]
+        args = desktop.loadComponentFromURL.call_args.args
+        assert args[0] == "private:factory/scalc"
+        # GHA 34599838644: leftover Calc _blank failed then hung. Same named
+        # CREATE target as leftover swriter.
+        assert args[1] == "_wa_factory_1"
+        assert args[2] == (8 | 55)
+    finally:
+        tu._WINDOWS_FACTORY_SEQ = saved_seq
 
 
 def test_create_native_doc_posix_does_not_prepare_writer_factory(monkeypatch):
