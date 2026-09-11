@@ -39,6 +39,10 @@ class SliceSpec:
 SLICE_SPECS: dict[str, SliceSpec] = {
     "calc_core": SliceSpec("calc_core", "prompt_fragment", prompt_attr="CALC_CORE_DIRECTIVES"),
     "writer_core": SliceSpec("writer_core", "prompt_fragment", prompt_attr="WRITER_CORE_DIRECTIVES"),
+    # apply_document_content / HTML-diff contract (Writer ambient prompt; recency block).
+    "apply_html": SliceSpec(
+        "apply_html", "prompt_fragment", prompt_attr="WRITER_APPLY_DOCUMENT_HTML_RULES"
+    ),
     "write_formula_range": SliceSpec(
         "write_formula_range", "tool_description", tool_name="write_formula_range"
     ),

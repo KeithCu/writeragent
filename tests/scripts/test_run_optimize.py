@@ -27,6 +27,15 @@ def test_parse_args_defaults_to_live_student_and_calc_core() -> None:
     assert args.backend == "string"
 
 
+def test_parse_args_accepts_apply_html_writer_smoke() -> None:
+    args = run_optimize.parse_args(
+        ["--slice", "apply_html", "-e", "table_from_mess,table_engineering", "-j", "1"]
+    )
+    assert args.slice == "apply_html"
+    assert args.example == "table_from_mess,table_engineering"
+    assert args.jobs == 1
+
+
 def test_parse_args_react_mock_and_task_filter() -> None:
     args = run_optimize.parse_args(
         ["--student", "react-mock", "-e", "data_sorting,tax_column", "-j", "1"]

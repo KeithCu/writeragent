@@ -79,7 +79,14 @@ python run_optimize.py --auto light -j 1 \
 
 That is the cheap Calc-slice smoke: light MIPRO, one worker, the two Calc ranking tasks, `CALC_CORE_DIRECTIVES` only.
 
-Other slices: `writer_core`, `sort_range`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
+Writer apply/HTML-diff smoke (`WRITER_APPLY_DOCUMENT_HTML_RULES` — not the whole Writer ambient prompt):
+
+```bash
+python run_optimize.py --auto light -j 1 \
+  -e table_from_mess,table_engineering --slice apply_html
+```
+
+Other slices: `writer_core`, `apply_html`, `sort_range`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
 
 Pick a different model:
 
@@ -89,7 +96,7 @@ python run_optimize.py -m openai/gpt-oss-120b:nitro -k sk-...
 ```
 
 - **`--student llm|react-mock`**: live eval loop (default) vs DSPy ReAct mocks.
-- **`--slice NAME`**: fragment MIPROv2 rewrites (`calc_core` default).
+- **`--slice NAME`**: fragment MIPROv2 rewrites (`calc_core` default; Writer HTML contract is `apply_html`).
 - **`-e` / `--example`**: comma-separated `task_id` filter (same idea as `run_eval.py`).
 - **`--judge`** / **`-J`**: Judge model for grading (default `openai/gpt-oss-120b:nitro`). Same dataset and `gold_standards.json` as run_eval_multi. Golds are hand-written from the rubrics; `--generate-golds` is an optional teacher merge, not a ranking prerequisite.
 - **`-j N`** / **`--jobs N`**: parallel evals (default 4). Use `1` for a smoke.
@@ -127,7 +134,7 @@ DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to r
 
 ## Applying the result
 
-After a live run, open `optimized_slice_slice.json` and copy **only that slice** into the matching production constant (`CALC_CORE_DIRECTIVES`, `WRITER_CORE_DIRECTIVES`, or the tool description in `plugin/calc/cells.py`). Then re-run `run_eval.py` / `run_eval_multi.py` on the same tasks. Do not paste a ReAct `optimized_writer_prompt.json` into the sidebar prompt.
+After a live run, open `optimized_slice_slice.json` and copy **only that slice** into the matching production constant (`CALC_CORE_DIRECTIVES`, `WRITER_CORE_DIRECTIVES`, `WRITER_APPLY_DOCUMENT_HTML_RULES`, or the tool description in `plugin/calc/cells.py`). Then re-run `run_eval.py` / `run_eval_multi.py` on the same tasks. Do not paste a ReAct `optimized_writer_prompt.json` into the sidebar prompt.
 
 ## Multi-model evaluation (intelligence per dollar)
 
