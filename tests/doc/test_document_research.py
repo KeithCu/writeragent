@@ -415,3 +415,12 @@ def test_open_document_for_read_sets_close_flag_on_new_load(mock_isfile, mock_re
     assert doc_type == "calc"
     assert model is opened_model
     assert opened_for_document_research is True
+
+
+def test_nearby_uno_env_does_not_open_second_scalc_factory():
+    """GHA 34633295036: leftover unique scalc factory failed then hung."""
+    path = os.path.join(os.path.dirname(__file__), "test_document_research_uno.py")
+    with open(path, encoding="utf-8") as handle:
+        src = handle.read()
+    assert "create_native_doc" not in src
+    assert "store budget via active" in src

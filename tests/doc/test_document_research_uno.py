@@ -13,7 +13,7 @@ from plugin.doc.document_research import list_nearby_files, open_document_for_re
 from plugin.framework.tool import ToolContext
 from plugin.main import get_services, get_tools
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import reset_native_doc, with_native_doc
 
 
 def _nearby_progress(msg: str) -> None:
@@ -26,23 +26,22 @@ def _nearby_progress(msg: str) -> None:
 def _create_nearby_test_env(ctx, active_doc):
     temp_dir = tempfile.mkdtemp(prefix="wa_nearby_")
 
-    # GHA 34593327841: first fail had no Python traceback; the next scalc
-    # factory hung 30s. Breadcrumbs name store/close vs list_nearby.
-    _nearby_progress("create budget calc start")
-    budget = TestingFactory.create_native_doc(ctx, "calc", hidden=True)
-    _nearby_progress("create budget calc done")
-    sheet = budget.Sheets.getByIndex(0)
+    # GHA 34593327841 / 34599838644 / 34633295036: a second
+    # private:factory/scalc under leftover paste Writers (uids 26/27,
+    # frames -) failed in ~1s (PyUNO traceback wrap) and the next
+    # unique _wa_factory_N hung 30s. Budget is only needed as a sibling
+    # file. Write it on the pooled @with_native_doc Calc, store, wipe,
+    # then store Report. Do not open a second factory Calc.
+    _nearby_progress("store budget via active start")
+    sheet = active_doc.Sheets.getByIndex(0)
     sheet.getCellByPosition(0, 0).setFormula("100")
     sheet.getCellByPosition(0, 1).setFormula("Q4")
     sheet.getCellByPosition(1, 1).setFormula("42")
 
     budget_path = os.path.join(temp_dir, "Budget_2026.ods")
-    _nearby_progress("store budget start")
-    budget.storeAsURL(uno.systemPathToFileUrl(budget_path), ())
-    _nearby_progress("store budget done")
-    _nearby_progress("close budget start")
-    TestingFactory.close_doc(budget)
-    _nearby_progress("close budget done")
+    active_doc.storeAsURL(uno.systemPathToFileUrl(budget_path), ())
+    _nearby_progress("store budget via active done")
+    reset_native_doc(active_doc, "calc", ctx)
 
     active_path = os.path.join(temp_dir, "Report.ods")
     _nearby_progress("store active start")
