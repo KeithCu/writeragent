@@ -15,7 +15,11 @@ from plugin.doc.document_research import list_nearby_files, open_document_for_re
 from plugin.framework.tool import ToolContext
 from plugin.main import get_services, get_tools
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import reset_native_doc, with_native_doc
+from plugin.tests.testing_utils import (
+    reset_native_doc,
+    skip_windows_leftover_hidden_load,
+    with_native_doc,
+)
 
 
 def _nearby_progress(msg: str) -> None:
@@ -100,6 +104,9 @@ def test_list_nearby_excludes_active(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_open_document_for_read_hidden_readonly(ctx, doc):
+    # GHA 34648929578: leftover Hidden Budget_read.ods bitmap-failed;
+    # the next sibling Hidden open hung 30s.
+    skip_windows_leftover_hidden_load("document_research Hidden Budget_read")
     temp_dir, _unused_budget, open_path = _create_nearby_test_env(ctx, doc)
     try:
         _nearby_progress("open_document_for_read start")
@@ -126,6 +133,7 @@ def test_open_document_for_read_hidden_readonly(ctx, doc):
 @with_native_doc("calc")
 def test_inner_read_cell_range_on_opened_sibling(ctx, doc):
     """Outer document_research path opens sibling; inner uses read_cell_range (no live LLM)."""
+    skip_windows_leftover_hidden_load("document_research Hidden Budget_read")
     temp_dir, _unused_budget, open_path = _create_nearby_test_env(ctx, doc)
     try:
         model, doc_type, err, unused_opened = open_document_for_read(ctx, open_path)

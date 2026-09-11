@@ -9,7 +9,11 @@
 # (at your option) any later version.
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import (
+    TestingFactory,
+    note_windows_html_paste_leftover,
+    with_native_doc,
+)
 
 
 def _execute_calc_tool(doc, ctx, name, args):
@@ -326,6 +330,9 @@ def test_insert_result_into_calc_undo(ctx, doc):
     }
 
     insert_result_into_calc(doc, ctx, primes_result)
+    # Close skipped after paste. Cached leftover_open so later Hidden/AWT
+    # skips see these Writers (34649699848). Do not enum getComponents.
+    note_windows_html_paste_leftover()
     assert active_sheet.getCellByPosition(0, 0).getString() == "Prime Numbers in Range"
     assert active_sheet.getCellByPosition(0, 2).getString() == "position"
     assert active_sheet.getCellByPosition(1, 2).getString() == "prime"

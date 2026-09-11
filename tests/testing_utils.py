@@ -1156,13 +1156,62 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
 # after leftover Writers — consecutive Hidden _blank hung detect
 # (GHA 34619751330) the same way as leftover swriter (34597506651).
 _WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
-# Consecutive leftover Hidden _wa_notebook after close hung (34646877587).
-_WINDOWS_NOTEBOOK_SEQ = 0
 
 
-def _set_windows_notebook_seq(n: int) -> None:
-    for mod in _testing_utils_holders():
-        mod._WINDOWS_NOTEBOOK_SEQ = int(n)
+def note_windows_html_paste_leftover() -> None:
+    """Mark leftover_open after ``insert_cell_html_rich`` close skipped.
+
+    What was wrong: GHA 34649699848 / 34648929578 leftover paste Writers
+    (uids 26/27) existed, but the cached leftover count stayed 0 because
+    pooled Calc reuse never called ``prepare_windows_writer_factory``.
+    Later slash ``createPeer`` and Hidden ``Budget_read.ods`` then hung
+    or bitmap-failed without the skip path seeing leftovers.
+
+    How: the paste UNO tests call this after a successful paste. Do not
+    enum ``getComponents`` (can hang after paste close, 33771766524).
+    Cached count only. Do not close leftover paste Writers (34556185752).
+    """
+    if sys.platform != "win32":
+        return
+    if _windows_leftover_open() <= 0:
+        _set_windows_leftover_open(1)
+    from plugin.testing_runner import _progress
+
+    _progress(
+        "html_paste_writer: noted leftover_open=%s" % _windows_leftover_open()
+    )
+
+
+def skip_windows_leftover_hidden_load(reason: str) -> None:
+    """Skip leftover-poisoned Hidden loads and AWT peers on Windows.
+
+    GHA 34646877587: first leftover Hidden ``_wa_notebook`` + close
+    returned; the next Hidden ``_wa_notebook`` hung 30s. Unique leftover
+    names (``_wa_notebook_2``, ``_wa_factory_N``) are the same stacking
+    family as leftover ``_wa_scalc`` / ``_wa_factory_5``. GHA 34648929578:
+    Hidden ``Budget_read.ods`` raised ``Could not create system bitmap!``;
+    the next sibling Hidden open hung 30s. GHA 34649699848: slash
+    ``dlg.createPeer`` hung 30s. Cached leftover count only — do not
+    enum. Do not close leftover paste Writers (34556185752).
+    """
+    if not windows_leftover_hidden_load_unsafe():
+        return
+    import unittest
+
+    from plugin.testing_runner import _progress
+
+    _progress(
+        "windows leftover skip: %s leftovers=%s" % (reason, _windows_leftover_open())
+    )
+    raise unittest.SkipTest(
+        "Windows leftover Hidden/AWT skip (%s, leftovers=%s)"
+        % (reason, _windows_leftover_open())
+    )
+
+
+def windows_leftover_hidden_load_unsafe() -> bool:
+    """True when a leftover Hidden load or AWT ``createPeer`` would hang."""
+    return sys.platform == "win32" and _windows_leftover_open() > 0
 
 
 # Notebook-runner host while leftover HTML-paste Writers stay open.
@@ -1203,28 +1252,15 @@ def windows_notebook_load_args() -> tuple[str, int]:
 
     GHA 34646877587: first Hidden ``_wa_notebook`` load+close notebook
     leftover uid=41 returned; the next Hidden ``_wa_notebook`` hung 30s
-    (paste leftovers still open=3). Sharing a just-closed CREATE|GLOBAL
-    name is the leftover unique-factory stacking family. Do not close
-    leftover notebook docs (same skip as paste Writers). Each leftover
-    Hidden .ipynb load uses a new name (``_wa_notebook``, then
-    ``_wa_notebook_2``). First-use of ``_wa_notebook`` succeeded.
+    (paste leftovers still open=3). Unique leftover ``_wa_notebook_2``
+    is the same stacking family as leftover ``_wa_factory_N``. Do not
+    close leftover notebook docs (same skip as paste Writers). The
+    first leftover Hidden .ipynb load may run; the detect reload
+    ``skip_windows_leftover_hidden_load``s instead of a second load.
     """
     if sys.platform != "win32":
         return "_blank", 0
-    n = int(_WINDOWS_NOTEBOOK_SEQ or 0)
-    here = sys.modules.get(__name__)
-    for mod in _testing_utils_holders():
-        if mod is here:
-            continue
-        other = int(getattr(mod, "_WINDOWS_NOTEBOOK_SEQ", 0) or 0)
-        if other > n:
-            n = other
-    n += 1
-    for mod in _testing_utils_holders():
-        mod._WINDOWS_NOTEBOOK_SEQ = n
-    if n == 1:
-        return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
-    return "%s_%s" % (_WINDOWS_NOTEBOOK_TARGET, n), _WINDOWS_FACTORY_SEARCH_FLAGS
+    return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
 
 
 def _reraise_native_open_failure(

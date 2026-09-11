@@ -9,7 +9,11 @@
 # (at your option) any later version.
 
 from plugin.testing_runner import _progress, native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import (
+    TestingFactory,
+    note_windows_html_paste_leftover,
+    with_native_doc,
+)
 
 
 def _execute_calc_tool(doc, ctx, name, args):
@@ -160,6 +164,9 @@ def test_insert_cell_html(ctx, doc):
     # post-execute UNO/assert so the next Windows timeout is not silent.
     _progress("insert_cell_html: status assert start")
     assert res.get("status") == "ok", f"insert_cell_html failed: {res}"
+    # Close skipped after paste. Cached leftover_open so later Hidden/AWT
+    # skips see these Writers (34649699848). Do not enum getComponents.
+    note_windows_html_paste_leftover()
     _progress("insert_cell_html: status assert done")
     _progress("insert_cell_html: getCellByPosition start")
     cell = active_sheet.getCellByPosition(25, 98)
