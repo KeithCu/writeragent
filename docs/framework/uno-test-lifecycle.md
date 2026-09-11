@@ -204,18 +204,27 @@ text_helpers. Same leftovers + `keeper=1` + reactivate, then Calc
 `_blank` failed in ~1s (`Couldn't convert <traceback object> … getTypes`
 on `loadComponentFromURL(scalc)`) and the next Calc `_blank` hung 30s
 in `create_native_doc`. Calc `_blank` + leftovers is not reliable.
-With leftovers open, every Windows `private:factory/` load uses a unique
-`_wa_factory_N` target and CREATE|GLOBAL (`8|55`), not `_blank`. Do not
-close leftovers (34556185752).
+With leftovers open, leftover Hidden `swriter` reuses one CREATE|GLOBAL
+name `_wa_factory` (same pattern as `rich_html._wa_calc_html`). Leftover
+Calc/Draw/Impress still use a unique `_wa_factory_N` so a live pooled
+Calc is not replaced. Do not close leftovers (34556185752).
 
-GHA 34601787293 (`fc34f0c6`) and 34602219973 (`ec40ed29`): unique
-targets loaded all three leftover Calc factories (`_wa_factory_1..3`,
-`document_research_uno` passed=3) and the first leftover swriter
-(`_wa_factory_4` uid=34, `close_doc` done). The *next* unique swriter
-(`_wa_factory_5`) hung 30s. Unique CREATE is not enough after a harness
-Writer `close_doc` while leftovers remain. Windows then reuses that
-first leftover Writer (wipe-and-reuse pool) and skips Writer `close_doc`
-while leftovers are open (`native_doc: leftover writer reuse`,
+GHA 34601787293 (`fc34f0c6`) and 34602219973 (`ec40ed29`): Linux PR CI
+34602130908 green. Unique targets loaded leftover Calc
+(`document_research_uno` passed=3, `_wa_factory_1/2/3`) and the first
+leftover Hidden swriter
+(`doc.test_text_helpers_uno.test_get_string_without_tracked_deletions_paragraph_bold_run_no_newline`,
+`target=_wa_factory_4`, uid=34, `close_doc` OK, leftovers still
+uids=`['27','26']`). The *next* leftover Hidden swriter
+(`…_multi_para_joins_with_newline`, `target=_wa_factory_5`) hung 30s in
+`loadComponentFromURL` — no RuntimeException. Unique CREATE stacked
+empty named frames after harness Writer close; it did not fix the
+original consecutive leftover Hidden swriter hang (34597506651).
+Windows then (1) reuses one CREATE|GLOBAL name `_wa_factory` for
+leftover `swriter` so a direct `create_native_doc(writer)` replaces
+instead of stacking, and (2) pools that first leftover Writer and
+skips Writer `close_doc` while leftovers remain
+(`native_doc: leftover writer reuse`,
 `close_doc: skip writer close leftovers`).
 
 POSIX still `close_doc`. Breadcrumbs:
@@ -240,13 +249,15 @@ branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
 `-`), optional `keeper adopted from sibling`, and `keeper reactivated` before
 Windows `private:factory/` loads (Writer **and** Calc), leftover
-factory loads using `target=_wa_factory_N` (not `_blank`) plus
+swriter loads using `target=_wa_factory` (not `_blank` / not
+`_wa_factory_N`) plus leftover Calc using `target=_wa_factory_N`,
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
 no second leftover swriter factory after the first text_helpers Writer,
 `document_research_uno` three tests
 `TEST end … OK`, both text_helpers tests `TEST end … OK` (no 30s
-Timeout in `create_native_doc`), later suites including the peer
-file last (six peer `TEST end … OK`), then
+Timeout in `create_native_doc` on
+`…_multi_para_joins_with_newline` / `target=_wa_factory_5`), later
+suites including the peer file last (six peer `TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 

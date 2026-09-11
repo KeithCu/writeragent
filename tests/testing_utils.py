@@ -1044,6 +1044,13 @@ def _windows_should_reuse_writer(ctx) -> bool:
 # flags 0 can search instead of creating. Do not reuse "_blank" / "_default"
 # while leftover paste Writers are open — see _windows_factory_load_args.
 _WINDOWS_FACTORY_SEARCH_FLAGS = 8 | 55
+# Leftover Hidden swriter only. rich_html reuses one CREATE|GLOBAL name
+# (_wa_calc_html). Unique _wa_factory_N stacked empty frames after close
+# and the second leftover swriter hung (GHA 34602219973, _wa_factory_5).
+_WINDOWS_FACTORY_TARGET = "_wa_factory"
+# Leftover Calc/Draw/Impress still increment. document_research_uno holds
+# a pooled @with_native_doc Calc and a second create_native_doc budget
+# Calc at once — a shared name would replace the live pooled workbook.
 _WINDOWS_FACTORY_SEQ = 0
 
 
@@ -1061,13 +1068,30 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
     30s — ``document_research_uno`` never finished, so the swriter-only
     named target was never reached. ``setActiveFrame`` is not enough
     for Hidden ``_blank`` while leftover ``_wa_calc_html`` frames exist
-    (rich_html.py: not ``_blank`` / ``_default``). Unique CREATE target
-    for every leftover Windows factory. Do not close leftovers
-    (34556185752).
+    (rich_html.py: not ``_blank`` / ``_default``).
+
+    GHA 34602219973 (``ec40ed29``): unique ``_wa_factory_N`` loaded
+    leftover Calc (``document_research_uno`` passed=3, targets
+    ``_wa_factory_1/2/3``) and the first leftover Hidden swriter
+    (``doc.test_text_helpers_uno.test_get_string_without_tracked_deletions_paragraph_bold_run_no_newline``,
+    ``target=_wa_factory_4``, uid=34, ``close_doc`` OK). The *next*
+    leftover Hidden swriter
+    (``…_multi_para_joins_with_newline``, ``target=_wa_factory_5``)
+    hung 30s in ``loadComponentFromURL`` — no RuntimeException. Unique
+    CREATE stacks empty named frames after harness Writer close; it
+    does not fix consecutive leftover Hidden swriter (same hang family
+    as 34597506651). Reuse one CREATE|GLOBAL name for leftover
+    ``swriter`` so CREATE replaces/reuses instead of stacking. Keep
+    unique names for leftover Calc — concurrent pooled + budget Calc.
+    Do not close leftover paste Writers (34556185752).
     """
     global _WINDOWS_FACTORY_SEQ
     if leftover_open <= 0 or not factory_url.startswith("private:factory/"):
         return "_blank", 0
+    # One stable name, like rich_html._wa_calc_html. CREATE|GLOBAL finds
+    # the empty frame left by the previous leftover-mode Writer close.
+    if factory_url == "private:factory/swriter":
+        return _WINDOWS_FACTORY_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
     _WINDOWS_FACTORY_SEQ += 1
     return "_wa_factory_%s" % _WINDOWS_FACTORY_SEQ, _WINDOWS_FACTORY_SEARCH_FLAGS
 
@@ -1686,10 +1710,12 @@ class TestingFactory:
 
         leftover_open = 0
         target, flags = "_blank", 0
-        # GHA 34593327841 / 34599838644: leftover paste Writers as desktop
-        # current hung the next scalc factory (30s). #720 only prepared
-        # swriter. Reactivate the keeper, then use a unique CREATE target
-        # for any leftover private:factory/ load (not only swriter).
+        # GHA 34593327841 / 34599838644 / 34602219973: leftover paste
+        # Writers as desktop current hung the next factory (30s). #720
+        # only prepared swriter. Reactivate the keeper. Leftover swriter
+        # reuses one CREATE|GLOBAL name (_wa_factory). Leftover Calc and
+        # other factories keep a unique _wa_factory_N so a live pooled
+        # Calc is not replaced.
         if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
             target, flags = _windows_factory_load_args(factory_url, leftover_open)

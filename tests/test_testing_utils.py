@@ -416,7 +416,7 @@ def test_prepare_windows_writer_factory_adopts_keeper_from_sibling(monkeypatch):
 
 
 def test_windows_factory_load_args_named_for_any_leftover_factory():
-    """GHA 34597506651 / 34599838644: leftover _blank hangs Writer and Calc."""
+    """GHA 34602219973: leftover swriter reuses _wa_factory; Calc stays unique."""
     import plugin.tests.testing_utils as tu
 
     saved = tu._WINDOWS_FACTORY_SEQ
@@ -424,6 +424,16 @@ def test_windows_factory_load_args_named_for_any_leftover_factory():
     try:
         assert tu._windows_factory_load_args("private:factory/swriter", 0) == ("_blank", 0)
         assert tu._windows_factory_load_args("private:factory/scalc", 0) == ("_blank", 0)
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory",
+            8 | 55,
+        )
+        # Consecutive leftover Hidden swriter must reuse the same CREATE
+        # name (rich_html._wa_calc_html). Unique _wa_factory_5 hung.
+        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+            "_wa_factory",
+            8 | 55,
+        )
         assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
             "_wa_factory_1",
             8 | 55,
@@ -432,12 +442,13 @@ def test_windows_factory_load_args_named_for_any_leftover_factory():
             "_wa_factory_2",
             8 | 55,
         )
-        assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
+        assert tu._windows_factory_load_args("private:factory/scalc", 2) == (
             "_wa_factory_3",
             8 | 55,
         )
+        # Writer reuse must not consume the Calc/Draw seq.
         assert tu._windows_factory_load_args("private:factory/swriter", 2) == (
-            "_wa_factory_4",
+            "_wa_factory",
             8 | 55,
         )
     finally:
@@ -445,12 +456,12 @@ def test_windows_factory_load_args_named_for_any_leftover_factory():
 
 
 def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypatch):
-    """Second text_helpers Writer factory hung after leftovers + one close_doc.
+    """GHA 34602219973: second leftover Hidden swriter hung at target=_wa_factory_5.
 
-    GHA 34597506651: keeper reactivate printed, first swriter _blank returned,
-    the next _blank hung 30s. Named CREATE|GLOBAL target matches HTML paste
-    (rich_html._wa_calc_html) and must increment so two consecutive factories
-    do not share a frame name.
+    First leftover swriter (_wa_factory_4) + close_doc returned. Unique
+    CREATE stacked an empty named frame; the next unique name hung 30s
+    in loadComponentFromURL. Consecutive leftover Hidden
+    create_native_doc(writer) must reuse one CREATE|GLOBAL name.
     """
     from unittest.mock import MagicMock, patch
 
@@ -476,19 +487,31 @@ def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypat
             assert calls == ["prepare"]
             args = desktop.loadComponentFromURL.call_args.args
             assert args[0] == "private:factory/swriter"
-            assert args[1] == "_wa_factory_1"
+            assert args[1] == "_wa_factory"
             assert args[2] == (8 | 55)
             TestingFactory.create_native_doc(object(), "writer")
             assert calls == ["prepare", "prepare"]
             args = desktop.loadComponentFromURL.call_args.args
-            assert args[1] == "_wa_factory_2"
+            assert args[0] == "private:factory/swriter"
+            assert args[1] == "_wa_factory"
+            assert args[2] == (8 | 55)
+            # Leftover Calc still increments so a live pooled Calc is not replaced.
+            TestingFactory.create_native_doc(object(), "calc")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/scalc"
+            assert args[1] == "_wa_factory_1"
             assert args[2] == (8 | 55)
     finally:
         tu._WINDOWS_FACTORY_SEQ = saved_seq
 
 
 def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
-    """GHA 34599838644: leftover scalc _blank failed then hung; named CREATE target."""
+    """GHA 34599838644 / 34602219973: leftover scalc stays unique under leftover_open>0.
+
+    document_research_uno holds a pooled Calc and a budget Calc at once.
+    Consecutive leftover Hidden create_native_doc(calc) must not share a
+    frame name. Writer reuse uses _wa_factory and must not steal the seq.
+    """
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -515,13 +538,21 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
             assert args[0] == "private:factory/scalc"
             assert args[1] == "_wa_factory_1"
             assert args[2] == (8 | 55)
-            # Same hang family as leftover consecutive Hidden _blank swriter:
-            # the next leftover scalc must not reuse the frame name.
             TestingFactory.create_native_doc(object(), "calc")
             assert calls == ["prepare", "prepare"]
             args = desktop.loadComponentFromURL.call_args.args
             assert args[0] == "private:factory/scalc"
             assert args[1] == "_wa_factory_2"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "writer")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/swriter"
+            assert args[1] == "_wa_factory"
+            assert args[2] == (8 | 55)
+            TestingFactory.create_native_doc(object(), "calc")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/scalc"
+            assert args[1] == "_wa_factory_3"
             assert args[2] == (8 | 55)
     finally:
         tu._WINDOWS_FACTORY_SEQ = saved_seq
