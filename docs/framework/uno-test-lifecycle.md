@@ -418,9 +418,9 @@ deferred),
 no second leftover swriter factory after the first text_helpers Writer,
 `document_research_uno` three tests
 `TEST end … OK`, slash `TEST end … OK`, both text_helpers tests
-`TEST end … OK` (no 30s
-Timeout in `create_native_doc` on
-`…_multi_para_joins_with_newline` / `target=_wa_factory_5`),
+`TEST end … OK` (`native_doc: leftover writer reuse` on the
+second; no second Hidden `_blank` / no 30s Timeout in
+`create_native_doc` on `…_multi_para_joins_with_newline`),
 `draw.test_draw_forms_uno` four tests `TEST end … OK` (first Draw
 `close(True)` must return; no `close_doc: start uid= svc=draw` before
 that close), `insert_math_draw: insert_math start/done` then
