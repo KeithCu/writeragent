@@ -1175,10 +1175,12 @@ def note_windows_html_paste_leftover() -> None:
         return
     if _windows_leftover_open() <= 0:
         _set_windows_leftover_open(1)
-    from plugin.testing_runner import _progress
-
-    _progress(
-        "html_paste_writer: noted leftover_open=%s" % _windows_leftover_open()
+    # Do not import testing_runner here: unit tests mock sys.platform to
+    # win32, and a first import of shutil then looks for _winapi.
+    print(
+        "html_paste_writer: noted leftover_open=%s" % _windows_leftover_open(),
+        file=sys.stderr,
+        flush=True,
     )
 
 
@@ -1198,10 +1200,10 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
         return
     import unittest
 
-    from plugin.testing_runner import _progress
-
-    _progress(
-        "windows leftover skip: %s leftovers=%s" % (reason, _windows_leftover_open())
+    print(
+        "windows leftover skip: %s leftovers=%s" % (reason, _windows_leftover_open()),
+        file=sys.stderr,
+        flush=True,
     )
     raise unittest.SkipTest(
         "Windows leftover Hidden/AWT skip (%s, leftovers=%s)"
