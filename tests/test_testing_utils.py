@@ -581,21 +581,92 @@ def test_windows_notebook_load_args_avoids_blank(monkeypatch):
     target, flags = tu.windows_notebook_load_args()
     assert target == "_wa_notebook"
     assert flags == (8 | 55)
+    target2, flags2 = tu.windows_notebook_load_args()
+    assert target2 == "_wa_notebook"
+    assert flags2 == (8 | 55)
     monkeypatch.setattr(tu.sys, "platform", "linux")
     assert tu.windows_notebook_load_args() == ("_blank", 0)
 
 
-def test_windows_should_reuse_writer_only_with_leftovers(monkeypatch):
-    """GHA 34602219973: second leftover swriter hung after close of uid=34."""
+def test_note_windows_html_paste_leftover_sets_cached_count(monkeypatch):
+    """GHA 34649699848: leftover count stayed 0 after paste close skipped."""
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_leftover_open(0)
+    try:
+        tu.note_windows_html_paste_leftover()
+        assert tu._windows_leftover_open() == 1
+        tu.note_windows_html_paste_leftover()
+        assert tu._windows_leftover_open() == 1
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_note_windows_html_paste_leftover_noop_on_posix(monkeypatch):
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    tu._set_windows_leftover_open(0)
+    try:
+        tu.note_windows_html_paste_leftover()
+        assert tu._windows_leftover_open() == 0
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_skip_windows_leftover_hidden_load_raises_on_win32(monkeypatch):
+    """GHA 34646877587 / 34648929578 / 34649699848: leftover Hidden/AWT hang."""
+    import unittest
+
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_leftover_open(2)
+    try:
+        assert tu.windows_leftover_hidden_load_unsafe() is True
+        try:
+            tu.skip_windows_leftover_hidden_load("unit")
+        except unittest.SkipTest as exc:
+            assert "unit" in str(exc)
+            assert "leftovers=2" in str(exc)
+        else:
+            raise AssertionError("expected SkipTest")
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_skip_windows_leftover_hidden_load_noop_without_leftovers(monkeypatch):
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_leftover_open(0)
+    try:
+        assert tu.windows_leftover_hidden_load_unsafe() is False
+        tu.skip_windows_leftover_hidden_load("unit")
+    finally:
+        tu._set_windows_leftover_open(saved)
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    tu._set_windows_leftover_open(3)
+    try:
+        assert tu.windows_leftover_hidden_load_unsafe() is False
+        tu.skip_windows_leftover_hidden_load("unit")
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_windows_should_reuse_writer_even_without_leftovers(monkeypatch):
+    """GHA 34652644656: leftover_open=0 second Hidden _blank swriter hung."""
     import plugin.tests.testing_utils as tu
 
     monkeypatch.setattr(tu.sys, "platform", "win32")
-    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+    tu.set_windows_notebook_host(False)
     assert tu._windows_should_reuse_writer(object()) is True
-    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 0)
-    assert tu._windows_should_reuse_writer(object()) is False
     monkeypatch.setattr(tu.sys, "platform", "linux")
-    monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
     assert tu._windows_should_reuse_writer(object()) is False
     assert tu._windows_should_reuse_writer(None) is False
 
@@ -699,8 +770,8 @@ def test_close_doc_posix_closes_math_ole_draw(monkeypatch):
     doc.close.assert_called_once_with(True)
 
 
-def test_close_doc_closes_windows_notebook_leftover(monkeypatch):
-    """GHA 34643210006: skip-all-Writer close kept import-filter leftovers."""
+def test_close_doc_skips_windows_notebook_leftover(monkeypatch):
+    """GHA 34646877587: close notebook leftover then next _wa_notebook hung."""
     from unittest.mock import MagicMock, patch
 
     from plugin.tests.testing_utils import TestingFactory
@@ -712,14 +783,14 @@ def test_close_doc_closes_windows_notebook_leftover(monkeypatch):
     saved = tu._WINDOWS_LEFTOVER_OPEN
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(tu, "reactivate_harness_keeper", lambda desktop=None: True)
-    tu._set_windows_leftover_open(5)
+    tu._set_windows_leftover_open(3)
     try:
         with patch(
             "plugin.notebook.cell_registry.has_notebook_registry",
             return_value=True,
         ):
             TestingFactory.close_doc(doc)
-        doc.close.assert_called_once_with(True)
+        doc.close.assert_not_called()
     finally:
         tu._set_windows_leftover_open(saved)
 

@@ -1050,12 +1050,20 @@ def _windows_leftover_open() -> int:
 
 
 def _windows_should_reuse_writer(ctx) -> bool:
-    """True when a later Windows Writer factory would hang after leftovers.
+    """True when a later Windows Writer factory would hang.
 
     GHA 34601787293 / 34602219973: unique ``_wa_factory_N`` loaded three
     leftover Calc factories and the first leftover swriter (uid=34).
     ``close_doc`` of that Writer returned; the next unique swriter hung
     30s. Reuse the first leftover Writer instead of close + factory.
+
+    GHA 34652644656 (paste suites deferred): leftover_open=0,
+    ``document_research_uno`` 3/3 and slash OK, then first text_helpers
+    Hidden ``_blank`` + ``close_doc`` uid=29 returned; the next Hidden
+    ``_blank`` hung 30s. Consecutive Hidden ``_blank`` swriter is unsafe
+    even without paste leftovers (34597506651 with leftovers). Reuse
+    the first Windows Writer. Notebook suites still use
+    ``_wa_notebook_host``.
     """
     if ctx is None or sys.platform != "win32":
         return False
@@ -1063,7 +1071,7 @@ def _windows_should_reuse_writer(ctx) -> bool:
     # Writers (GHA 34643210006: leftover reuse + global listener counts).
     if _windows_notebook_host():
         return False
-    return prepare_windows_writer_factory(ctx) > 0
+    return True
 
 
 def _windows_should_reuse_calc(ctx) -> bool:
@@ -1156,6 +1164,65 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
 # after leftover Writers — consecutive Hidden _blank hung detect
 # (GHA 34619751330) the same way as leftover swriter (34597506651).
 _WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
+
+
+def note_windows_html_paste_leftover() -> None:
+    """Mark leftover_open after ``insert_cell_html_rich`` close skipped.
+
+    What was wrong: GHA 34649699848 / 34648929578 leftover paste Writers
+    (uids 26/27) existed, but the cached leftover count stayed 0 because
+    pooled Calc reuse never called ``prepare_windows_writer_factory``.
+    Later slash ``createPeer`` and Hidden ``Budget_read.ods`` then hung
+    or bitmap-failed without the skip path seeing leftovers.
+
+    How: the paste UNO tests call this after a successful paste. Do not
+    enum ``getComponents`` (can hang after paste close, 33771766524).
+    Cached count only. Do not close leftover paste Writers (34556185752).
+    """
+    if sys.platform != "win32":
+        return
+    if _windows_leftover_open() <= 0:
+        _set_windows_leftover_open(1)
+    # Do not import testing_runner here: unit tests mock sys.platform to
+    # win32, and a first import of shutil then looks for _winapi.
+    print(
+        "html_paste_writer: noted leftover_open=%s" % _windows_leftover_open(),
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def skip_windows_leftover_hidden_load(reason: str) -> None:
+    """Skip leftover-poisoned Hidden loads and AWT peers on Windows.
+
+    GHA 34646877587: first leftover Hidden ``_wa_notebook`` + close
+    returned; the next Hidden ``_wa_notebook`` hung 30s. Unique leftover
+    names (``_wa_notebook_2``, ``_wa_factory_N``) are the same stacking
+    family as leftover ``_wa_scalc`` / ``_wa_factory_5``. Import-filter
+    detect uses this; do **not** skip ``document_research_uno`` Hidden
+    ``Budget_read.ods`` (34643210006 was 3/3). Cached leftover count
+    only — do not enum. Do not close leftover paste Writers (34556185752).
+    """
+    if not windows_leftover_hidden_load_unsafe():
+        return
+    import unittest
+
+    print(
+        "windows leftover skip: %s leftovers=%s" % (reason, _windows_leftover_open()),
+        file=sys.stderr,
+        flush=True,
+    )
+    raise unittest.SkipTest(
+        "Windows leftover Hidden/AWT skip (%s, leftovers=%s)"
+        % (reason, _windows_leftover_open())
+    )
+
+
+def windows_leftover_hidden_load_unsafe() -> bool:
+    """True when a leftover Hidden load or AWT ``createPeer`` would hang."""
+    return sys.platform == "win32" and _windows_leftover_open() > 0
+
+
 # Notebook-runner host while leftover HTML-paste Writers stay open.
 # Not leftover ``_wa_factory`` (reuses paste leftovers) and not
 # import-filter ``_wa_notebook`` (GHA 34643210006 leftover listeners).
@@ -1190,9 +1257,15 @@ def windows_notebook_load_args() -> tuple[str, int]:
     Hidden ``_blank`` + FilterName returned, then raw ``close(True)``.
     ``test_import_filter_uno_detect_without_filtername`` Hidden ``_blank``
     hung 30s (soffice still ``2444,5124``). Same consecutive leftover
-    Hidden ``_blank`` family as 34597506651. Use one CREATE|GLOBAL name
-    and ``TestingFactory.close_doc`` (skips Writer close while leftovers
-    remain). POSIX keeps ``_blank``.
+    Hidden ``_blank`` family as 34597506651. POSIX keeps ``_blank``.
+
+    GHA 34646877587: first Hidden ``_wa_notebook`` load+close notebook
+    leftover uid=41 returned; the next Hidden ``_wa_notebook`` hung 30s
+    (paste leftovers still open=3). Unique leftover ``_wa_notebook_2``
+    is the same stacking family as leftover ``_wa_factory_N``. Do not
+    close leftover notebook docs (same skip as paste Writers). The
+    first leftover Hidden .ipynb load may run; the detect reload
+    ``skip_windows_leftover_hidden_load``s instead of a second load.
     """
     if sys.platform != "win32":
         return "_blank", 0
@@ -2025,30 +2098,17 @@ class TestingFactory:
                     # _wa_factory_5 swriter hung 30s. Do not close a
                     # harness Writer while paste leftovers remain (same
                     # ban as leftover paste close, 34556185752).
-                    # GHA 34643210006: that skip also kept import-filter
-                    # ``_wa_notebook`` leftovers (uids 41/42) and their
-                    # form listeners. Close notebook-registry leftovers.
-                    # Do not close leftover paste Writers.
-                    close_notebook = False
-                    try:
-                        from plugin.notebook.cell_registry import (
-                            has_notebook_registry,
-                        )
-
-                        close_notebook = has_notebook_registry(doc) is True
-                    except Exception:
-                        close_notebook = False
-                    if not close_notebook:
-                        reactivate_harness_keeper()
-                        _progress(
-                            "close_doc: skip writer close leftovers open=%s uid=%s"
-                            % (leftover_open, uid or "-")
-                        )
-                        return
+                    # GHA 34646877587: close notebook leftover uid=41
+                    # returned; next Hidden ``_wa_notebook`` hung 30s.
+                    # Per-doc listener counts + ``_wa_notebook_host``
+                    # isolate notebook_runner. Do not close leftover
+                    # notebook docs or leftover paste Writers.
+                    reactivate_harness_keeper()
                     _progress(
-                        "close_doc: close notebook leftover uid=%s leftovers=%s"
-                        % (uid or "-", leftover_open)
+                        "close_doc: skip writer close leftovers open=%s uid=%s"
+                        % (leftover_open, uid or "-")
                     )
+                    return
         for key, pooled in list(_NATIVE_DOC_POOL.items()):
             if pooled is doc:
                 del _NATIVE_DOC_POOL[key]

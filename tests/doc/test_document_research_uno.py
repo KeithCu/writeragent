@@ -51,7 +51,9 @@ def _create_nearby_test_env(ctx, active_doc):
     # Calc — a URL this pooled component never owned. Copy so the
     # Hidden load is not the live document's recent URL. Do not open a
     # second factory Calc (34633295036). Do not close leftover paste
-    # Writers (34556185752).
+    # Writers (34556185752). Windows defers the leftover-creating
+    # paste suites until after this file so Hidden-open stays 3/3
+    # (34648929578). Do not skip these Hidden-open tests.
     open_path = budget_path
     if sys.platform == "win32":
         open_path = os.path.join(temp_dir, "Budget_read.ods")
