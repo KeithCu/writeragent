@@ -561,6 +561,18 @@ def test_create_native_doc_windows_calc_prepares_factory(monkeypatch):
         tu._WINDOWS_FACTORY_SEQ = saved_seq
 
 
+def test_windows_notebook_load_args_avoids_blank(monkeypatch):
+    """GHA 34619751330: second Hidden _blank .ipynb hung after raw close."""
+    import plugin.tests.testing_utils as tu
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    target, flags = tu.windows_notebook_load_args()
+    assert target == "_wa_notebook"
+    assert flags == (8 | 55)
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    assert tu.windows_notebook_load_args() == ("_blank", 0)
+
+
 def test_windows_should_reuse_writer_only_with_leftovers(monkeypatch):
     """GHA 34602219973: second leftover swriter hung after close of uid=34."""
     import plugin.tests.testing_utils as tu
@@ -574,6 +586,105 @@ def test_windows_should_reuse_writer_only_with_leftovers(monkeypatch):
     monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
     assert tu._windows_should_reuse_writer(object()) is False
     assert tu._windows_should_reuse_writer(None) is False
+
+
+def test_draw_doc_has_math_ole_reads_clsid():
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import _MATH_OLE_CLSID, _draw_doc_has_math_ole
+
+    shape = MagicMock()
+    shape.CLSID = _MATH_OLE_CLSID
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.getByIndex.return_value = shape
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc = MagicMock()
+    doc.getDrawPages.return_value = pages
+    assert _draw_doc_has_math_ole(doc) is True
+    shape.CLSID = "not-math"
+    assert _draw_doc_has_math_ole(doc) is False
+    assert _draw_doc_has_math_ole(None) is False
+
+
+def test_close_doc_windows_skips_math_ole_draw(monkeypatch, capsys):
+    """GHA 34607010446: close_doc dispose of Math OLE Draw killed soffice."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory, mark_windows_math_ole_doc
+    import plugin.tests.testing_utils as tu
+
+    doc = MagicMock()
+    doc.RuntimeUID = "48"
+    doc.supportsService.side_effect = lambda svc: svc.endswith("DrawingDocument")
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "reactivate_harness_keeper", lambda desktop=None: True)
+    tu._clear_windows_math_ole_uids()
+    try:
+        mark_windows_math_ole_doc(doc)
+        TestingFactory.close_doc(doc)
+        doc.close.assert_not_called()
+        doc.supportsService.assert_not_called()
+        err = capsys.readouterr().err
+        assert "close_doc: skip math ole close (windows) uid=48" in err
+        assert "svc=draw" not in err
+    finally:
+        tu._clear_windows_math_ole_uids()
+
+
+def test_close_doc_windows_draw_without_math_still_closes(monkeypatch, capsys):
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    shape = MagicMock()
+    shape.CLSID = "not-math"
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.getByIndex.return_value = shape
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = page
+    doc = MagicMock()
+    doc.RuntimeUID = "47"
+    doc.supportsService.side_effect = lambda svc: svc.endswith("DrawingDocument")
+    doc.getDrawPages.return_value = pages
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr("gc.collect", lambda: None)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(tu, "_windows_leftover_open", lambda: 3)
+    tu._HARNESS_KEEPER_UID = "1"
+    tu._clear_windows_math_ole_uids()
+    try:
+        TestingFactory.close_doc(doc)
+        doc.close.assert_called_once_with(True)
+        doc.getDrawPages.assert_not_called()
+        err = capsys.readouterr().err
+        assert "skip math ole close" not in err
+        assert "svc=draw" not in err
+    finally:
+        tu._HARNESS_KEEPER_UID = ""
+        tu._clear_windows_math_ole_uids()
+
+
+def test_close_doc_posix_closes_math_ole_draw(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory, mark_windows_math_ole_doc
+    import plugin.tests.testing_utils as tu
+
+    doc = MagicMock()
+    doc.RuntimeUID = "48"
+    doc.supportsService.side_effect = lambda svc: svc.endswith("DrawingDocument")
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    monkeypatch.setattr("gc.collect", lambda: None)
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    mark_windows_math_ole_doc(doc)
+    TestingFactory.close_doc(doc)
+    doc.close.assert_called_once_with(True)
 
 
 def test_close_doc_skips_windows_writer_when_leftovers_open(monkeypatch):
@@ -798,6 +909,7 @@ def test_close_doc_windows_draw_logs_close_steps(capsys, monkeypatch):
     saved = tu._WINDOWS_LEFTOVER_OPEN
     tu._WINDOWS_LEFTOVER_OPEN = 3
     tu.set_harness_keeper_uid("1")
+    tu._clear_windows_math_ole_uids()
     doc = MagicMock()
     doc.RuntimeUID = "48"
     doc.supportsService.side_effect = lambda svc: svc.endswith("DrawingDocument")
@@ -805,12 +917,15 @@ def test_close_doc_windows_draw_logs_close_steps(capsys, monkeypatch):
         TestingFactory.close_doc(doc)
         doc.close.assert_called_once_with(True)
         err = capsys.readouterr().err
-        assert "close_doc: start uid=48 svc=draw leftovers=3 keeper=1 pids=7196,5792" in err
-        assert "close_doc: close(True) start uid=48 svc=draw leftovers=3 pids=7196,5792" in err
-        assert "close_doc: close(True) done uid=48 svc=draw pids=7196,5792" in err
+        # GHA 34612145495: Draw svc probe + page walk before close(True)
+        # killed the first forms Draw. Unmarked Draw must close like master.
+        assert "skip math ole close" not in err
+        assert "close_doc: start uid=48 svc=draw" not in err
+        assert "close_doc: close(True) start uid=48" not in err
     finally:
         tu._WINDOWS_LEFTOVER_OPEN = saved
         tu.set_harness_keeper_uid("")
+        tu._clear_windows_math_ole_uids()
 
 
 def test_close_doc_windows_writer_reactivates_keeper(monkeypatch):

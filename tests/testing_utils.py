@@ -1118,6 +1118,29 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
     return "_wa_factory_%s" % _WINDOWS_FACTORY_SEQ, _WINDOWS_FACTORY_SEARCH_FLAGS
 
 
+# Stable CREATE|GLOBAL name for Hidden .ipynb loads. Do not use "_blank"
+# after leftover Writers — consecutive Hidden _blank hung detect
+# (GHA 34619751330) the same way as leftover swriter (34597506651).
+_WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
+
+
+def windows_notebook_load_args() -> tuple[str, int]:
+    """Target + FrameSearchFlag for a Hidden Jupyter ``loadComponentFromURL``.
+
+    GHA 34619751330 (``5377a87e``, ``test_draw_uno`` already deferred):
+    leftover Math Draw had **not** run. ``test_import_filter_uno_load_component``
+    Hidden ``_blank`` + FilterName returned, then raw ``close(True)``.
+    ``test_import_filter_uno_detect_without_filtername`` Hidden ``_blank``
+    hung 30s (soffice still ``2444,5124``). Same consecutive leftover
+    Hidden ``_blank`` family as 34597506651. Use one CREATE|GLOBAL name
+    and ``TestingFactory.close_doc`` (skips Writer close while leftovers
+    remain). POSIX keeps ``_blank``.
+    """
+    if sys.platform != "win32":
+        return "_blank", 0
+    return _WINDOWS_NOTEBOOK_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
+
+
 def _reraise_native_open_failure(
     exc: BaseException, factory_url: str, pre_open: str = "no_probe"
 ) -> None:
@@ -1243,16 +1266,124 @@ def _draw_family_raw_close() -> bool:
 def _draw_family_doc_label(doc) -> str:
     """Harness-only: impress / draw / unknown for close breadcrumbs."""
     try:
-        if doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+        # ``is True``: MagicMock.supportsService() is truthy and must not
+        # look like Draw-family during unit tests (Windows pytest).
+        if doc.supportsService("com.sun.star.presentation.PresentationDocument") is True:
             return "impress"
     except Exception:
         pass
     try:
-        if doc.supportsService("com.sun.star.drawing.DrawingDocument"):
+        if doc.supportsService("com.sun.star.drawing.DrawingDocument") is True:
             return "draw"
     except Exception:
         pass
     return "unknown"
+
+
+# plugin/draw/math_insert.py MATH_CLSID. close_doc of a Draw that still
+# holds this OLE killed soffice (GHA 34607010446, exit 0).
+_MATH_OLE_CLSID = "078B7ABA-54FC-457F-8551-6147e776a997"
+_WINDOWS_MATH_OLE_UIDS: set[str] = set()
+
+
+def mark_windows_math_ole_doc(doc) -> None:
+    """Harness-only: this Draw/Impress still holds a Math OLE.
+
+    GHA 34607010446: ``test_insert_math_draw`` body returned, then
+    ``close_doc`` ``dispose`` of that Draw killed soffice (exit 0).
+    Nine earlier Draw ``close_doc`` calls in the same suite survived.
+    Remember the uid on both testing_utils copies so teardown can skip
+    the close. The runner then defers ``test_draw_uno`` until just
+    before the peer suite so this leftover is not ``close(True)``'d
+    (34607010446). Notebook detect hang is leftover Hidden ``_blank``
+    (34619751330), not this Draw. Not a product fix.
+    """
+    if sys.platform != "win32" or not doc:
+        return
+    try:
+        uid = str(getattr(doc, "RuntimeUID", None) or "")
+    except Exception:
+        uid = ""
+    if not uid:
+        return
+    for mod in _testing_utils_holders():
+        uids = getattr(mod, "_WINDOWS_MATH_OLE_UIDS", None)
+        if uids is None:
+            mod._WINDOWS_MATH_OLE_UIDS = set()
+            uids = mod._WINDOWS_MATH_OLE_UIDS
+        uids.add(uid)
+
+
+def _windows_math_ole_uids() -> set[str]:
+    uids = set(_WINDOWS_MATH_OLE_UIDS)
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        other = getattr(mod, "_WINDOWS_MATH_OLE_UIDS", None)
+        if other:
+            uids.update(other)
+    return uids
+
+
+def _clear_windows_math_ole_uids() -> None:
+    """Unit-test reset. ``mark_windows_math_ole_doc`` writes both copies."""
+    _WINDOWS_MATH_OLE_UIDS.clear()
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        other = getattr(mod, "_WINDOWS_MATH_OLE_UIDS", None)
+        if other is not None:
+            other.clear()
+
+
+def _draw_doc_has_math_ole(doc) -> bool:
+    """True when a Draw/Impress page still has a Math OLE2Shape."""
+    if not doc:
+        return False
+    try:
+        pages = doc.getDrawPages()
+        n_pages = pages.getCount()
+    except Exception:
+        return False
+    try:
+        page_count = int(n_pages)
+    except (TypeError, ValueError):
+        return False
+    for i in range(page_count):
+        try:
+            page = pages.getByIndex(i)
+            n_shapes = int(page.getCount())
+        except Exception:
+            continue
+        for j in range(n_shapes):
+            try:
+                shape = page.getByIndex(j)
+                clsid = str(getattr(shape, "CLSID", "") or "")
+            except Exception:
+                continue
+            if clsid == _MATH_OLE_CLSID:
+                return True
+    return False
+
+
+def _windows_should_skip_math_ole_close(uid: str = "") -> bool:
+    """True when Windows must not ``close_doc`` this marked Math OLE uid.
+
+    What was wrong: GHA 34607010446 (master ``3720c175``) closed a Draw
+    after ``insert_math`` and soffice exited 0. GHA 34612145495 then
+    died on the *first* Draw forms ``close(True)`` after this helper
+    walked pages/shapes and ``_native_doc_svc`` probed the model.
+    Master closed ordinary Draw docs without that extra UNO.
+
+    How: skip only when ``mark_windows_math_ole_doc`` recorded the uid.
+    Do not walk the document. Unmarked Draw close stays GC + 50 ms +
+    ``close(True)``. Not a product fix.
+    """
+    if sys.platform != "win32" or not uid:
+        return False
+    return uid in _windows_math_ole_uids()
 
 
 def close_draw_family_doc(doc):
@@ -1792,33 +1923,46 @@ class TestingFactory:
         # so reuse can still find the doc (34602219973).
         uid = ""
         is_writer = False
-        doc_svc = ""
         leftover_open = 0
         if sys.platform == "win32":
             try:
                 uid = str(getattr(doc, "RuntimeUID", None) or "")
-                doc_svc = _native_doc_svc(doc)
-                is_writer = doc_svc == "writer"
             except Exception:
-                is_writer = False
-            leftover_open = _windows_leftover_open()
-            if is_writer or doc_svc in ("draw", "impress"):
+                uid = ""
+            # GHA 34612145495: _native_doc_svc + page walk before the first
+            # Draw forms close(True) killed soffice (exit 0). Master
+            # 34607010446 closed that same forms Draw. Check the Math
+            # mark from RuntimeUID only — no supportsService / getDrawPages.
+            if _windows_should_skip_math_ole_close(uid):
                 from plugin.testing_runner import _progress, _soffice_pids
 
-                # GHA 34606276107: insert_math_draw close_doc dispose then
-                # soffice exited 0. Writer-only start hid Draw teardown.
-                # leftovers/keeper name leftover-window reuse vs Draw close.
+                leftover_open = _windows_leftover_open()
+                reactivate_harness_keeper()
                 _progress(
-                    "close_doc: start uid=%s svc=%s leftovers=%s keeper=%s pids=%s"
+                    "close_doc: skip math ole close (windows) uid=%s "
+                    "leftovers=%s keeper=%s pids=%s"
                     % (
                         uid or "-",
-                        doc_svc or "-",
                         leftover_open,
                         _HARNESS_KEEPER_UID or "-",
                         _soffice_pids(),
                     )
                 )
-                if is_writer and leftover_open > 0:
+                return
+            try:
+                is_writer = bool(
+                    doc.supportsService("com.sun.star.text.TextDocument") is True
+                )
+            except Exception:
+                is_writer = False
+            leftover_open = _windows_leftover_open()
+            if is_writer:
+                from plugin.testing_runner import _progress
+
+                _progress(
+                    "close_doc: start uid=%s leftovers=%s" % (uid or "-", leftover_open)
+                )
+                if leftover_open > 0:
                     # GHA 34602219973: close uid=34 returned; next unique
                     # _wa_factory_5 swriter hung 30s. Do not close a
                     # harness Writer while paste leftovers remain (same
@@ -1852,24 +1996,10 @@ class TestingFactory:
             # settle lets ~SvxShape finish before close. Unscoped: Writer
             # ControlShape / charts use the same pool. Post-close wait did not help.
             time.sleep(_CLOSE_DOC_URP_SETTLE_S)
-            if sys.platform == "win32" and doc_svc in ("draw", "impress"):
-                from plugin.testing_runner import _progress, _soffice_pids
-
-                _progress(
-                    "close_doc: close(True) start uid=%s svc=%s leftovers=%s pids=%s"
-                    % (uid or "-", doc_svc, leftover_open, _soffice_pids())
-                )
             if hasattr(doc, "close"):
                 doc.close(True)
             elif hasattr(doc, "dispose"):
                 doc.dispose()
-            if sys.platform == "win32" and doc_svc in ("draw", "impress"):
-                from plugin.testing_runner import _progress, _soffice_pids
-
-                _progress(
-                    "close_doc: close(True) done uid=%s svc=%s pids=%s"
-                    % (uid or "-", doc_svc, _soffice_pids())
-                )
             if sys.platform == "win32" and is_writer:
                 from plugin.testing_runner import _progress
 

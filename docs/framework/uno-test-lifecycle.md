@@ -14,7 +14,7 @@ Related: [archive/test_architecture_analysis.md](../archive/test_architecture_an
 |------|--------|------|-------|
 | Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
 | Writer `@with_native_doc` | No (unless `reuse=True`) | Factory each test | `close_doc` (`gc.collect` + 50 ms + `close`) |
-| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`) | Always `close_doc` |
+| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`) | `close_doc` (Windows **skips** close when the Draw still holds Math OLE) |
 
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
 share a pooled document. A keeper hidden Writer is opened once in
@@ -227,6 +227,54 @@ skips Writer `close_doc` while leftovers remain
 (`native_doc: leftover writer reuse`,
 `close_doc: skip writer close leftovers`).
 
+GHA 34607010446 (master `3720c175`, `#722` merge, leftover Writer
+reuse already past): `document_research_uno` and both text_helpers
+tests OK. Draw suite: nine tests `TEST end … OK` including
+`test_get_draw_tree` (same soffice `6200,2084`, leftovers
+uids=`['34','27','26']` keeper=1). `test_insert_math_draw` printed
+`TEST call`, factory `load done uid=48`, then
+`LIFECYCLE close_doc dispose` (pids still `6200,2084`) and
+`office dead after close doc_type=draw` (pids `-`). soffice exited 0.
+`TEST returned` then fail-closed; remaining suites aborted. The
+`close_doc dispose` line printed `previous=- current=-` because
+`python -m` records the trail on `__main__` and `close_doc` imported
+`plugin.testing_runner` (same dual-module family as #719 recycle).
+Nine ordinary Draw `close_doc` calls survived, so leftover-Writer
+reuse is not the Draw-close killer. `close_doc` of a Draw that still
+holds Math OLE is. Windows therefore **skips** that close when
+`mark_windows_math_ole_doc` recorded the uid
+(`close_doc: skip math ole close (windows)`), reactivates the keeper,
+and does **not** recycle mid-run (34551644954). POSIX still closes.
+
+GHA 34609996253 / 34612145495 (this skip on the PR tip): leftover
+Writer reuse and text_helpers still OK, then the *first* Draw close
+(`draw.test_draw_forms_uno.test_draw_form_lifecycle`, uid=35) printed
+`close_doc: start` / `close(True) start` and soffice exited 0.
+Master 34607010446 closed that same forms Draw. The skip path had
+walked pages/shapes and `_native_doc_svc` before `close(True)`.
+Unmarked Draw close is again RuntimeUID + GC + 50 ms + `close(True)`
+only. Do not walk for Math CLSID at teardown.
+`test_insert_math_draw` runs last in `test_draw_uno.py` so a leftover
+is not current for later tests in that file. On Windows the runner
+also sorts `test_draw_uno.py` just before the peer suite
+(`_native_suite_sort_key` band 1, peer band 2) so that leftover Draw
+is not `close(True)`'d (34607010446) and is not recycled mid-run
+(34551644954). GHA 34616287301: skip printed
+`close_doc: skip math ole close (windows) uid=50 leftovers=3 keeper=1`,
+`test_insert_math_draw` OK, later Impress suites OK, then
+`notebook.test_import_filter_uno_detect_without_filtername` hung 30s.
+GHA 34619751330 deferred `test_draw_uno` and the same notebook detect
+hang happened *before* `insert_math` (soffice still `2444,5124`,
+leftovers `['34','27','26']`). Leftover Math Draw is not that hang.
+`test_import_filter_uno_load_component` Hidden `_blank` + FilterName
+returned, then raw `close(True)`; the next Hidden `_blank` detect
+hung — consecutive leftover Hidden `_blank` (34597506651). Windows
+notebook loads now use `windows_notebook_load_args` (`_wa_notebook`,
+CREATE|GLOBAL) and `TestingFactory.close_doc` (skip Writer close
+while leftovers remain). Trail start/end now writes both runner
+modules; `format_lifecycle_breadcrumb` adopts from the sibling if
+this copy is empty.
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
@@ -239,14 +287,15 @@ POSIX still `close_doc`. Breadcrumbs:
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: create/store/close/list_nearby start/done`,
-`close_doc: start uid= svc= leftovers= keeper= pids=` (Windows Writer/Draw/Impress),
-`close_doc: close(True) start/done` (Windows Draw/Impress),
-`close_doc: done uid=…` (Windows Writer),
+`close_doc: start/done uid= leftovers=` (Windows Writer),
 `native_doc: leftover writer reuse`,
 `close_doc: skip writer close leftovers open=N uid=…`,
 `get_draw_tree: body start/execute done/body done`,
-`insert_math_draw: insert_math start/done` and `body done`. Do **not** fold
-Draw-family settle into `close_doc`. Not a product fix.
+`close_doc: skip math ole close (windows) uid= leftovers= keeper= pids=`,
+`insert_math_draw: insert_math start/done` and `body done`,
+`import_filter_uno: load start/done` (`target=_wa_notebook` on
+Windows). Do **not** fold Draw-family settle into `close_doc`. Not a
+product fix.
 
 GHA 34606276107 (`248da30d`, leftover hang fixed) and master
 34607010446 (`3720c175`, #722 merge): leftover paste + leftover-window
@@ -258,10 +307,10 @@ closed; `test_get_draw_tree` OK. `test_insert_math_draw` then
 exited 0. `close_doc` dispose printed `previous=- current=-` — `-m`
 lifecycle lives on `__main__`, close_doc imported
 `plugin.testing_runner`. Nine Draw closes with the same leftovers
-survived, so leftover-Writer reuse is not a proven Draw-close killer;
-this may be the known `get_draw_tree` → `insert_math_draw` flake now
-reachable. No product change. Breadcrumbs now name Draw `close(True)`
-and adopt the lifecycle trail across both runner module copies.
+survived, so leftover-Writer reuse is not a proven Draw-close killer.
+`#723` named Draw `close(True)` and adopted the lifecycle trail across
+both runner copies. Windows now **skips** that Math OLE `close_doc`
+(see the 34607010446 paragraph above). No product change.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
@@ -275,8 +324,21 @@ no second leftover swriter factory after the first text_helpers Writer,
 `document_research_uno` three tests
 `TEST end … OK`, both text_helpers tests `TEST end … OK` (no 30s
 Timeout in `create_native_doc` on
-`…_multi_para_joins_with_newline` / `target=_wa_factory_5`), later
-suites including the peer file last (six peer `TEST end … OK`), then
+`…_multi_para_joins_with_newline` / `target=_wa_factory_5`),
+`draw.test_draw_forms_uno` four tests `TEST end … OK` (first Draw
+`close(True)` must return; no `close_doc: start uid= svc=draw` before
+that close), `insert_math_draw: insert_math start/done` then
+`close_doc: skip math ole close (windows)` (not
+`LIFECYCLE close_doc dispose` / `office dead after close doc_type=draw`),
+`import_filter_uno: load start target=_wa_notebook` (not `_blank`)
+for both notebook import-filter tests, `close_doc: skip writer close`
+or `close_doc: start` (not raw `doc.close(True)`), both
+`notebook.test_import_filter_uno` tests `TEST end … OK` (no 30s
+Timeout on `detect_without_filtername`), **then**
+`TEST end draw.test_draw_uno.test_insert_math_draw OK` after
+`insert_math_draw: insert_math start/done` and
+`close_doc: skip math ole close (windows)`, leftover-Impress
+suites, then the peer file last (six peer `TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 
