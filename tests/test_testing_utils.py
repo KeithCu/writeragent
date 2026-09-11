@@ -345,6 +345,76 @@ def test_prepare_windows_writer_factory_keeper_only_still_reactivates(monkeypatc
         tu.set_harness_keeper_uid("")
 
 
+def test_set_harness_keeper_uid_writes_sibling_testing_utils_module(monkeypatch):
+    """GHA 34595675515: runner set tests.testing_utils; factory read plugin.tests copy."""
+    import sys
+    import types
+
+    from plugin.tests import testing_utils as tu
+
+    sibling = types.ModuleType("tests.testing_utils")
+    sibling.__file__ = tu.__file__
+    sibling._HARNESS_KEEPER_UID = ""
+    sibling._HARNESS_KEEPER_DOC = None
+    monkeypatch.setitem(sys.modules, "tests.testing_utils", sibling)
+    keeper_doc = object()
+    try:
+        tu.set_harness_keeper_uid("1", keeper_doc)
+        assert tu._HARNESS_KEEPER_UID == "1"
+        assert sibling._HARNESS_KEEPER_UID == "1"
+        assert sibling._HARNESS_KEEPER_DOC is keeper_doc
+    finally:
+        tu.set_harness_keeper_uid("")
+
+
+def test_prepare_windows_writer_factory_adopts_keeper_from_sibling(monkeypatch):
+    """Same dual-module miss: prepare saw keeper=- and counted uid=1 as leftover."""
+    import sys
+    import types
+    from unittest.mock import MagicMock
+
+    from plugin.tests import testing_utils as tu
+
+    sibling = types.ModuleType("tests.testing_utils")
+    sibling.__file__ = tu.__file__
+    keeper = MagicMock(name="keeper")
+    keeper.RuntimeUID = "1"
+    keeper.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    frame = MagicMock(name="keeper_frame")
+    keeper.getCurrentController.return_value.getFrame.return_value = frame
+    leftover = MagicMock(name="leftover")
+    leftover.RuntimeUID = "26"
+    leftover.supportsService.side_effect = lambda svc: svc.endswith("TextDocument")
+    sibling._HARNESS_KEEPER_UID = "1"
+    sibling._HARNESS_KEEPER_DOC = keeper
+
+    class _Enum:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def hasMoreElements(self):
+            return bool(self._items)
+
+        def nextElement(self):
+            return self._items.pop(0)
+
+    desktop = MagicMock()
+    desktop.getComponents.return_value.createEnumeration.return_value = _Enum(
+        [keeper, leftover]
+    )
+    monkeypatch.setitem(sys.modules, "tests.testing_utils", sibling)
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda _ctx: desktop)
+    tu._HARNESS_KEEPER_UID = ""
+    tu._HARNESS_KEEPER_DOC = None
+    try:
+        assert tu.prepare_windows_writer_factory(object()) == 1
+        leftover.close.assert_not_called()
+        desktop.setActiveFrame.assert_called_once_with(frame)
+        assert tu._HARNESS_KEEPER_UID == "1"
+    finally:
+        tu.set_harness_keeper_uid("")
+
+
 def test_create_native_doc_windows_prepares_writer_factory_before_load(monkeypatch):
     """Second text_helpers Writer factory hung after leftovers + one close_doc."""
     from unittest.mock import MagicMock, patch

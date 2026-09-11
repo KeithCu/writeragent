@@ -808,11 +808,78 @@ _HARNESS_KEEPER_UID = ""
 _HARNESS_KEEPER_DOC = None
 
 
+def _testing_utils_holders():
+    """Modules that share this file's keeper globals.
+
+    ``python -m plugin.testing_runner`` imports ``tests.testing_utils`` to
+    record the keeper. Suites import ``plugin.tests.testing_utils``
+    (``plugin/tests/__init__.py`` points ``__path__`` at ``tests/``). Same
+    file, second object. GHA 34595675515: every factory prepare printed
+    ``keeper=-`` and treated uid=1 as a leftover — #720 never reactivated.
+    Same dual-module family as #719 recycle. Touch both.
+    """
+    import os
+
+    seen = []
+    try:
+        here_file = os.path.normcase(os.path.realpath(__file__))
+    except Exception:
+        here_file = ""
+    for name in ("tests.testing_utils", "plugin.tests.testing_utils", __name__):
+        mod = sys.modules.get(name)
+        if mod is None or mod in seen:
+            continue
+        other = getattr(mod, "__file__", None)
+        if other and here_file:
+            try:
+                if os.path.normcase(os.path.realpath(other)) != here_file:
+                    continue
+            except Exception:
+                continue
+        seen.append(mod)
+    return seen or [sys.modules[__name__]]
+
+
+def _ensure_testing_utils_aliases() -> None:
+    """Import both sys.modules names so set/adopt can write both copies."""
+    try:
+        import tests.testing_utils as _tests_tu  # noqa: F401
+    except Exception:
+        pass
+    try:
+        import plugin.tests.testing_utils as _plugin_tu  # noqa: F401
+    except Exception:
+        pass
+
+
 def set_harness_keeper_uid(uid: str, doc=None) -> None:
     """Record the hidden keeper Writer (uid + doc) for later setActiveFrame."""
+    _ensure_testing_utils_aliases()
+    uid_s = str(uid or "")
+    if uid_s == "-":
+        uid_s = ""
+    doc_s = doc if uid_s else None
+    for mod in _testing_utils_holders():
+        mod._HARNESS_KEEPER_UID = uid_s
+        mod._HARNESS_KEEPER_DOC = doc_s
+
+
+def _adopt_keeper_from_sibling() -> bool:
+    """Copy keeper uid/doc from the other testing_utils module if we have none."""
     global _HARNESS_KEEPER_UID, _HARNESS_KEEPER_DOC
-    _HARNESS_KEEPER_UID = str(uid or "")
-    _HARNESS_KEEPER_DOC = doc if _HARNESS_KEEPER_UID else None
+    if _HARNESS_KEEPER_UID:
+        return False
+    here = sys.modules.get(__name__)
+    for mod in _testing_utils_holders():
+        if mod is here:
+            continue
+        uid = str(getattr(mod, "_HARNESS_KEEPER_UID", "") or "")
+        if not uid or uid == "-":
+            continue
+        _HARNESS_KEEPER_UID = uid
+        _HARNESS_KEEPER_DOC = getattr(mod, "_HARNESS_KEEPER_DOC", None)
+        return True
+    return False
 
 
 def _writer_doc_uid(doc) -> str:
@@ -864,6 +931,11 @@ def reactivate_harness_keeper(desktop=None) -> bool:
     """
     from plugin.testing_runner import _progress
 
+    if _adopt_keeper_from_sibling():
+        _progress(
+            "html_paste_writer: keeper adopted from sibling uid=%s"
+            % (_HARNESS_KEEPER_UID or "-")
+        )
     doc = _HARNESS_KEEPER_DOC
     if doc is None:
         return False
@@ -905,6 +977,11 @@ def prepare_windows_writer_factory(ctx) -> int:
     from plugin.framework.uno_context import get_desktop
     from plugin.testing_runner import _progress
 
+    if _adopt_keeper_from_sibling():
+        _progress(
+            "html_paste_writer: keeper adopted from sibling uid=%s"
+            % (_HARNESS_KEEPER_UID or "-")
+        )
     desktop = get_desktop(ctx)
     keeper = _HARNESS_KEEPER_UID
     leftover_uids = []

@@ -173,6 +173,18 @@ the same traceback conversion). Harness: `prepare_windows_writer_factory`
 before every Windows `private:factory/` load. Breadcrumbs:
 `document_research_uno: create/store/close/list_nearby start/done`.
 
+GHA 34595675515 (`#722` first tip): breadcrumbs named the fail
+*after* `create budget calc start` + `leftovers open=3
+uids=['27','26','1'] keeper=-` and *before* `create budget calc done`.
+The traceback exception is `loadComponentFromURL(scalc)`, not
+`list_nearby_files`. `#720` stored the keeper on `tests.testing_utils`;
+suites import `plugin.tests.testing_utils` (same file, second object)
+so every prepare printed `keeper=-` and never `setActiveFrame`. Same
+dual-module family as #719 recycle. `set_harness_keeper_uid` now
+imports both names and writes both; `prepare` / `reactivate` adopt
+from the sibling if this copy is empty
+(`html_paste_writer: keeper adopted from sibling`).
+
 POSIX still `close_doc`. Breadcrumbs:
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
@@ -189,7 +201,8 @@ Draw-family settle into `close_doc`. Not a product fix.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
-`html_paste_writer: leftovers open` and `keeper reactivated` before
+`html_paste_writer: leftovers open` with a real `keeper=` uid (not
+`-`), optional `keeper adopted from sibling`, and `keeper reactivated` before
 Windows `private:factory/` loads (Writer **and** Calc),
 `document_research_uno` three tests `TEST end … OK`, both
 text_helpers tests `TEST end … OK`, later suites including the peer
