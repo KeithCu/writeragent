@@ -3,7 +3,7 @@
   "updated": "2026-09-12",
   "gate_model": "google/gemini-3.8-flash",
   "source_of_truth": "docs/eval/eval-2/headed-failure-autopsy.md",
-  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded only from in-repo autopsy / sibling notes. No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
+  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded from in-repo autopsy / sibling notes plus Scrolly AFC catalog stamps (gpt-oss-120b, gpt-5.6-luna, gpt-oss-20b, gemini-3.5-flash-lite, gemma-4-31b-it, gemma-4-26b-a4b-it, nemotron-3.5-lightning, mercury-2.5-preview, grok-4.6, muse-glimmer-30b, muse-spark-1.3-contributor, laguna-s-2.1, laguna-xs-2.1, qwen3.8-27b, qwen3.8-flash, glm-5.3-flash, solar-pro4, granite-4.2-8b, mistral-small-2603, seed-2.0-mini, minimax-m3, deepseek-v4-flash-0731, deepseek-v4.1-flash). AFC catalog FIFO is complete. solar-pro4 is BLOCKED infra (Send never ran) — not a model NOT_HAPPY. The 9-task headed sweep has not happened. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
   "tasks": [
     {
       "id": "tenant-retention",
@@ -81,8 +81,38 @@
       "role": "headed"
     },
     {
+      "openrouter_id": "openai/gpt-5.6-luna",
+      "display_name": "GPT-5.6 Luna",
+      "role": "catalog"
+    },
+    {
       "openrouter_id": "openai/gpt-oss-20b",
       "display_name": "GPT-OSS 20B",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "google/gemini-3.5-flash-lite",
+      "display_name": "Gemini 3.5 Flash Lite",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "google/gemma-4-31b-it",
+      "display_name": "Gemma 4 31B",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "google/gemma-4-26b-a4b-it",
+      "display_name": "Gemma 4 26B A4B",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "nvidia/nemotron-3.5-lightning",
+      "display_name": "Nemotron 3.5 Lightning",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "inception/mercury-2.5-preview",
+      "display_name": "Mercury 2.5 Preview",
       "role": "catalog"
     },
     {
@@ -91,8 +121,73 @@
       "role": "catalog"
     },
     {
+      "openrouter_id": "meta/muse-glimmer-30b",
+      "display_name": "Muse Glimmer 30B",
+      "role": "catalog"
+    },
+    {
       "openrouter_id": "meta/muse-spark-1.3-contributor",
       "display_name": "Muse Spark 1.3",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "poolside/laguna-s-2.1",
+      "display_name": "Laguna S 2.1",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "poolside/laguna-xs-2.1",
+      "display_name": "Laguna XS 2.1",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "qwen/qwen3.8-27b",
+      "display_name": "Qwen3.8 27B",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "qwen/qwen3.8-flash",
+      "display_name": "Qwen3.8 Flash",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "z-ai/glm-5.3-flash",
+      "display_name": "GLM 5.3 Flash",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "upstage/solar-pro4",
+      "display_name": "Solar Pro 4",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "ibm-granite/granite-4.2-8b",
+      "display_name": "Granite 4.2 8B",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "mistralai/mistral-small-2603",
+      "display_name": "Mistral Small 4",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "bytedance-seed/seed-2.0-mini",
+      "display_name": "Seed 2.0 Mini",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "minimax/minimax-m3",
+      "display_name": "MiniMax M3",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "deepseek/deepseek-v4-flash-0731",
+      "display_name": "DeepSeek V4 Flash 0731",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "deepseek/deepseek-v4.1-flash",
+      "display_name": "DeepSeek V4.1 Flash",
       "role": "catalog"
     }
   ],
@@ -129,6 +224,581 @@
       "source": "docs/eval/eval-2/headed-failure-autopsy.md §1; docs/eval/eval-2/afc-sample-83d10b06/SMOOTHER_CHANGES.md",
       "run_artifacts_committed": false,
       "patches": null
+    },
+    {
+      "task_id": "afc",
+      "model": "openai/gpt-oss-120b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "First catalog AFC cell. Ran as openai/gpt-oss-120b:nitro. Sample+SSC nonempty but wrong shape (sample_data_rows=1516, near-full dump, not sample-sized). #DIV/0! on Sample. Agent Ready then kept iterating. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1. S=585 R=None, husks 0/15159. No oracle_check_count on the stamp — omit partial_score (do not invent a 4-check denominator). Est. USD from the headed run, not a later list-price backfill. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0142-gpt-oss-120b/",
+      "stamp": "20260912-0142-gpt-oss-120b",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 585,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 15159,
+      "input_tokens": 108266,
+      "output_tokens": 6994,
+      "total_tokens": 115260,
+      "wall_time_s": 1290,
+      "total_cost_usd": 0.0052
+    },
+    {
+      "task_id": "afc",
+      "model": "openai/gpt-5.6-luna",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Second catalog AFC cell. Sample+SSC present (Population / Sample / Sample Size Calculation) but incomplete — better shape than the gpt-oss-120b near-full dump (sample_data_rows=81 vs 1516) but the same R hole. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1. S=68 R=None, husks 0/810. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.0419); model_configs estimate ~0.1252 is an alternate, not stored. Wall 406s incl setup (tool loop ~304s). Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0150-gpt-5.6-luna/",
+      "stamp": "20260912-0150-gpt-5.6-luna",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 68,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 810,
+      "input_tokens": 562909,
+      "output_tokens": 10467,
+      "total_tokens": 573376,
+      "wall_time_s": 406,
+      "total_cost_usd": 0.0419
+    },
+    {
+      "task_id": "afc",
+      "model": "openai/gpt-oss-20b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Third catalog AFC cell. Ran as openai/gpt-oss-20b:nitro (resolved to bare 20b; no batch 404). Sample/SSC present but incomplete (sample_data_rows=80). Same R hole as 120b/Luna; S=0 is weaker than Luna’s S=68. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1. S=0 R=None, husks 0/800. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.00122); model_configs estimate ~0.00049 is an alternate, not stored. Nitro routing OK. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0202-gpt-oss-20b-nitro/",
+      "stamp": "20260912-0202-gpt-oss-20b-nitro",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 800,
+      "input_tokens": 15316,
+      "output_tokens": 236,
+      "total_tokens": 15552,
+      "wall_time_s": 309,
+      "total_cost_usd": 0.00122
+    },
+    {
+      "task_id": "afc",
+      "model": "google/gemini-3.5-flash-lite",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Fourth catalog AFC cell. Attempt1 aborted (nitro contamination); attempt2 used a clean history. Sample/SSC present (sample_data_rows=81) but incomplete. Same R hole as 120b/Luna/20b; S=0. Shot shows SSC label truncated “Required Sar”=73, but the oracle parsed R=None — do not store 73 as afc_r_required. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1. S=0 R=None, husks 0/648. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.00629); model_configs estimate ~0.00821 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0216-gemini-3.5-flash-lite/",
+      "stamp": "20260912-0216-gemini-3.5-flash-lite",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 648,
+      "input_tokens": 26111,
+      "output_tokens": 150,
+      "total_tokens": 26261,
+      "wall_time_s": 338,
+      "total_cost_usd": 0.00629
+    },
+    {
+      "task_id": "afc",
+      "model": "google/gemma-4-31b-it",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Fifth catalog AFC cell. Sample+SSC present (sample_data_rows=81) but incomplete. Same R hole; SSC R is Err:508/#NAME? so oracle R=None. S=0; husk-heavy Sample flags (81/810 scored cells) — below the 50% husk-dominate fail, so failure_count stays 1. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.10841); model_configs estimate ~0.01404 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0224-gemma-4-31b-it/",
+      "stamp": "20260912-0224-gemma-4-31b-it",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 81,
+      "scored_cells": 810,
+      "input_tokens": 146941,
+      "output_tokens": 2394,
+      "total_tokens": 149335,
+      "wall_time_s": 392,
+      "total_cost_usd": 0.10841
+    },
+    {
+      "task_id": "afc",
+      "model": "google/gemma-4-26b-a4b-it",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Sixth catalog AFC cell. First catalog model besides the Gemini 3.8 gate to produce a parseable R (R=65). Sample undersized (sample_data_rows=10 << 65) with S=0, so oracle FAIL is S < R, not the missing-R hole. Attempt1 contaminated; attempt2 wipe. Husks 0/70. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.04316); model_configs estimate ~0.05011 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0240-gemma-4-26b-a4b-it/",
+      "stamp": "20260912-0240-gemma-4-26b-a4b-it",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "S=0 flag=1 in column K is < R=65"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": 65,
+      "husk_cells": 0,
+      "scored_cells": 70,
+      "input_tokens": 688661,
+      "output_tokens": 5586,
+      "total_tokens": 694247,
+      "wall_time_s": 886,
+      "total_cost_usd": 0.04316
+    },
+    {
+      "task_id": "afc",
+      "model": "nvidia/nemotron-3.5-lightning",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Seventh catalog AFC cell. Population only — missing Sample and Sample Size Calculation sheets (oracle failure_count=2). sample_data_rows=0; S=0 R=None; husks 0/0. Err:507 in Population J/K. Save dialog flicker mid-flight. Tokens stored are the second-send OpenRouter usage (in=760171 out=3189); all-from-first totals were higher (no separate field — not stored). No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter second-send usage sum (~0.04282); model_configs estimate ~0.06145 is an alternate, not stored. Wall ~540–600s (stored 540). Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0310-nemotron-3.5-lightning/",
+      "stamp": "20260912-0310-nemotron-3.5-lightning",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 760171,
+      "output_tokens": 3189,
+      "total_tokens": 763360,
+      "wall_time_s": 540,
+      "total_cost_usd": 0.04282
+    },
+    {
+      "task_id": "afc",
+      "model": "inception/mercury-2.5-preview",
+      "product_bar": "HAPPY",
+      "oracle": "PASS",
+      "oracle_note": "Eighth catalog AFC cell. First non-gate catalog HAPPY / oracle PASS (failure_count=0). Sample is a near-full Population copy (sample_data_rows=1518) but S=494 ≥ R=68 so the oracle passes. Husks 2/16680. Attempt1 contaminated; attempt2 wipe. No oracle_check_count stored — PASS still yields partial_score=1. total_cost_usd is the OpenRouter usage sum (~0.00468); model_configs estimate ~0.03144 is an alternate, not stored. First HAPPY cell with recorded USD, so C²/$ is computed (partial² / USD). Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0330-mercury-2.5-preview/",
+      "stamp": "20260912-0330-mercury-2.5-preview",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": true,
+      "oracle_failure_count": 0,
+      "oracle_failures": [],
+      "afc_s_flags": 494,
+      "afc_r_required": 68,
+      "husk_cells": 2,
+      "scored_cells": 16680,
+      "input_tokens": 115096,
+      "output_tokens": 3554,
+      "total_tokens": 118650,
+      "wall_time_s": 479,
+      "total_cost_usd": 0.00468
+    },
+    {
+      "task_id": "afc",
+      "model": "x-ai/grok-4.6",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Ninth catalog AFC cell. SSC present; Sample sheet present but empty (sample_data_rows=0). Oracle failure_count=2: Sample has no data rows; R from Sample Size Calculation is missing or < 1. S=0 R=None; husks 0/0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.02375); model_configs estimate ~0.05831 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0342-grok-4.6/",
+      "stamp": "20260912-0342-grok-4.6",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "Sample has no data rows",
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 28184,
+      "output_tokens": 323,
+      "total_tokens": 28507,
+      "wall_time_s": 416,
+      "total_cost_usd": 0.02375
+    },
+    {
+      "task_id": "afc",
+      "model": "meta/muse-glimmer-30b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Tenth catalog AFC cell. Sample+SSC present (sample_data_rows=81) but incomplete. Same R hole as 120b/Luna/20b/Flash Lite/31B; S=0. SSC B9 visually 65, but the oracle parsed R=None — do not store 65 as afc_r_required. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1. S=0 R=None, husks 0/729. Hit max 50 tool rounds. wall_time_s is the recorded ~155s loop (observer ~16 min). tip_at_run e0bb6321. PreContract lines=2 (PY deal); UNO/assert_main_thread=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.15404); model_configs estimate ~0.66230 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0353-muse-glimmer-30b/",
+      "stamp": "20260912-0353-muse-glimmer-30b",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 729,
+      "input_tokens": 2143441,
+      "output_tokens": 16060,
+      "total_tokens": 2159501,
+      "wall_time_s": 155,
+      "total_cost_usd": 0.15404
+    },
+    {
+      "task_id": "afc",
+      "model": "meta/muse-spark-1.3-contributor",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Eleventh catalog AFC cell. SSC present; Sample sheet present but empty (sample_data_rows=0). Oracle failure_count=2: Sample has no data rows; R from Sample Size Calculation is missing or < 1. S=0 R=None; husks 0/0. Same empty-Sample shape as Grok. tip_at_run 6c6017b7. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.00157); model_configs estimate ~0.00247 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0409-muse-spark-1.3-contributor/",
+      "stamp": "20260912-0409-muse-spark-1.3-contributor",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "Sample has no data rows",
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 23560,
+      "output_tokens": 550,
+      "total_tokens": 24110,
+      "wall_time_s": 241,
+      "total_cost_usd": 0.00157
+    },
+    {
+      "task_id": "afc",
+      "model": "poolside/laguna-s-2.1",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Twelfth catalog AFC cell. SSC present with parseable R=66; Sample sheet missing (oracle failure_count=1: missing sheet 'Sample'). sample_data_rows=0; S=0 R=66; husks 0/0. finish_reason=length — response truncated mid tool loop. tip_at_run 6c6017b7. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.01480); model_configs estimate ~0.02142 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0419-laguna-s-2.1/",
+      "stamp": "20260912-0419-laguna-s-2.1",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "missing sheet 'Sample'"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": 66,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 166351,
+      "output_tokens": 35845,
+      "total_tokens": 202196,
+      "wall_time_s": 384,
+      "total_cost_usd": 0.01480
+    },
+    {
+      "task_id": "afc",
+      "model": "poolside/laguna-xs-2.1",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Thirteenth catalog AFC cell. Sample sheet present but empty (sample_data_rows=0). SSC tab named Sample_Size_Calculation, not 'Sample Size Calculation', so the oracle treats SSC as missing. Oracle failure_count=2: missing sheet 'Sample Size Calculation'; Sample has no data rows. S=0 R=None; husks 0/0. Raw tool_call text in the reply. wall_time_s is the recorded ~85s loop (observer ~3m12s). tip_at_run 6c6017b7. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.04341); model_configs estimate ~0.07804 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0429-laguna-xs-2.1/",
+      "stamp": "20260912-0429-laguna-xs-2.1",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "missing sheet 'Sample Size Calculation'",
+        "Sample has no data rows"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 1280356,
+      "output_tokens": 10168,
+      "total_tokens": 1290524,
+      "wall_time_s": 85,
+      "total_cost_usd": 0.04341
+    },
+    {
+      "task_id": "afc",
+      "model": "qwen/qwen3.8-27b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Fourteenth catalog AFC cell. Population only — no Sample or Sample Size Calculation sheets (oracle failure_count=2: missing sheet 'Sample'; missing sheet 'Sample Size Calculation'). sample_data_rows=0; S=0 R=None; husks 0/0. Stayed on Population with =PY attempts. ~50 tool rounds, all finish_reason=tool_calls. Tokens are OpenRouter usage sum across n=51 generations (in=2695380 out=67284). PreContract=63; UNO/assert=0. wall_time_s is the recorded ~720s LLM loop (12 min). tip_at_run 6c6017b7. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~1.42823); model_configs estimate ~1.31711 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0443-qwen3.8-27b/",
+      "stamp": "20260912-0443-qwen3.8-27b",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 2695380,
+      "output_tokens": 67284,
+      "total_tokens": 2762664,
+      "wall_time_s": 720,
+      "total_cost_usd": 1.42823
+    },
+    {
+      "task_id": "afc",
+      "model": "qwen/qwen3.8-flash",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Fifteenth catalog AFC cell. Sample+SSC present but incomplete (sample_data_rows=68). Same R hole as Luna; S=68 matches Luna’s flag count on a slightly smaller Sample. SSC Err:508/509/#VALUE!; Scratch Err:513. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1. S=68 R=None; husks 0/680. Tokens are OpenRouter usage sum across n=51 generations (in=2194886 out=49253). wall_time_s is the recorded ~540s LLM loop (9 min; observer ~12 min). tip_at_run 6c6017b7. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.11382); model_configs estimate ~0.35238 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0502-qwen3.8-flash/",
+      "stamp": "20260912-0502-qwen3.8-flash",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 68,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 680,
+      "input_tokens": 2194886,
+      "output_tokens": 49253,
+      "total_tokens": 2244139,
+      "wall_time_s": 540,
+      "total_cost_usd": 0.11382
+    },
+    {
+      "task_id": "afc",
+      "model": "z-ai/glm-5.3-flash",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Sixteenth catalog AFC cell. Population only — no Sample or Sample Size Calculation sheets (oracle failure_count=2: missing sheet 'Sample'; missing sheet 'Sample Size Calculation'). sample_data_rows=0; S=0 R=None; husks 0/0. Hung tool_loop at round 0 — finish_reason=length; no tools fired; truncated reasoning dump. Tokens are a single OpenRouter generation (n=1; in=5404 out=16384; reasoning_tokens=15160 noted, not stored). wall_time_s is the recorded ~155s hang. tip_at_run 6c6017b7. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.00900); model_configs estimate ~0.00450 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0515-glm-5.3-flash/",
+      "stamp": "20260912-0515-glm-5.3-flash",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 5404,
+      "output_tokens": 16384,
+      "total_tokens": 21788,
+      "wall_time_s": 155,
+      "total_cost_usd": 0.00900
+    },
+    {
+      "task_id": "afc",
+      "model": "upstage/solar-pro4",
+      "product_bar": "BLOCKED",
+      "oracle": null,
+      "oracle_note": "Seventeenth catalog AFC cell — infra/blocked, not a model judgment. SendButton crashed before any LLM call (sqlite3.OperationalError: no such table: message_store; writeragent_history.db wiped empty/broken between trials). Send failed twice. No tools. Missing Sample+SSC only because Send never ran — do not store as oracle FAIL. sample_data_rows=0; S=0 R=None; husks 0/0 noted here, not stored as scored oracle fields. Tokens 0; total_cost_usd 0 (no LLM). wall_time_s is the headed wait (~1080s). tip_at_run 6c6017b7. Scrolly recreating schema before next trial. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0522-solar-pro4/",
+      "stamp": "20260912-0522-solar-pro4",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "wall_time_s": 1080,
+      "total_cost_usd": 0
+    },
+    {
+      "task_id": "afc",
+      "model": "ibm-granite/granite-4.2-8b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Eighteenth catalog AFC cell. SSC present; Sample sheet present but empty (sample_data_rows=0). Oracle failure_count=2: Sample has no data rows; R from Sample Size Calculation is missing or < 1. S=0 R=None; husks 0/0. Hung tool_loop at round 46 on read_cell_range; all finish_reason=tool_calls. Tokens are OpenRouter usage sum across n=48 generations (in=2359996 out=64282). wall_time_s is the recorded ~840s LLM loop (14 min). tip_at_run 71640e30. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.14353); model_configs estimate ~0.24564 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0546-granite-4.2-8b/",
+      "stamp": "20260912-0546-granite-4.2-8b",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "Sample has no data rows",
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 2359996,
+      "output_tokens": 64282,
+      "total_tokens": 2424278,
+      "wall_time_s": 840,
+      "total_cost_usd": 0.14353
+    },
+    {
+      "task_id": "afc",
+      "model": "mistralai/mistral-small-2603",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Nineteenth catalog AFC cell. Ready with Sample+SSC present (sample_data_rows=81) but incomplete. Same R hole as Flash Lite/Glimmer; S=0 despite 81 Sample rows. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1 (unparseable). S=0 R=None; husks 0/648. Tokens are OpenRouter usage sum across n=14 generations (in=149439 out=3893). wall_time_s is the recorded ~32s loop. tip_at_run 71640e30. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.00973); model_configs estimate ~0.02475 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0603-mistral-small-2603/",
+      "stamp": "20260912-0603-mistral-small-2603",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 648,
+      "input_tokens": 149439,
+      "output_tokens": 3893,
+      "total_tokens": 153332,
+      "wall_time_s": 32,
+      "total_cost_usd": 0.00973
+    },
+    {
+      "task_id": "afc",
+      "model": "bytedance-seed/seed-2.0-mini",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Twentieth catalog AFC cell. Sample+SSC present but malformed (sample_data_rows=1). Sample A2 is =PY(\"\"\"; SSC Err:501 with a visual ~65 — oracle parsed R=None, do not store 65 as afc_r_required. Oracle failure_count=2: R from Sample Size Calculation is missing or < 1; husk-dominated Sample (1/1 scored cells). S=0 R=None; husks 1/1. Tokens are OpenRouter usage sum across n=2 generations (in=24059 out=14342). wall_time_s is the recorded ~131s loop. tip_at_run 71640e30. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.00814); model_configs estimate ~0.00814 matches and is not stored separately. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0610-seed-2.0-mini/",
+      "stamp": "20260912-0610-seed-2.0-mini",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1",
+        "husk-dominated Sample (1/1 scored cells)"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 1,
+      "scored_cells": 1,
+      "input_tokens": 24059,
+      "output_tokens": 14342,
+      "total_tokens": 38401,
+      "wall_time_s": 131,
+      "total_cost_usd": 0.00814
+    },
+    {
+      "task_id": "afc",
+      "model": "minimax/minimax-m3",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Twenty-first catalog AFC cell. Ready but Population/Analysis only — no Sample or Sample Size Calculation sheets (oracle failure_count=2: missing sheet 'Sample'; missing sheet 'Sample Size Calculation'). sample_data_rows=0; S=0 R=None; husks 0/0. Analysis sheet A1=#NAME? A2=8. Tokens are OpenRouter usage sum across n=30 generations (in=318690 out=3685). wall_time_s is the recorded ~66s loop. tip_at_run 71640e30. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.07965); model_configs estimate ~0.10003 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0617-minimax-m3/",
+      "stamp": "20260912-0617-minimax-m3",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 318690,
+      "output_tokens": 3685,
+      "total_tokens": 322375,
+      "wall_time_s": 66,
+      "total_cost_usd": 0.07965
+    },
+    {
+      "task_id": "afc",
+      "model": "deepseek/deepseek-v4-flash-0731",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Twenty-second catalog AFC cell. Ready; Sample+SSC present but empty (sample_data_rows=0). Sample errored deal.PreContractError expected__deal_wire_dict_ok; SSC blank. Oracle failure_count=2: Sample has no data rows; R from Sample Size Calculation is missing or < 1. S=0 R=None; husks 0/0. Tokens are OpenRouter usage sum across n=51 generations (in=2733344 out=62813). wall_time_s is the recorded ~330s loop. tip_at_run 71640e30. PreContract=18; UNO/assert=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.17007); model_configs estimate ~0.18897 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0621-deepseek-v4-flash-0731/",
+      "stamp": "20260912-0621-deepseek-v4-flash-0731",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "Sample has no data rows",
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 2733344,
+      "output_tokens": 62813,
+      "total_tokens": 2796157,
+      "wall_time_s": 330,
+      "total_cost_usd": 0.17007
+    },
+    {
+      "task_id": "afc",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Twenty-third catalog AFC cell — catalog FIFO tail. API Request Timed Out mid tool_loop at round 5 on read_cell_range (NetworkError); model never finished. NOT_HAPPY (not BLOCKED): Send ran and the leftover workbook is scored. Population only — no Sample or Sample Size Calculation sheets (oracle failure_count=2: missing sheet 'Sample'; missing sheet 'Sample Size Calculation'). sample_data_rows=0; S=0 R=None; husks 0/0. Tokens are OpenRouter usage sum across n=5 generations before the timeout (in=55652 out=3474). wall_time_s is the recorded ~270s loop. tip_at_run 71640e30. UNO/assert/PreContract=0. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.01832); model_configs estimate ~0.01043 is an alternate, not stored. CATALOG FIFO COMPLETE. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0630-deepseek-v4.1-flash/",
+      "stamp": "20260912-0630-deepseek-v4.1-flash",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 2,
+      "oracle_failures": [
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 0,
+      "input_tokens": 55652,
+      "output_tokens": 3474,
+      "total_tokens": 59126,
+      "wall_time_s": 270,
+      "total_cost_usd": 0.01832
     },
     {
       "task_id": "writer-calc-peer-write",

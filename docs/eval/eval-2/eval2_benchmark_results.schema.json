@@ -89,9 +89,9 @@
       }
     },
     "product_bar": {
-      "description": "Headed product/task success. HAPPY means the deliverable did the job even if a soft oracle is red.",
+      "description": "Headed product/task success. HAPPY means the deliverable did the job even if a soft oracle is red. BLOCKED is infra (Send/harness never ran) — not a model NOT_HAPPY.",
       "type": ["string", "null"],
-      "enum": ["HAPPY", "NOT_HAPPY", null]
+      "enum": ["HAPPY", "NOT_HAPPY", "BLOCKED", null]
     },
     "oracle": {
       "description": "CLI oracle PASS/FAIL for the saved deliverable. Fail-closed. Soft notes go in oracle_note.",
