@@ -19,6 +19,7 @@ from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
     skip_windows_leftover_hidden_apply,
+    skip_windows_leftover_hidden_load,
     with_native_doc,
 )
 from plugin.writer.edit_review import WriterStreamedRewriteSession, WriterStreamedAppendSession
@@ -691,6 +692,10 @@ def test_review_authors_failed_begin_leaves_split_authoring_disarmed_uno(ctx, do
 def test_apply_document_content_wait_timeout_zero_returns_pending_uno(ctx, doc):
     """Wait mode with timeout=0 on a background thread: executes edit and returns immediately
     with complete=False and pending changes."""
+    # GHA 34692834349: leftover apply skip in `_tool_ctx` ran on the
+    # worker. SkipTest does not skip the parent test; `res` stayed `{}`
+    # and the main thread FAILed. Skip on this thread first.
+    skip_windows_leftover_hidden_load("track_changes wait timeout leftover reuse")
     import threading
     _reset(doc, ctx, "Initial text.")
     prev_mode = get_config(_FLAG)

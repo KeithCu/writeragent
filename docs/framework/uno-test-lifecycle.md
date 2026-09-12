@@ -599,6 +599,14 @@ writer reuse, ran XHTML (`XSL Vendor: libxslt`), then hung 30s in
 factory load (`windows leftover skip: html_export Hidden _default
 temp_doc`). Not a product change.
 
+GHA 34692834349 (PR #746 tip `54be6703`): html_export leftover skip
+fired (suite continued). Full UNO run finished 455 passed / 1 failed.
+`test_apply_document_content_wait_timeout_zero_returns_pending_uno`
+FAIL `AssertionError: {}`. Leftover apply skip in `_tool_ctx` ran on
+the worker thread; `SkipTest` does not skip the parent test. Skip on
+the test thread first (`windows leftover skip: track_changes wait
+timeout leftover reuse`). Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -692,7 +700,11 @@ html_export range `TEST end … SKIP` with
 `windows leftover skip: html_export Hidden _default temp_doc`
 when leftover_open>0 (no 30s Timeout on
 `_range_to_content_via_temp_doc` `temp_doc.close(True)` —
-GHA 34690797019),
+GHA 34690797019 / 34692834349),
+track-changes wait-timeout `TEST end … SKIP` with
+`windows leftover skip: track_changes wait timeout leftover reuse`
+when leftover_open>0 (no leftover `AssertionError: {}` —
+GHA 34692834349 SkipTest on the worker did not skip the parent),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**

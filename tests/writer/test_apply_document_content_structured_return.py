@@ -46,6 +46,9 @@ def test_later_apply_uno_skips_windows_leftover_hidden_apply() -> None:
     style_src = (writer / "test_content_style_model_uno.py").read_text(encoding="utf-8")
     assert "34683742049" in style_src
     assert "html_to_plain_text" in style_src
+    track_src = (writer / "test_track_changes_reviewable_uno.py").read_text(encoding="utf-8")
+    assert "track_changes wait timeout leftover reuse" in track_src
+    assert "34692834349" in track_src
 
 
 def _ctx():
