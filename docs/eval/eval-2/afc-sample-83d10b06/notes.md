@@ -261,3 +261,16 @@ UNO/assert=0. Recorded wall ~330s. tip_at_run `71640e30`.
 OpenRouter usage sum ~$0.17007 stored; model_configs estimate
 ~$0.18897 is an alternate only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0621-deepseek-v4-flash-0731/`.
+
+Twenty-third catalog cell (FIFO tail): `deepseek/deepseek-v4.1-flash`,
+stamp `20260912-0630-deepseek-v4.1-flash`. Product bar **NOT_HAPPY**
+(not BLOCKED — Send ran; API timed out mid loop). Oracle **FAIL**
+(`failure_count=2`: missing sheet 'Sample'; missing sheet 'Sample
+Size Calculation'). API Request Timed Out mid `tool_loop` at round
+5 on `read_cell_range` (`NetworkError`); model never finished.
+`sample_data_rows=0`; S=0; R=None; husks 0/0. Tokens are n=5
+(last send timed out). UNO/assert/PreContract=0. Recorded wall
+~270s. tip_at_run `71640e30`. OpenRouter usage sum ~$0.01832
+stored; model_configs estimate ~$0.01043 is an alternate only.
+CATALOG FIFO COMPLETE. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0630-deepseek-v4.1-flash/`.

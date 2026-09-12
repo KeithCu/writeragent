@@ -121,6 +121,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "bytedance-seed/seed-2.0-mini",
         "minimax/minimax-m3",
         "deepseek/deepseek-v4-flash-0731",
+        "deepseek/deepseek-v4.1-flash",
     }
 
 
@@ -149,6 +150,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     seed_mini = "bytedance-seed/seed-2.0-mini"
     minimax = "minimax/minimax-m3"
     deepseek = "deepseek/deepseek-v4-flash-0731"
+    deepseek41 = "deepseek/deepseek-v4.1-flash"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -851,6 +853,43 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert board.not_happy_count(deepseek) == 1
     assert board.blocked_count(deepseek) == 0
 
+    # Twenty-third catalog AFC stamp — FIFO tail (Scrolly headed 20260912-0630).
+    afc_deepseek41 = board.result_for("afc", deepseek41)
+    assert afc_deepseek41 is not None
+    assert afc_deepseek41.product_bar == "NOT_HAPPY"
+    assert afc_deepseek41.product_bar != "BLOCKED"
+    assert afc_deepseek41.oracle == "FAIL"
+    assert afc_deepseek41.stamp == "20260912-0630-deepseek-v4.1-flash"
+    assert afc_deepseek41.oracle_passed is False
+    assert afc_deepseek41.oracle_failure_count == 2
+    assert afc_deepseek41.oracle_failures == (
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'",
+    )
+    assert afc_deepseek41.oracle_check_count is None
+    assert afc_deepseek41.partial_score is None
+    assert afc_deepseek41.afc_s_flags == 0
+    assert afc_deepseek41.afc_r_required is None
+    assert afc_deepseek41.husk_cells == 0
+    assert afc_deepseek41.scored_cells == 0
+    assert afc_deepseek41.input_tokens == 55652
+    assert afc_deepseek41.output_tokens == 3474
+    assert afc_deepseek41.total_tokens == 59126
+    assert afc_deepseek41.wall_time_s == 270
+    assert afc_deepseek41.total_cost_usd == pytest.approx(0.01832)
+    assert afc_deepseek41.intelligence_per_dollar is None
+    assert "20260912-0630-deepseek-v4.1-flash" in afc_deepseek41.oracle_note
+    assert "0.01043" in afc_deepseek41.oracle_note
+    assert "71640e30" in afc_deepseek41.oracle_note
+    assert "n=5" in afc_deepseek41.oracle_note
+    assert "read_cell_range" in afc_deepseek41.oracle_note
+    assert "NetworkError" in afc_deepseek41.oracle_note
+    assert "CATALOG FIFO COMPLETE" in afc_deepseek41.oracle_note
+    assert pel.has_recorded_partial(afc_deepseek41)
+    assert board.scored_count(deepseek41) == 1
+    assert board.not_happy_count(deepseek41) == 1
+    assert board.blocked_count(deepseek41) == 0
+
     # No invented catalog AFC-only scores outside AFC.
     for task_id in (
         "tenant-retention",
@@ -883,6 +922,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, seed_mini) is None
         assert board.result_for(task_id, minimax) is None
         assert board.result_for(task_id, deepseek) is None
+        assert board.result_for(task_id, deepseek41) is None
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -908,6 +948,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", seed_mini),
         ("afc", minimax),
         ("afc", deepseek),
+        ("afc", deepseek41),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -960,6 +1001,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_seed)
     assert pel.has_recorded_partial(afc_minimax)
     assert pel.has_recorded_partial(afc_deepseek)
+    assert pel.has_recorded_partial(afc_deepseek41)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -985,6 +1027,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "bytedance-seed/seed-2.0-mini"),
     ("afc", "minimax/minimax-m3"),
     ("afc", "deepseek/deepseek-v4-flash-0731"),
+    ("afc", "deepseek/deepseek-v4.1-flash"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -1067,6 +1110,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Seed 2.0 Mini" in heatmap
     assert "MiniMax M3" in heatmap
     assert "DeepSeek V4 Flash 0731" in heatmap
+    assert "DeepSeek V4.1 Flash" in heatmap
     assert "No HAPPY cell has recorded total_cost_usd yet" not in cost
     assert "data-cost-usd=\"0.004680\"" in cost
     assert "Mercury 2.5 Preview" in cost
@@ -1093,6 +1137,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Seed 2.0 Mini" in partial
     assert "MiniMax M3" in partial
     assert "DeepSeek V4 Flash 0731" in partial
+    assert "DeepSeek V4.1 Flash" in partial
     assert "Solar Pro 4" not in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
@@ -1135,6 +1180,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Seed 2.0 Mini" in heat
     assert "MiniMax M3" in heat
     assert "DeepSeek V4 Flash 0731" in heat
+    assert "DeepSeek V4.1 Flash" in heat
     assert pel.HEATMAP_NAME != "pareto-fronts.svg"
     assert pel.COVERAGE_NAME != "pareto-distance.svg"
     assert pel.COST_NAME != "pareto-fronts.svg"
@@ -1174,6 +1220,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Seed 2.0 Mini" in partial_text
     assert "MiniMax M3" in partial_text
     assert "DeepSeek V4 Flash 0731" in partial_text
+    assert "DeepSeek V4.1 Flash" in partial_text
     assert "Solar Pro 4" not in partial_text
     assert "S=0 R=66" in partial_text
     assert "S=494 R=68" in partial_text
