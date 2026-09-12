@@ -567,7 +567,7 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
         span_cols=8,
     )
     emit(r2)
-    emit(make_row("spacer"))
+    emit(_ods_spacer_row(make_row))
 
     # XLSX merges A4:H6 and A8:H10. Match that 3-row note + spacer skeleton
     # so SQL scenario / RESULTS rows land on the same indexes.
@@ -581,9 +581,9 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
             emit(follow)
 
     emit_spanned(ACS_INCOME_NOTE, "InfoBox", "metric", 3)
-    emit(make_row("spacer"))
+    emit(_ods_spacer_row(make_row))
     emit_spanned(SQL_IDENTITY_TEACH, "InfoBox", "metric", 3)
-    emit(make_row("spacer"))
+    emit(_ods_spacer_row(make_row))
 
     for scenario in sql_demo_scenarios():
         banner = make_row("section")
@@ -605,7 +605,7 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
             _ods_put_cell(sql_row, make_cell, line, "CodeBlock", span_cols=8)
             emit(sql_row)
         sql_range = _a1_col_range(sql_start, row_n)
-        emit(make_row("spacer"))
+        emit(_ods_spacer_row(make_row))
 
         res_hdr = make_row("section")
         _ods_put_cell(res_hdr, make_cell, "RESULTS", "SectionBanner", span_cols=8)
@@ -622,7 +622,7 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
         )
         emit(res_row)
         for gutter_i in range(sql_results_gutter_rows(scenario["kind"])):
-            emit(make_row("spacer"))
+            emit(_ods_spacer_row(make_row))
 
     # Same footer as XLSX: materializes the last spill gutter so max_row
     # is not the formula cell.
@@ -954,6 +954,21 @@ def _ods_cover_columns(row: Any, ncols: int) -> None:
         row.addElement(CoveredTableCell())
 
 
+def _ods_spacer_row(make_row: Any) -> Any:
+    """Blank row LibreOffice will keep (not a self-closing ``<table:table-row/>``).
+
+    odfpy serializes a cell-less TableRow as ``<table:table-row …/>``. Headed
+    Calc drops that, so Sales_Analytics R2 vanished, the section banner became
+    R2, Order_ID landed on R3, and named ``A4:J39`` started on ORD-1001.
+    One empty table-cell forces a real row index, matching XLSX blank R2.
+    """
+    from odf.table import TableCell
+
+    row = make_row("spacer")
+    row.addElement(TableCell())
+    return row
+
+
 def _add_ods_standard_sheet(tab: Any, spec: dict[str, Any], make_cell: Any, make_row: Any) -> None:
     """Emit one standard sheet using the XLSX row skeleton (header at row 4)."""
     data: list[list[Any]] = spec["data"]
@@ -964,7 +979,7 @@ def _add_ods_standard_sheet(tab: Any, spec: dict[str, Any], make_cell: Any, make
         title_row, make_cell, f"📊 {spec['name']} — {spec['sub']}", "HeroTitle", span_cols=ncols
     )
     tab.addElement(title_row)
-    tab.addElement(make_row("spacer"))
+    tab.addElement(_ods_spacer_row(make_row))
 
     sec_row = make_row("section")
     _ods_put_cell(sec_row, make_cell, spec["sec"], "SectionBanner", span_cols=ncols)
@@ -977,8 +992,8 @@ def _add_ods_standard_sheet(tab: Any, spec: dict[str, Any], make_cell: Any, make
             _ods_put_cell(r, make_cell, val, st)
         tab.addElement(r)
 
-    tab.addElement(make_row("spacer"))
-    tab.addElement(make_row("spacer"))
+    tab.addElement(_ods_spacer_row(make_row))
+    tab.addElement(_ods_spacer_row(make_row))
 
     banner = make_row("section")
     _ods_put_cell(banner, make_cell, STANDARD_METRICS_BANNER, "SectionBanner", span_cols=ncols)
@@ -1154,7 +1169,7 @@ def build_ods_showcase(out_path: Path) -> None:
     _ods_put_cell(r2, make_cell, "Enterprise Data Science, Machine Learning, and Scientific Computing natively inside your spreadsheet with =PY()", "HeroSubtitle", span_cols=8)
     tab1.addElement(r2)
 
-    tab1.addElement(make_row("spacer"))
+    tab1.addElement(_ods_spacer_row(make_row))
 
     rk_title = make_row("section")
     _ods_put_cell(rk_title, make_cell, "KEY PERFORMANCE INDICATORS (CALCULATED VIA PYTHON =PY)", "SectionBanner", span_cols=8)
@@ -1174,7 +1189,7 @@ def build_ods_showcase(out_path: Path) -> None:
     _ods_put_cell(rk_vals, make_cell, "$349.02", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{data[-1][4] * 1.15:,.2f}}\'"; {FORECAST_RANGE_ODS_CROSS})')
     tab1.addElement(rk_vals)
 
-    tab1.addElement(make_row("spacer"))
+    tab1.addElement(_ods_spacer_row(make_row))
 
     rf_title = make_row("section")
     _ods_put_cell(rf_title, make_cell, "CAPABILITY MATRIX: TRADITIONAL FORMULAS VS. LIBREPY =PY()", "SectionBanner", span_cols=8)
@@ -1219,7 +1234,7 @@ def build_ods_showcase(out_path: Path) -> None:
     t7_sub = make_row("sub")
     _ods_put_cell(t7_sub, make_cell, "Live =PY() formulas that automatically generate and embed vector chart graphics directly on the spreadsheet", "HeroSubtitle", span_cols=8)
     tab7.addElement(t7_sub)
-    tab7.addElement(make_row("spacer"))
+    tab7.addElement(_ods_spacer_row(make_row))
 
     t7_sec = make_row("section")
     _ods_put_cell(t7_sec, make_cell, "INTERACTIVE =PY() EMBEDDED PLOT GENERATORS", "SectionBanner", span_cols=8)
@@ -1233,7 +1248,7 @@ def build_ods_showcase(out_path: Path) -> None:
     ]
 
     for title, desc, form in viz_cards:
-        tab7.addElement(make_row("spacer"))
+        tab7.addElement(_ods_spacer_row(make_row))
         hdr_row = make_row("section")
         _ods_put_cell(hdr_row, make_cell, f"📊 {title} — {desc}", "SectionBanner", span_cols=8)
         tab7.addElement(hdr_row)

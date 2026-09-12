@@ -68,3 +68,26 @@ def test_ods_overview_kpi_and_matrix_merges_survive_load(ctx):
         except Exception:
             pass
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@native_test
+def test_ods_sales_header_stays_on_a4_after_load(ctx):
+    """Self-closing spacer rows were dropped: section→R2, Order_ID→R3, A4=ORD-1001."""
+    if not _ODS.is_file():
+        raise AssertionError(f"missing fixture {_ODS}")
+    doc, temp_dir = _open_ods_copy(ctx, _ODS)
+    try:
+        sheet = doc.getSheets().getByName("Sales_Analytics")
+        assert sheet.getCellByPosition(0, 1).getString() == ""
+        assert "TRANSACTIONAL SALES DATASET" in sheet.getCellByPosition(0, 2).getString()
+        assert sheet.getCellByPosition(0, 3).getString() == "Order_ID"
+        assert sheet.getCellByPosition(0, 4).getString() == "ORD-1001"
+        marketing = doc.getSheets().getByName("Statistics_ML")
+        assert marketing.getCellByPosition(0, 1).getString() == ""
+        assert marketing.getCellByPosition(0, 3).getString() == "Campaign"
+    finally:
+        try:
+            doc.close(True)
+        except Exception:
+            pass
+        shutil.rmtree(temp_dir, ignore_errors=True)

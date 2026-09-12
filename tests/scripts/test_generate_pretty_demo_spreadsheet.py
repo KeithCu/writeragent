@@ -658,6 +658,7 @@ def test_ods_and_xlsx_standard_sheets_share_row_skeleton(tmp_path: Path) -> None
         assert _ods_row_cell_texts(rows[1]) == []
         assert _ods_row_cell_texts(rows[2])[0] == spec["sec"]
         assert _ods_row_cell_texts(rows[3])[0] == header0
+        # Cell-less spacer serializes as <table:table-row …/> and Calc drops it.
         banner_texts = [_ods_row_cell_texts(row) for row in rows]
         assert any(STANDARD_METRICS_BANNER in texts for texts in banner_texts)
 
@@ -665,6 +666,17 @@ def test_ods_and_xlsx_standard_sheets_share_row_skeleton(tmp_path: Path) -> None
     assert _ods_named_range_address("Sales_Analytics", SALES_RANGE_XLSX) in xml
     assert _ods_named_range_address("Statistics_ML", MARKETING_RANGE_XLSX) in xml
     assert "table:formula='" not in xml
+    assert '<table:table-row table:style-name="row-spacer"/>' not in xml
+    sa = _ods_table_xml(xml, "Sales_Analytics")
+    assert re.search(
+        r'table:style-name="row-spacer">\s*<table:table-cell',
+        sa,
+    )
+    assert re.search(
+        r"row-section.*TRANSACTIONAL SALES DATASET.*row-header.*Order_ID",
+        sa,
+        flags=re.S,
+    )
 
     xlsx_sql = wb["SQL_DuckDB"]
     xlsx_result_rows = [
