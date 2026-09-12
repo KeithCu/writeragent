@@ -12,18 +12,12 @@ schema density without touching production sidebar registration.
 """
 from __future__ import annotations
 
-import argparse
 import copy
-from typing import Any, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 from unittest.mock import MagicMock
 
-from plugin.calc import CalcModule
-from plugin.chatbot import ChatbotModule
-from plugin.draw import DrawModule
-from plugin.framework.config import init_config
-from plugin.framework.service import ServiceRegistry
-from plugin.framework.tool import ToolRegistry
-from plugin.writer import WriterModule
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolRegistry
 
 _registry: ToolRegistry | None = None
 
@@ -76,6 +70,16 @@ TOOL_PRESETS: dict[str, tuple[str | None, tuple[str, ...] | None]] = {
 
 def _headless_registry() -> ToolRegistry:
     """Writer + Calc + Draw + chatbot core tools, filtered later by doc_type."""
+    # Plugin imports stay lazy so ``run_eval.py --help`` / CLI parse does not
+    # need UNO (eval_catalog is imported for --tools help text).
+    from plugin.calc import CalcModule
+    from plugin.chatbot import ChatbotModule
+    from plugin.draw import DrawModule
+    from plugin.framework.config import init_config
+    from plugin.framework.service import ServiceRegistry
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writer import WriterModule
+
     global _registry
     if _registry is not None:
         return _registry
@@ -324,7 +328,7 @@ def prepare_eval_tool_schemas(
     return apply_schema_patches(tools, schema_patches)
 
 
-def add_eval_tool_sweep_arguments(parser: argparse.ArgumentParser) -> None:
+def add_eval_tool_sweep_arguments(parser: Any) -> None:
     """``--tools`` and ``--schema-density`` for the live string harness CLIs."""
     preset_names = ", ".join(list_tool_preset_names())
     parser.add_argument(
