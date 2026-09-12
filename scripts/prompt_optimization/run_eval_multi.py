@@ -112,6 +112,65 @@ def _estimate_cost_usd(
     return total_cost
 
 
+# run_eval_multi details persist only total_tokens (no prompt/completion
+# split). When backfilling catalog rates onto a stored run, allocate the
+# total this way so cost / C²/$ is nonzero. Not measured OpenRouter usage.
+PROMPT_FRACTION_WHEN_SPLIT_UNKNOWN = 0.85
+
+
+def estimate_cost_usd_from_token_total(
+    total_tokens: int,
+    cfg: ModelConfig,
+    *,
+    prompt_fraction: float = PROMPT_FRACTION_WHEN_SPLIT_UNKNOWN,
+) -> float:
+    """Catalog-rate cost when only ``total_tokens`` is stored."""
+    if cfg.input_cost_per_million == 0.0 and cfg.output_cost_per_million == 0.0:
+        return 0.0
+    prompt_tokens = total_tokens * prompt_fraction
+    completion_tokens = total_tokens * (1.0 - prompt_fraction)
+    return (
+        (prompt_tokens / 1_000_000.0) * cfg.input_cost_per_million
+        + (completion_tokens / 1_000_000.0) * cfg.output_cost_per_million
+    )
+
+
+def apply_catalog_pricing_to_summary(
+    summary: dict[str, Any],
+    cfg: ModelConfig,
+    *,
+    prompt_fraction: float = PROMPT_FRACTION_WHEN_SPLIT_UNKNOWN,
+) -> dict[str, Any]:
+    """Fill cost / C²/$ from catalog rates. Does not change quality fields.
+
+    ``run_eval_multi`` writes ``intelligence_per_dollar_correctness`` as
+    ``avg_correctness² / avg_cost`` (and the metric twin) when cost > 0.
+    """
+    total_tokens = int(summary.get("total_tokens") or 0)
+    n_examples = int(summary.get("n_examples") or 0)
+    total_cost = estimate_cost_usd_from_token_total(
+        total_tokens, cfg, prompt_fraction=prompt_fraction
+    )
+    pricing_known = cfg.input_cost_per_million > 0 or cfg.output_cost_per_million > 0
+    avg_cost = total_cost / n_examples if n_examples else 0.0
+    avg_correctness = float(summary.get("avg_correctness") or 0.0)
+    avg_metric = float(summary.get("avg_metric_score") or 0.0)
+    if pricing_known and avg_cost > 0:
+        ipd_correctness = (avg_correctness ** 2) / avg_cost
+        ipd_metric = (avg_metric ** 2) / avg_cost
+    else:
+        ipd_correctness = 0.0
+        ipd_metric = 0.0
+    summary["input_cost_per_million"] = cfg.input_cost_per_million
+    summary["output_cost_per_million"] = cfg.output_cost_per_million
+    summary["pricing_known"] = pricing_known
+    summary["total_cost_usd"] = total_cost
+    summary["avg_cost_per_example"] = avg_cost
+    summary["intelligence_per_dollar_correctness"] = ipd_correctness
+    summary["intelligence_per_dollar_metric"] = ipd_metric
+    return summary
+
+
 PARETO_FRONTIER = "frontier"
 PARETO_DOMINATED = "dominated"
 PARETO_UNAVAILABLE = "unavailable"

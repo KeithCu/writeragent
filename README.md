@@ -134,12 +134,12 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | mistralai/mistral-small-2603 | 0.629 | 94 |
 | inception/mercury-2.5-preview | 0.869 | 83 |
 | qwen/qwen3.8-flash | 0.805 | 82 |
+| nvidia/nemotron-3-super-120b-a12b | 0.904 | 76 |
 | nvidia/nemotron-3.5-lightning | 0.374 | 52 |
 | qwen/qwen3.8-27b | 0.922 | 36 |
 | minimax/minimax-m3 | 0.820 | 32 |
 | x-ai/grok-4.6 | 0.982 | 20 |
-| nvidia/nemotron-3-super-120b-a12b | 0.904 | 0 |
-| nvidia/nemotron-3-ultra-550b-a55b | 0.821 | 0 |
+| nvidia/nemotron-3-ultra-550b-a55b | 0.821 | 12 |
 
 ---
 
