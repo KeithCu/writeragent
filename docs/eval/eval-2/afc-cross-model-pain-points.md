@@ -258,13 +258,13 @@ L2/L4/L5/L12/L13 are single-line sharpenings — land them alongside because the
 
 | Lever | Landed where |
 |---|---|
-| L9 | `CALC_WORKFLOW` step 2 `SELECT:` line + colocated `WriteCellRange.parameters.values` sentence: one `=IF(OR(<criterion>; …);1;0)` in the named flag column + fill-down, then `COUNTIF`. Also writes literal `1`s, so it covers the teaching half of L4. |
-| L11 | `CALC_WORKFLOW` step 2 `ANSWER:` line + the same `values` sentence: computed result in its own cell with a short plain label (no qualifiers) in the adjacent cell; ordinary formula/value, not `=PY`. |
+| L9 | `CALC_WORKFLOW` step 2 `SELECT:` line + colocated `WriteCellRange.parameters.values` sentence: one `=IF(OR(<criterion>; …);1;0)` in the named flag column + fill-down, then `COUNTIF` (in a scratch cell). Also writes literal `1`s, so it covers the teaching half of L4. |
+| L11 | `CALC_WORKFLOW` step 2 `ANSWER:` line + the same `values` sentence: computed result in its own cell with a plain label **naming the quantity** in the adjacent cell (`Sample size` or `R`; no "rounded up"/"minimum"); ordinary formula/value, not `=PY`. |
 | L10 | `CALC_WORKFLOW` step 3: `get_sheet_summary` each named deliverable sheet before finishing. Uses the **core** summary tool, not `list_sheets` (that is `sheets`-domain specialized). |
 | L13 | The step-2 copy line now says the copy must cover every column the user named (flags/variance). |
-| L12 | **Not** done — `CreateSheet.parameters.sheet` still says only "New sheet name"; land the exact-title sentence when next touching `sheets.py`. |
+| L12 | `CreateSheet.parameters.sheet` now carries the exact-title contract: preserve spaces, no snake_case / invented aliases. |
 
-Tests: `tests/framework/test_constants.py::test_calc_workflow_teaches_selection_answer_and_deliverable_verify`, plus the new-value assertions in `tests/calc/test_cells.py::test_write_formula_range_values_teaches_fill_down_not_json_pin`. Next: L12, then retest the slice (Grok empty-Sample, Luna/Qwen-Flash R-hole, Muse-Glimmer K-empty, Nemotron missing sheets).
+Tests: `tests/framework/test_constants.py::test_calc_workflow_teaches_selection_answer_and_deliverable_verify`, `tests/calc/test_cells.py::test_write_formula_range_values_teaches_fill_down_not_json_pin`, and `tests/calc/test_sheets.py::test_create_sheet_description_and_ok_mentions_no_cells_copied`. Next: retest the slice (Grok empty-Sample, Luna/Qwen-Flash R-hole, Muse-Glimmer K-empty, Nemotron missing sheets).
 
 ### L9 — Selection is one row-wise boolean formula + fill-down
 

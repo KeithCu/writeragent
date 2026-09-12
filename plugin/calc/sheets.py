@@ -92,7 +92,7 @@ class CreateSheet(ToolCalcSheetBase):
         "create_sheet is not Sample/deliverable populate — after create, "
         "write_formula_range with source to copy a block onto the new sheet."
     )
-    parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "New sheet name"}, "position": {"type": "integer", "description": ("Sheet position (0-based). Appended to end if not specified.")}}, "required": ["sheet"]}
+    parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "New sheet name — use the exact title the user asked for (preserve spaces; do not snake_case or invent aliases)."}, "position": {"type": "integer", "description": ("Sheet position (0-based). Appended to end if not specified.")}}, "required": ["sheet"]}
     is_mutation = True
 
     def execute(self, ctx, **kwargs):

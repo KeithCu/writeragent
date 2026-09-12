@@ -425,8 +425,8 @@ CALC_WORKFLOW = """WORKFLOW:
    Reductions that spill a small result: =PY into one empty cell outside the data.
 2. Do the work with tools. Use ranges, not one cell at a time.
    create_sheet makes an empty tab (no cells copied). To populate, write_formula_range with source and dest range; the copy must cover every column the user named (e.g. flags, variance).
-   SELECT: to mark rows by criteria, put one =IF(OR(<criterion>; …);1;0) in the named flag column's first data cell, fill-down, then COUNTIF that column to confirm the required count.
-   ANSWER: a computed result (e.g. a required sample size) goes in its own cell with a short plain label (no qualifiers) in the adjacent cell; use an ordinary formula or value, not =PY.
+   SELECT: to mark rows by criteria, put one =IF(OR(<criterion>; …);1;0) in the named flag column's first data cell, fill-down, then COUNTIF that column in a scratch cell to confirm the required count.
+   ANSWER: a computed result (e.g. a required sample size) goes in its own cell with a plain label naming the quantity (Sample size or R — no "rounded up"/"minimum") in the adjacent cell; use an ordinary formula or value, not =PY.
 3. Before you finish, get_sheet_summary each deliverable sheet the user named and confirm it exists and has data; if not, create/populate it first. Then a short confirmation naming the range(s) you wrote (e.g. "Wrote totals in B5:B8")."""
 
 

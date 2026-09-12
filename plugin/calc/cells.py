@@ -426,8 +426,9 @@ class WriteCellRange(ToolBase):
                     "=IF(OR(<criterion>; …);1;0) into the first data cell of the "
                     "named flag column and fill-down; do not hand-pick rows or "
                     "park the mark in another column. Put a computed result in "
-                    "its own cell with a short plain label (no qualifiers) in the "
-                    "adjacent cell — do not bury the number in a label string."
+                    "its own cell with a plain label naming the quantity in the "
+                    "adjacent cell (e.g. Sample size or R — no \"rounded up\"/"
+                    "\"minimum\"); do not bury the number in a label string."
                 ),
             },
             "source": {
