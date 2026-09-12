@@ -13,8 +13,8 @@ into `scripts/prompt_optimization/benchmark_results.json`.
 | Tasks | 17 short Writer/Calc/Draw worlds | 9 Ready / Headed-ready GDPval-shaped siblings (slot 7 PARKED) |
 | Gate | Catalog sweep on OpenRouter | **`google/gemini-3.8-flash`** until HAPPY (gpt-oss is not the product gate) |
 | Pass | `hard_pass_rate` (substring + result + process oracles) | **Product bar** HAPPY / NOT_HAPPY, plus CLI **oracle** PASS / FAIL |
-| Cost | C²/$ = metric² ÷ avg $/task | **HAPPY first**; among HAPPY, lower recorded USD / higher successes/$ |
-| Charts | `pareto-fronts.svg` / `pareto-distance.svg` | [`eval2-heatmap.svg`](eval2-heatmap.svg), [`eval2-coverage.svg`](eval2-coverage.svg), [`eval2-cost.svg`](eval2-cost.svg) |
+| Cost | C²/$ = metric² ÷ avg $/task | **HAPPY first**; among comparable, higher oracle partial, then lower USD |
+| Charts | `pareto-fronts.svg` / `pareto-distance.svg` | [`eval2-heatmap.svg`](eval2-heatmap.svg), [`eval2-coverage.svg`](eval2-coverage.svg), [`eval2-cost.svg`](eval2-cost.svg), [`eval2-partial.svg`](eval2-partial.svg) |
 
 **HAPPY** means the deliverable did the job (Keith: product over
 oracle). A soft oracle FAIL on a HAPPY cell is a false-red or a
@@ -53,11 +53,54 @@ for every cell. No OpenRouter eval-2 CI job.
 
 <img src="eval2-cost.svg" alt="Eval-2 headed cost for results. HAPPY cells with recorded USD; empty until a stamp records cost." />
 
+<img src="eval2-partial.svg" alt="Eval-2 headed partial/cost view. Bars only when oracle PASS or recorded fails/checks; no invented ratios." />
+
+## Ranking stack
+
+Product bar still wins: **HAPPY first**. A cheaper or higher-partial
+NOT_HAPPY run does not outrank an expensive HAPPY one.
+
+Among **comparable** outcomes (same HAPPY / NOT_HAPPY, usually the
+same task):
+
+1. Prefer **higher oracle partial** when a ratio exists.
+2. Then prefer **lower recorded USD**.
+
+Missing partial or cost sorts last in that step — unknown does not
+beat a recorded value. Heatmap stays HAPPY / NOT.
+
+## Oracle partial
+
+AFC (`eval_2_ods_oracle`) and the Writer/Calc/Draw siblings are
+fail-closed (`passed` iff `failures` is empty) but still expose
+useful soft signals: the `failures` list, AFC `s_flags` / `r_required`,
+and husk / scored cell counts.
+
+`partial_score` is oracle quality in [0, 1], computed only when honest:
+
+- `1` when the oracle passed (`oracle` is PASS, or `oracle_passed` is
+  true).
+- Otherwise `1 − oracle_failure_count / oracle_check_count` when
+  **both** counts were recorded from that stamp's `--score` JSON.
+- Omit when FAIL and `oracle_check_count` is unknown. Do **not**
+  invent a denominator from the failure strings, autopsy prose, or
+  a guessed “typical” check count.
+
+Optional result fields: `oracle_passed`, `oracle_failure_count`,
+`oracle_check_count`, `oracle_failures` (short strings), `afc_s_flags`,
+`afc_r_required`, `husk_cells`, `scored_cells`, `partial_score`.
+The 2026-09-12 seed omits them. AFC catalog stamps can fill them
+from `eval_2_ods_oracle --json` (S/R and husks) without claiming
+more precision than fails/checks.
+
+The partial chart draws a coarse bar only when `partial_score` exists.
+S/R and husk counts can label a row; they do not become a fake 0–1
+axis.
+
 ## Cost for results
 
-Product bar still wins: **HAPPY first**. A cheaper NOT_HAPPY run does
-not outrank an expensive HAPPY one. Among HAPPY cells that recorded
-`total_cost_usd` > 0, rank by **lower cost** (cheaper success).
+Among HAPPY cells that recorded `total_cost_usd` > 0, after partial
+when it exists, rank by **lower cost** (cheaper success).
 
 `intelligence_per_dollar` is **successes per USD**, computed when
 HAPPY and cost > 0:
@@ -70,11 +113,11 @@ This is **not** the string-harness C²/$
 (`correctness² / avg $/task` in [`docs/eval/benchmarks.md`](../benchmarks.md)).
 Eval-2 has no continuous correctness — HAPPY is binary.
 
-Optional result fields (`total_tokens`, `input_tokens`,
+Optional cost fields (`total_tokens`, `input_tokens`,
 `output_tokens`, `total_cost_usd`, `wall_time_s`,
 `intelligence_per_dollar`) are empty on the 2026-09-12 seed. The
-heatmap stays HAPPY / NOT. Fill cost only from a real headed stamp
-(AFC catalog sweep and later tasks).
+heatmap stays HAPPY / NOT. Fill cost and oracle-partial only from a
+real headed stamp (AFC catalog sweep and later tasks).
 
 ### Cell notes (only scored pairs)
 
@@ -106,7 +149,12 @@ were gpt-oss only.
    `patches`. Optional cost axis (omit when unknown): `total_tokens` /
    `input_tokens` / `output_tokens` (ints), `total_cost_usd`,
    `wall_time_s`, `intelligence_per_dollar` (computed as
-   `1 / total_cost_usd` when HAPPY and cost > 0). Schema:
+   `1 / total_cost_usd` when HAPPY and cost > 0). Optional partial
+   (omit when unknown): `oracle_passed`, `oracle_failure_count`,
+   `oracle_check_count`, `oracle_failures`, `afc_s_flags` /
+   `afc_r_required`, `husk_cells` / `scored_cells`, `partial_score`
+   (`1` on PASS; else `1 − failures/checks` only when both counts
+   were recorded). Schema:
    [`eval2_benchmark_results.schema.json`](eval2_benchmark_results.schema.json).
 3. `task_id` must match `scripts/eval_2_headed.py --task` (`afc`,
    `tenant-retention`, …). Slot 7 stays omitted.
@@ -119,9 +167,10 @@ were gpt-oss only.
 
 5. Paste the printed matrix into the snapshot table above if the
    cells changed. `--print-matrix` also prints the HAPPY cost table
-   (empty until a stamp records USD). Update `updated` in the JSON.
+   and the HAPPY → partial → cost ranking (empty extras stay
+   em-dash). Update `updated` in the JSON.
    Do **not** copy rows into the string-pack leaderboard. Do **not**
-   invent `total_cost_usd`.
+   invent `total_cost_usd`, `oracle_check_count`, or `partial_score`.
 
 `--check` validates the JSON only. The plot script refuses
 `benchmark_results.json` so a wrong `--in` cannot overwrite Pareto

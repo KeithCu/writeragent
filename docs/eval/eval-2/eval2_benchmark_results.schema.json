@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/KeithCu/writeragent/docs/eval/eval-2/eval2_benchmark_results.schema.json",
   "title": "Eval-2 headed multi-model results",
-  "description": "Task × model cells for headed eval-2 experiments. Metrics are product_bar (HAPPY / NOT_HAPPY) and oracle (PASS / FAIL). Optional per-result cost/token/wall fields rank HAPPY cells on cost for results — omit them when unknown; never invent scores or run costs. This is not the 17-task string-harness hard_pass_rate / C²/$ schema.",
+  "description": "Task × model cells for headed eval-2 experiments. Metrics are product_bar (HAPPY / NOT_HAPPY) and oracle (PASS / FAIL). Optional per-result oracle partial (failures/checks, AFC S/R, husks) and cost/token/wall fields rank comparable cells: HAPPY first, then higher partial, then lower cost. Omit optional fields when unknown; never invent scores, check counts, or run costs. This is not the 17-task string-harness hard_pass_rate / C²/$ schema.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -172,6 +172,51 @@
           "type": ["number", "null"],
           "minimum": 0,
           "description": "HAPPY successes per USD: 1 / total_cost_usd when product_bar is HAPPY and total_cost_usd > 0. Omit otherwise. Distinct from string-harness C²/$ (correctness² / avg $/task)."
+        },
+        "oracle_passed": {
+          "type": ["boolean", "null"],
+          "description": "CLI oracle passed flag (same as OracleResult.passed). Omit when the oracle was not re-run. When omitted, plot code may derive it from oracle PASS/FAIL."
+        },
+        "oracle_failure_count": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "len(OracleResult.failures). Omit when unknown — do not invent. When omitted, plot code may use len(oracle_failures) if that list was recorded."
+        },
+        "oracle_check_count": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "How many fail-closed checks that oracle attempted on this stamp. Omit when unknown — do not invent a denominator."
+        },
+        "oracle_failures": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Short OracleResult.failures strings. Omit when unknown."
+        },
+        "afc_s_flags": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "AFC Sample column-K flag=1 count (eval_2_ods_oracle s_flags). Omit on non-AFC or when unknown."
+        },
+        "afc_r_required": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "AFC required sample size R from the SSC sheet. Omit when unknown."
+        },
+        "husk_cells": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Husk / residue cell count from the task oracle. Omit when unknown."
+        },
+        "scored_cells": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Scored-cell count from the task oracle (husk ratio denominator). Omit when unknown."
+        },
+        "partial_score": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Oracle quality in [0, 1]: 1 when oracle passed; otherwise 1 − oracle_failure_count / oracle_check_count when both counts are recorded. Omit when the ratio cannot be formed — do not invent checks."
         }
       }
     }
