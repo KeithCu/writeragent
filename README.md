@@ -12,7 +12,7 @@
 
 **Python, NumPy, and Agentic AI for LibreOffice (Writer, Calc, and Draw)**
 
-Run Python and scientific compute directly in spreadsheet formulas, edit documents with private local-first AI, conduct autonomous web research, generate diagrams, and automate office workflows — without cloud lock-in.
+Run Python and scientific compute directly in spreadsheet formulas, edit documents with private local-first AI, conduct web research, generate diagrams, and automate office workflows — without cloud lock-in.
 
 The project is distributed as three standalone extension packages (*install only one at a time*):
 
@@ -32,7 +32,7 @@ The project is distributed as three standalone extension packages (*install only
 
 - **Sidebar Chat with Multi-turn Tool Calling** — Edit, restructure, or expand documents using natural language. 9 core tools plus dozens of [specialized sub-agents](docs/writer/specialized-toolsets.md) for page layout, footnotes, bookmarks, revisions, and forms.
 - **Format-Preserving Edits** — Surgical redlines and section rewrites maintain your existing formatting (bold, italics, highlights, font sizes, tables, and nested lists) without clobbering styles.
-- **Autonomous Web Research** — Integrated private [smolagents](https://github.com/huggingface/smolagents) loop with DuckDuckGo. Synthesizes multiple web sources and updates open documents with real-time facts and citations. [Agent Search](docs/chat/search.md)
+- **Web Research** — Integrated private [smolagents](https://github.com/huggingface/smolagents) loop with DuckDuckGo. Synthesizes multiple web sources and updates open documents with real-time facts and citations. [Agent Search](docs/chat/search.md)
 - **Real-Time Grammar & Proofreading** — Local, privacy-preserving grammar checking via [Harper](https://github.com/Automattic/harper) (fast, auto-installing), [LanguageTool](https://languagetool.org), or LLM endpoints with mixed-language sentence detection. [Details](docs/writer/grammar-checker-plan.md)
 - **Math & LaTeX Import** — Converts LaTeX and MathML into native, editable LibreOffice Math objects. [Math Guide](docs/writer/math-tex.md)
 
@@ -87,7 +87,7 @@ For detailed setup instructions, see the **[Install and Troubleshooting Guide](d
 
 ![Chat Sidebar with Dashboard](Showcase/Sonnet46Spreadsheet.png)
 
-**Hermes + Opus 4.6 (Autonomous Web Research)**
+**Hermes + Opus 4.6 (Web Research)**
 
 ![Hermes-Agent / Opus-4.6 Akihabara](Showcase/HermesAkihabara.png)
 
