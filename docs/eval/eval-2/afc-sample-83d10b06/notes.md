@@ -54,3 +54,13 @@ than Luna’s S=68. OpenRouter usage sum ~$0.00122 stored; model_configs
 estimate ~$0.00049 is an alternate only. Nitro routing OK. Run dir is
 box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0202-gpt-oss-20b-nitro/`.
+
+Fourth catalog cell: `google/gemini-3.5-flash-lite`, stamp
+`20260912-0216-gemini-3.5-flash-lite`. Attempt1 aborted (nitro
+contamination); attempt2 used a clean history. Product bar
+**NOT_HAPPY**, oracle **FAIL** (same R hole). Sample/SSC present
+(`sample_data_rows=81`; S=0; husks 0/648). Shot showed SSC label
+truncated “Required Sar”=73; oracle parsed R=None — do not store 73.
+OpenRouter usage sum ~$0.00629 stored; model_configs estimate ~$0.00821
+is an alternate only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0216-gemini-3.5-flash-lite/`.
