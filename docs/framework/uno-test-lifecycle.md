@@ -296,6 +296,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `windows leftover skip: apply_style origin canary leftover reuse leftovers=`,
 `windows leftover skip: format_uno Hidden _blank small_doc leftovers=`,
 `windows leftover skip: format_uno cross-paragraph color leftover reuse leftovers=`,
+`windows leftover skip: inline_review view cursor leftover reuse leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -566,6 +567,16 @@ alive; later tests OK). Leftover skip
 (`windows leftover skip: format_uno cross-paragraph color leftover
 reuse`). Not a product change.
 
+GHA 34687044125 (PR #746 tip `0c837455`): format_uno Hidden `_blank`
+small_doc + cross-paragraph leftover skips fired (suite green). Then
+`test_resolve_accept_keeps_new_and_clears_pair_uno` hung 30s in
+`_caret_in` `getViewCursor().gotoRange` after leftover writer reuse
+(office alive). Hidden leftover Writers have no working view.
+Inline-review `_body` now
+`skip_windows_leftover_hidden_load`
+(`windows leftover skip: inline_review view cursor leftover reuse`).
+Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -643,6 +654,10 @@ format_uno cross-paragraph color `TEST end … SKIP` with
 `windows leftover skip: format_uno cross-paragraph color leftover
 reuse` when leftover_open>0 (no leftover-reuse AssertionError —
 GHA 34685648395),
+inline-review `TEST end … SKIP` with
+`windows leftover skip: inline_review view cursor leftover reuse`
+when leftover_open>0 (no 30s Timeout on `getViewCursor().gotoRange`
+— GHA 34687044125 `_caret_in`),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**

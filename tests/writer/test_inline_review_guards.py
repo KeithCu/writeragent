@@ -607,6 +607,16 @@ def test_block_reason_fails_closed_on_count_error():
     assert agent_self_resolution_block_reason(model) is not None
 
 
+def test_inline_review_uno_skips_windows_leftover_view_cursor() -> None:
+    """GHA 34687044125: leftover Hidden view cursor hung in _caret_in."""
+    from pathlib import Path
+
+    src = Path(__file__).with_name("test_inline_review_uno.py").read_text(encoding="utf-8")
+    assert "skip_windows_leftover_hidden_load" in src
+    assert "inline_review view cursor leftover reuse" in src
+    assert "34687044125" in src
+
+
 def test_redline_is_agent_change_true_for_token():
     assert redline_is_agent_change(_agent_rl()) == (True, True)
 
