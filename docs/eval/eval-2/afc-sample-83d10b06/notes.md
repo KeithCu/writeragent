@@ -64,3 +64,12 @@ truncated “Required Sar”=73; oracle parsed R=None — do not store 73.
 OpenRouter usage sum ~$0.00629 stored; model_configs estimate ~$0.00821
 is an alternate only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0216-gemini-3.5-flash-lite/`.
+
+Fifth catalog cell: `google/gemma-4-31b-it`, stamp
+`20260912-0224-gemma-4-31b-it`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (same R hole). Sample+SSC present (`sample_data_rows=81`;
+S=0; husks 81/810). SSC R is Err:508/#NAME?; oracle parsed R=None.
+Husk-heavy Sample flags, still under the 50% husk-dominate fail.
+OpenRouter usage sum ~$0.10841 stored; model_configs estimate ~$0.01404
+is an alternate only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0224-gemma-4-31b-it/`.

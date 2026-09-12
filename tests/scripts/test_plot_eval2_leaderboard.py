@@ -102,6 +102,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "openai/gpt-5.6-luna",
         "openai/gpt-oss-20b",
         "google/gemini-3.5-flash-lite",
+        "google/gemma-4-31b-it",
         "x-ai/grok-4.6",
         "meta/muse-spark-1.3-contributor",
     }
@@ -114,6 +115,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     luna = "openai/gpt-5.6-luna"
     oss20 = "openai/gpt-oss-20b"
     lite = "google/gemini-3.5-flash-lite"
+    gemma = "google/gemma-4-31b-it"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -276,7 +278,34 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "Required Sar" in afc_lite.oracle_note
     assert "73" in afc_lite.oracle_note
 
-    # No invented Luna / 20b / Flash Lite scores outside AFC.
+    # Fifth catalog AFC stamp (Scrolly headed 20260912-0224).
+    afc_gemma = board.result_for("afc", gemma)
+    assert afc_gemma is not None
+    assert afc_gemma.product_bar == "NOT_HAPPY"
+    assert afc_gemma.oracle == "FAIL"
+    assert afc_gemma.stamp == "20260912-0224-gemma-4-31b-it"
+    assert afc_gemma.oracle_passed is False
+    assert afc_gemma.oracle_failure_count == 1
+    assert afc_gemma.oracle_failures == (
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_gemma.oracle_check_count is None
+    assert afc_gemma.partial_score is None
+    assert afc_gemma.afc_s_flags == 0
+    assert afc_gemma.afc_r_required is None
+    assert afc_gemma.husk_cells == 81
+    assert afc_gemma.scored_cells == 810
+    assert afc_gemma.input_tokens == 146941
+    assert afc_gemma.output_tokens == 2394
+    assert afc_gemma.total_tokens == 149335
+    assert afc_gemma.wall_time_s == 392
+    assert afc_gemma.total_cost_usd == pytest.approx(0.10841)
+    assert afc_gemma.intelligence_per_dollar is None
+    assert "20260912-0224-gemma-4-31b-it" in afc_gemma.oracle_note
+    assert "0.01404" in afc_gemma.oracle_note
+    assert "Err:508" in afc_gemma.oracle_note
+
+    # No invented Luna / 20b / Flash Lite / Gemma scores outside AFC.
     for task_id in (
         "tenant-retention",
         "cadaver-proposal",
@@ -290,6 +319,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, luna) is None
         assert board.result_for(task_id, oss20) is None
         assert board.result_for(task_id, lite) is None
+        assert board.result_for(task_id, gemma) is None
 
     # Remaining catalog peers stay empty until a real stamp lands.
     for mid in (
@@ -300,7 +330,13 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.happy_count(mid) == 0
 
     # Other seed cells must not invent run costs or oracle-partial counts.
-    recorded_afc = {("afc", oss), ("afc", luna), ("afc", oss20), ("afc", lite)}
+    recorded_afc = {
+        ("afc", oss),
+        ("afc", luna),
+        ("afc", oss20),
+        ("afc", lite),
+        ("afc", gemma),
+    }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
             continue
@@ -331,6 +367,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_luna)
     assert pel.has_recorded_partial(afc_20b)
     assert pel.has_recorded_partial(afc_lite)
+    assert pel.has_recorded_partial(afc_gemma)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -338,6 +375,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "openai/gpt-5.6-luna"),
     ("afc", "openai/gpt-oss-20b"),
     ("afc", "google/gemini-3.5-flash-lite"),
+    ("afc", "google/gemma-4-31b-it"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -418,6 +456,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "data-partial-score=\"1.00\"" in partial
     assert "Gemini 3.8 Flash" in partial
     assert "Gemini 3.5 Flash Lite" in partial
+    assert "Gemma 4 31B" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -466,6 +505,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "GPT-5.6 Luna" in partial_text
     assert "GPT-OSS 20B" in partial_text
     assert "Gemini 3.5 Flash Lite" in partial_text
+    assert "Gemma 4 31B" in partial_text
     assert "no ratio" in partial_text
 
 
