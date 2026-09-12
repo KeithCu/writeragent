@@ -30,13 +30,13 @@ Ranked by **hard pass → agent score → metric**. **Hard pass** = document sub
 | 12 | inception/mercury-2.5-preview | 0.882 | 0.882 | 0.869 | 0.95 | 32048 | 0.00909 | 36.3 |
 | 13 | z-ai/glm-5.3-flash | 0.882 | 0.882 | 0.854 | 0.90 | 40501 | 0.00394 | 107.5 |
 | 14 | ibm-granite/granite-4.2-8b | 0.824 | 0.824 | 0.861 | 0.93 | 69261 | 0.00772 | 24.5 |
-| 15 | nvidia/nemotron-3-ultra-550b-a55b | 0.824 | 0.824 | 0.821 | 0.74 | 55758 | 0.00000 | 0.0 |
+| 15 | nvidia/nemotron-3-ultra-550b-a55b | 0.824 | 0.824 | 0.821 | 0.74 | 55758 | 0.05576 | 4.5 |
 | 16 | openai/gpt-oss-20b | 0.824 | 0.824 | 0.805 | 0.89 | 16666 | 0.00071 | 627.9 |
 | 17 | qwen/qwen3.8-flash | 0.824 | 0.824 | 0.805 | 0.89 | 47587 | 0.00793 | 32.0 |
 | 18 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 59174 | 0.02098 | 16.9 |
 | 19 | upstage/solar-pro4 | 0.765 | 0.765 | 0.741 | 0.90 | 21216 | 0.00067 | 483.4 |
 | 20 | google/gemma-4-26b-a4b-it | 0.765 | 0.765 | 0.739 | 0.89 | 19147 | 0.00142 | 234.6 |
-| 21 | nvidia/nemotron-3-super-120b-a12b | 0.706 | 0.765 | 0.904 | 0.91 | 80850 | 0.00000 | 0.0 |
+| 21 | nvidia/nemotron-3-super-120b-a12b | 0.706 | 0.765 | 0.904 | 0.91 | 80850 | 0.01069 | 23.7 |
 | 22 | poolside/laguna-s-2.1 | 0.706 | 0.706 | 0.759 | 0.90 | 21103 | 0.00214 | 158.5 |
 | 23 | google/gemini-3.5-flash-lite | 0.706 | 0.706 | 0.747 | 0.93 | 15806 | 0.00542 | 72.6 |
 | 24 | mistralai/mistral-small-2603 | 0.647 | 0.647 | 0.629 | 0.85 | 27441 | 0.00421 | 56.9 |
@@ -47,7 +47,7 @@ Ranked by **hard pass → agent score → metric**. **Hard pass** = document sub
 1. **Perfect hard pass (post fill-down splice):** Muse Glimmer/Spark, DeepSeek V4 Flash, Grok 4.6, and `openai/gpt-oss-120b` are back at **1.000** hard pass. Prior Calc drop on 120b/Gemma/Seed was largely a harness false-red: Tip A single-formula writes now fill-down-adjust in the string world (#733).
 2. **Fill-down refresh movers:** largest hard recoveries were `gpt-oss-120b` (+0.118), `gemma-4-31b-it` / `seed-2.0-mini` / `laguna-xs-2.1` (+0.059 each). Soft drop: `z-ai/glm-5.3-flash` (−0.059 hard) on `data_sorting`. Luna / Qwen Flash / DeepSeek V4.1 Flash were re-run on Calc this time (scores unchanged; rows already passed).
 3. **Calc/oracle hotspots (honest):** remaining fails are model-side — `tax_column` total-row tax (`gemini-3.5-flash-lite`), wrong sort direction/order (`mistral-small-2603`, `glm-5.3-flash`, `nemotron-3.5-lightning`). No `max_tool_rounds` on the spliced Calc rows.
-4. **C²/$:** `openai/gpt-oss-120b` still leads Value after the recovery. Pareto plots still exclude `nvidia/nemotron-3.5-lightning` and `minimax/minimax-m3`.
+4. **C²/$:** `openai/gpt-oss-120b` still leads Value after the recovery. Nemotron Ultra/Super 1658 rows now use catalog rates (`0.625/3.125` and `0.085/0.4` per 1M) × recorded `total_tokens` with a documented **85% prompt / 15% completion** split (details omitted the split; no OpenRouter usage in the run artifacts). Pareto plots still exclude `nvidia/nemotron-3.5-lightning` and `minimax/minimax-m3`.
 5. **MiniMax M3 is in the table:** one non-Calc task (`format_preservation`) still carries a stream-normalizer contract bug (`type(delta) is dict`); not a blanket hold-out. Re-run that task after [stream-normalizer-delta-crash.md](stream-normalizer-delta-crash.md) is fixed.
 
 ## Scoring approach
