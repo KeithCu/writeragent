@@ -247,6 +247,8 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "partial_score`²" in text or "partial_score²" in text
     assert "1 − oracle_failure_count / oracle_check_count" in text
     assert "headed sibling" in text.lower()
+    assert "Different benchmark" in text
+    assert "One filled task still counts" in text
     assert "do **not** invent run costs" in text.lower()
     assert "Catalog-wide" in text or "catalog" in text.lower()
     assert "sweep has **not** happened" in text
@@ -257,6 +259,8 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     readme = _README.read_text(encoding="utf-8")
     assert "[`benchmarks.md`](benchmarks.md)" in readme
     assert "string-pack Pareto" in readme
+    assert "Different benchmark from the 17-task string pack" in readme
+    assert "One filled task" in readme
     heatmap = (_EVAL2 / pel.HEATMAP_NAME).read_text(encoding="utf-8")
     coverage = (_EVAL2 / pel.COVERAGE_NAME).read_text(encoding="utf-8")
     cost = (_EVAL2 / pel.COST_NAME).read_text(encoding="utf-8")

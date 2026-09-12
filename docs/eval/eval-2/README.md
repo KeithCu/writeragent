@@ -1,12 +1,17 @@
 # eval-2 — WriterAgent hard-task variants
 
+**Different benchmark from the 17-task string pack**
+([`docs/eval/benchmarks.md`](../benchmarks.md) / Pareto). Same scoring
+philosophy (hard / partial / cost), but headed multi-doc GDPval-style
+tasks that are much harder. One filled task (AFC or any Ready slot)
+still counts as a hard benchmark. Sibling charts:
+[`benchmarks.md`](benchmarks.md) — do not fold into the string-pack Pareto.
+
 **Eval-2 is for debugging the harness.** Iterate here. Do **not** edit
 `docs/eval/gdpval/` gold trees except by **adding** a new untouched gold
-id. Headed sibling of the string-pack Pareto (same hard / partial /
-cost axes, harder tasks): [`benchmarks.md`](benchmarks.md). Stores stay
-separate — do not fold into `benchmark_results.json`. Catalog-wide
-sweeps still wait; empty cells mean no in-repo headed stamp. Empty
-cost or partial stays empty — do not invent run costs or check counts.
+id. Catalog-wide sweeps still wait; empty cells mean no in-repo headed
+stamp. Empty cost or partial stays empty — do not invent run costs or
+check counts.
 
 `test_gold_prompt_is_byte_copy_of_hf_tree` compares `prompt.txt` and
 `prompt.gdpval.txt` as bytes to the HF `task.json` `prompt` (LF).

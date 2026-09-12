@@ -1,9 +1,12 @@
 # Eval-2 headed benchmarks
 
-Eval-2 is the **headed sibling** of the 17-task string pack: the same
-kind of benchmark (hard / partial-quality / cost), on much harder
-GDPval-shaped Writer, Calc, and Draw tasks. Runs track product success
-and **Intelligence-per-Dollar**. **Value (C²/$)** = oracle
+**Different benchmark** from the 17-task string pack
+([`docs/eval/benchmarks.md`](../benchmarks.md) / Pareto): same hard /
+partial / cost philosophy, but headed multi-doc GDPval-style tasks that
+are much harder. One filled task still counts.
+
+Eval-2 is the **headed sibling** of that pack. Runs track product
+success and **Intelligence-per-Dollar**. **Value (C²/$)** = oracle
 `partial_score` squared ÷ recorded USD on a HAPPY cell (higher is
 better), when both were measured.
 
