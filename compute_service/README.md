@@ -13,7 +13,7 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 ```
 
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"<version>"}` (no auth required)
-- `POST /v1/execute` → `{ "id?", "code", "data?", "mode?", "session_id?", "timeout_ms?", "init_script?" }`
+- `POST /v1/execute[?session_id=<id>]` → `{ "id?", "code", "data?", "mode?", "timeout_ms?", "init_script?" }`
   (`init_script` runs **once** per worker: shared uses `{session_id}:init`, isolated uses a hash of the script. Later cells are seeded from that namespace; a changed script replaces the snapshot.)
 - Docker (hardened run flags): `./compute_service/start-docker.sh` — see **Production / Collabora Online** below.
 
@@ -36,9 +36,15 @@ Always unauthenticated even when Bearer authentication is configured for executi
   }
   ```
 
-### 2. Execution Endpoint (`POST /v1/execute`)
+### 2. Execution Endpoint (`POST /v1/execute[?session_id=<id>]`)
 
 Evaluates sandboxed Python code and emits kit-safe dumb JSON (`allow_nan=False`, `NaN`/`Inf` → `null`).
+
+- **Sticky Routing via URL Query Parameter**: For stateful calculations (`mode="shared"`), `session_id` is supplied as a URL query parameter (`POST /v1/execute?session_id=<id>`) so Layer 7 routers, ingress proxies, and load balancers can route stickily without buffering and parsing JSON request bodies:
+  - **HAProxy**: `balance url_param session_id`
+  - **NGINX**: `hash $arg_session_id consistent;`
+  - **Envoy**: `hash_policy: [query_parameter: { name: "session_id" }]`
+  - **AWS ALB**: Query string routing conditions on `session_id`.
 
 - **Request Schema**:
   ```json
@@ -47,11 +53,11 @@ Evaluates sandboxed Python code and emits kit-safe dumb JSON (`allow_nan=False`,
     "code": "result = float(np.sum(data))",
     "data": [10, 20, 30],
     "mode": "isolated",
-    "session_id": "optional-session-id",
     "timeout_ms": 5000,
     "init_script": "optional-init-code"
   }
   ```
+  *(Note: `session_id` must be passed as the URL query parameter `?session_id=...`, not in the JSON body).*
 
 - **Success Response (`200 OK`)**:
   ```json
@@ -221,7 +227,7 @@ docker run --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
   python-compute
 ```
 
-Shared `mode=shared` **must** use a per-document `session_id` (not a user id). Idle kernels are reset after `shared_kernel_ttl_sec`.
+Shared `mode=shared` **must** use a per-document `session_id` query parameter (`?session_id=<id>`) (not a user id). Idle kernels are reset after `shared_kernel_ttl_sec`.
 
 ---
 
@@ -247,7 +253,7 @@ Two stacked protocols:
 
 | Hop | Format | What travels |
 |-----|--------|--------------|
-| coolwsd → HTTP server | Dumb JSON (`POST /v1/execute`, `POST /v1/vision`) | `code`, `data` as nested lists, `mode`, `session_id`, … / vision `image_b64` or `file_path` |
+| coolwsd → HTTP server | Dumb JSON (`POST /v1/execute[?session_id=...]`, `POST /v1/vision`) | `code`, `data` as nested lists, `mode`, … (session in URL query) / vision `image_b64` or `file_path` |
 | HTTP server → formula/vision workers | Length-prefixed **Pickle 5** on stdio | Request/response **dicts**; large formula `data` may be a `split_grid` envelope |
 
 **Pickle framing** ([`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py), [`worker_base.py`](worker_base.py)):

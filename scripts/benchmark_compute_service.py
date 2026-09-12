@@ -143,10 +143,10 @@ class ManagedBenchmarkServer:
 
 
 def execute_request(url: str, payload_bytes: bytes) -> tuple[bool, float]:
-    """Send one POST /v1/execute request and return (success, latency_ms)."""
+    """Send one POST request to url (e.g. /v1/execute[?session_id=...]) and return (success, latency_ms)."""
     start_t = time.perf_counter()
     req = urllib.request.Request(
-        f"{url}/v1/execute",
+        url,
         data=payload_bytes,
         headers={"Content-Type": "application/json"},
         method="POST",
@@ -178,12 +178,17 @@ def run_benchmark_scenario(
 
     def worker_job(worker_id: int) -> None:
         nonlocal success_count, fail_count
-        # Build payload (for shared sessions, give each worker its own session ID)
+        # Build URL and payload (for shared sessions, pass session_id as URL query parameter)
+        is_shared = spec.get("mode") == "shared"
+        req_url = (
+            f"{target_url}/v1/execute?session_id=bench-worker-{worker_id}"
+            if is_shared
+            else f"{target_url}/v1/execute"
+        )
         payload = {
             "code": spec["code"],
             "data": spec.get("data"),
             "mode": spec.get("mode", "isolated"),
-            "session_id": f"bench-worker-{worker_id}" if spec.get("mode") == "shared" else None,
         }
         payload_bytes = json.dumps(payload).encode("utf-8")
 
@@ -192,7 +197,7 @@ def run_benchmark_scenario(
         worker_fail = 0
 
         for _ in range(requests_per_worker):
-            ok, lat_ms = execute_request(target_url, payload_bytes)
+            ok, lat_ms = execute_request(req_url, payload_bytes)
             worker_latencies.append(lat_ms)
             if ok:
                 worker_succ += 1
