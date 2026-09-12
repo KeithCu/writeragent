@@ -259,7 +259,7 @@ L2/L4/L5/L12/L13 are single-line sharpenings — land them alongside because the
 | Lever | Landed where |
 |---|---|
 | L9 | `CALC_WORKFLOW` step 2 `SELECT:` line + colocated `WriteCellRange.parameters.values` sentence: one `=IF(OR(<criterion>; …);1;0)` in the named flag column + fill-down, then `COUNTIF`. Also writes literal `1`s, so it covers the teaching half of L4. |
-| L11 | `CALC_WORKFLOW` step 2 `ANSWER:` line + the same `values` sentence: computed result in its own cell with a plain label in the adjacent cell; ordinary formula/value, not `=PY`. |
+| L11 | `CALC_WORKFLOW` step 2 `ANSWER:` line + the same `values` sentence: computed result in its own cell with a short plain label (no qualifiers) in the adjacent cell; ordinary formula/value, not `=PY`. |
 | L10 | `CALC_WORKFLOW` step 3: `get_sheet_summary` each named deliverable sheet before finishing. Uses the **core** summary tool, not `list_sheets` (that is `sheets`-domain specialized). |
 | L13 | The step-2 copy line now says the copy must cover every column the user named (flags/variance). |
 | L12 | **Not** done — `CreateSheet.parameters.sheet` still says only "New sheet name"; land the exact-title sentence when next touching `sheets.py`. |
@@ -281,7 +281,7 @@ Tests: `tests/framework/test_constants.py::test_calc_workflow_teaches_selection_
 
 **Hits:** C1 + C2 + C6 (≥9 compound).
 
-**DO:** Extend `CALC_WORKFLOW` step 3 only: when the request names deliverable sheets, `list_sheets`, then `get_sheet_summary` each named sheet and confirm it exists, is non-empty (`row_count` > header), and shows the named result cell; create/populate before finishing if not.
+**DO:** Extend `CALC_WORKFLOW` step 3 only: when the request names deliverable sheets, `get_sheet_summary` each named sheet and confirm it exists, is non-empty (`row_count` > header), and shows the named result cell; create/populate before finishing if not. Use the **core** summary tool only — do **not** call `list_sheets` (`sheets`-domain specialized).
 - Do **not** gate interactive Ready (unchanged invariant). This is a tool-using habit, not an FSM predicate.
 
 **Why:** “tab exists but empty” and “never created the named tab” are the two most common Ready-looking fails; one cheap `get_sheet_summary` surfaces both. General to every multi-sheet Calc task.

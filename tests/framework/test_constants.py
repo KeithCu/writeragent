@@ -445,9 +445,10 @@ def test_calc_workflow_teaches_selection_answer_and_deliverable_verify():
     assert "named flag column" in CALC_WORKFLOW
     assert "fill-down" in CALC_WORKFLOW
     assert "COUNTIF" in CALC_WORKFLOW
-    # L11 — computed answer in its own cell with an adjacent label, not =PY.
+    # L11 — computed answer in its own cell with an adjacent short label
+    # (no Luna-shaped "rounded up" / "minimum" qualifiers), not =PY.
     assert "ANSWER:" in CALC_WORKFLOW
-    assert "plain label in the adjacent cell" in CALC_WORKFLOW
+    assert "short plain label (no qualifiers) in the adjacent cell" in CALC_WORKFLOW
     # L10 — verify named deliverables (core get_sheet_summary, not list_sheets).
     assert "get_sheet_summary each deliverable sheet" in CALC_WORKFLOW
     assert "list_sheets" not in CALC_WORKFLOW
