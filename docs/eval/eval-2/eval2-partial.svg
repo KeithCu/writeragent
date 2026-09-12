@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="860" height="726" viewBox="0 0 860 726" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="754" viewBox="0 0 860 754" role="img">
   <title>Eval-2 headed partial / cost (recorded oracle quality)</title>
-  <rect width="860" height="726" fill="#ffffff"/>
+  <rect width="860" height="754" fill="#ffffff"/>
   <text x="24" y="28" font-family="DejaVu Sans, sans-serif" font-size="16" font-weight="700" fill="#202124">Eval-2 headed partial / cost (recorded oracle quality)</text>
   <text x="24" y="46" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#5f6368">Hard (HAPPY) first; among comparable, higher partial then lower USD. Bars only when PASS or fails/checks recorded. Coarse C²/$ sibling.</text>
   <text x="24" y="64" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="700" fill="#202124">3. AFC Population</text>
@@ -47,7 +47,9 @@
   <text x="312.0" y="598.0" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">no ratio · 2/— · S=0 R=— · $0.1435</text>
   <text x="296.0" y="626.0" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">Muse Glimmer 30B</text>
   <text x="312.0" y="626.0" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">no ratio · 1/— · S=0 R=— · $0.1540</text>
-  <text x="296.0" y="654.0" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">Qwen3.8 27B</text>
-  <text x="312.0" y="654.0" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">no ratio · 2/— · S=0 R=— · $1.4282</text>
-  <text x="24" y="710" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">partial = 1 when oracle PASS; else 1 − fails/checks. Do not invent check counts.</text>
+  <text x="296.0" y="654.0" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">DeepSeek V4 Flash 0731</text>
+  <text x="312.0" y="654.0" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">no ratio · 2/— · S=0 R=— · $0.1701</text>
+  <text x="296.0" y="682.0" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">Qwen3.8 27B</text>
+  <text x="312.0" y="682.0" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">no ratio · 2/— · S=0 R=— · $1.4282</text>
+  <text x="24" y="738" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">partial = 1 when oracle PASS; else 1 − fails/checks. Do not invent check counts.</text>
 </svg>

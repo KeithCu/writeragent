@@ -249,3 +249,15 @@ Recorded wall ~66s. tip_at_run `71640e30`. OpenRouter usage sum
 ~$0.07965 stored; model_configs estimate ~$0.10003 is an alternate
 only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0617-minimax-m3/`.
+
+Twenty-second catalog cell: `deepseek/deepseek-v4-flash-0731`, stamp
+`20260912-0621-deepseek-v4-flash-0731`. Product bar **NOT_HAPPY**,
+oracle **FAIL** (`failure_count=2`: Sample has no data rows; R from
+Sample Size Calculation is missing or < 1). Ready; Sample+SSC
+present but empty (`sample_data_rows=0`); Sample errored
+`deal.PreContractError expected__deal_wire_dict_ok`; SSC blank;
+S=0; R=None; husks 0/0. Tokens are n=51. PreContract=18;
+UNO/assert=0. Recorded wall ~330s. tip_at_run `71640e30`.
+OpenRouter usage sum ~$0.17007 stored; model_configs estimate
+~$0.18897 is an alternate only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0621-deepseek-v4-flash-0731/`.
