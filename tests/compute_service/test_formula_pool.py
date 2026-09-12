@@ -522,12 +522,18 @@ class TestFormulaHttpEndpoint:
         server.server_close()
         thread.join(timeout=3)
 
-    def _post(self, url: str, payload: dict, headers: dict | None = None) -> tuple[int, dict]:
+    def _post(
+        self,
+        url: str,
+        payload: dict,
+        headers: dict | None = None,
+        path: str = "/v1/execute",
+    ) -> tuple[int, dict]:
         req_headers = {"Content-Type": "application/json"}
         if headers:
             req_headers.update(headers)
         data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(f"{url}/v1/execute", data=data, headers=req_headers, method="POST")
+        req = urllib.request.Request(f"{url}{path}", data=data, headers=req_headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=30.0) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
@@ -641,16 +647,18 @@ class TestFormulaHttpEndpoint:
         session_id = "session-http-123"
         status1, body1 = self._post(
             formula_server,
-            {"id": "req-s1", "code": "val = 42\nresult = val", "session_id": session_id, "mode": "shared"},
+            {"id": "req-s1", "code": "val = 42\nresult = val", "mode": "shared"},
             headers={"Authorization": "Bearer formula-secret"},
+            path=f"/v1/execute?session_id={session_id}",
         )
         assert status1 == 200
         assert body1.get("result") == 42
 
         status2, body2 = self._post(
             formula_server,
-            {"id": "req-s2", "code": "val += 8\nresult = val", "session_id": session_id, "mode": "shared"},
+            {"id": "req-s2", "code": "val += 8\nresult = val", "mode": "shared"},
             headers={"Authorization": "Bearer formula-secret"},
+            path=f"/v1/execute?session_id={session_id}",
         )
         assert status2 == 200
         assert body2.get("result") == 50

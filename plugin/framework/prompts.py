@@ -71,6 +71,65 @@ def get_research_completion_instruction(doc_type: str | None = None) -> str:
     return RESEARCH_COMPLETION_INSTRUCTION_WRITER
 
 
+# Sheets create: specialized hop makes empty tabs; populate is the outer's job
+# (sheets required_core_tools are reads only — not write_formula_range).
+SHEETS_CREATED_NOT_POPULATED_INSTRUCTION = (
+    "If sheets were created, they are not populated (tab exists; no cells copied). "
+    "Do write_formula_range onto the new tab(s) with source to copy a block, or with values."
+)
+
+
+def get_sheets_create_completion_instruction() -> str:
+    """Return next-step instruction after specialized sheets create so the outer can populate."""
+    return SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
+
+
+def _reports_empty_sheet_create(payload: dict) -> bool:
+    """True when a specialized finish/result already says a new empty tab exists."""
+    blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer"))
+    lower = blob.lower()
+    return "no cells copied" in lower or "new sheet named" in lower
+
+
+def first_instruction_from_tool_results(results: list | tuple | None) -> str | None:
+    """First non-empty ``instruction`` string from inner specialized tool results."""
+    if not results:
+        return None
+    for result in results:
+        if isinstance(result, dict):
+            inst = result.get("instruction")
+            if isinstance(inst, str) and inst.strip():
+                return inst
+    return None
+
+
+def attach_sheets_create_completion_instruction(
+    payload: dict,
+    *,
+    create_sheet_ran: bool = False,
+    tool_results: list | tuple | None = None,
+) -> dict:
+    """Attach create≠populate ``instruction`` on the payload the outer reads.
+
+    Same field as web research (`instruction`). Use after a sheets specialized hop
+    when ``create_sheet`` ran, an inner tool result already carried ``instruction``,
+    or the finish text reports a new empty sheet.
+    """
+    if payload.get("status") != "ok":
+        return payload
+    existing = payload.get("instruction")
+    if isinstance(existing, str) and existing.strip():
+        return payload
+    inst = first_instruction_from_tool_results(tool_results)
+    if inst is None and (create_sheet_ran or _reports_empty_sheet_create(payload)):
+        inst = SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
+    if not inst:
+        return payload
+    out = dict(payload)
+    out["instruction"] = inst
+    return out
+
+
 # Canonical wording for tools that return a para_index / paragraph_index to the model. Those indexes
 # are internal addressing only; the user never sees them and they shift as the document changes, so
 # the model must refer to a place by quoting its text, not by number. Append to such tool
@@ -424,7 +483,7 @@ CALC_WORKFLOW = """WORKFLOW:
    Row-wise ordinary Calc formulas: write_formula_range (fill-down adjusts relative refs).
    Reductions that spill a small result: =PY into one empty cell outside the data.
 2. Do the work with tools. Use ranges, not one cell at a time.
-   create_sheet makes an empty tab (no cells copied). To populate, write_formula_range with source and dest range; the copy must cover every column the user named (e.g. flags, variance).
+   Empty tabs via specialized sheets (delegate domain="sheets"); then write_formula_range with source (or values) onto the new tab — create is not populate; the copy must cover every column the user named (e.g. flags, variance).
    SELECT: to mark rows by criteria, put one =IF(OR(<criterion>; …);1;0) in the named flag column's first data cell, fill-down, then COUNTIF that column in a scratch cell to confirm the required count.
    ANSWER: a computed result (e.g. a required sample size) goes in its own cell with a plain label naming the quantity in the user's words (e.g. Sample size — no "rounded up"/"minimum") in the adjacent cell; use an ordinary formula or value, not =PY.
 3. Before you finish, get_sheet_summary each deliverable sheet the user named and confirm it exists and has data; if not, create/populate it first. Then a short confirmation naming the range(s) you wrote (e.g. "Wrote totals in B5:B8")."""

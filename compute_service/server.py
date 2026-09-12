@@ -17,6 +17,7 @@ import socket
 import sys
 import threading
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer
 from typing import Any, Callable
@@ -273,11 +274,34 @@ def create_wsgi_app(
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
 
+            if "session_id" in req_data:
+                err_body = {
+                    "status": "error",
+                    "error": "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.",
+                }
+                if req_id is not None:
+                    err_body["id"] = req_id
+                return _start_json(start_response, "400 Bad Request", err_body)
+
+            query_string = environ.get("QUERY_STRING", "")
+            query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
+            session_ids = query_params.get("session_id")
+            session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
+
             data = req_data.get("data")
-            session_id = req_data.get("session_id")
             mode = req_data.get("mode") or "isolated"
             if mode not in ("isolated", "shared"):
                 mode = "isolated"
+
+            if mode == "shared" and not session_id:
+                err_body = {
+                    "status": "error",
+                    "error": "mode='shared' requires a 'session_id' URL query parameter (?session_id=...).",
+                }
+                if req_id is not None:
+                    err_body["id"] = req_id
+                return _start_json(start_response, "400 Bad Request", err_body)
+
             init_script = req_data.get("init_script")
             if init_script is not None and not isinstance(init_script, str):
                 init_script = None
@@ -296,7 +320,7 @@ def create_wsgi_app(
                 default_timeout_sec=settings.default_timeout_sec,
                 max_timeout_sec=settings.max_timeout_sec,
             )
-            sid = session_id.strip() if isinstance(session_id, str) and session_id.strip() else None
+            sid = session_id
             inflight_sid = sid if mode == "shared" else None
             limit_code = _acquire_inflight(inflight_sid)
             if limit_code is not None:

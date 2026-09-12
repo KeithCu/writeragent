@@ -80,7 +80,9 @@ def test_get_sheet_summary_keeps_normal_names():
 
 
 def test_create_sheet_description_and_ok_mentions_no_cells_copied():
+    from plugin.calc.base import ToolCalcSheetBase
     from plugin.calc.sheets import CreateSheet
+    from plugin.framework.prompts import get_sheets_create_completion_instruction
 
     desc = CreateSheet.description
     assert "no cells copied" in desc
@@ -88,10 +90,16 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
     assert "source" in desc
     # CRUD-only: stay specialized (delegation), do not promote to core.
     assert CreateSheet.tier == "specialized"
+    sheet_param = CreateSheet.parameters["properties"]["sheet"]["description"]
+    assert "Exact" in sheet_param
+    assert "preserve spaces" in sheet_param
+    assert "snake_case" in sheet_param
+    assert ToolCalcSheetBase.specialized_domain_description is not None
+    assert "Create" in ToolCalcSheetBase.specialized_domain_description
 
     # L12 — exact-title contract: spaces preserved, no snake_case / aliases.
     sheet_param = CreateSheet.parameters["properties"]["sheet"]["description"]
-    assert "exact title the user asked for" in sheet_param
+    assert "Exact new sheet title from the request" in sheet_param
     assert "preserve spaces" in sheet_param
     assert "snake_case" in sheet_param
 
@@ -100,8 +108,9 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
     sheets.getCount.return_value = 1
     with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
         bridge_cls.return_value.get_active_document.return_value.getSheets.return_value = sheets
-        result = CreateSheet().execute(ctx, sheet="Sample")
+        result = CreateSheet().execute(ctx, sheet="Q1 Actuals")
 
     assert result["status"] == "ok"
     assert "no cells copied" in result["message"]
-    sheets.insertNewByName.assert_called_once_with("Sample", 1)
+    assert result["instruction"] == get_sheets_create_completion_instruction()
+    sheets.insertNewByName.assert_called_once_with("Q1 Actuals", 1)

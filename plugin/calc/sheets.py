@@ -24,6 +24,7 @@ appropriate helper class per call using ``ctx.doc``.
 import logging
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.prompts import get_sheets_create_completion_instruction
 from plugin.framework.tool import ToolBase
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
@@ -92,7 +93,23 @@ class CreateSheet(ToolCalcSheetBase):
         "create_sheet is not Sample/deliverable populate — after create, "
         "write_formula_range with source to copy a block onto the new sheet."
     )
-    parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "New sheet name — use the exact title the user asked for (preserve spaces; do not snake_case or invent aliases)."}, "position": {"type": "integer", "description": ("Sheet position (0-based). Appended to end if not specified.")}}, "required": ["sheet"]}
+    parameters = {
+        "type": "object",
+        "properties": {
+            "sheet": {
+                "type": "string",
+                "description": (
+                    "Exact new sheet title from the request; preserve spaces "
+                    "(do not snake_case or invent aliases)."
+                ),
+            },
+            "position": {
+                "type": "integer",
+                "description": "Sheet position (0-based). Appended to end if not specified.",
+            },
+        },
+        "required": ["sheet"],
+    }
     is_mutation = True
 
     def execute(self, ctx, **kwargs):
@@ -108,7 +125,14 @@ class CreateSheet(ToolCalcSheetBase):
             sheets.insertNewByName(sheet_name, position)
             log.info("New sheet created: %s (position: %d)", sheet_name, position)
             result = f"New sheet named '{sheet_name}' created; no cells copied."
-            return {"status": "ok", "message": result}
+            # Inner-only ok string used to stop here; the outer never saw it.
+            # Same `instruction` field as web research so specialized finish
+            # can forward the create≠populate nudge to the main agent.
+            return {
+                "status": "ok",
+                "message": result,
+                "instruction": get_sheets_create_completion_instruction(),
+            }
         except Exception as e:
             log.exception("Sheet creation failed for %s", sheet_name)
             raise ToolExecutionError(str(e)) from e

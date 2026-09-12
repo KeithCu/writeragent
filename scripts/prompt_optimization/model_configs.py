@@ -221,6 +221,22 @@ MODELS: list[ModelConfig] = [
         output_cost_per_million=0.6,
         notes="DeepSeek V4.1 Flash; newer Flash tier vs V4 Flash 0731.",
     ),
+    ModelConfig(
+        openrouter_id="nvidia/nemotron-3-ultra-550b-a55b",
+        display_name="NVIDIA: Nemotron 3 Ultra 550B",
+        context_window_tokens=262_144,
+        input_cost_per_million=0.625,
+        output_cost_per_million=3.125,
+        notes="NVIDIA Nemotron 3 Ultra 550B; paid OpenRouter catalog (2026-09-12).",
+    ),
+    ModelConfig(
+        openrouter_id="nvidia/nemotron-3-super-120b-a12b",
+        display_name="NVIDIA: Nemotron 3 Super 120B",
+        context_window_tokens=262_144,
+        input_cost_per_million=0.085,
+        output_cost_per_million=0.4,
+        notes="NVIDIA Nemotron 3 Super 120B; paid OpenRouter id (not :free).",
+    ),
 ]
 
 # Smoke / optimize / run_eval.py student. :nitro is OpenRouter routing

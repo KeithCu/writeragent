@@ -149,9 +149,9 @@ flowchart LR
 - Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `config.py`, `executor.py`, [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
 - Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
-- `POST /v1/execute` body: `{ "id?", "code", "data", "session_id?", "timeout_ms?", "mode?", "init_script?" }` → `{ "id?", "status", "result"|"error", "stdout?", "images?" }`.
+- `POST /v1/execute[?session_id=...]` body: `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` → `{ "id?", "status", "result"|"error", "stdout?", "images?" }`.
 - **Dumb JSON egress only** toward kit/coolwsd: ndarrays and `split_grid` become nested lists; NaN/Inf → `null`; `json.dumps(..., allow_nan=False)`. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
-- `mode`: `isolated` (default) ignores `session_id`; `shared` needs a session id and serializes executes per session with a lock.
+- `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
 - Reuse desktop sandbox: [`venv_sandbox`](../../plugin/scripting/venv/venv_sandbox.py), import whitelist, curated Docker image (pinned numpy/pandas/**Pillow**/…).
 - Prefer an **in-process executor in the service** first (fewer hops). Add Pickle5 warm workers later only if the service host needs ABI isolation.

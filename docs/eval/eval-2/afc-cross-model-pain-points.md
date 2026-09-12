@@ -347,7 +347,7 @@ Tests: `tests/framework/test_constants.py::test_calc_workflow_teaches_selection_
 
 Tests lock the workflow / values / create_sheet strings (`test_calc_workflow_teaches_selection_answer_and_deliverable_verify`, `test_write_formula_range_values_teaches_fill_down_not_json_pin`, `test_create_sheet_description_and_ok_mentions_no_cells_copied`).
 
-**Not in this PR tip (related in-flight):** [#751](https://github.com/KeithCu/writeragent/pull/751) outer `instruction` after specialized sheets create (web-research pattern) for create≠populate — may help when Sample is never populated because create happened in a nested hop the outer never finishes. Do not treat #751 as shipped on #750.
+**Merged from master (#751-era):** `CALC_WORKFLOW` create line now says empty tabs via **specialized** `domain="sheets"` + `write_formula_range` populate (`create is not populate`) — not the older “`create_sheet` makes an empty tab” outer wording. SELECT / ANSWER / L10 / L13 from this PR sit on top of that. Outer populate handoff after specialized create remains important for Sample-missing cases on the retest slice.
 
 ### 2. Why (map to catalog clusters)
 

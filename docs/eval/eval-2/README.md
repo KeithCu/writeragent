@@ -21,6 +21,10 @@ not rewrite them as CRLF.
 Living headed autopsy (product bar + peer polarity + next experiments): [`headed-failure-autopsy.md`](headed-failure-autopsy.md).
 Cross-model AFC catalog pain points (after #741 FIFO): [`afc-cross-model-pain-points.md`](afc-cross-model-pain-points.md).
 Scoreboard + SVG charts: [`benchmarks.md`](benchmarks.md).
+Paid Nemotron 3 Ultra 550B (`nvidia/nemotron-3-ultra-550b-a55b`) and
+Nemotron 3 Super 120B (`nvidia/nemotron-3-super-120b-a12b`) are
+registered on the eval catalog for later AFC/string stamps — no headed
+cells yet.
 
 Each subdirectory is one experiment. **Ready** means headed helper +
 oracle exist. **Stub** means fixture notes only — not headed-ready gold.

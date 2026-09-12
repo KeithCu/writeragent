@@ -43,6 +43,8 @@ EXPECTED_DEFAULT_IDS = [
     "minimax/minimax-m3",
     "deepseek/deepseek-v4-flash-0731",
     "deepseek/deepseek-v4.1-flash",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3-super-120b-a12b",
 ]
 
 EXPECTED_GOLD_ONLY_IDS: list[str] = []

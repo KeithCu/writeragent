@@ -61,9 +61,11 @@ def compute_url(compute_server_info):
     return f"http://127.0.0.1:{port}"
 
 
-def _post_execute(url: str, payload: dict) -> dict:
+def _post_execute(url: str, payload: dict, path: str = "/v1/execute") -> dict:
+    if not path.startswith("/"):
+        path = f"/v1/execute{path}"
     req = urllib.request.Request(
-        f"{url}/v1/execute",
+        f"{url}{path}",
         data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
@@ -251,6 +253,65 @@ class TestComputeHttp:
         )
         assert body["status"] == "ok"
         assert body["result"] == [[1.0, None], [3.0, 4.0]]
+
+    def test_shared_session_via_query_param(self, compute_url: str) -> None:
+        sid = "http-query-session-1"
+        r1 = _post_execute(
+            compute_url,
+            {"code": "x = 42\nresult = x", "mode": "shared"},
+            path=f"?session_id={sid}",
+        )
+        assert r1["status"] == "ok" and r1["result"] == 42
+        r2 = _post_execute(
+            compute_url,
+            {"code": "result = x + 8", "mode": "shared"},
+            path=f"?session_id={sid}",
+        )
+        assert r2["status"] == "ok" and r2["result"] == 50
+
+    def test_url_encoded_query_param(self, compute_url: str) -> None:
+        r1 = _post_execute(
+            compute_url,
+            {"code": "x = 99\nresult = x", "mode": "shared"},
+            path="?session_id=my%20doc%202026",
+        )
+        assert r1["status"] == "ok" and r1["result"] == 99
+        r2 = _post_execute(
+            compute_url,
+            {"code": "result = x", "mode": "shared"},
+            path="?session_id=my%20doc%202026",
+        )
+        assert r2["status"] == "ok" and r2["result"] == 99
+
+    def test_session_id_in_json_body_returns_400(self, compute_url: str) -> None:
+        req = urllib.request.Request(
+            f"{compute_url}/v1/execute",
+            data=json.dumps({"id": "body-sid-req", "code": "result = 1", "session_id": "bad-body-sid"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req)
+        assert exc_info.value.code == 400
+        body = json.loads(exc_info.value.read().decode("utf-8"))
+        assert body.get("id") == "body-sid-req"
+        assert body.get("status") == "error"
+        assert "query parameter" in body.get("error", "")
+
+    def test_shared_mode_missing_session_id_returns_400(self, compute_url: str) -> None:
+        req = urllib.request.Request(
+            f"{compute_url}/v1/execute",
+            data=json.dumps({"id": "missing-sid-req", "code": "result = 1", "mode": "shared"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(req)
+        assert exc_info.value.code == 400
+        body = json.loads(exc_info.value.read().decode("utf-8"))
+        assert body.get("id") == "missing-sid-req"
+        assert body.get("status") == "error"
+        assert "requires a 'session_id' URL query parameter" in body.get("error", "")
 
     def test_matplotlib_images_top_level(self, compute_url: str) -> None:
         body = _post_execute(

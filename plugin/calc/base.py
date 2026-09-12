@@ -83,7 +83,7 @@ class ToolCalcConditionalBase(ToolCalcSpecialBase):
 class ToolCalcSheetBase(ToolCalcSpecialBase):
     """Base for sheet operations and sheet filtering (AutoFilter)."""
     specialized_domain = "sheets"
-    specialized_domain_description: ClassVar[str | None] = "List, switch, protect, rename, and delete sheets; apply/clear AutoFilter operations."
+    specialized_domain_description: ClassVar[str | None] = "Create, list, switch, protect, rename, and delete sheets; apply/clear AutoFilter operations."
     intent = "edit"
 
 
