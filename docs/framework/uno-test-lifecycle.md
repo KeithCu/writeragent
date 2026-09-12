@@ -294,6 +294,8 @@ POSIX still `close_doc`. Breadcrumbs:
 `windows leftover skip: document scripts Hidden _blank reopen leftovers=`,
 `windows leftover skip: apply_document_content Hidden _default swriter leftovers=`,
 `windows leftover skip: apply_style origin canary leftover reuse leftovers=`,
+`windows leftover skip: format_uno Hidden _blank small_doc leftovers=`,
+`windows leftover skip: format_uno cross-paragraph color leftover reuse leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -550,6 +552,20 @@ vs old style default. Windows leftover skip
 (`windows leftover skip: apply_style origin canary leftover reuse`)
 — leftover pollution, not a product change.
 
+GHA 34685648395 (PR #746 tip `71d559c6`): content-style write /
+apply-style origin canary leftover skips fired (suites green).
+`test_apply_document_content_target_full_preserves_colors` printed
+`windows leftover skip: apply_document_content Hidden _default
+swriter` then hung 30s in `finally: small_doc.close(True)` after
+Hidden `_blank` factory load. SkipTest still runs `finally`.
+Windows now skips that test *before* the factory load
+(`windows leftover skip: format_uno Hidden _blank small_doc`).
+Same run: `test_cross_paragraph_same_length_replacement_preserves_colors`
+FAIL empty AssertionError under leftover writer reuse (office
+alive; later tests OK). Leftover skip
+(`windows leftover skip: format_uno cross-paragraph color leftover
+reuse`). Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -619,6 +635,14 @@ apply-style origin canary `TEST end … SKIP` with
 `windows leftover skip: apply_style origin canary leftover reuse`
 when leftover_open>0 (no FAIL claiming origin detection improved —
 GHA 34683742049 leftover reuse; Linux still pins CharWeight=150),
+format_uno Hidden `_blank` small_doc `TEST end … SKIP` with
+`windows leftover skip: format_uno Hidden _blank small_doc`
+when leftover_open>0 (no 30s Timeout on `finally: small_doc.close(True)`
+— GHA 34685648395 SkipTest still ran `finally` after apply skip),
+format_uno cross-paragraph color `TEST end … SKIP` with
+`windows leftover skip: format_uno cross-paragraph color leftover
+reuse` when leftover_open>0 (no leftover-reuse AssertionError —
+GHA 34685648395),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**
