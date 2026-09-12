@@ -3,7 +3,7 @@
   "updated": "2026-09-12",
   "gate_model": "google/gemini-3.8-flash",
   "source_of_truth": "docs/eval/eval-2/headed-failure-autopsy.md",
-  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded from in-repo autopsy / sibling notes plus Scrolly AFC catalog stamps (gpt-oss-120b, gpt-5.6-luna, gpt-oss-20b, gemini-3.5-flash-lite, gemma-4-31b-it). No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
+  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded from in-repo autopsy / sibling notes plus Scrolly AFC catalog stamps (gpt-oss-120b, gpt-5.6-luna, gpt-oss-20b, gemini-3.5-flash-lite, gemma-4-31b-it, gemma-4-26b-a4b-it). No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
   "tasks": [
     {
       "id": "tenant-retention",
@@ -98,6 +98,11 @@
     {
       "openrouter_id": "google/gemma-4-31b-it",
       "display_name": "Gemma 4 31B",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "google/gemma-4-26b-a4b-it",
+      "display_name": "Gemma 4 26B A4B",
       "role": "catalog"
     },
     {
@@ -269,6 +274,31 @@
       "total_tokens": 149335,
       "wall_time_s": 392,
       "total_cost_usd": 0.10841
+    },
+    {
+      "task_id": "afc",
+      "model": "google/gemma-4-26b-a4b-it",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Sixth catalog AFC cell. First catalog model besides the Gemini 3.8 gate to produce a parseable R (R=65). Sample undersized (sample_data_rows=10 << 65) with S=0, so oracle FAIL is S < R, not the missing-R hole. Attempt1 contaminated; attempt2 wipe. Husks 0/70. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.04316); model_configs estimate ~0.05011 is an alternate, not stored. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0240-gemma-4-26b-a4b-it/",
+      "stamp": "20260912-0240-gemma-4-26b-a4b-it",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "S=0 flag=1 in column K is < R=65"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": 65,
+      "husk_cells": 0,
+      "scored_cells": 70,
+      "input_tokens": 688661,
+      "output_tokens": 5586,
+      "total_tokens": 694247,
+      "wall_time_s": 886,
+      "total_cost_usd": 0.04316
     },
     {
       "task_id": "writer-calc-peer-write",

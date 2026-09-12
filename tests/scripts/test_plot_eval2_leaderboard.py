@@ -103,6 +103,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "openai/gpt-oss-20b",
         "google/gemini-3.5-flash-lite",
         "google/gemma-4-31b-it",
+        "google/gemma-4-26b-a4b-it",
         "x-ai/grok-4.6",
         "meta/muse-spark-1.3-contributor",
     }
@@ -116,6 +117,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     oss20 = "openai/gpt-oss-20b"
     lite = "google/gemini-3.5-flash-lite"
     gemma = "google/gemma-4-31b-it"
+    gemma26 = "google/gemma-4-26b-a4b-it"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -305,6 +307,33 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "0.01404" in afc_gemma.oracle_note
     assert "Err:508" in afc_gemma.oracle_note
 
+    # Sixth catalog AFC stamp (Scrolly headed 20260912-0240).
+    afc_gemma26 = board.result_for("afc", gemma26)
+    assert afc_gemma26 is not None
+    assert afc_gemma26.product_bar == "NOT_HAPPY"
+    assert afc_gemma26.oracle == "FAIL"
+    assert afc_gemma26.stamp == "20260912-0240-gemma-4-26b-a4b-it"
+    assert afc_gemma26.oracle_passed is False
+    assert afc_gemma26.oracle_failure_count == 1
+    assert afc_gemma26.oracle_failures == (
+        "S=0 flag=1 in column K is < R=65",
+    )
+    assert afc_gemma26.oracle_check_count is None
+    assert afc_gemma26.partial_score is None
+    assert afc_gemma26.afc_s_flags == 0
+    assert afc_gemma26.afc_r_required == 65
+    assert afc_gemma26.husk_cells == 0
+    assert afc_gemma26.scored_cells == 70
+    assert afc_gemma26.input_tokens == 688661
+    assert afc_gemma26.output_tokens == 5586
+    assert afc_gemma26.total_tokens == 694247
+    assert afc_gemma26.wall_time_s == 886
+    assert afc_gemma26.total_cost_usd == pytest.approx(0.04316)
+    assert afc_gemma26.intelligence_per_dollar is None
+    assert "20260912-0240-gemma-4-26b-a4b-it" in afc_gemma26.oracle_note
+    assert "0.05011" in afc_gemma26.oracle_note
+    assert "10 <<" in afc_gemma26.oracle_note or "sample_data_rows=10" in afc_gemma26.oracle_note
+
     # No invented Luna / 20b / Flash Lite / Gemma scores outside AFC.
     for task_id in (
         "tenant-retention",
@@ -320,6 +349,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, oss20) is None
         assert board.result_for(task_id, lite) is None
         assert board.result_for(task_id, gemma) is None
+        assert board.result_for(task_id, gemma26) is None
 
     # Remaining catalog peers stay empty until a real stamp lands.
     for mid in (
@@ -336,6 +366,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", oss20),
         ("afc", lite),
         ("afc", gemma),
+        ("afc", gemma26),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -368,6 +399,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_20b)
     assert pel.has_recorded_partial(afc_lite)
     assert pel.has_recorded_partial(afc_gemma)
+    assert pel.has_recorded_partial(afc_gemma26)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -376,6 +408,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "openai/gpt-oss-20b"),
     ("afc", "google/gemini-3.5-flash-lite"),
     ("afc", "google/gemma-4-31b-it"),
+    ("afc", "google/gemma-4-26b-a4b-it"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -457,6 +490,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Gemini 3.8 Flash" in partial
     assert "Gemini 3.5 Flash Lite" in partial
     assert "Gemma 4 31B" in partial
+    assert "Gemma 4 26B A4B" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -464,6 +498,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "S=585 R=—" in partial
     assert "S=68 R=—" in partial
     assert "S=0 R=—" in partial
+    assert "S=0 R=65" in partial
     assert "no ratio" in partial
     assert "data-partial-score=\"0." not in partial
 
@@ -502,10 +537,12 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "S=585 R=—" in partial_text
     assert "S=68 R=—" in partial_text
     assert "S=0 R=—" in partial_text
+    assert "S=0 R=65" in partial_text
     assert "GPT-5.6 Luna" in partial_text
     assert "GPT-OSS 20B" in partial_text
     assert "Gemini 3.5 Flash Lite" in partial_text
     assert "Gemma 4 31B" in partial_text
+    assert "Gemma 4 26B A4B" in partial_text
     assert "no ratio" in partial_text
 
 

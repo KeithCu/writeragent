@@ -73,3 +73,12 @@ Husk-heavy Sample flags, still under the 50% husk-dominate fail.
 OpenRouter usage sum ~$0.10841 stored; model_configs estimate ~$0.01404
 is an alternate only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0224-gemma-4-31b-it/`.
+
+Sixth catalog cell: `google/gemma-4-26b-a4b-it`, stamp
+`20260912-0240-gemma-4-26b-a4b-it`. First catalog model besides the
+Gemini 3.8 gate to produce a parseable R (**R=65**). Product bar
+**NOT_HAPPY**, oracle **FAIL** (`S=0 < R=65`). Sample undersized
+(`sample_data_rows=10`; husks 0/70). Attempt1 contaminated; attempt2
+wipe. OpenRouter usage sum ~$0.04316 stored; model_configs estimate
+~$0.05011 is an alternate only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0240-gemma-4-26b-a4b-it/`.
