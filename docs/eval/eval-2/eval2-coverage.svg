@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="2328" height="414" viewBox="0 0 2328 414" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="2452" height="414" viewBox="0 0 2452 414" role="img">
   <title>Eval-2 headed coverage by model</title>
-  <rect width="2328" height="414" fill="#ffffff"/>
+  <rect width="2452" height="414" fill="#ffffff"/>
   <text x="24" y="28" font-family="DejaVu Sans, sans-serif" font-size="16" font-weight="700" fill="#202124">Eval-2 headed coverage (Ready tasks scored)</text>
   <text x="24" y="46" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#5f6368">9 Ready / Headed-ready rows. Catalog peers stay gray until a stamp lands.</text>
   <rect x="56.0" y="179.6" width="88" height="144.4" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
@@ -78,6 +78,10 @@
   <rect x="2164.0" y="64.0" width="88" height="28.9" fill="#0072B2" stroke="#dadce0" data-segment="BLOCKED"/>
   <text x="2208.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Solar Pro 4</text>
   <text x="2208.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
+  <rect x="2288.0" y="92.9" width="88" height="231.1" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <rect x="2288.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
+  <text x="2332.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Granite 4.2 8B</text>
+  <text x="2332.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
   <rect x="24" y="376" width="12" height="12" fill="#009E73" stroke="#dadce0"/>
   <text x="42" y="386" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">HAPPY</text>
   <rect x="134" y="376" width="12" height="12" fill="#D55E00" stroke="#dadce0"/>

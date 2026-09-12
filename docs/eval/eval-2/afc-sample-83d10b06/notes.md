@@ -203,3 +203,15 @@ failed twice. Tokens 0; cost $0. Headed wait ~1080s. tip_at_run
 `6c6017b7`. Scrolly recreating schema before the next trial. Run
 dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0522-solar-pro4/`.
+
+Eighteenth catalog cell: `ibm-granite/granite-4.2-8b`, stamp
+`20260912-0546-granite-4.2-8b`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=2`: Sample has no data rows; R from Sample
+Size Calculation is missing or < 1). SSC present; Sample blank
+(`sample_data_rows=0`); S=0; R=None; husks 0/0. Hung `tool_loop` at
+round 46 on `read_cell_range`; all `finish_reason=tool_calls`.
+Tokens are n=48. UNO/assert/PreContract=0. Recorded wall ~840s
+(14 min LLM). tip_at_run `71640e30`. OpenRouter usage sum ~$0.14353
+stored; model_configs estimate ~$0.24564 is an alternate only. Run
+dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0546-granite-4.2-8b/`.

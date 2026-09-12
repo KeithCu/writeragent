@@ -116,6 +116,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "qwen/qwen3.8-flash",
         "z-ai/glm-5.3-flash",
         "upstage/solar-pro4",
+        "ibm-granite/granite-4.2-8b",
     }
 
 
@@ -139,6 +140,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     qwen_flash = "qwen/qwen3.8-flash"
     glm_flash = "z-ai/glm-5.3-flash"
     solar = "upstage/solar-pro4"
+    granite = "ibm-granite/granite-4.2-8b"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -669,6 +671,41 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert board.blocked_count(solar) == 1
     assert board.not_happy_count(solar) == 0
 
+    # Eighteenth catalog AFC stamp (Scrolly headed 20260912-0546).
+    afc_granite = board.result_for("afc", granite)
+    assert afc_granite is not None
+    assert afc_granite.product_bar == "NOT_HAPPY"
+    assert afc_granite.oracle == "FAIL"
+    assert afc_granite.stamp == "20260912-0546-granite-4.2-8b"
+    assert afc_granite.oracle_passed is False
+    assert afc_granite.oracle_failure_count == 2
+    assert afc_granite.oracle_failures == (
+        "Sample has no data rows",
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_granite.oracle_check_count is None
+    assert afc_granite.partial_score is None
+    assert afc_granite.afc_s_flags == 0
+    assert afc_granite.afc_r_required is None
+    assert afc_granite.husk_cells == 0
+    assert afc_granite.scored_cells == 0
+    assert afc_granite.input_tokens == 2359996
+    assert afc_granite.output_tokens == 64282
+    assert afc_granite.total_tokens == 2424278
+    assert afc_granite.wall_time_s == 840
+    assert afc_granite.total_cost_usd == pytest.approx(0.14353)
+    assert afc_granite.intelligence_per_dollar is None
+    assert "20260912-0546-granite-4.2-8b" in afc_granite.oracle_note
+    assert "0.24564" in afc_granite.oracle_note
+    assert "71640e30" in afc_granite.oracle_note
+    assert "read_cell_range" in afc_granite.oracle_note
+    assert "n=48" in afc_granite.oracle_note
+    assert "finish_reason=tool_calls" in afc_granite.oracle_note
+    assert pel.has_recorded_partial(afc_granite)
+    assert board.scored_count(granite) == 1
+    assert board.not_happy_count(granite) == 1
+    assert board.blocked_count(granite) == 0
+
     # No invented catalog AFC-only scores outside AFC.
     for task_id in (
         "tenant-retention",
@@ -696,6 +733,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, qwen_flash) is None
         assert board.result_for(task_id, glm_flash) is None
         assert board.result_for(task_id, solar) is None
+        assert board.result_for(task_id, granite) is None
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -716,6 +754,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", qwen_flash),
         ("afc", glm_flash),
         ("afc", solar),
+        ("afc", granite),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -763,6 +802,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_qwen27)
     assert pel.has_recorded_partial(afc_qwen_flash)
     assert pel.has_recorded_partial(afc_glm_flash)
+    assert pel.has_recorded_partial(afc_granite)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -783,6 +823,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "qwen/qwen3.8-flash"),
     ("afc", "z-ai/glm-5.3-flash"),
     ("afc", "upstage/solar-pro4"),
+    ("afc", "ibm-granite/granite-4.2-8b"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -860,6 +901,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "0 HAPPY / 0 scored" in coverage
     assert "BLOCKED" in heatmap
     assert "Solar Pro 4" in heatmap
+    assert "Granite 4.2 8B" in heatmap
     assert "No HAPPY cell has recorded total_cost_usd yet" not in cost
     assert "data-cost-usd=\"0.004680\"" in cost
     assert "Mercury 2.5 Preview" in cost
@@ -881,6 +923,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Qwen3.8 27B" in partial
     assert "Qwen3.8 Flash" in partial
     assert "GLM 5.3 Flash" in partial
+    assert "Granite 4.2 8B" in partial
     assert "Solar Pro 4" not in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
@@ -918,6 +961,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "0 HAPPY / 0 scored" in cov
     assert "BLOCKED" in heat
     assert "Solar Pro 4" in heat
+    assert "Granite 4.2 8B" in heat
     assert pel.HEATMAP_NAME != "pareto-fronts.svg"
     assert pel.COVERAGE_NAME != "pareto-distance.svg"
     assert pel.COST_NAME != "pareto-fronts.svg"
@@ -952,6 +996,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Qwen3.8 27B" in partial_text
     assert "Qwen3.8 Flash" in partial_text
     assert "GLM 5.3 Flash" in partial_text
+    assert "Granite 4.2 8B" in partial_text
     assert "Solar Pro 4" not in partial_text
     assert "S=0 R=66" in partial_text
     assert "S=494 R=68" in partial_text
