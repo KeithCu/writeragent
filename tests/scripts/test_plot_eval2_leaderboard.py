@@ -107,6 +107,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "nvidia/nemotron-3.5-lightning",
         "inception/mercury-2.5-preview",
         "x-ai/grok-4.6",
+        "meta/muse-glimmer-30b",
         "meta/muse-spark-1.3-contributor",
     }
 
@@ -123,6 +124,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     nemo = "nvidia/nemotron-3.5-lightning"
     mercury = "inception/mercury-2.5-preview"
     grok = "x-ai/grok-4.6"
+    glimmer = "meta/muse-glimmer-30b"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -421,7 +423,35 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "0.05831" in afc_grok.oracle_note
     assert "SSC present" in afc_grok.oracle_note
 
-    # No invented Luna / 20b / Flash Lite / Gemma / Nemotron / Mercury / Grok scores outside AFC.
+    # Tenth catalog AFC stamp (Scrolly headed 20260912-0353).
+    afc_glimmer = board.result_for("afc", glimmer)
+    assert afc_glimmer is not None
+    assert afc_glimmer.product_bar == "NOT_HAPPY"
+    assert afc_glimmer.oracle == "FAIL"
+    assert afc_glimmer.stamp == "20260912-0353-muse-glimmer-30b"
+    assert afc_glimmer.oracle_passed is False
+    assert afc_glimmer.oracle_failure_count == 1
+    assert afc_glimmer.oracle_failures == (
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_glimmer.oracle_check_count is None
+    assert afc_glimmer.partial_score is None
+    assert afc_glimmer.afc_s_flags == 0
+    assert afc_glimmer.afc_r_required is None
+    assert afc_glimmer.husk_cells == 0
+    assert afc_glimmer.scored_cells == 729
+    assert afc_glimmer.input_tokens == 2143441
+    assert afc_glimmer.output_tokens == 16060
+    assert afc_glimmer.total_tokens == 2159501
+    assert afc_glimmer.wall_time_s == 155
+    assert afc_glimmer.total_cost_usd == pytest.approx(0.15404)
+    assert afc_glimmer.intelligence_per_dollar is None
+    assert "20260912-0353-muse-glimmer-30b" in afc_glimmer.oracle_note
+    assert "0.66230" in afc_glimmer.oracle_note
+    assert "e0bb6321" in afc_glimmer.oracle_note
+    assert "50 tool" in afc_glimmer.oracle_note
+
+    # No invented Luna / 20b / Flash Lite / Gemma / Nemotron / Mercury / Grok / Glimmer scores outside AFC.
     for task_id in (
         "tenant-retention",
         "cadaver-proposal",
@@ -440,6 +470,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, nemo) is None
         assert board.result_for(task_id, mercury) is None
         assert board.result_for(task_id, grok) is None
+        assert board.result_for(task_id, glimmer) is None
 
     # Remaining catalog peers stay empty until a real stamp lands.
     assert board.scored_count("meta/muse-spark-1.3-contributor") == 0
@@ -456,6 +487,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", nemo),
         ("afc", mercury),
         ("afc", grok),
+        ("afc", glimmer),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -496,6 +528,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_nemo)
     assert pel.has_recorded_partial(afc_mercury)
     assert pel.has_recorded_partial(afc_grok)
+    assert pel.has_recorded_partial(afc_glimmer)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -508,6 +541,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "nvidia/nemotron-3.5-lightning"),
     ("afc", "inception/mercury-2.5-preview"),
     ("afc", "x-ai/grok-4.6"),
+    ("afc", "meta/muse-glimmer-30b"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -596,6 +630,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Nemotron 3.5 Lightning" in partial
     assert "Mercury 2.5 Preview" in partial
     assert "Grok 4.6" in partial
+    assert "Muse Glimmer 30B" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -655,6 +690,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Nemotron 3.5 Lightning" in partial_text
     assert "Mercury 2.5 Preview" in partial_text
     assert "Grok 4.6" in partial_text
+    assert "Muse Glimmer 30B" in partial_text
     assert "S=494 R=68" in partial_text
     assert "2/—" in partial_text
     assert "no ratio" in partial_text

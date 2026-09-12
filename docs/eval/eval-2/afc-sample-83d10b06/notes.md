@@ -111,3 +111,14 @@ has no data rows; R missing). SSC present; Sample empty
 ~$0.02375 stored; model_configs estimate ~$0.05831 is an alternate
 only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0342-grok-4.6/`.
+
+Tenth catalog cell: `meta/muse-glimmer-30b`, stamp
+`20260912-0353-muse-glimmer-30b`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (same R hole; `failure_count=1`). Sample+SSC present
+(`sample_data_rows=81`; S=0; husks 0/729). SSC B9 visually 65; oracle
+parsed R=None — do not store 65. Hit max 50 tool rounds. Recorded
+wall ~155s (observer ~16 min). tip_at_run `e0bb6321`. PreContract
+lines=2 (PY deal); UNO/assert_main_thread=0. OpenRouter usage sum
+~$0.15404 stored; model_configs estimate ~$0.66230 is an alternate
+only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0353-muse-glimmer-30b/`.
