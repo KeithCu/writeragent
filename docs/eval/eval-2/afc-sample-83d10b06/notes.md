@@ -226,3 +226,15 @@ tip_at_run `71640e30`. OpenRouter usage sum ~$0.00973 stored;
 model_configs estimate ~$0.02475 is an alternate only. Run dir is
 box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0603-mistral-small-2603/`.
+
+Twentieth catalog cell: `bytedance-seed/seed-2.0-mini`, stamp
+`20260912-0610-seed-2.0-mini`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=2`: R from Sample Size Calculation is
+missing or < 1; husk-dominated Sample (1/1 scored cells)). Sample
+malformed (`sample_data_rows=1`; A2 is `=PY("""`); SSC Err:501 with
+a visual ~65 — oracle R=None. S=0; husks 1/1. Tokens are n=2.
+UNO/assert/PreContract=0. Recorded wall ~131s. tip_at_run
+`71640e30`. OpenRouter usage sum ~$0.00814 stored; model_configs
+estimate ~$0.00814 matches and is an alternate only. Run dir is
+box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0610-seed-2.0-mini/`.
