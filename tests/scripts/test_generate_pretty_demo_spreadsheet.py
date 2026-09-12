@@ -12,6 +12,8 @@ from pathlib import Path
 
 from scripts.generate_pretty_demo_spreadsheet import (
     CALC_PYTHON_ADDIN_FN,
+    ENG_RANGE,
+    FORECAST_RANGE_ODS_CROSS,
     MARKETING_NAMED_RANGE,
     MARKETING_RANGE_XLSX,
     RESULTS_PY_CODE_MAX_LEN,
@@ -24,9 +26,11 @@ from scripts.generate_pretty_demo_spreadsheet import (
     SQL_RESULTS_SPILL_GUTTER_ROWS,
     SQL_SALES_BY_REGION_CATEGORY,
     SQL_SALES_ZIP_INCOME_JOIN,
+    STANDARD_METRICS_BANNER,
     ZIP_INCOME_CSV_NAME,
     ZIP_INCOME_FIXTURE,
     _ODS_SHEET_COLUMNS,
+    _ods_named_range_address,
     _scenario_result_formula,
     _xlsx_named_range_address,
     build_ods_showcase,
@@ -36,10 +40,12 @@ from scripts.generate_pretty_demo_spreadsheet import (
     get_marketing_dataset,
     get_sales_dataset,
     ods_formula,
+    py_formula,
     relative_named_range_eval_start_row,
     sql_demo_scenarios,
     sql_query_lines,
     sql_results_gutter_rows,
+    standard_sheet_specs,
     write_zip_income_csv,
 )
 
@@ -95,6 +101,22 @@ def test_ods_formula_python_wrapper_and_cross_sheet_cell() -> None:
 
 def test_ods_formula_leaves_non_formula_text() -> None:
     assert ods_formula("plain") == "plain"
+
+
+def test_ods_engineering_temperature_uses_openformula_semicolon() -> None:
+    """Regression: card 3 was ``=PY("...", A5:E11)`` (comma, old row-5 range)."""
+    eng = next(s for s in standard_sheet_specs() if s["name"] == "Engineering_Math")
+    title, unused_desc, code, args = next(m for m in eng["metrics"] if "Temperature" in m[0])
+    assert title.startswith("3. Temperature")
+    assert args == (ENG_RANGE,)
+    assert ENG_RANGE == "A4:E10"
+    formula = py_formula(code, *args, ods=True)
+    assert formula == f'=PY("{code}"; {ENG_RANGE})'
+    assert ", A" not in formula
+    out = ods_formula(formula)
+    assert "[.A4:.E10]" in out
+    assert ", [.A" not in out
+    assert "; [.A4:.E10]" in out or ";[.A4:.E10]" in out
 
 
 def test_ods_formula_statistics_ml_range_not_rematched() -> None:
@@ -190,7 +212,13 @@ def test_generated_ods_has_sql_duckdb_sheet(tmp_path: Path) -> None:
 def _assert_ods_formulas_and_layout(xml: str) -> None:
     sales_of = f"[${SALES_RANGE_ODS_CROSS.replace(':', ':.')}]"
     assert sales_of in xml
-    assert "[$Forecasting.A5:.E41]" in xml
+    forecast_of = f"[${FORECAST_RANGE_ODS_CROSS.replace(':', ':.')}]"
+    assert forecast_of in xml
+    # Engineering °C→°F used a comma before the range; OpenFormula needs ``;``.
+    assert (
+        "9/5 + 32, 1)&quot;; [.A4:.E10]" in xml
+        or '9/5 + 32, 1)"; [.A4:.E10]' in xml
+    )
     assert "[$S[$ales_Analytics" not in xml
     assert "[$F[$orecasting" not in xml
     assert "[$S[$tatistics_ML" not in xml
@@ -198,6 +226,8 @@ def _assert_ods_formulas_and_layout(xml: str) -> None:
     assert xml.count("<table:table-column") >= sum(len(cols) for cols in _ODS_SHEET_COLUMNS.values())
     assert "style:column-width" in xml
     assert "style:row-height" in xml
+    # Spans without covered placeholders collapse Overview KPIs in headed Calc.
+    assert "<table:covered-table-cell" in xml
     assert "SQL_DuckDB" in xml
     # SQL text is cell content; RESULTS formulas are short OpenFormula runners.
     assert "SUM(Revenue)" in xml
@@ -456,7 +486,7 @@ def test_ods_formula_sql_results_two_args_not_rematched() -> None:
     out = ods_formula(formula)
     # Named-range identity stays a name — ods_formula must not invent [$Sales_…].
     assert SALES_NAMED_RANGE in out
-    assert "[$Sales_Analytics.A5:.J40]" not in out
+    assert "[$Sales_Analytics.A4:.J39]" not in out
     assert "[.A11:.A16]" in out
     assert _NESTED_SHEET_REF.search(out) is None
     assert out.startswith(f"of:={CALC_PYTHON_ADDIN_FN}(")
@@ -581,3 +611,129 @@ def test_xlsx_named_range_address_is_absolute() -> None:
     assert _xlsx_named_range_address("Statistics_ML", MARKETING_RANGE_XLSX) == (
         "Statistics_ML!$A$4:$G$24"
     )
+
+
+def _ods_row_cell_texts(row: object) -> list[str]:
+    from odf.table import TableCell
+    from odf.text import P
+
+    texts: list[str] = []
+    for cell in row.getElementsByType(TableCell):  # type: ignore[attr-defined]
+        for para in cell.getElementsByType(P):
+            value = str(para).strip()
+            if value:
+                texts.append(value)
+    return texts
+
+
+def test_ods_and_xlsx_standard_sheets_share_row_skeleton(tmp_path: Path) -> None:
+    """ODS standard sheets match the XLSX chrome: title, blank row 2, section 3, header 4."""
+    from odf.opendocument import load
+    from odf.table import Table, TableRow
+    from openpyxl import load_workbook
+    from openpyxl.utils import coordinate_to_tuple
+
+    ods_path = tmp_path / "python_showcase_demo.ods"
+    xlsx_path = tmp_path / "python_showcase_demo.xlsx"
+    build_ods_showcase(ods_path)
+    build_xlsx_showcase(xlsx_path)
+
+    doc = load(str(ods_path))
+    wb = load_workbook(xlsx_path)
+    ods_tables = {str(t.getAttribute("name")): t for t in doc.spreadsheet.getElementsByType(Table)}
+    assert list(ods_tables) == wb.sheetnames
+
+    for spec in standard_sheet_specs():
+        name = spec["name"]
+        expected_title = f"📊 {name} — {spec['sub']}"
+        header0 = spec["data"][0][0]
+        ws = wb[name]
+        assert ws["A1"].value == expected_title
+        assert ws["A2"].value in (None, "")
+        assert ws["A3"].value == spec["sec"]
+        assert ws["A4"].value == header0
+
+        rows = list(ods_tables[name].getElementsByType(TableRow))
+        assert _ods_row_cell_texts(rows[0])[0] == expected_title
+        assert _ods_row_cell_texts(rows[1]) == []
+        assert _ods_row_cell_texts(rows[2])[0] == spec["sec"]
+        assert _ods_row_cell_texts(rows[3])[0] == header0
+        # Cell-less spacer serializes as <table:table-row …/> and Calc drops it.
+        banner_texts = [_ods_row_cell_texts(row) for row in rows]
+        assert any(STANDARD_METRICS_BANNER in texts for texts in banner_texts)
+
+    xml = _ods_content_xml(ods_path)
+    assert _ods_named_range_address("Sales_Analytics", SALES_RANGE_XLSX) in xml
+    assert _ods_named_range_address("Statistics_ML", MARKETING_RANGE_XLSX) in xml
+    assert "table:formula='" not in xml
+    assert '<table:table-row table:style-name="row-spacer"/>' not in xml
+    assert 'style:use-optimal-row-height="false"' in xml
+    sa = _ods_table_xml(xml, "Sales_Analytics")
+    assert re.search(
+        r'table:style-name="row-spacer">\s*'
+        r'<table:table-cell office:value-type="string">',
+        sa,
+    )
+    assert re.search(
+        r"row-section.*TRANSACTIONAL SALES DATASET.*row-header.*Order_ID",
+        sa,
+        flags=re.S,
+    )
+
+    xlsx_sql = wb["SQL_DuckDB"]
+    xlsx_result_rows = [
+        coordinate_to_tuple(coord)[0] for coord, unused_formula in _xlsx_sql_duckdb_result_formulas(xlsx_sql)
+    ]
+    ods_sql_rows = list(ods_tables["SQL_DuckDB"].getElementsByType(TableRow))
+    ods_result_rows: list[int] = []
+    for idx, row in enumerate(ods_sql_rows, start=1):
+        from odf.table import TableCell
+
+        for cell in row.getElementsByType(TableCell):
+            formula = cell.getAttribute("formula") or ""
+            if _is_sql_results_formula(formula):
+                ods_result_rows.append(idx)
+    assert ods_result_rows == xlsx_result_rows
+    assert xlsx_sql.max_row == len(ods_sql_rows)
+
+
+def test_generated_ods_formula_attrs_are_double_quoted(tmp_path: Path) -> None:
+    out = tmp_path / "python_showcase_demo.ods"
+    build_ods_showcase(out)
+    xml = _ods_content_xml(out)
+    assert "table:formula='" not in xml
+    assert xml.count('table:formula="') >= 20
+
+
+def _ods_table_xml(xml: str, name: str) -> str:
+    start = xml.find(f'<table:table table:name="{name}"')
+    assert start >= 0, name
+    next_table = xml.find("<table:table table:name=", start + 1)
+    return xml[start:next_table] if next_table >= 0 else xml[start:]
+
+
+def _ods_row_slot_count(row_xml: str) -> int:
+    """Logical columns: each table-cell or covered-table-cell is one slot."""
+    return len(re.findall(r"<table:(?:table-cell|covered-table-cell)\b", row_xml))
+
+
+def test_ods_overview_spans_emit_covered_cells_for_eight_columns(tmp_path: Path) -> None:
+    """KPI/matrix rows must occupy A–H. Missing covered cells collapse later cards."""
+    out = tmp_path / "python_showcase_demo.ods"
+    build_ods_showcase(out)
+    ov = _ods_table_xml(_ods_content_xml(out), "Overview")
+    rows = re.findall(r"<table:table-row\b.*?</table:table-row>", ov, flags=re.S)
+    labels = next(r for r in rows if "TOTAL REVENUE" in r)
+    values = next(r for r in rows if "$119,142.00" in r)
+    headers = next(r for r in rows if "Capability Domain" in r)
+    hero = next(r for r in rows if "LibrePy / WriterAgent" in r)
+    assert _ods_row_slot_count(hero) == 8
+    assert _ods_row_slot_count(labels) == 8
+    assert _ods_row_slot_count(values) == 8
+    assert _ods_row_slot_count(headers) == 8
+    assert labels.count("AVG PROFIT MARGIN") == 1
+    assert labels.count("ANOMALIES FLAGGED") == 1
+    assert labels.count("FORECAST TARGET") == 1
+    assert headers.count("Traditional Calc Formula") == 1
+    assert labels.count("<table:covered-table-cell") == 4
+    assert headers.count("<table:covered-table-cell") == 4
