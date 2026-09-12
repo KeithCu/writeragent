@@ -607,9 +607,9 @@ def test_create_native_doc_windows_impress_reuses_stable_name(monkeypatch):
     returned; unique leftover simpress _wa_factory_10 hung in
     loadComponentFromURL. GHA 34661915875: leftover _wa_simpress is
     live and still hung. Consecutive leftover Hidden
-    create_native_doc(impress) at leftover_open<=4 must reuse one
+    create_native_doc(impress) at leftover_open<=2 must reuse one
     CREATE|GLOBAL name. Draw reuse uses _wa_sdraw and must not steal
-    leftover Impress.
+    leftover Impress. GHA 34672065355: leftover_open=3 hangs.
     """
     from unittest.mock import MagicMock, patch
 
@@ -623,7 +623,7 @@ def test_create_native_doc_windows_impress_reuses_stable_name(monkeypatch):
     tu._WINDOWS_FACTORY_SEQ = 0
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
-        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 4
+        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 2
     )
     try:
         with (
@@ -665,11 +665,11 @@ def test_create_native_doc_windows_impress_reuses_stable_name(monkeypatch):
 def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
     monkeypatch,
 ):
-    """GHA 34661915875: leftover _wa_simpress at leftover_open=15 hung 30s.
+    """GHA 34661915875 / 34672065355: leftover _wa_simpress hung 30s.
 
     #737's stable name is live. Leftover _wa_factory swriter at
-    leftover_open=15 returned. Skip leftover Draw/Impress; leftover
-    Writer still loads.
+    leftover_open=15 returned. leftover_open=3 still hung (old max=4).
+    Skip leftover Draw/Impress; leftover Writer still loads.
     """
     import unittest
     from unittest.mock import MagicMock, patch
@@ -682,7 +682,7 @@ def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
     calls = []
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
-        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 15
+        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 3
     )
     with (
         patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
@@ -693,7 +693,7 @@ def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
             TestingFactory.create_native_doc(object(), "impress")
         except unittest.SkipTest as exc:
             assert "simpress" in str(exc)
-            assert "leftovers=15" in str(exc)
+            assert "leftovers=3" in str(exc)
         else:
             raise AssertionError("expected SkipTest")
         desktop.loadComponentFromURL.assert_not_called()
@@ -711,15 +711,20 @@ def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
 
 
 def test_windows_cross_app_factory_unsafe_threshold(monkeypatch):
-    """Leftover Draw/Impress at leftover_open=1 succeeded (34657826349)."""
+    """Leftover Draw/Impress at leftover_open=1 succeeded (34657826349).
+
+    GHA 34672065355: leftover_open=3 hung 30s; old max=4 still loaded.
+    """
     import plugin.tests.testing_utils as tu
 
     monkeypatch.setattr(tu.sys, "platform", "win32")
     assert tu.windows_cross_app_factory_unsafe(1) is False
-    assert tu.windows_cross_app_factory_unsafe(4) is False
-    assert tu.windows_cross_app_factory_unsafe(5) is True
+    assert tu.windows_cross_app_factory_unsafe(2) is False
+    assert tu.windows_cross_app_factory_unsafe(3) is True
+    assert tu.windows_cross_app_factory_unsafe(4) is True
     assert tu.windows_cross_app_factory_unsafe(15) is True
     monkeypatch.setattr(tu.sys, "platform", "linux")
+    assert tu.windows_cross_app_factory_unsafe(3) is False
     assert tu.windows_cross_app_factory_unsafe(15) is False
     tu.skip_windows_cross_app_factory("private:factory/simpress", 15)
     tu.skip_windows_cross_app_factory("private:factory/swriter", 15)

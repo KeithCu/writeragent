@@ -1222,7 +1222,10 @@ def note_windows_html_paste_leftover() -> None:
 # in loadComponentFromURL. Leftover Draw/Impress unique names succeeded
 # at leftover_open=1 (34657826349). High leftover Writer count wedges
 # a new app factory — skip leftover Draw/Impress, do not close leftovers.
-_WINDOWS_CROSS_APP_LEFTOVER_MAX = 4
+# GHA 34672065355 (master #742+#743): leftover _wa_simpress hung 30s at
+# leftover_open=3 (uids 40/39/29 Writer leftovers from notebook/importer).
+# Old max=4 only skipped leftover_open>4, so leftover_open=3 still loaded.
+_WINDOWS_CROSS_APP_LEFTOVER_MAX = 2
 
 
 def windows_cross_app_factory_unsafe(leftover_open: int | None = None) -> bool:
@@ -1238,9 +1241,11 @@ def skip_windows_cross_app_factory(factory_url: str, leftover_open: int) -> None
     GHA 34661915875: leftover ``_wa_simpress`` at leftover_open=15 hung
     30s (office alive). #737's stable name is live — hang is not unique
     ``_wa_factory_N`` stacking. Leftover swriter at leftover_open=15
-    returned. Do not close leftover paste / notebook Writers
-    (34556185752 / 34646877587). Leftover Writer / leftover Calc still
-    load. Cached leftover count only.
+    returned. GHA 34672065355: leftover ``_wa_simpress`` at
+    leftover_open=3 hung 30s — skip leftover_open>2. Do not close
+    leftover paste / notebook Writers (34556185752 / 34646877587).
+    Leftover Writer / leftover Calc still load. Cached leftover count
+    only.
     """
     if factory_url not in ("private:factory/sdraw", "private:factory/simpress"):
         return
@@ -2181,10 +2186,11 @@ class TestingFactory:
                 "create_native_doc: windows factory leftover_open=%s url=%s target=%s flags=%s"
                 % (leftover_open, factory_url, target, flags)
             )
-            # GHA 34661915875: leftover _wa_simpress at leftover_open=15
-            # hung 30s. Stable name is live. Skip leftover Draw/Impress
-            # when leftover Writer count is high — leftover swriter at
-            # leftover_open=15 returned.
+            # GHA 34661915875 / 34672065355: leftover _wa_simpress hung
+            # 30s at leftover_open=15 and leftover_open=3. Stable name
+            # is live. Skip leftover Draw/Impress when leftover Writer
+            # count is >2 — leftover swriter at leftover_open=15
+            # returned.
             skip_windows_cross_app_factory(factory_url, leftover_open)
             # GHA 34670295632 (PR #742): #734 skipped later
             # document_research Hidden siblings after Budget_read
