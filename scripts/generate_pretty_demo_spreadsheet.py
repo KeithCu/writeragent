@@ -52,6 +52,10 @@ ODS-only notes (XLSX never calls these paths):
 - After save, ``table:formula`` attributes are rewritten to double quotes
   (inner ``"`` as ``&quot;``). odfpy otherwise uses ``formula='..."...'``
   when the payload contains raw double quotes.
+- Spanned cells emit ``table:covered-table-cell`` for the extra columns
+  (and follow-up rows of a vertical merge). odfpy writes
+  ``number-columns-spanned`` alone; headed Calc then stacks later cells
+  into column A (Overview KPIs / capability matrix collapse).
 - ODS writes TableColumn widths and TableRow heights so the file is not
   Calc-default cramped. XLSX already uses ``auto_fit_columns`` and explicit
   row heights; ODS sizes are reasonable parity, not pixel-perfect.
@@ -551,16 +555,16 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
         return row_n
 
     r1 = make_row("hero")
-    r1.addElement(make_cell("🦆 SQL / DuckDB — Sheet ranges and sibling files", "HeroTitle", span_cols=8))
+    _ods_put_cell(r1, make_cell, "🦆 SQL / DuckDB — Sheet ranges and sibling files", "HeroTitle", span_cols=8)
     emit(r1)
 
     r2 = make_row("sub")
-    r2.addElement(
-        make_cell(
-            "Read-only DuckDB SQL over {sheet} / {named_range} identities, plus a live =PY() join to sibling zip_income.csv",
-            "HeroSubtitle",
-            span_cols=8,
-        )
+    _ods_put_cell(
+        r2,
+        make_cell,
+        "Read-only DuckDB SQL over {sheet} / {named_range} identities, plus a live =PY() join to sibling zip_income.csv",
+        "HeroSubtitle",
+        span_cols=8,
     )
     emit(r2)
     emit(make_row("spacer"))
@@ -569,10 +573,12 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
     # so SQL scenario / RESULTS rows land on the same indexes.
     def emit_spanned(text: str, style: str, kind: str, span_rows: int) -> None:
         block = make_row(kind)
-        block.addElement(make_cell(text, style, span_cols=8, span_rows=span_rows))
+        _ods_put_cell(block, make_cell, text, style, span_cols=8, span_rows=span_rows)
         emit(block)
         for unused_i in range(span_rows - 1):
-            emit(make_row(kind))
+            follow = make_row(kind)
+            _ods_cover_columns(follow, 8)
+            emit(follow)
 
     emit_spanned(ACS_INCOME_NOTE, "InfoBox", "metric", 3)
     emit(make_row("spacer"))
@@ -581,28 +587,28 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
 
     for scenario in sql_demo_scenarios():
         banner = make_row("section")
-        banner.addElement(make_cell(scenario["title"], "SectionBanner", span_cols=8))
+        _ods_put_cell(banner, make_cell, scenario["title"], "SectionBanner", span_cols=8)
         emit(banner)
 
         blurb = make_row("metric")
-        blurb.addElement(make_cell(scenario["blurb"], "MetricLabel", span_cols=8))
+        _ods_put_cell(blurb, make_cell, scenario["blurb"], "MetricLabel", span_cols=8)
         emit(blurb)
 
         sql_hdr = make_row("header")
-        sql_hdr.addElement(make_cell("SQL (edit this text — this is the query)", "TableHeader", span_cols=8))
+        _ods_put_cell(sql_hdr, make_cell, "SQL (edit this text — this is the query)", "TableHeader", span_cols=8)
         emit(sql_hdr)
 
         lines = sql_query_lines(scenario["sql"])
         sql_start = row_n + 1
         for line in lines:
             sql_row = make_row("data")
-            sql_row.addElement(make_cell(line, "CodeBlock", span_cols=8))
+            _ods_put_cell(sql_row, make_cell, line, "CodeBlock", span_cols=8)
             emit(sql_row)
         sql_range = _a1_col_range(sql_start, row_n)
         emit(make_row("spacer"))
 
         res_hdr = make_row("section")
-        res_hdr.addElement(make_cell("RESULTS", "SectionBanner", span_cols=8))
+        _ods_put_cell(res_hdr, make_cell, "RESULTS", "SectionBanner", span_cols=8)
         emit(res_hdr)
 
         formula = _scenario_result_formula(scenario["kind"], sql_range, ods=True)
@@ -621,13 +627,13 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
     # Same footer as XLSX: materializes the last spill gutter so max_row
     # is not the formula cell.
     foot = make_row("metric")
-    foot.addElement(
-        make_cell(
-            "Edit the SQL cells — live RESULTS recalc through Calc's DAG. "
-            "Sibling CSV is scoped_dir, not a formula argument.",
-            "MetricLabel",
-            span_cols=8,
-        )
+    _ods_put_cell(
+        foot,
+        make_cell,
+        "Edit the SQL cells — live RESULTS recalc through Calc's DAG. "
+        "Sibling CSV is scoped_dir, not a formula argument.",
+        "MetricLabel",
+        span_cols=8,
     )
     emit(foot)
 
@@ -917,48 +923,79 @@ def standard_sheet_specs() -> list[dict[str, Any]]:
     ]
 
 
+def _ods_put_cell(
+    row: Any,
+    make_cell: Any,
+    val: Any,
+    style: str = "",
+    span_cols: int = 1,
+    span_rows: int = 1,
+    formula: str = "",
+) -> None:
+    """Append a cell plus the ``table:covered-table-cell`` slots ODF requires.
+
+    odfpy writes ``table:number-columns-spanned`` but not the following
+    covered placeholders. Headed Calc then places the next cell in the next
+    column anyway, so Overview KPIs collapsed to one card and the capability
+    matrix kept only column A. One covered cell per extra spanned column.
+    """
+    from odf.table import CoveredTableCell
+
+    row.addElement(make_cell(val, style, span_cols, span_rows, formula))
+    for unused_i in range(max(span_cols, 1) - 1):
+        row.addElement(CoveredTableCell())
+
+
+def _ods_cover_columns(row: Any, ncols: int) -> None:
+    """Fill a follow-up row of a vertical merge with covered placeholders."""
+    from odf.table import CoveredTableCell
+
+    for unused_i in range(ncols):
+        row.addElement(CoveredTableCell())
+
+
 def _add_ods_standard_sheet(tab: Any, spec: dict[str, Any], make_cell: Any, make_row: Any) -> None:
     """Emit one standard sheet using the XLSX row skeleton (header at row 4)."""
     data: list[list[Any]] = spec["data"]
     ncols = max(len(row) for row in data)
     # XLSX build_standard_sheet: title, blank, section, data@4, two blanks, metrics.
     title_row = make_row("hero")
-    title_row.addElement(
-        make_cell(f"📊 {spec['name']} — {spec['sub']}", "HeroTitle", span_cols=ncols)
+    _ods_put_cell(
+        title_row, make_cell, f"📊 {spec['name']} — {spec['sub']}", "HeroTitle", span_cols=ncols
     )
     tab.addElement(title_row)
     tab.addElement(make_row("spacer"))
 
     sec_row = make_row("section")
-    sec_row.addElement(make_cell(spec["sec"], "SectionBanner", span_cols=ncols))
+    _ods_put_cell(sec_row, make_cell, spec["sec"], "SectionBanner", span_cols=ncols)
     tab.addElement(sec_row)
 
     for r_idx, row_vals in enumerate(data):
         r = make_row("header" if r_idx == 0 else "data")
         st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
         for val in row_vals:
-            r.addElement(make_cell(val, st))
+            _ods_put_cell(r, make_cell, val, st)
         tab.addElement(r)
 
     tab.addElement(make_row("spacer"))
     tab.addElement(make_row("spacer"))
 
     banner = make_row("section")
-    banner.addElement(make_cell(STANDARD_METRICS_BANNER, "SectionBanner", span_cols=ncols))
+    _ods_put_cell(banner, make_cell, STANDARD_METRICS_BANNER, "SectionBanner", span_cols=ncols)
     tab.addElement(banner)
 
     label_span = max(3, ncols // 2 + 1)
     result_span = max(1, ncols - label_span)
     for title, desc, code, args in spec["metrics"]:
         rc1 = make_row("metric")
-        rc1.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=label_span))
-        rc1.addElement(
-            make_cell(
-                "Calculating...",
-                "FormulaResult",
-                span_cols=result_span,
-                formula=py_formula(code, *args, ods=True),
-            )
+        _ods_put_cell(rc1, make_cell, f"{title} — {desc}", "MetricLabel", span_cols=label_span)
+        _ods_put_cell(
+            rc1,
+            make_cell,
+            "Calculating...",
+            "FormulaResult",
+            span_cols=result_span,
+            formula=py_formula(code, *args, ods=True),
         )
         tab.addElement(rc1)
 
@@ -1110,42 +1147,42 @@ def build_ods_showcase(out_path: Path) -> None:
     # --- TAB 1: 🌟 Executive Overview ---
     tab1 = make_table("Overview")
     r1 = make_row("hero")
-    r1.addElement(make_cell("🌟 LibrePy / WriterAgent — Python in LibreOffice Calc Showcase", "HeroTitle", span_cols=8))
+    _ods_put_cell(r1, make_cell, "🌟 LibrePy / WriterAgent — Python in LibreOffice Calc Showcase", "HeroTitle", span_cols=8)
     tab1.addElement(r1)
 
     r2 = make_row("sub")
-    r2.addElement(make_cell("Enterprise Data Science, Machine Learning, and Scientific Computing natively inside your spreadsheet with =PY()", "HeroSubtitle", span_cols=8))
+    _ods_put_cell(r2, make_cell, "Enterprise Data Science, Machine Learning, and Scientific Computing natively inside your spreadsheet with =PY()", "HeroSubtitle", span_cols=8)
     tab1.addElement(r2)
 
     tab1.addElement(make_row("spacer"))
 
     rk_title = make_row("section")
-    rk_title.addElement(make_cell("KEY PERFORMANCE INDICATORS (CALCULATED VIA PYTHON =PY)", "SectionBanner", span_cols=8))
+    _ods_put_cell(rk_title, make_cell, "KEY PERFORMANCE INDICATORS (CALCULATED VIA PYTHON =PY)", "SectionBanner", span_cols=8)
     tab1.addElement(rk_title)
 
     rk_labels = make_row("kpi-label")
-    rk_labels.addElement(make_cell("TOTAL REVENUE (YTD)", "KPICardLabel", span_cols=2))
-    rk_labels.addElement(make_cell("AVG PROFIT MARGIN", "KPICardLabel", span_cols=2))
-    rk_labels.addElement(make_cell("ANOMALIES FLAGGED", "KPICardLabel", span_cols=2))
-    rk_labels.addElement(make_cell("FORECAST TARGET (Q3)", "KPICardLabel", span_cols=2))
+    _ods_put_cell(rk_labels, make_cell, "TOTAL REVENUE (YTD)", "KPICardLabel", span_cols=2)
+    _ods_put_cell(rk_labels, make_cell, "AVG PROFIT MARGIN", "KPICardLabel", span_cols=2)
+    _ods_put_cell(rk_labels, make_cell, "ANOMALIES FLAGGED", "KPICardLabel", span_cols=2)
+    _ods_put_cell(rk_labels, make_cell, "FORECAST TARGET (Q3)", "KPICardLabel", span_cols=2)
     tab1.addElement(rk_labels)
 
     rk_vals = make_row("kpi-value")
-    rk_vals.addElement(make_cell("$119,142.00", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{sum(r[7] for r in data[1:]):,.2f}}\'"; {SALES_RANGE_ODS_CROSS})'))
-    rk_vals.addElement(make_cell("28.4%", "KPICardVal", span_cols=2, formula=f'=PY("f\'{{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}}\'"; {SALES_RANGE_ODS_CROSS})'))
-    rk_vals.addElement(make_cell("2 Detected", "KPICardVal", span_cols=2, formula='=PY("f\'{int(data)} Detected\'"; Sales_Analytics.F47)'))
-    rk_vals.addElement(make_cell("$349.02", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{data[-1][4] * 1.15:,.2f}}\'"; {FORECAST_RANGE_ODS_CROSS})'))
+    _ods_put_cell(rk_vals, make_cell, "$119,142.00", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{sum(r[7] for r in data[1:]):,.2f}}\'"; {SALES_RANGE_ODS_CROSS})')
+    _ods_put_cell(rk_vals, make_cell, "28.4%", "KPICardVal", span_cols=2, formula=f'=PY("f\'{{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}}\'"; {SALES_RANGE_ODS_CROSS})')
+    _ods_put_cell(rk_vals, make_cell, "2 Detected", "KPICardVal", span_cols=2, formula='=PY("f\'{int(data)} Detected\'"; Sales_Analytics.F47)')
+    _ods_put_cell(rk_vals, make_cell, "$349.02", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{data[-1][4] * 1.15:,.2f}}\'"; {FORECAST_RANGE_ODS_CROSS})')
     tab1.addElement(rk_vals)
 
     tab1.addElement(make_row("spacer"))
 
     rf_title = make_row("section")
-    rf_title.addElement(make_cell("CAPABILITY MATRIX: TRADITIONAL FORMULAS VS. LIBREPY =PY()", "SectionBanner", span_cols=8))
+    _ods_put_cell(rf_title, make_cell, "CAPABILITY MATRIX: TRADITIONAL FORMULAS VS. LIBREPY =PY()", "SectionBanner", span_cols=8)
     tab1.addElement(rf_title)
 
     fm_headers = make_row("header")
     for h in ["Capability Domain", "Traditional Calc Formula", "LibrePy =PY() Solution", "Scientific Engine"]:
-        fm_headers.addElement(make_cell(h, "TableHeader", span_cols=2))
+        _ods_put_cell(fm_headers, make_cell, h, "TableHeader", span_cols=2)
     tab1.addElement(fm_headers)
 
     fm_rows = [
@@ -1160,10 +1197,10 @@ def build_ods_showcase(out_path: Path) -> None:
     for idx, (c1, c2, c3, c4) in enumerate(fm_rows):
         r = make_row("data")
         st = "TableZebraEven" if idx % 2 == 0 else "TableZebraOdd"
-        r.addElement(make_cell(c1, st, span_cols=2))
-        r.addElement(make_cell(c2, st, span_cols=2))
-        r.addElement(make_cell(c3, st, span_cols=2))
-        r.addElement(make_cell(c4, st, span_cols=2))
+        _ods_put_cell(r, make_cell, c1, st, span_cols=2)
+        _ods_put_cell(r, make_cell, c2, st, span_cols=2)
+        _ods_put_cell(r, make_cell, c3, st, span_cols=2)
+        _ods_put_cell(r, make_cell, c4, st, span_cols=2)
         tab1.addElement(r)
 
     doc.spreadsheet.addElement(tab1)
@@ -1176,16 +1213,16 @@ def build_ods_showcase(out_path: Path) -> None:
     # --- TAB 7: 🎨 Visualization Gallery ---
     tab7 = make_table("Viz_Gallery")
     t7_title = make_row("hero")
-    t7_title.addElement(make_cell("🎨 Visualization Gallery — Live Matplotlib & Seaborn Charts via =PY()", "HeroTitle", span_cols=8))
+    _ods_put_cell(t7_title, make_cell, "🎨 Visualization Gallery — Live Matplotlib & Seaborn Charts via =PY()", "HeroTitle", span_cols=8)
     tab7.addElement(t7_title)
 
     t7_sub = make_row("sub")
-    t7_sub.addElement(make_cell("Live =PY() formulas that automatically generate and embed vector chart graphics directly on the spreadsheet", "HeroSubtitle", span_cols=8))
+    _ods_put_cell(t7_sub, make_cell, "Live =PY() formulas that automatically generate and embed vector chart graphics directly on the spreadsheet", "HeroSubtitle", span_cols=8)
     tab7.addElement(t7_sub)
     tab7.addElement(make_row("spacer"))
 
     t7_sec = make_row("section")
-    t7_sec.addElement(make_cell("INTERACTIVE =PY() EMBEDDED PLOT GENERATORS", "SectionBanner", span_cols=8))
+    _ods_put_cell(t7_sec, make_cell, "INTERACTIVE =PY() EMBEDDED PLOT GENERATORS", "SectionBanner", span_cols=8)
     tab7.addElement(t7_sec)
 
     viz_cards = [
@@ -1198,18 +1235,35 @@ def build_ods_showcase(out_path: Path) -> None:
     for title, desc, form in viz_cards:
         tab7.addElement(make_row("spacer"))
         hdr_row = make_row("section")
-        hdr_row.addElement(make_cell(f"📊 {title} — {desc}", "SectionBanner", span_cols=8))
+        _ods_put_cell(hdr_row, make_cell, f"📊 {title} — {desc}", "SectionBanner", span_cols=8)
         tab7.addElement(hdr_row)
 
         # XLSX merges 11 body rows (D{start}:H{end} with end = header+11).
         c_row1 = make_row("viz")
-        c_row1.addElement(make_cell(f"Plot Definition:\n{desc}\n\nLive Formula:\n{form}", "InfoBox", span_cols=3, span_rows=11))
-        c_row1.addElement(make_cell("Rendering Plot...", "ChartCanvas", span_cols=5, span_rows=11, formula=form))
+        _ods_put_cell(
+            c_row1,
+            make_cell,
+            f"Plot Definition:\n{desc}\n\nLive Formula:\n{form}",
+            "InfoBox",
+            span_cols=3,
+            span_rows=11,
+        )
+        _ods_put_cell(
+            c_row1,
+            make_cell,
+            "Rendering Plot...",
+            "ChartCanvas",
+            span_cols=5,
+            span_rows=11,
+            formula=form,
+        )
         tab7.addElement(c_row1)
 
         viz_follow = 10
         while viz_follow > 0:
-            tab7.addElement(make_row("viz"))
+            cover = make_row("viz")
+            _ods_cover_columns(cover, 8)
+            tab7.addElement(cover)
             viz_follow -= 1
 
     doc.spreadsheet.addElement(tab7)

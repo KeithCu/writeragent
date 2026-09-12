@@ -226,6 +226,8 @@ def _assert_ods_formulas_and_layout(xml: str) -> None:
     assert xml.count("<table:table-column") >= sum(len(cols) for cols in _ODS_SHEET_COLUMNS.values())
     assert "style:column-width" in xml
     assert "style:row-height" in xml
+    # Spans without covered placeholders collapse Overview KPIs in headed Calc.
+    assert "<table:covered-table-cell" in xml
     assert "SQL_DuckDB" in xml
     # SQL text is cell content; RESULTS formulas are short OpenFormula runners.
     assert "SUM(Revenue)" in xml
@@ -687,3 +689,37 @@ def test_generated_ods_formula_attrs_are_double_quoted(tmp_path: Path) -> None:
     xml = _ods_content_xml(out)
     assert "table:formula='" not in xml
     assert xml.count('table:formula="') >= 20
+
+
+def _ods_table_xml(xml: str, name: str) -> str:
+    start = xml.find(f'<table:table table:name="{name}"')
+    assert start >= 0, name
+    next_table = xml.find("<table:table table:name=", start + 1)
+    return xml[start:next_table] if next_table >= 0 else xml[start:]
+
+
+def _ods_row_slot_count(row_xml: str) -> int:
+    """Logical columns: each table-cell or covered-table-cell is one slot."""
+    return len(re.findall(r"<table:(?:table-cell|covered-table-cell)\b", row_xml))
+
+
+def test_ods_overview_spans_emit_covered_cells_for_eight_columns(tmp_path: Path) -> None:
+    """KPI/matrix rows must occupy A–H. Missing covered cells collapse later cards."""
+    out = tmp_path / "python_showcase_demo.ods"
+    build_ods_showcase(out)
+    ov = _ods_table_xml(_ods_content_xml(out), "Overview")
+    rows = re.findall(r"<table:table-row\b.*?</table:table-row>", ov, flags=re.S)
+    labels = next(r for r in rows if "TOTAL REVENUE" in r)
+    values = next(r for r in rows if "$119,142.00" in r)
+    headers = next(r for r in rows if "Capability Domain" in r)
+    hero = next(r for r in rows if "LibrePy / WriterAgent" in r)
+    assert _ods_row_slot_count(hero) == 8
+    assert _ods_row_slot_count(labels) == 8
+    assert _ods_row_slot_count(values) == 8
+    assert _ods_row_slot_count(headers) == 8
+    assert labels.count("AVG PROFIT MARGIN") == 1
+    assert labels.count("ANOMALIES FLAGGED") == 1
+    assert labels.count("FORECAST TARGET") == 1
+    assert headers.count("Traditional Calc Formula") == 1
+    assert labels.count("<table:covered-table-cell") == 4
+    assert headers.count("<table:covered-table-cell") == 4
