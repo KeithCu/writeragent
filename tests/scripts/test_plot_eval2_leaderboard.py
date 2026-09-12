@@ -72,7 +72,8 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
     assert (_REPO / board.source_of_truth).is_file()
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
     assert schema["properties"]["schema_version"]["const"] == 1
-    assert "hard_pass_rate" not in _SCHEMA.read_text(encoding="utf-8")
+    assert "hard_pass_rate" not in schema["properties"]
+    assert "hard_pass_rate" not in schema["$defs"]["result"]["properties"]
     assert {task.slot for task in board.tasks} == {1, 2, 3, 4, 5, 6, 8, 9, 10}
     assert all(task.slot != 7 for task in board.tasks)
     assert {model.openrouter_id for model in board.models} >= {
@@ -169,7 +170,8 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     board = pel.load_eval2_board(_RESULTS)
     matrix = pel.render_matrix_markdown(board)
     text = _SCOREBOARD.read_text(encoding="utf-8")
-    assert "hard_pass_rate" not in text
+    assert "| Hard pass |" not in text
+    assert "product_bar" in text or "Product bar" in text
     assert "google/gemini-3.8-flash" in text
     assert "not" in text.lower() and "string" in text.lower()
     assert "[`docs/eval/benchmarks.md`](../benchmarks.md)" in text
@@ -201,8 +203,8 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "HAPPY" in heat
     assert "NOT_HAPPY" in heat
     assert "no data" in heat
-    assert "hard_pass_rate" not in heat
-    assert "pareto" not in heat.lower()
+    assert "not string-harness hard_pass_rate" in heat
+    assert "pareto-fronts" not in heat
     assert "google/gemini-3.8-flash" in heat
     assert "Tenant Retention" in heat
     assert "no data" in cov
