@@ -1062,14 +1062,19 @@ def _windows_should_reuse_writer(ctx) -> bool:
     Hidden ``_blank`` + ``close_doc`` uid=29 returned; the next Hidden
     ``_blank`` hung 30s. Consecutive Hidden ``_blank`` swriter is unsafe
     even without paste leftovers (34597506651 with leftovers). Reuse
-    the first Windows Writer. Notebook suites still use
-    ``_wa_notebook_host``.
+    the first Windows Writer.
+
+    GHA 34661915875 (master ``aa6bf058``, tip of #737): leftover
+    ``_wa_simpress`` at leftover_open=15 hung 30s. Notebook / importer
+    suites isolated on ``_wa_notebook_host`` *and* disabled leftover
+    Writer reuse, so each leftover factory stacked a Writer
+    (leftover_open 1→15) because close is skipped. Reuse the leftover
+    ``_wa_notebook_host`` pool — still not leftover HTML-paste
+    ``_wa_factory`` (GHA 34643210006). Wipe leftover notebook host
+    between leftover notebook tests; leftover form listeners stay
+    per-document.
     """
     if ctx is None or sys.platform != "win32":
-        return False
-    # Notebook suites use ``_wa_notebook_host``, not leftover HTML-paste
-    # Writers (GHA 34643210006: leftover reuse + global listener counts).
-    if _windows_notebook_host():
         return False
     return True
 
@@ -1212,6 +1217,49 @@ def note_windows_html_paste_leftover() -> None:
     )
 
 
+# GHA 34661915875 (master aa6bf058, #737 live): leftover _wa_factory
+# swriter at leftover_open=15 returned; leftover _wa_simpress hung 30s
+# in loadComponentFromURL. Leftover Draw/Impress unique names succeeded
+# at leftover_open=1 (34657826349). High leftover Writer count wedges
+# a new app factory — skip leftover Draw/Impress, do not close leftovers.
+_WINDOWS_CROSS_APP_LEFTOVER_MAX = 4
+
+
+def windows_cross_app_factory_unsafe(leftover_open: int | None = None) -> bool:
+    """True when leftover Draw/Impress factory would hang on Windows."""
+    if leftover_open is None:
+        leftover_open = _windows_leftover_open()
+    return sys.platform == "win32" and int(leftover_open or 0) > _WINDOWS_CROSS_APP_LEFTOVER_MAX
+
+
+def skip_windows_cross_app_factory(factory_url: str, leftover_open: int) -> None:
+    """Skip leftover Draw/Impress factory when leftover Writer count is high.
+
+    GHA 34661915875: leftover ``_wa_simpress`` at leftover_open=15 hung
+    30s (office alive). #737's stable name is live — hang is not unique
+    ``_wa_factory_N`` stacking. Leftover swriter at leftover_open=15
+    returned. Do not close leftover paste / notebook Writers
+    (34556185752 / 34646877587). Leftover Writer / leftover Calc still
+    load. Cached leftover count only.
+    """
+    if factory_url not in ("private:factory/sdraw", "private:factory/simpress"):
+        return
+    if not windows_cross_app_factory_unsafe(leftover_open):
+        return
+    import unittest
+
+    print(
+        "windows leftover skip: leftover %s leftovers=%s"
+        % (factory_url.rsplit("/", 1)[-1], leftover_open),
+        file=sys.stderr,
+        flush=True,
+    )
+    raise unittest.SkipTest(
+        "Windows leftover Draw/Impress skip (%s, leftovers=%s)"
+        % (factory_url.rsplit("/", 1)[-1], leftover_open)
+    )
+
+
 def skip_windows_leftover_hidden_load(reason: str) -> None:
     """Skip leftover-poisoned Hidden loads and AWT peers on Windows.
 
@@ -1317,7 +1365,7 @@ _WINDOWS_NOTEBOOK_HOST = False
 
 
 def set_windows_notebook_host(on: bool) -> None:
-    """Writer leftover reuse off; leftover factory uses ``_wa_notebook_host``."""
+    """Leftover factory uses ``_wa_notebook_host`` (not leftover ``_wa_factory``)."""
     flag = bool(on)
     for mod in _testing_utils_holders():
         mod._WINDOWS_NOTEBOOK_HOST = flag
@@ -2097,6 +2145,11 @@ class TestingFactory:
                 "create_native_doc: windows factory leftover_open=%s url=%s target=%s flags=%s"
                 % (leftover_open, factory_url, target, flags)
             )
+            # GHA 34661915875: leftover _wa_simpress at leftover_open=15
+            # hung 30s. Stable name is live. Skip leftover Draw/Impress
+            # when leftover Writer count is high — leftover swriter at
+            # leftover_open=15 returned.
+            skip_windows_cross_app_factory(factory_url, leftover_open)
 
         # Distinguish "bridge already dead" (previous test) from "died during load".
         pre_open = probe_uno_bridge(ctx)
@@ -2248,7 +2301,10 @@ class TestingFactory:
                 from plugin.testing_runner import _progress
 
                 reuse = True
-                _progress("native_doc: leftover writer reuse")
+                if _windows_notebook_host():
+                    _progress("native_doc: leftover notebook host reuse")
+                else:
+                    _progress("native_doc: leftover writer reuse")
         # reuse=False still calls create_native_doc. Leftover _wa_scalc
         # hung 30s (34643210006). Wipe-and-reuse the pooled Calc instead.
         if doc_type == "calc" and not reuse and _windows_should_reuse_calc(ctx):
@@ -2260,7 +2316,13 @@ class TestingFactory:
         doc = None
         pooled = False
         if use_pool:
-            key = (id(ctx), doc_type, bool(hidden))
+            # Leftover notebook host must not reuse leftover _wa_factory
+            # (GHA 34643210006 leftover HTML-paste leftover). Same leftover
+            # Writer type, separate leftover pool.
+            pool_kind = "notebook_host" if (
+                doc_type == "writer" and _windows_notebook_host()
+            ) else doc_type
+            key = (id(ctx), pool_kind, bool(hidden))
             candidate = _NATIVE_DOC_POOL.get(key)
             if candidate is not None and _native_doc_alive(candidate):
                 try:
