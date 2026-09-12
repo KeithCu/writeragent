@@ -109,6 +109,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "x-ai/grok-4.6",
         "meta/muse-glimmer-30b",
         "meta/muse-spark-1.3-contributor",
+        "poolside/laguna-s-2.1",
     }
 
 
@@ -126,6 +127,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     grok = "x-ai/grok-4.6"
     glimmer = "meta/muse-glimmer-30b"
     spark = "meta/muse-spark-1.3-contributor"
+    laguna = "poolside/laguna-s-2.1"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -480,6 +482,32 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "0.00247" in afc_spark.oracle_note
     assert "6c6017b7" in afc_spark.oracle_note
 
+    # Twelfth catalog AFC stamp (Scrolly headed 20260912-0419).
+    afc_laguna = board.result_for("afc", laguna)
+    assert afc_laguna is not None
+    assert afc_laguna.product_bar == "NOT_HAPPY"
+    assert afc_laguna.oracle == "FAIL"
+    assert afc_laguna.stamp == "20260912-0419-laguna-s-2.1"
+    assert afc_laguna.oracle_passed is False
+    assert afc_laguna.oracle_failure_count == 1
+    assert afc_laguna.oracle_failures == ("missing sheet 'Sample'",)
+    assert afc_laguna.oracle_check_count is None
+    assert afc_laguna.partial_score is None
+    assert afc_laguna.afc_s_flags == 0
+    assert afc_laguna.afc_r_required == 66
+    assert afc_laguna.husk_cells == 0
+    assert afc_laguna.scored_cells == 0
+    assert afc_laguna.input_tokens == 166351
+    assert afc_laguna.output_tokens == 35845
+    assert afc_laguna.total_tokens == 202196
+    assert afc_laguna.wall_time_s == 384
+    assert afc_laguna.total_cost_usd == pytest.approx(0.01480)
+    assert afc_laguna.intelligence_per_dollar is None
+    assert "20260912-0419-laguna-s-2.1" in afc_laguna.oracle_note
+    assert "0.02142" in afc_laguna.oracle_note
+    assert "6c6017b7" in afc_laguna.oracle_note
+    assert "finish_reason=length" in afc_laguna.oracle_note
+
     # No invented catalog AFC-only scores outside AFC.
     for task_id in (
         "tenant-retention",
@@ -501,6 +529,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, grok) is None
         assert board.result_for(task_id, glimmer) is None
         assert board.result_for(task_id, spark) is None
+        assert board.result_for(task_id, laguna) is None
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -515,6 +544,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", grok),
         ("afc", glimmer),
         ("afc", spark),
+        ("afc", laguna),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -557,6 +587,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_grok)
     assert pel.has_recorded_partial(afc_glimmer)
     assert pel.has_recorded_partial(afc_spark)
+    assert pel.has_recorded_partial(afc_laguna)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -571,6 +602,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "x-ai/grok-4.6"),
     ("afc", "meta/muse-glimmer-30b"),
     ("afc", "meta/muse-spark-1.3-contributor"),
+    ("afc", "poolside/laguna-s-2.1"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -661,6 +693,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Grok 4.6" in partial
     assert "Muse Glimmer 30B" in partial
     assert "Muse Spark 1.3" in partial
+    assert "Laguna S 2.1" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -669,6 +702,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "S=68 R=—" in partial
     assert "S=0 R=—" in partial
     assert "S=0 R=65" in partial
+    assert "S=0 R=66" in partial
     assert "S=494 R=68" in partial
     assert "2/—" in partial
     assert "no ratio" in partial
@@ -722,6 +756,8 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Grok 4.6" in partial_text
     assert "Muse Glimmer 30B" in partial_text
     assert "Muse Spark 1.3" in partial_text
+    assert "Laguna S 2.1" in partial_text
+    assert "S=0 R=66" in partial_text
     assert "S=494 R=68" in partial_text
     assert "2/—" in partial_text
     assert "no ratio" in partial_text

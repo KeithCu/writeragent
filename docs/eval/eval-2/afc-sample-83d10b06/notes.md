@@ -132,3 +132,13 @@ R=None; husks 0/0. Same empty-Sample shape as Grok. tip_at_run
 stored; model_configs estimate ~$0.00247 is an alternate only. Run
 dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0409-muse-spark-1.3-contributor/`.
+
+Twelfth catalog cell: `poolside/laguna-s-2.1`, stamp
+`20260912-0419-laguna-s-2.1`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=1`: missing sheet 'Sample'). SSC present
+with parseable R=66; Sample sheet missing (`sample_data_rows=0`);
+S=0; husks 0/0. `finish_reason=length` — response truncated mid
+tool loop. tip_at_run `6c6017b7`. UNO/assert/PreContract=0.
+OpenRouter usage sum ~$0.01480 stored; model_configs estimate
+~$0.02142 is an alternate only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0419-laguna-s-2.1/`.
