@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "updated": "2026-09-12",
+  "gate_model": "google/gemini-3.8-flash",
+  "source_of_truth": "docs/eval/eval-2/headed-failure-autopsy.md",
+  "notes": "Seeded only from in-repo autopsy / sibling notes. No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
+  "tasks": [
+    {
+      "id": "tenant-retention",
+      "slot": 1,
+      "slug": "tenant-retention-ed2bc14c",
+      "title": "Tenant Retention",
+      "status": "Ready"
+    },
+    {
+      "id": "cadaver-proposal",
+      "slot": 2,
+      "slug": "cadaver-proposal-61b0946a",
+      "title": "Cadaver Proposal",
+      "status": "Ready"
+    },
+    {
+      "id": "afc",
+      "slot": 3,
+      "slug": "afc-sample-83d10b06",
+      "title": "AFC Population",
+      "status": "Ready"
+    },
+    {
+      "id": "gmp-change-control",
+      "slot": 4,
+      "slug": "gmp-change-control-58ac1cc5",
+      "title": "GMP Change Control",
+      "status": "Ready"
+    },
+    {
+      "id": "writer-calc-peer-write",
+      "slot": 5,
+      "slug": "writer-calc-peer-write",
+      "title": "Floorstand Writer→Calc",
+      "status": "Ready"
+    },
+    {
+      "id": "calc-primary-model",
+      "slot": 6,
+      "slug": "calc-primary-model",
+      "title": "Calc-primary model",
+      "status": "Ready"
+    },
+    {
+      "id": "draw-primary",
+      "slot": 8,
+      "slug": "draw-primary-deliverable",
+      "title": "Draw-primary",
+      "status": "Ready"
+    },
+    {
+      "id": "reverse-tenant",
+      "slot": 9,
+      "slug": "reverse-tenant",
+      "title": "Reverse Tenant",
+      "status": "Ready"
+    },
+    {
+      "id": "long-writer-pack",
+      "slot": 10,
+      "slug": "long-writer-pack",
+      "title": "Long Writer pack",
+      "status": "Headed-ready"
+    }
+  ],
+  "models": [
+    {
+      "openrouter_id": "google/gemini-3.8-flash",
+      "display_name": "Gemini 3.8 Flash",
+      "role": "gate"
+    },
+    {
+      "openrouter_id": "openai/gpt-oss-120b",
+      "display_name": "GPT-OSS 120B",
+      "role": "headed"
+    },
+    {
+      "openrouter_id": "openai/gpt-oss-20b",
+      "display_name": "GPT-OSS 20B",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "x-ai/grok-4.6",
+      "display_name": "Grok 4.6",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "meta/muse-spark-1.3-contributor",
+      "display_name": "Muse Spark 1.3",
+      "role": "catalog"
+    }
+  ],
+  "results": [
+    {
+      "task_id": "tenant-retention",
+      "model": "google/gemini-3.8-flash",
+      "product_bar": "HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "False-red (titles in text:h, table cells, length); later softened. Product bar HAPPY.",
+      "stamp": "20260908-0121-gemini-3.8-flash-r200",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §1; docs/eval/eval-2/tenant-retention-ed2bc14c/notes.md",
+      "run_artifacts_committed": false,
+      "patches": null
+    },
+    {
+      "task_id": "cadaver-proposal",
+      "model": "google/gemini-3.8-flash",
+      "product_bar": "HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "False-red (aliases, Figure/draw:frame, length); soften PR. Product bar HAPPY.",
+      "stamp": "20260908-2246-gemini-3.8-flash-r200",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §1; docs/eval/eval-2/cadaver-proposal-61b0946a/notes.md",
+      "run_artifacts_committed": false,
+      "patches": null
+    },
+    {
+      "task_id": "afc",
+      "model": "google/gemini-3.8-flash",
+      "product_bar": "HAPPY",
+      "oracle": "PASS",
+      "oracle_note": "Sample+SSC after smoother (S=65 R=2). Earlier thrash was fixture/prompt key mismatch.",
+      "stamp": "20260908-0030-retry2",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §1; docs/eval/eval-2/afc-sample-83d10b06/SMOOTHER_CHANGES.md",
+      "run_artifacts_committed": false,
+      "patches": null
+    },
+    {
+      "task_id": "writer-calc-peer-write",
+      "model": "google/gemini-3.8-flash",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Polarity HIT (fill/write asks) but empty Cost Comparison (titles only) + 0-word email + stall >3 min. Honest empty FAIL.",
+      "stamp": "20260909-1748-gemini-3.8-flash-private-patch",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §2.4",
+      "run_artifacts_committed": false,
+      "patches": "Private PEER_INNER polarity sentence + write_formula_range teaching; not PR'd (.bak-scrolly-*)."
+    },
+    {
+      "task_id": "gmp-change-control",
+      "model": "openai/gpt-oss-120b",
+      "product_bar": "HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "0225 cite-only fail (memo does not cite filled form) — secondary vs headed HAPPY.",
+      "stamp": "20260909-0225-gpt-oss-120b",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §2.1",
+      "run_artifacts_committed": false,
+      "patches": "Local str_bounded peer-task truncate (not yet the cloud PR).",
+      "prior_stamps": [
+        {
+          "stamp": "20260909-0103-gpt-oss-120b",
+          "product_bar": "NOT_HAPPY",
+          "oracle": "FAIL",
+          "note": "Dump/research polarity; filled_fields=0."
+        }
+      ]
+    },
+    {
+      "task_id": "writer-calc-peer-write",
+      "model": "openai/gpt-oss-120b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Extract/JSON polarity MISS; nonempty_cells=2; blank email; LO crash after peer. Honest empty FAIL.",
+      "stamp": "20260909-0323-gpt-oss-120b",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §2.2",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "prior_stamps": [
+        {
+          "stamp": "20260909-1733-gpt-oss-120b-private-patch",
+          "product_bar": "NOT_HAPPY",
+          "oracle": "FAIL",
+          "note": "Private patches did not flip gpt-oss polarity; still extract/JSON."
+        }
+      ]
+    },
+    {
+      "task_id": "calc-primary-model",
+      "model": "openai/gpt-oss-120b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "CSV-row dump into col A + wrong ARPU factor + #NAME? invented headcount sheet; Regions A–G sparse.",
+      "stamp": "20260909-0400-gpt-oss-120b",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §5.6",
+      "run_artifacts_committed": false,
+      "patches": null
+    },
+    {
+      "task_id": "draw-primary",
+      "model": "openai/gpt-oss-120b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Non-empty map but garbled layout; missing Clearbend / failure / triage labels.",
+      "stamp": "20260909-0411-gpt-oss-120b",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §5.8",
+      "run_artifacts_committed": false,
+      "patches": null
+    },
+    {
+      "task_id": "reverse-tenant",
+      "model": "openai/gpt-oss-120b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Talk-not-write: blank Sheet1 (0 cells) + PreContractError; Sheet2/3 only in chat.",
+      "stamp": "20260909-0414-gpt-oss-120b",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §5.9",
+      "run_artifacts_committed": false,
+      "patches": null
+    },
+    {
+      "task_id": "long-writer-pack",
+      "model": "openai/gpt-oss-120b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "TOC+headings OK; invented $12.5M / wrong dates; 0 review comments.",
+      "stamp": "20260909-0419-gpt-oss-120b",
+      "source": "docs/eval/eval-2/headed-failure-autopsy.md §5.10",
+      "run_artifacts_committed": false,
+      "patches": null
+    }
+  ]
+}

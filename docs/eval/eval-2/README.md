@@ -2,7 +2,9 @@
 
 **Eval-2 is for debugging the harness.** Iterate here. Do **not** edit
 `docs/eval/gdpval/` gold trees except by **adding** a new untouched gold
-id. A multi-model benchmark comes later, when ~10 siblings exist.
+id. Headed **task × model** scoreboard (product bar + oracle, not
+string-pack Pareto): [`benchmarks.md`](benchmarks.md). Catalog-wide
+numeric sweeps still wait — empty cells mean no in-repo headed stamp.
 
 `test_gold_prompt_is_byte_copy_of_hf_tree` compares `prompt.txt` and
 `prompt.gdpval.txt` as bytes to the HF `task.json` `prompt` (LF).
@@ -10,6 +12,7 @@ id. A multi-model benchmark comes later, when ~10 siblings exist.
 not rewrite them as CRLF.
 
 Living headed autopsy (product bar + peer polarity + next experiments): [`headed-failure-autopsy.md`](headed-failure-autopsy.md).
+Scoreboard + SVG charts: [`benchmarks.md`](benchmarks.md).
 
 Each subdirectory is one experiment. **Ready** means headed helper +
 oracle exist. **Stub** means fixture notes only — not headed-ready gold.
