@@ -167,5 +167,5 @@
   <rect x="838.0" y="598.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="909.0" y="618.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="909.0" y="634.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
-  <text x="24" y="696" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">Source: headed eval-2 autopsy notes, not a catalog sweep. Empty = no in-repo stamp. Metrics are product HAPPY / oracle PASS|FAIL (not string-harness hard_pass_rate).</text>
+  <text x="24" y="696" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">Headed sibling of the string pack (hard / partial / cost). Empty = no in-repo stamp. Do not merge into hard_pass_rate JSON.</text>
 </svg>

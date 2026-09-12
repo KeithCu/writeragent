@@ -74,6 +74,26 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
     assert schema["properties"]["schema_version"]["const"] == 1
     assert "hard_pass_rate" not in schema["properties"]
     assert "hard_pass_rate" not in schema["$defs"]["result"]["properties"]
+    result_props = schema["$defs"]["result"]["properties"]
+    for key in (
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "total_cost_usd",
+        "wall_time_s",
+        "intelligence_per_dollar",
+        "oracle_passed",
+        "oracle_failure_count",
+        "oracle_check_count",
+        "oracle_failures",
+        "afc_s_flags",
+        "afc_r_required",
+        "husk_cells",
+        "scored_cells",
+        "partial_score",
+    ):
+        assert key in result_props
+        assert key not in schema["$defs"]["result"]["required"]
     assert {task.slot for task in board.tasks} == {1, 2, 3, 4, 5, 6, 8, 9, 10}
     assert all(task.slot != 7 for task in board.tasks)
     assert {model.openrouter_id for model in board.models} >= {
@@ -154,6 +174,32 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.scored_count(mid) == 0
         assert board.happy_count(mid) == 0
 
+    # Seed must not invent run costs or oracle-partial counts.
+    for row in board.results:
+        assert row.total_tokens is None
+        assert row.input_tokens is None
+        assert row.output_tokens is None
+        assert row.total_cost_usd is None
+        assert row.wall_time_s is None
+        assert row.intelligence_per_dollar is None
+        assert row.oracle_failure_count is None
+        assert row.oracle_check_count is None
+        assert row.oracle_failures is None
+        assert row.afc_s_flags is None
+        assert row.afc_r_required is None
+        assert row.husk_cells is None
+        assert row.scored_cells is None
+        if row.oracle == "PASS":
+            assert row.oracle_passed is True
+            assert row.partial_score == 1.0
+        else:
+            assert row.oracle_passed is False
+            assert row.partial_score is None
+    assert pel.happy_cost_rows(board) == ()
+    afc = board.result_for("afc", gemini)
+    assert afc is not None
+    assert pel.has_recorded_partial(afc)
+
 
 def test_every_seed_source_points_at_an_in_repo_doc() -> None:
     payload = json.loads(_RESULTS.read_text(encoding="utf-8"))
@@ -164,6 +210,24 @@ def test_every_seed_source_points_at_an_in_repo_doc() -> None:
         path = _REPO / first
         assert path.is_file(), first
         assert row.get("run_artifacts_committed") is False
+        for key in (
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+            "total_cost_usd",
+            "wall_time_s",
+            "intelligence_per_dollar",
+            "oracle_passed",
+            "oracle_failure_count",
+            "oracle_check_count",
+            "oracle_failures",
+            "afc_s_flags",
+            "afc_r_required",
+            "husk_cells",
+            "scored_cells",
+            "partial_score",
+        ):
+            assert key not in row or row[key] is None, row
 
 
 def test_scoreboard_markdown_matches_seed_matrix() -> None:
@@ -177,6 +241,15 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "[`docs/eval/benchmarks.md`](../benchmarks.md)" in text
     assert "eval2-heatmap.svg" in text
     assert "eval2-coverage.svg" in text
+    assert "eval2-cost.svg" in text
+    assert "eval2-partial.svg" in text
+    assert "HAPPY first" in text
+    assert "partial_score`²" in text or "partial_score²" in text
+    assert "1 − oracle_failure_count / oracle_check_count" in text
+    assert "headed sibling" in text.lower()
+    assert "Different benchmark" in text
+    assert "One filled task still counts" in text
+    assert "do **not** invent run costs" in text.lower()
     assert "Catalog-wide" in text or "catalog" in text.lower()
     assert "sweep has **not** happened" in text
     for line in matrix.strip().splitlines():
@@ -186,11 +259,22 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     readme = _README.read_text(encoding="utf-8")
     assert "[`benchmarks.md`](benchmarks.md)" in readme
     assert "string-pack Pareto" in readme
+    assert "Different benchmark from the 17-task string pack" in readme
+    assert "One filled task" in readme
     heatmap = (_EVAL2 / pel.HEATMAP_NAME).read_text(encoding="utf-8")
     coverage = (_EVAL2 / pel.COVERAGE_NAME).read_text(encoding="utf-8")
+    cost = (_EVAL2 / pel.COST_NAME).read_text(encoding="utf-8")
+    partial = (_EVAL2 / pel.PARTIAL_NAME).read_text(encoding="utf-8")
     assert "no data" in heatmap
     assert "HAPPY" in heatmap
     assert "0 HAPPY / 0 scored" in coverage
+    assert "No HAPPY cell has recorded total_cost_usd yet" in cost
+    assert "data-cost-usd=" not in cost
+    # Seed has one oracle PASS (AFC) → partial 1; no invented FAIL ratios.
+    assert "data-partial-score=\"1.00\"" in partial
+    assert "Gemini 3.8 Flash" in partial
+    assert "AFC Population" in partial
+    assert "S=" not in partial
 
 
 def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> None:
@@ -203,7 +287,8 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "HAPPY" in heat
     assert "NOT_HAPPY" in heat
     assert "no data" in heat
-    assert "not string-harness hard_pass_rate" in heat
+    assert "sibling of the string pack" in heat
+    assert "hard_pass_rate" in heat
     assert "pareto-fronts" not in heat
     assert "google/gemini-3.8-flash" in heat
     assert "Tenant Retention" in heat
@@ -211,6 +296,18 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "0 HAPPY / 0 scored" in cov
     assert pel.HEATMAP_NAME != "pareto-fronts.svg"
     assert pel.COVERAGE_NAME != "pareto-distance.svg"
+    assert pel.COST_NAME != "pareto-fronts.svg"
+
+    cost_svg = pel.write_cost_svg(board, tmp_path / "eval2-cost.svg")
+    cost_text = cost_svg.read_text(encoding="utf-8")
+    assert "No HAPPY cell has recorded total_cost_usd yet" in cost_text
+    assert "data-cost-usd=" not in cost_text
+    assert "$0." not in cost_text
+    assert pel.PARTIAL_NAME != "pareto-fronts.svg"
+    partial_svg = pel.write_partial_svg(board, tmp_path / "eval2-partial.svg")
+    partial_text = partial_svg.read_text(encoding="utf-8")
+    assert 'data-partial-score="1.00"' in partial_text
+    assert "0.50" not in partial_text
 
 
 def test_cli_check_and_refuse_string_harness_json(
@@ -238,8 +335,12 @@ def test_cli_writes_svgs_and_print_matrix(tmp_path: Path, capsys: pytest.Capture
     assert pel.main(["--in", str(src), "--out-dir", str(out_dir), "--print-matrix"]) == 0
     printed = capsys.readouterr().out
     assert "| 3 | AFC Population | HAPPY / oracle PASS | — |" in printed
+    assert "No HAPPY cell has recorded `total_cost_usd`" in printed
+    assert "| 3 | AFC Population | Gemini 3.8 Flash | HAPPY | 1.00 |" in printed
     assert (out_dir / pel.HEATMAP_NAME).is_file()
     assert (out_dir / pel.COVERAGE_NAME).is_file()
+    assert (out_dir / pel.COST_NAME).is_file()
+    assert (out_dir / pel.PARTIAL_NAME).is_file()
 
 
 def test_loader_rejects_parked_slot_and_null_null_cells(tmp_path: Path) -> None:
@@ -293,3 +394,258 @@ def test_plot_module_does_not_import_string_harness() -> None:
     assert "from run_eval_multi" not in source
     assert "import plot_pareto" not in source
     assert "merge_benchmark_results" not in source
+
+
+def test_intelligence_per_dollar_is_partial_squared_over_cost() -> None:
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.25, 1.0) == 4.0
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.25, 0.5) == 1.0
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.25, None) is None
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.0, 1.0) is None
+    assert pel.compute_intelligence_per_dollar("HAPPY", None, 1.0) is None
+    assert pel.compute_intelligence_per_dollar("NOT_HAPPY", 0.25, 1.0) is None
+    assert pel.compute_intelligence_per_dollar(None, 0.25, 1.0) is None
+
+
+def test_loader_accepts_optional_cost_fields_and_computes_ipd(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0].update(
+        {
+            "total_tokens": 12000,
+            "input_tokens": 8000,
+            "output_tokens": 4000,
+            "total_cost_usd": 0.5,
+            "wall_time_s": 90,
+        }
+    )
+    path = tmp_path / "with_cost.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    row = board.results[0]
+    assert row.total_tokens == 12000
+    assert row.input_tokens == 8000
+    assert row.output_tokens == 4000
+    assert row.total_cost_usd == 0.5
+    assert row.wall_time_s == 90.0
+    assert row.intelligence_per_dollar == 2.0
+    ranked = pel.happy_cost_rows(board)
+    assert len(ranked) == 1
+    assert ranked[0].cost_usd == 0.5
+    assert ranked[0].intelligence_per_dollar == 2.0
+    table = pel.render_cost_markdown(board)
+    assert "| 3 | AFC Population | Gemini 3.8 Flash | 0.5000 | 12000 | 90 | 2.00 |" in table
+
+
+def test_loader_does_not_compute_ipd_for_not_happy_cost(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0]["product_bar"] = "NOT_HAPPY"
+    payload["results"][0]["oracle"] = "FAIL"
+    payload["results"][0]["total_cost_usd"] = 0.01
+    path = tmp_path / "not_happy_cost.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    assert board.results[0].total_cost_usd == 0.01
+    assert board.results[0].intelligence_per_dollar is None
+    assert pel.happy_cost_rows(board) == ()
+    assert "stays empty" in pel.render_cost_markdown(board)
+
+
+def test_loader_rejects_negative_or_bool_cost_fields(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0]["total_cost_usd"] = -0.1
+    path = tmp_path / "bad_cost.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(pel.Eval2ResultsError, match="total_cost_usd"):
+        pel.load_eval2_board(path)
+
+    payload = _minimal_board_payload()
+    payload["results"][0]["total_tokens"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(pel.Eval2ResultsError, match="total_tokens"):
+        pel.load_eval2_board(path)
+
+
+def test_cost_chart_ranks_happy_by_lower_cost_and_skips_empty(
+    tmp_path: Path,
+) -> None:
+    payload = _minimal_board_payload()
+    # Cheaper HAPPY ranks first on AFC; the seed board (no costs) stays empty.
+    payload["results"][0].update({"total_cost_usd": 0.20, "total_tokens": 4000})
+    payload["results"].append(
+        {
+            "task_id": "afc",
+            "model": "openai/gpt-oss-20b",
+            "product_bar": "HAPPY",
+            "oracle": "PASS",
+            "total_cost_usd": 0.05,
+            "total_tokens": 2500,
+        }
+    )
+    payload["models"].append(
+        {
+            "openrouter_id": "x-ai/grok-4.6",
+            "display_name": "Grok 4.6",
+            "role": "catalog",
+        }
+    )
+    payload["results"].append(
+        {
+            "task_id": "afc",
+            "model": "x-ai/grok-4.6",
+            "product_bar": "HAPPY",
+            "oracle": "PASS",
+            "total_tokens": 9999,
+        }
+    )
+    path = tmp_path / "ranked.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    ranked = pel.happy_cost_rows(board)
+    assert [row.model.openrouter_id for row in ranked] == [
+        "openai/gpt-oss-20b",
+        "google/gemini-3.8-flash",
+    ]
+    svg = pel.write_cost_svg(board, tmp_path / "eval2-cost.svg").read_text(encoding="utf-8")
+    assert "data-cost-usd=" in svg
+    assert "0.0500" in svg
+    assert "0.2000" in svg
+    assert "GPT-OSS 20B" in svg
+    assert "Gemini 3.8 Flash" in svg
+    assert "AFC Population" in svg
+    assert "No HAPPY cell has recorded total_cost_usd yet" not in svg
+    # HAPPY without recorded USD must not invent a bar from tokens.
+    assert "Grok 4.6" not in svg
+    assert "9999" not in svg
+
+    empty_board = pel.load_eval2_board(_RESULTS)
+    empty_svg = pel.write_cost_svg(empty_board, tmp_path / "empty-cost.svg").read_text(
+        encoding="utf-8"
+    )
+    assert "No HAPPY cell has recorded total_cost_usd yet" in empty_svg
+    assert "data-cost-usd=" not in empty_svg
+
+
+def test_partial_score_only_when_pass_or_both_counts() -> None:
+    assert pel.compute_partial_score(True, None, None) == 1.0
+    assert pel.compute_partial_score(True, 2, 6) == 1.0
+    assert pel.compute_partial_score(False, 2, 6) == pytest.approx(4 / 6)
+    assert pel.compute_partial_score(False, 0, 6) == 1.0
+    assert pel.compute_partial_score(False, 6, 6) == 0.0
+    assert pel.compute_partial_score(False, 2, None) is None
+    assert pel.compute_partial_score(False, None, 6) is None
+    assert pel.compute_partial_score(None, 2, 6) == pytest.approx(4 / 6)
+
+
+def test_loader_accepts_oracle_partial_and_ranks_happy_then_quality_then_cost(
+    tmp_path: Path,
+) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0].update(
+        {
+            "total_cost_usd": 0.40,
+            "afc_s_flags": 65,
+            "afc_r_required": 2,
+            "husk_cells": 0,
+            "scored_cells": 80,
+        }
+    )
+    payload["results"].append(
+        {
+            "task_id": "afc",
+            "model": "openai/gpt-oss-20b",
+            "product_bar": "HAPPY",
+            "oracle": "FAIL",
+            "oracle_failures": ["S=10 flag=1 in column K is < R=40"],
+            "oracle_check_count": 6,
+            "afc_s_flags": 10,
+            "afc_r_required": 40,
+            "total_cost_usd": 0.05,
+        }
+    )
+    payload["models"].append(
+        {
+            "openrouter_id": "x-ai/grok-4.6",
+            "display_name": "Grok 4.6",
+            "role": "catalog",
+        }
+    )
+    payload["results"].append(
+        {
+            "task_id": "afc",
+            "model": "x-ai/grok-4.6",
+            "product_bar": "NOT_HAPPY",
+            "oracle": "FAIL",
+            "oracle_failures": ["Sample has no data rows"],
+            "oracle_check_count": 6,
+            "total_cost_usd": 0.01,
+        }
+    )
+    path = tmp_path / "partial.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    gemini = board.result_for("afc", "google/gemini-3.8-flash")
+    oss = board.result_for("afc", "openai/gpt-oss-20b")
+    grok = board.result_for("afc", "x-ai/grok-4.6")
+    assert gemini is not None and oss is not None and grok is not None
+    assert gemini.partial_score == 1.0
+    assert gemini.afc_s_flags == 65
+    assert oss.oracle_failure_count == 1
+    assert oss.partial_score == pytest.approx(5 / 6)
+    assert grok.partial_score == pytest.approx(5 / 6)
+    assert grok.product_bar == "NOT_HAPPY"
+    ranked = pel.ranked_rows(board)
+    assert [row.model.openrouter_id for row in ranked] == [
+        "google/gemini-3.8-flash",
+        "openai/gpt-oss-20b",
+        "x-ai/grok-4.6",
+    ]
+    table = pel.render_partial_markdown(board)
+    assert "| 3 | AFC Population | Gemini 3.8 Flash | HAPPY | 1.00 |" in table
+    assert "S=65 R=2" in table
+    assert "S=10 R=40" in table
+    svg = pel.write_partial_svg(board, tmp_path / "eval2-partial.svg").read_text(
+        encoding="utf-8"
+    )
+    assert 'data-partial-score="1.00"' in svg
+    assert 'data-partial-score="0.83"' in svg
+    assert "Grok 4.6" in svg
+    assert "No cell has recorded oracle partial yet" not in svg
+
+
+def test_loader_does_not_invent_partial_ratio_without_check_count(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0]["product_bar"] = "NOT_HAPPY"
+    payload["results"][0]["oracle"] = "FAIL"
+    payload["results"][0]["oracle_failures"] = ["missing Harborview Flats"]
+    path = tmp_path / "no_denom.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    row = board.results[0]
+    assert row.oracle_failure_count == 1
+    assert row.oracle_check_count is None
+    assert row.partial_score is None
+    svg = pel.write_partial_svg(board, tmp_path / "eval2-partial.svg").read_text(
+        encoding="utf-8"
+    )
+    assert "no ratio" in svg
+    assert "data-partial-score=" not in svg
+
+
+def test_loader_rejects_bad_partial_fields(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0]["partial_score"] = 1.5
+    path = tmp_path / "bad_partial.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(pel.Eval2ResultsError, match="partial_score"):
+        pel.load_eval2_board(path)
+
+    payload = _minimal_board_payload()
+    payload["results"][0]["oracle_check_count"] = 0
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(pel.Eval2ResultsError, match="oracle_check_count"):
+        pel.load_eval2_board(path)
+
+    payload = _minimal_board_payload()
+    payload["results"][0]["oracle_failures"] = [1]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(pel.Eval2ResultsError, match="oracle_failures"):
+        pel.load_eval2_board(path)

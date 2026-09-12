@@ -5,9 +5,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Write eval-2 headed task×model SVGs from a results JSON.
 
-Separate from the 17-task string-harness Pareto (`plot_pareto.py` /
-``docs/eval/pareto-*.svg``). Reads only the eval-2 headed results file —
-no OpenRouter, no ``benchmark_results.json`` merge.
+Headed sibling of the 17-task string pack (hard / partial / cost).
+Reads only the eval-2 results file — no OpenRouter, no merge into
+``benchmark_results.json`` or ``docs/eval/pareto-*.svg``.
+
+Heatmap / coverage stay HAPPY / NOT_HAPPY. Rank hard (HAPPY) → oracle
+partial → C²/$ among successes. Missing cost or partial stays empty.
 """
 from __future__ import annotations
 
@@ -39,11 +42,12 @@ COLOR_LINE = "#dadce0"
 
 HEATMAP_NAME = "eval2-heatmap.svg"
 COVERAGE_NAME = "eval2-coverage.svg"
+COST_NAME = "eval2-cost.svg"
+PARTIAL_NAME = "eval2-partial.svg"
 
 FOOTNOTE = (
-    "Source: headed eval-2 autopsy notes, not a catalog sweep. "
-    "Empty = no in-repo stamp. Metrics are product HAPPY / oracle PASS|FAIL "
-    "(not string-harness hard_pass_rate)."
+    "Headed sibling of the string pack (hard / partial / cost). "
+    "Empty = no in-repo stamp. Do not merge into hard_pass_rate JSON."
 )
 
 
@@ -78,6 +82,43 @@ class Eval2Result:
     source: str
     run_artifacts_committed: bool
     patches: str | None
+    total_tokens: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_cost_usd: float | None = None
+    wall_time_s: float | None = None
+    intelligence_per_dollar: float | None = None
+    oracle_passed: bool | None = None
+    oracle_failure_count: int | None = None
+    oracle_check_count: int | None = None
+    oracle_failures: tuple[str, ...] | None = None
+    afc_s_flags: int | None = None
+    afc_r_required: int | None = None
+    husk_cells: int | None = None
+    scored_cells: int | None = None
+    partial_score: float | None = None
+
+
+@dataclass(frozen=True)
+class HappyCostRow:
+    """One HAPPY cell that recorded a positive USD cost (no invented numbers)."""
+
+    task: Eval2Task
+    model: Eval2Model
+    result: Eval2Result
+    cost_usd: float
+    intelligence_per_dollar: float
+
+
+@dataclass(frozen=True)
+class RankedRow:
+    """One scored cell in HAPPY → partial → cost order (missing metrics sort last)."""
+
+    task: Eval2Task
+    model: Eval2Model
+    result: Eval2Result
+    partial_score: float | None
+    cost_usd: float | None
 
 
 @dataclass(frozen=True)
@@ -121,6 +162,109 @@ def _optional_str(row: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str):
         raise Eval2ResultsError(f"{key!r} must be a string or null")
     return value
+
+
+def _optional_nonneg_int(row: Mapping[str, Any], key: str) -> int | None:
+    if key not in row or row[key] is None:
+        return None
+    value = row[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise Eval2ResultsError(f"{key!r} must be a non-negative int or null")
+    if value < 0:
+        raise Eval2ResultsError(f"{key!r} must be >= 0")
+    return value
+
+
+def _optional_nonneg_float(row: Mapping[str, Any], key: str) -> float | None:
+    if key not in row or row[key] is None:
+        return None
+    value = row[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise Eval2ResultsError(f"{key!r} must be a non-negative number or null")
+    if value < 0:
+        raise Eval2ResultsError(f"{key!r} must be >= 0")
+    return float(value)
+
+
+def _optional_bool(row: Mapping[str, Any], key: str) -> bool | None:
+    if key not in row or row[key] is None:
+        return None
+    value = row[key]
+    if not isinstance(value, bool):
+        raise Eval2ResultsError(f"{key!r} must be a boolean or null")
+    return value
+
+
+def _optional_str_list(row: Mapping[str, Any], key: str) -> tuple[str, ...] | None:
+    if key not in row or row[key] is None:
+        return None
+    value = row[key]
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise Eval2ResultsError(f"{key!r} must be an array of strings or null")
+    return tuple(value)
+
+
+def _optional_positive_int(row: Mapping[str, Any], key: str) -> int | None:
+    value = _optional_nonneg_int(row, key)
+    if value == 0:
+        raise Eval2ResultsError(f"{key!r} must be >= 1")
+    return value
+
+
+def _optional_unit_interval(row: Mapping[str, Any], key: str) -> float | None:
+    value = _optional_nonneg_float(row, key)
+    if value is not None and value > 1.0:
+        raise Eval2ResultsError(f"{key!r} must be between 0 and 1")
+    return value
+
+
+def compute_intelligence_per_dollar(
+    product_bar: str | None,
+    total_cost_usd: float | None,
+    partial_score: float | None = None,
+) -> float | None:
+    """C²/$ among headed successes: partial² / USD.
+
+    Same shape as the string-pack Value (metric² / avg $/task). Omit when
+    not HAPPY, cost is missing/zero, or partial is unknown.
+    """
+    if product_bar != "HAPPY" or total_cost_usd is None or total_cost_usd <= 0:
+        return None
+    if partial_score is None:
+        return None
+    return (partial_score**2) / total_cost_usd
+
+
+def compute_partial_score(
+    oracle_passed: bool | None,
+    oracle_failure_count: int | None,
+    oracle_check_count: int | None,
+) -> float | None:
+    """Oracle quality in [0, 1]. None when the ratio cannot be formed honestly.
+
+    ``1`` when the fail-closed oracle passed. Otherwise
+    ``1 - failure_count / check_count`` only when both counts were recorded
+    and ``check_count > 0``. Do not invent a denominator from failure text.
+    """
+    if oracle_passed is True:
+        return 1.0
+    if (
+        oracle_failure_count is None
+        or oracle_check_count is None
+        or oracle_check_count <= 0
+    ):
+        return None
+    return max(0.0, min(1.0, 1.0 - (oracle_failure_count / oracle_check_count)))
+
+
+def resolve_oracle_passed(oracle: str | None, stored: bool | None) -> bool | None:
+    if stored is not None:
+        return stored
+    if oracle == "PASS":
+        return True
+    if oracle == "FAIL":
+        return False
+    return None
 
 
 def _enum_or_none(value: object, allowed: frozenset[str], *, field: str) -> str | None:
@@ -200,6 +344,24 @@ def _parse_result(
         raise Eval2ResultsError(
             f"{task_id} × {model}: omit empty cells instead of storing a null/null result"
         )
+    total_cost_usd = _optional_nonneg_float(raw, "total_cost_usd")
+    stored_ipd = _optional_nonneg_float(raw, "intelligence_per_dollar")
+    oracle_failures = _optional_str_list(raw, "oracle_failures")
+    stored_fail_count = _optional_nonneg_int(raw, "oracle_failure_count")
+    if stored_fail_count is not None:
+        oracle_failure_count = stored_fail_count
+    elif oracle_failures is not None:
+        oracle_failure_count = len(oracle_failures)
+    else:
+        oracle_failure_count = None
+    oracle_check_count = _optional_positive_int(raw, "oracle_check_count")
+    oracle_passed = resolve_oracle_passed(oracle, _optional_bool(raw, "oracle_passed"))
+    stored_partial = _optional_unit_interval(raw, "partial_score")
+    partial_score = (
+        stored_partial
+        if stored_partial is not None
+        else compute_partial_score(oracle_passed, oracle_failure_count, oracle_check_count)
+    )
     return Eval2Result(
         task_id=task_id,
         model=model,
@@ -210,6 +372,23 @@ def _parse_result(
         source=_optional_str(raw, "source"),
         run_artifacts_committed=bool(raw.get("run_artifacts_committed", False)),
         patches=raw.get("patches") if isinstance(raw.get("patches"), str) else None,
+        total_tokens=_optional_nonneg_int(raw, "total_tokens"),
+        input_tokens=_optional_nonneg_int(raw, "input_tokens"),
+        output_tokens=_optional_nonneg_int(raw, "output_tokens"),
+        total_cost_usd=total_cost_usd,
+        wall_time_s=_optional_nonneg_float(raw, "wall_time_s"),
+        intelligence_per_dollar=stored_ipd
+        if stored_ipd is not None
+        else compute_intelligence_per_dollar(product_bar, total_cost_usd, partial_score),
+        oracle_passed=oracle_passed,
+        oracle_failure_count=oracle_failure_count,
+        oracle_check_count=oracle_check_count,
+        oracle_failures=oracle_failures,
+        afc_s_flags=_optional_nonneg_int(raw, "afc_s_flags"),
+        afc_r_required=_optional_nonneg_int(raw, "afc_r_required"),
+        husk_cells=_optional_nonneg_int(raw, "husk_cells"),
+        scored_cells=_optional_nonneg_int(raw, "scored_cells"),
+        partial_score=partial_score,
     )
 
 
@@ -280,6 +459,180 @@ def render_matrix_markdown(board: Eval2Board) -> str:
         for model in board.models:
             cells.append(cell_label(board.result_for(task.id, model.openrouter_id)))
         lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def happy_cost_rows(board: Eval2Board) -> tuple[HappyCostRow, ...]:
+    """HAPPY cells with recorded cost > 0, cheapest success first within a task."""
+    task_by_id = {task.id: task for task in board.tasks}
+    model_by_id = {model.openrouter_id: model for model in board.models}
+    rows: list[HappyCostRow] = []
+    for result in board.results:
+        if result.product_bar != "HAPPY":
+            continue
+        cost = result.total_cost_usd
+        if cost is None or cost <= 0:
+            continue
+        ipd = result.intelligence_per_dollar
+        if ipd is None:
+            ipd = compute_intelligence_per_dollar(
+                result.product_bar, cost, result.partial_score
+            )
+        if ipd is None:
+            continue
+        rows.append(
+            HappyCostRow(
+                task=task_by_id[result.task_id],
+                model=model_by_id[result.model],
+                result=result,
+                cost_usd=cost,
+                intelligence_per_dollar=ipd,
+            )
+        )
+    # Among HAPPY+cost: higher recorded partial first, then cheaper.
+    rows.sort(
+        key=lambda row: (
+            row.task.slot,
+            *_partial_sort_tuple(row.result.partial_score),
+            row.cost_usd,
+            row.model.openrouter_id,
+        )
+    )
+    return tuple(rows)
+
+
+def render_cost_markdown(board: Eval2Board) -> str:
+    """Per-task HAPPY cost ranking. Empty when no stamp recorded USD."""
+    rows = happy_cost_rows(board)
+    if not rows:
+        return "No HAPPY cell has recorded `total_cost_usd` — cost chart stays empty.\n"
+    lines = [
+        "| # | Task | Model | Cost (USD) | Tokens | Wall (s) | C²/$ |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in rows:
+        tokens = "—" if row.result.total_tokens is None else str(row.result.total_tokens)
+        wall = "—" if row.result.wall_time_s is None else f"{row.result.wall_time_s:g}"
+        lines.append(
+            f"| {row.task.slot} | {row.task.title} | {row.model.display_name} | "
+            f"{row.cost_usd:.4f} | {tokens} | {wall} | "
+            f"{row.intelligence_per_dollar:.2f} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _partial_sort_tuple(score: float | None) -> tuple[int, float]:
+    """Missing partial sorts last; recorded scores sort high-to-low."""
+    if score is None:
+        return (1, 0.0)
+    return (0, -score)
+
+
+def _cost_sort_tuple(cost: float | None) -> tuple[int, float]:
+    if cost is None:
+        return (1, 0.0)
+    return (0, cost)
+
+
+def has_recorded_partial(result: Eval2Result) -> bool:
+    """True when a stamp recorded oracle quality — not merely HAPPY/NOT."""
+    return any(
+        value is not None
+        for value in (
+            result.partial_score,
+            result.oracle_failure_count,
+            result.oracle_check_count,
+            result.afc_s_flags,
+            result.afc_r_required,
+            result.husk_cells,
+            result.scored_cells,
+        )
+    ) or result.oracle_failures is not None
+
+
+def rank_sort_key(row: RankedRow) -> tuple[object, ...]:
+    """HAPPY first, then higher partial, then lower cost; missing metrics last."""
+    if row.result.product_bar == "HAPPY":
+        bar = 0
+    elif row.result.product_bar == "NOT_HAPPY":
+        bar = 1
+    else:
+        bar = 2
+    return (
+        row.task.slot,
+        bar,
+        *_partial_sort_tuple(row.partial_score),
+        *_cost_sort_tuple(row.cost_usd),
+        row.model.openrouter_id,
+    )
+
+
+def ranked_rows(board: Eval2Board) -> tuple[RankedRow, ...]:
+    task_by_id = {task.id: task for task in board.tasks}
+    model_by_id = {model.openrouter_id: model for model in board.models}
+    rows = [
+        RankedRow(
+            task=task_by_id[result.task_id],
+            model=model_by_id[result.model],
+            result=result,
+            partial_score=result.partial_score,
+            cost_usd=result.total_cost_usd if result.total_cost_usd else None,
+        )
+        for result in board.results
+    ]
+    rows.sort(key=rank_sort_key)
+    return tuple(rows)
+
+
+def _format_partial(score: float | None) -> str:
+    if score is None:
+        return "—"
+    return f"{score:.2f}"
+
+
+def _format_fails_checks(result: Eval2Result) -> str:
+    fails = result.oracle_failure_count
+    checks = result.oracle_check_count
+    if fails is None and checks is None:
+        return "—"
+    fail_s = "—" if fails is None else str(fails)
+    check_s = "—" if checks is None else str(checks)
+    return f"{fail_s}/{check_s}"
+
+
+def _format_afc_sr(result: Eval2Result) -> str:
+    if result.afc_s_flags is None and result.afc_r_required is None:
+        return "—"
+    s_text = "—" if result.afc_s_flags is None else str(result.afc_s_flags)
+    r_text = "—" if result.afc_r_required is None else str(result.afc_r_required)
+    return f"S={s_text} R={r_text}"
+
+
+def render_partial_markdown(board: Eval2Board) -> str:
+    """HAPPY → partial → cost ranking. Empty extras stay em-dash — no invented ratios."""
+    rows = ranked_rows(board)
+    if not rows:
+        return "No scored cells.\n"
+    if not any(has_recorded_partial(row.result) for row in rows):
+        return (
+            "No cell has recorded oracle partial (failures/checks or AFC S/R) — "
+            "partial chart stays empty of ratios except oracle PASS → 1.\n"
+        )
+    lines = [
+        "| # | Task | Model | Bar | Partial | Fails/checks | AFC S/R | Cost |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in rows:
+        if not has_recorded_partial(row.result) and row.cost_usd is None:
+            continue
+        cost = "—" if row.cost_usd is None else f"{row.cost_usd:.4f}"
+        bar = row.result.product_bar or "—"
+        lines.append(
+            f"| {row.task.slot} | {row.task.title} | {row.model.display_name} | "
+            f"{bar} | {_format_partial(row.partial_score)} | "
+            f"{_format_fails_checks(row.result)} | {_format_afc_sr(row.result)} | "
+            f"{cost} |"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -473,10 +826,237 @@ def write_coverage_svg(board: Eval2Board, out_path: Path) -> Path:
     return out_path
 
 
+def write_cost_svg(board: Eval2Board, out_path: Path) -> Path:
+    """Bar of recorded USD for HAPPY cells. Missing cost stays empty — no invented bars."""
+    rows = happy_cost_rows(board)
+    left = 24
+    top = 64
+    width = 820
+    if not rows:
+        height = 140
+        parts = [
+            f'  <text x="{left}" y="28" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="16" font-weight="700" fill="{COLOR_INK}">'
+            f"Eval-2 headed cost for results (HAPPY cells)</text>\n",
+            f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="11" fill="{COLOR_MUTED}">'
+            f"Hard (HAPPY) first. C²/$ = partial² / USD among successes "
+            f"(same shape as the string pack).</text>\n",
+            f'  <rect x="{left}" y="64" width="{width - 48}" height="40" rx="6" '
+            f'fill="{COLOR_EMPTY}" stroke="{COLOR_LINE}"/>\n',
+            f'  <text x="{width / 2:.1f}" y="89" text-anchor="middle" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="12" fill="{COLOR_MUTED}">'
+            f"No HAPPY cell has recorded total_cost_usd yet</text>\n",
+        ]
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            _svg_wrap(
+                "".join(parts),
+                width=width,
+                height=height,
+                title="Eval-2 headed cost for results (empty — no recorded USD)",
+            ),
+            encoding="utf-8",
+        )
+        return out_path
+
+    label_w = 280
+    bar_max_w = 360
+    row_h = 28
+    group_gap = 18
+    max_cost = max(row.cost_usd for row in rows)
+    # Group by task so AFC (and later tasks) rank among their HAPPY models.
+    groups: list[tuple[Eval2Task, list[HappyCostRow]]] = []
+    for row in rows:
+        if not groups or groups[-1][0].id != row.task.id:
+            groups.append((row.task, [row]))
+        else:
+            groups[-1][1].append(row)
+    n_bars = len(rows)
+    height = top + n_bars * row_h + len(groups) * group_gap + 56
+    parts = [
+        f'  <text x="{left}" y="28" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="16" font-weight="700" fill="{COLOR_INK}">'
+        f"Eval-2 headed cost for results (HAPPY cells)</text>\n",
+        f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="11" fill="{COLOR_MUTED}">'
+        f"Hard (HAPPY) first; among HAPPY, higher partial then lower USD. "
+        f"C²/$ = partial² / USD. NOT_HAPPY and missing cost omitted.</text>\n",
+    ]
+    y = top
+    for task, group in groups:
+        parts.append(
+            f'  <text x="{left}" y="{y}" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="12" font-weight="700" fill="{COLOR_INK}">'
+            f"{task.slot}. {_esc(task.title)}</text>\n"
+        )
+        y += 8
+        for row in group:
+            y += row_h
+            bar_w = (row.cost_usd / max_cost) * bar_max_w if max_cost > 0 else 0.0
+            x = left + label_w
+            parts.append(
+                f'  <text x="{x - 8:.1f}" y="{y - 6:.1f}" text-anchor="end" '
+                f'font-family="DejaVu Sans, sans-serif" font-size="11" fill="{COLOR_INK}">'
+                f"{_esc(row.model.display_name)}</text>\n"
+            )
+            parts.append(
+                f'  <rect x="{x:.1f}" y="{y - 18:.1f}" width="{bar_w:.1f}" height="16" '
+                f'rx="3" fill="{COLOR_HAPPY}" stroke="{COLOR_LINE}" '
+                f'data-cost-usd="{row.cost_usd:.6f}"/>\n'
+            )
+            parts.append(
+                f'  <text x="{x + bar_w + 8:.1f}" y="{y - 6:.1f}" '
+                f'font-family="DejaVu Sans, sans-serif" font-size="10" fill="{COLOR_MUTED}">'
+                f"${row.cost_usd:.4f} · {row.intelligence_per_dollar:.2f} C²/$</text>\n"
+            )
+        y += group_gap
+    parts.append(
+        f'  <text x="{left}" y="{height - 16}" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="10" fill="{COLOR_MUTED}">'
+        f"Recorded USD only. Empty cost stays empty — do not invent run costs.</text>\n"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        _svg_wrap(
+            "".join(parts),
+            width=width,
+            height=height,
+            title="Eval-2 headed cost for results (HAPPY cells with recorded USD)",
+        ),
+        encoding="utf-8",
+    )
+    return out_path
+
+
+def write_partial_svg(board: Eval2Board, out_path: Path) -> Path:
+    """Coarse HAPPY/partial/cost view. No bar unless a ratio or oracle PASS exists."""
+    rows = [row for row in ranked_rows(board) if has_recorded_partial(row.result)]
+    left = 24
+    width = 860
+    if not rows:
+        height = 140
+        parts = [
+            f'  <text x="{left}" y="28" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="16" font-weight="700" fill="{COLOR_INK}">'
+            f"Eval-2 headed partial / cost (recorded oracle quality)</text>\n",
+            f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="11" fill="{COLOR_MUTED}">'
+            f"Hard (HAPPY) → partial → C²/$. No invented denominators.</text>\n",
+            f'  <rect x="{left}" y="64" width="{width - 48}" height="40" rx="6" '
+            f'fill="{COLOR_EMPTY}" stroke="{COLOR_LINE}"/>\n',
+            f'  <text x="{width / 2:.1f}" y="89" text-anchor="middle" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="12" fill="{COLOR_MUTED}">'
+            f"No cell has recorded oracle partial yet</text>\n",
+        ]
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            _svg_wrap(
+                "".join(parts),
+                width=width,
+                height=height,
+                title="Eval-2 headed partial / cost (empty — no recorded oracle quality)",
+            ),
+            encoding="utf-8",
+        )
+        return out_path
+
+    label_w = 280
+    bar_max_w = 280
+    row_h = 28
+    group_gap = 18
+    top = 64
+    groups: list[tuple[Eval2Task, list[RankedRow]]] = []
+    for row in rows:
+        if not groups or groups[-1][0].id != row.task.id:
+            groups.append((row.task, [row]))
+        else:
+            groups[-1][1].append(row)
+    height = top + len(rows) * row_h + len(groups) * group_gap + 56
+    parts = [
+        f'  <text x="{left}" y="28" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="16" font-weight="700" fill="{COLOR_INK}">'
+        f"Eval-2 headed partial / cost (recorded oracle quality)</text>\n",
+        f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="11" fill="{COLOR_MUTED}">'
+        f"Hard (HAPPY) first; among comparable, higher partial then lower USD. "
+        f"Bars only when PASS or fails/checks recorded. Coarse C²/$ sibling.</text>\n",
+    ]
+    y = top
+    for task, group in groups:
+        parts.append(
+            f'  <text x="{left}" y="{y}" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="12" font-weight="700" fill="{COLOR_INK}">'
+            f"{task.slot}. {_esc(task.title)}</text>\n"
+        )
+        y += 8
+        for row in group:
+            y += row_h
+            fill = (
+                COLOR_HAPPY
+                if row.result.product_bar == "HAPPY"
+                else COLOR_NOT_HAPPY
+                if row.result.product_bar == "NOT_HAPPY"
+                else COLOR_EMPTY
+            )
+            x = left + label_w
+            parts.append(
+                f'  <text x="{x - 8:.1f}" y="{y - 6:.1f}" text-anchor="end" '
+                f'font-family="DejaVu Sans, sans-serif" font-size="11" fill="{COLOR_INK}">'
+                f"{_esc(row.model.display_name)}</text>\n"
+            )
+            extras: list[str] = []
+            if row.partial_score is not None:
+                bar_w = row.partial_score * bar_max_w
+                parts.append(
+                    f'  <rect x="{x:.1f}" y="{y - 18:.1f}" width="{bar_w:.1f}" '
+                    f'height="16" rx="3" fill="{fill}" stroke="{COLOR_LINE}" '
+                    f'data-partial-score="{row.partial_score:.2f}"/>\n'
+                )
+                extras.append(_format_partial(row.partial_score))
+                label_x = x + bar_w + 8
+            else:
+                extras.append("no ratio")
+                label_x = x + 8
+            fails_checks = _format_fails_checks(row.result)
+            if fails_checks != "—":
+                extras.append(fails_checks)
+            afc = _format_afc_sr(row.result)
+            if afc != "—":
+                extras.append(afc)
+            if row.cost_usd is not None:
+                extras.append(f"${row.cost_usd:.4f}")
+            parts.append(
+                f'  <text x="{label_x:.1f}" y="{y - 6:.1f}" '
+                f'font-family="DejaVu Sans, sans-serif" font-size="10" fill="{COLOR_MUTED}">'
+                f"{_esc(' · '.join(extras))}</text>\n"
+            )
+        y += group_gap
+    parts.append(
+        f'  <text x="{left}" y="{height - 16}" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="10" fill="{COLOR_MUTED}">'
+        f"partial = 1 when oracle PASS; else 1 − fails/checks. "
+        f"Do not invent check counts.</text>\n"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        _svg_wrap(
+            "".join(parts),
+            width=width,
+            height=height,
+            title="Eval-2 headed partial / cost (recorded oracle quality)",
+        ),
+        encoding="utf-8",
+    )
+    return out_path
+
+
 def write_eval2_svgs(board: Eval2Board, out_dir: Path) -> list[Path]:
     written = [
         write_heatmap_svg(board, out_dir / HEATMAP_NAME),
         write_coverage_svg(board, out_dir / COVERAGE_NAME),
+        write_cost_svg(board, out_dir / COST_NAME),
+        write_partial_svg(board, out_dir / PARTIAL_NAME),
     ]
     return written
 
@@ -514,6 +1094,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     board = load_eval2_board(args.in_path)
     if args.print_matrix:
         sys.stdout.write(render_matrix_markdown(board))
+        sys.stdout.write("\n")
+        sys.stdout.write(render_cost_markdown(board))
+        sys.stdout.write("\n")
+        sys.stdout.write(render_partial_markdown(board))
     if args.check:
         print(f"OK {args.in_path} ({len(board.results)} scored cells, gate={board.gate_model})")
         return 0

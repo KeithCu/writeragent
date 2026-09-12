@@ -3,7 +3,7 @@
   "updated": "2026-09-12",
   "gate_model": "google/gemini-3.8-flash",
   "source_of_truth": "docs/eval/eval-2/headed-failure-autopsy.md",
-  "notes": "Seeded only from in-repo autopsy / sibling notes. No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
+  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded only from in-repo autopsy / sibling notes. No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
   "tasks": [
     {
       "id": "tenant-retention",
