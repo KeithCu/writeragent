@@ -138,6 +138,8 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | qwen/qwen3.8-27b | 0.922 | 36 |
 | minimax/minimax-m3 | 0.820 | 32 |
 | x-ai/grok-4.6 | 0.982 | 20 |
+| nvidia/nemotron-3-super-120b-a12b | 0.904 | 0 |
+| nvidia/nemotron-3-ultra-550b-a55b | 0.821 | 0 |
 
 ---
 
