@@ -206,8 +206,9 @@ on `loadComponentFromURL(scalc)`) and the next Calc `_blank` hung 30s
 in `create_native_doc`. Calc `_blank` + leftovers is not reliable.
 With leftovers open, leftover Hidden `swriter` reuses one CREATE|GLOBAL
 name `_wa_factory` (same pattern as `rich_html._wa_calc_html`). Leftover
-Draw/Impress still use a unique `_wa_factory_N`. Leftover Calc later
-moved to `_wa_scalc` (34633295036). Do not close leftovers (34556185752).
+Calc later moved to `_wa_scalc` (34633295036). Leftover Draw/Impress
+later moved to `_wa_sdraw` / `_wa_simpress` (34657826349). Do not close
+leftovers (34556185752).
 
 GHA 34601787293 (`fc34f0c6`) and 34602219973 (`ec40ed29`): Linux PR CI
 34602130908 green. Unique targets loaded leftover Calc
@@ -331,7 +332,8 @@ The pooled `@with_native_doc` Calc is still the leftover_open=0
 it. Leftover `scalc` now reuses one CREATE|GLOBAL name `_wa_scalc`.
 `document_research_uno` writes Budget/Report via that pooled Calc
 (`store budget via active`) and does **not** open a second factory
-Calc. Draw/Impress stay unique `_wa_factory_N`.
+Calc. Leftover Draw/Impress later moved to `_wa_sdraw` /
+`_wa_simpress` (34657826349).
 
 GHA 34636251918 (this branch, after store-via-active):
 `test_list_nearby_excludes_active` OK. `open_document_for_read` of
@@ -408,6 +410,23 @@ After a Windows bitmap, later Hidden sibling opens
 `skip_windows_hidden_open_after_bitmap` — do not hang. Still attempt
 the first Hidden-open. Not a product change.
 
+GHA 34657826349 / 34657808315 (master `0bf7d223`, tip of #734):
+#734's Hidden-open skip is not that hang. `document_research_uno`
+3/3 and both text_helpers tests OK. Leftover Draw/Impress unique
+`_wa_factory_1`–`_wa_factory_9` succeeded at leftover_open=1
+(uid=29 leftover Writer). Notebook / importer suites then skipped
+Writer close (`leftover_open` 1→15, `close_doc: skip writer close`).
+Stable leftover `swriter` `target=_wa_factory` at leftover_open=15
+returned (`scripting.test_document_scripts_uno`). Unique leftover
+`simpress` `target=_wa_factory_10` then hung 30s in
+`create_native_doc` (`test_lo_import_minimal_pptx_multi_slide`;
+office still `4072,8924`). Same stacking family as leftover
+swriter `_wa_factory_5` (34602219973) and leftover scalc
+`_wa_factory_2` (34633295036). Leftover `sdraw` / `simpress` now
+reuse one CREATE|GLOBAL name each (`_wa_sdraw` / `_wa_simpress`).
+Do not close leftover paste / notebook Writers (34556185752 /
+34646877587). Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -415,7 +434,8 @@ branch: `os=windows-latest`, `ci_debug=true`. Look for
 Windows `private:factory/` loads (Writer **and** Calc), leftover
 swriter loads using `target=_wa_factory` (not `_blank` / not
 `_wa_factory_N`) plus leftover Calc using `target=_wa_scalc` (not
-`_blank` / not `_wa_factory_N`),
+`_blank` / not `_wa_factory_N`) plus leftover Draw/Impress using
+`target=_wa_sdraw` / `target=_wa_simpress` (not `_wa_factory_N`),
 `document_research_uno: store budget via active start/done` (no
 `create budget calc` / no leftover `scalc` `target=_wa_factory_1`),
 `copied budget for hidden open` then `open_document_for_read done err=-`
@@ -440,7 +460,11 @@ for both notebook import-filter tests when leftovers are not yet
 open, `close_doc: skip writer close` or `close_doc: start` (not raw
 `doc.close(True)`), both `notebook.test_import_filter_uno` tests
 `TEST end … OK` or detect `TEST end … SKIP` if leftovers already
-exist (no 30s Timeout on `detect_without_filtername`), **then**
+exist (no 30s Timeout on `detect_without_filtername`), leftover
+`simpress` after notebook leftovers using `target=_wa_simpress`
+(not `_wa_factory_10`) then
+`TEST end uno.test_ppt_master_pptx_import_uno.test_lo_import_minimal_pptx_multi_slide OK`
+(no 30s Timeout in `create_native_doc` on leftover Impress), **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**
 `TEST end draw.test_draw_uno.test_insert_math_draw OK` after

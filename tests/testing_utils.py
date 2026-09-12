@@ -1100,8 +1100,14 @@ _WINDOWS_FACTORY_TARGET = "_wa_factory"
 # Leftover Calc uses one CREATE|GLOBAL name. The pooled @with_native_doc
 # Calc is opened at leftover_open=0 as Hidden ``_blank`` — ``_wa_scalc``
 # does not replace it. Unique ``_wa_factory_N`` stacked after a failed
-# leftover scalc load (GHA 34633295036). Draw/Impress still increment.
+# leftover scalc load (GHA 34633295036). Leftover Draw / leftover
+# Impress use the same stable-name rule (GHA 34657826349).
 _WINDOWS_CALC_FACTORY_TARGET = "_wa_scalc"
+_WINDOWS_DRAW_FACTORY_TARGET = "_wa_sdraw"
+_WINDOWS_IMPRESS_FACTORY_TARGET = "_wa_simpress"
+# Unknown leftover factory URLs only (not sdraw / simpress). Unique
+# leftover Draw/Impress names hung after notebook leftovers
+# (GHA 34657826349, leftover_open=15, target=_wa_factory_10).
 _WINDOWS_FACTORY_SEQ = 0
 
 
@@ -1142,8 +1148,18 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
     30s — same stacking family as leftover swriter unique names.
     Pooled Calc is still the leftover_open=0 ``_blank`` workbook.
     Leftover ``scalc`` now reuses one CREATE|GLOBAL name ``_wa_scalc``.
-    Draw/Impress stay unique. Do not close leftover paste Writers
-    (34556185752).
+    Do not close leftover paste Writers (34556185752).
+
+    GHA 34657826349 / 34657808315 (master ``0bf7d223``, tip of #734):
+    leftover Draw/Impress unique ``_wa_factory_1``–``_wa_factory_9``
+    succeeded at leftover_open=1. Notebook / importer suites then
+    skipped Writer close (``leftover_open`` 1→15). Stable leftover
+    ``swriter`` ``target=_wa_factory`` at leftover_open=15 returned.
+    Unique leftover ``simpress`` ``target=_wa_factory_10`` hung 30s
+    in ``loadComponentFromURL`` — same stacking family as leftover
+    swriter ``_wa_factory_5`` and leftover scalc ``_wa_factory_2``.
+    Leftover ``sdraw`` / ``simpress`` now reuse one CREATE|GLOBAL
+    name each (``_wa_sdraw`` / ``_wa_simpress``).
     """
     global _WINDOWS_FACTORY_SEQ
     if leftover_open <= 0 or not factory_url.startswith("private:factory/"):
@@ -1156,6 +1172,10 @@ def _windows_factory_load_args(factory_url: str, leftover_open: int) -> tuple[st
         return _WINDOWS_FACTORY_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
     if factory_url == "private:factory/scalc":
         return _WINDOWS_CALC_FACTORY_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
+    if factory_url == "private:factory/sdraw":
+        return _WINDOWS_DRAW_FACTORY_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
+    if factory_url == "private:factory/simpress":
+        return _WINDOWS_IMPRESS_FACTORY_TARGET, _WINDOWS_FACTORY_SEARCH_FLAGS
     _WINDOWS_FACTORY_SEQ += 1
     return "_wa_factory_%s" % _WINDOWS_FACTORY_SEQ, _WINDOWS_FACTORY_SEARCH_FLAGS
 
@@ -2065,7 +2085,9 @@ class TestingFactory:
         # (30s). #720 only prepared swriter. Reactivate the keeper.
         # Leftover swriter reuses one CREATE|GLOBAL name (_wa_factory).
         # Leftover Calc reuses _wa_scalc (unique _wa_factory_N failed
-        # then hung, 34633295036). Draw/Impress stay unique.
+        # then hung, 34633295036). Leftover Draw / leftover Impress
+        # reuse _wa_sdraw / _wa_simpress (unique _wa_factory_10 hung
+        # at leftover_open=15, 34657826349).
         if sys.platform == "win32" and factory_url.startswith("private:factory/"):
             leftover_open = prepare_windows_writer_factory(ctx)
             target, flags = _windows_factory_load_args(factory_url, leftover_open)
