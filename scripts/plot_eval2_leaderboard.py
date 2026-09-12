@@ -26,7 +26,7 @@ DEFAULT_RESULTS = REPO_ROOT / "docs" / "eval" / "eval-2" / "eval2_benchmark_resu
 DEFAULT_OUT_DIR = REPO_ROOT / "docs" / "eval" / "eval-2"
 
 SCHEMA_VERSION = 1
-PRODUCT_BARS = frozenset({"HAPPY", "NOT_HAPPY"})
+PRODUCT_BARS = frozenset({"HAPPY", "NOT_HAPPY", "BLOCKED"})
 ORACLES = frozenset({"PASS", "FAIL"})
 TASK_STATUSES = frozenset({"Ready", "Headed-ready"})
 MODEL_ROLES = frozenset({"gate", "headed", "catalog"})
@@ -35,6 +35,7 @@ PARKED_SLOT = 7
 # Okabe–Ito (same family as plot_pareto.py) plus an honest empty fill.
 COLOR_HAPPY = "#009E73"
 COLOR_NOT_HAPPY = "#D55E00"
+COLOR_BLOCKED = "#0072B2"
 COLOR_EMPTY = "#F1F3F4"
 COLOR_INK = "#202124"
 COLOR_MUTED = "#5f6368"
@@ -139,13 +140,21 @@ class Eval2Board:
         return None
 
     def scored_count(self, model: str) -> int:
-        return sum(1 for row in self.results if row.model == model and row.product_bar)
+        # BLOCKED is infra, not a headed score.
+        return sum(
+            1
+            for row in self.results
+            if row.model == model and row.product_bar in {"HAPPY", "NOT_HAPPY"}
+        )
 
     def happy_count(self, model: str) -> int:
         return sum(1 for row in self.results if row.model == model and row.product_bar == "HAPPY")
 
     def not_happy_count(self, model: str) -> int:
         return sum(1 for row in self.results if row.model == model and row.product_bar == "NOT_HAPPY")
+
+    def blocked_count(self, model: str) -> int:
+        return sum(1 for row in self.results if row.model == model and row.product_bar == "BLOCKED")
 
 
 def _require_str(row: Mapping[str, Any], key: str, *, ctx: str) -> str:
@@ -440,6 +449,8 @@ def cell_label(row: Eval2Result | None) -> str:
     """Short matrix token: HAPPY / oracle FAIL, or an em dash when unscored."""
     if row is None or (row.product_bar is None and row.oracle is None):
         return "—"
+    if row.product_bar == "BLOCKED":
+        return "BLOCKED / unscored"
     bits: list[str] = []
     if row.product_bar:
         bits.append(row.product_bar)
@@ -579,6 +590,7 @@ def ranked_rows(board: Eval2Board) -> tuple[RankedRow, ...]:
             cost_usd=result.total_cost_usd if result.total_cost_usd else None,
         )
         for result in board.results
+        if result.product_bar in {"HAPPY", "NOT_HAPPY"}
     ]
     rows.sort(key=rank_sort_key)
     return tuple(rows)
@@ -709,6 +721,11 @@ def write_heatmap_svg(board: Eval2Board, out_path: Path) -> Path:
                 bar_text = "no data"
                 oracle_text = "—"
                 ink = COLOR_MUTED
+            elif row.product_bar == "BLOCKED":
+                fill = COLOR_BLOCKED
+                bar_text = "BLOCKED"
+                oracle_text = "unscored"
+                ink = "#ffffff"
             else:
                 fill = COLOR_HAPPY if row.product_bar == "HAPPY" else COLOR_NOT_HAPPY
                 bar_text = row.product_bar
@@ -771,12 +788,14 @@ def write_coverage_svg(board: Eval2Board, out_path: Path) -> Path:
         x = left + col * (bar_w + gap)
         happy = board.happy_count(model.openrouter_id)
         not_happy = board.not_happy_count(model.openrouter_id)
-        empty = n_tasks - happy - not_happy
-        # Stack from the axis: empty, then NOT_HAPPY, then HAPPY on top.
+        blocked = board.blocked_count(model.openrouter_id)
+        empty = n_tasks - happy - not_happy - blocked
+        # Stack from the axis: empty, then BLOCKED, then NOT_HAPPY, then HAPPY.
         scale = plot_h / n_tasks
         y = top + plot_h
         for count, fill, label in (
             (empty, COLOR_EMPTY, "no data"),
+            (blocked, COLOR_BLOCKED, "BLOCKED"),
             (not_happy, COLOR_NOT_HAPPY, "NOT_HAPPY"),
             (happy, COLOR_HAPPY, "HAPPY"),
         ):
@@ -802,7 +821,12 @@ def write_coverage_svg(board: Eval2Board, out_path: Path) -> Path:
     # Legend
     legend_y = height - 28
     for i, (fill, label) in enumerate(
-        ((COLOR_HAPPY, "HAPPY"), (COLOR_NOT_HAPPY, "NOT_HAPPY"), (COLOR_EMPTY, "no data"))
+        (
+            (COLOR_HAPPY, "HAPPY"),
+            (COLOR_NOT_HAPPY, "NOT_HAPPY"),
+            (COLOR_BLOCKED, "BLOCKED"),
+            (COLOR_EMPTY, "no data"),
+        )
     ):
         lx = 24 + i * 110
         parts.append(
@@ -1099,7 +1123,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.write("\n")
         sys.stdout.write(render_partial_markdown(board))
     if args.check:
-        print(f"OK {args.in_path} ({len(board.results)} scored cells, gate={board.gate_model})")
+        scored = sum(1 for row in board.results if row.product_bar in {"HAPPY", "NOT_HAPPY"})
+        blocked = sum(1 for row in board.results if row.product_bar == "BLOCKED")
+        extra = f", {blocked} blocked" if blocked else ""
+        print(f"OK {args.in_path} ({scored} scored cells{extra}, gate={board.gate_model})")
         return 0
     for path in write_eval2_svgs(board, args.out_dir):
         print(f"Wrote {path}")

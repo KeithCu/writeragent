@@ -72,6 +72,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
     assert (_REPO / board.source_of_truth).is_file()
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
     assert schema["properties"]["schema_version"]["const"] == 1
+    assert "BLOCKED" in schema["$defs"]["product_bar"]["enum"]
     assert "hard_pass_rate" not in schema["properties"]
     assert "hard_pass_rate" not in schema["$defs"]["result"]["properties"]
     result_props = schema["$defs"]["result"]["properties"]
@@ -114,6 +115,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "qwen/qwen3.8-27b",
         "qwen/qwen3.8-flash",
         "z-ai/glm-5.3-flash",
+        "upstage/solar-pro4",
     }
 
 
@@ -136,6 +138,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     qwen27 = "qwen/qwen3.8-27b"
     qwen_flash = "qwen/qwen3.8-flash"
     glm_flash = "z-ai/glm-5.3-flash"
+    solar = "upstage/solar-pro4"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -635,6 +638,37 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "n=1" in afc_glm_flash.oracle_note
     assert "15160" in afc_glm_flash.oracle_note
 
+    # Seventeenth catalog AFC stamp — infra BLOCKED, not a model fail.
+    afc_solar = board.result_for("afc", solar)
+    assert afc_solar is not None
+    assert afc_solar.product_bar == "BLOCKED"
+    assert afc_solar.product_bar != "NOT_HAPPY"
+    assert afc_solar.oracle is None
+    assert afc_solar.stamp == "20260912-0522-solar-pro4"
+    assert afc_solar.oracle_passed is None
+    assert afc_solar.oracle_failure_count is None
+    assert afc_solar.oracle_failures is None
+    assert afc_solar.oracle_check_count is None
+    assert afc_solar.partial_score is None
+    assert afc_solar.afc_s_flags is None
+    assert afc_solar.afc_r_required is None
+    assert afc_solar.husk_cells is None
+    assert afc_solar.scored_cells is None
+    assert afc_solar.input_tokens == 0
+    assert afc_solar.output_tokens == 0
+    assert afc_solar.total_tokens == 0
+    assert afc_solar.wall_time_s == 1080
+    assert afc_solar.total_cost_usd == pytest.approx(0.0)
+    assert afc_solar.intelligence_per_dollar is None
+    assert "20260912-0522-solar-pro4" in afc_solar.oracle_note
+    assert "message_store" in afc_solar.oracle_note
+    assert "6c6017b7" in afc_solar.oracle_note
+    assert pel.cell_label(afc_solar) == "BLOCKED / unscored"
+    assert not pel.has_recorded_partial(afc_solar)
+    assert board.scored_count(solar) == 0
+    assert board.blocked_count(solar) == 1
+    assert board.not_happy_count(solar) == 0
+
     # No invented catalog AFC-only scores outside AFC.
     for task_id in (
         "tenant-retention",
@@ -661,6 +695,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, qwen27) is None
         assert board.result_for(task_id, qwen_flash) is None
         assert board.result_for(task_id, glm_flash) is None
+        assert board.result_for(task_id, solar) is None
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -680,6 +715,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", qwen27),
         ("afc", qwen_flash),
         ("afc", glm_flash),
+        ("afc", solar),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -746,6 +782,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "qwen/qwen3.8-27b"),
     ("afc", "qwen/qwen3.8-flash"),
     ("afc", "z-ai/glm-5.3-flash"),
+    ("afc", "upstage/solar-pro4"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -820,6 +857,9 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "HAPPY" in heatmap
     assert "0 HAPPY / 1 scored" in coverage
     assert "1 HAPPY / 1 scored" in coverage
+    assert "0 HAPPY / 0 scored" in coverage
+    assert "BLOCKED" in heatmap
+    assert "Solar Pro 4" in heatmap
     assert "No HAPPY cell has recorded total_cost_usd yet" not in cost
     assert "data-cost-usd=\"0.004680\"" in cost
     assert "Mercury 2.5 Preview" in cost
@@ -841,6 +881,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Qwen3.8 27B" in partial
     assert "Qwen3.8 Flash" in partial
     assert "GLM 5.3 Flash" in partial
+    assert "Solar Pro 4" not in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -874,6 +915,9 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "no data" in cov
     assert "0 HAPPY / 1 scored" in cov
     assert "1 HAPPY / 1 scored" in cov
+    assert "0 HAPPY / 0 scored" in cov
+    assert "BLOCKED" in heat
+    assert "Solar Pro 4" in heat
     assert pel.HEATMAP_NAME != "pareto-fronts.svg"
     assert pel.COVERAGE_NAME != "pareto-distance.svg"
     assert pel.COST_NAME != "pareto-fronts.svg"
@@ -908,6 +952,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Qwen3.8 27B" in partial_text
     assert "Qwen3.8 Flash" in partial_text
     assert "GLM 5.3 Flash" in partial_text
+    assert "Solar Pro 4" not in partial_text
     assert "S=0 R=66" in partial_text
     assert "S=494 R=68" in partial_text
     assert "2/—" in partial_text

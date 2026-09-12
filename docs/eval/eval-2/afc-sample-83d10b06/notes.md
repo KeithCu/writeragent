@@ -192,3 +192,14 @@ stored). UNO/assert/PreContract=0. Recorded wall ~155s. tip_at_run
 estimate ~$0.00450 is an alternate only. Run dir is box-local /
 untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0515-glm-5.3-flash/`.
+
+Seventeenth catalog cell: `upstage/solar-pro4`, stamp
+`20260912-0522-solar-pro4`. Product bar **BLOCKED** (infra, not a
+model **NOT_HAPPY**). Oracle unscored — Send never ran, so missing
+Sample+SSC is not an oracle FAIL. `SendButton` crashed before any
+LLM call (`sqlite3.OperationalError: no such table: message_store`;
+`writeragent_history.db` wiped empty/broken between trials). Send
+failed twice. Tokens 0; cost $0. Headed wait ~1080s. tip_at_run
+`6c6017b7`. Scrolly recreating schema before the next trial. Run
+dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0522-solar-pro4/`.
