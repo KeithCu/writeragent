@@ -64,19 +64,19 @@ Models with Sample+SSC present but oracle `R=None` and/or `S=0` despite rows:
 | Models | Typical oracle line |
 |---|---|
 | gpt-oss-120b | S=585 R=None (near-full dump; SSC present) |
-| gpt-5.6-luna | S=68 R=None; claimed ~66 on SSC |
-| gpt-oss-20b | S=0 R=None; Sample ~80 rows |
-| gemini-3.5-flash-lite | S=0 R=None; Sample 81 |
-| gemma-4-31b-it | S=0 R=None; SSC Err:508/#NAME?; husks |
-| muse-glimmer-30b | S=0 R=None; Sample 81 (B9 visually ~65) |
-| mistral-small-2603 | S=0 R=None; Ready claiming Variance/Sample/SSC |
-| qwen3.8-flash | S=68 R=None; SSC Err:508/509/#VALUE! |
-| granite / grok / muse-spark / deepseek-v4-flash | often compound with C2 |
+| gpt-5.6-luna | S=68 R=None; `Required sample size rounded up \| 66` |
+| gpt-oss-20b | S=0 R=None; Sample ~80 rows; K often Err:508/509 husks |
+| gemini-3.5-flash-lite | S=0 R=None; Sample 81; K often Err:508/509 husks |
+| gemma-4-31b-it | S=0 R=None; SSC Err:508/#NAME?; K husks 508/509 |
+| muse-glimmer-30b | S=0 R=None; Sample 81, **K empty**; `Required sample (rounded up) \| 65` |
+| mistral-small-2603 | S=0 R=None; Sample **A–H only (8 cols, no J/K)** |
+| qwen3.8-flash | S=68 R=None; `Required minimum sample size \| 68`; SSC Err:508/509/#VALUE! |
+| granite / grok / muse-spark / deepseek-v4-flash | often compound with C2; Granite `Sample Size: 68` same cell; Muse Spark SSC inputs only (N/confidence), no final labeled integer |
 
 **Two distinct product holes inside this cluster:**
 
-1. **R unparseable** — SSC has workings / a claimed n≈65–68, but no cell the oracle accepts. Oracle only accepts labeled values matching `Sample size` / `R` / inline `R = N` (`parse_required_sample_size` in `scripts/eval_2_ods_oracle.py`). “min sample 66”, “n=66”, “final required sample size ≈ 65” without that label shape → `R=None`.
-2. **S=0 despite Sample rows** — column K is not literal flag `1` on enough rows (blank K, wrong column, formula husks, or selection never written).
+1. **R unparseable / label near-misses** — SSC has workings / a claimed n≈65–68, but no cell the oracle accepts. Oracle only accepts a label matching `Sample size` / `Required sample size` / `R` in one cell and the integer in the **next** cell, or inline `R = N` (`parse_required_sample_size` / `_R_LABEL_RE` in `scripts/eval_2_ods_oracle.py`). Catalog near-misses that still score `R=None`: Luna `Required sample size rounded up | 66` (`rounded up` breaks `_R_LABEL_RE`); Qwen Flash `Required minimum sample size | 68`; Muse Glimmer `Required sample (rounded up) | 65`; Granite single-cell `Sample Size: 68` (colon, same cell); Muse Spark SSC inputs only (N/confidence) with no final labeled integer. **Parseable contrasts:** Mercury `Sample Size|68`; Gemma-26 `Required sample size|65`; Laguna-S `Required Sample Size|66`. Do **not** expand the regex for “rounded up” / “minimum” / “Calculated Sample Size” paraphrases or same-cell `Label: N`.
+2. **S=0 despite Sample rows** — column K is not literal flag `1` on enough rows: Muse Glimmer Sample 81 rows but **K empty** (header says Sample); Mistral Small Sample **A–H only (8 cols, no J/K)** → S=0; Gemma-26 flags parked in **col G** as `1.0`, not K (also undersized — C6); oss-20b / Flash Lite / Gemma-31 K often Err:508/509 husks → S=0.
 
 ### C4 — SSC formula / `=PY` husks
 
@@ -92,13 +92,15 @@ Models with Sample+SSC present but oracle `R=None` and/or `S=0` despite rows:
 
 ### C5 — Wrong sheet naming (spaces vs underscores)
 
-**Blast radius: low today (1 clear catalog hit) — still product clarity**
+**Blast radius: low today (1 clear underscore hit) — still product clarity**
 
 | Model | Note |
 |---|---|
 | Laguna XS 2.1 | Created `Sample_Size_Calculation` → oracle treats SSC **missing** (spaces required: `Sample Size Calculation`) |
+| MiniMax M3 | Invented `Analysis` instead of Sample/SSC (C1 compound; single-model-ish) |
+| gpt-oss-120b | Extras `SampleTest` / `Sample_old` alongside Sample — aliases, not the deliverable titles |
 
-**Flag:** not multi-model *yet*, but the failure mode is general (models invent underscore titles). Prefer teaching exact titles on `create_sheet` over softening the oracle.
+**Flag:** underscore + invented aliases are the same hygiene miss. Prefer teaching exact titles on `create_sheet` over a fuzzy oracle sheet-name match.
 
 ### C6 — Undersized Sample vs parseable R
 
@@ -106,7 +108,7 @@ Models with Sample+SSC present but oracle `R=None` and/or `S=0` despite rows:
 
 | Model | Note |
 |---|---|
-| gemma-4-26b-a4b-it | First catalog parseable R=65; Sample only 10 rows; S=0 → `S < R` |
+| gemma-4-26b-a4b-it | First catalog parseable R=65; Sample only 10 rows; flags in **G** as `1.0` not K; S=0 → `S < R` |
 | Laguna S 2.1 | R=66 on SSC but **Sample sheet missing** (C1/C7 compound) |
 
 **Product read:** even when R labeling works, models don’t grow Sample / flags to meet R.
@@ -168,15 +170,15 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 - On `create_sheet` `sheet` parameter description: “Use the **exact** title the user asked for (preserve spaces; do not snake_case or invent aliases).”
 - Optional: ok payload echoes the created name so a rename mistake is visible in the next turn.
 
-**Why:** Laguna XS shows underscore aliases make the oracle (and a picky user) treat the tab as missing. Exact-title hygiene is general Calc hygiene, not an AFC cheat.
+**Why:** Laguna XS shows underscore aliases make the oracle (and a picky user) treat the tab as missing. MiniMax `Analysis` and oss-120b `SampleTest`/`Sample_old` are the same family. Exact-title hygiene is general Calc hygiene, not an AFC cheat.
 
 ### L3 — Teach labeled final answers for “required sample size / R”
 
 **Hits:** C3 R-hole (largest single fail mode across the catalog).
 
 **DO (product-general, not oracle softens):**
-- When the user asks for sample-size **workings**, a light Calc tip (workflow or `write_formula_range` values): put the **final integer** in a cell beside a clear label such as `Sample size` or `R` (or write `R = <n>` in one cell).
-- Do **not** expand the oracle regex to accept every paraphrase (“n=”, “min sample”, “≈”) — that is eval softening. Fix the teaching so models emit the labels users/oracles already understand.
+- When the user asks for sample-size **workings**, a light Calc tip (workflow or `write_formula_range` values): put a label **exactly** like `Sample size` / `Required sample size` / `R` in one cell and the **final integer** in the **next** cell (or write `R = <n>` inline). Do **not** paraphrase (“rounded up”, “minimum”, “Calculated Sample Size”) and do **not** write `Sample Size: 68` in one cell — `_R_LABEL_RE` rejects those near-misses (Luna / Qwen Flash / Muse Glimmer / Granite).
+- Do **not** expand the oracle regex to accept “rounded up” / “minimum” / “n=” paraphrases — that is eval softening. Fix the teaching so models emit the labels users/oracles already understand (Mercury `Sample Size|68`; Gemma-26 `Required sample size|65`; Laguna-S `Required Sample Size|66`).
 
 **Why:** Many models *compute* ~65–68 and still score `R=None`. The gap is labeling, not Cochran math. Gate + Mercury prove parseable R is achievable.
 
@@ -185,8 +187,8 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 **Hits:** C3 S=0 with nonempty Sample (≥6 models).
 
 **DO:**
-- Colocate near write paths used for flags: when the user asks to mark selected rows with `"1"`, write the **literal** `1` (or a fill that evaluates to 1) into the named flag column — not a criteria summary elsewhere, not a formula that husks.
-- Optional self-check one-liner in Calc workflow: before finishing a “mark sample rows” task, verify the flag column has enough `1`s.
+- Colocate near write paths used for flags: Sample must include flag column **K** with the **literal** `1` (or a fill that evaluates to 1) — not a criteria summary elsewhere, not `1.0` parked in col G, not a formula that husks (Err:508/509).
+- After copy, verify column count covers **J/K** (Mistral Small stopped at A–H). Optional self-check: before finishing a “mark sample rows” task, verify K has enough literal `1`s (Muse Glimmer: 81 rows, K empty).
 
 **Why:** Sample rows without K=`1` is the dominant reason S=0 while the sheet “looks done.” This is ordinary instruction-following on write tools, reusable beyond AFC.
 
@@ -237,7 +239,7 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 | Item | Why |
 |---|---|
 | Single-model tips (e.g. only Laguna underscore, only Seed `=PY("""`) | Not multi-model blast radius; fold into general L2/L5 if useful |
-| Softening oracle R regex / sheet-name fuzzy match | Eval gaming; prefer teaching exact titles + labels |
+| Softening oracle R regex / sheet-name fuzzy match | Eval gaming; do **not** expand `_R_LABEL_RE` to accept “rounded up” / “minimum” paraphrases or same-cell `Sample Size: 68`; prefer teaching exact titles + labels |
 | Interactive Ready gates on Sample/SSC | Rejected in first-principles; pass/fail stays document-local |
 | Task-local “AFC checklist” essay in the user prompt only | Prefer colocated tool tips; task prompt already names sheets |
 | Ban near-full Sample dumps | Would punish Mercury’s HAPPY path; observer taste ≠ oracle |
@@ -267,7 +269,7 @@ Retest bar: re-run a **slice** of C1–C3 models (e.g. Grok empty-Sample, Luna R
 | C2 empty Sample | Grok 4.6, Muse Spark, Granite, DS-V4 Flash (+ Laguna XS) |
 | C3 R hole / S=0 | oss-120b, Luna, oss-20b, Flash Lite, Gemma 31B, Muse Glimmer, Mistral Small, Qwen Flash, … |
 | C4 SSC husks | Gemma 31B, Qwen Flash, Seed mini |
-| C5 rename | Laguna XS |
+| C5 rename | Laguna XS; MiniMax `Analysis`; oss-120b extras |
 | C6 undersized | Gemma 26B |
 | C7 dump | oss-120b (FAIL), Mercury (PASS) |
 | C8 stall | DS-V4.1, GLM, Granite, Laguna S |
