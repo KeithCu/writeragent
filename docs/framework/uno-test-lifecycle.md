@@ -291,6 +291,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `windows leftover skip: latex dialog Hidden _blank .mml leftovers=`,
 `windows leftover skip: math formula Hidden _blank .mml leftovers=`,
 `windows leftover skip: math export Hidden _blank smath leftovers=`,
+`windows leftover skip: document scripts Hidden _blank reopen leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -501,7 +502,16 @@ SKIPPED as intended. Next suite
 `test_convert_mathml_to_starmath_fraction` printed leftover writer
 reuse and hung 30s at the same Hidden `_blank` `.mml` load. Later
 convert / export / document-helpers math UNO tests now use the
-same leftover Hidden Math skip. Not a product change.
+same leftover Hidden Math skip.
+
+GHA 34679494812 (PR #746 tip `fefc89fc`): leftover notebook host
+reuse then `test_document_scripts_survive_save_reopen` hung 30s at
+raw `doc.close(True)` (office alive; kill-libreoffice then killed
+the same soffice PIDs). Hidden `_blank` reopen of the saved `.odt`
+is leftover Hidden `_blank`. Windows now
+`skip_windows_leftover_hidden_load`s
+(`windows leftover skip: document scripts Hidden _blank reopen`).
+Do not raw-close leftover Writers. Not a product change.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
@@ -557,6 +567,10 @@ convert/export tests `TEST end … SKIP` with
 `windows leftover skip: math formula Hidden _blank .mml` or
 `windows leftover skip: math export Hidden _blank smath` (no 30s
 Timeout on `test_convert_mathml_to_starmath_fraction`),
+document-scripts save/reopen `TEST end … SKIP` with
+`windows leftover skip: document scripts Hidden _blank reopen`
+when leftover_open>0 (no 30s Timeout on leftover Writer
+`doc.close(True)`),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**

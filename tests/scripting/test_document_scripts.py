@@ -522,3 +522,13 @@ def test_handle_editor_script_message_attach_requires_doc():
 def test_script_picker_message_types():
     assert "request_scripts" in SCRIPT_PICKER_MESSAGE_TYPES
     assert "save" not in SCRIPT_PICKER_MESSAGE_TYPES
+
+
+def test_document_scripts_uno_skips_windows_leftover_hidden_reopen() -> None:
+    """GHA 34679494812: leftover Writer close then Hidden _blank reopen hang."""
+    from pathlib import Path
+
+    src = Path(__file__).with_name("test_document_scripts_uno.py").read_text(encoding="utf-8")
+    assert "skip_windows_leftover_hidden_load" in src
+    assert "document scripts Hidden _blank reopen" in src
+    assert "34679494812" in src

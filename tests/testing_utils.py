@@ -1278,8 +1278,11 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
     ``.mml`` hung 30s — latex dialog UNO uses this (XDL is patched;
     not AWT TOP). GHA 34678020608: that skip fired; next suite
     ``test_convert_mathml_to_starmath_fraction`` hung the same load.
-    Cached leftover count only — do not enum. Do not close leftover
-    paste Writers (34556185752).
+    GHA 34679494812: leftover notebook host reuse then
+    ``test_document_scripts_survive_save_reopen`` raw ``doc.close(True)``
+    hung 30s; Hidden ``_blank`` reopen is the same leftover Hidden
+    family. Cached leftover count only — do not enum. Do not close
+    leftover paste Writers (34556185752).
     """
     if not windows_leftover_hidden_load_unsafe():
         return
