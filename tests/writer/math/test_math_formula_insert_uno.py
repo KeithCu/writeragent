@@ -9,14 +9,14 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_mathml, with_native_doc
+from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
 from plugin.writer import format as format_support
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_mathml_to_starmath, insert_writer_math_formula
 
 
 def _skip_windows_leftover_hidden_mathml() -> None:
     """GHA 34678020608: latex skip fired; this Hidden ``_blank`` ``.mml`` hung 30s."""
-    skip_windows_leftover_hidden_mathml("math formula Hidden _blank .mml")
+    skip_windows_leftover_hidden_load("math formula Hidden _blank .mml")
 
 
 def _embed_count(doc: Any) -> int:

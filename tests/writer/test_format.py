@@ -747,9 +747,9 @@ def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
     from pathlib import Path
 
     src = Path(__file__).with_name("test_format_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_apply" in src
-    assert "34683742049" in src
     assert "skip_windows_leftover_hidden_load" in src
+    assert "apply_document_content Hidden _default swriter" in src
+    assert "34683742049" in src
     assert "format_uno Hidden _blank small_doc" in src
     assert "34685648395" in src
     assert "format_uno cross-paragraph color leftover reuse" in src

@@ -71,7 +71,7 @@ def test_math_formula_insert_uno_skips_windows_leftover_hidden_mml() -> None:
     from pathlib import Path
 
     src = Path(__file__).with_name("test_math_formula_insert_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_mathml" in src
+    assert "skip_windows_leftover_hidden_load" in src
     assert "math formula Hidden _blank .mml" in src
     assert "34678020608" in src
 
