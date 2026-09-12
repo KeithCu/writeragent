@@ -10,6 +10,30 @@ Hang-class breadcrumb contract lives in
 [uno-test-lifecycle.md](uno-test-lifecycle.md). This page is the
 keep / simplify / delete call, not a second GHA diary.
 
+## In-scope leftover / Hidden trail
+
+This pass reviewed the leftover/Hidden path as one trail, not only
+#742–#746:
+
+| PR | What shipped | Call |
+|----|--------------|------|
+| #723 | Draw close breadcrumbs; lifecycle trail on both runner modules | **Keep** |
+| #724 | Skip Windows Draw `close_doc` after `insert_math` OLE (uid mark only) | **Keep** |
+| #725 | Leftover Calc factory: stable `_wa_scalc` after HTML-paste Writers | **Keep** |
+| #731 | Hidden-open a *copy* of stored Budget; leftover Calc reuse; `_wa_notebook_host` | **Keep** |
+| #732 | Do not reuse a just-closed leftover `_wa_notebook`; leftover_open=0 Writer reuse | **Keep** |
+| #734 | Skip later Hidden sibling opens after Windows system bitmap | **Keep** |
+| #737 | Leftover Draw/Impress reuse one CREATE\|GLOBAL name (`_wa_sdraw` / `_wa_simpress`) | **Keep** |
+| #742 | Skip leftover Draw/Impress when leftover Writers stack; leftover notebook-host reuse | **Keep** |
+| #743 | Skip Hidden `_blank` factory after system bitmap (`create_native_doc`) | **Keep** |
+| #744 | Skip Windows headless slash TOP `setVisible` | **Keep** (separate class) |
+| #745 | `_WINDOWS_CROSS_APP_LEFTOVER_MAX` 4→2 | **Keep** |
+| #746 | Broad leftover Hidden `_blank` / `_default` skips | **Keep skips**; **simplify** aliases only |
+
+Earlier same-week peer/bootstrap items (#687 / #709–#722, plus #711 /
+#708) stay **keep** and are listed below so nobody “simplifies” them
+back into leftover close.
+
 ## Hang classes (do not merge)
 
 These are different failure modes. One helper per class.
@@ -73,26 +97,35 @@ reopens it.
   both; do not wire the walk back into `close_doc`.
 - **#725 leftover Calc after HTML-paste.** Unique leftover scalc
   failed then hung (`_wa_factory_1` / `_wa_factory_2`). Stable
-  `_wa_scalc`; later leftover Calc wipe-and-reuses the pooled
-  workbook. Keep.
+  `_wa_scalc`. Do not merge this name into leftover Writer
+  `_wa_factory` — pooled leftover_open=0 Calc is still Hidden
+  `_blank`, so a shared leftover name would not replace it. Keep.
 - **#731 Budget copy + leftover Calc reuse + `_wa_notebook_host`.**
-  Hidden-open of the `storeAsURL` path bitmap-failed; copy URL is the
-  harness workaround. Notebook host is not leftover HTML-paste
-  `_wa_factory` (34643210006 listener bleed). Keep. Product
-  `open_document_for_read` `_wa_doc_research` is out of this pass.
+  Hidden-open of the live `storeAsURL` path bitmap-failed; the UNO
+  env copies `Budget_read.ods` (harness-only). Later leftover
+  `_wa_scalc` at leftover_open=5 hung (34643210006) — wipe-and-reuse
+  the pooled Calc instead of a leftover factory. Notebook host is
+  not leftover HTML-paste `_wa_factory` (listener bleed). Keep.
+  Product `open_document_for_read` `_wa_doc_research` is out of this
+  pass.
 - **#732 leftover `_wa_notebook` + leftover_open=0 Writer reuse.**
-  Do not close leftover notebook docs (34646877587). Consecutive
+  `windows_notebook_load_args` stays `_wa_notebook` (not `_blank`).
+  Do not close leftover notebook docs (34646877587). The detect
+  reload leftover-skips instead of a second Hidden load. Consecutive
   Hidden `_blank` swriter hung with leftovers=0 once paste suites
   were deferred (34652644656). `_windows_should_reuse_writer` stays
   true on Windows. Keep.
 - **#734 skip later Hidden sibling opens after bitmap.** Attempt the
   first Hidden-open (34652644656 was 3/3). After
-  `Could not create system bitmap!`, skip — do not hang the next
-  sibling. Keep.
+  `Could not create system bitmap!`, `note_windows_hidden_open_bitmap`
+  then `skip_windows_hidden_open_after_bitmap` — do not hang the
+  next sibling. Same helper #743 uses in `create_native_doc`. Keep;
+  do not fold into leftover Hidden skip (leftover_open was 0).
 - **#737 leftover Draw/Impress one CREATE\|GLOBAL name.**
   `_wa_sdraw` / `_wa_simpress`. Unique `_wa_factory_10` hung at
   leftover_open=15. Named leftover factories still load at
-  leftover_open<=2. Keep.
+  leftover_open<=2; #742 / #745 skip only when leftover_open>2.
+  Keep the names. Do not go back to unique `_wa_factory_N`.
 - **#742 leftover Draw/Impress skip when leftover Writers stack +
   leftover notebook-host reuse.** High leftover Writer count wedges a
   new app factory; leftover swriter at leftover_open=15 returned.
