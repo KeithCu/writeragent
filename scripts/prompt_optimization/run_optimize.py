@@ -13,6 +13,7 @@ Usage:
   cd scripts/prompt_optimization
   export OPENROUTER_API_KEY="<your_api_key_here>"
   python run_optimize.py --auto light -j 1 -e data_sorting,tax_column --slice calc_core
+  python run_optimize.py --auto light -j 1 -e table_from_mess,table_engineering --slice apply_html
   python run_optimize.py --student react-mock
 """
 from __future__ import annotations

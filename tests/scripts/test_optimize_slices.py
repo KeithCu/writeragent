@@ -15,7 +15,7 @@ _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
     sys.path.insert(0, str(_PO))
 
-from dataset import DATA_SORTING, TAX_COLUMN, filter_examples, parse_task_id_filter
+from dataset import DATA_SORTING, TABLE_FROM_MESS, TAX_COLUMN, filter_examples, parse_task_id_filter
 from eval_catalog import apply_schema_patches, build_eval_tool_schemas
 from eval_prompts import get_eval_system_prompt
 from llm_chat_eval import run_llm_chat_eval
@@ -34,12 +34,15 @@ def test_named_slices_cover_calc_and_writer_hooks() -> None:
     assert {
         "calc_core",
         "writer_core",
+        "apply_html",
         "write_formula_range",
         "write_formula_range.values",
         "sort_range",
         "full_prompt",
     } <= names
     assert DEFAULT_LLM_SLICE == "calc_core"
+    assert get_slice_spec("apply_html").kind == "prompt_fragment"
+    assert get_slice_spec("apply_html").prompt_attr == "WRITER_APPLY_DOCUMENT_HTML_RULES"
     assert get_slice_spec("sort_range").kind == "tool_description"
     assert get_slice_spec("write_formula_range.values").param_name == "values"
 
@@ -64,6 +67,23 @@ def test_calc_core_injection_is_noop_on_writer_tasks() -> None:
     assert patches is None
     assert "SLICE_MARKER_XYZ" not in prompt
     assert prompt == get_eval_system_prompt("table_from_mess")
+
+
+def test_apply_html_injection_replaces_fragment_on_writer_tasks() -> None:
+    baseline = get_slice_baseline("apply_html")
+    assert "APPLY_DOCUMENT_CONTENT AND HTML" in baseline
+    prompt, patches = apply_named_slice("table_from_mess", "apply_html", "SLICE_MARKER_XYZ")
+    assert patches is None
+    assert "SLICE_MARKER_XYZ" in prompt
+    assert baseline not in prompt
+    assert get_eval_system_prompt("table_from_mess") != prompt
+
+
+def test_apply_html_injection_is_noop_on_calc_tasks() -> None:
+    prompt, patches = apply_named_slice("tax_column", "apply_html", "SLICE_MARKER_XYZ")
+    assert patches is None
+    assert "SLICE_MARKER_XYZ" not in prompt
+    assert prompt == get_eval_system_prompt("tax_column")
 
 
 def test_sort_range_slice_patches_specialized_schema() -> None:
@@ -153,6 +173,28 @@ def test_live_eval_student_constructs_and_runs_scripted() -> None:
     assert callable(pred.get_lm_usage)
     usage = pred.get_lm_usage()
     assert isinstance(usage, dict)
+
+
+def test_live_eval_student_apply_html_scripted_writer_task() -> None:
+    pytest.importorskip("dspy")
+    from program_llm import LiveEvalStudent
+
+    mod = LiveEvalStudent(
+        slice_name="apply_html",
+        student="scripted",
+        model="scripted",
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="",
+    )
+    assert "APPLY_DOCUMENT_CONTENT AND HTML" in mod.get_slice_text()
+    pred = mod(
+        document_content=TABLE_FROM_MESS["document_content"],
+        user_question=TABLE_FROM_MESS["user_question"],
+        task_id="table_from_mess",
+    )
+    assert pred.final_document
+    assert pred.error is None
+    assert pred.baseline_slice_len == len(get_slice_baseline("apply_html"))
 
 
 def test_make_judge_metric_applies_length_penalty_without_judge() -> None:
