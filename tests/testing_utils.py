@@ -1273,8 +1273,11 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
     names (``_wa_notebook_2``, ``_wa_factory_N``) are the same stacking
     family as leftover ``_wa_scalc`` / ``_wa_factory_5``. Import-filter
     detect uses this; do **not** skip ``document_research_uno`` Hidden
-    ``Budget_read.ods`` (34643210006 was 3/3). Cached leftover count
-    only — do not enum. Do not close leftover paste Writers (34556185752).
+    ``Budget_read.ods`` (34643210006 was 3/3). GHA 34675151298: leftover
+    writer reuse then ``convert_mathml_to_starmath`` Hidden ``_blank``
+    ``.mml`` hung 30s — latex dialog UNO uses this (XDL is patched;
+    not AWT TOP). Cached leftover count only — do not enum. Do not
+    close leftover paste Writers (34556185752).
     """
     if not windows_leftover_hidden_load_unsafe():
         return

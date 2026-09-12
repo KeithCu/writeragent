@@ -288,6 +288,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `native_doc: leftover notebook host reuse`,
 `windows leftover skip: leftover simpress leftovers=`,
+`windows leftover skip: latex dialog Hidden _blank .mml leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -480,6 +481,19 @@ leftovers uids 40/39/29 Writer leftovers from notebook/importer).
 Old max=4 only skipped leftover_open>4, so leftover_open=3 still
 loaded leftover Draw/Impress. Skip leftover_open>2.
 
+GHA 34675151298 (master `71640e30`, #744+#745): leftover `simpress`
+at leftover_open=3 SKIPPED (`windows leftover skip: leftover
+simpress leftovers=3`). Slash TOP dialog SKIPPED (`windows awt
+skip: slash_popup createPeer/setVisible`). Then
+`writer.math.test_latex_dialog_uno.test_insert_latex_math_dialog_success`
+printed `native_doc: leftover writer reuse` and hung 30s in
+`convert_mathml_to_starmath` `loadComponentFromURL(..., "_blank",
+Hidden)` (office alive). XDL `LatexInputDialog` is patched — hang
+is leftover Hidden `_blank` `.mml`, not AWT TOP `createPeer` /
+`setVisible`. Converting latex-dialog UNO tests now
+`skip_windows_leftover_hidden_load` (`windows leftover skip: latex
+dialog Hidden _blank .mml leftovers=N`). Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -526,6 +540,10 @@ or `TEST end … SKIP` with `windows leftover skip: leftover simpress`
 when leftover_open>2 (no 30s Timeout in `create_native_doc` on leftover
 Impress), leftover notebook host using
 `native_doc: leftover notebook host reuse` (leftover_open stays low),
+latex dialog converting tests `TEST end … SKIP` with
+`windows leftover skip: latex dialog Hidden _blank .mml` when
+leftover_open>0 (no 30s Timeout in `convert_mathml_to_starmath`
+Hidden `_blank` `.mml` after leftover writer reuse),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**
