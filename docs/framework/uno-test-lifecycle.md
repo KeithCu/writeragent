@@ -14,7 +14,7 @@ Related: [archive/test_architecture_analysis.md](../archive/test_architecture_an
 |------|--------|------|-------|
 | Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
 | Writer `@with_native_doc` | Windows yes (leftover pool; leftover notebook host uses `_wa_notebook_host`) | Factory on first use / dead pool | `close_doc` (Windows **skips** Writer close while leftovers remain) |
-| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>4 | `close_doc` (Windows **skips** close when the Draw still holds Math OLE) |
+| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | `close_doc` (Windows **skips** close when the Draw still holds Math OLE) |
 
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
 share a pooled document. A keeper hidden Writer is opened once in
@@ -452,10 +452,16 @@ is **not** unique `_wa_factory_N` stacking. High leftover Writer
 count wedges a new app factory. Windows now (1) reuses leftover
 `_wa_notebook_host` so leftover_open does not climb
 (`native_doc: leftover notebook host reuse`) and (2) skips leftover
-Draw/Impress factory when leftover_open>4
+Draw/Impress factory when leftover_open>2
 (`windows leftover skip: leftover simpress leftovers=N`). Leftover
 Writer / leftover Calc still load. Do not close leftover paste /
 notebook Writers.
+
+GHA 34672065355 (master tip of #742+#743): leftover `_wa_simpress`
+at leftover_open=3 hung 30s (`test_lo_import_minimal_pptx_multi_slide`;
+leftovers uids 40/39/29 Writer leftovers from notebook/importer).
+Old max=4 only skipped leftover_open>4, so leftover_open=3 still
+loaded leftover Draw/Impress. Skip leftover_open>2.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
@@ -498,7 +504,7 @@ exist (no 30s Timeout on `detect_without_filtername`), leftover
 (not `_wa_factory_10`) then
 `TEST end uno.test_ppt_master_pptx_import_uno.test_lo_import_minimal_pptx_multi_slide OK`
 or `TEST end … SKIP` with `windows leftover skip: leftover simpress`
-when leftover_open>4 (no 30s Timeout in `create_native_doc` on leftover
+when leftover_open>2 (no 30s Timeout in `create_native_doc` on leftover
 Impress), leftover notebook host using
 `native_doc: leftover notebook host reuse` (leftover_open stays low),
 **then**
