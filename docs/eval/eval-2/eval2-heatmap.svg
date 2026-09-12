@@ -125,9 +125,9 @@
   <rect x="1438.0" y="250.0" width="142" height="46" rx="6" fill="#009E73" stroke="#dadce0"/>
   <text x="1509.0" y="270.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#ffffff">HAPPY</text>
   <text x="1509.0" y="286.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#ffffff">oracle PASS</text>
-  <rect x="1588.0" y="250.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
-  <text x="1659.0" y="270.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
-  <text x="1659.0" y="286.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="1588.0" y="250.0" width="142" height="46" rx="6" fill="#D55E00" stroke="#dadce0"/>
+  <text x="1659.0" y="270.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#ffffff">NOT_HAPPY</text>
+  <text x="1659.0" y="286.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#ffffff">oracle FAIL</text>
   <rect x="1738.0" y="250.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="1809.0" y="270.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="1809.0" y="286.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>

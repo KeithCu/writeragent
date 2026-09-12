@@ -37,9 +37,9 @@ partial and USD.
 cite). **NOT_HAPPY** + oracle FAIL is usually an empty or wrong-facts
 deliverable. **—** means no in-repo headed stamp; do not invent a
 score. Luna, 20B, Flash Lite, Gemma 4 31B, Gemma 4 26B A4B, Nemotron
-3.5 Lightning, and Mercury 2.5 Preview have an AFC stamp only.
-Remaining catalog columns (Grok 4.6, Muse Spark 1.3) are placeholders.
-The catalog-wide headed sweep has **not** happened.
+3.5 Lightning, Mercury 2.5 Preview, and Grok 4.6 have an AFC stamp
+only. Muse Spark 1.3 is still a placeholder. The catalog-wide headed
+sweep has **not** happened.
 
 ## Snapshot ranking (2026-09-12)
 
@@ -49,7 +49,8 @@ stamps (`20260912-0142-gpt-oss-120b`, `20260912-0150-gpt-5.6-luna`,
 `20260912-0216-gemini-3.5-flash-lite`, `20260912-0224-gemma-4-31b-it`,
 `20260912-0240-gemma-4-26b-a4b-it`,
 `20260912-0310-nemotron-3.5-lightning`,
-`20260912-0330-mercury-2.5-preview`, box-local). Run dirs are typically
+`20260912-0330-mercury-2.5-preview`, `20260912-0342-grok-4.6`,
+box-local). Run dirs are typically
 untracked —
 `run_artifacts_committed` is false for every cell. No OpenRouter
 eval-2 CI job. Mercury 2.5 Preview is the first HAPPY cell with
@@ -62,7 +63,7 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Tenant Retention | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — |
 | 2 | Cadaver Proposal | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — |
-| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | HAPPY / oracle PASS | — | — |
+| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | — |
 | 4 | GMP Change Control | — | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — |
 | 5 | Floorstand Writer→Calc | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — |
 | 6 | Calc-primary model | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — |
@@ -88,16 +89,17 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
    AFC. gpt-oss-120b is HAPPY only on GMP-0225. Mercury 2.5 Preview
    (`20260912-0330`) is the first non-gate catalog **HAPPY / oracle
    PASS** (S=494 ≥ R=68 on a 1518-row near-full Sample). Earlier
-   catalog AFC cells (`20260912-0142` 120b through `20260912-0310`
-   Nemotron) are NOT HAPPY. Most miss R. Gemma 4 26B A4B produced
-   R=65 then failed S=0 < R. Nemotron is the first `failure_count=2`
-   cell (Population only). Luna’s Sample is a better incomplete shape
-   (81 rows, S=68) than 120b’s 1516-row dump. Floorstand is NOT HAPPY
-   on both Gemini 3.8 and 120b. Overnight slots 6/8/9/10 (gpt-oss
-   only) are all NOT HAPPY.
+   catalog AFC cells (`20260912-0142` 120b through `20260912-0342`
+   Grok) are NOT HAPPY except Mercury. Most miss R. Gemma 4 26B A4B
+   produced R=65 then failed S=0 < R. Nemotron is `failure_count=2`
+   (missing Sample+SSC). Grok is also `failure_count=2` (SSC present,
+   Sample empty, R missing). Luna’s Sample is a better incomplete
+   shape (81 rows, S=68) than 120b’s 1516-row dump. Floorstand is NOT
+   HAPPY on both Gemini 3.8 and 120b. Overnight slots 6/8/9/10
+   (gpt-oss only) are all NOT HAPPY.
 2. **Partial:** AFC Gemini 3.8 and Mercury are oracle PASS
    (`partial_score` = 1). Other catalog AFC cells recorded
-   `failure_count` (1, or 2 on Nemotron) plus S/husks but no
+   `failure_count` (1, or 2 on Nemotron/Grok) plus S/husks but no
    `oracle_check_count`, so no FAIL ratio. Tenant / Cadaver / GMP
    HAPPY cells are still oracle FAIL without a recorded check count.
    Do not invent one from autopsy prose.
@@ -105,9 +107,9 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
    recorded `total_cost_usd` (~$0.00468 OpenRouter). The cost chart
    now has one bar. Value is `partial_score`² ÷ that USD among HAPPY
    (≈213.68). Other catalog USD stays on NOT_HAPPY cells.
-4. **Coverage:** Grok 4.6 and Muse Spark are entirely no data. The
-   new catalog columns have AFC only. Gemini 3.8 has no stamp yet for
-   GMP, Calc-primary, Draw-primary, Reverse Tenant, or Long Writer.
+4. **Coverage:** Muse Spark is entirely no data. The other catalog
+   columns have AFC only. Gemini 3.8 has no stamp yet for GMP,
+   Calc-primary, Draw-primary, Reverse Tenant, or Long Writer.
    gpt-oss-120b has no stamp for Tenant or Cadaver.
 
 ### Cell notes (only scored pairs)
@@ -125,6 +127,7 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 | AFC Population | Gemma 4 26B A4B | `20260912-0240-gemma-4-26b-a4b-it` | Sixth catalog cell. First catalog R=65 besides the Gemini gate; Sample undersized (10 rows, S=0 < R). Attempt1 contaminated; attempt2 wipe. OpenRouter usage ~$0.04316 (model_configs alt ~$0.05011 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0240-gemma-4-26b-a4b-it/`. |
 | AFC Population | Nemotron 3.5 Lightning | `20260912-0310-nemotron-3.5-lightning` | Seventh catalog cell. Population only; missing Sample+SSC (`failure_count=2`); S=0 R=None; husks 0/0; Err:507 in J/K; Save dialog flicker. Tokens are second-send (all-from-first higher, not stored). OpenRouter second-send ~$0.04282 (model_configs alt ~$0.06145 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0310-nemotron-3.5-lightning/`. |
 | AFC Population | Mercury 2.5 Preview | `20260912-0330-mercury-2.5-preview` | Eighth catalog cell. First non-gate HAPPY / oracle PASS. Near-full Sample (1518 rows) but S=494 ≥ R=68; husks 2/16680. Attempt1 contaminated; attempt2 wipe. OpenRouter usage ~$0.00468 (model_configs alt ~$0.03144 not stored). First HAPPY USD — lights the cost chart. Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0330-mercury-2.5-preview/`. |
+| AFC Population | Grok 4.6 | `20260912-0342-grok-4.6` | Ninth catalog cell. SSC present; Sample empty (`failure_count=2`: no data rows + R missing); S=0 R=None; husks 0/0. OpenRouter usage ~$0.02375 (model_configs alt ~$0.05831 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0342-grok-4.6/`. |
 | Floorstand | Gemini 3.8 Flash | `20260909-1748-gemini-3.8-flash-private-patch` | Polarity HIT; still empty + stall. Private patches, not PR’d. |
 | GMP Change Control | GPT-OSS 120B | `20260909-0225-gpt-oss-120b` | Cite-only oracle fail. Prior `0103` was NOT HAPPY (dump polarity). |
 | Floorstand | GPT-OSS 120B | `20260909-0323-gpt-oss-120b` | Extract/JSON polarity MISS; empty + LO crash. Private `1733` still MISS. |
@@ -173,11 +176,11 @@ recorded them. The 2026-09-12 seed still has derived PASS →
 `20260912-0216-gemini-3.5-flash-lite`, `20260912-0224-gemma-4-31b-it`,
 `20260912-0240-gemma-4-26b-a4b-it`,
 `20260912-0310-nemotron-3.5-lightning`,
-`20260912-0330-mercury-2.5-preview`) recorded tokens, wall, USD,
-and S/husks. FAIL cells have `failure_count` 1 (or 2 on Nemotron) and
-no `oracle_check_count` / `partial_score`. Mercury is PASS
-(`failure_count=0`) so `partial_score` = 1 and C²/$ is derived from
-the recorded USD.
+`20260912-0330-mercury-2.5-preview`, `20260912-0342-grok-4.6`)
+recorded tokens, wall, USD, and S/husks. FAIL cells have
+`failure_count` 1 (or 2 on Nemotron/Grok) and no `oracle_check_count`
+/ `partial_score`. Mercury is PASS (`failure_count=0`) so
+`partial_score` = 1 and C²/$ is derived from the recorded USD.
 
 ## How to refresh
 

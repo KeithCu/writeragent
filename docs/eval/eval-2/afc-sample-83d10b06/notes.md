@@ -103,3 +103,11 @@ stored; model_configs estimate ~$0.03144 is an alternate only. First
 HAPPY cell with recorded USD (C²/$ lights). Run dir is box-local /
 untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0330-mercury-2.5-preview/`.
+
+Ninth catalog cell: `x-ai/grok-4.6`, stamp `20260912-0342-grok-4.6`.
+Product bar **NOT_HAPPY**, oracle **FAIL** (`failure_count=2`: Sample
+has no data rows; R missing). SSC present; Sample empty
+(`sample_data_rows=0`); S=0; R=None; husks 0/0. OpenRouter usage sum
+~$0.02375 stored; model_configs estimate ~$0.05831 is an alternate
+only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0342-grok-4.6/`.

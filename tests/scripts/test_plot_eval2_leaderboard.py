@@ -122,6 +122,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     gemma26 = "google/gemma-4-26b-a4b-it"
     nemo = "nvidia/nemotron-3.5-lightning"
     mercury = "inception/mercury-2.5-preview"
+    grok = "x-ai/grok-4.6"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -392,7 +393,35 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "0.03144" in afc_mercury.oracle_note
     assert "near-full" in afc_mercury.oracle_note
 
-    # No invented Luna / 20b / Flash Lite / Gemma / Nemotron / Mercury scores outside AFC.
+    # Ninth catalog AFC stamp (Scrolly headed 20260912-0342).
+    afc_grok = board.result_for("afc", grok)
+    assert afc_grok is not None
+    assert afc_grok.product_bar == "NOT_HAPPY"
+    assert afc_grok.oracle == "FAIL"
+    assert afc_grok.stamp == "20260912-0342-grok-4.6"
+    assert afc_grok.oracle_passed is False
+    assert afc_grok.oracle_failure_count == 2
+    assert afc_grok.oracle_failures == (
+        "Sample has no data rows",
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_grok.oracle_check_count is None
+    assert afc_grok.partial_score is None
+    assert afc_grok.afc_s_flags == 0
+    assert afc_grok.afc_r_required is None
+    assert afc_grok.husk_cells == 0
+    assert afc_grok.scored_cells == 0
+    assert afc_grok.input_tokens == 28184
+    assert afc_grok.output_tokens == 323
+    assert afc_grok.total_tokens == 28507
+    assert afc_grok.wall_time_s == 416
+    assert afc_grok.total_cost_usd == pytest.approx(0.02375)
+    assert afc_grok.intelligence_per_dollar is None
+    assert "20260912-0342-grok-4.6" in afc_grok.oracle_note
+    assert "0.05831" in afc_grok.oracle_note
+    assert "SSC present" in afc_grok.oracle_note
+
+    # No invented Luna / 20b / Flash Lite / Gemma / Nemotron / Mercury / Grok scores outside AFC.
     for task_id in (
         "tenant-retention",
         "cadaver-proposal",
@@ -410,14 +439,11 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, gemma26) is None
         assert board.result_for(task_id, nemo) is None
         assert board.result_for(task_id, mercury) is None
+        assert board.result_for(task_id, grok) is None
 
     # Remaining catalog peers stay empty until a real stamp lands.
-    for mid in (
-        "x-ai/grok-4.6",
-        "meta/muse-spark-1.3-contributor",
-    ):
-        assert board.scored_count(mid) == 0
-        assert board.happy_count(mid) == 0
+    assert board.scored_count("meta/muse-spark-1.3-contributor") == 0
+    assert board.happy_count("meta/muse-spark-1.3-contributor") == 0
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -429,6 +455,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", gemma26),
         ("afc", nemo),
         ("afc", mercury),
+        ("afc", grok),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -468,6 +495,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_gemma26)
     assert pel.has_recorded_partial(afc_nemo)
     assert pel.has_recorded_partial(afc_mercury)
+    assert pel.has_recorded_partial(afc_grok)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -479,6 +507,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "google/gemma-4-26b-a4b-it"),
     ("afc", "nvidia/nemotron-3.5-lightning"),
     ("afc", "inception/mercury-2.5-preview"),
+    ("afc", "x-ai/grok-4.6"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -566,6 +595,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Gemma 4 26B A4B" in partial
     assert "Nemotron 3.5 Lightning" in partial
     assert "Mercury 2.5 Preview" in partial
+    assert "Grok 4.6" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -624,6 +654,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Gemma 4 26B A4B" in partial_text
     assert "Nemotron 3.5 Lightning" in partial_text
     assert "Mercury 2.5 Preview" in partial_text
+    assert "Grok 4.6" in partial_text
     assert "S=494 R=68" in partial_text
     assert "2/—" in partial_text
     assert "no ratio" in partial_text
