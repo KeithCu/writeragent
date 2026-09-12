@@ -1,39 +1,49 @@
-# Eval-2 headed scoreboard
+# Eval-2 headed benchmarks
 
-Headed **task × model** matrix for Ready eval-2 experiments. This is
-**not** the 17-task string harness.
+Eval-2 is the **headed sibling** of the 17-task string pack: the same
+kind of benchmark (hard / partial-quality / cost), on much harder
+GDPval-shaped Writer, Calc, and Draw tasks. Runs track product success
+and **Intelligence-per-Dollar**. **Value (C²/$)** = oracle
+`partial_score` squared ÷ recorded USD on a HAPPY cell (higher is
+better), when both were measured.
 
-String-pack ranking lives in [`docs/eval/benchmarks.md`](../benchmarks.md)
-and `docs/eval/pareto-*.svg` (`hard_pass_rate`, C²/$, OpenRouter
-`--backend string`). Do **not** merge these tables or fold headed stamps
-into `scripts/prompt_optimization/benchmark_results.json`.
+String-pack snapshot: [`docs/eval/benchmarks.md`](../benchmarks.md)
+(`hard_pass_rate`, C²/$, `pareto-*.svg`). How to run the headed helper:
+[`README.md`](README.md). Living autopsy:
+[`headed-failure-autopsy.md`](headed-failure-autopsy.md).
 
-| | String pack | Eval-2 headed |
-|---|-------------|---------------|
-| Tasks | 17 short Writer/Calc/Draw worlds | 9 Ready / Headed-ready GDPval-shaped siblings (slot 7 PARKED) |
+Keep the stores separate. Do **not** fold headed stamps into
+`scripts/prompt_optimization/benchmark_results.json` or overwrite
+`docs/eval/pareto-*.svg`.
+
+| Axis | String pack | Eval-2 (sibling) |
+|---|---|---|
+| Tasks | 17 short Writer/Calc/Draw worlds | 9 Ready / Headed-ready siblings (slot 7 PARKED) |
+| Hard | `hard_pass_rate` (substring + result + process oracles) | **Product HAPPY** (oracle PASS when that is the hard gate — AFC after the smoother) |
+| Partial | correctness / quality | **Oracle partial** (`1 − failures/checks`; AFC S/R, husks) |
+| Cost | C²/$ = metric² ÷ avg $/task | C²/$ = `partial_score`² ÷ USD among HAPPY |
 | Gate | Catalog sweep on OpenRouter | **`google/gemini-3.8-flash`** until HAPPY (gpt-oss is not the product gate) |
-| Pass | `hard_pass_rate` (substring + result + process oracles) | **Product bar** HAPPY / NOT_HAPPY, plus CLI **oracle** PASS / FAIL |
-| Cost | C²/$ = metric² ÷ avg $/task | **HAPPY first**; among comparable, higher oracle partial, then lower USD |
 | Charts | `pareto-fronts.svg` / `pareto-distance.svg` | [`eval2-heatmap.svg`](eval2-heatmap.svg), [`eval2-coverage.svg`](eval2-coverage.svg), [`eval2-cost.svg`](eval2-cost.svg), [`eval2-partial.svg`](eval2-partial.svg) |
 
-**HAPPY** means the deliverable did the job (Keith: product over
-oracle). A soft oracle FAIL on a HAPPY cell is a false-red or a
-secondary cite — not a product miss. **NOT_HAPPY** + oracle FAIL is
-usually an honest empty or wrong-facts deliverable. **—** means no
-in-repo headed stamp for that pair; do not invent a score.
+Ranked by **hard → partial → cost**. **Hard** = product HAPPY (the
+deliverable did the job). **Partial** = oracle quality among recorded
+checks. **C²/$** is secondary, among HAPPY cells that recorded both
+partial and USD.
 
-Catalog columns (GPT-OSS 20B, Grok 4.6, Muse Spark 1.3) are
-placeholders. Tasks that work on Gemini 3.8 Flash should eventually be
-run across the string catalog — that sweep has **not** happened.
+**HAPPY** can sit on a soft oracle FAIL (false-red or a secondary
+cite). **NOT_HAPPY** + oracle FAIL is usually an empty or wrong-facts
+deliverable. **—** means no in-repo headed stamp; do not invent a
+score. Catalog columns (GPT-OSS 20B, Grok 4.6, Muse Spark 1.3) are
+placeholders. The catalog-wide headed sweep has **not** happened.
 
-Living autopsy: [`headed-failure-autopsy.md`](headed-failure-autopsy.md).
-Harness index: [`README.md`](README.md).
-
-## Snapshot (2026-09-12)
+## Snapshot ranking (2026-09-12)
 
 Seeded from the autopsy and sibling notes. Run dirs are typically
-untracked on the shared machine — `run_artifacts_committed` is false
-for every cell. No OpenRouter eval-2 CI job.
+untracked — `run_artifacts_committed` is false for every cell. No
+OpenRouter eval-2 CI job. Cost and most partial counts are still empty.
+
+Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
+(+ [schema](eval2_benchmark_results.schema.json)).
 
 | # | Task | Gemini 3.8 Flash | GPT-OSS 120B | GPT-OSS 20B | Grok 4.6 | Muse Spark 1.3 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -55,69 +65,22 @@ for every cell. No OpenRouter eval-2 CI job.
 
 <img src="eval2-partial.svg" alt="Eval-2 headed partial/cost view. Bars only when oracle PASS or recorded fails/checks; no invented ratios." />
 
-## Ranking stack
+## Key insights
 
-Product bar still wins: **HAPPY first**. A cheaper or higher-partial
-NOT_HAPPY run does not outrank an expensive HAPPY one.
-
-Among **comparable** outcomes (same HAPPY / NOT_HAPPY, usually the
-same task):
-
-1. Prefer **higher oracle partial** when a ratio exists.
-2. Then prefer **lower recorded USD**.
-
-Missing partial or cost sorts last in that step — unknown does not
-beat a recorded value. Heatmap stays HAPPY / NOT.
-
-## Oracle partial
-
-AFC (`eval_2_ods_oracle`) and the Writer/Calc/Draw siblings are
-fail-closed (`passed` iff `failures` is empty) but still expose
-useful soft signals: the `failures` list, AFC `s_flags` / `r_required`,
-and husk / scored cell counts.
-
-`partial_score` is oracle quality in [0, 1], computed only when honest:
-
-- `1` when the oracle passed (`oracle` is PASS, or `oracle_passed` is
-  true).
-- Otherwise `1 − oracle_failure_count / oracle_check_count` when
-  **both** counts were recorded from that stamp's `--score` JSON.
-- Omit when FAIL and `oracle_check_count` is unknown. Do **not**
-  invent a denominator from the failure strings, autopsy prose, or
-  a guessed “typical” check count.
-
-Optional result fields: `oracle_passed`, `oracle_failure_count`,
-`oracle_check_count`, `oracle_failures` (short strings), `afc_s_flags`,
-`afc_r_required`, `husk_cells`, `scored_cells`, `partial_score`.
-The 2026-09-12 seed omits them. AFC catalog stamps can fill them
-from `eval_2_ods_oracle --json` (S/R and husks) without claiming
-more precision than fails/checks.
-
-The partial chart draws a coarse bar only when `partial_score` exists.
-S/R and husk counts can label a row; they do not become a fake 0–1
-axis.
-
-## Cost for results
-
-Among HAPPY cells that recorded `total_cost_usd` > 0, after partial
-when it exists, rank by **lower cost** (cheaper success).
-
-`intelligence_per_dollar` is **successes per USD**, computed when
-HAPPY and cost > 0:
-
-`1 / total_cost_usd`
-
-Omit the field (and the cost-chart bar) when cost is unknown or zero.
-Do **not** invent run costs from tokens, list prices, or wall time.
-This is **not** the string-harness C²/$
-(`correctness² / avg $/task` in [`docs/eval/benchmarks.md`](../benchmarks.md)).
-Eval-2 has no continuous correctness — HAPPY is binary.
-
-Optional cost fields (`total_tokens`, `input_tokens`,
-`output_tokens`, `total_cost_usd`, `wall_time_s`,
-`intelligence_per_dollar`) are empty on the 2026-09-12 seed. The
-heatmap stays HAPPY / NOT. Fill cost and oracle-partial only from a
-real headed stamp (AFC catalog sweep and later tasks).
+1. **Hard (HAPPY):** Gemini 3.8 Flash is HAPPY on Tenant, Cadaver, and
+   AFC. gpt-oss-120b is HAPPY only on GMP-0225. Floorstand is NOT HAPPY
+   on both. Overnight slots 6/8/9/10 (gpt-oss only) are all NOT HAPPY.
+2. **Partial:** AFC Gemini is oracle PASS (`partial_score` = 1). Tenant /
+   Cadaver / GMP HAPPY cells are still oracle FAIL without a recorded
+   `oracle_check_count`, so they have no ratio yet. Do not invent one
+   from autopsy prose.
+3. **C²/$:** no HAPPY cell has recorded `total_cost_usd`. The cost
+   chart stays empty until the AFC catalog sweep (and later tasks) fill
+   USD. Then Value is `partial_score`² ÷ that USD.
+4. **Coverage:** catalog peers (20B, Grok 4.6, Muse Spark) are entirely
+   no data. Gemini has no stamp yet for GMP, Calc-primary, Draw-primary,
+   Reverse Tenant, or Long Writer. gpt-oss has no stamp for Tenant,
+   Cadaver, or AFC.
 
 ### Cell notes (only scored pairs)
 
@@ -134,10 +97,41 @@ real headed stamp (AFC catalog sweep and later tasks).
 | Reverse Tenant | GPT-OSS 120B | `20260909-0414-gpt-oss-120b` | Talk-not-write; 0 cells + PreContractError. |
 | Long Writer pack | GPT-OSS 120B | `20260909-0419-gpt-oss-120b` | Invented $12.5M / wrong dates; 0 comments. |
 
-Gemini has **no** in-repo headed stamp yet for GMP, Calc-primary,
-Draw-primary, Reverse Tenant, or Long Writer. gpt-oss-120b has **no**
-in-repo stamp for Tenant, Cadaver, or AFC. Overnight slots 6/8/9/10
-were gpt-oss only.
+## Scoring approach
+
+Hard is the product bar: **HAPPY first**. A cheaper or higher-partial
+NOT_HAPPY run does not outrank an expensive HAPPY one. When the headed
+bar *is* the oracle (AFC after the smoother), **oracle PASS** is the
+hard gate for that task.
+
+Partial is oracle quality in [0, 1], computed only when honest:
+
+- `1` when the oracle passed (`oracle` is PASS, or `oracle_passed` is
+  true).
+- Otherwise `1 − oracle_failure_count / oracle_check_count` when
+  **both** counts were recorded from that stamp's `--score` JSON.
+- Omit when FAIL and `oracle_check_count` is unknown. Do **not**
+  invent a denominator from the failure strings or a guessed check
+  count.
+
+AFC (`eval_2_ods_oracle`) and the Writer/Calc/Draw oracles are
+fail-closed (`passed` iff `failures` is empty) but still expose S/R,
+husks, and the `failures` list. Those label a row; they are not a
+fake 0–1 axis by themselves.
+
+**C²/$** among successes: `partial_score`² ÷ `total_cost_usd` when
+the cell is HAPPY and both values were recorded (same shape as the
+string-pack Value). Omit when cost is unknown or zero, or when
+partial is unknown. Do **not** invent run costs from tokens, list
+prices, or wall time.
+
+Optional result fields (`oracle_passed`, `oracle_failure_count`,
+`oracle_check_count`, `oracle_failures`, `afc_s_flags`,
+`afc_r_required`, `husk_cells`, `scored_cells`, `partial_score`,
+`total_tokens`, `input_tokens`, `output_tokens`, `total_cost_usd`,
+`wall_time_s`, `intelligence_per_dollar`) are empty on the 2026-09-12
+seed except the derived PASS → `partial_score` = 1 on AFC Gemini.
+Fill the rest only from a real headed stamp.
 
 ## How to refresh
 
@@ -146,15 +140,14 @@ were gpt-oss only.
    (`task_id` × `model`). Leave unknown pairs **out** of `results`.
 2. Fields: `product_bar` (`HAPPY` \| `NOT_HAPPY`), `oracle`
    (`PASS` \| `FAIL`), optional `oracle_note` / `stamp` / `source` /
-   `patches`. Optional cost axis (omit when unknown): `total_tokens` /
-   `input_tokens` / `output_tokens` (ints), `total_cost_usd`,
-   `wall_time_s`, `intelligence_per_dollar` (computed as
-   `1 / total_cost_usd` when HAPPY and cost > 0). Optional partial
-   (omit when unknown): `oracle_passed`, `oracle_failure_count`,
-   `oracle_check_count`, `oracle_failures`, `afc_s_flags` /
-   `afc_r_required`, `husk_cells` / `scored_cells`, `partial_score`
-   (`1` on PASS; else `1 − failures/checks` only when both counts
-   were recorded). Schema:
+   `patches`. Optional hard/partial/cost extras (omit when unknown):
+   `oracle_passed`, `oracle_failure_count`, `oracle_check_count`,
+   `oracle_failures`, `afc_s_flags` / `afc_r_required`, `husk_cells` /
+   `scored_cells`, `partial_score` (`1` on PASS; else
+   `1 − failures/checks` when both counts were recorded),
+   `total_tokens` / `input_tokens` / `output_tokens`,
+   `total_cost_usd`, `wall_time_s`, `intelligence_per_dollar`
+   (`partial_score`² ÷ USD when HAPPY and both recorded). Schema:
    [`eval2_benchmark_results.schema.json`](eval2_benchmark_results.schema.json).
 3. `task_id` must match `scripts/eval_2_headed.py --task` (`afc`,
    `tenant-retention`, …). Slot 7 stays omitted.
@@ -167,10 +160,10 @@ were gpt-oss only.
 
 5. Paste the printed matrix into the snapshot table above if the
    cells changed. `--print-matrix` also prints the HAPPY cost table
-   and the HAPPY → partial → cost ranking (empty extras stay
-   em-dash). Update `updated` in the JSON.
-   Do **not** copy rows into the string-pack leaderboard. Do **not**
-   invent `total_cost_usd`, `oracle_check_count`, or `partial_score`.
+   and the hard → partial → cost ranking. Update `updated` in the
+   JSON. Do **not** copy rows into the string-pack leaderboard. Do
+   **not** invent `total_cost_usd`, `oracle_check_count`, or
+   `partial_score`.
 
 `--check` validates the JSON only. The plot script refuses
 `benchmark_results.json` so a wrong `--in` cannot overwrite Pareto

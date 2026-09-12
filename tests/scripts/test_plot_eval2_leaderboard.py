@@ -244,8 +244,9 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "eval2-cost.svg" in text
     assert "eval2-partial.svg" in text
     assert "HAPPY first" in text
-    assert "1 / total_cost_usd" in text
+    assert "partial_score`²" in text or "partial_score²" in text
     assert "1 − oracle_failure_count / oracle_check_count" in text
+    assert "headed sibling" in text.lower()
     assert "do **not** invent run costs" in text.lower()
     assert "Catalog-wide" in text or "catalog" in text.lower()
     assert "sweep has **not** happened" in text
@@ -282,7 +283,8 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "HAPPY" in heat
     assert "NOT_HAPPY" in heat
     assert "no data" in heat
-    assert "not string-harness hard_pass_rate" in heat
+    assert "sibling of the string pack" in heat
+    assert "hard_pass_rate" in heat
     assert "pareto-fronts" not in heat
     assert "google/gemini-3.8-flash" in heat
     assert "Tenant Retention" in heat
@@ -390,12 +392,14 @@ def test_plot_module_does_not_import_string_harness() -> None:
     assert "merge_benchmark_results" not in source
 
 
-def test_intelligence_per_dollar_only_when_happy_and_cost_positive() -> None:
-    assert pel.compute_intelligence_per_dollar("HAPPY", 0.25) == 4.0
-    assert pel.compute_intelligence_per_dollar("HAPPY", 0.0) is None
-    assert pel.compute_intelligence_per_dollar("HAPPY", None) is None
-    assert pel.compute_intelligence_per_dollar("NOT_HAPPY", 0.25) is None
-    assert pel.compute_intelligence_per_dollar(None, 0.25) is None
+def test_intelligence_per_dollar_is_partial_squared_over_cost() -> None:
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.25, 1.0) == 4.0
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.25, 0.5) == 1.0
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.25, None) is None
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.0, 1.0) is None
+    assert pel.compute_intelligence_per_dollar("HAPPY", None, 1.0) is None
+    assert pel.compute_intelligence_per_dollar("NOT_HAPPY", 0.25, 1.0) is None
+    assert pel.compute_intelligence_per_dollar(None, 0.25, 1.0) is None
 
 
 def test_loader_accepts_optional_cost_fields_and_computes_ipd(tmp_path: Path) -> None:

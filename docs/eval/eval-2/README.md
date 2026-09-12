@@ -2,11 +2,11 @@
 
 **Eval-2 is for debugging the harness.** Iterate here. Do **not** edit
 `docs/eval/gdpval/` gold trees except by **adding** a new untouched gold
-id. Headed **task × model** scoreboard (product bar + oracle, optional
-partial and cost among comparable cells; not the string-pack Pareto):
-[`benchmarks.md`](benchmarks.md). Catalog-wide numeric sweeps still
-wait — empty cells mean no in-repo headed stamp. Empty cost or
-partial stays empty — do not invent run costs or check counts.
+id. Headed sibling of the string-pack Pareto (same hard / partial /
+cost axes, harder tasks): [`benchmarks.md`](benchmarks.md). Stores stay
+separate — do not fold into `benchmark_results.json`. Catalog-wide
+sweeps still wait; empty cells mean no in-repo headed stamp. Empty
+cost or partial stays empty — do not invent run costs or check counts.
 
 `test_gold_prompt_is_byte_copy_of_hf_tree` compares `prompt.txt` and
 `prompt.gdpval.txt` as bytes to the HF `task.json` `prompt` (LF).

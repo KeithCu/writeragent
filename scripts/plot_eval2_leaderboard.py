@@ -5,13 +5,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Write eval-2 headed task×model SVGs from a results JSON.
 
-Separate from the 17-task string-harness Pareto (`plot_pareto.py` /
-``docs/eval/pareto-*.svg``). Reads only the eval-2 headed results file —
-no OpenRouter, no ``benchmark_results.json`` merge.
+Headed sibling of the 17-task string pack (hard / partial / cost).
+Reads only the eval-2 results file — no OpenRouter, no merge into
+``benchmark_results.json`` or ``docs/eval/pareto-*.svg``.
 
-Heatmap / coverage stay HAPPY / NOT_HAPPY. Optional per-result cost
-and oracle-partial fields rank comparable cells (HAPPY first, then
-higher partial, then lower cost). Missing cost or partial stays empty.
+Heatmap / coverage stay HAPPY / NOT_HAPPY. Rank hard (HAPPY) → oracle
+partial → C²/$ among successes. Missing cost or partial stays empty.
 """
 from __future__ import annotations
 
@@ -47,9 +46,8 @@ COST_NAME = "eval2-cost.svg"
 PARTIAL_NAME = "eval2-partial.svg"
 
 FOOTNOTE = (
-    "Source: headed eval-2 autopsy notes, not a catalog sweep. "
-    "Empty = no in-repo stamp. Metrics are product HAPPY / oracle PASS|FAIL "
-    "(not string-harness hard_pass_rate)."
+    "Headed sibling of the string pack (hard / partial / cost). "
+    "Empty = no in-repo stamp. Do not merge into hard_pass_rate JSON."
 )
 
 
@@ -221,16 +219,20 @@ def _optional_unit_interval(row: Mapping[str, Any], key: str) -> float | None:
 
 
 def compute_intelligence_per_dollar(
-    product_bar: str | None, total_cost_usd: float | None
+    product_bar: str | None,
+    total_cost_usd: float | None,
+    partial_score: float | None = None,
 ) -> float | None:
-    """HAPPY successes per USD. None when not HAPPY or cost is missing/zero.
+    """C²/$ among headed successes: partial² / USD.
 
-    Distinct from string-harness C²/$ (correctness² / avg $/task). Eval-2
-    product bar is binary, so this is ``1 / total_cost_usd``.
+    Same shape as the string-pack Value (metric² / avg $/task). Omit when
+    not HAPPY, cost is missing/zero, or partial is unknown.
     """
     if product_bar != "HAPPY" or total_cost_usd is None or total_cost_usd <= 0:
         return None
-    return 1.0 / total_cost_usd
+    if partial_score is None:
+        return None
+    return (partial_score**2) / total_cost_usd
 
 
 def compute_partial_score(
@@ -355,6 +357,11 @@ def _parse_result(
     oracle_check_count = _optional_positive_int(raw, "oracle_check_count")
     oracle_passed = resolve_oracle_passed(oracle, _optional_bool(raw, "oracle_passed"))
     stored_partial = _optional_unit_interval(raw, "partial_score")
+    partial_score = (
+        stored_partial
+        if stored_partial is not None
+        else compute_partial_score(oracle_passed, oracle_failure_count, oracle_check_count)
+    )
     return Eval2Result(
         task_id=task_id,
         model=model,
@@ -372,7 +379,7 @@ def _parse_result(
         wall_time_s=_optional_nonneg_float(raw, "wall_time_s"),
         intelligence_per_dollar=stored_ipd
         if stored_ipd is not None
-        else compute_intelligence_per_dollar(product_bar, total_cost_usd),
+        else compute_intelligence_per_dollar(product_bar, total_cost_usd, partial_score),
         oracle_passed=oracle_passed,
         oracle_failure_count=oracle_failure_count,
         oracle_check_count=oracle_check_count,
@@ -381,9 +388,7 @@ def _parse_result(
         afc_r_required=_optional_nonneg_int(raw, "afc_r_required"),
         husk_cells=_optional_nonneg_int(raw, "husk_cells"),
         scored_cells=_optional_nonneg_int(raw, "scored_cells"),
-        partial_score=stored_partial
-        if stored_partial is not None
-        else compute_partial_score(oracle_passed, oracle_failure_count, oracle_check_count),
+        partial_score=partial_score,
     )
 
 
@@ -470,7 +475,9 @@ def happy_cost_rows(board: Eval2Board) -> tuple[HappyCostRow, ...]:
             continue
         ipd = result.intelligence_per_dollar
         if ipd is None:
-            ipd = compute_intelligence_per_dollar(result.product_bar, cost)
+            ipd = compute_intelligence_per_dollar(
+                result.product_bar, cost, result.partial_score
+            )
         if ipd is None:
             continue
         rows.append(
@@ -500,7 +507,7 @@ def render_cost_markdown(board: Eval2Board) -> str:
     if not rows:
         return "No HAPPY cell has recorded `total_cost_usd` — cost chart stays empty.\n"
     lines = [
-        "| # | Task | Model | Cost (USD) | Tokens | Wall (s) | Successes/$ |",
+        "| # | Task | Model | Cost (USD) | Tokens | Wall (s) | C²/$ |",
         "| --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
@@ -833,8 +840,8 @@ def write_cost_svg(board: Eval2Board, out_path: Path) -> Path:
             f"Eval-2 headed cost for results (HAPPY cells)</text>\n",
             f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
             f'font-size="11" fill="{COLOR_MUTED}">'
-            f"HAPPY first; among HAPPY, lower recorded USD ranks higher. "
-            f"Successes/$ = 1 / total_cost_usd (not string-harness C²/$).</text>\n",
+            f"Hard (HAPPY) first. C²/$ = partial² / USD among successes "
+            f"(same shape as the string pack).</text>\n",
             f'  <rect x="{left}" y="64" width="{width - 48}" height="40" rx="6" '
             f'fill="{COLOR_EMPTY}" stroke="{COLOR_LINE}"/>\n',
             f'  <text x="{width / 2:.1f}" y="89" text-anchor="middle" '
@@ -873,8 +880,8 @@ def write_cost_svg(board: Eval2Board, out_path: Path) -> Path:
         f"Eval-2 headed cost for results (HAPPY cells)</text>\n",
         f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
         f'font-size="11" fill="{COLOR_MUTED}">'
-        f"HAPPY first; among HAPPY, lower recorded USD ranks higher. "
-        f"Successes/$ = 1 / total_cost_usd. NOT_HAPPY and missing cost omitted.</text>\n",
+        f"Hard (HAPPY) first; among HAPPY, higher partial then lower USD. "
+        f"C²/$ = partial² / USD. NOT_HAPPY and missing cost omitted.</text>\n",
     ]
     y = top
     for task, group in groups:
@@ -901,7 +908,7 @@ def write_cost_svg(board: Eval2Board, out_path: Path) -> Path:
             parts.append(
                 f'  <text x="{x + bar_w + 8:.1f}" y="{y - 6:.1f}" '
                 f'font-family="DejaVu Sans, sans-serif" font-size="10" fill="{COLOR_MUTED}">'
-                f"${row.cost_usd:.4f} · {row.intelligence_per_dollar:.2f} succ/$</text>\n"
+                f"${row.cost_usd:.4f} · {row.intelligence_per_dollar:.2f} C²/$</text>\n"
             )
         y += group_gap
     parts.append(
@@ -935,8 +942,7 @@ def write_partial_svg(board: Eval2Board, out_path: Path) -> Path:
             f"Eval-2 headed partial / cost (recorded oracle quality)</text>\n",
             f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
             f'font-size="11" fill="{COLOR_MUTED}">'
-            f"HAPPY first, then higher 1 − fails/checks, then lower USD. "
-            f"No invented denominators.</text>\n",
+            f"Hard (HAPPY) → partial → C²/$. No invented denominators.</text>\n",
             f'  <rect x="{left}" y="64" width="{width - 48}" height="40" rx="6" '
             f'fill="{COLOR_EMPTY}" stroke="{COLOR_LINE}"/>\n',
             f'  <text x="{width / 2:.1f}" y="89" text-anchor="middle" '
@@ -973,8 +979,8 @@ def write_partial_svg(board: Eval2Board, out_path: Path) -> Path:
         f"Eval-2 headed partial / cost (recorded oracle quality)</text>\n",
         f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
         f'font-size="11" fill="{COLOR_MUTED}">'
-        f"HAPPY first; among comparable, higher partial then lower USD. "
-        f"Bars only when PASS or fails/checks recorded. Coarse — not C²/$.</text>\n",
+        f"Hard (HAPPY) first; among comparable, higher partial then lower USD. "
+        f"Bars only when PASS or fails/checks recorded. Coarse C²/$ sibling.</text>\n",
     ]
     y = top
     for task, group in groups:

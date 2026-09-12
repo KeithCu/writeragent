@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/KeithCu/writeragent/docs/eval/eval-2/eval2_benchmark_results.schema.json",
   "title": "Eval-2 headed multi-model results",
-  "description": "Task × model cells for headed eval-2 experiments. Metrics are product_bar (HAPPY / NOT_HAPPY) and oracle (PASS / FAIL). Optional per-result oracle partial (failures/checks, AFC S/R, husks) and cost/token/wall fields rank comparable cells: HAPPY first, then higher partial, then lower cost. Omit optional fields when unknown; never invent scores, check counts, or run costs. This is not the 17-task string-harness hard_pass_rate / C²/$ schema.",
+  "description": "Headed sibling of the 17-task string pack (hard / partial / cost). Hard is product_bar HAPPY (oracle PASS when that is the hard gate). Partial is oracle quality (failures/checks, AFC S/R, husks). C²/$ is partial_score² / total_cost_usd among HAPPY. Store separately from benchmark_results.json — never invent scores, check counts, or run costs.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -171,7 +171,7 @@
         "intelligence_per_dollar": {
           "type": ["number", "null"],
           "minimum": 0,
-          "description": "HAPPY successes per USD: 1 / total_cost_usd when product_bar is HAPPY and total_cost_usd > 0. Omit otherwise. Distinct from string-harness C²/$ (correctness² / avg $/task)."
+          "description": "Value (C²/$) among headed successes: partial_score² / total_cost_usd when product_bar is HAPPY and both values were recorded. Same shape as the string-pack metric² / avg $/task. Omit when unknown."
         },
         "oracle_passed": {
           "type": ["boolean", "null"],

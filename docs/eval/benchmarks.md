@@ -2,6 +2,8 @@
 
 WriterAgent includes an in-LibreOffice **LLM Evaluation Suite** for real-world tasks in Writer, Calc, and Draw. Runs track accuracy and **Intelligence-per-Dollar**: **Value (C²/$)** = average metric score squared ÷ average dollars per task (higher is better), using live OpenRouter pricing where available.
 
+Headed sibling (same hard / partial / cost axes, much harder tasks): [`eval-2/benchmarks.md`](eval-2/benchmarks.md). Do **not** merge those tables into this pack.
+
 How to run evals from the repo: [scripts/prompt_optimization/README.md](../../scripts/prompt_optimization/README.md). Broader plan notes: [eval-dev-plan.md](eval-dev-plan.md). String harness (no LO ranking): [string-harness-upgrade.md](string-harness-upgrade.md).
 
 ## Snapshot ranking (2026-09-11)
