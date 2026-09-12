@@ -19,6 +19,9 @@ from plugin.framework.prompts import (
     get_core_directives,
     get_greeting_for_document,
     get_specialized_delegation_for_model,
+    DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
+    SPECIALIZED_TASK_RULES,
+    WRITER_IMAGES_RULES,
     images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
 )
@@ -293,6 +296,7 @@ def test_specialized_delegation_block_is_single_line():
     block = get_specialized_delegation_for_model(model)
     assert "SPECIALIZED WRITER" in block
     assert SPECIALIZED_TASK_RULES in block
+    assert "source_image='selection'" in block
     assert "Enumerate what must be true" not in block
     assert "\n" not in block
     assert get_specialized_delegation_tool_hint(ToolWriterSpecialBase, "Writer") == block
@@ -464,6 +468,16 @@ def test_core_directives_prohibit_asking_user_to_paste():
     assert "MUST NOT ask the user where the file is stored" in DRAW_CORE_DIRECTIVES
     assert 'delegate_to_specialized_draw_toolset(domain="document_research") once' in DRAW_CORE_DIRECTIVES
     assert "described file(s)" in DRAW_CORE_DIRECTIVES
+
+
+def test_parent_images_edit_task_steers_source_image():
+    """Parent must pass an edit task, not a generate-new paraphrase."""
+    for text in (SPECIALIZED_TASK_RULES, DELEGATE_SPECIALIZED_TASK_PARAM_HINT, WRITER_IMAGES_RULES):
+        assert "source_image" in text
+        assert "selection" in text
+        assert "image_generate" in text
+    assert "make it look like a wizard" in SPECIALIZED_TASK_RULES
+    assert "\n" not in SPECIALIZED_TASK_RULES
 
 
 def test_images_specialized_sub_agent_hint_steers_source_image():
