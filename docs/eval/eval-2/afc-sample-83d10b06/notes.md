@@ -167,3 +167,15 @@ tip_at_run `6c6017b7`. OpenRouter usage sum ~$1.42823 stored;
 model_configs estimate ~$1.31711 is an alternate only. Run dir is
 box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0443-qwen3.8-27b/`.
+
+Fifteenth catalog cell: `qwen/qwen3.8-flash`, stamp
+`20260912-0502-qwen3.8-flash`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=1`: R from Sample Size Calculation is
+missing or < 1). Sample+SSC present (`sample_data_rows=68`); S=68;
+R=None; husks 0/680. Same R hole as Luna; slightly smaller Sample.
+SSC Err:508/509/#VALUE!; Scratch Err:513. Tokens are n=51
+OpenRouter generations. UNO/assert/PreContract=0. Recorded wall
+~540s (9 min LLM; observer ~12 min). tip_at_run `6c6017b7`.
+OpenRouter usage sum ~$0.11382 stored; model_configs estimate
+~$0.35238 is an alternate only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0502-qwen3.8-flash/`.

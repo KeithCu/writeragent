@@ -37,7 +37,7 @@ partial and USD.
 cite). **NOT_HAPPY** + oracle FAIL is usually an empty or wrong-facts
 deliverable. **—** means no in-repo headed stamp; do not invent a
 score. Every catalog column now has an AFC stamp only (including Muse
-Glimmer 30B, Muse Spark 1.3, both Lagunas, and Qwen3.8 27B). The catalog-wide headed
+Glimmer 30B, Muse Spark 1.3, both Lagunas, and both Qwen3.8s). The catalog-wide headed
 sweep has **not** happened.
 
 ## Snapshot ranking (2026-09-12)
@@ -53,7 +53,8 @@ stamps (`20260912-0142-gpt-oss-120b`, `20260912-0150-gpt-5.6-luna`,
 `20260912-0409-muse-spark-1.3-contributor`,
 `20260912-0419-laguna-s-2.1`,
 `20260912-0429-laguna-xs-2.1`,
-`20260912-0443-qwen3.8-27b`, box-local). Run dirs are typically
+`20260912-0443-qwen3.8-27b`,
+`20260912-0502-qwen3.8-flash`, box-local). Run dirs are typically
 untracked —
 `run_artifacts_committed` is false for every cell. No OpenRouter
 eval-2 CI job. Mercury 2.5 Preview is the first HAPPY cell with
@@ -62,17 +63,17 @@ recorded USD.
 Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 (+ [schema](eval2_benchmark_results.schema.json)).
 
-| # | Task | Gemini 3.8 Flash | GPT-OSS 120B | GPT-5.6 Luna | GPT-OSS 20B | Gemini 3.5 Flash Lite | Gemma 4 31B | Gemma 4 26B A4B | Nemotron 3.5 Lightning | Mercury 2.5 Preview | Grok 4.6 | Muse Glimmer 30B | Muse Spark 1.3 | Laguna S 2.1 | Laguna XS 2.1 | Qwen3.8 27B |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Tenant Retention | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| 2 | Cadaver Proposal | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL |
-| 4 | GMP Change Control | — | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| 5 | Floorstand Writer→Calc | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| 6 | Calc-primary model | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| 8 | Draw-primary | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| 9 | Reverse Tenant | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| 10 | Long Writer pack | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| # | Task | Gemini 3.8 Flash | GPT-OSS 120B | GPT-5.6 Luna | GPT-OSS 20B | Gemini 3.5 Flash Lite | Gemma 4 31B | Gemma 4 26B A4B | Nemotron 3.5 Lightning | Mercury 2.5 Preview | Grok 4.6 | Muse Glimmer 30B | Muse Spark 1.3 | Laguna S 2.1 | Laguna XS 2.1 | Qwen3.8 27B | Qwen3.8 Flash |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Tenant Retention | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 2 | Cadaver Proposal | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL |
+| 4 | GMP Change Control | — | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 5 | Floorstand Writer→Calc | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 6 | Calc-primary model | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 8 | Draw-primary | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 9 | Reverse Tenant | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
+| 10 | Long Writer pack | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 
 <img src="eval2-heatmap.svg" alt="Eval-2 headed task by model heatmap. Green HAPPY, orange NOT_HAPPY, gray no data." />
 
@@ -93,14 +94,16 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
    (`20260912-0330`) is the first non-gate catalog **HAPPY / oracle
    PASS** (S=494 ≥ R=68 on a 1518-row near-full Sample). Earlier
    catalog AFC cells (`20260912-0142` 120b through `20260912-0342`
-   Grok, plus Glimmer, Spark, both Lagunas, and Qwen3.8 27B) are NOT HAPPY except Mercury. Most
+   Grok, plus Glimmer, Spark, both Lagunas, and both Qwen3.8s) are NOT HAPPY except Mercury. Most
    miss R. Gemma 4 26B A4B produced R=65 then failed S=0 < R. Laguna S
    produced parseable R=66 but the Sample sheet is missing
    (`failure_count=1`; truncated mid tool loop). Laguna XS is
    `failure_count=2` (SSC tab named `Sample_Size_Calculation`; Sample
    empty). Nemotron and Qwen3.8 27B are
-   `failure_count=2` (missing Sample+SSC). Qwen stayed on Population
-   with `=PY` (~50 tool rounds; PreContract 63). Grok and Spark are also
+   `failure_count=2` (missing Sample+SSC). Qwen3.8 27B stayed on Population
+   with `=PY` (~50 tool rounds; PreContract 63). Qwen3.8 Flash is a
+   Luna-like incomplete Sample (68 rows, S=68) with SSC
+   Err:508/509/#VALUE! and Scratch Err:513. Grok and Spark are also
    `failure_count=2` (SSC present, Sample empty, R missing). Glimmer
    is the same R hole as Luna/20b on an 81-row Sample with S=0; SSC
    B9 looked like 65 but oracle R=None. Luna’s Sample is a better
@@ -143,6 +146,7 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 | AFC Population | Laguna S 2.1 | `20260912-0419-laguna-s-2.1` | Twelfth catalog cell. SSC present with parseable R=66; Sample sheet missing (`failure_count=1`); S=0 R=66; husks 0/0. `finish_reason=length` — truncated mid tool loop. tip `6c6017b7`. UNO/assert/PreContract 0. OpenRouter usage ~$0.01480 (model_configs alt ~$0.02142 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0419-laguna-s-2.1/`. |
 | AFC Population | Laguna XS 2.1 | `20260912-0429-laguna-xs-2.1` | Thirteenth catalog cell. SSC tab named `Sample_Size_Calculation` (oracle missing SSC); Sample empty (`failure_count=2`); S=0 R=None; husks 0/0. Raw `tool_call` text in the reply. Recorded wall ~85s (observer ~3m12s). tip `6c6017b7`. UNO/assert/PreContract 0. OpenRouter usage ~$0.04341 (model_configs alt ~$0.07804 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0429-laguna-xs-2.1/`. |
 | AFC Population | Qwen3.8 27B | `20260912-0443-qwen3.8-27b` | Fourteenth catalog cell. Population only; missing Sample+SSC (`failure_count=2`); S=0 R=None; husks 0/0. Stayed on Population with `=PY`; ~50 tool rounds all `finish_reason=tool_calls`. Tokens n=51. PreContract 63; UNO/assert 0. Recorded wall ~720s (12 min LLM). tip `6c6017b7`. OpenRouter usage ~$1.42823 (model_configs alt ~$1.31711 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0443-qwen3.8-27b/`. |
+| AFC Population | Qwen3.8 Flash | `20260912-0502-qwen3.8-flash` | Fifteenth catalog cell. Sample+SSC present (68 rows; S=68; husks 0/680); same R hole as Luna. SSC Err:508/509/#VALUE!; Scratch Err:513. Tokens n=51. tip `6c6017b7`. UNO/assert/PreContract 0. Recorded wall ~540s (9 min LLM; observer ~12 min). OpenRouter usage ~$0.11382 (model_configs alt ~$0.35238 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0502-qwen3.8-flash/`. |
 | Floorstand | Gemini 3.8 Flash | `20260909-1748-gemini-3.8-flash-private-patch` | Polarity HIT; still empty + stall. Private patches, not PR’d. |
 | GMP Change Control | GPT-OSS 120B | `20260909-0225-gpt-oss-120b` | Cite-only oracle fail. Prior `0103` was NOT HAPPY (dump polarity). |
 | Floorstand | GPT-OSS 120B | `20260909-0323-gpt-oss-120b` | Extract/JSON polarity MISS; empty + LO crash. Private `1733` still MISS. |
@@ -196,12 +200,14 @@ recorded them. The 2026-09-12 seed still has derived PASS →
 `20260912-0409-muse-spark-1.3-contributor`,
 `20260912-0419-laguna-s-2.1`,
 `20260912-0429-laguna-xs-2.1`,
-`20260912-0443-qwen3.8-27b`) recorded tokens, wall,
+`20260912-0443-qwen3.8-27b`,
+`20260912-0502-qwen3.8-flash`) recorded tokens, wall,
 USD, and S/husks. FAIL cells have `failure_count` 1 (or 2 on
 Nemotron/Grok/Spark/Laguna XS/Qwen3.8 27B) and no `oracle_check_count` / `partial_score`.
 Laguna S stored parseable R=66 with a missing Sample sheet. Laguna XS
 renamed the SSC tab so R is missing. Qwen3.8 27B matches Nemotron’s
-missing Sample+SSC shape at far higher USD.
+missing Sample+SSC shape at far higher USD. Qwen3.8 Flash is the
+Luna-like S=68 R-missing Sample on 68 rows.
 Mercury is PASS (`failure_count=0`) so `partial_score` = 1 and C²/$
 is derived from the recorded USD.
 
