@@ -12,9 +12,17 @@ from plugin.testing_runner import native_test
 @native_test
 def test_slash_popup_listbox_filter_and_keys(ctx):
     """Drive SlashPopupController on a live toolkit listbox created on first ``/``."""
+    import sys
+
     from plugin.chatbot import slash_popup
     from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN
     from plugin.chatbot.slash_popup import SlashPopupController, uses_toolkit_overlay
+    from plugin.tests.testing_utils import skip_windows_awt_top_dialog
+
+    # GHA 34671277292: after calc UNO, dlg.setVisible(True) hung 30s
+    # (office alive). Overlay createWindow TOP is the same map.
+    # leftover_open was not required. Linux still runs this path.
+    skip_windows_awt_top_dialog("slash_popup createPeer/setVisible")
 
     slash_popup.ENABLE_SLASH = True
 
@@ -37,8 +45,12 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     dlg = smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", ctx)
     dlg.setModel(dlg_model)
     toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    # Breadcrumbs: isolate createPeer vs setVisible if this hangs again.
+    print("slash_popup_uno: createPeer start", file=sys.stderr, flush=True)
     dlg.createPeer(toolkit, None)
+    print("slash_popup_uno: createPeer done setVisible start", file=sys.stderr, flush=True)
     dlg.setVisible(True)
+    print("slash_popup_uno: setVisible done", file=sys.stderr, flush=True)
     popup = None
     try:
         query = dlg.getControl("query")

@@ -811,6 +811,26 @@ def test_skip_windows_leftover_hidden_load_noop_without_leftovers(monkeypatch):
         tu._set_windows_leftover_open(saved)
 
 
+def test_skip_windows_awt_top_dialog_raises_on_win32(monkeypatch):
+    """GHA 34671277292: leftover_open=0 slash setVisible hung 30s after calc."""
+    import unittest
+
+    import plugin.tests.testing_utils as tu
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    assert tu.windows_awt_top_dialog_unsafe() is True
+    try:
+        tu.skip_windows_awt_top_dialog("slash_popup createPeer/setVisible")
+    except unittest.SkipTest as exc:
+        assert "slash_popup" in str(exc)
+        assert "AWT TOP dialog" in str(exc)
+    else:
+        raise AssertionError("expected SkipTest")
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    assert tu.windows_awt_top_dialog_unsafe() is False
+    tu.skip_windows_awt_top_dialog("slash_popup createPeer/setVisible")
+
+
 def test_create_native_doc_windows_skips_hidden_blank_after_bitmap(monkeypatch):
     """GHA 34670295632: after Budget_read bitmap, Hidden _blank hung 30s.
 
