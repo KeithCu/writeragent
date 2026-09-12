@@ -960,11 +960,13 @@ def test_write_formula_range_values_teaches_fill_down_not_json_pin():
     assert "pins every row to the first ref" in values
     assert "one formula string over the whole column" in values
     # Colocated AFC-catalog teaching: criteria → one OR formula + fill-down;
-    # computed answers get an adjacent plain label naming the quantity
-    # (`Sample size` / `R`), not a burying string.
+    # computed answers get an adjacent plain label in the user's words
+    # (e.g. Sample size), not a burying string / bare R tip.
     assert "=IF(OR(<criterion>" in values
     assert "named flag column" in values
     assert "plain label naming the quantity" in values
+    assert "user's words" in values
+    assert "Sample size or R" not in values
     assert "short plain label (no qualifiers)" not in values
     # Fixture names stay out of tool text (eval tax/sort sheets).
     assert "Banana" not in values

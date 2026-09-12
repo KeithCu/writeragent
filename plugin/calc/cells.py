@@ -427,8 +427,9 @@ class WriteCellRange(ToolBase):
                     "named flag column and fill-down; do not hand-pick rows or "
                     "park the mark in another column. Put a computed result in "
                     "its own cell with a plain label naming the quantity in the "
-                    "adjacent cell (e.g. Sample size or R — no \"rounded up\"/"
-                    "\"minimum\"); do not bury the number in a label string."
+                    "user's words in the adjacent cell (e.g. Sample size — no "
+                    "\"rounded up\"/\"minimum\"); do not bury the number in a "
+                    "label string."
                 ),
             },
             "source": {

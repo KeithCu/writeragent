@@ -259,7 +259,7 @@ L2/L4/L5/L12/L13 are single-line sharpenings — land them alongside because the
 | Lever | Landed where |
 |---|---|
 | L9 | `CALC_WORKFLOW` step 2 `SELECT:` line + colocated `WriteCellRange.parameters.values` sentence: one `=IF(OR(<criterion>; …);1;0)` in the named flag column + fill-down, then `COUNTIF` (in a scratch cell). Also writes literal `1`s, so it covers the teaching half of L4. |
-| L11 | `CALC_WORKFLOW` step 2 `ANSWER:` line + the same `values` sentence: computed result in its own cell with a plain label **naming the quantity** in the adjacent cell (`Sample size` or `R`; no "rounded up"/"minimum"); ordinary formula/value, not `=PY`. |
+| L11 | `CALC_WORKFLOW` step 2 `ANSWER:` line + the same `values` sentence: computed result in its own cell with a plain label **naming the quantity in the user's words** (e.g. `Sample size` — no "rounded up"/"minimum"); ordinary formula/value, not `=PY`. Bare `R` stays in this doc / oracle notes only. |
 | L10 | `CALC_WORKFLOW` step 3: `get_sheet_summary` each named deliverable sheet before finishing. Uses the **core** summary tool, not `list_sheets` (that is `sheets`-domain specialized). |
 | L13 | The step-2 copy line now says the copy must cover every column the user named (flags/variance). |
 | L12 | `CreateSheet.parameters.sheet` now carries the exact-title contract: preserve spaces, no snake_case / invented aliases. |

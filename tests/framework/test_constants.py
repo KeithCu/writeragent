@@ -446,10 +446,12 @@ def test_calc_workflow_teaches_selection_answer_and_deliverable_verify():
     assert "fill-down" in CALC_WORKFLOW
     assert "COUNTIF" in CALC_WORKFLOW
     # L11 — computed answer in its own cell with an adjacent plain label
-    # naming the quantity (`Sample size` / `R`; no "rounded up" / "minimum"
-    # qualifiers — and no truncation to a bare "Sample"), not =PY.
+    # naming the quantity in the user's words (e.g. Sample size; no
+    # "rounded up" / "minimum"). Bare R stays out of the product tip.
     assert "ANSWER:" in CALC_WORKFLOW
-    assert "plain label naming the quantity (Sample size or R" in CALC_WORKFLOW
+    assert "naming the quantity in the user's words" in CALC_WORKFLOW
+    assert 'e.g. Sample size' in CALC_WORKFLOW
+    assert "Sample size or R" not in CALC_WORKFLOW
     assert "short plain label (no qualifiers)" not in CALC_WORKFLOW
     # L10 — verify named deliverables (core get_sheet_summary, not list_sheets).
     assert "get_sheet_summary each deliverable sheet" in CALC_WORKFLOW
