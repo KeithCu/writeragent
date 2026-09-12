@@ -1330,6 +1330,12 @@ def skip_windows_hidden_open_after_bitmap(reason: str) -> None:
     Hidden ``Budget_read.ods`` bitmap-failed; the next
     ``open_document_for_read`` hung 30s. Attempt the first Hidden-open
     (34652644656 was 3/3). After bitmap, skip — do not hang.
+
+    GHA 34670295632 (PR #742): #734 skipped later document_research
+    Hidden siblings. Next suite ``text_helpers`` leftover writer reuse
+    then Hidden ``_blank`` (leftover_open=0) hung 30s. ``create_native_doc``
+    also skips Hidden ``_blank`` after bitmap. Named leftover factories
+    still load.
     """
     if not _windows_hidden_open_bitmap():
         return
@@ -2150,6 +2156,16 @@ class TestingFactory:
             # when leftover Writer count is high — leftover swriter at
             # leftover_open=15 returned.
             skip_windows_cross_app_factory(factory_url, leftover_open)
+            # GHA 34670295632 (PR #742): #734 skipped later
+            # document_research Hidden siblings after Budget_read
+            # bitmap. Next suite text_helpers leftover writer reuse
+            # then Hidden _blank (leftover_open=0) hung 30s. After
+            # bitmap, Hidden _blank is unsafe. Named leftover
+            # factories still load.
+            if target == "_blank":
+                skip_windows_hidden_open_after_bitmap(
+                    "create_native_doc Hidden _blank"
+                )
 
         # Distinguish "bridge already dead" (previous test) from "died during load".
         pre_open = probe_uno_bridge(ctx)
