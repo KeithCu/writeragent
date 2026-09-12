@@ -26,8 +26,10 @@ from plugin.framework.prompts import (
     WRITER_SIDEBAR_ONLY_DOMAINS,
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
     attach_sheets_create_completion_instruction,
+    DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
+    images_specialized_sub_agent_hint,
+    python_specialized_sub_agent_hint,
 )
-from plugin.framework.prompts import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, python_specialized_sub_agent_hint
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import build_toolcalling_agent, SmolAgentExecutor, SmolToolAdapter
 from plugin.chatbot.smol_examples import get_examples_block
@@ -311,11 +313,7 @@ class DelegateToSpecializedBase(ToolBase):
                 except Exception as e:
                     log.warning("Failed to get open documents for sub-agent: %s", e)
 
-            images_hint = (
-                " Discover local image files with image_list_nearby_files before image_insert when the user refers to a photo in the folder."
-                if domain == "images"
-                else ""
-            )
+            images_hint = images_specialized_sub_agent_hint() if domain == "images" else ""
             python_hint = python_specialized_sub_agent_hint(self._agent_label) if domain == "python" else ""
             instructions = (
                 f"You are a specialized {self._agent_label} task executor focused on the '{domain}' domain. "
