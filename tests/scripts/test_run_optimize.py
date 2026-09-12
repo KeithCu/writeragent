@@ -25,6 +25,17 @@ def test_parse_args_defaults_to_live_student_and_calc_core() -> None:
     assert args.slice == "calc_core"
     assert args.auto == "light"
     assert args.backend == "string"
+    assert args.tools == "full"
+    assert args.schema_density == "full"
+
+
+def test_parse_args_tools_and_schema_density() -> None:
+    args = run_optimize.parse_args(
+        ["--tools", "calc_minimal", "--schema-density", "skinny", "--slice", "calc_core"]
+    )
+    assert args.tools == "calc_minimal"
+    assert args.schema_density == "skinny"
+    assert args.slice == "calc_core"
 
 
 def test_parse_args_accepts_apply_html_writer_smoke() -> None:

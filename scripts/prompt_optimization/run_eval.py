@@ -34,6 +34,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from dataset import ALL_EXAMPLES, to_eval_examples
+from eval_catalog import add_eval_tool_sweep_arguments
 from eval_core import example_passed, run_eval_on_examples_llm, summarize_results
 from model_configs import DEFAULT_EVAL_STUDENT_MODEL
 import tools_lo
@@ -52,7 +53,7 @@ def _load_prompt_from_json(path: Path) -> str:
         raise ValueError(f"Could not find react.react.signature.instructions in {path}")
 
 
-def main():
+def parse_args(argv: list[str] | None = None):
     p = argparse.ArgumentParser(description="Eval Writer assistant on dataset (no MIPROv2).")
     p.add_argument("--model", "-m", default=os.environ.get("OPENAI_MODEL", DEFAULT_MODEL))
     p.add_argument("--api-base", default=os.environ.get("OPENAI_API_BASE", DEFAULT_API_BASE))
@@ -83,7 +84,12 @@ def main():
         action="store_true",
         help="Skip LLM judge; use expected_contains/reject_contains only.",
     )
-    args = p.parse_args()
+    add_eval_tool_sweep_arguments(p)
+    return p.parse_args(argv)
+
+
+def main(argv: list[str] | None = None):
+    args = parse_args(argv)
 
     api_key = args.api_key
     api_base = args.api_base
@@ -156,6 +162,8 @@ def main():
                 bust_cache=not args.no_bust_cache,
                 student=args.student,
                 no_judge=args.no_judge or args.student == "scripted",
+                tools_spec=args.tools,
+                schema_density=args.schema_density,
             )
             summary_a = summarize_results(results_a)
 
@@ -174,6 +182,8 @@ def main():
                 bust_cache=not args.no_bust_cache,
                 student=args.student,
                 no_judge=args.no_judge or args.student == "scripted",
+                tools_spec=args.tools,
+                schema_density=args.schema_density,
             )
             summary_b = summarize_results(results_b)
 
@@ -208,6 +218,8 @@ def main():
             bust_cache=not args.no_bust_cache,
             student=args.student,
             no_judge=args.no_judge or args.student == "scripted",
+            tools_spec=args.tools,
+            schema_density=args.schema_density,
         )
         summary = summarize_results(results)
         if results:

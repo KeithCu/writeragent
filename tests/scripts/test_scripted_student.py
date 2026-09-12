@@ -126,3 +126,53 @@ def test_scripted_flowchart_inner_loop_nests_shapes() -> None:
     assert any(item["name"] == "shape_connect" for item in nested)
     assert any(item["name"] == "specialized_workflow_finished" for item in nested)
     assert all(item.get("domain") == "shapes" for item in nested)
+
+
+def test_calc_minimal_preset_still_runs_specialized_sort() -> None:
+    """Outer allowlist must not strip ranges-domain schemas (don't break specialize)."""
+    from dataset import ALL_EXAMPLES
+    from llm_chat_eval import run_llm_chat_eval
+
+    ex = next(row for row in ALL_EXAMPLES if row["task_id"] == "data_sorting")
+    _doc, _usage, err, trace = run_llm_chat_eval(
+        system_prompt="eval",
+        document_content=ex["document_content"],
+        user_question=ex["user_question"],
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="",
+        model="scripted",
+        backend="string",
+        student="scripted",
+        task_id="data_sorting",
+        tools_spec="calc_minimal",
+        schema_density="skinny",
+        verbose=False,
+    )
+    assert err is None
+    names = [item["name"] for item in trace]
+    assert "delegate_to_specialized_calc_toolset" in names
+    nested = [item for item in trace if item.get("nested")]
+    assert any(item["name"] == "sort_range" for item in nested)
+    assert any(item["name"] == "specialized_workflow_finished" for item in nested)
+
+
+def test_writer_minimal_scripted_apply_task() -> None:
+    from dataset import ALL_EXAMPLES
+    from llm_chat_eval import run_llm_chat_eval
+
+    ex = next(row for row in ALL_EXAMPLES if row["task_id"] == "table_from_mess")
+    _doc, _usage, err, trace = run_llm_chat_eval(
+        system_prompt="eval",
+        document_content=ex["document_content"],
+        user_question=ex["user_question"],
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="",
+        model="scripted",
+        backend="string",
+        student="scripted",
+        task_id="table_from_mess",
+        tools_spec="writer_minimal",
+        verbose=False,
+    )
+    assert err is None
+    assert any(item["name"] == "apply_document_content" for item in trace)

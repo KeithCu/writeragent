@@ -130,7 +130,47 @@ Hard pass is the **exported final document** plus process oracles (`oracles.py` 
 
 `-j N` in `run_eval_multi.py` is **ThreadPoolExecutor** over **models** (default **20**; each model still runs its 17 tasks serially). UNO is already serialized on `_lo_thread`. Do **not** `ProcessPoolExecutor` against one soffice. Scripted green runs use `-j 1`. Per-task banners include `model=` so interleaved workers are readable.
 
-DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to restrict which tools the ReAct mock sees (for “how many tools is too many” sweeps). Live `--student llm` uses `eval_catalog.build_eval_tool_schemas` (same as `run_eval_multi`).
+DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to restrict which tools the ReAct mock sees. Live `--student llm` uses `eval_catalog.build_eval_tool_schemas` (same as `run_eval_multi`) and now accepts the same **tool-count** / **schema-density** knobs as `run_eval.py` (see below). MIPROv2 still cannot search those structural knobs — run a dropper sweep on the live harness instead.
+
+## Tool-count and schema-density sweeps (live `--student llm`)
+
+Production sidebar registration is unchanged. These flags only reshape the **advertised** eval catalog.
+
+**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed 17-task run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `sort_range` / ranges-domain schemas.
+
+| Preset | Kind | Outer tools (production names) |
+|--------|------|--------------------------------|
+| `full` | any | Today's unfiltered `get_schemas` catalog (Writer 14 / Calc 14 / Draw 19). |
+| `calc_minimal` | calc | `write_formula_range`, `get_sheet_summary`, `delegate_to_specialized_calc_toolset` — smallest set that can still pass `data_sorting` + `tax_column`. |
+| `calc_core` | calc | The 9 Calc-specific outer tools (drops shared chatbot extras: `web_research`, `upsert_memory`, `get_guidance`, `redo`, `undo`). Not the MIPRO `--slice calc_core` prompt fragment. |
+| `writer_minimal` | writer | `apply_document_content`, `get_document_content` — smallest set for apply-HTML Writer tasks (`table_from_mess`, `bulk_cleanup`, …). |
+
+**`--schema-density full|skinny`** (default `full`): `skinny` is a pure transform (after the name filter, before MIPRO `apply_schema_patches`). Tool names and param names/types stay; tool and param **descriptions** are blanked so you can measure whether fat prose confuses small models without removing tools.
+
+Do **not** burn OpenRouter in CI. Scripted smokes (no key) prove plumbing; live droppers are manual.
+
+```bash
+# Plumbing smoke (no API key)
+python run_eval.py --student scripted --no-judge -e data_sorting \
+  --tools calc_minimal --schema-density skinny -v
+python run_eval.py --student scripted --no-judge -e tax_column --tools calc_minimal
+python run_eval.py --student scripted --no-judge -e table_from_mess --tools writer_minimal
+
+# Cheap live dropper (one small model, two Calc tasks). Compare full vs minimal vs skinny.
+# Requires OPENROUTER_API_KEY; do not put this in CI.
+python run_eval_multi.py --models openai/gpt-oss-20b -e data_sorting -j 1 --no-judge \
+  --tools full --out /tmp/dropper_full.json
+python run_eval_multi.py --models openai/gpt-oss-20b -e data_sorting -j 1 --no-judge \
+  --tools calc_minimal --out /tmp/dropper_minimal.json
+python run_eval_multi.py --models openai/gpt-oss-20b -e data_sorting -j 1 --no-judge \
+  --tools calc_minimal --schema-density skinny --out /tmp/dropper_skinny.json
+
+# Same knobs on MIPRO's live student (instruction search; tools/density stay fixed)
+python run_optimize.py --auto light -j 1 -e data_sorting,tax_column \
+  --slice calc_core --tools calc_minimal --schema-density skinny
+```
+
+Repeat the live commands with `-e tax_column` and, if you want a mid-size point, `--tools calc_core`. Compare hard pass / tokens (and cost when priced) across the three `--out` files. That is the “how many tools is too many” / “do fat descriptions hurt” measurement.
 
 ## Applying the result
 

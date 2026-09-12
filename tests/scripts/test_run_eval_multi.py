@@ -15,6 +15,21 @@ if str(_PO) not in sys.path:
 import run_eval_multi  # noqa: E402
 
 
+def test_parse_args_defaults_keep_full_catalog() -> None:
+    args = run_eval_multi.parse_args([])
+    assert args.tools == "full"
+    assert args.schema_density == "full"
+
+
+def test_parse_args_tools_preset_and_skinny() -> None:
+    args = run_eval_multi.parse_args(
+        ["--models", "openai/gpt-oss-20b", "--tools", "calc_core", "--schema-density", "skinny"]
+    )
+    assert args.tools == "calc_core"
+    assert args.schema_density == "skinny"
+    assert args.models == "openai/gpt-oss-20b"
+
+
 def test_out_path_relative_is_cwd(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     args = type("A", (), {"out": "scripts/prompt_optimization/eval_results_17task.csv"})()

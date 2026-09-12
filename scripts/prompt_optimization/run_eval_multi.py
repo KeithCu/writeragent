@@ -33,6 +33,7 @@ from eval_auth import (
     resolve_api_key,
     resolve_judge_model,
 )
+from eval_catalog import add_eval_tool_sweep_arguments
 from eval_core import ExampleEval, example_passed, run_eval_on_examples_llm
 from plugin.framework.openrouter_model_id import resolve_openrouter_catalog_id
 from model_configs import (
@@ -344,6 +345,8 @@ def _run_one_model(
     student: str = "llm",
     no_judge: bool = False,
     repeats: int = 1,
+    tools_spec: str | None = None,
+    schema_density: str = "full",
 ) -> dict[str, Any]:
     """Run eval for one model (used in a worker process). Returns summary dict."""
     from dataset import ALL_EXAMPLES, to_dspy_examples
@@ -375,6 +378,8 @@ def _run_one_model(
         gold_model=gm,
         student=student,
         no_judge=no_judge or student == "scripted",
+        tools_spec=tools_spec,
+        schema_density=schema_density,
     )
     if repeats > 1:
         extra: list[ExampleEval] = []
@@ -395,6 +400,8 @@ def _run_one_model(
                     gold_model=gm,
                     student=student,
                     no_judge=no_judge or student == "scripted",
+                    tools_spec=tools_spec,
+                    schema_density=schema_density,
                 )
             )
         results = results + extra
@@ -460,7 +467,7 @@ def _run_one_model(
     }
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None):
     p = argparse.ArgumentParser(
         description=(
             "Eval Writer assistant on dataset across multiple models and "
@@ -593,7 +600,12 @@ def main() -> int:
         default="llm",
         help="llm (default, needs API key) or scripted (replay SCRIPTS, no key).",
     )
-    args = p.parse_args()
+    add_eval_tool_sweep_arguments(p)
+    return p.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
 
     api_base = resolve_api_base(cli_base=args.api_base)
     api_key = resolve_api_key(cli_key=args.api_key)
@@ -692,6 +704,8 @@ def main() -> int:
                     backend=args.backend,
                     verbose=args.verbose,
                     task_id=tid,
+                    tools_spec=args.tools,
+                    schema_density=args.schema_density,
                 )
                 if gerr:
                     print(f"  Warning: gold error for {tid}: {gerr}", file=sys.stderr)
@@ -757,6 +771,8 @@ def main() -> int:
         student=args.student,
         no_judge=args.no_judge or args.student == "scripted",
         repeats=max(1, args.repeats),
+        tools_spec=args.tools,
+        schema_density=args.schema_density,
     )
 
     if args.backend == "lo":
