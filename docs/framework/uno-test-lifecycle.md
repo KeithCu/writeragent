@@ -504,12 +504,14 @@ reuse and hung 30s at the same Hidden `_blank` `.mml` load. Later
 convert / export / document-helpers math UNO tests now use the
 same leftover Hidden Math skip.
 
-GHA 34679494812 (PR #746 tip `fefc89fc`): leftover notebook host
-reuse then `test_document_scripts_survive_save_reopen` hung 30s at
-raw `doc.close(True)` (office alive; kill-libreoffice then killed
-the same soffice PIDs). Hidden `_blank` reopen of the saved `.odt`
-is leftover Hidden `_blank`. Windows now
-`skip_windows_leftover_hidden_load`s
+GHA 34679494812 (PR #746 tip `fefc89fc`): leftover_open=3
+(`html_paste_writer: leftovers open=3 uids=['40', '39', '29']`
+keeper=1 reactivated). `create_native_doc` leftover swriter
+returned (`uid=41`). Then `test_document_scripts_survive_save_reopen`
+hung 30s in attach / storeAsURL / raw `doc.close(True)` / Hidden
+`_blank` reopen (office alive). 34678020608 returned here and died
+later on Hidden `.mml`. Same leftover Hidden family as import-filter
+detect. Windows now `skip_windows_leftover_hidden_load`s
 (`windows leftover skip: document scripts Hidden _blank reopen`).
 Do not raw-close leftover Writers. Not a product change.
 

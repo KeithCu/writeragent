@@ -525,7 +525,7 @@ def test_script_picker_message_types():
 
 
 def test_document_scripts_uno_skips_windows_leftover_hidden_reopen() -> None:
-    """GHA 34679494812: leftover Writer close then Hidden _blank reopen hang."""
+    """GHA 34679494812: leftover_open=3 create_native_doc uid=41 then 30s hang."""
     from pathlib import Path
 
     src = Path(__file__).with_name("test_document_scripts_uno.py").read_text(encoding="utf-8")
