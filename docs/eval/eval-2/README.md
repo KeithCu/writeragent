@@ -19,6 +19,7 @@ check counts.
 not rewrite them as CRLF.
 
 Living headed autopsy (product bar + peer polarity + next experiments): [`headed-failure-autopsy.md`](headed-failure-autopsy.md).
+AFC cross-model pain points (catalog clusters + DO+why levers): [`afc-cross-model-pain-points.md`](afc-cross-model-pain-points.md).
 Scoreboard + SVG charts: [`benchmarks.md`](benchmarks.md).
 
 Each subdirectory is one experiment. **Ready** means headed helper +
