@@ -15,12 +15,21 @@
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import (
+    TestingFactory,
+    skip_windows_leftover_hidden_apply,
+    with_native_doc,
+)
 from plugin.writer.content import ApplyDocumentContent
 import plugin.writer.format as fmt
 
 
 def _tool_ctx(doc, ctx):
+    # GHA 34683742049: heading-rewrite / structured / table / whitespace
+    # leftover Hidden apply skips fired. Next
+    # test_write_compact_heading1_resolves_to_spaced_uno hung 30s in
+    # html_to_plain_text Hidden _default swriter (leftover_open=3).
+    skip_windows_leftover_hidden_apply()
     return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
 

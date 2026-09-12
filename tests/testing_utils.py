@@ -1283,8 +1283,11 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
     ``test_document_scripts_survive_save_reopen`` hung 30s in
     attach / storeAsURL / raw close / Hidden ``_blank`` reopen.
     GHA 34681661844: first ``html_to_plain_text`` Hidden ``_default``
-    swriter returned; the next hung 30s. Cached leftover count only
-    — do not enum. Do not close leftover paste Writers (34556185752).
+    swriter returned; the next hung 30s. GHA 34683742049: those apply
+    skips fired; next ``test_write_compact_heading1_resolves_to_spaced_uno``
+    hung the same leftover Hidden ``_default`` load. Cached leftover
+    count only — do not enum. Do not close leftover paste Writers
+    (34556185752).
     """
     if not windows_leftover_hidden_load_unsafe():
         return
@@ -1308,7 +1311,10 @@ def skip_windows_leftover_hidden_apply(reason: str = "apply_document_content Hid
     ``test_apply_document_content_preserves_heading_level_span_uno``
     OK, then ``…_heading_level_b_uno`` hung 30s in
     ``html_to_plain_text`` ``loadComponentFromURL(private:factory/swriter,
-    "_default", Hidden)``. Consecutive leftover Hidden Writer factory.
+    "_default", Hidden)``. GHA 34683742049: those apply skips fired;
+    next ``test_write_compact_heading1_resolves_to_spaced_uno`` hung
+    the same leftover Hidden ``_default`` load. Consecutive leftover
+    Hidden Writer factory.
     """
     skip_windows_leftover_hidden_load(reason)
 

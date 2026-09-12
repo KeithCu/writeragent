@@ -824,7 +824,7 @@ def test_skip_windows_leftover_hidden_mathml_raises_on_win32(monkeypatch):
 
 
 def test_skip_windows_leftover_hidden_apply_raises_on_win32(monkeypatch):
-    """GHA 34681661844: span apply OK; next <b> apply Hidden _default hung 30s."""
+    """GHA 34681661844 / 34683742049: leftover Hidden _default apply hung 30s."""
     import unittest
 
     import plugin.tests.testing_utils as tu

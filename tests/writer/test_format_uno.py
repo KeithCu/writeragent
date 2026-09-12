@@ -60,6 +60,9 @@ def _get_document_content(doc, ctx, params):
 
 def _apply_document_content(doc, ctx, params):
     """Call real apply_document_content tool; returns dict."""
+    # GHA 34683742049: leftover Hidden _default apply hung after the
+    # first apply-suite skips. Later apply UNO files skip the same load.
+    skip_windows_leftover_hidden_apply()
     from plugin.main import get_tools
     content = params.get("content", "")
     if isinstance(content, list):
@@ -89,7 +92,7 @@ def _find_text(doc, ctx, params):
 
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import skip_windows_leftover_hidden_apply, with_native_doc
 
 
 def _read_doc_text(d):

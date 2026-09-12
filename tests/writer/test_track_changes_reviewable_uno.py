@@ -16,7 +16,11 @@
 import contextlib
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import (
+    TestingFactory,
+    skip_windows_leftover_hidden_apply,
+    with_native_doc,
+)
 from plugin.writer.edit_review import WriterStreamedRewriteSession, WriterStreamedAppendSession
 from plugin.writer.content import ApplyDocumentContent
 import plugin.writer.edit_review as _content
@@ -100,6 +104,10 @@ def _para_range(doc):
 
 
 def _tool_ctx(doc, ctx):
+    # GHA 34683742049: leftover Hidden _default apply hung after the
+    # first apply-suite skips. This file is the next ApplyDocumentContent
+    # victim on leftover_open>0.
+    skip_windows_leftover_hidden_apply()
     return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
 

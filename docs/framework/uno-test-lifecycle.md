@@ -529,6 +529,18 @@ family. Apply-content UNO tests now
 (`windows leftover skip: apply_document_content Hidden _default
 swriter leftovers=N`). Not a product change.
 
+GHA 34683742049 (PR #746 tip `d6b6319a`): heading-rewrite /
+structured-return / table-cell / whitespace leftover Hidden apply
+skips fired (suites green). Then
+`writer.test_content_style_model_uno.test_write_compact_heading1_resolves_to_spaced_uno`
+hung 30s in `html_to_plain_text`
+`loadComponentFromURL(private:factory/swriter, "_default", Hidden)`
+via `ApplyDocumentContent.execute` (office alive). Same leftover
+Hidden `_default` family as heading-rewrite `_b_uno`. Content-style
+write `_tool_ctx` plus later apply UNO files (`test_format_uno`,
+`test_track_changes_reviewable_uno`) now
+`skip_windows_leftover_hidden_apply`. Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -586,11 +598,14 @@ Timeout on `test_convert_mathml_to_starmath_fraction`),
 document-scripts save/reopen `TEST end … SKIP` with
 `windows leftover skip: document scripts Hidden _blank reopen`
 when leftover_open>0 (no 30s Timeout on leftover Writer
-`doc.close(True)`), apply-content heading rewrite
+`doc.close(True)`), apply-content heading rewrite, later apply UNO
+(content-style write, format apply, track-changes apply)
 `TEST end … SKIP` with
 `windows leftover skip: apply_document_content Hidden _default
-swriter` when leftover_open>0 (no 30s Timeout on second
-`html_to_plain_text` Hidden `_default` swriter),
+swriter` when leftover_open>0 (no 30s Timeout on
+`html_to_plain_text` Hidden `_default` swriter after leftover
+writer reuse — GHA 34681661844 heading `_b_uno`, GHA 34683742049
+content-style `test_write_compact_heading1_resolves_to_spaced_uno`),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**

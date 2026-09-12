@@ -729,3 +729,12 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert families.getByName.call_count == 1  # second read served from the cache
     assert hx._source_style(model, "Nope", cache) is None
     assert hx._source_style(model, "", cache) is None
+
+
+def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
+    """GHA 34683742049: leftover Hidden _default apply hung after earlier skips."""
+    from pathlib import Path
+
+    src = Path(__file__).with_name("test_format_uno.py").read_text(encoding="utf-8")
+    assert "skip_windows_leftover_hidden_apply" in src
+    assert "34683742049" in src

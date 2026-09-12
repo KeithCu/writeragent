@@ -31,6 +31,23 @@ def test_heading_rewrite_uno_skips_windows_leftover_hidden_apply() -> None:
     assert "html_to_plain_text" in src
 
 
+def test_later_apply_uno_skips_windows_leftover_hidden_apply() -> None:
+    """GHA 34683742049: leftover Hidden _default hung on content-style write."""
+    from pathlib import Path
+
+    writer = Path(__file__).parent
+    for name in (
+        "test_content_style_model_uno.py",
+        "test_format_uno.py",
+        "test_track_changes_reviewable_uno.py",
+    ):
+        src = (writer / name).read_text(encoding="utf-8")
+        assert "skip_windows_leftover_hidden_apply" in src, name
+    style_src = (writer / "test_content_style_model_uno.py").read_text(encoding="utf-8")
+    assert "34683742049" in style_src
+    assert "html_to_plain_text" in style_src
+
+
 def _ctx():
     doc = MagicMock()
     um = MagicMock()
