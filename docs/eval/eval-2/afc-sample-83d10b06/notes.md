@@ -215,3 +215,14 @@ Tokens are n=48. UNO/assert/PreContract=0. Recorded wall ~840s
 stored; model_configs estimate ~$0.24564 is an alternate only. Run
 dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0546-granite-4.2-8b/`.
+
+Nineteenth catalog cell: `mistralai/mistral-small-2603`, stamp
+`20260912-0603-mistral-small-2603`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=1`: R from Sample Size Calculation is
+missing or < 1). Ready with Sample+SSC
+(`sample_data_rows=81`); S=0; R=None (unparseable); husks 0/648.
+Tokens are n=14. UNO/assert/PreContract=0. Recorded wall ~32s.
+tip_at_run `71640e30`. OpenRouter usage sum ~$0.00973 stored;
+model_configs estimate ~$0.02475 is an alternate only. Run dir is
+box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0603-mistral-small-2603/`.
