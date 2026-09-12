@@ -26,7 +26,8 @@ def test_heading_rewrite_uno_skips_windows_leftover_hidden_apply() -> None:
     src = Path(__file__).with_name(
         "test_apply_document_content_heading_rewrite_uno.py"
     ).read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_apply" in src
+    assert "skip_windows_leftover_hidden_load" in src
+    assert "apply_document_content Hidden _default swriter" in src
     assert "34681661844" in src
     assert "html_to_plain_text" in src
 
@@ -42,7 +43,8 @@ def test_later_apply_uno_skips_windows_leftover_hidden_apply() -> None:
         "test_track_changes_reviewable_uno.py",
     ):
         src = (writer / name).read_text(encoding="utf-8")
-        assert "skip_windows_leftover_hidden_apply" in src, name
+        assert "skip_windows_leftover_hidden_load" in src, name
+        assert "apply_document_content Hidden _default swriter" in src, name
     style_src = (writer / "test_content_style_model_uno.py").read_text(encoding="utf-8")
     assert "34683742049" in style_src
     assert "html_to_plain_text" in style_src

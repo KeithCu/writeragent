@@ -91,7 +91,7 @@ Start here by task.
 | Math / HTML import design | [writer/math-tex.md](writer/math-tex.md) |
 | Grammar pipeline (cache, queue) | [writer/grammar-checker-plan.md](writer/grammar-checker-plan.md) |
 | Test Architecture | [archive/test_architecture_analysis.md](archive/test_architecture_analysis.md) |
-| Native UNO lifecycle / URP dispose breadcrumbs | [framework/uno-test-lifecycle.md](framework/uno-test-lifecycle.md) |
+| Native UNO lifecycle / URP dispose breadcrumbs | [framework/uno-test-lifecycle.md](framework/uno-test-lifecycle.md), Windows skip inventory [framework/windows-ci-harness-cleanup-note.md](framework/windows-ci-harness-cleanup-note.md) |
 | Type checking | [framework/type-checking.md](framework/type-checking.md) |
 | UNO Dialogs & Wizards | [framework/uno-dialogs.md](framework/uno-dialogs.md) |
 | UNO exception policy (disposed vs leaf catches) | [framework/exception-policy.md](framework/exception-policy.md) |

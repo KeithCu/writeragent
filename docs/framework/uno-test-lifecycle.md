@@ -6,7 +6,9 @@
 proof that LibreOffice or WriterAgent is healthy.
 
 Related: [archive/test_architecture_analysis.md](../archive/test_architecture_analysis.md)
-(TEST start/end lines, Darwin URP abort, keeper document).
+(TEST start/end lines, Darwin URP abort, keeper document). Windows
+skip inventory (keep / simplify / delete):
+[windows-ci-harness-cleanup-note.md](windows-ci-harness-cleanup-note.md).
 
 ## What the fixture actually does
 
@@ -501,7 +503,7 @@ printed `native_doc: leftover writer reuse` and hung 30s in
 Hidden)` (office alive). XDL `LatexInputDialog` is patched — hang
 is leftover Hidden `_blank` `.mml`, not AWT TOP `createPeer` /
 `setVisible`. Converting latex-dialog UNO tests now
-`skip_windows_leftover_hidden_mathml` (`windows leftover skip: latex
+`skip_windows_leftover_hidden_load` (`windows leftover skip: latex
 dialog Hidden _blank .mml leftovers=N`).
 
 GHA 34678020608 (PR #746 tip `a9d44413`): latex converting tests
@@ -531,7 +533,7 @@ MathML leftover Hidden skips fired (suites green). Then
 "_default", Hidden)` (office alive). First leftover Hidden `_default`
 Writer + close returned; the second hung. Same leftover Hidden
 family. Apply-content UNO tests now
-`skip_windows_leftover_hidden_apply`
+`skip_windows_leftover_hidden_load`
 (`windows leftover skip: apply_document_content Hidden _default
 swriter leftovers=N`). Not a product change.
 
@@ -545,7 +547,7 @@ via `ApplyDocumentContent.execute` (office alive). Same leftover
 Hidden `_default` family as heading-rewrite `_b_uno`. Content-style
 write `_tool_ctx` plus later apply UNO files (`test_format_uno`,
 `test_track_changes_reviewable_uno`) now
-`skip_windows_leftover_hidden_apply`. Not a product change.
+`skip_windows_leftover_hidden_load`. Not a product change.
 Same run:
 `test_apply_style_known_limitation_direct_equals_old_default_uno`
 FAIL (`origin detection improved`) under leftover writer reuse;

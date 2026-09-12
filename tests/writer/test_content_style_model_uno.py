@@ -17,7 +17,7 @@ import uno  # noqa: F401
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     TestingFactory,
-    skip_windows_leftover_hidden_apply,
+    skip_windows_leftover_hidden_load,
     with_native_doc,
 )
 from plugin.writer.content import ApplyDocumentContent
@@ -29,7 +29,7 @@ def _tool_ctx(doc, ctx):
     # leftover Hidden apply skips fired. Next
     # test_write_compact_heading1_resolves_to_spaced_uno hung 30s in
     # html_to_plain_text Hidden _default swriter (leftover_open=3).
-    skip_windows_leftover_hidden_apply()
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     return TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
 

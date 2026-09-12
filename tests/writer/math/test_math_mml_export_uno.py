@@ -9,12 +9,12 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_mathml, with_native_doc
+from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
 
 
 def _skip_windows_leftover_hidden_mathml() -> None:
     """GHA 34678020608: leftover Hidden ``_blank`` ``.mml`` / ``smath`` hang."""
-    skip_windows_leftover_hidden_mathml("math export Hidden _blank smath")
+    skip_windows_leftover_hidden_load("math export Hidden _blank smath")
 from plugin.writer.math.math_mml_convert import convert_latex_to_starmath, insert_writer_math_formula
 from plugin.writer.math.math_mml_export import (
     convert_starmath_to_latex,

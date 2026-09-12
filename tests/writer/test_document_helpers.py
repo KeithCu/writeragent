@@ -267,7 +267,7 @@ def test_document_helpers_uno_skips_windows_leftover_hidden_mml() -> None:
     from pathlib import Path
 
     src = Path(__file__).with_name("test_document_helpers_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_mathml" in src
+    assert "skip_windows_leftover_hidden_load" in src
     assert "document helpers Hidden _blank .mml" in src
 
 

@@ -18,7 +18,7 @@ from plugin.testing_runner import native_test
 from plugin.writer.content import ApplyDocumentContent
 from plugin.tests.testing_utils import (
     TestingFactory,
-    skip_windows_leftover_hidden_apply,
+    skip_windows_leftover_hidden_load,
     with_native_doc,
 )
 
@@ -28,7 +28,7 @@ from plugin.tests.testing_utils import (
 def test_apply_document_content_edits_table_cell_uno(ctx, doc):
     """Editing a cell's text via target='search' should work; it used to raise a
     cursor RuntimeException (body XText vs the cell's XText)."""
-    skip_windows_leftover_hidden_apply()
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
     text = doc.getText()
     tbl = doc.createInstance("com.sun.star.text.TextTable")
     tbl.initialize(3, 2)

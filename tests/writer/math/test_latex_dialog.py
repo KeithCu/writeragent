@@ -35,9 +35,9 @@ def test_latex_dialog_uno_skips_windows_leftover_hidden_mml() -> None:
     from pathlib import Path
 
     src = Path(__file__).with_name("test_latex_dialog_uno.py").read_text(encoding="utf-8")
-    assert "skip_windows_leftover_hidden_mathml" in src
+    assert "skip_windows_leftover_hidden_load" in src
     assert "latex dialog Hidden _blank .mml" in src
     assert "34675151298" in src
     # AWT TOP is cited as the wrong class; leftover Hidden is the skip.
-    assert 'skip_windows_leftover_hidden_mathml("latex dialog Hidden _blank .mml")' in src
+    assert 'skip_windows_leftover_hidden_load("latex dialog Hidden _blank .mml")' in src
     assert "is the wrong class" in src
