@@ -1,0 +1,526 @@
+#!/usr/bin/env python3
+# WriterAgent - eval-2 headed leaderboard plots
+# Copyright (c) 2026 KeithCu (modifications and relicensing)
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Write eval-2 headed task×model SVGs from a results JSON.
+
+Separate from the 17-task string-harness Pareto (`plot_pareto.py` /
+``docs/eval/pareto-*.svg``). Reads only the eval-2 headed results file —
+no OpenRouter, no ``benchmark_results.json`` merge.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_RESULTS = REPO_ROOT / "docs" / "eval" / "eval-2" / "eval2_benchmark_results.json"
+DEFAULT_OUT_DIR = REPO_ROOT / "docs" / "eval" / "eval-2"
+
+SCHEMA_VERSION = 1
+PRODUCT_BARS = frozenset({"HAPPY", "NOT_HAPPY"})
+ORACLES = frozenset({"PASS", "FAIL"})
+TASK_STATUSES = frozenset({"Ready", "Headed-ready"})
+MODEL_ROLES = frozenset({"gate", "headed", "catalog"})
+PARKED_SLOT = 7
+
+# Okabe–Ito (same family as plot_pareto.py) plus an honest empty fill.
+COLOR_HAPPY = "#009E73"
+COLOR_NOT_HAPPY = "#D55E00"
+COLOR_EMPTY = "#F1F3F4"
+COLOR_INK = "#202124"
+COLOR_MUTED = "#5f6368"
+COLOR_LINE = "#dadce0"
+
+HEATMAP_NAME = "eval2-heatmap.svg"
+COVERAGE_NAME = "eval2-coverage.svg"
+
+FOOTNOTE = (
+    "Source: headed eval-2 autopsy notes, not a catalog sweep. "
+    "Empty = no in-repo stamp. Metrics are product HAPPY / oracle PASS|FAIL "
+    "(not string-harness hard_pass_rate)."
+)
+
+
+class Eval2ResultsError(ValueError):
+    """Results JSON failed the headed scoreboard schema."""
+
+
+@dataclass(frozen=True)
+class Eval2Task:
+    id: str
+    slot: int
+    slug: str
+    title: str
+    status: str
+
+
+@dataclass(frozen=True)
+class Eval2Model:
+    openrouter_id: str
+    display_name: str
+    role: str
+
+
+@dataclass(frozen=True)
+class Eval2Result:
+    task_id: str
+    model: str
+    product_bar: str | None
+    oracle: str | None
+    oracle_note: str
+    stamp: str
+    source: str
+    run_artifacts_committed: bool
+    patches: str | None
+
+
+@dataclass(frozen=True)
+class Eval2Board:
+    schema_version: int
+    updated: str
+    gate_model: str
+    source_of_truth: str
+    notes: str
+    tasks: tuple[Eval2Task, ...]
+    models: tuple[Eval2Model, ...]
+    results: tuple[Eval2Result, ...]
+
+    def result_for(self, task_id: str, model: str) -> Eval2Result | None:
+        for row in self.results:
+            if row.task_id == task_id and row.model == model:
+                return row
+        return None
+
+    def scored_count(self, model: str) -> int:
+        return sum(1 for row in self.results if row.model == model and row.product_bar)
+
+    def happy_count(self, model: str) -> int:
+        return sum(1 for row in self.results if row.model == model and row.product_bar == "HAPPY")
+
+    def not_happy_count(self, model: str) -> int:
+        return sum(1 for row in self.results if row.model == model and row.product_bar == "NOT_HAPPY")
+
+
+def _require_str(row: Mapping[str, Any], key: str, *, ctx: str) -> str:
+    value = row.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise Eval2ResultsError(f"{ctx}: {key!r} must be a non-empty string")
+    return value
+
+
+def _optional_str(row: Mapping[str, Any], key: str) -> str:
+    value = row.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise Eval2ResultsError(f"{key!r} must be a string or null")
+    return value
+
+
+def _enum_or_none(value: object, allowed: frozenset[str], *, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in allowed:
+        raise Eval2ResultsError(f"{field} must be one of {sorted(allowed)} or null, got {value!r}")
+    return value
+
+
+def _parse_task(raw: object, *, seen_ids: set[str], seen_slots: set[int]) -> Eval2Task:
+    if not isinstance(raw, Mapping):
+        raise Eval2ResultsError("each task must be an object")
+    task_id = _require_str(raw, "id", ctx="task")
+    if task_id in seen_ids:
+        raise Eval2ResultsError(f"duplicate task id {task_id!r}")
+    seen_ids.add(task_id)
+    slot = raw.get("slot")
+    if not isinstance(slot, int) or isinstance(slot, bool):
+        raise Eval2ResultsError(f"task {task_id!r}: slot must be an int")
+    if slot == PARKED_SLOT:
+        raise Eval2ResultsError("slot 7 is PARKED and must not appear on the scoreboard")
+    if slot in seen_slots:
+        raise Eval2ResultsError(f"duplicate slot {slot}")
+    seen_slots.add(slot)
+    status = _require_str(raw, "status", ctx=f"task {task_id}")
+    if status not in TASK_STATUSES:
+        raise Eval2ResultsError(f"task {task_id!r}: status {status!r} is not Ready/Headed-ready")
+    return Eval2Task(
+        id=task_id,
+        slot=slot,
+        slug=_require_str(raw, "slug", ctx=f"task {task_id}"),
+        title=_require_str(raw, "title", ctx=f"task {task_id}"),
+        status=status,
+    )
+
+
+def _parse_model(raw: object, *, seen: set[str]) -> Eval2Model:
+    if not isinstance(raw, Mapping):
+        raise Eval2ResultsError("each model must be an object")
+    mid = _require_str(raw, "openrouter_id", ctx="model")
+    if mid in seen:
+        raise Eval2ResultsError(f"duplicate model {mid!r}")
+    seen.add(mid)
+    role = _require_str(raw, "role", ctx=f"model {mid}")
+    if role not in MODEL_ROLES:
+        raise Eval2ResultsError(f"model {mid!r}: role {role!r} is not gate/headed/catalog")
+    return Eval2Model(
+        openrouter_id=mid,
+        display_name=_require_str(raw, "display_name", ctx=f"model {mid}"),
+        role=role,
+    )
+
+
+def _parse_result(
+    raw: object,
+    *,
+    task_ids: set[str],
+    model_ids: set[str],
+    seen_pairs: set[tuple[str, str]],
+) -> Eval2Result:
+    if not isinstance(raw, Mapping):
+        raise Eval2ResultsError("each result must be an object")
+    task_id = _require_str(raw, "task_id", ctx="result")
+    model = _require_str(raw, "model", ctx="result")
+    if task_id not in task_ids:
+        raise Eval2ResultsError(f"result task_id {task_id!r} is not in tasks")
+    if model not in model_ids:
+        raise Eval2ResultsError(f"result model {model!r} is not in models")
+    pair = (task_id, model)
+    if pair in seen_pairs:
+        raise Eval2ResultsError(f"duplicate result for {task_id} × {model}")
+    seen_pairs.add(pair)
+    product_bar = _enum_or_none(raw.get("product_bar"), PRODUCT_BARS, field="product_bar")
+    oracle = _enum_or_none(raw.get("oracle"), ORACLES, field="oracle")
+    if product_bar is None and oracle is None:
+        raise Eval2ResultsError(
+            f"{task_id} × {model}: omit empty cells instead of storing a null/null result"
+        )
+    return Eval2Result(
+        task_id=task_id,
+        model=model,
+        product_bar=product_bar,
+        oracle=oracle,
+        oracle_note=_optional_str(raw, "oracle_note"),
+        stamp=_optional_str(raw, "stamp"),
+        source=_optional_str(raw, "source"),
+        run_artifacts_committed=bool(raw.get("run_artifacts_committed", False)),
+        patches=raw.get("patches") if isinstance(raw.get("patches"), str) else None,
+    )
+
+
+def load_eval2_board(path: Path) -> Eval2Board:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise Eval2ResultsError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise Eval2ResultsError(f"{path} must be a JSON object")
+    version = payload.get("schema_version")
+    if version != SCHEMA_VERSION:
+        raise Eval2ResultsError(f"schema_version must be {SCHEMA_VERSION}, got {version!r}")
+    raw_tasks = payload.get("tasks")
+    raw_models = payload.get("models")
+    raw_results = payload.get("results")
+    if not isinstance(raw_tasks, list) or not raw_tasks:
+        raise Eval2ResultsError("tasks must be a non-empty array")
+    if not isinstance(raw_models, list) or not raw_models:
+        raise Eval2ResultsError("models must be a non-empty array")
+    if not isinstance(raw_results, list):
+        raise Eval2ResultsError("results must be an array (use [] when nothing is scored)")
+    seen_ids: set[str] = set()
+    seen_slots: set[int] = set()
+    tasks = tuple(_parse_task(item, seen_ids=seen_ids, seen_slots=seen_slots) for item in raw_tasks)
+    seen_models: set[str] = set()
+    models = tuple(_parse_model(item, seen=seen_models) for item in raw_models)
+    gate_model = _require_str(payload, "gate_model", ctx="board")
+    if gate_model not in seen_models:
+        raise Eval2ResultsError(f"gate_model {gate_model!r} must appear in models")
+    seen_pairs: set[tuple[str, str]] = set()
+    results = tuple(
+        _parse_result(item, task_ids=seen_ids, model_ids=seen_models, seen_pairs=seen_pairs)
+        for item in raw_results
+    )
+    return Eval2Board(
+        schema_version=SCHEMA_VERSION,
+        updated=_require_str(payload, "updated", ctx="board"),
+        gate_model=gate_model,
+        source_of_truth=_require_str(payload, "source_of_truth", ctx="board"),
+        notes=_optional_str(payload, "notes"),
+        tasks=tasks,
+        models=models,
+        results=results,
+    )
+
+
+def cell_label(row: Eval2Result | None) -> str:
+    """Short matrix token: HAPPY / oracle FAIL, or an em dash when unscored."""
+    if row is None or (row.product_bar is None and row.oracle is None):
+        return "—"
+    bits: list[str] = []
+    if row.product_bar:
+        bits.append(row.product_bar)
+    if row.oracle:
+        bits.append(f"oracle {row.oracle}")
+    return " / ".join(bits)
+
+
+def render_matrix_markdown(board: Eval2Board) -> str:
+    headers = ["#", "Task", *(model.display_name for model in board.models)]
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
+    for task in board.tasks:
+        cells = [str(task.slot), task.title]
+        for model in board.models:
+            cells.append(cell_label(board.result_for(task.id, model.openrouter_id)))
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def _esc(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _svg_wrap(body: str, *, width: int, height: int, title: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}" role="img">\n'
+        f"  <title>{_esc(title)}</title>\n"
+        f'  <rect width="{width}" height="{height}" fill="#ffffff"/>\n'
+        f"{body}</svg>\n"
+    )
+
+
+def write_heatmap_svg(board: Eval2Board, out_path: Path) -> Path:
+    label_w = 210
+    head_h = 72
+    cell_w = 150
+    cell_h = 58
+    left = 24
+    top = 56
+    n_models = len(board.models)
+    n_tasks = len(board.tasks)
+    width = left + label_w + n_models * cell_w + 24
+    height = top + head_h + n_tasks * cell_h + 64
+    parts: list[str] = [
+        f'  <text x="{left}" y="28" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="16" font-weight="700" fill="{COLOR_INK}">'
+        f"Eval-2 headed scoreboard (product bar × oracle)</text>\n",
+        f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="11" fill="{COLOR_MUTED}">'
+        f"Gate {_esc(board.gate_model)} · updated {_esc(board.updated)} · "
+        f"empty cells have no headed stamp</text>\n",
+    ]
+    for col, model in enumerate(board.models):
+        x = left + label_w + col * cell_w + cell_w / 2
+        suffix = " (gate)" if model.role == "gate" else ""
+        parts.append(
+            f'  <text x="{x:.1f}" y="{top + 28}" text-anchor="middle" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" '
+            f'fill="{COLOR_INK}">{_esc(model.display_name + suffix)}</text>\n'
+        )
+        parts.append(
+            f'  <text x="{x:.1f}" y="{top + 44}" text-anchor="middle" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="9" fill="{COLOR_MUTED}">'
+            f"{_esc(model.openrouter_id)}</text>\n"
+        )
+    for row_i, task in enumerate(board.tasks):
+        y = top + head_h + row_i * cell_h
+        parts.append(
+            f'  <text x="{left + label_w - 10}" y="{y + 26}" text-anchor="end" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="12" fill="{COLOR_INK}">'
+            f"{task.slot}. {_esc(task.title)}</text>\n"
+        )
+        parts.append(
+            f'  <text x="{left + label_w - 10}" y="{y + 42}" text-anchor="end" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="9" fill="{COLOR_MUTED}">'
+            f"{_esc(task.slug)}</text>\n"
+        )
+        for col, model in enumerate(board.models):
+            x = left + label_w + col * cell_w
+            row = board.result_for(task.id, model.openrouter_id)
+            if row is None or row.product_bar is None:
+                fill = COLOR_EMPTY
+                bar_text = "no data"
+                oracle_text = "—"
+                ink = COLOR_MUTED
+            else:
+                fill = COLOR_HAPPY if row.product_bar == "HAPPY" else COLOR_NOT_HAPPY
+                bar_text = row.product_bar
+                ink = "#ffffff"
+                if row.oracle is None:
+                    oracle_text = "oracle unknown"
+                else:
+                    oracle_text = f"oracle {row.oracle}"
+            parts.append(
+                f'  <rect x="{x + 4:.1f}" y="{y + 6:.1f}" width="{cell_w - 8}" '
+                f'height="{cell_h - 12}" rx="6" fill="{fill}" stroke="{COLOR_LINE}"/>\n'
+            )
+            parts.append(
+                f'  <text x="{x + cell_w / 2:.1f}" y="{y + 26:.1f}" text-anchor="middle" '
+                f'font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" '
+                f'fill="{ink}">{_esc(bar_text)}</text>\n'
+            )
+            parts.append(
+                f'  <text x="{x + cell_w / 2:.1f}" y="{y + 42:.1f}" text-anchor="middle" '
+                f'font-family="DejaVu Sans, sans-serif" font-size="10" '
+                f'fill="{ink}">{_esc(oracle_text)}</text>\n'
+            )
+    parts.append(
+        f'  <text x="{left}" y="{height - 18}" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="10" fill="{COLOR_MUTED}">{_esc(FOOTNOTE)}</text>\n'
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        _svg_wrap(
+            "".join(parts),
+            width=width,
+            height=height,
+            title="Eval-2 headed task × model heatmap",
+        ),
+        encoding="utf-8",
+    )
+    return out_path
+
+
+def write_coverage_svg(board: Eval2Board, out_path: Path) -> Path:
+    """Stacked HAPPY / NOT_HAPPY / no-data counts — honest when most cells are empty."""
+    n_tasks = len(board.tasks)
+    left = 56
+    top = 64
+    bar_w = 88
+    gap = 36
+    plot_h = 260
+    width = max(640, left + len(board.models) * (bar_w + gap) + 40)
+    height = top + plot_h + 90
+    parts: list[str] = [
+        f'  <text x="24" y="28" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="16" font-weight="700" fill="{COLOR_INK}">'
+        f"Eval-2 headed coverage (Ready tasks scored)</text>\n",
+        f'  <text x="24" y="46" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="11" fill="{COLOR_MUTED}">'
+        f"{n_tasks} Ready / Headed-ready rows. Catalog peers stay gray until a stamp lands."
+        f"</text>\n",
+    ]
+    for col, model in enumerate(board.models):
+        x = left + col * (bar_w + gap)
+        happy = board.happy_count(model.openrouter_id)
+        not_happy = board.not_happy_count(model.openrouter_id)
+        empty = n_tasks - happy - not_happy
+        # Stack from the axis: empty, then NOT_HAPPY, then HAPPY on top.
+        scale = plot_h / n_tasks
+        y = top + plot_h
+        for count, fill, label in (
+            (empty, COLOR_EMPTY, "no data"),
+            (not_happy, COLOR_NOT_HAPPY, "NOT_HAPPY"),
+            (happy, COLOR_HAPPY, "HAPPY"),
+        ):
+            if count <= 0:
+                continue
+            h = count * scale
+            y -= h
+            parts.append(
+                f'  <rect x="{x:.1f}" y="{y:.1f}" width="{bar_w}" height="{h:.1f}" '
+                f'fill="{fill}" stroke="{COLOR_LINE}" data-segment="{_esc(label)}"/>\n'
+            )
+        parts.append(
+            f'  <text x="{x + bar_w / 2:.1f}" y="{top + plot_h + 20}" text-anchor="middle" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" '
+            f'fill="{COLOR_INK}">{_esc(model.display_name)}</text>\n'
+        )
+        scored = happy + not_happy
+        parts.append(
+            f'  <text x="{x + bar_w / 2:.1f}" y="{top + plot_h + 36}" text-anchor="middle" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="10" fill="{COLOR_MUTED}">'
+            f"{happy} HAPPY / {scored} scored</text>\n"
+        )
+    # Legend
+    legend_y = height - 28
+    for i, (fill, label) in enumerate(
+        ((COLOR_HAPPY, "HAPPY"), (COLOR_NOT_HAPPY, "NOT_HAPPY"), (COLOR_EMPTY, "no data"))
+    ):
+        lx = 24 + i * 110
+        parts.append(
+            f'  <rect x="{lx}" y="{legend_y - 10}" width="12" height="12" fill="{fill}" '
+            f'stroke="{COLOR_LINE}"/>\n'
+        )
+        parts.append(
+            f'  <text x="{lx + 18}" y="{legend_y}" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="11" fill="{COLOR_INK}">{label}</text>\n'
+        )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        _svg_wrap(
+            "".join(parts),
+            width=width,
+            height=height,
+            title="Eval-2 headed coverage by model",
+        ),
+        encoding="utf-8",
+    )
+    return out_path
+
+
+def write_eval2_svgs(board: Eval2Board, out_dir: Path) -> list[Path]:
+    written = [
+        write_heatmap_svg(board, out_dir / HEATMAP_NAME),
+        write_coverage_svg(board, out_dir / COVERAGE_NAME),
+    ]
+    return written
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--in",
+        dest="in_path",
+        type=Path,
+        default=DEFAULT_RESULTS,
+        help="Eval-2 headed results JSON (not string-harness benchmark_results.json).",
+    )
+    parser.add_argument(
+        "--out-dir",
+        dest="out_dir",
+        type=Path,
+        default=DEFAULT_OUT_DIR,
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate JSON only; do not write SVGs.",
+    )
+    parser.add_argument(
+        "--print-matrix",
+        action="store_true",
+        help="Print the markdown task×model table to stdout.",
+    )
+    args = parser.parse_args(list(argv) if argv is not None else None)
+    if args.in_path.name == "benchmark_results.json":
+        raise Eval2ResultsError(
+            "refusing string-harness benchmark_results.json — use eval2_benchmark_results.json"
+        )
+    board = load_eval2_board(args.in_path)
+    if args.print_matrix:
+        sys.stdout.write(render_matrix_markdown(board))
+    if args.check:
+        print(f"OK {args.in_path} ({len(board.results)} scored cells, gate={board.gate_model})")
+        return 0
+    for path in write_eval2_svgs(board, args.out_dir):
+        print(f"Wrote {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -98,7 +98,7 @@ Start here by task.
 | LLM Hacks & Workarounds | [chat/llm-hacks.md](chat/llm-hacks.md) |
 | Experimental memory / roadmap | [archive/hermes-agent-patterns.md](archive/hermes-agent-patterns.md), [ROADMAP.md](ROADMAP.md), [framework/robustness-roadmap.md](framework/robustness-roadmap.md) |
 | LLM evals / benchmarks | [eval/benchmarks.md](eval/benchmarks.md), [eval/string-harness-upgrade.md](eval/string-harness-upgrade.md), [scripts/prompt_optimization/README.md](../scripts/prompt_optimization/README.md) |
-| Eval-2 harness debug (not a multi-model benchmark yet) | [eval/eval-2/README.md](eval/eval-2/README.md) |
+| Eval-2 headed scoreboard (separate from string-pack Pareto) | [eval/eval-2/benchmarks.md](eval/eval-2/benchmarks.md), [eval/eval-2/README.md](eval/eval-2/README.md) |
 
 ## References
 

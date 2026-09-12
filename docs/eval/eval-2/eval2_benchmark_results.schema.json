@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KeithCu/writeragent/docs/eval/eval-2/eval2_benchmark_results.schema.json",
+  "title": "Eval-2 headed multi-model results",
+  "description": "Task × model cells for headed eval-2 experiments. Metrics are product_bar (HAPPY / NOT_HAPPY) and oracle (PASS / FAIL). This is not the 17-task string-harness hard_pass_rate schema. Omit a cell or set product_bar and oracle to null when no in-repo headed stamp exists — never invent scores.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "updated",
+    "gate_model",
+    "source_of_truth",
+    "tasks",
+    "models",
+    "results"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "updated": {
+      "type": "string",
+      "description": "ISO date (YYYY-MM-DD) of the last honest edit to this file."
+    },
+    "gate_model": {
+      "type": "string",
+      "description": "OpenRouter id of the headed / GDPval gate model. Keith: Gemini 3.8 Flash until HAPPY; gpt-oss is not the product gate."
+    },
+    "source_of_truth": {
+      "type": "string",
+      "description": "Repo-relative path of the living headed autopsy (or later notes) used to seed cells."
+    },
+    "notes": {
+      "type": "string"
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/task" }
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/model" }
+    },
+    "results": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/result" }
+    }
+  },
+  "$defs": {
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "slot", "slug", "title", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "scripts/eval_2_headed.py --task id (not the parked letterhead stub)."
+        },
+        "slot": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "slug": {
+          "type": "string",
+          "description": "docs/eval/eval-2/<slug>/ directory name."
+        },
+        "title": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["Ready", "Headed-ready"]
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["openrouter_id", "display_name", "role"],
+      "properties": {
+        "openrouter_id": { "type": "string" },
+        "display_name": { "type": "string" },
+        "role": {
+          "type": "string",
+          "enum": ["gate", "headed", "catalog"]
+        }
+      }
+    },
+    "product_bar": {
+      "description": "Headed product/task success. HAPPY means the deliverable did the job even if a soft oracle is red.",
+      "type": ["string", "null"],
+      "enum": ["HAPPY", "NOT_HAPPY", null]
+    },
+    "oracle": {
+      "description": "CLI oracle PASS/FAIL for the saved deliverable. Fail-closed. Soft notes go in oracle_note.",
+      "type": ["string", "null"],
+      "enum": ["PASS", "FAIL", null]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "model",
+        "product_bar",
+        "oracle"
+      ],
+      "properties": {
+        "task_id": { "type": "string" },
+        "model": { "type": "string" },
+        "product_bar": { "$ref": "#/$defs/product_bar" },
+        "oracle": { "$ref": "#/$defs/oracle" },
+        "oracle_note": { "type": "string" },
+        "stamp": {
+          "type": "string",
+          "description": "Headed runs/<stamp>/ directory name as cited in-repo (may be abbreviated with … in autopsy)."
+        },
+        "source": {
+          "type": "string",
+          "description": "Repo-relative doc citation for this cell."
+        },
+        "run_artifacts_committed": {
+          "type": "boolean",
+          "description": "True only when the stamp dir is in git. Autopsy paths are often box-local / untracked."
+        },
+        "patches": {
+          "type": ["string", "null"],
+          "description": "Private / unmerged product patches on that stamp, if any."
+        },
+        "prior_stamps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["stamp", "product_bar"],
+            "properties": {
+              "stamp": { "type": "string" },
+              "product_bar": { "$ref": "#/$defs/product_bar" },
+              "oracle": { "$ref": "#/$defs/oracle" },
+              "note": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
