@@ -111,6 +111,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "meta/muse-spark-1.3-contributor",
         "poolside/laguna-s-2.1",
         "poolside/laguna-xs-2.1",
+        "qwen/qwen3.8-27b",
     }
 
 
@@ -130,6 +131,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     spark = "meta/muse-spark-1.3-contributor"
     laguna = "poolside/laguna-s-2.1"
     laguna_xs = "poolside/laguna-xs-2.1"
+    qwen27 = "qwen/qwen3.8-27b"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -539,6 +541,36 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "6c6017b7" in afc_laguna_xs.oracle_note
     assert "Sample_Size_Calculation" in afc_laguna_xs.oracle_note
 
+    # Fourteenth catalog AFC stamp (Scrolly headed 20260912-0443).
+    afc_qwen27 = board.result_for("afc", qwen27)
+    assert afc_qwen27 is not None
+    assert afc_qwen27.product_bar == "NOT_HAPPY"
+    assert afc_qwen27.oracle == "FAIL"
+    assert afc_qwen27.stamp == "20260912-0443-qwen3.8-27b"
+    assert afc_qwen27.oracle_passed is False
+    assert afc_qwen27.oracle_failure_count == 2
+    assert afc_qwen27.oracle_failures == (
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'",
+    )
+    assert afc_qwen27.oracle_check_count is None
+    assert afc_qwen27.partial_score is None
+    assert afc_qwen27.afc_s_flags == 0
+    assert afc_qwen27.afc_r_required is None
+    assert afc_qwen27.husk_cells == 0
+    assert afc_qwen27.scored_cells == 0
+    assert afc_qwen27.input_tokens == 2695380
+    assert afc_qwen27.output_tokens == 67284
+    assert afc_qwen27.total_tokens == 2762664
+    assert afc_qwen27.wall_time_s == 720
+    assert afc_qwen27.total_cost_usd == pytest.approx(1.42823)
+    assert afc_qwen27.intelligence_per_dollar is None
+    assert "20260912-0443-qwen3.8-27b" in afc_qwen27.oracle_note
+    assert "1.31711" in afc_qwen27.oracle_note
+    assert "6c6017b7" in afc_qwen27.oracle_note
+    assert "finish_reason=tool_calls" in afc_qwen27.oracle_note
+    assert "n=51" in afc_qwen27.oracle_note
+
     # No invented catalog AFC-only scores outside AFC.
     for task_id in (
         "tenant-retention",
@@ -562,6 +594,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, spark) is None
         assert board.result_for(task_id, laguna) is None
         assert board.result_for(task_id, laguna_xs) is None
+        assert board.result_for(task_id, qwen27) is None
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -578,6 +611,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", spark),
         ("afc", laguna),
         ("afc", laguna_xs),
+        ("afc", qwen27),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -622,6 +656,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_spark)
     assert pel.has_recorded_partial(afc_laguna)
     assert pel.has_recorded_partial(afc_laguna_xs)
+    assert pel.has_recorded_partial(afc_qwen27)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -638,6 +673,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "meta/muse-spark-1.3-contributor"),
     ("afc", "poolside/laguna-s-2.1"),
     ("afc", "poolside/laguna-xs-2.1"),
+    ("afc", "qwen/qwen3.8-27b"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -730,6 +766,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Muse Spark 1.3" in partial
     assert "Laguna S 2.1" in partial
     assert "Laguna XS 2.1" in partial
+    assert "Qwen3.8 27B" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -794,6 +831,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Muse Spark 1.3" in partial_text
     assert "Laguna S 2.1" in partial_text
     assert "Laguna XS 2.1" in partial_text
+    assert "Qwen3.8 27B" in partial_text
     assert "S=0 R=66" in partial_text
     assert "S=494 R=68" in partial_text
     assert "2/—" in partial_text

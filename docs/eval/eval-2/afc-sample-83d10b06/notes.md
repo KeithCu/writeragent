@@ -154,3 +154,16 @@ empty (`sample_data_rows=0`); S=0; R=None; husks 0/0. Raw
 OpenRouter usage sum ~$0.04341 stored; model_configs estimate
 ~$0.07804 is an alternate only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0429-laguna-xs-2.1/`.
+
+Fourteenth catalog cell: `qwen/qwen3.8-27b`, stamp
+`20260912-0443-qwen3.8-27b`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=2`: missing sheet 'Sample'; missing sheet
+'Sample Size Calculation'). No Sample/SSC sheets
+(`sample_data_rows=0`); S=0; R=None; husks 0/0. Stayed on
+Population with `=PY` attempts. ~50 tool rounds, all
+`finish_reason=tool_calls`. Tokens are n=51 OpenRouter generations.
+PreContract=63; UNO/assert=0. Recorded wall ~720s (12 min LLM).
+tip_at_run `6c6017b7`. OpenRouter usage sum ~$1.42823 stored;
+model_configs estimate ~$1.31711 is an alternate only. Run dir is
+box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0443-qwen3.8-27b/`.
