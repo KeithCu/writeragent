@@ -10,7 +10,7 @@ How to run evals from the repo: [scripts/prompt_optimization/README.md](../../sc
 
 **17-task string harness** (`--backend string`, OpenRouter). **2026-09-11 Calc fill-down refresh:** re-ran `data_sorting` and `tax_column` for the full catalog after Tip A/B (#729) + harness `expand_single_formula` (#733), so benches match honest fill-down scoring (single formula into a multi-cell range adjusts relative refs). Other 15 task rows are carried forward; full 17-task pack was **not** re-run. Not LO-backed — fidelity smoke only.
 
-Artifacts: [`scripts/prompt_optimization/benchmark_results.json`](../../scripts/prompt_optimization/benchmark_results.json) and `benchmark_results_details.json`. Calc-only pack: `benchmark_results_calc_filldown_2026-09-11.json` (+ `_details`). Failure triage: [benchmark-failure-analysis-2026-09-01.md](benchmark-failure-analysis-2026-09-01.md) (Sep 1 full-pack notes).
+Artifacts: [`scripts/prompt_optimization/benchmark_results.json`](../../scripts/prompt_optimization/benchmark_results.json) and `benchmark_results_details.json`. Calc-only pack: `benchmark_results_calc_filldown_2026-09-11.json` (+ `_details`). Failure triage: [benchmark-failure-analysis-2026-09-01.md](benchmark-failure-analysis-2026-09-01.md) (Sep 1 full-pack notes). Nemotron Super vs Ultra Correctness inversion (2026-09-12 string-pack): [nemotron3-super-vs-ultra-string-pack.md](nemotron3-super-vs-ultra-string-pack.md).
 
 Ranked by **hard pass → agent score → metric**. **Hard pass** = document substring + result oracles + process oracles, no API error. **Agent** = same gate including tool-process checks. **Quality** = LLM judge among creative/table passes only.
 
