@@ -605,9 +605,11 @@ def test_create_native_doc_windows_impress_reuses_stable_name(monkeypatch):
     leftover_open climbed to 15 after notebook/importer skipped Writer
     close. Stable leftover swriter _wa_factory at leftover_open=15
     returned; unique leftover simpress _wa_factory_10 hung in
-    loadComponentFromURL. Consecutive leftover Hidden
-    create_native_doc(impress) must reuse one CREATE|GLOBAL name.
-    Draw reuse uses _wa_sdraw and must not steal leftover Impress.
+    loadComponentFromURL. GHA 34661915875: leftover _wa_simpress is
+    live and still hung. Consecutive leftover Hidden
+    create_native_doc(impress) at leftover_open<=4 must reuse one
+    CREATE|GLOBAL name. Draw reuse uses _wa_sdraw and must not steal
+    leftover Impress.
     """
     from unittest.mock import MagicMock, patch
 
@@ -621,7 +623,7 @@ def test_create_native_doc_windows_impress_reuses_stable_name(monkeypatch):
     tu._WINDOWS_FACTORY_SEQ = 0
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
-        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 15
+        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 4
     )
     try:
         with (
@@ -658,6 +660,69 @@ def test_create_native_doc_windows_impress_reuses_stable_name(monkeypatch):
             assert args[2] == (8 | 55)
     finally:
         tu._WINDOWS_FACTORY_SEQ = saved_seq
+
+
+def test_create_native_doc_windows_skips_leftover_impress_when_leftovers_high(
+    monkeypatch,
+):
+    """GHA 34661915875: leftover _wa_simpress at leftover_open=15 hung 30s.
+
+    #737's stable name is live. Leftover _wa_factory swriter at
+    leftover_open=15 returned. Skip leftover Draw/Impress; leftover
+    Writer still loads.
+    """
+    import unittest
+    from unittest.mock import MagicMock, patch
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = MagicMock()
+    calls = []
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(
+        tu, "prepare_windows_writer_factory", lambda _ctx: calls.append("prepare") or 15
+    )
+    with (
+        patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+        patch("uno.createUnoStruct", return_value=MagicMock()),
+        patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+    ):
+        try:
+            TestingFactory.create_native_doc(object(), "impress")
+        except unittest.SkipTest as exc:
+            assert "simpress" in str(exc)
+            assert "leftovers=15" in str(exc)
+        else:
+            raise AssertionError("expected SkipTest")
+        desktop.loadComponentFromURL.assert_not_called()
+        try:
+            TestingFactory.create_native_doc(object(), "draw")
+        except unittest.SkipTest as exc:
+            assert "sdraw" in str(exc)
+        else:
+            raise AssertionError("expected SkipTest")
+        TestingFactory.create_native_doc(object(), "writer")
+        args = desktop.loadComponentFromURL.call_args.args
+        assert args[0] == "private:factory/swriter"
+        assert args[1] == "_wa_factory"
+        assert calls == ["prepare", "prepare", "prepare"]
+
+
+def test_windows_cross_app_factory_unsafe_threshold(monkeypatch):
+    """Leftover Draw/Impress at leftover_open=1 succeeded (34657826349)."""
+    import plugin.tests.testing_utils as tu
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    assert tu.windows_cross_app_factory_unsafe(1) is False
+    assert tu.windows_cross_app_factory_unsafe(4) is False
+    assert tu.windows_cross_app_factory_unsafe(5) is True
+    assert tu.windows_cross_app_factory_unsafe(15) is True
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    assert tu.windows_cross_app_factory_unsafe(15) is False
+    tu.skip_windows_cross_app_factory("private:factory/simpress", 15)
+    tu.skip_windows_cross_app_factory("private:factory/swriter", 15)
 
 
 def test_windows_notebook_load_args_avoids_blank(monkeypatch):
@@ -795,6 +860,11 @@ def test_windows_should_reuse_writer_even_without_leftovers(monkeypatch):
     monkeypatch.setattr(tu.sys, "platform", "win32")
     tu.set_windows_notebook_host(False)
     assert tu._windows_should_reuse_writer(object()) is True
+    tu.set_windows_notebook_host(True)
+    try:
+        assert tu._windows_should_reuse_writer(object()) is True
+    finally:
+        tu.set_windows_notebook_host(False)
     monkeypatch.setattr(tu.sys, "platform", "linux")
     assert tu._windows_should_reuse_writer(object()) is False
     assert tu._windows_should_reuse_writer(None) is False
@@ -925,7 +995,11 @@ def test_close_doc_skips_windows_notebook_leftover(monkeypatch):
 
 
 def test_windows_notebook_host_uses_dedicated_factory_target(monkeypatch):
-    """Notebook suites must not leftover-reuse HTML-paste Writers."""
+    """Notebook suites must not leftover-reuse HTML-paste Writers.
+
+    GHA 34661915875: leftover notebook host still reused leftover
+    ``_wa_notebook_host`` so leftover_open does not climb to 15.
+    """
     import plugin.tests.testing_utils as tu
 
     saved = tu._WINDOWS_LEFTOVER_OPEN
@@ -936,7 +1010,7 @@ def test_windows_notebook_host_uses_dedicated_factory_target(monkeypatch):
         target, flags = tu._windows_factory_load_args("private:factory/swriter", 5)
         assert target == "_wa_notebook_host"
         assert flags == (8 | 55)
-        assert tu._windows_should_reuse_writer(object()) is False
+        assert tu._windows_should_reuse_writer(object()) is True
     finally:
         tu.set_windows_notebook_host(False)
         tu._set_windows_leftover_open(saved)
@@ -997,6 +1071,40 @@ def test_native_doc_windows_reuses_writer_when_leftovers_open(monkeypatch):
             assert second is writer
         assert created == ["create"]
     finally:
+        tu._NATIVE_DOC_POOL.clear()
+
+
+def test_native_doc_windows_reuses_notebook_host(monkeypatch, capsys):
+    """GHA 34661915875: leftover notebook host reuse keeps leftover_open low."""
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    writer = MagicMock(name="notebook_host")
+    created = []
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "reset_native_doc", lambda *a, **k: None)
+    monkeypatch.setattr(tu, "_writer_pool_is_clean", lambda _doc: True)
+    monkeypatch.setattr(
+        TestingFactory,
+        "create_native_doc",
+        lambda *a, **k: created.append("create") or writer,
+    )
+    tu._NATIVE_DOC_POOL.clear()
+    tu.set_windows_notebook_host(True)
+    ctx = object()
+    try:
+        with TestingFactory.native_doc(ctx, "writer") as first:
+            assert first is writer
+        with TestingFactory.native_doc(ctx, "writer") as second:
+            assert second is writer
+        assert created == ["create"]
+        err = capsys.readouterr().err
+        assert "leftover notebook host reuse" in err
+        assert "leftover writer reuse" not in err
+    finally:
+        tu.set_windows_notebook_host(False)
         tu._NATIVE_DOC_POOL.clear()
 
 

@@ -13,8 +13,8 @@ Related: [archive/test_architecture_analysis.md](../archive/test_architecture_an
 | Path | Reuse? | Open | Close |
 |------|--------|------|-------|
 | Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
-| Writer `@with_native_doc` | No (unless `reuse=True`) | Factory each test | `close_doc` (`gc.collect` + 50 ms + `close`) |
-| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`) | `close_doc` (Windows **skips** close when the Draw still holds Math OLE) |
+| Writer `@with_native_doc` | Windows yes (leftover pool; leftover notebook host uses `_wa_notebook_host`) | Factory on first use / dead pool | `close_doc` (Windows **skips** Writer close while leftovers remain) |
+| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>4 | `close_doc` (Windows **skips** close when the Draw still holds Math OLE) |
 
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
 share a pooled document. A keeper hidden Writer is opened once in
@@ -286,6 +286,8 @@ POSIX still `close_doc`. Breadcrumbs:
 `html_paste_writer: leftovers open=N uids=…`,
 `html_paste_writer: keeper reactivated`,
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
+`native_doc: leftover notebook host reuse`,
+`windows leftover skip: leftover simpress leftovers=`,
 `create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: store budget via active start/done`,
 `document_research_uno: open_document_for_read start/done`,
@@ -427,6 +429,21 @@ reuse one CREATE|GLOBAL name each (`_wa_sdraw` / `_wa_simpress`).
 Do not close leftover paste / notebook Writers (34556185752 /
 34646877587). Not a product change.
 
+GHA 34661915875 (master `aa6bf058`, tip of #737): leftover
+`_wa_simpress` is live. Notebook / importer skipped Writer close
+(`leftover_open` 1→15). Leftover `_wa_factory` swriter at
+leftover_open=15 returned (`scripting.test_document_scripts_uno`).
+Leftover `simpress` `target=_wa_simpress flags=63` then hung 30s in
+`create_native_doc` (`test_lo_import_minimal_pptx_multi_slide`). Hang
+is **not** unique `_wa_factory_N` stacking. High leftover Writer
+count wedges a new app factory. Windows now (1) reuses leftover
+`_wa_notebook_host` so leftover_open does not climb
+(`native_doc: leftover notebook host reuse`) and (2) skips leftover
+Draw/Impress factory when leftover_open>4
+(`windows leftover skip: leftover simpress leftovers=N`). Leftover
+Writer / leftover Calc still load. Do not close leftover paste /
+notebook Writers.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -464,7 +481,11 @@ exist (no 30s Timeout on `detect_without_filtername`), leftover
 `simpress` after notebook leftovers using `target=_wa_simpress`
 (not `_wa_factory_10`) then
 `TEST end uno.test_ppt_master_pptx_import_uno.test_lo_import_minimal_pptx_multi_slide OK`
-(no 30s Timeout in `create_native_doc` on leftover Impress), **then**
+or `TEST end … SKIP` with `windows leftover skip: leftover simpress`
+when leftover_open>4 (no 30s Timeout in `create_native_doc` on leftover
+Impress), leftover notebook host using
+`native_doc: leftover notebook host reuse` (leftover_open stays low),
+**then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**
 `TEST end draw.test_draw_uno.test_insert_math_draw OK` after
