@@ -40,9 +40,8 @@ score. Every prior catalog column has an AFC stamp only (including Muse
 Glimmer 30B, Muse Spark 1.3, both Lagunas, both Qwen3.8s, GLM 5.3 Flash,
 Solar Pro 4, Granite 4.2 8B, Mistral Small 4, Seed 2.0 Mini,
 MiniMax M3, DeepSeek V4 Flash 0731, and DeepSeek V4.1 Flash).
-Paid Nemotron 3 Ultra 550B and Nemotron 3 Super 120B are registered
-with empty cells until a stamp lands.
-AFC catalog FIFO is complete (oss-120b through V4.1 Flash). Solar
+Paid Nemotron 3 Ultra 550B and Nemotron 3 Super 120B now have first-class AFC stamps (`20260912-1506-nemotron-3-ultra-550b`, `20260912-1513-nemotron-3-super-120b`); both NOT_HAPPY / oracle FAIL.
+AFC catalog FIFO is complete (oss-120b through V4.1 Flash); paid Ultra/Super stamps folded in after. Solar
 is **BLOCKED** infra (Send never ran) — not NOT_HAPPY. The
 catalog-wide headed
 sweep has **not** happened.
@@ -83,7 +82,7 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Tenant Retention | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | 2 | Cadaver Proposal | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
-| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | BLOCKED / unscored | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — |
+| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | BLOCKED / unscored | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL |
 | 4 | GMP Change Control | — | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | 5 | Floorstand Writer→Calc | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
 | 6 | Calc-primary model | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — | — |
@@ -112,7 +111,7 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
    catalog AFC cells (`20260912-0142` 120b through `20260912-0342`
    Grok, plus Glimmer, Spark, both Lagunas, both Qwen3.8s, GLM 5.3
    Flash, Granite 4.2 8B, Mistral Small 4, Seed 2.0 Mini, MiniMax M3,
-   DeepSeek V4 Flash 0731, and DeepSeek V4.1 Flash) are NOT HAPPY
+   DeepSeek V4 Flash 0731, and DeepSeek V4.1 Flash, plus paid Ultra 550B and Super 120B) are NOT HAPPY
    except Mercury. Solar Pro
    4 is **BLOCKED** infra (`SendButton` / `message_store` sqlite
    crash; Send never ran) — not a model fail. Most
@@ -156,7 +155,9 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
    now has one bar. Value is `partial_score`² ÷ that USD among HAPPY
    (≈213.68). Other catalog USD stays on NOT_HAPPY cells.
 4. **Coverage:** every prior catalog column has AFC only. Ultra 550B
-   and Super 120B are catalog-registered with empty cells. Gemini 3.8
+   and Super 120B now have first-class AFC cells (stamps
+   `20260912-1506-nemotron-3-ultra-550b` /
+   `20260912-1513-nemotron-3-super-120b`; both NOT_HAPPY / oracle FAIL). Gemini 3.8
    has no stamp yet for GMP, Calc-primary, Draw-primary, Reverse
    Tenant, or Long Writer.
    gpt-oss-120b has no stamp for Tenant or Cadaver.
@@ -191,6 +192,8 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 | AFC Population | MiniMax M3 | `20260912-0617-minimax-m3` | Twenty-first catalog cell. Ready; missing Sample+SSC (`failure_count=2`); S=0 R=None; husks 0/0. Analysis A1=`#NAME?` A2=8. Tokens n=30. tip `71640e30`. UNO/assert/PreContract 0. Recorded wall ~66s. OpenRouter usage ~$0.07965 (model_configs alt ~$0.10003 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0617-minimax-m3/`. |
 | AFC Population | DeepSeek V4 Flash 0731 | `20260912-0621-deepseek-v4-flash-0731` | Twenty-second catalog cell. Ready; Sample empty + SSC blank (`failure_count=2`: no data rows + R missing); S=0 R=None; husks 0/0. Sample `deal.PreContractError expected__deal_wire_dict_ok`. Tokens n=51. tip `71640e30`. PreContract 18; UNO/assert 0. Recorded wall ~330s. OpenRouter usage ~$0.17007 (model_configs alt ~$0.18897 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0621-deepseek-v4-flash-0731/`. |
 | AFC Population | DeepSeek V4.1 Flash | `20260912-0630-deepseek-v4.1-flash` | Twenty-third catalog cell — **FIFO tail**. API timed out mid `tool_loop` round 5 on `read_cell_range` (`NetworkError`); model never finished. NOT_HAPPY (Send ran; leftover workbook scored). Missing Sample+SSC (`failure_count=2`); S=0 R=None; husks 0/0. Tokens n=5. tip `71640e30`. UNO/assert/PreContract 0. Recorded wall ~270s. OpenRouter usage ~$0.01832 (model_configs alt ~$0.01043 not stored). CATALOG FIFO COMPLETE. Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0630-deepseek-v4.1-flash/`. |
+| AFC Population | Nemotron 3 Ultra 550B | `20260912-1506-nemotron-3-ultra-550b` | Twenty-fourth catalog cell (paid). Population only; missing Sample+SSC (`failure_count=2`); S=0 R=None; husks 0/0. OpenRouter usage ~$0.51665. tip `400d5233`. Artifacts committed. Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-1506-nemotron-3-ultra-550b/`.
+| AFC Population | Nemotron 3 Super 120B | `20260912-1513-nemotron-3-super-120b` | Twenty-fifth catalog cell (paid). Sample+SSC present; Sample 1516 rows; R missing (`failure_count=1`); S=0 R=None; husks 0/21953. SSC UI rounded ~68. OpenRouter usage ~$0.11893. tip `400d5233`. Catalog stamp is 1513 (not #750 retest 1646). Artifacts committed. Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-1513-nemotron-3-super-120b/`.
 | Floorstand | Gemini 3.8 Flash | `20260909-1748-gemini-3.8-flash-private-patch` | Polarity HIT; still empty + stall. Private patches, not PR’d. |
 | GMP Change Control | GPT-OSS 120B | `20260909-0225-gpt-oss-120b` | Cite-only oracle fail. Prior `0103` was NOT HAPPY (dump polarity). |
 | Floorstand | GPT-OSS 120B | `20260909-0323-gpt-oss-120b` | Extract/JSON polarity MISS; empty + LO crash. Private `1733` still MISS. |

@@ -102,12 +102,14 @@
   <rect x="2908.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
   <text x="2952.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">DeepSeek V4.1 Flash</text>
   <text x="2952.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
-  <rect x="3032.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <rect x="3032.0" y="92.9" width="88" height="231.1" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <rect x="3032.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
   <text x="3076.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Nemotron 3 Ultra 550B</text>
-  <text x="3076.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
-  <rect x="3156.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <text x="3076.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
+  <rect x="3156.0" y="92.9" width="88" height="231.1" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <rect x="3156.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
   <text x="3200.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Nemotron 3 Super 120B</text>
-  <text x="3200.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
+  <text x="3200.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
   <rect x="24" y="376" width="12" height="12" fill="#009E73" stroke="#dadce0"/>
   <text x="42" y="386" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">HAPPY</text>
   <rect x="134" y="376" width="12" height="12" fill="#D55E00" stroke="#dadce0"/>

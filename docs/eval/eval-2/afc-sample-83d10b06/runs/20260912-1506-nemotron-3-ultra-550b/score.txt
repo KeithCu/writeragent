@@ -1,0 +1,8 @@
+FAIL
+  sheets: Population
+  sample_data_rows: 0
+  S=0 R=None
+  husks: 0/0 scored cells
+  - missing sheet 'Sample'
+  - missing sheet 'Sample Size Calculation'
+failure_count: 2

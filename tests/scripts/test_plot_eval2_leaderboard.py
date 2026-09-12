@@ -151,6 +151,8 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     minimax = "minimax/minimax-m3"
     deepseek = "deepseek/deepseek-v4-flash-0731"
     deepseek41 = "deepseek/deepseek-v4.1-flash"
+    ultra = "nvidia/nemotron-3-ultra-550b-a55b"
+    super120 = "nvidia/nemotron-3-super-120b-a12b"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -890,6 +892,70 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert board.not_happy_count(deepseek41) == 1
     assert board.blocked_count(deepseek41) == 0
 
+    # Twenty-fourth catalog AFC stamp (paid Ultra; Scrolly headed 20260912-1506).
+    afc_ultra = board.result_for("afc", ultra)
+    assert afc_ultra is not None
+    assert afc_ultra.product_bar == "NOT_HAPPY"
+    assert afc_ultra.oracle == "FAIL"
+    assert afc_ultra.stamp == "20260912-1506-nemotron-3-ultra-550b"
+    assert afc_ultra.oracle_passed is False
+    assert afc_ultra.oracle_failure_count == 2
+    assert afc_ultra.oracle_failures == (
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'",
+    )
+    assert afc_ultra.oracle_check_count is None
+    assert afc_ultra.partial_score is None
+    assert afc_ultra.afc_s_flags == 0
+    assert afc_ultra.afc_r_required is None
+    assert afc_ultra.husk_cells == 0
+    assert afc_ultra.scored_cells == 0
+    assert afc_ultra.input_tokens == 966313
+    assert afc_ultra.output_tokens == 8098
+    assert afc_ultra.total_tokens == 974411
+    assert afc_ultra.wall_time_s == 66
+    assert afc_ultra.total_cost_usd == pytest.approx(0.51665)
+    assert afc_ultra.intelligence_per_dollar is None
+    assert "20260912-1506-nemotron-3-ultra-550b" in afc_ultra.oracle_note
+    assert "0.51665" in afc_ultra.oracle_note
+    assert "400d5233" in afc_ultra.oracle_note
+    assert pel.has_recorded_partial(afc_ultra)
+    assert board.scored_count(ultra) == 1
+    assert board.not_happy_count(ultra) == 1
+    assert board.blocked_count(ultra) == 0
+
+    # Twenty-fifth catalog AFC stamp (paid Super; Scrolly headed 20260912-1513).
+    afc_super = board.result_for("afc", super120)
+    assert afc_super is not None
+    assert afc_super.product_bar == "NOT_HAPPY"
+    assert afc_super.oracle == "FAIL"
+    assert afc_super.stamp == "20260912-1513-nemotron-3-super-120b"
+    assert afc_super.oracle_passed is False
+    assert afc_super.oracle_failure_count == 1
+    assert afc_super.oracle_failures == (
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_super.oracle_check_count is None
+    assert afc_super.partial_score is None
+    assert afc_super.afc_s_flags == 0
+    assert afc_super.afc_r_required is None
+    assert afc_super.husk_cells == 0
+    assert afc_super.scored_cells == 21953
+    assert afc_super.input_tokens == 1256332
+    assert afc_super.output_tokens == 30354
+    assert afc_super.total_tokens == 1286686
+    assert afc_super.wall_time_s == 876
+    assert afc_super.total_cost_usd == pytest.approx(0.11893)
+    assert afc_super.intelligence_per_dollar is None
+    assert "20260912-1513-nemotron-3-super-120b" in afc_super.oracle_note
+    assert "0.11893" in afc_super.oracle_note
+    assert "400d5233" in afc_super.oracle_note
+    assert "1646" in afc_super.oracle_note  # notes that catalog stamp is not the #750 retest
+    assert pel.has_recorded_partial(afc_super)
+    assert board.scored_count(super120) == 1
+    assert board.not_happy_count(super120) == 1
+    assert board.blocked_count(super120) == 0
+
     # No invented catalog AFC-only scores outside AFC.
     for task_id in (
         "tenant-retention",
@@ -923,6 +989,8 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, minimax) is None
         assert board.result_for(task_id, deepseek) is None
         assert board.result_for(task_id, deepseek41) is None
+        assert board.result_for(task_id, ultra) is None
+        assert board.result_for(task_id, super120) is None
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -949,6 +1017,8 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", minimax),
         ("afc", deepseek),
         ("afc", deepseek41),
+        ("afc", ultra),
+        ("afc", super120),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -1002,6 +1072,8 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_minimax)
     assert pel.has_recorded_partial(afc_deepseek)
     assert pel.has_recorded_partial(afc_deepseek41)
+    assert pel.has_recorded_partial(afc_ultra)
+    assert pel.has_recorded_partial(afc_super)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -1028,6 +1100,8 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "minimax/minimax-m3"),
     ("afc", "deepseek/deepseek-v4-flash-0731"),
     ("afc", "deepseek/deepseek-v4.1-flash"),
+    ("afc", "nvidia/nemotron-3-ultra-550b-a55b"),
+    ("afc", "nvidia/nemotron-3-super-120b-a12b"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -1056,7 +1130,24 @@ def test_every_seed_source_points_at_an_in_repo_doc() -> None:
         first = source.split(";")[0].strip().split()[0]
         path = _REPO / first
         assert path.is_file(), first
-        assert row.get("run_artifacts_committed") is False
+        committed = row.get("run_artifacts_committed")
+        assert committed is False or committed is True
+        if committed is True:
+            stamp = str(row.get("stamp") or "")
+            assert stamp, row
+            run_dir = _REPO / "docs/eval/eval-2/afc-sample-83d10b06/runs" / stamp
+            assert run_dir.is_dir(), run_dir
+            for name in (
+                "notes.txt",
+                "score.txt",
+                "status.txt",
+                "prompt_used.txt",
+                "final_workbook.ods",
+                "writeragent_debug.log",
+            ):
+                assert (run_dir / name).is_file(), run_dir / name
+        else:
+            assert committed is False
         if (row.get("task_id"), row.get("model")) in _RECORDED_AFC_CATALOG:
             continue
         for key in _OPTIONAL_COST_PARTIAL_KEYS:

@@ -1,0 +1,22 @@
+Observer notes — AFC Population nvidia/nemotron-3-super-120b-a12b
+Tip: 400d5233 · debug OXT
+Model: nvidia/nemotron-3-super-120b-a12b · max 50
+Product: NOT HAPPY (Ready; Sample + SSC present; SSC showed rounded sample size 68; oracle R missing so S=0; Sample 1516 rows / near-full dump)
+Oracle: FAIL (1 failure — R missing)
+Workbook: final_workbook.ods from Population_v2_SAVED.ods (374184 B)
+Shots: afc-nemo-super-sent.png mid final
+Debug: writeragent_debug.log (~5.2 MB)
+Run dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-1513-nemotron-3-super-120b
+
+Oracle detail:
+FAIL
+  sheets: Population, Sample Size Calculation, Sample
+  sample_data_rows: 1516
+  S=0 R=None
+  husks: 0/21953 scored cells
+  - R from Sample Size Calculation is missing or < 1
+failure_count: 1
+Tokens (OR usage sum): prompt=1256332 completion=30354 total=1286686 (n=51 usage events; 60 LLM sends)
+Est USD: OR cost sum ~$0.11893; model_configs n/a (not yet in tip catalog)
+Wall: ~14.6m LLM 15:15:11Z → 15:29:50Z (observer ~18m; finish_reason tool_calls+length)
+UNO: 0 / assert_main_thread 0 / PreContract 0
