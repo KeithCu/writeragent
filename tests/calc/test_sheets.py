@@ -97,6 +97,12 @@ def test_create_sheet_description_and_ok_mentions_no_cells_copied():
     assert ToolCalcSheetBase.specialized_domain_description is not None
     assert "Create" in ToolCalcSheetBase.specialized_domain_description
 
+    # L12 — exact-title contract: spaces preserved, no snake_case / aliases.
+    sheet_param = CreateSheet.parameters["properties"]["sheet"]["description"]
+    assert "Exact new sheet title from the request" in sheet_param
+    assert "preserve spaces" in sheet_param
+    assert "snake_case" in sheet_param
+
     ctx = SimpleNamespace(doc=MagicMock())
     sheets = MagicMock()
     sheets.getCount.return_value = 1
