@@ -589,6 +589,16 @@ view-cursor skips fired (suite green). Then
 family. Page-header / page UNO `_tool_ctx` and ops `_populate`
 now leftover-skip. Not a product change.
 
+GHA 34690797019 (PR #746 tip `1db81fca`): those page-header / ops
+skips held on the prior tip; this run hung earlier.
+`test_range_export_keeps_bold_inside_odd_para_uno` printed leftover
+writer reuse, ran XHTML (`XSL Vendor: libxslt`), then hung 30s in
+`html_export._range_to_content_via_temp_doc` `temp_doc.close(True)`
+(office alive). Same leftover Hidden `_default` family as apply
+`html_to_plain_text` / format_uno `finally` close. Skip before the
+factory load (`windows leftover skip: html_export Hidden _default
+temp_doc`). Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -678,6 +688,11 @@ page-header `TEST end … SKIP` with
 `windows leftover skip: page_header Hidden _blank xtext_to_content`
 when leftover_open>0 (no 30s Timeout on `_open_hidden_writer` —
 GHA 34689136372),
+html_export range `TEST end … SKIP` with
+`windows leftover skip: html_export Hidden _default temp_doc`
+when leftover_open>0 (no 30s Timeout on
+`_range_to_content_via_temp_doc` `temp_doc.close(True)` —
+GHA 34690797019),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**
