@@ -1,0 +1,3 @@
+Model: nvidia/nemotron-3-ultra-550b-a55b
+Tip: 400d5233
+Status: scored NOT HAPPY / FAIL

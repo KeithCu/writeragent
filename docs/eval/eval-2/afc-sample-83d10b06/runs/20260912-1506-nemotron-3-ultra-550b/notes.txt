@@ -1,0 +1,23 @@
+Observer notes — AFC Population nvidia/nemotron-3-ultra-550b-a55b
+Tip: 400d5233 · debug OXT (make deploy)
+Model: nvidia/nemotron-3-ultra-550b-a55b · max 50
+Product: NOT HAPPY (Ready; no Sample/SSC; only Population; L1 Err:508 / M1 NoneType noted by observer; K header present flags blank)
+Oracle: FAIL (2 failures)
+Workbook: final_workbook.ods from Population_v2_SAVED.ods (122404 B)
+Shots: afc-nemo-ultra-sent.png mid final
+Debug: writeragent_debug.log (~5.3 MB)
+Run dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-1506-nemotron-3-ultra-550b
+
+Oracle detail:
+FAIL
+  sheets: Population
+  sample_data_rows: 0
+  S=0 R=None
+  husks: 0/0 scored cells
+  - missing sheet 'Sample'
+  - missing sheet 'Sample Size Calculation'
+failure_count: 2
+Tokens (OR usage sum): prompt=966313 completion=8098 total=974411 (n=50 usage events; 50 LLM sends)
+Est USD: OR cost sum ~$0.51665; model_configs n/a (not yet in catalog on tip — allow-unknown)
+Wall: ~66s LLM 15:08:09Z → 15:09:15Z (observer ~2m; all finish_reason=tool_calls)
+UNO: 0 / assert_main_thread 0 / PreContract 0
