@@ -1276,8 +1276,10 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
     ``Budget_read.ods`` (34643210006 was 3/3). GHA 34675151298: leftover
     writer reuse then ``convert_mathml_to_starmath`` Hidden ``_blank``
     ``.mml`` hung 30s — latex dialog UNO uses this (XDL is patched;
-    not AWT TOP). Cached leftover count only — do not enum. Do not
-    close leftover paste Writers (34556185752).
+    not AWT TOP). GHA 34678020608: that skip fired; next suite
+    ``test_convert_mathml_to_starmath_fraction`` hung the same load.
+    Cached leftover count only — do not enum. Do not close leftover
+    paste Writers (34556185752).
     """
     if not windows_leftover_hidden_load_unsafe():
         return
@@ -1292,6 +1294,17 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
         "Windows leftover Hidden/AWT skip (%s, leftovers=%s)"
         % (reason, _windows_leftover_open())
     )
+
+
+def skip_windows_leftover_hidden_mathml(reason: str) -> None:
+    """Skip leftover Hidden Math loads (``.mml`` or ``smath`` factory).
+
+    GHA 34675151298 hung in latex-dialog ``convert_mathml_to_starmath``
+    Hidden ``_blank`` ``.mml``. GHA 34678020608 skipped that test, then
+    ``test_convert_mathml_to_starmath_fraction`` hung at the same call.
+    Export uses Hidden ``private:factory/smath`` ``_blank``. Not AWT TOP.
+    """
+    skip_windows_leftover_hidden_load(reason)
 
 
 def windows_leftover_hidden_load_unsafe() -> bool:

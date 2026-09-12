@@ -16,7 +16,7 @@ from plugin.writer.math.latex_dialog import insert_latex_math_dialog
 from plugin.framework.config import get_config
 from plugin.writer.math.math_mml_convert import MATH_CLSID
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
+from plugin.tests.testing_utils import skip_windows_leftover_hidden_mathml, with_native_doc
 
 
 def _skip_windows_leftover_hidden_mathml() -> None:
@@ -30,8 +30,9 @@ def _skip_windows_leftover_hidden_mathml() -> None:
     ``LatexInputDialog`` is patched — hang is leftover Hidden
     ``_blank``, not AWT TOP ``createPeer`` / ``setVisible``.
     ``skip_windows_awt_top_dialog`` is the wrong class.
+    GHA 34678020608: this skip fired; next suite hung the same load.
     """
-    skip_windows_leftover_hidden_load("latex dialog Hidden _blank .mml")
+    skip_windows_leftover_hidden_mathml("latex dialog Hidden _blank .mml")
 
 
 def _embed_count(doc: Any) -> int:

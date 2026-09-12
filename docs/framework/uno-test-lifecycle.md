@@ -289,6 +289,8 @@ POSIX still `close_doc`. Breadcrumbs:
 `native_doc: leftover notebook host reuse`,
 `windows leftover skip: leftover simpress leftovers=`,
 `windows leftover skip: latex dialog Hidden _blank .mml leftovers=`,
+`windows leftover skip: math formula Hidden _blank .mml leftovers=`,
+`windows leftover skip: math export Hidden _blank smath leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -491,8 +493,15 @@ printed `native_doc: leftover writer reuse` and hung 30s in
 Hidden)` (office alive). XDL `LatexInputDialog` is patched — hang
 is leftover Hidden `_blank` `.mml`, not AWT TOP `createPeer` /
 `setVisible`. Converting latex-dialog UNO tests now
-`skip_windows_leftover_hidden_load` (`windows leftover skip: latex
-dialog Hidden _blank .mml leftovers=N`). Not a product change.
+`skip_windows_leftover_hidden_mathml` (`windows leftover skip: latex
+dialog Hidden _blank .mml leftovers=N`).
+
+GHA 34678020608 (PR #746 tip `a9d44413`): latex converting tests
+SKIPPED as intended. Next suite
+`test_convert_mathml_to_starmath_fraction` printed leftover writer
+reuse and hung 30s at the same Hidden `_blank` `.mml` load. Later
+convert / export / document-helpers math UNO tests now use the
+same leftover Hidden Math skip. Not a product change.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
@@ -543,7 +552,11 @@ Impress), leftover notebook host using
 latex dialog converting tests `TEST end … SKIP` with
 `windows leftover skip: latex dialog Hidden _blank .mml` when
 leftover_open>0 (no 30s Timeout in `convert_mathml_to_starmath`
-Hidden `_blank` `.mml` after leftover writer reuse),
+Hidden `_blank` `.mml` after leftover writer reuse), later math
+convert/export tests `TEST end … SKIP` with
+`windows leftover skip: math formula Hidden _blank .mml` or
+`windows leftover skip: math export Hidden _blank smath` (no 30s
+Timeout on `test_convert_mathml_to_starmath_fraction`),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**

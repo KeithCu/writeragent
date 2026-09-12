@@ -66,5 +66,15 @@ class TestConvertLatexToStarmath(unittest.TestCase):
             self.assertIn("http://www.w3.org/1998/Math/MathML", mathml_arg)
 
 
+def test_math_formula_insert_uno_skips_windows_leftover_hidden_mml() -> None:
+    """GHA 34678020608: leftover writer reuse then Hidden _blank .mml hung 30s."""
+    from pathlib import Path
+
+    src = Path(__file__).with_name("test_math_formula_insert_uno.py").read_text(encoding="utf-8")
+    assert "skip_windows_leftover_hidden_mathml" in src
+    assert "math formula Hidden _blank .mml" in src
+    assert "34678020608" in src
+
+
 if __name__ == "__main__":
     unittest.main()

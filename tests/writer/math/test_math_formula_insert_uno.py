@@ -9,9 +9,14 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import skip_windows_leftover_hidden_mathml, with_native_doc
 from plugin.writer import format as format_support
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_mathml_to_starmath, insert_writer_math_formula
+
+
+def _skip_windows_leftover_hidden_mathml() -> None:
+    """GHA 34678020608: latex skip fired; this Hidden ``_blank`` ``.mml`` hung 30s."""
+    skip_windows_leftover_hidden_mathml("math formula Hidden _blank .mml")
 
 
 def _embed_count(doc: Any) -> int:
@@ -36,6 +41,7 @@ def _first_math_formula(doc: Any) -> str:
 @native_test
 @with_native_doc("writer")
 def test_convert_mathml_to_starmath_fraction(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     mml = (
         '<math xmlns="http://www.w3.org/1998/Math/MathML">'
         "<mrow><mi>x</mi><mo>=</mo><mfrac><mn>1</mn><mn>2</mn></mfrac></mrow>"
@@ -50,6 +56,7 @@ def test_convert_mathml_to_starmath_fraction(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_replace_full_document_html_plus_inline_math(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     html = (
         "<p>Hello</p>"
         '<math xmlns="http://www.w3.org/1998/Math/MathML">'
@@ -82,6 +89,7 @@ def test_insert_formula_readable_formula_property(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_display_math_inserts_embed(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     m = (
         '<math display="block" xmlns="http://www.w3.org/1998/Math/MathML">'
         "<mrow><mi>z</mi></mrow></math>"
@@ -94,6 +102,7 @@ def test_display_math_inserts_embed(ctx: Any, doc: Any) -> None:
 @with_native_doc("writer")
 def test_apply_document_content_end_with_mathml(ctx: Any, doc: Any) -> None:
     """End-to-end: ``apply_document_content`` tool on a hidden doc with MathML HTML."""
+    _skip_windows_leftover_hidden_mathml()
     from plugin.main import get_services, get_tools
     from plugin.framework.tool import ToolContext
 
@@ -120,6 +129,7 @@ def test_apply_document_content_end_with_mathml(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_replace_full_document_tex_inline(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     html = r"<p>Hi</p><p>\(x^2\)</p><p>Bye</p>"
     format_support.replace_full_document(doc, ctx, html, config_svc=None)
     assert _embed_count(doc) >= 1
@@ -130,6 +140,7 @@ def test_replace_full_document_tex_inline(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_replace_full_document_tex_display_dollars(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     html = r"<p>Intro</p>$$\frac{1}{2}$$<p>Outro</p>"
     format_support.replace_full_document(doc, ctx, html, config_svc=None)
     assert _embed_count(doc) >= 1
@@ -140,6 +151,7 @@ def test_replace_full_document_tex_display_dollars(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_replace_full_document_mixed_mathml_and_tex(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     html = (
         r"<p>A</p>"
         r'<math xmlns="http://www.w3.org/1998/Math/MathML"><mrow><mi>t</mi></mrow></math>'
