@@ -69,20 +69,16 @@ class OpenRouterShim(BaseProviderShim):
         endpoint = self.client._endpoint()
         api_path = self.client._api_path()
         url = endpoint + api_path + "/images"
-        data: dict[str, Any] = {"prompt": prompt, "model": model, "n": 1, "output_format": "webp"}
+        # What was wrong: output_format was hardcoded to webp. Models such as
+        # black-forest-labs/flux.2-klein-4b only accept png/jpeg and return HTTP 400.
+        # png is the Images API default and is accepted by webp-capable models too.
+        data: dict[str, Any] = {"prompt": prompt, "model": model, "n": 1, "output_format": "png"}
         if width and height:
+            # Explicit pixel size is authoritative. Sending inferred aspect_ratio
+            # alongside size is rejected with HTTP 400 when OpenRouter considers
+            # them mismatched (retries then sent other ratios). Size already
+            # encodes the intended dimensions.
             data["size"] = f"{width}x{height}"
-            ratio = width / height
-            if abs(ratio - 1.0) < 0.05:
-                data["aspect_ratio"] = "1:1"
-            elif abs(ratio - (16 / 9)) < 0.05:
-                data["aspect_ratio"] = "16:9"
-            elif abs(ratio - (4 / 3)) < 0.05:
-                data["aspect_ratio"] = "4:3"
-            elif abs(ratio - (9 / 16)) < 0.05:
-                data["aspect_ratio"] = "9:16"
-            elif abs(ratio - (3 / 4)) < 0.05:
-                data["aspect_ratio"] = "3:4"
 
         if image_url:
             data["image_url"] = image_url

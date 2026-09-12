@@ -169,6 +169,20 @@ class TestToolcallingPromptExamples(unittest.TestCase):
         self.assertIn("reply_to_user", block)
         self.assertNotIn("specialized_workflow_finished", block)
 
+    def test_get_examples_block_images_uses_source_image_selection(self):
+        from plugin.chatbot.smol_examples import IMAGES_SPECIALIZED_EXAMPLES, get_examples_block
+
+        block = get_examples_block("writer:images")
+        self.assertEqual(block, IMAGES_SPECIALIZED_EXAMPLES)
+        self.assertEqual(get_examples_block("calc:images"), IMAGES_SPECIALIZED_EXAMPLES)
+        self.assertEqual(get_examples_block("draw:images"), IMAGES_SPECIALIZED_EXAMPLES)
+        self.assertIn("source_image", block)
+        self.assertIn('"source_image": "selection"', block)
+        self.assertIn("image_generate", block)
+        self.assertIn("make it look like a wizard", block)
+        self.assertIn("specialized_workflow_finished", block)
+        self.assertNotIn("image_delete", block)
+
     def test_get_examples_block_python_uses_sympy_venv_script(self):
         from plugin.chatbot.smol_examples import PYTHON_SPECIALIZED_EXAMPLES, get_examples_block
 

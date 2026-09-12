@@ -1036,9 +1036,48 @@ def test_openrouter_shim_image(client):
         assert body["prompt"] == "Draw a galaxy"
         assert body["model"] == "bytedance-seed/seedream-4.5"
         assert body["size"] == "1024x1024"
-        assert body["aspect_ratio"] == "1:1"
+        assert "aspect_ratio" not in body
         assert body["n"] == 1
-        assert body["output_format"] == "webp"
+        assert body["output_format"] == "png"
+
+
+def test_openrouter_shim_image_flux_klein_png_no_aspect(client):
+    """flux.2-klein-4b rejects webp and size+aspect_ratio pairs (create + img2img)."""
+    client.config["endpoint"] = "https://openrouter.ai/api"
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.sync_request") as mock_sync
+    ):
+        mock_auth.return_value = {"provider": "openrouter"}
+        mock_sync.return_value = {"data": [{"b64_json": "xyz"}]}
+
+        client.image_completion(
+            "Draw a galaxy",
+            model="black-forest-labs/flux.2-klein-4b",
+            width=1024,
+            height=576,
+        )
+
+        body = json.loads(mock_sync.call_args.kwargs["data"])
+        assert body["model"] == "black-forest-labs/flux.2-klein-4b"
+        assert body["size"] == "1024x576"
+        assert body["output_format"] == "png"
+        assert "aspect_ratio" not in body
+        assert "webp" not in json.dumps(body)
+
+        client.image_completion(
+            "Make it dusk",
+            model="black-forest-labs/flux.2-klein-4b",
+            width=1024,
+            height=1024,
+            source_image="abc123",
+        )
+
+        body = json.loads(mock_sync.call_args.kwargs["data"])
+        assert body["output_format"] == "png"
+        assert body["size"] == "1024x1024"
+        assert "aspect_ratio" not in body
+        assert body["image_url"] == "data:image/png;base64,abc123"
 
 
 def test_is_image_only_model(client):

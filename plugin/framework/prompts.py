@@ -231,6 +231,26 @@ PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE = ""
 
 PYTHON_VENV_AUTO_IMPORTS_PROMPT_LINE = ""
 
+def images_specialized_sub_agent_hint() -> str:
+    """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"images\").
+
+    Edit/change/restyle of an existing or selected image must go through
+    ``image_generate(source_image='selection')``. That path reads the
+    selection and ``replace_image_in_place``, so the graphic stays in the
+    same frame. A prompt-only generate (after ``image_delete`` or not)
+    creates a new image instead of img2img.
+    """
+    return (
+        " To edit, change, or restyle an existing or selected image"
+        " (for example 'make it look like a wizard'), call image_generate"
+        " with source_image='selection'."
+        " That reads the selected pixels and replace_image_in_place so the"
+        " graphic stays in the same frame."
+        " Discover local image files with image_list_nearby_files before"
+        " image_insert when the user refers to a photo in the folder."
+    )
+
+
 def python_specialized_sub_agent_hint(agent_label: str) -> str:
     """Smol sub-agent instructions suffix for delegate_to_specialized_* (domain=\"python\")."""
     if agent_label == "Calc":

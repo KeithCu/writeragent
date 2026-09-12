@@ -9,6 +9,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 [`plugin/writer/images/image_utils.py`](../../plugin/writer/images/image_utils.py):
 
 - **`EndpointImageProvider`**: requests images via `LlmClient` (routing dedicated text-to-image models to OpenRouter's dedicated Image API via `POST /api/v1/images`, falling back to standard `modalities: ["image"]` chat completions for multimodal models).
+- **OpenRouter `/images` payload** ([`OpenRouterShim.build_image_request`](../../plugin/framework/client/openai_shim.py)): `output_format` is `png` (not `webp` — models such as `black-forest-labs/flux.2-klein-4b` only accept png/jpeg). When width/height are set it sends `size` (`WxH`) and omits `aspect_ratio`; OpenRouter treats an explicit pixel size as authoritative and returns HTTP 400 if a paired `aspect_ratio` is considered mismatched.
 - **`ImageService`**: merges config defaults (base size, steps) and delegates to `EndpointImageProvider`.
 
 ### Tools and document insertion
@@ -66,6 +67,8 @@ Single `generate_image(prompt, source_image=...)` API:
 | **OpenAI-compatible / Ollama / Together-style** | Same image endpoint as create; optional `source_image` / `image_url` in the request body where the shim supports it. |
 
 Tool usage: pass `source_image='selection'` with an image selected in the document; optional `strength` (default 0.75) controls edit strength.
+
+The images specialist is steered to that path: `images_specialized_sub_agent_hint()` plus `IMAGES_SPECIALIZED_EXAMPLES` (`writer:images` / `calc:images` / `draw:images`). Edit/change/restyle of an existing or selected image (e.g. “make it look like a wizard”) must call `image_generate` with `source_image='selection'` so img2img + `replace_image_in_place` keep the graphic in the same frame. A delete plus a prompt-only generate creates a new image instead of editing.
 
 ## Future Work
 

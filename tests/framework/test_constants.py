@@ -19,6 +19,7 @@ from plugin.framework.prompts import (
     get_core_directives,
     get_greeting_for_document,
     get_specialized_delegation_for_model,
+    images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
 )
 
@@ -463,6 +464,26 @@ def test_core_directives_prohibit_asking_user_to_paste():
     assert "MUST NOT ask the user where the file is stored" in DRAW_CORE_DIRECTIVES
     assert 'delegate_to_specialized_draw_toolset(domain="document_research") once' in DRAW_CORE_DIRECTIVES
     assert "described file(s)" in DRAW_CORE_DIRECTIVES
+
+
+def test_images_specialized_sub_agent_hint_steers_source_image():
+    hint = images_specialized_sub_agent_hint()
+    assert "source_image" in hint
+    assert "selection" in hint
+    assert "image_generate" in hint
+    assert "replace_image_in_place" in hint
+    assert "image_list_nearby_files" in hint
+
+
+def test_images_domain_descriptions_steer_source_image():
+    from plugin.calc.base import ToolCalcImageBase
+    from plugin.draw.base import ToolDrawImageBase
+    from plugin.writer.specialized_base import ToolWriterImageBase
+
+    for cls in (ToolWriterImageBase, ToolCalcImageBase, ToolDrawImageBase):
+        desc = cls.specialized_domain_description or ""
+        assert "source_image" in desc
+        assert "selection" in desc
 
 
 def test_python_specialized_sub_agent_hint_writer():
