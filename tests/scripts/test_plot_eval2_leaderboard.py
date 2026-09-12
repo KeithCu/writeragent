@@ -161,9 +161,34 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     ):
         assert board.result_for(task_id, gemini) is None
 
-    # No invented gpt-oss scores for Gemini-only Writer/AFC stamps.
-    for task_id in ("tenant-retention", "cadaver-proposal", "afc"):
+    # No invented gpt-oss scores for Gemini-only Writer stamps.
+    for task_id in ("tenant-retention", "cadaver-proposal"):
         assert board.result_for(task_id, oss) is None
+
+    # First catalog AFC stamp (Scrolly headed 20260912-0142).
+    afc_oss = board.result_for("afc", oss)
+    assert afc_oss is not None
+    assert afc_oss.product_bar == "NOT_HAPPY"
+    assert afc_oss.oracle == "FAIL"
+    assert afc_oss.stamp == "20260912-0142-gpt-oss-120b"
+    assert afc_oss.oracle_passed is False
+    assert afc_oss.oracle_failure_count == 1
+    assert afc_oss.oracle_failures == (
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_oss.oracle_check_count is None
+    assert afc_oss.partial_score is None
+    assert afc_oss.afc_s_flags == 585
+    assert afc_oss.afc_r_required is None
+    assert afc_oss.husk_cells == 0
+    assert afc_oss.scored_cells == 15159
+    assert afc_oss.input_tokens == 108266
+    assert afc_oss.output_tokens == 6994
+    assert afc_oss.total_tokens == 115260
+    assert afc_oss.wall_time_s == 1290
+    assert afc_oss.total_cost_usd == pytest.approx(0.0052)
+    assert afc_oss.intelligence_per_dollar is None
+    assert "20260912-0142-gpt-oss-120b" in afc_oss.oracle_note
 
     # Catalog peers stay empty until a real stamp lands.
     for mid in (
@@ -174,8 +199,10 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.scored_count(mid) == 0
         assert board.happy_count(mid) == 0
 
-    # Seed must not invent run costs or oracle-partial counts.
+    # Other seed cells must not invent run costs or oracle-partial counts.
     for row in board.results:
+        if row.task_id == "afc" and row.model == oss:
+            continue
         assert row.total_tokens is None
         assert row.input_tokens is None
         assert row.output_tokens is None
@@ -199,6 +226,27 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     afc = board.result_for("afc", gemini)
     assert afc is not None
     assert pel.has_recorded_partial(afc)
+    assert pel.has_recorded_partial(afc_oss)
+
+
+_RECORDED_AFC_OSS = ("afc", "openai/gpt-oss-120b")
+_OPTIONAL_COST_PARTIAL_KEYS = (
+    "total_tokens",
+    "input_tokens",
+    "output_tokens",
+    "total_cost_usd",
+    "wall_time_s",
+    "intelligence_per_dollar",
+    "oracle_passed",
+    "oracle_failure_count",
+    "oracle_check_count",
+    "oracle_failures",
+    "afc_s_flags",
+    "afc_r_required",
+    "husk_cells",
+    "scored_cells",
+    "partial_score",
+)
 
 
 def test_every_seed_source_points_at_an_in_repo_doc() -> None:
@@ -210,23 +258,9 @@ def test_every_seed_source_points_at_an_in_repo_doc() -> None:
         path = _REPO / first
         assert path.is_file(), first
         assert row.get("run_artifacts_committed") is False
-        for key in (
-            "total_tokens",
-            "input_tokens",
-            "output_tokens",
-            "total_cost_usd",
-            "wall_time_s",
-            "intelligence_per_dollar",
-            "oracle_passed",
-            "oracle_failure_count",
-            "oracle_check_count",
-            "oracle_failures",
-            "afc_s_flags",
-            "afc_r_required",
-            "husk_cells",
-            "scored_cells",
-            "partial_score",
-        ):
+        if (row.get("task_id"), row.get("model")) == _RECORDED_AFC_OSS:
+            continue
+        for key in _OPTIONAL_COST_PARTIAL_KEYS:
             assert key not in row or row[key] is None, row
 
 
@@ -270,11 +304,15 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "0 HAPPY / 0 scored" in coverage
     assert "No HAPPY cell has recorded total_cost_usd yet" in cost
     assert "data-cost-usd=" not in cost
-    # Seed has one oracle PASS (AFC) → partial 1; no invented FAIL ratios.
+    # Seed has one oracle PASS (AFC Gemini) → partial 1. Catalog AFC 120b
+    # recorded S/R + failure_count without a check-count ratio.
     assert "data-partial-score=\"1.00\"" in partial
     assert "Gemini 3.8 Flash" in partial
     assert "AFC Population" in partial
-    assert "S=" not in partial
+    assert "GPT-OSS 120B" in partial
+    assert "S=585 R=—" in partial
+    assert "no ratio" in partial
+    assert "data-partial-score=\"0." not in partial
 
 
 def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> None:
@@ -308,6 +346,8 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     partial_text = partial_svg.read_text(encoding="utf-8")
     assert 'data-partial-score="1.00"' in partial_text
     assert "0.50" not in partial_text
+    assert "S=585 R=—" in partial_text
+    assert "no ratio" in partial_text
 
 
 def test_cli_check_and_refuse_string_harness_json(

@@ -27,3 +27,13 @@ Gold `Sample v2` is a **different** deliverable (variance in **I**, flags in **J
 The gold rubric still describes a separate Excel file named `Sample`. This variant is for iterating WriterAgent/Calc in-workbook behavior; do not treat gold rubric items about a separate deliverable filename as automatically rewritten.
 
 Harness pass/fail for this variant is [`rubric.eval2.md`](rubric.eval2.md) (fixture + in-workbook oracle), not a letter-shift of `rubric_pretty.txt`.
+
+## Catalog stamps
+
+First multi-model catalog cell: `openai/gpt-oss-120b` as `:nitro`, stamp
+`20260912-0142-gpt-oss-120b` (Scrolly headed). Product bar **NOT_HAPPY**,
+oracle **FAIL** (`R from Sample Size Calculation is missing or < 1`).
+Sample+SSC nonempty but wrong shape (`sample_data_rows=1516`); S=585,
+R=None, husks 0/15159. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0142-gpt-oss-120b/`.
+Scoreboard cell: [`../eval2_benchmark_results.json`](../eval2_benchmark_results.json).

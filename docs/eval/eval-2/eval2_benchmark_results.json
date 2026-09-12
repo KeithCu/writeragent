@@ -3,7 +3,7 @@
   "updated": "2026-09-12",
   "gate_model": "google/gemini-3.8-flash",
   "source_of_truth": "docs/eval/eval-2/headed-failure-autopsy.md",
-  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded only from in-repo autopsy / sibling notes. No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
+  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded from in-repo autopsy / sibling notes plus the first Scrolly AFC catalog stamp (gpt-oss-120b). No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
   "tasks": [
     {
       "id": "tenant-retention",
@@ -129,6 +129,31 @@
       "source": "docs/eval/eval-2/headed-failure-autopsy.md §1; docs/eval/eval-2/afc-sample-83d10b06/SMOOTHER_CHANGES.md",
       "run_artifacts_committed": false,
       "patches": null
+    },
+    {
+      "task_id": "afc",
+      "model": "openai/gpt-oss-120b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "First catalog AFC cell. Ran as openai/gpt-oss-120b:nitro. Sample+SSC nonempty but wrong shape (sample_data_rows=1516, near-full dump, not sample-sized). #DIV/0! on Sample. Agent Ready then kept iterating. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1. S=585 R=None, husks 0/15159. No oracle_check_count on the stamp — omit partial_score (do not invent a 4-check denominator). Est. USD from the headed run, not a later list-price backfill. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0142-gpt-oss-120b/",
+      "stamp": "20260912-0142-gpt-oss-120b",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 585,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 15159,
+      "input_tokens": 108266,
+      "output_tokens": 6994,
+      "total_tokens": 115260,
+      "wall_time_s": 1290,
+      "total_cost_usd": 0.0052
     },
     {
       "task_id": "writer-calc-peer-write",
