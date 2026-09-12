@@ -38,4 +38,6 @@ def test_latex_dialog_uno_skips_windows_leftover_hidden_mml() -> None:
     assert "skip_windows_leftover_hidden_load" in src
     assert "latex dialog Hidden _blank .mml" in src
     assert "34675151298" in src
-    assert "skip_windows_awt_top_dialog" not in src
+    # AWT TOP is cited as the wrong class; leftover Hidden is the skip.
+    assert 'skip_windows_leftover_hidden_load("latex dialog Hidden _blank .mml")' in src
+    assert "is the wrong class" in src
