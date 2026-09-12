@@ -44,6 +44,7 @@ from dataset import (
     to_dspy_examples,
 )
 from eval_auth import OPENROUTER_DEFAULT_JUDGE, resolve_api_base, resolve_api_key
+from eval_catalog import add_eval_tool_sweep_arguments
 from metric import (
     SLICE_LENGTH_MAX_RATIO,
     SLICE_LENGTH_PENALTY_LAMBDA,
@@ -131,6 +132,7 @@ def parse_args(argv: list[str] | None = None):
         default=None,
         help="Output JSON path (default: optimized_slice.json or optimized_writer_prompt.json).",
     )
+    add_eval_tool_sweep_arguments(p)
     return p.parse_args(argv)
 
 
@@ -169,6 +171,8 @@ def _build_student(args: argparse.Namespace, api_base: str, api_key: str, model:
         backend=args.backend,
         verbose=args.verbose,
         prompt_task_id=prompt_task_id,
+        tools_spec=args.tools,
+        schema_density=args.schema_density,
     )
 
 

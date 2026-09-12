@@ -190,6 +190,13 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
 `shape_upsert` / Calc `sort_range` are advertised only via
 `delegate_to_specialized_*`. There is no committed JSON snapshot.
 
+Eval-only (not sidebar): `filter_eval_tool_schemas` / named presets
+(`full`, `calc_minimal`, `calc_core`, `writer_minimal`) and
+`apply_schema_density` (`full` \| `skinny`) hang off `prepare_eval_tool_schemas`
+and the `--tools` / `--schema-density` flags on `run_eval.py` /
+`run_eval_multi.py` / `run_optimize.py`. Outer allowlists do not filter
+specialized inner schemas. Recipe: [prompt_optimization README](../../scripts/prompt_optimization/README.md).
+
 Do not include `specialized` / `specialized_control`. Do not
 bootstrap `MainJob`.
 

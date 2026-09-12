@@ -621,6 +621,8 @@ def run_eval_on_examples_llm(
     gold_lm: Any = None,
     student: str = "llm",
     no_judge: bool = False,
+    tools_spec: str | None = None,
+    schema_density: str = "full",
 ) -> List[ExampleEval]:
     """
     Run benchmarks with ``LlmClient`` + tool loop (same tool names as production chat).
@@ -631,6 +633,9 @@ def run_eval_on_examples_llm(
     - ``no_judge``: skip LLM judge even when ``judge_model`` is set.
     - ``judge_model``: OpenAI-compatible model id for LLM judge (preferred over ``judge_lm``).
     - ``gold_model``: model id for on-the-fly gold generation (preferred over ``gold_lm``).
+    - ``tools_spec`` / ``schema_density``: live-harness tool-count and
+      description-density knobs (see ``eval_catalog``). Defaults keep the
+      full production catalog.
     """
     from eval_prompts import get_eval_system_prompt
 
@@ -676,6 +681,8 @@ def run_eval_on_examples_llm(
                 verbose=verbose,
                 student=student,
                 task_id=task_id,
+                tools_spec=tools_spec,
+                schema_density=schema_density,
             )
             if gerr and not quiet:
                 print(f"  Gold generation error: {gerr}")
@@ -703,6 +710,8 @@ def run_eval_on_examples_llm(
                 verbose=verbose,
                 student=student,
                 task_id=task_id,
+                tools_spec=tools_spec,
+                schema_density=schema_density,
             )
             if error and not quiet:
                 print(f"  API/run error: {error}", flush=True)

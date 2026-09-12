@@ -46,6 +46,8 @@ class LiveEvalStudent(dspy.Module):
         student: Literal["llm", "scripted"] = "llm",
         verbose: bool = False,
         prompt_task_id: str = "",
+        tools_spec: str | None = None,
+        schema_density: str = "full",
     ) -> None:
         super().__init__()
         self.slice_name = slice_name
@@ -62,6 +64,8 @@ class LiveEvalStudent(dspy.Module):
         self.student = student
         self.verbose = verbose
         self.prompt_task_id = prompt_task_id
+        self.tools_spec = tools_spec
+        self.schema_density = schema_density
         # Dummy predictor: MIPROv2 instruction-only search rewrites this text.
         # Do not call ``propose`` — that would be a second (DSPy) student.
         sig = dspy.Signature(
@@ -99,6 +103,8 @@ class LiveEvalStudent(dspy.Module):
             student=self.student,
             task_id=task_id,
             schema_patches=schema_patches,
+            tools_spec=self.tools_spec,
+            schema_density=self.schema_density,
         )
         prompt_tok = int(usage.get("prompt_tokens", 0))
         completion_tok = int(usage.get("completion_tokens", 0))
