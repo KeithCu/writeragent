@@ -36,9 +36,10 @@ partial and USD.
 **HAPPY** can sit on a soft oracle FAIL (false-red or a secondary
 cite). **NOT_HAPPY** + oracle FAIL is usually an empty or wrong-facts
 deliverable. **—** means no in-repo headed stamp; do not invent a
-score. Luna, 20B, Flash Lite, Gemma 4 31B, and Gemma 4 26B A4B have an
-AFC stamp only. Remaining catalog columns (Grok 4.6, Muse Spark 1.3)
-are placeholders. The catalog-wide headed sweep has **not** happened.
+score. Luna, 20B, Flash Lite, Gemma 4 31B, Gemma 4 26B A4B, and
+Nemotron 3.5 Lightning have an AFC stamp only. Remaining catalog
+columns (Grok 4.6, Muse Spark 1.3) are placeholders. The catalog-wide
+headed sweep has **not** happened.
 
 ## Snapshot ranking (2026-09-12)
 
@@ -46,7 +47,8 @@ Seeded from the autopsy, sibling notes, and Scrolly AFC catalog
 stamps (`20260912-0142-gpt-oss-120b`, `20260912-0150-gpt-5.6-luna`,
 `20260912-0202-gpt-oss-20b-nitro`,
 `20260912-0216-gemini-3.5-flash-lite`, `20260912-0224-gemma-4-31b-it`,
-`20260912-0240-gemma-4-26b-a4b-it`, box-local). Run dirs are typically
+`20260912-0240-gemma-4-26b-a4b-it`,
+`20260912-0310-nemotron-3.5-lightning`, box-local). Run dirs are typically
 untracked —
 `run_artifacts_committed` is false for every cell. No OpenRouter
 eval-2 CI job. No HAPPY cell has recorded USD yet.
@@ -54,17 +56,17 @@ eval-2 CI job. No HAPPY cell has recorded USD yet.
 Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 (+ [schema](eval2_benchmark_results.schema.json)).
 
-| # | Task | Gemini 3.8 Flash | GPT-OSS 120B | GPT-5.6 Luna | GPT-OSS 20B | Gemini 3.5 Flash Lite | Gemma 4 31B | Gemma 4 26B A4B | Grok 4.6 | Muse Spark 1.3 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Tenant Retention | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — |
-| 2 | Cadaver Proposal | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — |
-| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — |
-| 4 | GMP Change Control | — | HAPPY / oracle FAIL | — | — | — | — | — | — | — |
-| 5 | Floorstand Writer→Calc | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — |
-| 6 | Calc-primary model | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — |
-| 8 | Draw-primary | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — |
-| 9 | Reverse Tenant | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — |
-| 10 | Long Writer pack | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — |
+| # | Task | Gemini 3.8 Flash | GPT-OSS 120B | GPT-5.6 Luna | GPT-OSS 20B | Gemini 3.5 Flash Lite | Gemma 4 31B | Gemma 4 26B A4B | Nemotron 3.5 Lightning | Grok 4.6 | Muse Spark 1.3 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Tenant Retention | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — |
+| 2 | Cadaver Proposal | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — | — |
+| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — |
+| 4 | GMP Change Control | — | HAPPY / oracle FAIL | — | — | — | — | — | — | — | — |
+| 5 | Floorstand Writer→Calc | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — |
+| 6 | Calc-primary model | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — |
+| 8 | Draw-primary | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — |
+| 9 | Reverse Tenant | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — |
+| 10 | Long Writer pack | — | NOT_HAPPY / oracle FAIL | — | — | — | — | — | — | — | — |
 
 <img src="eval2-heatmap.svg" alt="Eval-2 headed task by model heatmap. Green HAPPY, orange NOT_HAPPY, gray no data." />
 
@@ -78,16 +80,18 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 
 1. **Hard (HAPPY):** Gemini 3.8 Flash is HAPPY on Tenant, Cadaver, and
    AFC. gpt-oss-120b is HAPPY only on GMP-0225. Catalog AFC cells
-   (`20260912-0142` 120b through `20260912-0240` 26B A4B) are all NOT
+   (`20260912-0142` 120b through `20260912-0310` Nemotron) are all NOT
    HAPPY. Most miss R. Gemma 4 26B A4B is the first catalog model
    besides the Gemini 3.8 gate to produce R=65, then fails S=0 < R on
-   a 10-row Sample. Luna’s Sample is a better shape (81 rows, S=68)
-   than 120b’s 1516-row dump. Floorstand is NOT HAPPY on both Gemini
-   3.8 and 120b. Overnight slots 6/8/9/10 (gpt-oss only) are all NOT
-   HAPPY.
+   a 10-row Sample. Nemotron is the first catalog cell with
+   `failure_count=2` (Population only; no Sample/SSC). Luna’s Sample
+   is a better shape (81 rows, S=68) than 120b’s 1516-row dump.
+   Floorstand is NOT HAPPY on both Gemini 3.8 and 120b. Overnight
+   slots 6/8/9/10 (gpt-oss only) are all NOT HAPPY.
 2. **Partial:** AFC Gemini 3.8 is oracle PASS (`partial_score` = 1).
-   Catalog AFC cells each recorded `failure_count=1` plus S/husks but
-   no `oracle_check_count`, so no FAIL ratio. Tenant / Cadaver / GMP
+   Catalog AFC cells recorded `failure_count` (1, or 2 on Nemotron)
+   plus S/husks but no `oracle_check_count`, so no FAIL ratio.
+   Tenant / Cadaver / GMP
    HAPPY cells are still oracle FAIL without a recorded check count.
    Do not invent one from autopsy prose.
 3. **C²/$:** no HAPPY cell has recorded `total_cost_usd`. The cost
@@ -111,6 +115,7 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 | AFC Population | Gemini 3.5 Flash Lite | `20260912-0216-gemini-3.5-flash-lite` | Fourth catalog cell. Attempt1 aborted (nitro contamination); attempt2 clean history. Sample/SSC present (81 rows; S=0; husks 0/648). Shot SSC label truncated “Required Sar”=73; oracle R=None. OpenRouter usage ~$0.00629 (model_configs alt ~$0.00821 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0216-gemini-3.5-flash-lite/`. |
 | AFC Population | Gemma 4 31B | `20260912-0224-gemma-4-31b-it` | Fifth catalog cell. Sample+SSC present (81 rows; S=0; husks 81/810). SSC R is Err:508/#NAME?; oracle R=None. OpenRouter usage ~$0.10841 (model_configs alt ~$0.01404 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0224-gemma-4-31b-it/`. |
 | AFC Population | Gemma 4 26B A4B | `20260912-0240-gemma-4-26b-a4b-it` | Sixth catalog cell. First catalog R=65 besides the Gemini gate; Sample undersized (10 rows, S=0 < R). Attempt1 contaminated; attempt2 wipe. OpenRouter usage ~$0.04316 (model_configs alt ~$0.05011 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0240-gemma-4-26b-a4b-it/`. |
+| AFC Population | Nemotron 3.5 Lightning | `20260912-0310-nemotron-3.5-lightning` | Seventh catalog cell. Population only; missing Sample+SSC (`failure_count=2`); S=0 R=None; husks 0/0; Err:507 in J/K; Save dialog flicker. Tokens are second-send (all-from-first higher, not stored). OpenRouter second-send ~$0.04282 (model_configs alt ~$0.06145 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0310-nemotron-3.5-lightning/`. |
 | Floorstand | Gemini 3.8 Flash | `20260909-1748-gemini-3.8-flash-private-patch` | Polarity HIT; still empty + stall. Private patches, not PR’d. |
 | GMP Change Control | GPT-OSS 120B | `20260909-0225-gpt-oss-120b` | Cite-only oracle fail. Prior `0103` was NOT HAPPY (dump polarity). |
 | Floorstand | GPT-OSS 120B | `20260909-0323-gpt-oss-120b` | Extract/JSON polarity MISS; empty + LO crash. Private `1733` still MISS. |
@@ -157,9 +162,10 @@ recorded them. The 2026-09-12 seed still has derived PASS →
 (`20260912-0142-gpt-oss-120b`, `20260912-0150-gpt-5.6-luna`,
 `20260912-0202-gpt-oss-20b-nitro`,
 `20260912-0216-gemini-3.5-flash-lite`, `20260912-0224-gemma-4-31b-it`,
-`20260912-0240-gemma-4-26b-a4b-it`) recorded tokens, wall, USD,
-`failure_count=1`, S/husks — not `oracle_check_count` or
-`partial_score`.
+`20260912-0240-gemma-4-26b-a4b-it`,
+`20260912-0310-nemotron-3.5-lightning`) recorded tokens, wall, USD,
+`failure_count` (1, or 2 on Nemotron), S/husks — not
+`oracle_check_count` or `partial_score`.
 
 ## How to refresh
 

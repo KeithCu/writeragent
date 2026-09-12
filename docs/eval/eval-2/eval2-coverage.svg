@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1212" height="414" viewBox="0 0 1212 414" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="1336" height="414" viewBox="0 0 1336 414" role="img">
   <title>Eval-2 headed coverage by model</title>
-  <rect width="1212" height="414" fill="#ffffff"/>
+  <rect width="1336" height="414" fill="#ffffff"/>
   <text x="24" y="28" font-family="DejaVu Sans, sans-serif" font-size="16" font-weight="700" fill="#202124">Eval-2 headed coverage (Ready tasks scored)</text>
   <text x="24" y="46" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#5f6368">9 Ready / Headed-ready rows. Catalog peers stay gray until a stamp lands.</text>
   <rect x="56.0" y="179.6" width="88" height="144.4" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
@@ -34,12 +34,16 @@
   <rect x="800.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
   <text x="844.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Gemma 4 26B A4B</text>
   <text x="844.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
-  <rect x="924.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
-  <text x="968.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Grok 4.6</text>
-  <text x="968.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
+  <rect x="924.0" y="92.9" width="88" height="231.1" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <rect x="924.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
+  <text x="968.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Nemotron 3.5 Lightning</text>
+  <text x="968.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
   <rect x="1048.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
-  <text x="1092.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Muse Spark 1.3</text>
+  <text x="1092.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Grok 4.6</text>
   <text x="1092.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
+  <rect x="1172.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <text x="1216.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Muse Spark 1.3</text>
+  <text x="1216.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
   <rect x="24" y="376" width="12" height="12" fill="#009E73" stroke="#dadce0"/>
   <text x="42" y="386" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">HAPPY</text>
   <rect x="134" y="376" width="12" height="12" fill="#D55E00" stroke="#dadce0"/>

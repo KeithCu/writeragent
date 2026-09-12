@@ -82,3 +82,14 @@ Gemini 3.8 gate to produce a parseable R (**R=65**). Product bar
 wipe. OpenRouter usage sum ~$0.04316 stored; model_configs estimate
 ~$0.05011 is an alternate only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0240-gemma-4-26b-a4b-it/`.
+
+Seventh catalog cell: `nvidia/nemotron-3.5-lightning`, stamp
+`20260912-0310-nemotron-3.5-lightning`. Product bar **NOT_HAPPY**,
+oracle **FAIL** (`failure_count=2`: missing Sample and Sample Size
+Calculation). Population only; Err:507 in J/K; `sample_data_rows=0`;
+S=0; R=None; husks 0/0. Save dialog flicker mid-flight. Tokens stored
+are the second-send OpenRouter usage (in=760171 out=3189); all-from-first
+totals were higher (not stored). OpenRouter second-send usage sum
+~$0.04282 stored; model_configs estimate ~$0.06145 is an alternate
+only. Wall ~540–600s. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0310-nemotron-3.5-lightning/`.

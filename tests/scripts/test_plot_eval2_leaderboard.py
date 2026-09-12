@@ -104,6 +104,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "google/gemini-3.5-flash-lite",
         "google/gemma-4-31b-it",
         "google/gemma-4-26b-a4b-it",
+        "nvidia/nemotron-3.5-lightning",
         "x-ai/grok-4.6",
         "meta/muse-spark-1.3-contributor",
     }
@@ -118,6 +119,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     lite = "google/gemini-3.5-flash-lite"
     gemma = "google/gemma-4-31b-it"
     gemma26 = "google/gemma-4-26b-a4b-it"
+    nemo = "nvidia/nemotron-3.5-lightning"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -334,7 +336,36 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "0.05011" in afc_gemma26.oracle_note
     assert "10 <<" in afc_gemma26.oracle_note or "sample_data_rows=10" in afc_gemma26.oracle_note
 
-    # No invented Luna / 20b / Flash Lite / Gemma scores outside AFC.
+    # Seventh catalog AFC stamp (Scrolly headed 20260912-0310).
+    afc_nemo = board.result_for("afc", nemo)
+    assert afc_nemo is not None
+    assert afc_nemo.product_bar == "NOT_HAPPY"
+    assert afc_nemo.oracle == "FAIL"
+    assert afc_nemo.stamp == "20260912-0310-nemotron-3.5-lightning"
+    assert afc_nemo.oracle_passed is False
+    assert afc_nemo.oracle_failure_count == 2
+    assert afc_nemo.oracle_failures == (
+        "missing sheet 'Sample'",
+        "missing sheet 'Sample Size Calculation'",
+    )
+    assert afc_nemo.oracle_check_count is None
+    assert afc_nemo.partial_score is None
+    assert afc_nemo.afc_s_flags == 0
+    assert afc_nemo.afc_r_required is None
+    assert afc_nemo.husk_cells == 0
+    assert afc_nemo.scored_cells == 0
+    assert afc_nemo.input_tokens == 760171
+    assert afc_nemo.output_tokens == 3189
+    assert afc_nemo.total_tokens == 763360
+    assert afc_nemo.wall_time_s == 540
+    assert afc_nemo.total_cost_usd == pytest.approx(0.04282)
+    assert afc_nemo.intelligence_per_dollar is None
+    assert "20260912-0310-nemotron-3.5-lightning" in afc_nemo.oracle_note
+    assert "0.06145" in afc_nemo.oracle_note
+    assert "second-send" in afc_nemo.oracle_note
+    assert "Err:507" in afc_nemo.oracle_note
+
+    # No invented Luna / 20b / Flash Lite / Gemma / Nemotron scores outside AFC.
     for task_id in (
         "tenant-retention",
         "cadaver-proposal",
@@ -350,6 +381,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, lite) is None
         assert board.result_for(task_id, gemma) is None
         assert board.result_for(task_id, gemma26) is None
+        assert board.result_for(task_id, nemo) is None
 
     # Remaining catalog peers stay empty until a real stamp lands.
     for mid in (
@@ -367,6 +399,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", lite),
         ("afc", gemma),
         ("afc", gemma26),
+        ("afc", nemo),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -400,6 +433,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_lite)
     assert pel.has_recorded_partial(afc_gemma)
     assert pel.has_recorded_partial(afc_gemma26)
+    assert pel.has_recorded_partial(afc_nemo)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -409,6 +443,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "google/gemini-3.5-flash-lite"),
     ("afc", "google/gemma-4-31b-it"),
     ("afc", "google/gemma-4-26b-a4b-it"),
+    ("afc", "nvidia/nemotron-3.5-lightning"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -491,6 +526,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Gemini 3.5 Flash Lite" in partial
     assert "Gemma 4 31B" in partial
     assert "Gemma 4 26B A4B" in partial
+    assert "Nemotron 3.5 Lightning" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -499,6 +535,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "S=68 R=—" in partial
     assert "S=0 R=—" in partial
     assert "S=0 R=65" in partial
+    assert "2/—" in partial
     assert "no ratio" in partial
     assert "data-partial-score=\"0." not in partial
 
@@ -543,6 +580,8 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Gemini 3.5 Flash Lite" in partial_text
     assert "Gemma 4 31B" in partial_text
     assert "Gemma 4 26B A4B" in partial_text
+    assert "Nemotron 3.5 Lightning" in partial_text
+    assert "2/—" in partial_text
     assert "no ratio" in partial_text
 
 
