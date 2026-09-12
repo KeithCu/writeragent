@@ -292,6 +292,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `windows leftover skip: math formula Hidden _blank .mml leftovers=`,
 `windows leftover skip: math export Hidden _blank smath leftovers=`,
 `windows leftover skip: document scripts Hidden _blank reopen leftovers=`,
+`windows leftover skip: apply_document_content Hidden _default swriter leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -515,6 +516,19 @@ detect. Windows now `skip_windows_leftover_hidden_load`s
 (`windows leftover skip: document scripts Hidden _blank reopen`).
 Do not raw-close leftover Writers. Not a product change.
 
+GHA 34681661844 (PR #746 tip `5d5d1232`): document-scripts /
+MathML leftover Hidden skips fired (suites green). Then
+`test_apply_document_content_preserves_heading_level_span_uno` OK
+(leftover writer reuse). Next
+`…_preserves_heading_level_b_uno` hung 30s in
+`html_to_plain_text` `loadComponentFromURL(private:factory/swriter,
+"_default", Hidden)` (office alive). First leftover Hidden `_default`
+Writer + close returned; the second hung. Same leftover Hidden
+family. Apply-content UNO tests now
+`skip_windows_leftover_hidden_apply`
+(`windows leftover skip: apply_document_content Hidden _default
+swriter leftovers=N`). Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -572,7 +586,11 @@ Timeout on `test_convert_mathml_to_starmath_fraction`),
 document-scripts save/reopen `TEST end … SKIP` with
 `windows leftover skip: document scripts Hidden _blank reopen`
 when leftover_open>0 (no 30s Timeout on leftover Writer
-`doc.close(True)`),
+`doc.close(True)`), apply-content heading rewrite
+`TEST end … SKIP` with
+`windows leftover skip: apply_document_content Hidden _default
+swriter` when leftover_open>0 (no 30s Timeout on second
+`html_to_plain_text` Hidden `_default` swriter),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**

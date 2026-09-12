@@ -1282,8 +1282,9 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
     swriter ``create_native_doc`` uid=41 returned;
     ``test_document_scripts_survive_save_reopen`` hung 30s in
     attach / storeAsURL / raw close / Hidden ``_blank`` reopen.
-    Cached leftover count only — do not enum. Do not close leftover
-    paste Writers (34556185752).
+    GHA 34681661844: first ``html_to_plain_text`` Hidden ``_default``
+    swriter returned; the next hung 30s. Cached leftover count only
+    — do not enum. Do not close leftover paste Writers (34556185752).
     """
     if not windows_leftover_hidden_load_unsafe():
         return
@@ -1298,6 +1299,18 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
         "Windows leftover Hidden/AWT skip (%s, leftovers=%s)"
         % (reason, _windows_leftover_open())
     )
+
+
+def skip_windows_leftover_hidden_apply(reason: str = "apply_document_content Hidden _default swriter") -> None:
+    """Skip leftover Hidden ``html_to_plain_text`` factory loads.
+
+    GHA 34681661844: document-scripts / MathML leftover skips fired.
+    ``test_apply_document_content_preserves_heading_level_span_uno``
+    OK, then ``…_heading_level_b_uno`` hung 30s in
+    ``html_to_plain_text`` ``loadComponentFromURL(private:factory/swriter,
+    "_default", Hidden)``. Consecutive leftover Hidden Writer factory.
+    """
+    skip_windows_leftover_hidden_load(reason)
 
 
 def skip_windows_leftover_hidden_mathml(reason: str) -> None:
