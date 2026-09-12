@@ -667,9 +667,11 @@ def test_ods_and_xlsx_standard_sheets_share_row_skeleton(tmp_path: Path) -> None
     assert _ods_named_range_address("Statistics_ML", MARKETING_RANGE_XLSX) in xml
     assert "table:formula='" not in xml
     assert '<table:table-row table:style-name="row-spacer"/>' not in xml
+    assert 'style:use-optimal-row-height="false"' in xml
     sa = _ods_table_xml(xml, "Sales_Analytics")
     assert re.search(
-        r'table:style-name="row-spacer">\s*<table:table-cell',
+        r'table:style-name="row-spacer">\s*'
+        r'<table:table-cell office:value-type="string">',
         sa,
     )
     assert re.search(

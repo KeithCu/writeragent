@@ -59,6 +59,9 @@ ODS-only notes (XLSX never calls these paths):
 - ODS writes TableColumn widths and TableRow heights so the file is not
   Calc-default cramped. XLSX already uses ``auto_fit_columns`` and explicit
   row heights; ODS sizes are reasonable parity, not pixel-perfect.
+  Spacer rows use a string-typed empty cell and
+  ``style:use-optimal-row-height="false"``. A void ``<table:table-cell/>``
+  still collapsed in headed Calc (section on R2, header on R3).
 """
 from __future__ import annotations
 
@@ -955,17 +958,22 @@ def _ods_cover_columns(row: Any, ncols: int) -> None:
 
 
 def _ods_spacer_row(make_row: Any) -> Any:
-    """Blank row LibreOffice will keep (not a self-closing ``<table:table-row/>``).
+    """Blank row LibreOffice will keep at its own index (XLSX blank R2).
 
     odfpy serializes a cell-less TableRow as ``<table:table-row …/>``. Headed
-    Calc drops that, so Sales_Analytics R2 vanished, the section banner became
-    R2, Order_ID landed on R3, and named ``A4:J39`` started on ORD-1001.
-    One empty table-cell forces a real row index, matching XLSX blank R2.
+    Calc drops that. A void ``<table:table-cell/>`` (no value-type) is still
+    dropped: section banner lands on R2 with ``row-spacer`` style, Order_ID
+    on R3, and named ``A4:J39`` starts on ORD-1001. A string-typed empty
+    paragraph plus ``use-optimal-row-height=false`` keeps the XLSX skeleton
+    so A4 stays the header.
     """
     from odf.table import TableCell
+    from odf.text import P
 
     row = make_row("spacer")
-    row.addElement(TableCell())
+    cell = TableCell(valuetype="string")
+    cell.addElement(P(text=""))
+    row.addElement(cell)
     return row
 
 
@@ -1062,7 +1070,11 @@ def build_ods_showcase(out_path: Path) -> None:
         doc.automaticstyles.addElement(col_style)
     for row_name, row_height in _ODS_ROW_STYLES.items():
         row_style = Style(name=f"row-{row_name}", family="table-row")
-        row_style.addElement(TableRowProperties(rowheight=row_height))
+        # Headed Calc treats empty spacer cells as "optimal height 0" and
+        # then drops the row index unless use-optimal-row-height is false.
+        row_style.addElement(
+            TableRowProperties(rowheight=row_height, useoptimalrowheight="false")
+        )
         doc.automaticstyles.addElement(row_style)
 
     def make_table(name: str) -> Table:
