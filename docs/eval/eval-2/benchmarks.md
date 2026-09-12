@@ -36,17 +36,17 @@ partial and USD.
 **HAPPY** can sit on a soft oracle FAIL (false-red or a secondary
 cite). **NOT_HAPPY** + oracle FAIL is usually an empty or wrong-facts
 deliverable. **—** means no in-repo headed stamp; do not invent a
-score. GPT-5.6 Luna has an AFC stamp only. Remaining catalog columns
-(GPT-OSS 20B, Grok 4.6, Muse Spark 1.3) are placeholders. The
+score. GPT-5.6 Luna and GPT-OSS 20B have an AFC stamp only. Remaining
+catalog columns (Grok 4.6, Muse Spark 1.3) are placeholders. The
 catalog-wide headed sweep has **not** happened.
 
 ## Snapshot ranking (2026-09-12)
 
 Seeded from the autopsy, sibling notes, and Scrolly AFC catalog
 stamps (`20260912-0142-gpt-oss-120b`, `20260912-0150-gpt-5.6-luna`,
-box-local). Run dirs are typically untracked —
-`run_artifacts_committed` is false for every cell. No OpenRouter
-eval-2 CI job. No HAPPY cell has recorded USD yet.
+`20260912-0202-gpt-oss-20b-nitro`, box-local). Run dirs are typically
+untracked — `run_artifacts_committed` is false for every cell. No
+OpenRouter eval-2 CI job. No HAPPY cell has recorded USD yet.
 
 Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 (+ [schema](eval2_benchmark_results.schema.json)).
@@ -55,7 +55,7 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Tenant Retention | HAPPY / oracle FAIL | — | — | — | — | — |
 | 2 | Cadaver Proposal | HAPPY / oracle FAIL | — | — | — | — | — |
-| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — | — |
+| 3 | AFC Population | HAPPY / oracle PASS | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — |
 | 4 | GMP Change Control | — | HAPPY / oracle FAIL | — | — | — | — |
 | 5 | Floorstand Writer→Calc | NOT_HAPPY / oracle FAIL | NOT_HAPPY / oracle FAIL | — | — | — | — |
 | 6 | Calc-primary model | — | NOT_HAPPY / oracle FAIL | — | — | — | — |
@@ -75,23 +75,24 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 
 1. **Hard (HAPPY):** Gemini 3.8 Flash is HAPPY on Tenant, Cadaver, and
    AFC. gpt-oss-120b is HAPPY only on GMP-0225. Catalog AFC cells
-   (`20260912-0142` 120b, `20260912-0150` Luna) are both NOT HAPPY
-   (missing R). Luna’s Sample is a better shape (81 rows vs 120b’s
-   1516-row dump) but the same R hole. Floorstand is NOT HAPPY on both
-   Gemini and 120b. Overnight slots 6/8/9/10 (gpt-oss only) are all
-   NOT HAPPY.
+   (`20260912-0142` 120b, `20260912-0150` Luna, `20260912-0202` 20b)
+   are all NOT HAPPY (missing R). Luna’s Sample is a better shape (81
+   rows, S=68) than 120b’s 1516-row dump; 20b is similar size (80 rows)
+   but S=0. Floorstand is NOT HAPPY on both Gemini and 120b. Overnight
+   slots 6/8/9/10 (gpt-oss only) are all NOT HAPPY.
 2. **Partial:** AFC Gemini is oracle PASS (`partial_score` = 1). AFC
-   120b and Luna each recorded `failure_count=1` (R missing) plus S/husks
-   (585 / 0 of 15159; 68 / 0 of 810) but no `oracle_check_count`, so no
-   FAIL ratio. Tenant / Cadaver / GMP HAPPY cells are still oracle FAIL
-   without a recorded check count. Do not invent one from autopsy prose.
+   120b / Luna / 20b each recorded `failure_count=1` (R missing) plus
+   S/husks (585 / 0 of 15159; 68 / 0 of 810; 0 / 0 of 800) but no
+   `oracle_check_count`, so no FAIL ratio. Tenant / Cadaver / GMP HAPPY
+   cells are still oracle FAIL without a recorded check count. Do not
+   invent one from autopsy prose.
 3. **C²/$:** no HAPPY cell has recorded `total_cost_usd`. The cost
-   chart stays empty (AFC 120b / Luna USD are on NOT_HAPPY cells). Then
+   chart stays empty (AFC catalog USD is on NOT_HAPPY cells). Then
    Value is `partial_score`² ÷ that USD among HAPPY.
-4. **Coverage:** 20B, Grok 4.6, and Muse Spark are entirely no data.
-   Luna has AFC only. Gemini has no stamp yet for GMP, Calc-primary,
-   Draw-primary, Reverse Tenant, or Long Writer. gpt-oss has no stamp
-   for Tenant or Cadaver.
+4. **Coverage:** Grok 4.6 and Muse Spark are entirely no data. Luna
+   and 20b have AFC only. Gemini has no stamp yet for GMP, Calc-primary,
+   Draw-primary, Reverse Tenant, or Long Writer. gpt-oss-120b has no
+   stamp for Tenant or Cadaver.
 
 ### Cell notes (only scored pairs)
 
@@ -102,6 +103,7 @@ Artifacts: [`eval2_benchmark_results.json`](eval2_benchmark_results.json)
 | AFC Population | Gemini 3.8 Flash | `20260908-0030-retry2` | Oracle PASS after smoother (S=65 R=2). Autopsy abbreviates the stamp with `…`. |
 | AFC Population | GPT-OSS 120B | `20260912-0142-gpt-oss-120b` | First catalog cell. Sample+SSC nonempty but wrong shape (1516 rows); R missing; S=585; husks 0/15159; Ready then kept iterating. Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0142-gpt-oss-120b/`. |
 | AFC Population | GPT-5.6 Luna | `20260912-0150-gpt-5.6-luna` | Second catalog cell. Sample+SSC present but incomplete (81 rows; S=68; husks 0/810); same R hole as 120b. OpenRouter usage ~$0.0419 (model_configs alt ~$0.1252 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0150-gpt-5.6-luna/`. |
+| AFC Population | GPT-OSS 20B | `20260912-0202-gpt-oss-20b-nitro` | Third catalog cell. Ran as `:nitro` (resolved to bare 20b). Sample/SSC present but incomplete (80 rows; S=0; husks 0/800); same R hole, weaker than Luna. OpenRouter usage ~$0.00122 (model_configs alt ~$0.00049 not stored). Box-local `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0202-gpt-oss-20b-nitro/`. |
 | Floorstand | Gemini 3.8 Flash | `20260909-1748-gemini-3.8-flash-private-patch` | Polarity HIT; still empty + stall. Private patches, not PR’d. |
 | GMP Change Control | GPT-OSS 120B | `20260909-0225-gpt-oss-120b` | Cite-only oracle fail. Prior `0103` was NOT HAPPY (dump polarity). |
 | Floorstand | GPT-OSS 120B | `20260909-0323-gpt-oss-120b` | Extract/JSON polarity MISS; empty + LO crash. Private `1733` still MISS. |
@@ -145,9 +147,10 @@ Optional result fields (`oracle_passed`, `oracle_failure_count`,
 `wall_time_s`, `intelligence_per_dollar`) stay empty unless a stamp
 recorded them. The 2026-09-12 seed still has derived PASS →
 `partial_score` = 1 on AFC Gemini. Catalog AFC stamps
-(`20260912-0142-gpt-oss-120b`, `20260912-0150-gpt-5.6-luna`) recorded
-tokens, wall, USD, `failure_count=1`, S/husks — not
-`oracle_check_count` or `partial_score`.
+(`20260912-0142-gpt-oss-120b`, `20260912-0150-gpt-5.6-luna`,
+`20260912-0202-gpt-oss-20b-nitro`) recorded tokens, wall, USD,
+`failure_count=1`, S/husks — not `oracle_check_count` or
+`partial_score`.
 
 ## How to refresh
 

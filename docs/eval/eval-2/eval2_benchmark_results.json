@@ -3,7 +3,7 @@
   "updated": "2026-09-12",
   "gate_model": "google/gemini-3.8-flash",
   "source_of_truth": "docs/eval/eval-2/headed-failure-autopsy.md",
-  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded from in-repo autopsy / sibling notes plus Scrolly AFC catalog stamps (gpt-oss-120b, gpt-5.6-luna). No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
+  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded from in-repo autopsy / sibling notes plus Scrolly AFC catalog stamps (gpt-oss-120b, gpt-5.6-luna, gpt-oss-20b). No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
   "tasks": [
     {
       "id": "tenant-retention",
@@ -184,6 +184,31 @@
       "total_tokens": 573376,
       "wall_time_s": 406,
       "total_cost_usd": 0.0419
+    },
+    {
+      "task_id": "afc",
+      "model": "openai/gpt-oss-20b",
+      "product_bar": "NOT_HAPPY",
+      "oracle": "FAIL",
+      "oracle_note": "Third catalog AFC cell. Ran as openai/gpt-oss-20b:nitro (resolved to bare 20b; no batch 404). Sample/SSC present but incomplete (sample_data_rows=80). Same R hole as 120b/Luna; S=0 is weaker than Luna’s S=68. Oracle failure_count=1: R from Sample Size Calculation is missing or < 1. S=0 R=None, husks 0/800. No oracle_check_count — omit partial_score. total_cost_usd is the OpenRouter usage sum (~0.00122); model_configs estimate ~0.00049 is an alternate, not stored. Nitro routing OK. Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0202-gpt-oss-20b-nitro/",
+      "stamp": "20260912-0202-gpt-oss-20b-nitro",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": false,
+      "oracle_failure_count": 1,
+      "oracle_failures": [
+        "R from Sample Size Calculation is missing or < 1"
+      ],
+      "afc_s_flags": 0,
+      "afc_r_required": null,
+      "husk_cells": 0,
+      "scored_cells": 800,
+      "input_tokens": 15316,
+      "output_tokens": 236,
+      "total_tokens": 15552,
+      "wall_time_s": 309,
+      "total_cost_usd": 0.00122
     },
     {
       "task_id": "writer-calc-peer-write",

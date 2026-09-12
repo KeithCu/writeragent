@@ -45,3 +45,12 @@ husks 0/810) — better shape than the 120b dump. OpenRouter usage sum
 ~$0.0419 stored; model_configs estimate ~$0.1252 is an alternate only.
 Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0150-gpt-5.6-luna/`.
+
+Third catalog cell: `openai/gpt-oss-20b` as `:nitro` (resolved to bare
+20b; no batch 404), stamp `20260912-0202-gpt-oss-20b-nitro`. Product
+bar **NOT_HAPPY**, oracle **FAIL** (same R hole). Sample/SSC present
+but incomplete (`sample_data_rows=80`; S=0; husks 0/800) — weaker
+than Luna’s S=68. OpenRouter usage sum ~$0.00122 stored; model_configs
+estimate ~$0.00049 is an alternate only. Nitro routing OK. Run dir is
+box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0202-gpt-oss-20b-nitro/`.

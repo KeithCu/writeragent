@@ -18,9 +18,10 @@
   <rect x="304.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
   <text x="348.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">GPT-5.6 Luna</text>
   <text x="348.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
-  <rect x="428.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <rect x="428.0" y="92.9" width="88" height="231.1" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <rect x="428.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
   <text x="472.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">GPT-OSS 20B</text>
-  <text x="472.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
+  <text x="472.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
   <rect x="552.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
   <text x="596.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Grok 4.6</text>
   <text x="596.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>

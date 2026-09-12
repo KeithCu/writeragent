@@ -111,6 +111,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     gemini = "google/gemini-3.8-flash"
     oss = "openai/gpt-oss-120b"
     luna = "openai/gpt-5.6-luna"
+    oss20 = "openai/gpt-oss-20b"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -218,7 +219,34 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "20260912-0150-gpt-5.6-luna" in afc_luna.oracle_note
     assert "0.1252" in afc_luna.oracle_note
 
-    # No invented Luna scores outside AFC.
+    # Third catalog AFC stamp (Scrolly headed 20260912-0202, :nitro).
+    afc_20b = board.result_for("afc", oss20)
+    assert afc_20b is not None
+    assert afc_20b.product_bar == "NOT_HAPPY"
+    assert afc_20b.oracle == "FAIL"
+    assert afc_20b.stamp == "20260912-0202-gpt-oss-20b-nitro"
+    assert afc_20b.oracle_passed is False
+    assert afc_20b.oracle_failure_count == 1
+    assert afc_20b.oracle_failures == (
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_20b.oracle_check_count is None
+    assert afc_20b.partial_score is None
+    assert afc_20b.afc_s_flags == 0
+    assert afc_20b.afc_r_required is None
+    assert afc_20b.husk_cells == 0
+    assert afc_20b.scored_cells == 800
+    assert afc_20b.input_tokens == 15316
+    assert afc_20b.output_tokens == 236
+    assert afc_20b.total_tokens == 15552
+    assert afc_20b.wall_time_s == 309
+    assert afc_20b.total_cost_usd == pytest.approx(0.00122)
+    assert afc_20b.intelligence_per_dollar is None
+    assert "20260912-0202-gpt-oss-20b-nitro" in afc_20b.oracle_note
+    assert "0.00049" in afc_20b.oracle_note
+    assert "nitro" in afc_20b.oracle_note.lower()
+
+    # No invented Luna / 20b scores outside AFC.
     for task_id in (
         "tenant-retention",
         "cadaver-proposal",
@@ -230,10 +258,10 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         "long-writer-pack",
     ):
         assert board.result_for(task_id, luna) is None
+        assert board.result_for(task_id, oss20) is None
 
-    # Catalog peers stay empty until a real stamp lands.
+    # Remaining catalog peers stay empty until a real stamp lands.
     for mid in (
-        "openai/gpt-oss-20b",
         "x-ai/grok-4.6",
         "meta/muse-spark-1.3-contributor",
     ):
@@ -241,7 +269,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.happy_count(mid) == 0
 
     # Other seed cells must not invent run costs or oracle-partial counts.
-    recorded_afc = {( "afc", oss), ("afc", luna)}
+    recorded_afc = {("afc", oss), ("afc", luna), ("afc", oss20)}
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
             continue
@@ -270,11 +298,13 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc)
     assert pel.has_recorded_partial(afc_oss)
     assert pel.has_recorded_partial(afc_luna)
+    assert pel.has_recorded_partial(afc_20b)
 
 
 _RECORDED_AFC_CATALOG = {
     ("afc", "openai/gpt-oss-120b"),
     ("afc", "openai/gpt-5.6-luna"),
+    ("afc", "openai/gpt-oss-20b"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -351,14 +381,16 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "No HAPPY cell has recorded total_cost_usd yet" in cost
     assert "data-cost-usd=" not in cost
     # Seed has one oracle PASS (AFC Gemini) → partial 1. Catalog AFC
-    # 120b / Luna recorded S/R + failure_count without a check-count ratio.
+    # 120b / Luna / 20b recorded S/R + failure_count without a check-count ratio.
     assert "data-partial-score=\"1.00\"" in partial
     assert "Gemini 3.8 Flash" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
+    assert "GPT-OSS 20B" in partial
     assert "S=585 R=—" in partial
     assert "S=68 R=—" in partial
+    assert "S=0 R=—" in partial
     assert "no ratio" in partial
     assert "data-partial-score=\"0." not in partial
 
@@ -396,7 +428,9 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "0.50" not in partial_text
     assert "S=585 R=—" in partial_text
     assert "S=68 R=—" in partial_text
+    assert "S=0 R=—" in partial_text
     assert "GPT-5.6 Luna" in partial_text
+    assert "GPT-OSS 20B" in partial_text
     assert "no ratio" in partial_text
 
 
