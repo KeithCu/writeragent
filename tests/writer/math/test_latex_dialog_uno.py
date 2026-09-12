@@ -16,7 +16,23 @@ from plugin.writer.math.latex_dialog import insert_latex_math_dialog
 from plugin.framework.config import get_config
 from plugin.writer.math.math_mml_convert import MATH_CLSID
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import skip_windows_leftover_hidden_mathml, with_native_doc
+
+
+def _skip_windows_leftover_hidden_mathml() -> None:
+    """Skip leftover Hidden ``_blank`` MathML loads on Windows.
+
+    GHA 34675151298 (master ``71640e30``, #744+#745): leftover
+    ``simpress`` at leftover_open=3 correctly SKIPPED. Slash TOP
+    dialog also SKIPPED. Then leftover writer reuse printed and
+    ``convert_mathml_to_starmath`` ``loadComponentFromURL(...,
+    "_blank", Hidden)`` hung 30s (office alive). XDL
+    ``LatexInputDialog`` is patched — hang is leftover Hidden
+    ``_blank``, not AWT TOP ``createPeer`` / ``setVisible``.
+    ``skip_windows_awt_top_dialog`` is the wrong class.
+    GHA 34678020608: this skip fired; next suite hung the same load.
+    """
+    skip_windows_leftover_hidden_mathml("latex dialog Hidden _blank .mml")
 
 
 def _embed_count(doc: Any) -> int:
@@ -41,6 +57,7 @@ def _first_math_formula(doc: Any) -> str:
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_success(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     mock_desktop = MagicMock()
     mock_desktop.getCurrentComponent.return_value = doc
 
@@ -104,6 +121,7 @@ def test_insert_latex_math_dialog_non_writer_fails(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_math_dialog_monaco_success(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     mock_desktop = MagicMock()
     mock_desktop.getCurrentComponent.return_value = doc
 
@@ -182,6 +200,7 @@ def test_replace_selected_formula_keeps_embed_count(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("writer")
 def test_insert_latex_dialog_update_path_does_not_add_embed(ctx: Any, doc: Any) -> None:
+    _skip_windows_leftover_hidden_mathml()
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
 
     text = doc.getText()

@@ -515,6 +515,17 @@ def test_enum_hit_walk_cap_and_warning_are_honest():
     assert fmt.record_walk_cap(done, 50, 50, "text portions", dest) is False
 
 
+def test_apply_style_origin_limitation_still_value_compare() -> None:
+    """GHA 34683742049 canary FAIL was leftover reuse, not a product fix."""
+    from pathlib import Path
+
+    from plugin.writer import format as fmt
+
+    src = Path(fmt.__file__).read_text(encoding="utf-8")
+    assert "KNOWN LIMITATION: a direct override whose value equals the old style default" in src
+    assert "differs from the paragraph's current style default" in src
+
+
 def test_style_governed_char_properties_spare_bold_and_italic():
     """style_props drops the font the style owns; hand-set emphasis is the user's, not the style's."""
     from plugin.writer import format as fmt
@@ -729,3 +740,16 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
     assert families.getByName.call_count == 1  # second read served from the cache
     assert hx._source_style(model, "Nope", cache) is None
     assert hx._source_style(model, "", cache) is None
+
+
+def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
+    """GHA 34683742049 / 34685648395: leftover Hidden apply and _blank close."""
+    from pathlib import Path
+
+    src = Path(__file__).with_name("test_format_uno.py").read_text(encoding="utf-8")
+    assert "skip_windows_leftover_hidden_apply" in src
+    assert "34683742049" in src
+    assert "skip_windows_leftover_hidden_load" in src
+    assert "format_uno Hidden _blank small_doc" in src
+    assert "34685648395" in src
+    assert "format_uno cross-paragraph color leftover reuse" in src

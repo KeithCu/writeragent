@@ -796,6 +796,60 @@ def test_skip_windows_leftover_hidden_load_raises_on_win32(monkeypatch):
         tu._set_windows_leftover_open(saved)
 
 
+def test_skip_windows_leftover_hidden_mathml_raises_on_win32(monkeypatch):
+    """GHA 34675151298 / 34678020608: leftover Hidden _blank .mml hung 30s."""
+    import unittest
+
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_leftover_open(3)
+    try:
+        try:
+            tu.skip_windows_leftover_hidden_mathml("math formula Hidden _blank .mml")
+        except unittest.SkipTest as exc:
+            assert "math formula" in str(exc)
+            assert "leftovers=3" in str(exc)
+        else:
+            raise AssertionError("expected SkipTest")
+    finally:
+        tu._set_windows_leftover_open(saved)
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    tu._set_windows_leftover_open(3)
+    try:
+        tu.skip_windows_leftover_hidden_mathml("math formula Hidden _blank .mml")
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_skip_windows_leftover_hidden_apply_raises_on_win32(monkeypatch):
+    """GHA 34681661844 / 34683742049: leftover Hidden _default apply hung 30s."""
+    import unittest
+
+    import plugin.tests.testing_utils as tu
+
+    saved = tu._WINDOWS_LEFTOVER_OPEN
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_leftover_open(3)
+    try:
+        try:
+            tu.skip_windows_leftover_hidden_apply()
+        except unittest.SkipTest as exc:
+            assert "apply_document_content" in str(exc)
+            assert "leftovers=3" in str(exc)
+        else:
+            raise AssertionError("expected SkipTest")
+    finally:
+        tu._set_windows_leftover_open(saved)
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    tu._set_windows_leftover_open(3)
+    try:
+        tu.skip_windows_leftover_hidden_apply()
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
 def test_skip_windows_leftover_hidden_load_noop_without_leftovers(monkeypatch):
     import plugin.tests.testing_utils as tu
 

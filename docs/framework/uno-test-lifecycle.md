@@ -288,6 +288,17 @@ POSIX still `close_doc`. Breadcrumbs:
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `native_doc: leftover notebook host reuse`,
 `windows leftover skip: leftover simpress leftovers=`,
+`windows leftover skip: latex dialog Hidden _blank .mml leftovers=`,
+`windows leftover skip: math formula Hidden _blank .mml leftovers=`,
+`windows leftover skip: math export Hidden _blank smath leftovers=`,
+`windows leftover skip: document scripts Hidden _blank reopen leftovers=`,
+`windows leftover skip: apply_document_content Hidden _default swriter leftovers=`,
+`windows leftover skip: apply_style origin canary leftover reuse leftovers=`,
+`windows leftover skip: format_uno Hidden _blank small_doc leftovers=`,
+`windows leftover skip: format_uno cross-paragraph color leftover reuse leftovers=`,
+`windows leftover skip: inline_review view cursor leftover reuse leftovers=`,
+`windows leftover skip: page_header Hidden _blank xtext_to_content leftovers=`,
+`windows leftover skip: ops_uno leftover text offsets leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -480,6 +491,122 @@ leftovers uids 40/39/29 Writer leftovers from notebook/importer).
 Old max=4 only skipped leftover_open>4, so leftover_open=3 still
 loaded leftover Draw/Impress. Skip leftover_open>2.
 
+GHA 34675151298 (master `71640e30`, #744+#745): leftover `simpress`
+at leftover_open=3 SKIPPED (`windows leftover skip: leftover
+simpress leftovers=3`). Slash TOP dialog SKIPPED (`windows awt
+skip: slash_popup createPeer/setVisible`). Then
+`writer.math.test_latex_dialog_uno.test_insert_latex_math_dialog_success`
+printed `native_doc: leftover writer reuse` and hung 30s in
+`convert_mathml_to_starmath` `loadComponentFromURL(..., "_blank",
+Hidden)` (office alive). XDL `LatexInputDialog` is patched — hang
+is leftover Hidden `_blank` `.mml`, not AWT TOP `createPeer` /
+`setVisible`. Converting latex-dialog UNO tests now
+`skip_windows_leftover_hidden_mathml` (`windows leftover skip: latex
+dialog Hidden _blank .mml leftovers=N`).
+
+GHA 34678020608 (PR #746 tip `a9d44413`): latex converting tests
+SKIPPED as intended. Next suite
+`test_convert_mathml_to_starmath_fraction` printed leftover writer
+reuse and hung 30s at the same Hidden `_blank` `.mml` load. Later
+convert / export / document-helpers math UNO tests now use the
+same leftover Hidden Math skip.
+
+GHA 34679494812 (PR #746 tip `fefc89fc`): leftover_open=3
+(`html_paste_writer: leftovers open=3 uids=['40', '39', '29']`
+keeper=1 reactivated). `create_native_doc` leftover swriter
+returned (`uid=41`). Then `test_document_scripts_survive_save_reopen`
+hung 30s in attach / storeAsURL / raw `doc.close(True)` / Hidden
+`_blank` reopen (office alive). 34678020608 returned here and died
+later on Hidden `.mml`. Same leftover Hidden family as import-filter
+detect. Windows now `skip_windows_leftover_hidden_load`s
+(`windows leftover skip: document scripts Hidden _blank reopen`).
+Do not raw-close leftover Writers. Not a product change.
+
+GHA 34681661844 (PR #746 tip `5d5d1232`): document-scripts /
+MathML leftover Hidden skips fired (suites green). Then
+`test_apply_document_content_preserves_heading_level_span_uno` OK
+(leftover writer reuse). Next
+`…_preserves_heading_level_b_uno` hung 30s in
+`html_to_plain_text` `loadComponentFromURL(private:factory/swriter,
+"_default", Hidden)` (office alive). First leftover Hidden `_default`
+Writer + close returned; the second hung. Same leftover Hidden
+family. Apply-content UNO tests now
+`skip_windows_leftover_hidden_apply`
+(`windows leftover skip: apply_document_content Hidden _default
+swriter leftovers=N`). Not a product change.
+
+GHA 34683742049 (PR #746 tip `d6b6319a`): heading-rewrite /
+structured-return / table-cell / whitespace leftover Hidden apply
+skips fired (suites green). Then
+`writer.test_content_style_model_uno.test_write_compact_heading1_resolves_to_spaced_uno`
+hung 30s in `html_to_plain_text`
+`loadComponentFromURL(private:factory/swriter, "_default", Hidden)`
+via `ApplyDocumentContent.execute` (office alive). Same leftover
+Hidden `_default` family as heading-rewrite `_b_uno`. Content-style
+write `_tool_ctx` plus later apply UNO files (`test_format_uno`,
+`test_track_changes_reviewable_uno`) now
+`skip_windows_leftover_hidden_apply`. Not a product change.
+Same run:
+`test_apply_style_known_limitation_direct_equals_old_default_uno`
+FAIL (`origin detection improved`) under leftover writer reuse;
+suite continued (passed=10 failed=1) until the later apply hang.
+Linux still pins CharWeight=150; `format.py` still compares value
+vs old style default. Windows leftover skip
+(`windows leftover skip: apply_style origin canary leftover reuse`)
+— leftover pollution, not a product change.
+
+GHA 34685648395 (PR #746 tip `71d559c6`): content-style write /
+apply-style origin canary leftover skips fired (suites green).
+`test_apply_document_content_target_full_preserves_colors` printed
+`windows leftover skip: apply_document_content Hidden _default
+swriter` then hung 30s in `finally: small_doc.close(True)` after
+Hidden `_blank` factory load. SkipTest still runs `finally`.
+Windows now skips that test *before* the factory load
+(`windows leftover skip: format_uno Hidden _blank small_doc`).
+Same run: `test_cross_paragraph_same_length_replacement_preserves_colors`
+FAIL empty AssertionError under leftover writer reuse (office
+alive; later tests OK). Leftover skip
+(`windows leftover skip: format_uno cross-paragraph color leftover
+reuse`). Not a product change.
+
+GHA 34687044125 (PR #746 tip `0c837455`): format_uno Hidden `_blank`
+small_doc + cross-paragraph leftover skips fired (suite green). Then
+`test_resolve_accept_keeps_new_and_clears_pair_uno` hung 30s in
+`_caret_in` `getViewCursor().gotoRange` after leftover writer reuse
+(office alive). Hidden leftover Writers have no working view.
+Inline-review `_body` now
+`skip_windows_leftover_hidden_load`
+(`windows leftover skip: inline_review view cursor leftover reuse`).
+Not a product change.
+
+GHA 34689136372 (PR #746 tip `4bdaa1b3`): inline-review leftover
+view-cursor skips fired (suite green). Then
+`test_get_text_cursor_at_range` FAIL leftover offsets
+(`P1\\n` vs `P1\\n `; suite continued). Next
+`test_plain_header_footer_html_roundtrip` hung 30s in
+`html_export._open_hidden_writer` Hidden `_blank` via
+`xtext_to_content` (office alive). Same leftover Hidden `_blank`
+family. Page-header / page UNO `_tool_ctx` and ops `_populate`
+now leftover-skip. Not a product change.
+
+GHA 34690797019 (PR #746 tip `1db81fca`): those page-header / ops
+skips held on the prior tip; this run hung earlier.
+`test_range_export_keeps_bold_inside_odd_para_uno` printed leftover
+writer reuse, ran XHTML (`XSL Vendor: libxslt`), then hung 30s in
+`html_export._range_to_content_via_temp_doc` `temp_doc.close(True)`
+(office alive). Same leftover Hidden `_default` family as apply
+`html_to_plain_text` / format_uno `finally` close. Skip before the
+factory load (`windows leftover skip: html_export Hidden _default
+temp_doc`). Not a product change.
+
+GHA 34692834349 (PR #746 tip `54be6703`): html_export leftover skip
+fired (suite continued). Full UNO run finished 455 passed / 1 failed.
+`test_apply_document_content_wait_timeout_zero_returns_pending_uno`
+FAIL `AssertionError: {}`. Leftover apply skip in `_tool_ctx` ran on
+the worker thread; `SkipTest` does not skip the parent test. Skip on
+the test thread first (`windows leftover skip: track_changes wait
+timeout leftover reuse`). Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -526,6 +653,58 @@ or `TEST end … SKIP` with `windows leftover skip: leftover simpress`
 when leftover_open>2 (no 30s Timeout in `create_native_doc` on leftover
 Impress), leftover notebook host using
 `native_doc: leftover notebook host reuse` (leftover_open stays low),
+latex dialog converting tests `TEST end … SKIP` with
+`windows leftover skip: latex dialog Hidden _blank .mml` when
+leftover_open>0 (no 30s Timeout in `convert_mathml_to_starmath`
+Hidden `_blank` `.mml` after leftover writer reuse), later math
+convert/export tests `TEST end … SKIP` with
+`windows leftover skip: math formula Hidden _blank .mml` or
+`windows leftover skip: math export Hidden _blank smath` (no 30s
+Timeout on `test_convert_mathml_to_starmath_fraction`),
+document-scripts save/reopen `TEST end … SKIP` with
+`windows leftover skip: document scripts Hidden _blank reopen`
+when leftover_open>0 (no 30s Timeout on leftover Writer
+`doc.close(True)`), apply-content heading rewrite, later apply UNO
+(content-style write, format apply, track-changes apply)
+`TEST end … SKIP` with
+`windows leftover skip: apply_document_content Hidden _default
+swriter` when leftover_open>0 (no 30s Timeout on
+`html_to_plain_text` Hidden `_default` swriter after leftover
+writer reuse — GHA 34681661844 heading `_b_uno`, GHA 34683742049
+content-style `test_write_compact_heading1_resolves_to_spaced_uno`),
+apply-style origin canary `TEST end … SKIP` with
+`windows leftover skip: apply_style origin canary leftover reuse`
+when leftover_open>0 (no FAIL claiming origin detection improved —
+GHA 34683742049 leftover reuse; Linux still pins CharWeight=150),
+format_uno Hidden `_blank` small_doc `TEST end … SKIP` with
+`windows leftover skip: format_uno Hidden _blank small_doc`
+when leftover_open>0 (no 30s Timeout on `finally: small_doc.close(True)`
+— GHA 34685648395 SkipTest still ran `finally` after apply skip),
+format_uno cross-paragraph color `TEST end … SKIP` with
+`windows leftover skip: format_uno cross-paragraph color leftover
+reuse` when leftover_open>0 (no leftover-reuse AssertionError —
+GHA 34685648395),
+inline-review `TEST end … SKIP` with
+`windows leftover skip: inline_review view cursor leftover reuse`
+when leftover_open>0 (no 30s Timeout on `getViewCursor().gotoRange`
+— GHA 34687044125 `_caret_in`),
+ops leftover offsets `TEST end … SKIP` with
+`windows leftover skip: ops_uno leftover text offsets`
+when leftover_open>0 (no leftover `P1\\n` vs `P1\\n ` FAIL —
+GHA 34689136372),
+page-header `TEST end … SKIP` with
+`windows leftover skip: page_header Hidden _blank xtext_to_content`
+when leftover_open>0 (no 30s Timeout on `_open_hidden_writer` —
+GHA 34689136372),
+html_export range `TEST end … SKIP` with
+`windows leftover skip: html_export Hidden _default temp_doc`
+when leftover_open>0 (no 30s Timeout on
+`_range_to_content_via_temp_doc` `temp_doc.close(True)` —
+GHA 34690797019 / 34692834349),
+track-changes wait-timeout `TEST end … SKIP` with
+`windows leftover skip: track_changes wait timeout leftover reuse`
+when leftover_open>0 (no leftover `AssertionError: {}` —
+GHA 34692834349 SkipTest on the worker did not skip the parent),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**

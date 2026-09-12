@@ -608,3 +608,15 @@ def test_disable_blocked_by_content_skips_enable_and_lists_held_regions():
     assert msg is not None
     assert "header" in msg
     assert "page_set_header_footer_text" in msg
+
+
+def test_page_uno_skips_windows_leftover_hidden_xtext() -> None:
+    """GHA 34689136372: leftover Hidden _blank hung in xtext_to_content."""
+    from pathlib import Path
+
+    writer = Path(__file__).parent
+    for name in ("test_page_header_html_uno.py", "test_page_uno.py"):
+        src = (writer / name).read_text(encoding="utf-8")
+        assert "skip_windows_leftover_hidden_load" in src, name
+        assert "page_header Hidden _blank xtext_to_content" in src, name
+        assert "34689136372" in src, name

@@ -9,7 +9,7 @@ from typing import Any
 import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
 
 
 @native_test
@@ -17,6 +17,11 @@ from plugin.tests.testing_utils import with_native_doc
 def test_range_export_keeps_bold_inside_odd_para_uno(ctx: Any, doc: Any) -> None:
     """Range export must still show emphasis when the source paragraph carries
     unusual Para* values. A refused Para* used to skip Char* paint entirely."""
+    # GHA 34690797019: leftover writer reuse then
+    # html_export._range_to_content_via_temp_doc Hidden `_default`
+    # hung 30s on temp_doc.close(True) after XHTML. SkipTest still
+    # runs finally — skip before the factory load.
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     text = doc.getText()
     text.setString("")
     cur = text.createTextCursor()

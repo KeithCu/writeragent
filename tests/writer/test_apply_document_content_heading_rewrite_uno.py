@@ -15,12 +15,19 @@ import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.writer.content import ApplyDocumentContent
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import (
+    TestingFactory,
+    skip_windows_leftover_hidden_apply,
+    with_native_doc,
+)
 
 _HEADING_TEXT = "4.1.1 Engine selection"
 
 
 def _doc_with_heading3(doc):
+    # GHA 34681661844: span apply OK; next <b> apply hung 30s in
+    # html_to_plain_text Hidden _default swriter (leftover_open=3).
+    skip_windows_leftover_hidden_apply()
     text = doc.getText()
     cur = text.createTextCursor()
     cur.gotoStart(False)

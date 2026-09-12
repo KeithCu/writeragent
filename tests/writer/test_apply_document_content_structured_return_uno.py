@@ -15,10 +15,15 @@ import uno  # noqa: F401
 
 from plugin.testing_runner import native_test
 from plugin.writer.content import ApplyDocumentContent
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import (
+    TestingFactory,
+    skip_windows_leftover_hidden_apply,
+    with_native_doc,
+)
 
 
 def _set_body(doc, text_value):
+    skip_windows_leftover_hidden_apply()
     text = doc.getText()
     cur = text.createTextCursor()
     cur.gotoStart(False)

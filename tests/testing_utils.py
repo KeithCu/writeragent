@@ -1273,8 +1273,21 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
     names (``_wa_notebook_2``, ``_wa_factory_N``) are the same stacking
     family as leftover ``_wa_scalc`` / ``_wa_factory_5``. Import-filter
     detect uses this; do **not** skip ``document_research_uno`` Hidden
-    ``Budget_read.ods`` (34643210006 was 3/3). Cached leftover count
-    only — do not enum. Do not close leftover paste Writers (34556185752).
+    ``Budget_read.ods`` (34643210006 was 3/3). GHA 34675151298: leftover
+    writer reuse then ``convert_mathml_to_starmath`` Hidden ``_blank``
+    ``.mml`` hung 30s — latex dialog UNO uses this (XDL is patched;
+    not AWT TOP). GHA 34678020608: that skip fired; next suite
+    ``test_convert_mathml_to_starmath_fraction`` hung the same load.
+    GHA 34679494812: leftover_open=3 (uids 40/39/29) then leftover
+    swriter ``create_native_doc`` uid=41 returned;
+    ``test_document_scripts_survive_save_reopen`` hung 30s in
+    attach / storeAsURL / raw close / Hidden ``_blank`` reopen.
+    GHA 34681661844: first ``html_to_plain_text`` Hidden ``_default``
+    swriter returned; the next hung 30s. GHA 34683742049: those apply
+    skips fired; next ``test_write_compact_heading1_resolves_to_spaced_uno``
+    hung the same leftover Hidden ``_default`` load. Cached leftover
+    count only — do not enum. Do not close leftover paste Writers
+    (34556185752).
     """
     if not windows_leftover_hidden_load_unsafe():
         return
@@ -1289,6 +1302,32 @@ def skip_windows_leftover_hidden_load(reason: str) -> None:
         "Windows leftover Hidden/AWT skip (%s, leftovers=%s)"
         % (reason, _windows_leftover_open())
     )
+
+
+def skip_windows_leftover_hidden_apply(reason: str = "apply_document_content Hidden _default swriter") -> None:
+    """Skip leftover Hidden ``html_to_plain_text`` factory loads.
+
+    GHA 34681661844: document-scripts / MathML leftover skips fired.
+    ``test_apply_document_content_preserves_heading_level_span_uno``
+    OK, then ``…_heading_level_b_uno`` hung 30s in
+    ``html_to_plain_text`` ``loadComponentFromURL(private:factory/swriter,
+    "_default", Hidden)``. GHA 34683742049: those apply skips fired;
+    next ``test_write_compact_heading1_resolves_to_spaced_uno`` hung
+    the same leftover Hidden ``_default`` load. Consecutive leftover
+    Hidden Writer factory.
+    """
+    skip_windows_leftover_hidden_load(reason)
+
+
+def skip_windows_leftover_hidden_mathml(reason: str) -> None:
+    """Skip leftover Hidden Math loads (``.mml`` or ``smath`` factory).
+
+    GHA 34675151298 hung in latex-dialog ``convert_mathml_to_starmath``
+    Hidden ``_blank`` ``.mml``. GHA 34678020608 skipped that test, then
+    ``test_convert_mathml_to_starmath_fraction`` hung at the same call.
+    Export uses Hidden ``private:factory/smath`` ``_blank``. Not AWT TOP.
+    """
+    skip_windows_leftover_hidden_load(reason)
 
 
 def windows_leftover_hidden_load_unsafe() -> bool:
