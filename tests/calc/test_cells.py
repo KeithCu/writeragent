@@ -959,6 +959,11 @@ def test_write_formula_range_values_teaches_fill_down_not_json_pin():
     assert "exact per-cell contents" in values
     assert "pins every row to the first ref" in values
     assert "one formula string over the whole column" in values
+    # Colocated AFC-catalog teaching: criteria → one OR formula + fill-down;
+    # computed answers get an adjacent label instead of a burying string.
+    assert "=IF(OR(<criterion>" in values
+    assert "named flag column" in values
+    assert "plain label in the adjacent cell" in values
     # Fixture names stay out of tool text (eval tax/sort sheets).
     assert "Banana" not in values
     assert "Product" not in values

@@ -435,6 +435,24 @@ def test_calc_workflow_warns_large_range_overloads_context():
     assert "write_formula_range with source and dest range" in CALC_WORKFLOW
 
 
+def test_calc_workflow_teaches_selection_answer_and_deliverable_verify():
+    """AFC catalog: flags, parseable R, and empty deliverable tabs were top fails."""
+    from plugin.framework.prompts import CALC_WORKFLOW
+
+    # L9 — selection as one row-wise OR formula + COUNTIF confirmation.
+    assert "SELECT:" in CALC_WORKFLOW
+    assert "=IF(OR(<criterion>" in CALC_WORKFLOW
+    assert "named flag column" in CALC_WORKFLOW
+    assert "fill-down" in CALC_WORKFLOW
+    assert "COUNTIF" in CALC_WORKFLOW
+    # L11 — computed answer in its own cell with an adjacent label, not =PY.
+    assert "ANSWER:" in CALC_WORKFLOW
+    assert "plain label in the adjacent cell" in CALC_WORKFLOW
+    # L10 — verify named deliverables (core get_sheet_summary, not list_sheets).
+    assert "get_sheet_summary each deliverable sheet" in CALC_WORKFLOW
+    assert "list_sheets" not in CALC_WORKFLOW
+
+
 def test_calc_chat_prompt_includes_context_overload_why():
     model = MagicMock()
 

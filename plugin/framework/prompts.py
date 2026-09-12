@@ -412,6 +412,11 @@ Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range to reor
 When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 
+# SELECT / ANSWER / step-3 verify were added after the 24-model AFC catalog:
+# the dominant fails were "flags never landed in the named column", "R was
+# computed but not machine-readable", and "deliverable tab left empty". Each
+# is a distinct shape (SELECT / ANSWER / verify) so small models do not merge
+# them; the count check stays ordinary Calc, not a new postcondition tool.
 CALC_WORKFLOW = """WORKFLOW:
 1. get_sheet_summary for size/headers.
    read_cell_range only for a small peek (headers or a few dozen cells).
@@ -419,8 +424,10 @@ CALC_WORKFLOW = """WORKFLOW:
    Row-wise ordinary Calc formulas: write_formula_range (fill-down adjusts relative refs).
    Reductions that spill a small result: =PY into one empty cell outside the data.
 2. Do the work with tools. Use ranges, not one cell at a time.
-   create_sheet makes an empty tab (no cells copied). To populate, write_formula_range with source and dest range.
-3. Short confirmation; if you changed cells, name the range (e.g. "Wrote totals in B5:B8")."""
+   create_sheet makes an empty tab (no cells copied). To populate, write_formula_range with source and dest range; the copy must cover every column the user named (e.g. flags, variance).
+   SELECT: to mark rows by criteria, put one =IF(OR(<criterion>; …);1;0) in the named flag column's first data cell, fill-down, then COUNTIF that column to confirm the required count.
+   ANSWER: a computed result (e.g. a required sample size) goes in its own cell with a plain label in the adjacent cell; use an ordinary formula or value, not =PY.
+3. Before you finish, get_sheet_summary each deliverable sheet the user named and confirm it exists and has data; if not, create/populate it first. Then a short confirmation naming the range(s) you wrote (e.g. "Wrote totals in B5:B8")."""
 
 
 # Parked from Calc chat/MCP domain lists. Compute in Calc chat is =PY() on write_formula_range.
