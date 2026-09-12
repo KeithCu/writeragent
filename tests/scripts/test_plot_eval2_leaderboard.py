@@ -105,6 +105,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "google/gemma-4-31b-it",
         "google/gemma-4-26b-a4b-it",
         "nvidia/nemotron-3.5-lightning",
+        "inception/mercury-2.5-preview",
         "x-ai/grok-4.6",
         "meta/muse-spark-1.3-contributor",
     }
@@ -120,6 +121,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     gemma = "google/gemma-4-31b-it"
     gemma26 = "google/gemma-4-26b-a4b-it"
     nemo = "nvidia/nemotron-3.5-lightning"
+    mercury = "inception/mercury-2.5-preview"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -365,7 +367,32 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "second-send" in afc_nemo.oracle_note
     assert "Err:507" in afc_nemo.oracle_note
 
-    # No invented Luna / 20b / Flash Lite / Gemma / Nemotron scores outside AFC.
+    # Eighth catalog AFC stamp (Scrolly headed 20260912-0330).
+    afc_mercury = board.result_for("afc", mercury)
+    assert afc_mercury is not None
+    assert afc_mercury.product_bar == "HAPPY"
+    assert afc_mercury.oracle == "PASS"
+    assert afc_mercury.stamp == "20260912-0330-mercury-2.5-preview"
+    assert afc_mercury.oracle_passed is True
+    assert afc_mercury.oracle_failure_count == 0
+    assert afc_mercury.oracle_failures == ()
+    assert afc_mercury.oracle_check_count is None
+    assert afc_mercury.partial_score == 1.0
+    assert afc_mercury.afc_s_flags == 494
+    assert afc_mercury.afc_r_required == 68
+    assert afc_mercury.husk_cells == 2
+    assert afc_mercury.scored_cells == 16680
+    assert afc_mercury.input_tokens == 115096
+    assert afc_mercury.output_tokens == 3554
+    assert afc_mercury.total_tokens == 118650
+    assert afc_mercury.wall_time_s == 479
+    assert afc_mercury.total_cost_usd == pytest.approx(0.00468)
+    assert afc_mercury.intelligence_per_dollar == pytest.approx(1.0 / 0.00468)
+    assert "20260912-0330-mercury-2.5-preview" in afc_mercury.oracle_note
+    assert "0.03144" in afc_mercury.oracle_note
+    assert "near-full" in afc_mercury.oracle_note
+
+    # No invented Luna / 20b / Flash Lite / Gemma / Nemotron / Mercury scores outside AFC.
     for task_id in (
         "tenant-retention",
         "cadaver-proposal",
@@ -382,6 +409,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, gemma) is None
         assert board.result_for(task_id, gemma26) is None
         assert board.result_for(task_id, nemo) is None
+        assert board.result_for(task_id, mercury) is None
 
     # Remaining catalog peers stay empty until a real stamp lands.
     for mid in (
@@ -400,6 +428,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", gemma),
         ("afc", gemma26),
         ("afc", nemo),
+        ("afc", mercury),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -423,7 +452,11 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         else:
             assert row.oracle_passed is False
             assert row.partial_score is None
-    assert pel.happy_cost_rows(board) == ()
+    happy_costs = pel.happy_cost_rows(board)
+    assert len(happy_costs) == 1
+    assert happy_costs[0].model.openrouter_id == mercury
+    assert happy_costs[0].cost_usd == pytest.approx(0.00468)
+    assert happy_costs[0].intelligence_per_dollar == pytest.approx(1.0 / 0.00468)
     afc = board.result_for("afc", gemini)
     assert afc is not None
     assert pel.has_recorded_partial(afc)
@@ -434,6 +467,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_gemma)
     assert pel.has_recorded_partial(afc_gemma26)
     assert pel.has_recorded_partial(afc_nemo)
+    assert pel.has_recorded_partial(afc_mercury)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -444,6 +478,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "google/gemma-4-31b-it"),
     ("afc", "google/gemma-4-26b-a4b-it"),
     ("afc", "nvidia/nemotron-3.5-lightning"),
+    ("afc", "inception/mercury-2.5-preview"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -517,8 +552,11 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "no data" in heatmap
     assert "HAPPY" in heatmap
     assert "0 HAPPY / 0 scored" in coverage
-    assert "No HAPPY cell has recorded total_cost_usd yet" in cost
-    assert "data-cost-usd=" not in cost
+    assert "1 HAPPY / 1 scored" in coverage
+    assert "No HAPPY cell has recorded total_cost_usd yet" not in cost
+    assert "data-cost-usd=\"0.004680\"" in cost
+    assert "Mercury 2.5 Preview" in cost
+    assert "213.68" in cost
     # Seed has one oracle PASS (AFC Gemini 3.8) → partial 1. Catalog AFC
     # cells recorded S/R + failure_count without a check-count ratio.
     assert "data-partial-score=\"1.00\"" in partial
@@ -527,6 +565,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Gemma 4 31B" in partial
     assert "Gemma 4 26B A4B" in partial
     assert "Nemotron 3.5 Lightning" in partial
+    assert "Mercury 2.5 Preview" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -535,6 +574,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "S=68 R=—" in partial
     assert "S=0 R=—" in partial
     assert "S=0 R=65" in partial
+    assert "S=494 R=68" in partial
     assert "2/—" in partial
     assert "no ratio" in partial
     assert "data-partial-score=\"0." not in partial
@@ -557,15 +597,17 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Tenant Retention" in heat
     assert "no data" in cov
     assert "0 HAPPY / 0 scored" in cov
+    assert "1 HAPPY / 1 scored" in cov
     assert pel.HEATMAP_NAME != "pareto-fronts.svg"
     assert pel.COVERAGE_NAME != "pareto-distance.svg"
     assert pel.COST_NAME != "pareto-fronts.svg"
 
     cost_svg = pel.write_cost_svg(board, tmp_path / "eval2-cost.svg")
     cost_text = cost_svg.read_text(encoding="utf-8")
-    assert "No HAPPY cell has recorded total_cost_usd yet" in cost_text
-    assert "data-cost-usd=" not in cost_text
-    assert "$0." not in cost_text
+    assert "No HAPPY cell has recorded total_cost_usd yet" not in cost_text
+    assert "data-cost-usd=\"0.004680\"" in cost_text
+    assert "Mercury 2.5 Preview" in cost_text
+    assert "213.68" in cost_text
     assert pel.PARTIAL_NAME != "pareto-fronts.svg"
     partial_svg = pel.write_partial_svg(board, tmp_path / "eval2-partial.svg")
     partial_text = partial_svg.read_text(encoding="utf-8")
@@ -581,6 +623,8 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Gemma 4 31B" in partial_text
     assert "Gemma 4 26B A4B" in partial_text
     assert "Nemotron 3.5 Lightning" in partial_text
+    assert "Mercury 2.5 Preview" in partial_text
+    assert "S=494 R=68" in partial_text
     assert "2/—" in partial_text
     assert "no ratio" in partial_text
 
@@ -791,12 +835,21 @@ def test_cost_chart_ranks_happy_by_lower_cost_and_skips_empty(
     assert "Grok 4.6" not in svg
     assert "9999" not in svg
 
-    empty_board = pel.load_eval2_board(_RESULTS)
+    empty_src = tmp_path / "no-happy-cost.json"
+    empty_src.write_text(json.dumps(_minimal_board_payload()), encoding="utf-8")
+    empty_board = pel.load_eval2_board(empty_src)
     empty_svg = pel.write_cost_svg(empty_board, tmp_path / "empty-cost.svg").read_text(
         encoding="utf-8"
     )
     assert "No HAPPY cell has recorded total_cost_usd yet" in empty_svg
     assert "data-cost-usd=" not in empty_svg
+
+    seed_cost = pel.write_cost_svg(pel.load_eval2_board(_RESULTS), tmp_path / "seed-cost.svg")
+    seed_cost_text = seed_cost.read_text(encoding="utf-8")
+    assert "data-cost-usd=\"0.004680\"" in seed_cost_text
+    assert "Mercury 2.5 Preview" in seed_cost_text
+    assert "213.68" in seed_cost_text
+    assert "No HAPPY cell has recorded total_cost_usd yet" not in seed_cost_text
 
 
 def test_partial_score_only_when_pass_or_both_counts() -> None:

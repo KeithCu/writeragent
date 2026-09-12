@@ -3,7 +3,7 @@
   "updated": "2026-09-12",
   "gate_model": "google/gemini-3.8-flash",
   "source_of_truth": "docs/eval/eval-2/headed-failure-autopsy.md",
-  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded from in-repo autopsy / sibling notes plus Scrolly AFC catalog stamps (gpt-oss-120b, gpt-5.6-luna, gpt-oss-20b, gemini-3.5-flash-lite, gemma-4-31b-it, gemma-4-26b-a4b-it, nemotron-3.5-lightning). No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
+  "notes": "Headed sibling of the 17-task string pack (hard / partial / cost). Seeded from in-repo autopsy / sibling notes plus Scrolly AFC catalog stamps (gpt-oss-120b, gpt-5.6-luna, gpt-oss-20b, gemini-3.5-flash-lite, gemma-4-31b-it, gemma-4-26b-a4b-it, nemotron-3.5-lightning, mercury-2.5-preview). No catalog-wide eval-2 sweep. Empty (task, model) pairs are omitted — do not invent HAPPY or oracle scores. Optional cost/token/wall and oracle-partial fields are omitted until a stamp records them — do not invent run costs, check counts, or partial scores. Slot 7 writer-headed-template is PARKED and omitted. Run dirs cited below are usually untracked on the shared machine.",
   "tasks": [
     {
       "id": "tenant-retention",
@@ -108,6 +108,11 @@
     {
       "openrouter_id": "nvidia/nemotron-3.5-lightning",
       "display_name": "Nemotron 3.5 Lightning",
+      "role": "catalog"
+    },
+    {
+      "openrouter_id": "inception/mercury-2.5-preview",
+      "display_name": "Mercury 2.5 Preview",
       "role": "catalog"
     },
     {
@@ -330,6 +335,29 @@
       "total_tokens": 763360,
       "wall_time_s": 540,
       "total_cost_usd": 0.04282
+    },
+    {
+      "task_id": "afc",
+      "model": "inception/mercury-2.5-preview",
+      "product_bar": "HAPPY",
+      "oracle": "PASS",
+      "oracle_note": "Eighth catalog AFC cell. First non-gate catalog HAPPY / oracle PASS (failure_count=0). Sample is a near-full Population copy (sample_data_rows=1518) but S=494 ≥ R=68 so the oracle passes. Husks 2/16680. Attempt1 contaminated; attempt2 wipe. No oracle_check_count stored — PASS still yields partial_score=1. total_cost_usd is the OpenRouter usage sum (~0.00468); model_configs estimate ~0.03144 is an alternate, not stored. First HAPPY cell with recorded USD, so C²/$ is computed (partial² / USD). Box-local run_dir: docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0330-mercury-2.5-preview/",
+      "stamp": "20260912-0330-mercury-2.5-preview",
+      "source": "docs/eval/eval-2/afc-sample-83d10b06/notes.md; Scrolly headed catalog run (box-local stamp)",
+      "run_artifacts_committed": false,
+      "patches": null,
+      "oracle_passed": true,
+      "oracle_failure_count": 0,
+      "oracle_failures": [],
+      "afc_s_flags": 494,
+      "afc_r_required": 68,
+      "husk_cells": 2,
+      "scored_cells": 16680,
+      "input_tokens": 115096,
+      "output_tokens": 3554,
+      "total_tokens": 118650,
+      "wall_time_s": 479,
+      "total_cost_usd": 0.00468
     },
     {
       "task_id": "writer-calc-peer-write",

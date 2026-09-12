@@ -93,3 +93,13 @@ totals were higher (not stored). OpenRouter second-send usage sum
 ~$0.04282 stored; model_configs estimate ~$0.06145 is an alternate
 only. Wall ~540–600s. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0310-nemotron-3.5-lightning/`.
+
+Eighth catalog cell: `inception/mercury-2.5-preview`, stamp
+`20260912-0330-mercury-2.5-preview`. First non-gate catalog **HAPPY** /
+oracle **PASS** (`failure_count=0`). Sample is a near-full Population
+copy (`sample_data_rows=1518`) but S=494 ≥ R=68. Husks 2/16680.
+Attempt1 contaminated; attempt2 wipe. OpenRouter usage sum ~$0.00468
+stored; model_configs estimate ~$0.03144 is an alternate only. First
+HAPPY cell with recorded USD (C²/$ lights). Run dir is box-local /
+untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0330-mercury-2.5-preview/`.

@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="820" height="140" viewBox="0 0 820 140" role="img">
-  <title>Eval-2 headed cost for results (empty — no recorded USD)</title>
-  <rect width="820" height="140" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="166" viewBox="0 0 820 166" role="img">
+  <title>Eval-2 headed cost for results (HAPPY cells with recorded USD)</title>
+  <rect width="820" height="166" fill="#ffffff"/>
   <text x="24" y="28" font-family="DejaVu Sans, sans-serif" font-size="16" font-weight="700" fill="#202124">Eval-2 headed cost for results (HAPPY cells)</text>
-  <text x="24" y="46" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#5f6368">Hard (HAPPY) first. C²/$ = partial² / USD among successes (same shape as the string pack).</text>
-  <rect x="24" y="64" width="772" height="40" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
-  <text x="410.0" y="89" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#5f6368">No HAPPY cell has recorded total_cost_usd yet</text>
+  <text x="24" y="46" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#5f6368">Hard (HAPPY) first; among HAPPY, higher partial then lower USD. C²/$ = partial² / USD. NOT_HAPPY and missing cost omitted.</text>
+  <text x="24" y="64" font-family="DejaVu Sans, sans-serif" font-size="12" font-weight="700" fill="#202124">3. AFC Population</text>
+  <text x="296.0" y="94.0" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">Mercury 2.5 Preview</text>
+  <rect x="304.0" y="82.0" width="360.0" height="16" rx="3" fill="#009E73" stroke="#dadce0" data-cost-usd="0.004680"/>
+  <text x="672.0" y="94.0" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">$0.0047 · 213.68 C²/$</text>
+  <text x="24" y="150" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">Recorded USD only. Empty cost stays empty — do not invent run costs.</text>
 </svg>
