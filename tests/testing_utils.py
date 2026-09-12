@@ -1351,6 +1351,36 @@ def skip_windows_hidden_open_after_bitmap(reason: str) -> None:
     )
 
 
+def windows_awt_top_dialog_unsafe() -> bool:
+    """True when mapping a TOP AWT dialog would hang Windows headless VCL."""
+    return sys.platform == "win32"
+
+
+def skip_windows_awt_top_dialog(reason: str) -> None:
+    """Skip TOP dialog ``createPeer`` / ``setVisible`` on Windows headless.
+
+    GHA 34671277292 (master ``dc3be8d6``): after full calc UNO suites
+    (all green, leftover_open not required),
+    ``test_slash_popup_listbox_filter_and_keys`` printed ``TEST call``
+    then hung 30s. Main thread was ``dlg.setVisible(True)`` after
+    ``createPeer(toolkit, None)``; office stayed alive (kill-libreoffice
+    later killed the same soffice PIDs). Worker threads were
+    ``worker_pool._loop`` / ``_drain_soffice_stderr``.
+
+    ``skip_windows_leftover_hidden_load`` does not cover this — that
+    helper is leftover_open>0. Overlay ``createWindow`` TOP + later
+    ``setVisible`` is the same VCL map. ENABLE_SLASH stays parked.
+    Linux UNO still maps the overlay. Do not map a TOP dialog on win32
+    CI.
+    """
+    if not windows_awt_top_dialog_unsafe():
+        return
+    import unittest
+
+    print("windows awt skip: %s" % reason, file=sys.stderr, flush=True)
+    raise unittest.SkipTest("Windows headless AWT TOP dialog skip (%s)" % reason)
+
+
 def note_windows_hidden_open_bitmap(err: str | None) -> None:
     """Record a Windows Hidden bitmap so later sibling opens skip."""
     if not windows_hidden_open_bitmap_err(err):

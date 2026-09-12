@@ -289,6 +289,8 @@ POSIX still `close_doc`. Breadcrumbs:
 `native_doc: leftover notebook host reuse`,
 `windows leftover skip: leftover simpress leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
+`windows awt skip: slash_popup createPeer/setVisible`,
+`slash_popup_uno: createPeer start/done setVisible start/done`,
 `create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: store budget via active start/done`,
 `document_research_uno: open_document_for_read start/done`,
@@ -425,6 +427,21 @@ factory is unsafe. `create_native_doc` now skips Hidden `_blank`
 bitmap`). Named leftover factories (`_wa_factory` / `_wa_scalc` /
 `_wa_sdraw` / `_wa_simpress`) still load. Not a product change.
 
+GHA 34671277292 (master `dc3be8d6`, #742 live; #743 Hidden `_blank`
+skip is not this hang): after full calc UNO suites (all green),
+`chatbot.test_slash_popup_uno.test_slash_popup_listbox_filter_and_keys`
+printed `TEST call` then hung 30s. Main thread was
+`dlg.setVisible(True)` after `createPeer(toolkit, None)` (test line 41
+on that tip). Office stayed alive (`kill-libreoffice.ps1` then killed
+the same soffice PIDs). Worker threads were `worker_pool._loop` /
+`_drain_soffice_stderr`. Leftover_open was **not** required —
+`skip_windows_leftover_hidden_load` would not have fired. Overlay
+`createWindow` TOP + later `setVisible` is the same Windows-headless
+VCL map. Windows now `skip_windows_awt_top_dialog`s before
+`createPeer` / `setVisible` (`windows awt skip: slash_popup
+createPeer/setVisible`). Linux UNO still maps the overlay. ENABLE_SLASH
+stays parked. Not a product change.
+
 GHA 34657826349 / 34657808315 (master `0bf7d223`, tip of #734):
 #734's Hidden-open skip is not that hang. `document_research_uno`
 3/3 and both text_helpers tests OK. Leftover Draw/Impress unique
@@ -479,7 +496,9 @@ deferred),
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
 no second leftover swriter factory after the first text_helpers Writer,
 `document_research_uno` three tests
-`TEST end … OK`, slash `TEST end … OK`, both text_helpers tests
+`TEST end … OK`, slash `TEST end … OK` or `TEST end … SKIP` with
+`windows awt skip: slash_popup createPeer/setVisible` (no 30s Timeout
+on `dlg.setVisible(True)`), both text_helpers tests
 `TEST end … OK` (`native_doc: leftover writer reuse` on the
 second; no second Hidden `_blank` / no 30s Timeout in
 `create_native_doc` on `…_multi_para_joins_with_newline`),
