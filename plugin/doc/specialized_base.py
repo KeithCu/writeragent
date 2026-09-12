@@ -25,6 +25,7 @@ from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
+    attach_sheets_create_completion_instruction,
 )
 from plugin.framework.prompts import DELEGATE_SPECIALIZED_TASK_PARAM_HINT, python_specialized_sub_agent_hint
 from plugin.framework.i18n import _
@@ -232,8 +233,20 @@ class DelegateToSpecializedBase(ToolBase):
         ctx.active_domain = domain
         # When inner send_peer_message ran, the outer must Ready (not keep tooling).
         peer_send_invoked = False
+        # Inner tool results that already carry web-research-style `instruction`
+        # (create_sheet, etc.) so specialized finish can forward them to the outer.
+        captured_tool_results: list[Any] = []
+        create_sheet_ran = False
+
+        class _CaptureInstructionAdapter(SmolToolAdapter):
+            def forward(self, *args: Any, **kwargs: Any) -> Any:
+                result = super().forward(*args, **kwargs)
+                if isinstance(result, dict) and result.get("instruction"):
+                    captured_tool_results.append(result)
+                return result
+
         try:
-            smol_tools = [SmolToolAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
+            smol_tools = [_CaptureInstructionAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
             if peer_catalog:
                 from plugin.doc.peer_message import PEER_TOOL_NAME
 
@@ -318,7 +331,9 @@ class DelegateToSpecializedBase(ToolBase):
             document_open_step_index = 0
 
             def tool_call_handler(step):
-                nonlocal document_open_step_index, peer_send_invoked
+                nonlocal document_open_step_index, peer_send_invoked, create_sheet_ran
+                if step.name == "create_sheet":
+                    create_sheet_ran = True
                 if domain == "document_research" and step.name == "send_peer_message":
                     peer_send_invoked = True
                 if domain == "document_research" and step.name == "delegate_read_document" and chat_append_callback:
@@ -345,4 +360,12 @@ class DelegateToSpecializedBase(ToolBase):
 
             # dict() widens the specialize payload for annotate_outer_peer_wait.
             return annotate_outer_peer_wait(dict(payload), peer_send_invoked=peer_send_invoked)
+        # Outer never sees create_sheet's inner-only ok string; forward the same
+        # `instruction` field web research uses when empty tabs were created.
+        if domain == "sheets" or create_sheet_ran or captured_tool_results:
+            return attach_sheets_create_completion_instruction(
+                dict(payload),
+                create_sheet_ran=create_sheet_ran,
+                tool_results=captured_tool_results,
+            )
         return payload

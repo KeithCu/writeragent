@@ -601,6 +601,70 @@ def test_calc_specialized_domain_base_requires_core_read_tools():
     assert "read_cell_range" in (ToolCalcSheetBase.required_core_tools or frozenset())
 
 
+@patch("plugin.doc.specialized_base.USE_SUB_AGENT", True)
+@patch(
+    "plugin.chatbot.smol_agent.get_config_int",
+    side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
+)
+@patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
+@patch("plugin.chatbot.smol_agent.ToolCallingAgent")
+@patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
+@patch("plugin.chatbot.smol_agent.LlmClient")
+@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.calc.analyzer.get_calc_context_for_chat")
+def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
+    mock_get_calc_context,
+    mock_execute_on_main,
+    _mock_llm,
+    _mock_smol_model,
+    mock_agent_class,
+    _mock_get_config,
+    _mock_get_config_int,
+):
+    """Outer hop payload gets web-research-style `instruction` after create_sheet."""
+    from plugin.calc.sheets import CreateSheet
+    from plugin.contrib.smolagents.memory import ToolCall
+    from plugin.framework.prompts import get_sheets_create_completion_instruction
+
+    mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
+    mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+    mock_agent_class.return_value = MagicMock()
+
+    registry = ToolRegistry(MagicMock())
+    registry.register(CreateSheet())
+    registry.register(DelegateToSpecializedCalc())
+
+    mock_doc = MagicMock()
+    mock_doc.supportsService.return_value = True
+
+    ctx = MagicMock()
+    ctx.services = {"tools": registry}
+    ctx.doc = mock_doc
+    ctx.ctx = MagicMock()
+    ctx.doc_type = "calc"
+    ctx.stop_checker = lambda: False
+
+    def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
+        if tool_call_handler:
+            tool_call_handler(ToolCall(name="create_sheet", arguments={"sheet": "Q1 Actuals"}, id="1"))
+        return {
+            "status": "ok",
+            "finished": True,
+            "answer": "Created Q1 Actuals",
+            "message": "Specialized task complete.",
+        }
+
+    gateway = registry.get("delegate_to_specialized_calc_toolset")
+    with patch("plugin.doc.specialized_base.SmolAgentExecutor") as mock_executor_cls:
+        mock_executor_cls.return_value.execute_safe.side_effect = fake_execute_safe
+        result = gateway.execute_safe(ctx, domain="sheets", task="Create a sheet named Q1 Actuals")
+
+    assert result["status"] == "ok"
+    assert result["instruction"] == get_sheets_create_completion_instruction()
+    assert "write_formula_range" in result["instruction"]
+    assert "not populated" in result["instruction"]
+
+
 def test_calc_shapes_domain_tools():
     from plugin.calc.shapes import UpsertShape, DeleteShape, ConnectShapes, GroupShapes, GetDrawSummary
     from plugin.calc.base import ToolCalcShapeBase
