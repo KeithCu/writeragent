@@ -9,6 +9,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 [`plugin/writer/images/image_utils.py`](../../plugin/writer/images/image_utils.py):
 
 - **`EndpointImageProvider`**: requests images via `LlmClient` (routing dedicated text-to-image models to OpenRouter's dedicated Image API via `POST /api/v1/images`, falling back to standard `modalities: ["image"]` chat completions for multimodal models).
+- **OpenRouter `/images` payload** ([`OpenRouterShim.build_image_request`](../../plugin/framework/client/openai_shim.py)): `output_format` is `png` (not `webp` — models such as `black-forest-labs/flux.2-klein-4b` only accept png/jpeg). When width/height are set it sends `size` (`WxH`) and omits `aspect_ratio`; OpenRouter treats an explicit pixel size as authoritative and returns HTTP 400 if a paired `aspect_ratio` is considered mismatched.
 - **`ImageService`**: merges config defaults (base size, steps) and delegates to `EndpointImageProvider`.
 
 ### Tools and document insertion
