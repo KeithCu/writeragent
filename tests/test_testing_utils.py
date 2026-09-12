@@ -811,6 +811,49 @@ def test_skip_windows_leftover_hidden_load_noop_without_leftovers(monkeypatch):
         tu._set_windows_leftover_open(saved)
 
 
+def test_create_native_doc_windows_skips_hidden_blank_after_bitmap(monkeypatch):
+    """GHA 34670295632: after Budget_read bitmap, Hidden _blank hung 30s.
+
+    #734 skipped later document_research Hidden siblings. Next suite
+    text_helpers leftover writer reuse then leftover_open=0
+    target=_blank hung. Skip Hidden _blank after bitmap; named leftover
+    factories still load.
+    """
+    import unittest
+    from unittest.mock import MagicMock, patch
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    desktop = MagicMock()
+    desktop.loadComponentFromURL.return_value = MagicMock()
+    saved_bitmap = tu._WINDOWS_HIDDEN_OPEN_BITMAP
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_hidden_open_bitmap(True)
+    try:
+        with (
+            patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
+            patch("uno.createUnoStruct", return_value=MagicMock()),
+            patch("plugin.testing_runner.probe_uno_bridge", return_value="alive"),
+        ):
+            monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 0)
+            try:
+                TestingFactory.create_native_doc(object(), "writer")
+            except unittest.SkipTest as exc:
+                assert "Hidden _blank" in str(exc)
+                assert "system bitmap" in str(exc)
+            else:
+                raise AssertionError("expected SkipTest")
+            desktop.loadComponentFromURL.assert_not_called()
+            monkeypatch.setattr(tu, "prepare_windows_writer_factory", lambda _ctx: 2)
+            TestingFactory.create_native_doc(object(), "writer")
+            args = desktop.loadComponentFromURL.call_args.args
+            assert args[0] == "private:factory/swriter"
+            assert args[1] == "_wa_factory"
+    finally:
+        tu._set_windows_hidden_open_bitmap(saved_bitmap)
+
+
 def test_windows_hidden_open_bitmap_err_and_skip(monkeypatch):
     """GHA 34655847157: leftover_open=0 Hidden Budget_read bitmap then hang."""
     import unittest

@@ -288,6 +288,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `create_native_doc: windows factory leftover_open=N url=… target=… flags=…`,
 `native_doc: leftover notebook host reuse`,
 `windows leftover skip: leftover simpress leftovers=`,
+`windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `create_native_doc: load start/done` (leftover Windows factory),
 `document_research_uno: store budget via active start/done`,
 `document_research_uno: open_document_for_read start/done`,
@@ -412,6 +413,18 @@ After a Windows bitmap, later Hidden sibling opens
 `skip_windows_hidden_open_after_bitmap` — do not hang. Still attempt
 the first Hidden-open. Not a product change.
 
+GHA 34670295632 (PR #742, `f278ca78`): leftover Impress skip is not
+that hang. `document_research_uno` Hidden `Budget_read.ods` bitmap-failed;
+#734 skipped later siblings (`windows hidden skip: document_research
+Hidden Budget_read after system bitmap`, suite 3/3). Next suite
+`text_helpers` printed `native_doc: leftover writer reuse` then
+`create_native_doc leftover_open=0 url=private:factory/swriter
+target=_blank flags=0` and hung 30s. After bitmap, Hidden `_blank`
+factory is unsafe. `create_native_doc` now skips Hidden `_blank`
+(`windows hidden skip: create_native_doc Hidden _blank after system
+bitmap`). Named leftover factories (`_wa_factory` / `_wa_scalc` /
+`_wa_sdraw` / `_wa_simpress`) still load. Not a product change.
+
 GHA 34657826349 / 34657808315 (master `0bf7d223`, tip of #734):
 #734's Hidden-open skip is not that hang. `document_research_uno`
 3/3 and both text_helpers tests OK. Leftover Draw/Impress unique
@@ -457,7 +470,10 @@ swriter loads using `target=_wa_factory` (not `_blank` / not
 `create budget calc` / no leftover `scalc` `target=_wa_factory_1`),
 `copied budget for hidden open` then `open_document_for_read done err=-`
 or `windows hidden bitmap` / Hidden-open `TEST end … SKIP` after
-system bitmap (no 30s hang on the next sibling open) **before**
+system bitmap (no 30s hang on the next sibling open) **or**
+text_helpers `TEST end … SKIP` with
+`windows hidden skip: create_native_doc Hidden _blank after system
+bitmap` (no 30s Timeout on leftover_open=0 `target=_blank`) **before**
 `html_paste_writer: noted leftover_open` (formulas / rich_html are
 deferred),
 `create_native_doc: load done`, `native_doc: leftover writer reuse` and
