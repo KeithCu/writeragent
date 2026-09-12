@@ -150,11 +150,23 @@ def delegation_math_to_python_hint(*, delegate_toolset: str) -> str:
 
 
 # Brief hint for gateway tool JSON schemas (see SPECIALIZED_TASK_RULES in system prompt).
-DELEGATE_SPECIALIZED_TASK_PARAM_HINT = "What the specialized task should accomplish."
+# Parent Nemotron Super rewrote "make it look like a wizard" into a generate-new
+# task; the specialist then omitted source_image. Schema + task rules must
+# keep the user's edit wording and name source_image='selection'.
+DELEGATE_SPECIALIZED_TASK_PARAM_HINT = (
+    "What the specialized task should accomplish. For edit/change/restyle of an "
+    "existing or selected image, instruct image_generate(source_image='selection') "
+    "and keep the user's wording so img2img replaces the graphic in place."
+)
 
 # Shared guidance for writing `task` strings when delegating to specialized sub-agents.
+# Must stay a single line (delegation templates are one line; tests assert no newlines).
 SPECIALIZED_TASK_RULES = (
-    "Pass a clear `task` describing what the specialized task should accomplish."
+    "Pass a clear `task` describing what the specialized task should accomplish. "
+    "When the user wants to edit, change, or restyle an existing or selected image, "
+    "the task must instruct image_generate(source_image='selection') and keep the "
+    "user's wording (for example 'make it look like a wizard') so img2img replaces "
+    "the graphic in place."
 )
 
 
@@ -413,8 +425,9 @@ WRITER_NAVIGATION_RULES = """NAVIGATING LARGE DOCUMENTS (map first, then drill �
 - Reserve get_document_content(scope='full') for short documents or a deliberate full read."""
 
 WRITER_IMAGES_RULES = """IMAGES:
-- Image tools live in the 'images' domain: image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm), image_download.
+- Image tools live in the 'images' domain: image_generate, image_insert, image_delete, image_replace, image_list, image_get_info (includes crop_mm), image_download.
   Extract text and structure (layout, tables) from images with extract_structure_from_image in the 'vision' domain; inserts a high-quality representation into the document.
+- To edit, change, or restyle an existing or selected image, delegate domain=images with a task that instructs image_generate(source_image='selection') and keeps the user's wording (e.g. 'make it look like a wizard'). That runs img2img and replace_image_in_place. A generate-new paraphrase inserts a new graphic.
 - Writer letterhead logos: image_insert(target='header'|'footer'). A different first page needs page_set_style_properties(first_is_shared=false) then target='header_first' (or footer_first) — otherwise the logo lands in the shared header and repeats on every page.
 - image_set_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
 - To actually SEE an image (vision-capable models), call get_image — by graphic name, selection=true, or page=N to render that whole page.

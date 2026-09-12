@@ -61,17 +61,39 @@ from .image_tools import (
 log = logging.getLogger("writeragent.writer")
 
 
+def resolve_image_generate_is_edit(source_image: typing.Any, *, selection_available: bool) -> bool:
+    """True when image_generate should img2img the selected graphic.
+
+    Explicit ``source_image='selection'`` always edits. Omitting ``source_image``
+    also edits when a graphic is selected: the parent often rewrites
+    "make it look like a wizard" into a generate-new task and drops the
+    argument; defaulting to the selection keeps ``replace_image_in_place``.
+    Create-new when nothing is selected (clear the selection to force create).
+    """
+    if isinstance(source_image, str):
+        source_image = source_image.strip() or None
+    if source_image and str(source_image).lower() == "selection":
+        return True
+    return source_image is None and selection_available
+
+
 class ImageGenerate(ToolWriterImageBase):
     """Generate a new image from a prompt, or edit an existing image (Img2Img)."""
 
     name = "image_generate"
     intent = "media"
-    description = "Generate an image from a text prompt and insert it. To edit an existing image, pass source_image='selection' and select an image first."
+    description = (
+        "Generate an image from a text prompt and insert it. "
+        "To edit an existing image, pass source_image='selection' (or omit it while a graphic is selected)."
+    )
     parameters = {
         "type": "object",
         "properties": {
             "prompt": {"type": "string", "description": "Descriptive prompt for image generation or editing"},
-            "source_image": {"type": "string", "description": ("Optional. Use 'selection' to edit the currently selected image (Img2Img). Omit to generate a new image.")},
+            "source_image": {"type": "string", "description": (
+                "Optional. Use 'selection' to edit the currently selected image (Img2Img). "
+                "Omit while a graphic is selected to edit in place; omit with no selection to create a new image."
+            )},
             "strength": {"type": "number", "description": "For editing: how much to change the image (0.0-1.0). Ignored when generating new.", "default": 0.75},
             "aspect_ratio": {"type": "string", "enum": ["square", "landscape_16_9", "portrait_9_16", "landscape_3_2", "portrait_2_3", "1:1", "4:3", "3:4", "16:9", "9:16"], "default": "square"},
             "base_size": {"type": "integer", "description": "Base dimension for scaling", "default": 512},
@@ -104,11 +126,14 @@ class ImageGenerate(ToolWriterImageBase):
         if isinstance(source_image, str):
             source_image = source_image.strip() or None
 
-        is_edit = source_image and source_image.lower() == "selection"
+        explicit_edit = bool(source_image and source_image.lower() == "selection")
         source_b64 = None
         edit_width, edit_height = 512, 512
+        is_edit = False
 
-        if is_edit:
+        # Peek selection when the caller asked to edit, or omitted source_image
+        # (omitted + selected graphic → img2img; omitted + no selection → create).
+        if explicit_edit or source_image is None:
 
             def _read_selection_for_edit():
                 b64 = get_selected_image_base64(ctx.doc, ctx.ctx)
@@ -120,11 +145,14 @@ class ImageGenerate(ToolWriterImageBase):
                 return ("ok", (b64, ew, eh))
 
             tag, payload = _run_on_main(_read_selection_for_edit, timeout=mt_timeout)
-            if tag == "no_selection":
+            selection_available = tag == "ok"
+            is_edit = resolve_image_generate_is_edit(source_image, selection_available=selection_available)
+            if explicit_edit and not selection_available:
                 return self._tool_error("No image selected. Please select an image in the document first.", code="NO_SELECTION", action="edit_image")
-            if not isinstance(payload, tuple) or len(payload) != 3 or payload[1] is None or payload[2] is None:
-                return self._tool_error("Could not read selected image.", code="SELECTION_READ_ERROR")
-            source_b64, edit_width, edit_height = (str(payload[0]), int(payload[1]), int(payload[2]))
+            if is_edit:
+                if not isinstance(payload, tuple) or len(payload) != 3 or payload[1] is None or payload[2] is None:
+                    return self._tool_error("Could not read selected image.", code="SELECTION_READ_ERROR")
+                source_b64, edit_width, edit_height = (str(payload[0]), int(payload[1]), int(payload[2]))
 
         base_size = args.get("base_size", get_config_int("image_base_size"))
         try:

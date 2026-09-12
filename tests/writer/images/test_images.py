@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from plugin.tests.testing_utils import TestingFactory, setup_uno_mocks
 setup_uno_mocks()
 
-from plugin.writer.images.images import ImageInsert, _resolve_orient
+from plugin.writer.images.images import ImageGenerate, ImageInsert, _resolve_orient, resolve_image_generate_is_edit
 
 
 def test_resolve_orient_named_positions():
@@ -99,3 +99,69 @@ def test_image_insert_routes_footer_first_to_region_helper():
     assert res["status"] == "ok"
     assert res["target"] == "footer_first"
     assert insert.call_args.args[2] == "footer_first"
+
+
+def test_resolve_image_generate_is_edit_defaults_to_selection():
+    assert resolve_image_generate_is_edit(None, selection_available=True) is True
+    assert resolve_image_generate_is_edit("", selection_available=True) is True
+    assert resolve_image_generate_is_edit("  ", selection_available=True) is True
+    assert resolve_image_generate_is_edit("selection", selection_available=True) is True
+    assert resolve_image_generate_is_edit("SELECTION", selection_available=False) is True
+    assert resolve_image_generate_is_edit(None, selection_available=False) is False
+    assert resolve_image_generate_is_edit("", selection_available=False) is False
+
+
+def test_image_generate_omitted_source_edits_when_selected():
+    """Omitted source_image + selected graphic → img2img replace, not a new insert."""
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/edited.png"], None)
+
+    def _run(fn, *args, timeout=60.0, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value="b64sel"),
+        patch("plugin.writer.images.images.get_selected_image_dimensions_px", return_value=(640, 480)),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.replace_image_in_place", return_value=True) as replace,
+        patch("plugin.writer.images.images.insert_image") as insert,
+        patch("plugin.writer.images.images.get_config_int", return_value=512),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="make it look like a wizard")
+    assert res["status"] == "ok"
+    assert "edited" in res["message"].lower()
+    assert svc.generate_image.call_args.kwargs.get("source_image") == "b64sel"
+    replace.assert_called_once()
+    insert.assert_not_called()
+
+
+def test_image_generate_omitted_source_creates_when_no_selection():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/new.png"], None)
+
+    def _run(fn, *args, timeout=60.0, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.replace_image_in_place") as replace,
+        patch("plugin.writer.images.images.insert_image") as insert,
+        patch("plugin.writer.images.images.get_config_int", return_value=512),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="a tabby cat")
+    assert res["status"] == "ok"
+    assert "generated" in res["message"].lower()
+    assert "source_image" not in svc.generate_image.call_args.kwargs
+    insert.assert_called_once()
+    replace.assert_not_called()
