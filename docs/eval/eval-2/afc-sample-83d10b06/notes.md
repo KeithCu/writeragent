@@ -238,3 +238,14 @@ UNO/assert/PreContract=0. Recorded wall ~131s. tip_at_run
 estimate ~$0.00814 matches and is an alternate only. Run dir is
 box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0610-seed-2.0-mini/`.
+
+Twenty-first catalog cell: `minimax/minimax-m3`, stamp
+`20260912-0617-minimax-m3`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=2`: missing sheet 'Sample'; missing sheet
+'Sample Size Calculation'). Ready; no Sample/SSC
+(`sample_data_rows=0`); S=0; R=None; husks 0/0. Analysis sheet
+A1=`#NAME?` A2=8. Tokens are n=30. UNO/assert/PreContract=0.
+Recorded wall ~66s. tip_at_run `71640e30`. OpenRouter usage sum
+~$0.07965 stored; model_configs estimate ~$0.10003 is an alternate
+only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0617-minimax-m3/`.
