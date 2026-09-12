@@ -32,6 +32,10 @@ def test_get_domain_guidance():
     assert "data range" in get_domain_guidance("charts", agent_label="Calc").lower()
     assert "headers" in get_domain_guidance("charts", agent_label="Writer").lower()
     assert "insert_after" in get_domain_guidance("footnotes")
+    images = get_domain_guidance("images")
+    assert "source_image" in images
+    assert "selection" in images
+    assert "image_generate" in images
     assert get_domain_guidance("totally_unknown_domain") == ""
 
 

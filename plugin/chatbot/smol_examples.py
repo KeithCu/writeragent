@@ -12,6 +12,7 @@
 - **deep_research** — multi-step web research + `apply_document_content` (`reply_to_user`, `deep_research_web`).
 - **web_research** — web sub-agent (`final_answer`).
 - **``*:python``** — venv demo (`run_venv_python_script` + ``sp.prime``; no numpy imports).
+- **``*:images``** — edit selected image via ``image_generate(source_image='selection')``.
 - **All other keys** — shared delegate demo (`specialized_workflow_finished`).
 
 Refresh librarian text with: ``python scripts/generate_smol_examples.py``
@@ -193,6 +194,41 @@ Action:
 )
 
 
+# Images specialist: edit-in-place uses image_generate(source_image='selection')
+# → selection b64 → img2img → replace_image_in_place. A delete + prompt-only
+# generate creates a new graphic and skips that path.
+IMAGES_SPECIALIZED_EXAMPLES = """Task: "Make it look like a wizard"
+
+Action:
+{
+  "name": "image_generate",
+  "arguments": {"prompt": "make it look like a wizard", "source_image": "selection"}
+}
+Observation: {"status": "ok", "message": "Image edited in place."}
+
+Action:
+{
+  "name": "specialized_workflow_finished",
+  "arguments": {"answer": "Updated the selected image in place so it looks like a wizard."}
+}
+
+Task: "Generate a tabby cat"
+
+Action:
+{
+  "name": "image_generate",
+  "arguments": {"prompt": "a tabby cat"}
+}
+Observation: {"status": "ok", "message": "Image generated successfully."}
+
+Action:
+{
+  "name": "specialized_workflow_finished",
+  "arguments": {"answer": "Inserted a new tabby cat image."}
+}
+"""
+
+
 PPT_MASTER_EXAMPLES = """Task: "Export my ppt-master project at ~/projects/demo to this deck."
 
 Action:
@@ -254,7 +290,8 @@ def get_examples_block(key: str) -> str:
     Specialized keys (``writer:shapes``, ``document_research:calc``, …) share
     ``DELEGATE_GENERIC_EXAMPLES_BLOCK`` so the DONE tool is always
     ``specialized_workflow_finished``. Keys ending in ``:python`` use
-    ``PYTHON_SPECIALIZED_EXAMPLES``.
+    ``PYTHON_SPECIALIZED_EXAMPLES``. Keys ending in ``:images`` use
+    ``IMAGES_SPECIALIZED_EXAMPLES``.
     """
     if key == "librarian":
         return LIBRARIAN_EXAMPLES
@@ -270,6 +307,8 @@ def get_examples_block(key: str) -> str:
         return WEB_RESEARCH_EXAMPLES_BLOCK
     if key.endswith(":python"):
         return PYTHON_SPECIALIZED_EXAMPLES
+    if key.endswith(":images"):
+        return IMAGES_SPECIALIZED_EXAMPLES
     return DELEGATE_GENERIC_EXAMPLES_BLOCK
 
 

@@ -113,7 +113,8 @@ class ToolDrawPythonBase(ToolDrawSpecialBase):
 class ToolDrawImageBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "images"
     specialized_domain_description: ClassVar[str | None] = (
-        "Insert, list, generate, and replace images on Draw/Impress pages (same image_* tools as Writer/Calc)."
+        "Insert, list, and generate images on Draw/Impress pages (same image_* tools as Writer/Calc); "
+        "edit a selected image with image_generate(source_image='selection')."
     )
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 

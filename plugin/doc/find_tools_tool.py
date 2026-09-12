@@ -71,8 +71,9 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer", ctx:
         return ("When creating or editing a chart in Writer or Draw/Impress, you MUST "
                 "specify both the `headers` and `rows` parameters.")
     if domain == "images":
-        return ("Discover local image files with image_list_nearby_files before image_insert "
-                "when the user refers to a photo in the folder.")
+        from plugin.framework.prompts import images_specialized_sub_agent_hint
+
+        return images_specialized_sub_agent_hint().strip()
     if domain == "python":
         if agent_label is None:
             return ("run_venv_python_script: in Calc, pass `data_range` (an A1 address) to inject "

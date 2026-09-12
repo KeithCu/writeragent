@@ -66,6 +66,8 @@ Single `generate_image(prompt, source_image=...)` API:
 
 Tool usage: pass `source_image='selection'` with an image selected in the document; optional `strength` (default 0.75) controls edit strength.
 
+The images specialist is steered to that path: `images_specialized_sub_agent_hint()` plus `IMAGES_SPECIALIZED_EXAMPLES` (`writer:images` / `calc:images` / `draw:images`). Edit/change/restyle of an existing or selected image (e.g. “make it look like a wizard”) must call `image_generate` with `source_image='selection'` so img2img + `replace_image_in_place` keep the graphic in the same frame. A delete plus a prompt-only generate creates a new image instead of editing.
+
 ## Future Work
 
 ### OpenRouter Image Generation Enhancements

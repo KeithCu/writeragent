@@ -396,7 +396,7 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 | Domain | Tools | Use Case |
 |--------|-------|---------|
 | `shapes` | `shape_upsert`, `fill_draw_fields`, `create_diagram`, `align_shapes`, `distribute_shapes`, `shape_connect`, `shape_group` | Vector graphics, flowcharts, paper-form fill |
-| `images` | `image_insert`, `image_list`, `image_delete`, `image_generate` | Images on slides (millimetres) |
+| `images` | `image_insert`, `image_list`, `image_delete`, `image_generate` (`source_image='selection'` edits in place) | Images on slides (millimetres) |
 | `tables` | `table_insert`, `table_list`, `table_get_cells`, `table_set_cell`, `manage_table_structure` | Slide tables |
 | `animations` | `get_animations`, `set_animations`, `add_animation` | Element entrance/motion builds |
 | `slide_transitions` | `get_slide_transition`, `set_slide_transition` | Slide-to-slide advance effects |
