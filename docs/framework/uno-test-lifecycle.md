@@ -293,6 +293,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `windows leftover skip: math export Hidden _blank smath leftovers=`,
 `windows leftover skip: document scripts Hidden _blank reopen leftovers=`,
 `windows leftover skip: apply_document_content Hidden _default swriter leftovers=`,
+`windows leftover skip: apply_style origin canary leftover reuse leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -540,6 +541,14 @@ Hidden `_default` family as heading-rewrite `_b_uno`. Content-style
 write `_tool_ctx` plus later apply UNO files (`test_format_uno`,
 `test_track_changes_reviewable_uno`) now
 `skip_windows_leftover_hidden_apply`. Not a product change.
+Same run:
+`test_apply_style_known_limitation_direct_equals_old_default_uno`
+FAIL (`origin detection improved`) under leftover writer reuse;
+suite continued (passed=10 failed=1) until the later apply hang.
+Linux still pins CharWeight=150; `format.py` still compares value
+vs old style default. Windows leftover skip
+(`windows leftover skip: apply_style origin canary leftover reuse`)
+— leftover pollution, not a product change.
 
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
@@ -606,6 +615,10 @@ swriter` when leftover_open>0 (no 30s Timeout on
 `html_to_plain_text` Hidden `_default` swriter after leftover
 writer reuse — GHA 34681661844 heading `_b_uno`, GHA 34683742049
 content-style `test_write_compact_heading1_resolves_to_spaced_uno`),
+apply-style origin canary `TEST end … SKIP` with
+`windows leftover skip: apply_style origin canary leftover reuse`
+when leftover_open>0 (no FAIL claiming origin detection improved —
+GHA 34683742049 leftover reuse; Linux still pins CharWeight=150),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**

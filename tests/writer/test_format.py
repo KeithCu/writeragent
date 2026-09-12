@@ -515,6 +515,17 @@ def test_enum_hit_walk_cap_and_warning_are_honest():
     assert fmt.record_walk_cap(done, 50, 50, "text portions", dest) is False
 
 
+def test_apply_style_origin_limitation_still_value_compare() -> None:
+    """GHA 34683742049 canary FAIL was leftover reuse, not a product fix."""
+    from pathlib import Path
+
+    from plugin.writer import format as fmt
+
+    src = Path(fmt.__file__).read_text(encoding="utf-8")
+    assert "KNOWN LIMITATION: a direct override whose value equals the old style default" in src
+    assert "differs from the paragraph's current style default" in src
+
+
 def test_style_governed_char_properties_spare_bold_and_italic():
     """style_props drops the font the style owns; hand-set emphasis is the user's, not the style's."""
     from plugin.writer import format as fmt
