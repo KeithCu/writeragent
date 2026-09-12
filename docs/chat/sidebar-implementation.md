@@ -26,6 +26,8 @@ Prompt text lives in [`plugin/framework/prompts.py`](../../plugin/framework/prom
 
 **Sidebar mode dropdown** (Chat, Image, Web Research, …, Librarian last) is session-only and is **not** persisted to `writeragent.json`. On load the panel selects **Librarian** when `USER.md` is empty, otherwise **Chat**. Chat and Web Research histories are per document; Librarian uses a fixed session id in the same history DB (one transcript per LibreOffice user profile). Switching modes swaps the active `ChatSession` and does not mix transcripts.
 
+**Image mode** skips the chat LLM and calls `image_generate` from [`send_handlers.py`](../../plugin/chatbot/send_handlers.py). No selection: text-to-image insert. Selected document graphic: `source_image='selection'` (img2img + replace in place). Chat/specialist img2img steering is a separate path.
+
 ### Reasoning (`[Thinking]`) and tool calls
 
 During a **tool-loop** send, the sidebar can show provider reasoning under `[Thinking]` while tools still run from native `tool_calls` (or content fallback parsers)—reasoning text is never parsed as a tool invocation. Reasoning is **display-only** for that turn: it is not written into session messages for the next API round (only `content` + `tool_calls` are). That matches common OpenAI-compat streaming behavior; provider docs often ask clients to echo reasoning back on later tool-loop turns for quality on reasoning models—a possible future change, not current behavior.

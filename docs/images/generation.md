@@ -18,6 +18,8 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 - Text-to-image from a prompt.
 - Img2img when `source_image='selection'` and an image is selected in the document.
 
+**Sidebar Image mode** (`chat_mode = Image`, not Chat/specialist) calls `image_generate` directly — no chat LLM. With a document graphic selected, the send path passes `source_image='selection'` so the same img2img + in-place replace runs. With nothing selected, it generates and inserts a new graphic.
+
 [`plugin/writer/images/image_tools.py`](../../plugin/writer/images/image_tools.py):
 
 - **`image_insert`**: inserts into Writer, Calc, Draw, and Impress; stable paths are linked, temp/cache paths are embedded. Writer letterheads use `target=header`/`footer`; a different-first-page logo needs `first_is_shared=false` then `target=header_first`/`footer_first` (same `AS_CHARACTER` + `auto_height` path). Draw/Impress take millimetres (`page`, `x_mm`, `y_mm`; omitted x/y centers on the page).
