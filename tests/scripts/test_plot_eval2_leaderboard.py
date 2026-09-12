@@ -125,6 +125,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     mercury = "inception/mercury-2.5-preview"
     grok = "x-ai/grok-4.6"
     glimmer = "meta/muse-glimmer-30b"
+    spark = "meta/muse-spark-1.3-contributor"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -451,7 +452,35 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "e0bb6321" in afc_glimmer.oracle_note
     assert "50 tool" in afc_glimmer.oracle_note
 
-    # No invented Luna / 20b / Flash Lite / Gemma / Nemotron / Mercury / Grok / Glimmer scores outside AFC.
+    # Eleventh catalog AFC stamp (Scrolly headed 20260912-0409).
+    afc_spark = board.result_for("afc", spark)
+    assert afc_spark is not None
+    assert afc_spark.product_bar == "NOT_HAPPY"
+    assert afc_spark.oracle == "FAIL"
+    assert afc_spark.stamp == "20260912-0409-muse-spark-1.3-contributor"
+    assert afc_spark.oracle_passed is False
+    assert afc_spark.oracle_failure_count == 2
+    assert afc_spark.oracle_failures == (
+        "Sample has no data rows",
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_spark.oracle_check_count is None
+    assert afc_spark.partial_score is None
+    assert afc_spark.afc_s_flags == 0
+    assert afc_spark.afc_r_required is None
+    assert afc_spark.husk_cells == 0
+    assert afc_spark.scored_cells == 0
+    assert afc_spark.input_tokens == 23560
+    assert afc_spark.output_tokens == 550
+    assert afc_spark.total_tokens == 24110
+    assert afc_spark.wall_time_s == 241
+    assert afc_spark.total_cost_usd == pytest.approx(0.00157)
+    assert afc_spark.intelligence_per_dollar is None
+    assert "20260912-0409-muse-spark-1.3-contributor" in afc_spark.oracle_note
+    assert "0.00247" in afc_spark.oracle_note
+    assert "6c6017b7" in afc_spark.oracle_note
+
+    # No invented catalog AFC-only scores outside AFC.
     for task_id in (
         "tenant-retention",
         "cadaver-proposal",
@@ -471,10 +500,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, mercury) is None
         assert board.result_for(task_id, grok) is None
         assert board.result_for(task_id, glimmer) is None
-
-    # Remaining catalog peers stay empty until a real stamp lands.
-    assert board.scored_count("meta/muse-spark-1.3-contributor") == 0
-    assert board.happy_count("meta/muse-spark-1.3-contributor") == 0
+        assert board.result_for(task_id, spark) is None
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -488,6 +514,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", mercury),
         ("afc", grok),
         ("afc", glimmer),
+        ("afc", spark),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -529,6 +556,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_mercury)
     assert pel.has_recorded_partial(afc_grok)
     assert pel.has_recorded_partial(afc_glimmer)
+    assert pel.has_recorded_partial(afc_spark)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -542,6 +570,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "inception/mercury-2.5-preview"),
     ("afc", "x-ai/grok-4.6"),
     ("afc", "meta/muse-glimmer-30b"),
+    ("afc", "meta/muse-spark-1.3-contributor"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -614,7 +643,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     partial = (_EVAL2 / pel.PARTIAL_NAME).read_text(encoding="utf-8")
     assert "no data" in heatmap
     assert "HAPPY" in heatmap
-    assert "0 HAPPY / 0 scored" in coverage
+    assert "0 HAPPY / 1 scored" in coverage
     assert "1 HAPPY / 1 scored" in coverage
     assert "No HAPPY cell has recorded total_cost_usd yet" not in cost
     assert "data-cost-usd=\"0.004680\"" in cost
@@ -631,6 +660,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Mercury 2.5 Preview" in partial
     assert "Grok 4.6" in partial
     assert "Muse Glimmer 30B" in partial
+    assert "Muse Spark 1.3" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -661,7 +691,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "google/gemini-3.8-flash" in heat
     assert "Tenant Retention" in heat
     assert "no data" in cov
-    assert "0 HAPPY / 0 scored" in cov
+    assert "0 HAPPY / 1 scored" in cov
     assert "1 HAPPY / 1 scored" in cov
     assert pel.HEATMAP_NAME != "pareto-fronts.svg"
     assert pel.COVERAGE_NAME != "pareto-distance.svg"
@@ -691,6 +721,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Mercury 2.5 Preview" in partial_text
     assert "Grok 4.6" in partial_text
     assert "Muse Glimmer 30B" in partial_text
+    assert "Muse Spark 1.3" in partial_text
     assert "S=494 R=68" in partial_text
     assert "2/—" in partial_text
     assert "no ratio" in partial_text

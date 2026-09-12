@@ -122,3 +122,13 @@ lines=2 (PY deal); UNO/assert_main_thread=0. OpenRouter usage sum
 ~$0.15404 stored; model_configs estimate ~$0.66230 is an alternate
 only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0353-muse-glimmer-30b/`.
+
+Eleventh catalog cell: `meta/muse-spark-1.3-contributor`, stamp
+`20260912-0409-muse-spark-1.3-contributor`. Product bar **NOT_HAPPY**,
+oracle **FAIL** (`failure_count=2`: Sample has no data rows; R
+missing). SSC present; Sample empty (`sample_data_rows=0`); S=0;
+R=None; husks 0/0. Same empty-Sample shape as Grok. tip_at_run
+`6c6017b7`. UNO/assert/PreContract=0. OpenRouter usage sum ~$0.00157
+stored; model_configs estimate ~$0.00247 is an alternate only. Run
+dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0409-muse-spark-1.3-contributor/`.
