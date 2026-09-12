@@ -179,3 +179,16 @@ OpenRouter generations. UNO/assert/PreContract=0. Recorded wall
 OpenRouter usage sum ~$0.11382 stored; model_configs estimate
 ~$0.35238 is an alternate only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0502-qwen3.8-flash/`.
+
+Sixteenth catalog cell: `z-ai/glm-5.3-flash`, stamp
+`20260912-0515-glm-5.3-flash`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=2`: missing sheet 'Sample'; missing sheet
+'Sample Size Calculation'). Population only
+(`sample_data_rows=0`); S=0; R=None; husks 0/0. Hung
+`tool_loop` at round 0 — `finish_reason=length`; no tools; truncated
+reasoning dump. Tokens are n=1 (`reasoning_tokens=15160` noted, not
+stored). UNO/assert/PreContract=0. Recorded wall ~155s. tip_at_run
+`6c6017b7`. OpenRouter usage sum ~$0.00900 stored; model_configs
+estimate ~$0.00450 is an alternate only. Run dir is box-local /
+untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0515-glm-5.3-flash/`.
