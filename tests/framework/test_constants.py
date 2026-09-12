@@ -431,8 +431,11 @@ def test_calc_workflow_warns_large_range_overloads_context():
     assert "write_formula_range (fill-down adjusts relative refs)" in CALC_WORKFLOW
     assert "=PY into one empty cell outside the data" in CALC_WORKFLOW
     assert CALC_WORKFLOW.index("write_formula_range") < CALC_WORKFLOW.index("=PY into one empty cell")
-    assert "create_sheet makes an empty tab (no cells copied)" in CALC_WORKFLOW
-    assert "write_formula_range with source and dest range" in CALC_WORKFLOW
+    assert 'domain="sheets"' in CALC_WORKFLOW
+    assert "create is not populate" in CALC_WORKFLOW
+    assert "write_formula_range" in CALC_WORKFLOW
+    assert "source" in CALC_WORKFLOW
+    assert "create_sheet makes an empty tab" not in CALC_WORKFLOW
 
 
 def test_calc_chat_prompt_includes_context_overload_why():
@@ -494,4 +497,52 @@ def test_document_research_prompt_is_other_docs_not_open_workbook():
     # Tiny wording only: "same folder" taught models to scan leftover siblings.
     assert "not the open workbook" in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
     assert "same folder" not in WRITER_SPECIALIZED_DELEGATION_TEMPLATE
+
+
+def test_sheets_create_completion_instruction_is_create_not_populate():
+    from plugin.framework.prompts import (
+        SHEETS_CREATED_NOT_POPULATED_INSTRUCTION,
+        attach_sheets_create_completion_instruction,
+        first_instruction_from_tool_results,
+        get_sheets_create_completion_instruction,
+    )
+
+    inst = get_sheets_create_completion_instruction()
+    assert inst == SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
+    assert "not populated" in inst
+    assert "write_formula_range" in inst
+    assert "source" in inst
+    assert "Ready" not in inst
+    assert "AFC" not in inst
+
+    inner = {
+        "status": "ok",
+        "message": "New sheet named 'Q1 Actuals' created; no cells copied.",
+        "instruction": inst,
+    }
+    assert first_instruction_from_tool_results([inner]) == inst
+
+    finish = {
+        "status": "ok",
+        "finished": True,
+        "answer": "Created Q1 Actuals",
+        "message": "Specialized task complete.",
+    }
+    forwarded = attach_sheets_create_completion_instruction(
+        finish, create_sheet_ran=True, tool_results=[inner]
+    )
+    assert forwarded["instruction"] == inst
+    assert forwarded["answer"] == "Created Q1 Actuals"
+
+    listed = attach_sheets_create_completion_instruction(
+        {"status": "ok", "answer": "Sheet1, Sheet2"},
+        create_sheet_ran=False,
+    )
+    assert "instruction" not in listed
+
+    reported = attach_sheets_create_completion_instruction(
+        {"status": "ok", "answer": "New sheet named 'Sample' created; no cells copied."},
+        create_sheet_ran=False,
+    )
+    assert reported["instruction"] == inst
 
