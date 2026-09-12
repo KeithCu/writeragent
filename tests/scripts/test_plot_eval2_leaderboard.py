@@ -74,6 +74,17 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
     assert schema["properties"]["schema_version"]["const"] == 1
     assert "hard_pass_rate" not in schema["properties"]
     assert "hard_pass_rate" not in schema["$defs"]["result"]["properties"]
+    result_props = schema["$defs"]["result"]["properties"]
+    for key in (
+        "total_tokens",
+        "input_tokens",
+        "output_tokens",
+        "total_cost_usd",
+        "wall_time_s",
+        "intelligence_per_dollar",
+    ):
+        assert key in result_props
+        assert key not in schema["$defs"]["result"]["required"]
     assert {task.slot for task in board.tasks} == {1, 2, 3, 4, 5, 6, 8, 9, 10}
     assert all(task.slot != 7 for task in board.tasks)
     assert {model.openrouter_id for model in board.models} >= {
@@ -154,6 +165,16 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.scored_count(mid) == 0
         assert board.happy_count(mid) == 0
 
+    # Seed must not invent run costs (AFC catalog sweep fills these later).
+    for row in board.results:
+        assert row.total_tokens is None
+        assert row.input_tokens is None
+        assert row.output_tokens is None
+        assert row.total_cost_usd is None
+        assert row.wall_time_s is None
+        assert row.intelligence_per_dollar is None
+    assert pel.happy_cost_rows(board) == ()
+
 
 def test_every_seed_source_points_at_an_in_repo_doc() -> None:
     payload = json.loads(_RESULTS.read_text(encoding="utf-8"))
@@ -164,6 +185,15 @@ def test_every_seed_source_points_at_an_in_repo_doc() -> None:
         path = _REPO / first
         assert path.is_file(), first
         assert row.get("run_artifacts_committed") is False
+        for key in (
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+            "total_cost_usd",
+            "wall_time_s",
+            "intelligence_per_dollar",
+        ):
+            assert key not in row or row[key] is None, row
 
 
 def test_scoreboard_markdown_matches_seed_matrix() -> None:
@@ -177,6 +207,10 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "[`docs/eval/benchmarks.md`](../benchmarks.md)" in text
     assert "eval2-heatmap.svg" in text
     assert "eval2-coverage.svg" in text
+    assert "eval2-cost.svg" in text
+    assert "HAPPY first" in text
+    assert "1 / total_cost_usd" in text
+    assert "do **not** invent run costs" in text.lower()
     assert "Catalog-wide" in text or "catalog" in text.lower()
     assert "sweep has **not** happened" in text
     for line in matrix.strip().splitlines():
@@ -188,9 +222,12 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "string-pack Pareto" in readme
     heatmap = (_EVAL2 / pel.HEATMAP_NAME).read_text(encoding="utf-8")
     coverage = (_EVAL2 / pel.COVERAGE_NAME).read_text(encoding="utf-8")
+    cost = (_EVAL2 / pel.COST_NAME).read_text(encoding="utf-8")
     assert "no data" in heatmap
     assert "HAPPY" in heatmap
     assert "0 HAPPY / 0 scored" in coverage
+    assert "No HAPPY cell has recorded total_cost_usd yet" in cost
+    assert "data-cost-usd=" not in cost
 
 
 def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> None:
@@ -211,6 +248,13 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "0 HAPPY / 0 scored" in cov
     assert pel.HEATMAP_NAME != "pareto-fronts.svg"
     assert pel.COVERAGE_NAME != "pareto-distance.svg"
+    assert pel.COST_NAME != "pareto-fronts.svg"
+
+    cost_svg = pel.write_cost_svg(board, tmp_path / "eval2-cost.svg")
+    cost_text = cost_svg.read_text(encoding="utf-8")
+    assert "No HAPPY cell has recorded total_cost_usd yet" in cost_text
+    assert "data-cost-usd=" not in cost_text
+    assert "$0." not in cost_text
 
 
 def test_cli_check_and_refuse_string_harness_json(
@@ -238,8 +282,10 @@ def test_cli_writes_svgs_and_print_matrix(tmp_path: Path, capsys: pytest.Capture
     assert pel.main(["--in", str(src), "--out-dir", str(out_dir), "--print-matrix"]) == 0
     printed = capsys.readouterr().out
     assert "| 3 | AFC Population | HAPPY / oracle PASS | — |" in printed
+    assert "No HAPPY cell has recorded `total_cost_usd`" in printed
     assert (out_dir / pel.HEATMAP_NAME).is_file()
     assert (out_dir / pel.COVERAGE_NAME).is_file()
+    assert (out_dir / pel.COST_NAME).is_file()
 
 
 def test_loader_rejects_parked_slot_and_null_null_cells(tmp_path: Path) -> None:
@@ -293,3 +339,129 @@ def test_plot_module_does_not_import_string_harness() -> None:
     assert "from run_eval_multi" not in source
     assert "import plot_pareto" not in source
     assert "merge_benchmark_results" not in source
+
+
+def test_intelligence_per_dollar_only_when_happy_and_cost_positive() -> None:
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.25) == 4.0
+    assert pel.compute_intelligence_per_dollar("HAPPY", 0.0) is None
+    assert pel.compute_intelligence_per_dollar("HAPPY", None) is None
+    assert pel.compute_intelligence_per_dollar("NOT_HAPPY", 0.25) is None
+    assert pel.compute_intelligence_per_dollar(None, 0.25) is None
+
+
+def test_loader_accepts_optional_cost_fields_and_computes_ipd(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0].update(
+        {
+            "total_tokens": 12000,
+            "input_tokens": 8000,
+            "output_tokens": 4000,
+            "total_cost_usd": 0.5,
+            "wall_time_s": 90,
+        }
+    )
+    path = tmp_path / "with_cost.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    row = board.results[0]
+    assert row.total_tokens == 12000
+    assert row.input_tokens == 8000
+    assert row.output_tokens == 4000
+    assert row.total_cost_usd == 0.5
+    assert row.wall_time_s == 90.0
+    assert row.intelligence_per_dollar == 2.0
+    ranked = pel.happy_cost_rows(board)
+    assert len(ranked) == 1
+    assert ranked[0].cost_usd == 0.5
+    assert ranked[0].intelligence_per_dollar == 2.0
+    table = pel.render_cost_markdown(board)
+    assert "| 3 | AFC Population | Gemini 3.8 Flash | 0.5000 | 12000 | 90 | 2.00 |" in table
+
+
+def test_loader_does_not_compute_ipd_for_not_happy_cost(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0]["product_bar"] = "NOT_HAPPY"
+    payload["results"][0]["oracle"] = "FAIL"
+    payload["results"][0]["total_cost_usd"] = 0.01
+    path = tmp_path / "not_happy_cost.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    assert board.results[0].total_cost_usd == 0.01
+    assert board.results[0].intelligence_per_dollar is None
+    assert pel.happy_cost_rows(board) == ()
+    assert "stays empty" in pel.render_cost_markdown(board)
+
+
+def test_loader_rejects_negative_or_bool_cost_fields(tmp_path: Path) -> None:
+    payload = _minimal_board_payload()
+    payload["results"][0]["total_cost_usd"] = -0.1
+    path = tmp_path / "bad_cost.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(pel.Eval2ResultsError, match="total_cost_usd"):
+        pel.load_eval2_board(path)
+
+    payload = _minimal_board_payload()
+    payload["results"][0]["total_tokens"] = True
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(pel.Eval2ResultsError, match="total_tokens"):
+        pel.load_eval2_board(path)
+
+
+def test_cost_chart_ranks_happy_by_lower_cost_and_skips_empty(
+    tmp_path: Path,
+) -> None:
+    payload = _minimal_board_payload()
+    # Cheaper HAPPY ranks first on AFC; the seed board (no costs) stays empty.
+    payload["results"][0].update({"total_cost_usd": 0.20, "total_tokens": 4000})
+    payload["results"].append(
+        {
+            "task_id": "afc",
+            "model": "openai/gpt-oss-20b",
+            "product_bar": "HAPPY",
+            "oracle": "PASS",
+            "total_cost_usd": 0.05,
+            "total_tokens": 2500,
+        }
+    )
+    payload["models"].append(
+        {
+            "openrouter_id": "x-ai/grok-4.6",
+            "display_name": "Grok 4.6",
+            "role": "catalog",
+        }
+    )
+    payload["results"].append(
+        {
+            "task_id": "afc",
+            "model": "x-ai/grok-4.6",
+            "product_bar": "HAPPY",
+            "oracle": "PASS",
+            "total_tokens": 9999,
+        }
+    )
+    path = tmp_path / "ranked.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    board = pel.load_eval2_board(path)
+    ranked = pel.happy_cost_rows(board)
+    assert [row.model.openrouter_id for row in ranked] == [
+        "openai/gpt-oss-20b",
+        "google/gemini-3.8-flash",
+    ]
+    svg = pel.write_cost_svg(board, tmp_path / "eval2-cost.svg").read_text(encoding="utf-8")
+    assert "data-cost-usd=" in svg
+    assert "0.0500" in svg
+    assert "0.2000" in svg
+    assert "GPT-OSS 20B" in svg
+    assert "Gemini 3.8 Flash" in svg
+    assert "AFC Population" in svg
+    assert "No HAPPY cell has recorded total_cost_usd yet" not in svg
+    # HAPPY without recorded USD must not invent a bar from tokens.
+    assert "Grok 4.6" not in svg
+    assert "9999" not in svg
+
+    empty_board = pel.load_eval2_board(_RESULTS)
+    empty_svg = pel.write_cost_svg(empty_board, tmp_path / "empty-cost.svg").read_text(
+        encoding="utf-8"
+    )
+    assert "No HAPPY cell has recorded total_cost_usd yet" in empty_svg
+    assert "data-cost-usd=" not in empty_svg

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/KeithCu/writeragent/docs/eval/eval-2/eval2_benchmark_results.schema.json",
   "title": "Eval-2 headed multi-model results",
-  "description": "Task × model cells for headed eval-2 experiments. Metrics are product_bar (HAPPY / NOT_HAPPY) and oracle (PASS / FAIL). This is not the 17-task string-harness hard_pass_rate schema. Omit a cell or set product_bar and oracle to null when no in-repo headed stamp exists — never invent scores.",
+  "description": "Task × model cells for headed eval-2 experiments. Metrics are product_bar (HAPPY / NOT_HAPPY) and oracle (PASS / FAIL). Optional per-result cost/token/wall fields rank HAPPY cells on cost for results — omit them when unknown; never invent scores or run costs. This is not the 17-task string-harness hard_pass_rate / C²/$ schema.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -142,6 +142,36 @@
               "note": { "type": "string" }
             }
           }
+        },
+        "total_tokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Prompt + completion tokens for this headed stamp. Omit when unknown — do not invent."
+        },
+        "input_tokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Prompt / input tokens for this headed stamp. Omit when unknown."
+        },
+        "output_tokens": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Completion / output tokens for this headed stamp. Omit when unknown."
+        },
+        "total_cost_usd": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "USD cost of this headed stamp (live OpenRouter pricing when known). Omit when unknown — do not invent."
+        },
+        "wall_time_s": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "Wall time of the headed run in seconds. Omit when unknown."
+        },
+        "intelligence_per_dollar": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "HAPPY successes per USD: 1 / total_cost_usd when product_bar is HAPPY and total_cost_usd > 0. Omit otherwise. Distinct from string-harness C²/$ (correctness² / avg $/task)."
         }
       }
     }

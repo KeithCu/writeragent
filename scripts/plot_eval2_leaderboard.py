@@ -8,6 +8,9 @@
 Separate from the 17-task string-harness Pareto (`plot_pareto.py` /
 ``docs/eval/pareto-*.svg``). Reads only the eval-2 headed results file —
 no OpenRouter, no ``benchmark_results.json`` merge.
+
+Heatmap / coverage stay HAPPY / NOT_HAPPY. Optional per-result cost
+fields rank HAPPY cells on cost for results; missing cost stays empty.
 """
 from __future__ import annotations
 
@@ -39,6 +42,7 @@ COLOR_LINE = "#dadce0"
 
 HEATMAP_NAME = "eval2-heatmap.svg"
 COVERAGE_NAME = "eval2-coverage.svg"
+COST_NAME = "eval2-cost.svg"
 
 FOOTNOTE = (
     "Source: headed eval-2 autopsy notes, not a catalog sweep. "
@@ -78,6 +82,23 @@ class Eval2Result:
     source: str
     run_artifacts_committed: bool
     patches: str | None
+    total_tokens: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    total_cost_usd: float | None = None
+    wall_time_s: float | None = None
+    intelligence_per_dollar: float | None = None
+
+
+@dataclass(frozen=True)
+class HappyCostRow:
+    """One HAPPY cell that recorded a positive USD cost (no invented numbers)."""
+
+    task: Eval2Task
+    model: Eval2Model
+    result: Eval2Result
+    cost_usd: float
+    intelligence_per_dollar: float
 
 
 @dataclass(frozen=True)
@@ -121,6 +142,41 @@ def _optional_str(row: Mapping[str, Any], key: str) -> str:
     if not isinstance(value, str):
         raise Eval2ResultsError(f"{key!r} must be a string or null")
     return value
+
+
+def _optional_nonneg_int(row: Mapping[str, Any], key: str) -> int | None:
+    if key not in row or row[key] is None:
+        return None
+    value = row[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise Eval2ResultsError(f"{key!r} must be a non-negative int or null")
+    if value < 0:
+        raise Eval2ResultsError(f"{key!r} must be >= 0")
+    return value
+
+
+def _optional_nonneg_float(row: Mapping[str, Any], key: str) -> float | None:
+    if key not in row or row[key] is None:
+        return None
+    value = row[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise Eval2ResultsError(f"{key!r} must be a non-negative number or null")
+    if value < 0:
+        raise Eval2ResultsError(f"{key!r} must be >= 0")
+    return float(value)
+
+
+def compute_intelligence_per_dollar(
+    product_bar: str | None, total_cost_usd: float | None
+) -> float | None:
+    """HAPPY successes per USD. None when not HAPPY or cost is missing/zero.
+
+    Distinct from string-harness C²/$ (correctness² / avg $/task). Eval-2
+    product bar is binary, so this is ``1 / total_cost_usd``.
+    """
+    if product_bar != "HAPPY" or total_cost_usd is None or total_cost_usd <= 0:
+        return None
+    return 1.0 / total_cost_usd
 
 
 def _enum_or_none(value: object, allowed: frozenset[str], *, field: str) -> str | None:
@@ -200,6 +256,8 @@ def _parse_result(
         raise Eval2ResultsError(
             f"{task_id} × {model}: omit empty cells instead of storing a null/null result"
         )
+    total_cost_usd = _optional_nonneg_float(raw, "total_cost_usd")
+    stored_ipd = _optional_nonneg_float(raw, "intelligence_per_dollar")
     return Eval2Result(
         task_id=task_id,
         model=model,
@@ -210,6 +268,14 @@ def _parse_result(
         source=_optional_str(raw, "source"),
         run_artifacts_committed=bool(raw.get("run_artifacts_committed", False)),
         patches=raw.get("patches") if isinstance(raw.get("patches"), str) else None,
+        total_tokens=_optional_nonneg_int(raw, "total_tokens"),
+        input_tokens=_optional_nonneg_int(raw, "input_tokens"),
+        output_tokens=_optional_nonneg_int(raw, "output_tokens"),
+        total_cost_usd=total_cost_usd,
+        wall_time_s=_optional_nonneg_float(raw, "wall_time_s"),
+        intelligence_per_dollar=stored_ipd
+        if stored_ipd is not None
+        else compute_intelligence_per_dollar(product_bar, total_cost_usd),
     )
 
 
@@ -280,6 +346,55 @@ def render_matrix_markdown(board: Eval2Board) -> str:
         for model in board.models:
             cells.append(cell_label(board.result_for(task.id, model.openrouter_id)))
         lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def happy_cost_rows(board: Eval2Board) -> tuple[HappyCostRow, ...]:
+    """HAPPY cells with recorded cost > 0, cheapest success first within a task."""
+    task_by_id = {task.id: task for task in board.tasks}
+    model_by_id = {model.openrouter_id: model for model in board.models}
+    rows: list[HappyCostRow] = []
+    for result in board.results:
+        if result.product_bar != "HAPPY":
+            continue
+        cost = result.total_cost_usd
+        if cost is None or cost <= 0:
+            continue
+        ipd = result.intelligence_per_dollar
+        if ipd is None:
+            ipd = compute_intelligence_per_dollar(result.product_bar, cost)
+        if ipd is None:
+            continue
+        rows.append(
+            HappyCostRow(
+                task=task_by_id[result.task_id],
+                model=model_by_id[result.model],
+                result=result,
+                cost_usd=cost,
+                intelligence_per_dollar=ipd,
+            )
+        )
+    rows.sort(key=lambda row: (row.task.slot, row.cost_usd, row.model.openrouter_id))
+    return tuple(rows)
+
+
+def render_cost_markdown(board: Eval2Board) -> str:
+    """Per-task HAPPY cost ranking. Empty when no stamp recorded USD."""
+    rows = happy_cost_rows(board)
+    if not rows:
+        return "No HAPPY cell has recorded `total_cost_usd` — cost chart stays empty.\n"
+    lines = [
+        "| # | Task | Model | Cost (USD) | Tokens | Wall (s) | Successes/$ |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in rows:
+        tokens = "—" if row.result.total_tokens is None else str(row.result.total_tokens)
+        wall = "—" if row.result.wall_time_s is None else f"{row.result.wall_time_s:g}"
+        lines.append(
+            f"| {row.task.slot} | {row.task.title} | {row.model.display_name} | "
+            f"{row.cost_usd:.4f} | {tokens} | {wall} | "
+            f"{row.intelligence_per_dollar:.2f} |"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -473,10 +588,114 @@ def write_coverage_svg(board: Eval2Board, out_path: Path) -> Path:
     return out_path
 
 
+def write_cost_svg(board: Eval2Board, out_path: Path) -> Path:
+    """Bar of recorded USD for HAPPY cells. Missing cost stays empty — no invented bars."""
+    rows = happy_cost_rows(board)
+    left = 24
+    top = 64
+    width = 820
+    if not rows:
+        height = 140
+        parts = [
+            f'  <text x="{left}" y="28" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="16" font-weight="700" fill="{COLOR_INK}">'
+            f"Eval-2 headed cost for results (HAPPY cells)</text>\n",
+            f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="11" fill="{COLOR_MUTED}">'
+            f"HAPPY first; among HAPPY, lower recorded USD ranks higher. "
+            f"Successes/$ = 1 / total_cost_usd (not string-harness C²/$).</text>\n",
+            f'  <rect x="{left}" y="64" width="{width - 48}" height="40" rx="6" '
+            f'fill="{COLOR_EMPTY}" stroke="{COLOR_LINE}"/>\n',
+            f'  <text x="{width / 2:.1f}" y="89" text-anchor="middle" '
+            f'font-family="DejaVu Sans, sans-serif" font-size="12" fill="{COLOR_MUTED}">'
+            f"No HAPPY cell has recorded total_cost_usd yet</text>\n",
+        ]
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            _svg_wrap(
+                "".join(parts),
+                width=width,
+                height=height,
+                title="Eval-2 headed cost for results (empty — no recorded USD)",
+            ),
+            encoding="utf-8",
+        )
+        return out_path
+
+    label_w = 280
+    bar_max_w = 360
+    row_h = 28
+    group_gap = 18
+    max_cost = max(row.cost_usd for row in rows)
+    # Group by task so AFC (and later tasks) rank among their HAPPY models.
+    groups: list[tuple[Eval2Task, list[HappyCostRow]]] = []
+    for row in rows:
+        if not groups or groups[-1][0].id != row.task.id:
+            groups.append((row.task, [row]))
+        else:
+            groups[-1][1].append(row)
+    n_bars = len(rows)
+    height = top + n_bars * row_h + len(groups) * group_gap + 56
+    parts = [
+        f'  <text x="{left}" y="28" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="16" font-weight="700" fill="{COLOR_INK}">'
+        f"Eval-2 headed cost for results (HAPPY cells)</text>\n",
+        f'  <text x="{left}" y="46" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="11" fill="{COLOR_MUTED}">'
+        f"HAPPY first; among HAPPY, lower recorded USD ranks higher. "
+        f"Successes/$ = 1 / total_cost_usd. NOT_HAPPY and missing cost omitted.</text>\n",
+    ]
+    y = top
+    for task, group in groups:
+        parts.append(
+            f'  <text x="{left}" y="{y}" font-family="DejaVu Sans, sans-serif" '
+            f'font-size="12" font-weight="700" fill="{COLOR_INK}">'
+            f"{task.slot}. {_esc(task.title)}</text>\n"
+        )
+        y += 8
+        for row in group:
+            y += row_h
+            bar_w = (row.cost_usd / max_cost) * bar_max_w if max_cost > 0 else 0.0
+            x = left + label_w
+            parts.append(
+                f'  <text x="{x - 8:.1f}" y="{y - 6:.1f}" text-anchor="end" '
+                f'font-family="DejaVu Sans, sans-serif" font-size="11" fill="{COLOR_INK}">'
+                f"{_esc(row.model.display_name)}</text>\n"
+            )
+            parts.append(
+                f'  <rect x="{x:.1f}" y="{y - 18:.1f}" width="{bar_w:.1f}" height="16" '
+                f'rx="3" fill="{COLOR_HAPPY}" stroke="{COLOR_LINE}" '
+                f'data-cost-usd="{row.cost_usd:.6f}"/>\n'
+            )
+            parts.append(
+                f'  <text x="{x + bar_w + 8:.1f}" y="{y - 6:.1f}" '
+                f'font-family="DejaVu Sans, sans-serif" font-size="10" fill="{COLOR_MUTED}">'
+                f"${row.cost_usd:.4f} · {row.intelligence_per_dollar:.2f} succ/$</text>\n"
+            )
+        y += group_gap
+    parts.append(
+        f'  <text x="{left}" y="{height - 16}" font-family="DejaVu Sans, sans-serif" '
+        f'font-size="10" fill="{COLOR_MUTED}">'
+        f"Recorded USD only. Empty cost stays empty — do not invent run costs.</text>\n"
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        _svg_wrap(
+            "".join(parts),
+            width=width,
+            height=height,
+            title="Eval-2 headed cost for results (HAPPY cells with recorded USD)",
+        ),
+        encoding="utf-8",
+    )
+    return out_path
+
+
 def write_eval2_svgs(board: Eval2Board, out_dir: Path) -> list[Path]:
     written = [
         write_heatmap_svg(board, out_dir / HEATMAP_NAME),
         write_coverage_svg(board, out_dir / COVERAGE_NAME),
+        write_cost_svg(board, out_dir / COST_NAME),
     ]
     return written
 
@@ -514,6 +733,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     board = load_eval2_board(args.in_path)
     if args.print_matrix:
         sys.stdout.write(render_matrix_markdown(board))
+        sys.stdout.write("\n")
+        sys.stdout.write(render_cost_markdown(board))
     if args.check:
         print(f"OK {args.in_path} ({len(board.results)} scored cells, gate={board.gate_model})")
         return 0

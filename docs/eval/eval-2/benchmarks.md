@@ -13,7 +13,8 @@ into `scripts/prompt_optimization/benchmark_results.json`.
 | Tasks | 17 short Writer/Calc/Draw worlds | 9 Ready / Headed-ready GDPval-shaped siblings (slot 7 PARKED) |
 | Gate | Catalog sweep on OpenRouter | **`google/gemini-3.8-flash`** until HAPPY (gpt-oss is not the product gate) |
 | Pass | `hard_pass_rate` (substring + result + process oracles) | **Product bar** HAPPY / NOT_HAPPY, plus CLI **oracle** PASS / FAIL |
-| Charts | `pareto-fronts.svg` / `pareto-distance.svg` | [`eval2-heatmap.svg`](eval2-heatmap.svg), [`eval2-coverage.svg`](eval2-coverage.svg) |
+| Cost | C²/$ = metric² ÷ avg $/task | **HAPPY first**; among HAPPY, lower recorded USD / higher successes/$ |
+| Charts | `pareto-fronts.svg` / `pareto-distance.svg` | [`eval2-heatmap.svg`](eval2-heatmap.svg), [`eval2-coverage.svg`](eval2-coverage.svg), [`eval2-cost.svg`](eval2-cost.svg) |
 
 **HAPPY** means the deliverable did the job (Keith: product over
 oracle). A soft oracle FAIL on a HAPPY cell is a false-red or a
@@ -50,6 +51,31 @@ for every cell. No OpenRouter eval-2 CI job.
 
 <img src="eval2-coverage.svg" alt="Eval-2 headed coverage bars per model. Most catalog peers are entirely no data." />
 
+<img src="eval2-cost.svg" alt="Eval-2 headed cost for results. HAPPY cells with recorded USD; empty until a stamp records cost." />
+
+## Cost for results
+
+Product bar still wins: **HAPPY first**. A cheaper NOT_HAPPY run does
+not outrank an expensive HAPPY one. Among HAPPY cells that recorded
+`total_cost_usd` > 0, rank by **lower cost** (cheaper success).
+
+`intelligence_per_dollar` is **successes per USD**, computed when
+HAPPY and cost > 0:
+
+`1 / total_cost_usd`
+
+Omit the field (and the cost-chart bar) when cost is unknown or zero.
+Do **not** invent run costs from tokens, list prices, or wall time.
+This is **not** the string-harness C²/$
+(`correctness² / avg $/task` in [`docs/eval/benchmarks.md`](../benchmarks.md)).
+Eval-2 has no continuous correctness — HAPPY is binary.
+
+Optional result fields (`total_tokens`, `input_tokens`,
+`output_tokens`, `total_cost_usd`, `wall_time_s`,
+`intelligence_per_dollar`) are empty on the 2026-09-12 seed. The
+heatmap stays HAPPY / NOT. Fill cost only from a real headed stamp
+(AFC catalog sweep and later tasks).
+
 ### Cell notes (only scored pairs)
 
 | Task | Model | Stamp | Soft note |
@@ -77,7 +103,10 @@ were gpt-oss only.
    (`task_id` × `model`). Leave unknown pairs **out** of `results`.
 2. Fields: `product_bar` (`HAPPY` \| `NOT_HAPPY`), `oracle`
    (`PASS` \| `FAIL`), optional `oracle_note` / `stamp` / `source` /
-   `patches`. Schema:
+   `patches`. Optional cost axis (omit when unknown): `total_tokens` /
+   `input_tokens` / `output_tokens` (ints), `total_cost_usd`,
+   `wall_time_s`, `intelligence_per_dollar` (computed as
+   `1 / total_cost_usd` when HAPPY and cost > 0). Schema:
    [`eval2_benchmark_results.schema.json`](eval2_benchmark_results.schema.json).
 3. `task_id` must match `scripts/eval_2_headed.py --task` (`afc`,
    `tenant-retention`, …). Slot 7 stays omitted.
@@ -89,8 +118,10 @@ were gpt-oss only.
    ```
 
 5. Paste the printed matrix into the snapshot table above if the
-   cells changed. Update `updated` in the JSON. Do **not** copy rows
-   into the string-pack leaderboard.
+   cells changed. `--print-matrix` also prints the HAPPY cost table
+   (empty until a stamp records USD). Update `updated` in the JSON.
+   Do **not** copy rows into the string-pack leaderboard. Do **not**
+   invent `total_cost_usd`.
 
 `--check` validates the JSON only. The plot script refuses
 `benchmark_results.json` so a wrong `--in` cannot overwrite Pareto
