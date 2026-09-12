@@ -6,44 +6,44 @@ How to run evals from the repo: [scripts/prompt_optimization/README.md](../../sc
 
 ## Snapshot ranking (2026-09-11)
 
-**17-task string harness** (`--backend string`, OpenRouter). **2026-09-11 Calc refresh:** re-ran only `data_sorting` and `tax_column` for the catalog except `openai/gpt-5.6-luna`, `qwen/qwen3.8-flash`, and `deepseek/deepseek-v4.1-flash` (those three keep prior Calc rows from the same-day Luna/Qwen/V4.1 selective pack). Other 15 task rows are carried forward; full 17-task pack was **not** re-run. Not LO-backed — fidelity smoke only.
+**17-task string harness** (`--backend string`, OpenRouter). **2026-09-11 Calc fill-down refresh:** re-ran `data_sorting` and `tax_column` for the full catalog after Tip A/B (#729) + harness `expand_single_formula` (#733), so benches match honest fill-down scoring (single formula into a multi-cell range adjusts relative refs). Other 15 task rows are carried forward; full 17-task pack was **not** re-run. Not LO-backed — fidelity smoke only.
 
-Artifacts: [`scripts/prompt_optimization/benchmark_results.json`](../../scripts/prompt_optimization/benchmark_results.json) and `benchmark_results_details.json`. Failure triage: [benchmark-failure-analysis-2026-09-01.md](benchmark-failure-analysis-2026-09-01.md) (Sep 1 full-pack notes).
+Artifacts: [`scripts/prompt_optimization/benchmark_results.json`](../../scripts/prompt_optimization/benchmark_results.json) and `benchmark_results_details.json`. Calc-only pack: `benchmark_results_calc_filldown_2026-09-11.json` (+ `_details`). Failure triage: [benchmark-failure-analysis-2026-09-01.md](benchmark-failure-analysis-2026-09-01.md) (Sep 1 full-pack notes).
 
 Ranked by **hard pass → agent score → metric**. **Hard pass** = document substring + result oracles + process oracles, no API error. **Agent** = same gate including tool-process checks. **Quality** = LLM judge among creative/table passes only.
 
 | Rank | Model | Hard pass | Agent | Correctness | Quality | Tokens/task | $/task | C²/$ |
 | ---- | ---- | ------- | ------- | ------- | ------- | ------- | ------- | ------- |
-| 1 | meta/muse-glimmer-30b | 1.000 | 1.000 | 0.987 | 0.96 | 27041 | 0.01025 | 50.1 |
-| 2 | deepseek/deepseek-v4-flash-0731 | 1.000 | 1.000 | 0.987 | 0.96 | 46613 | 0.00369 | 138.7 |
-| 3 | x-ai/grok-4.6 | 1.000 | 1.000 | 0.982 | 0.94 | 24613 | 0.05418 | 10.0 |
-| 4 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.979 | 0.93 | 28777 | 0.00307 | 155.7 |
-| 5 | openai/gpt-5.6-luna | 0.941 | 0.941 | 0.916 | 0.90 | 20031 | 0.00449 | 116.6 |
-| 6 | z-ai/glm-5.3-flash | 0.941 | 0.941 | 0.913 | 0.90 | 43404 | 0.00426 | 105.6 |
-| 7 | deepseek/deepseek-v4.1-flash | 0.882 | 0.882 | 0.935 | 0.97 | 51291 | 0.00944 | 39.2 |
-| 8 | bytedance-seed/seed-2.0-mini | 0.882 | 0.882 | 0.859 | 0.90 | 23817 | 0.00381 | 107.1 |
-| 9 | openai/gpt-oss-120b | 0.882 | 0.882 | 0.853 | 0.90 | 12150 | 0.00056 | 999.4 |
-| 10 | poolside/laguna-xs-2.1 | 0.882 | 0.882 | 0.826 | 0.81 | 38787 | 0.00238 | 155.6 |
-| 11 | qwen/qwen3.8-27b | 0.824 | 0.824 | 0.922 | 0.92 | 54296 | 0.03051 | 9.3 |
-| 12 | ibm-granite/granite-4.2-8b | 0.824 | 0.824 | 0.861 | 0.93 | 69637 | 0.00777 | 25.2 |
-| 13 | inception/mercury-2.5-preview | 0.824 | 0.824 | 0.811 | 0.95 | 30675 | 0.00869 | 33.2 |
-| 14 | qwen/qwen3.8-flash | 0.824 | 0.824 | 0.805 | 0.89 | 45001 | 0.00755 | 37.2 |
-| 15 | google/gemma-4-31b-it | 0.824 | 0.824 | 0.800 | 0.90 | 17235 | 0.00165 | 289.3 |
-| 16 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 63655 | 0.02252 | 13.4 |
-| 17 | openai/gpt-oss-20b | 0.765 | 0.765 | 0.746 | 0.89 | 14664 | 0.00060 | 668.0 |
-| 18 | upstage/solar-pro4 | 0.706 | 0.706 | 0.682 | 0.90 | 29828 | 0.00094 | 301.5 |
-| 19 | google/gemma-4-26b-a4b-it | 0.706 | 0.706 | 0.680 | 0.89 | 19093 | 0.00141 | 197.0 |
-| 20 | poolside/laguna-s-2.1 | 0.647 | 0.647 | 0.700 | 0.90 | 19806 | 0.00200 | 150.7 |
-| 21 | google/gemini-3.5-flash-lite | 0.647 | 0.647 | 0.688 | 0.93 | 15741 | 0.00545 | 60.9 |
-| 22 | mistralai/mistral-small-2603 | 0.588 | 0.588 | 0.571 | 0.85 | 17137 | 0.00267 | 89.5 |
-| 23 | nvidia/nemotron-3.5-lightning | 0.353 | 0.353 | 0.315 | 0.68 | 29840 | 0.00245 | 18.1 |
+| 1 | deepseek/deepseek-v4-flash-0731 | 1.000 | 1.000 | 0.987 | 0.96 | 44552 | 0.00350 | 154.4 |
+| 2 | meta/muse-glimmer-30b | 1.000 | 1.000 | 0.987 | 0.96 | 26143 | 0.00982 | 53.6 |
+| 3 | x-ai/grok-4.6 | 1.000 | 1.000 | 0.982 | 0.94 | 22031 | 0.04837 | 12.0 |
+| 4 | meta/muse-spark-1.3-contributor | 1.000 | 1.000 | 0.979 | 0.93 | 25434 | 0.00270 | 194.2 |
+| 5 | openai/gpt-oss-120b | 1.000 | 1.000 | 0.971 | 0.90 | 13525 | 0.00064 | 1092.9 |
+| 6 | google/gemma-4-31b-it | 0.941 | 0.941 | 0.918 | 0.90 | 16144 | 0.00154 | 404.0 |
+| 7 | bytedance-seed/seed-2.0-mini | 0.941 | 0.941 | 0.918 | 0.90 | 23135 | 0.00380 | 127.2 |
+| 8 | openai/gpt-5.6-luna | 0.941 | 0.941 | 0.916 | 0.90 | 17901 | 0.00400 | 139.0 |
+| 9 | poolside/laguna-xs-2.1 | 0.941 | 0.941 | 0.885 | 0.81 | 22171 | 0.00136 | 328.6 |
+| 10 | deepseek/deepseek-v4.1-flash | 0.882 | 0.882 | 0.935 | 0.97 | 45666 | 0.00833 | 53.0 |
+| 11 | qwen/qwen3.8-27b | 0.882 | 0.882 | 0.922 | 0.92 | 42008 | 0.02359 | 15.2 |
+| 12 | inception/mercury-2.5-preview | 0.882 | 0.882 | 0.869 | 0.95 | 32048 | 0.00909 | 36.3 |
+| 13 | z-ai/glm-5.3-flash | 0.882 | 0.882 | 0.854 | 0.90 | 40501 | 0.00394 | 107.5 |
+| 14 | ibm-granite/granite-4.2-8b | 0.824 | 0.824 | 0.861 | 0.93 | 69261 | 0.00772 | 24.5 |
+| 15 | openai/gpt-oss-20b | 0.824 | 0.824 | 0.805 | 0.89 | 16666 | 0.00071 | 627.9 |
+| 16 | qwen/qwen3.8-flash | 0.824 | 0.824 | 0.805 | 0.89 | 47587 | 0.00793 | 32.0 |
+| 17 | minimax/minimax-m3 | 0.765 | 0.765 | 0.820 | 0.94 | 59174 | 0.02098 | 16.9 |
+| 18 | upstage/solar-pro4 | 0.765 | 0.765 | 0.741 | 0.90 | 21216 | 0.00067 | 483.4 |
+| 19 | google/gemma-4-26b-a4b-it | 0.765 | 0.765 | 0.739 | 0.89 | 19147 | 0.00142 | 234.6 |
+| 20 | poolside/laguna-s-2.1 | 0.706 | 0.706 | 0.759 | 0.90 | 21103 | 0.00214 | 158.5 |
+| 21 | google/gemini-3.5-flash-lite | 0.706 | 0.706 | 0.747 | 0.93 | 15806 | 0.00542 | 72.6 |
+| 22 | mistralai/mistral-small-2603 | 0.647 | 0.647 | 0.629 | 0.85 | 27441 | 0.00421 | 56.9 |
+| 23 | nvidia/nemotron-3.5-lightning | 0.412 | 0.412 | 0.374 | 0.68 | 32346 | 0.00268 | 24.1 |
 
 ## Key insights
 
-1. **Perfect hard pass (post-Calc splice):** Muse Glimmer/Spark, DeepSeek V4 Flash, and Grok 4.6 remain at 1.000 hard pass. `openai/gpt-oss-120b` dropped to 0.882 after failing both Calc tasks on this refresh, but still leads **C²/$**.
-2. **Calc refresh movers:** largest hard/correctness drops were `gpt-oss-120b`, `gemma-4-31b-it`, and `gemini-3.5-flash-lite` (−0.118 hard each). Gains: `ibm-granite/granite-4.2-8b` and `gpt-oss-20b` (+0.059 hard). Luna / Qwen Flash / DeepSeek V4.1 Flash were intentionally **not** re-run on Calc.
-3. **Calc/oracle hotspots:** `tax_column` (relative 8% formula) and `data_sorting` (Revenue desc + Product tie-break) still separate the middle from the bottom; most failures are model-side, not harness bugs. Two `max_tool_rounds` errors: `laguna-xs-2.1` (`data_sorting`) and `qwen3.8-27b` (`tax_column`).
-4. **Qwen3.8 Flash re-ran clean (non-Calc):** same-day Luna/Qwen/V4.1 selective pack scored Hard 0.824 / Correctness 0.805 (was infra 429 zeros at 0.118).
+1. **Perfect hard pass (post fill-down splice):** Muse Glimmer/Spark, DeepSeek V4 Flash, Grok 4.6, and `openai/gpt-oss-120b` are back at **1.000** hard pass. Prior Calc drop on 120b/Gemma/Seed was largely a harness false-red: Tip A single-formula writes now fill-down-adjust in the string world (#733).
+2. **Fill-down refresh movers:** largest hard recoveries were `gpt-oss-120b` (+0.118), `gemma-4-31b-it` / `seed-2.0-mini` / `laguna-xs-2.1` (+0.059 each). Soft drop: `z-ai/glm-5.3-flash` (−0.059 hard) on `data_sorting`. Luna / Qwen Flash / DeepSeek V4.1 Flash were re-run on Calc this time (scores unchanged; rows already passed).
+3. **Calc/oracle hotspots (honest):** remaining fails are model-side — `tax_column` total-row tax (`gemini-3.5-flash-lite`), wrong sort direction/order (`mistral-small-2603`, `glm-5.3-flash`, `nemotron-3.5-lightning`). No `max_tool_rounds` on the spliced Calc rows.
+4. **C²/$:** `openai/gpt-oss-120b` still leads Value after the recovery. Pareto plots still exclude `nvidia/nemotron-3.5-lightning` and `minimax/minimax-m3`.
 5. **MiniMax M3 is in the table:** one non-Calc task (`format_preservation`) still carries a stream-normalizer contract bug (`type(delta) is dict`); not a blanket hold-out. Re-run that task after [stream-normalizer-delta-crash.md](stream-normalizer-delta-crash.md) is fixed.
 
 ## Scoring approach
