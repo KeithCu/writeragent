@@ -145,39 +145,59 @@ def test_run_on_main_thread_marshals_off_vcl():
     exe.assert_called_once()
 
 
-def test_initialize_extension_paths_hops_off_main_thread():
-    """Dummy-N path init must hop before PackageInformationProvider."""
+def test_initialize_extension_paths_hops_impl_not_self():
+    """Dummy-N path init hops the body; must not self-call (TESTING=1 inline)."""
     from unittest.mock import patch
     from plugin.chatbot import panel_factory as pf
 
     pf._paths_initialized = False
     try:
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch.object(
-            pf, "_run_on_main_thread"
-        ) as hop:
+        with patch.object(pf, "_run_on_main_thread") as hop:
             hop.return_value = None
             pf._initialize_extension_paths(object())
         hop.assert_called_once()
-        assert hop.call_args[0][0] is pf._initialize_extension_paths
+        impl = hop.call_args[0][0]
+        assert impl is not pf._initialize_extension_paths
+        assert impl.__name__ == "_impl"
     finally:
         pf._paths_initialized = False
 
 
-def test_initialize_extension_paths_inline_on_main_thread():
+def test_initialize_extension_paths_impl_sets_flag_when_hop_inlines():
     from unittest.mock import patch
     from plugin.chatbot import panel_factory as pf
 
     pf._paths_initialized = False
     try:
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=True), patch.object(
-            pf, "_run_on_main_thread"
-        ) as hop, patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
+        with patch.object(
+            pf, "_run_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)
+        ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
             pf, "init_logging"
         ), patch(
             "plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"
         ):
             pf._initialize_extension_paths(object())
-        hop.assert_not_called()
+        assert pf._paths_initialized is True
+    finally:
+        pf._paths_initialized = False
+
+
+def test_initialize_extension_paths_inline_hop_does_not_recurse():
+    """TESTING=1 inlines execute_on_main_thread on Dummy-N; must not stack-overflow."""
+    from unittest.mock import patch
+    from plugin.chatbot import panel_factory as pf
+
+    pf._paths_initialized = False
+    try:
+        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
+            "plugin.framework.queue_executor.execute_on_main_thread",
+            side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+        ), patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
+            pf, "init_logging"
+        ), patch(
+            "plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"
+        ):
+            pf._initialize_extension_paths(object())
         assert pf._paths_initialized is True
     finally:
         pf._paths_initialized = False

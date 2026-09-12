@@ -187,36 +187,36 @@ def _initialize_extension_paths(ctx):
     if _paths_initialized:
         return
 
-    from plugin.framework.thread_guard import on_main_thread
-
-    # get_extension_path → get_extension_url (PackageInformationProvider) is
-    # @main_thread_only. SendButtonListener.ensure_path_fn can also land here
-    # off VCL; hop before touching PIP.
-    if not on_main_thread():
-        _run_on_main_thread(_initialize_extension_paths, ctx)
-        return
-
-    try:
-        ext_path = get_extension_path(ctx)
-        if ext_path and ext_path not in sys.path:
-            sys.path.insert(0, ext_path)
-
-        contrib_dir = os.path.join(ext_path, "contrib")
-        if contrib_dir not in sys.path:
-            sys.path.insert(0, contrib_dir)
-
-        init_logging(ctx)
-        log.info("Initialized extension paths for session: %s" % ext_path)
+    def _impl():
+        global _paths_initialized
+        if _paths_initialized:
+            return
         try:
-            from plugin.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
+            ext_path = get_extension_path(ctx)
+            if ext_path and ext_path not in sys.path:
+                sys.path.insert(0, ext_path)
 
-            ensure_writeragent_proofreader_configured(ctx)
-        except Exception as e:
-            log.warning("[grammar] sidebar init: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
-        _paths_initialized = True
-    except Exception:
-        init_logging(ctx)
-        log.exception("_initialize_extension_paths failed")
+            contrib_dir = os.path.join(ext_path, "contrib")
+            if contrib_dir not in sys.path:
+                sys.path.insert(0, contrib_dir)
+
+            init_logging(ctx)
+            log.info("Initialized extension paths for session: %s" % ext_path)
+            try:
+                from plugin.writer.locale.ai_grammar_proofreader import ensure_writeragent_proofreader_configured
+
+                ensure_writeragent_proofreader_configured(ctx)
+            except Exception as e:
+                log.warning("[grammar] sidebar init: could not load or run grammar proofreader bootstrap: %s", e, exc_info=True)
+            _paths_initialized = True
+        except Exception:
+            init_logging(ctx)
+            log.exception("_initialize_extension_paths failed")
+
+    # Hop the body, not this function: WRITERAGENT_TESTING=1 inlines
+    # execute_on_main_thread on Dummy-N, and a self-call would recurse.
+    # get_extension_path → get_extension_url (PIP) is @main_thread_only.
+    _run_on_main_thread(_impl)
 
 
 # ---------------------------------------------------------------------------
