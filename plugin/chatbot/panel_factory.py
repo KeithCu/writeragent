@@ -161,6 +161,23 @@ def _get_arg(args, name):
     return None
 
 
+def _run_on_main_thread(fn, *args, **kwargs):
+    """Run *fn* on the VCL thread.
+
+    URP dispatch of WriterAgentDeck calls ``ChatPanelElement.getRealInterface``
+    off the VCL thread (Dummy-N). ``get_extension_url`` (PackageInformationProvider)
+    is ``@main_thread_only``; without this hop, thread_guard aborts ChatPanel
+    create. QA used to set ``WRITERAGENT_UNO_THREAD_GUARD=0``; this marshal is
+    the product fix so the panel opens with the guard on.
+    """
+    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.thread_guard import on_main_thread
+
+    if on_main_thread():
+        return fn(*args, **kwargs)
+    return execute_on_main_thread(fn, *args, **kwargs)
+
+
 _paths_initialized = False
 
 
@@ -168,6 +185,15 @@ def _initialize_extension_paths(ctx):
     """Initialize extension paths once per session."""
     global _paths_initialized
     if _paths_initialized:
+        return
+
+    from plugin.framework.thread_guard import on_main_thread
+
+    # get_extension_path → get_extension_url (PackageInformationProvider) is
+    # @main_thread_only. SendButtonListener.ensure_path_fn can also land here
+    # off VCL; hop before touching PIP.
+    if not on_main_thread():
+        _run_on_main_thread(_initialize_extension_paths, ctx)
         return
 
     try:
@@ -322,13 +348,18 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         log.debug("[RICH-LIFECYCLE] ChatPanelElement.getRealInterface called (toolpanel already exists=%s)", bool(self.toolpanel))
         if not self.toolpanel:
             try:
-                # Ensure extension on path early so _wireControls imports work
-                _initialize_extension_paths(self.ctx)
-                root_window = self._getOrCreatePanelRootWindow()
-                log.info("[RICH-LIFECYCLE] root_window created: %s", bool(root_window))
-                self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
-                wire_chatpanel_controls(self, root_window, HAS_RECORDING, _initialize_extension_paths)
-                log.info("[RICH-LIFECYCLE] getRealInterface completed successfully (rich_text wiring done)")
+                # Dummy-N URP getRealInterface: hop path init + window/wiring
+                # (get_extension_url and later @main_thread_only getters) to VCL.
+                def _create_panel():
+                    # Ensure extension on path early so _wireControls imports work
+                    _initialize_extension_paths(self.ctx)
+                    root_window = self._getOrCreatePanelRootWindow()
+                    log.info("[RICH-LIFECYCLE] root_window created: %s", bool(root_window))
+                    self.toolpanel = ChatToolPanel(root_window, self.xParentWindow, self.ctx)
+                    wire_chatpanel_controls(self, root_window, HAS_RECORDING, _initialize_extension_paths)
+                    log.info("[RICH-LIFECYCLE] getRealInterface completed successfully (rich_text wiring done)")
+
+                _run_on_main_thread(_create_panel)
             except Exception as e:
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e

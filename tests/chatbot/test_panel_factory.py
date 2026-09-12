@@ -122,6 +122,123 @@ def test_disposing_swallows_disposed_remove_window_listener():
     root.removeWindowListener.assert_called_once()
 
 
+def test_run_on_main_thread_inline_on_vcl():
+    from unittest.mock import patch
+    from plugin.chatbot.panel_factory import _run_on_main_thread
+
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=True), patch(
+        "plugin.framework.queue_executor.execute_on_main_thread"
+    ) as exe:
+        assert _run_on_main_thread(lambda: 42) == 42
+    exe.assert_not_called()
+
+
+def test_run_on_main_thread_marshals_off_vcl():
+    from unittest.mock import patch
+    from plugin.chatbot.panel_factory import _run_on_main_thread
+
+    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
+        "plugin.framework.queue_executor.execute_on_main_thread",
+        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+    ) as exe:
+        assert _run_on_main_thread(lambda: 42) == 42
+    exe.assert_called_once()
+
+
+def test_initialize_extension_paths_hops_off_main_thread():
+    """Dummy-N path init must hop before PackageInformationProvider."""
+    from unittest.mock import patch
+    from plugin.chatbot import panel_factory as pf
+
+    pf._paths_initialized = False
+    try:
+        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch.object(
+            pf, "_run_on_main_thread"
+        ) as hop:
+            hop.return_value = None
+            pf._initialize_extension_paths(object())
+        hop.assert_called_once()
+        assert hop.call_args[0][0] is pf._initialize_extension_paths
+    finally:
+        pf._paths_initialized = False
+
+
+def test_initialize_extension_paths_inline_on_main_thread():
+    from unittest.mock import patch
+    from plugin.chatbot import panel_factory as pf
+
+    pf._paths_initialized = False
+    try:
+        with patch("plugin.framework.thread_guard.on_main_thread", return_value=True), patch.object(
+            pf, "_run_on_main_thread"
+        ) as hop, patch.object(pf, "get_extension_path", return_value="/tmp/ext"), patch.object(
+            pf, "init_logging"
+        ), patch(
+            "plugin.writer.locale.ai_grammar_proofreader.ensure_writeragent_proofreader_configured"
+        ):
+            pf._initialize_extension_paths(object())
+        hop.assert_not_called()
+        assert pf._paths_initialized is True
+    finally:
+        pf._paths_initialized = False
+
+
+def test_get_real_interface_create_goes_through_main_thread_hop():
+    """getRealInterface must hop create so Dummy-N never calls get_extension_url."""
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xParentWindow = MagicMock()
+    el.ResourceURL = "private:resource/ChatPanel"
+    panel = MagicMock()
+
+    def fake_hop(fn, *args, **kwargs):
+        el.toolpanel = panel
+        return None
+
+    with patch("plugin.chatbot.panel_factory._run_on_main_thread", side_effect=fake_hop):
+        result = el.getRealInterface()
+    assert result is panel
+
+
+def test_get_real_interface_create_runs_path_init_on_hop():
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    el.ctx = MagicMock()
+    el.xParentWindow = MagicMock()
+    el.ResourceURL = "private:resource/ChatPanel"
+    root = MagicMock()
+    panel = MagicMock()
+
+    with patch(
+        "plugin.chatbot.panel_factory._run_on_main_thread",
+        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
+    ), patch("plugin.chatbot.panel_factory._initialize_extension_paths") as init, patch.object(
+        el, "_getOrCreatePanelRootWindow", return_value=root
+    ), patch(
+        "plugin.chatbot.panel_factory.ChatToolPanel", return_value=panel
+    ), patch(
+        "plugin.chatbot.panel_factory.wire_chatpanel_controls"
+    ):
+        result = el.getRealInterface()
+    init.assert_called_once_with(el.ctx)
+    assert result is panel
+
+
+def test_get_real_interface_skips_hop_when_panel_exists():
+    from unittest.mock import MagicMock, patch
+
+    el = _thin_panel_element()
+    existing = MagicMock()
+    el.toolpanel = existing
+    with patch("plugin.chatbot.panel_factory._run_on_main_thread") as hop:
+        result = el.getRealInterface()
+    hop.assert_not_called()
+    assert result is existing
+
+
 def test_refresh_mode_selector_disposed_still_updates_backend_indicator():
     from unittest.mock import MagicMock, patch
 

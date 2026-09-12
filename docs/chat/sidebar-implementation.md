@@ -106,6 +106,7 @@ See also [../writer/math-tex.md](../writer/math-tex.md) (TeX/MathML import) and 
 
 2. **Create the panel window with ContainerWindowProvider + XDL** (not manual Toolkit/UnoControl):
    - In `getRealInterface()`, get the extension base URL via `PackageInformationProvider.getPackageLocation(EXTENSION_ID)`.
+   - **Thread hop:** URP dispatch of `WriterAgentDeck` can run `getRealInterface` on a Dummy-N thread. `get_extension_url` / PackageInformationProvider is `@main_thread_only`. Create (path init + window + wiring) goes through `_run_on_main_thread` → `execute_on_main_thread()` so ChatPanel opens with `WRITERAGENT_UNO_THREAD_GUARD` on. Verify: open the deck with the guard enabled; no `Dummy-N` `get_extension_url` abort. The test harness may still set `GUARD=0` because `WRITERAGENT_TESTING=1` inlines that hop.
    - Use `ContainerWindowProvider.createContainerWindow(dialog_url, "", parent_window, None)` with the path to your XDL (e.g. `WriterAgentDialogs/ChatPanelDialog.xdl`).
    - **Critical:** After `createContainerWindow()` returns, call **`setVisible(True)`** on the returned window. The sidebar framework does not make the panel content visible; without this call the panel shows only the title bar and empty white space.
 
