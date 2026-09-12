@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="716" height="414" viewBox="0 0 716 414" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="414" viewBox="0 0 840 414" role="img">
   <title>Eval-2 headed coverage by model</title>
-  <rect width="716" height="414" fill="#ffffff"/>
+  <rect width="840" height="414" fill="#ffffff"/>
   <text x="24" y="28" font-family="DejaVu Sans, sans-serif" font-size="16" font-weight="700" fill="#202124">Eval-2 headed coverage (Ready tasks scored)</text>
   <text x="24" y="46" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#5f6368">9 Ready / Headed-ready rows. Catalog peers stay gray until a stamp lands.</text>
   <rect x="56.0" y="179.6" width="88" height="144.4" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
@@ -14,15 +14,19 @@
   <rect x="180.0" y="64.0" width="88" height="28.9" fill="#009E73" stroke="#dadce0" data-segment="HAPPY"/>
   <text x="224.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">GPT-OSS 120B</text>
   <text x="224.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">1 HAPPY / 7 scored</text>
-  <rect x="304.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
-  <text x="348.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">GPT-OSS 20B</text>
-  <text x="348.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
+  <rect x="304.0" y="92.9" width="88" height="231.1" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <rect x="304.0" y="64.0" width="88" height="28.9" fill="#D55E00" stroke="#dadce0" data-segment="NOT_HAPPY"/>
+  <text x="348.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">GPT-5.6 Luna</text>
+  <text x="348.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 1 scored</text>
   <rect x="428.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
-  <text x="472.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Grok 4.6</text>
+  <text x="472.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">GPT-OSS 20B</text>
   <text x="472.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
   <rect x="552.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
-  <text x="596.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Muse Spark 1.3</text>
+  <text x="596.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Grok 4.6</text>
   <text x="596.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
+  <rect x="676.0" y="64.0" width="88" height="260.0" fill="#F1F3F4" stroke="#dadce0" data-segment="no data"/>
+  <text x="720.0" y="344" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Muse Spark 1.3</text>
+  <text x="720.0" y="360" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">0 HAPPY / 0 scored</text>
   <rect x="24" y="376" width="12" height="12" fill="#009E73" stroke="#dadce0"/>
   <text x="42" y="386" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#202124">HAPPY</text>
   <rect x="134" y="376" width="12" height="12" fill="#D55E00" stroke="#dadce0"/>

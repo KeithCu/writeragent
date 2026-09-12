@@ -99,6 +99,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
     assert {model.openrouter_id for model in board.models} >= {
         "google/gemini-3.8-flash",
         "openai/gpt-oss-120b",
+        "openai/gpt-5.6-luna",
         "openai/gpt-oss-20b",
         "x-ai/grok-4.6",
         "meta/muse-spark-1.3-contributor",
@@ -109,6 +110,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     board = pel.load_eval2_board(_RESULTS)
     gemini = "google/gemini-3.8-flash"
     oss = "openai/gpt-oss-120b"
+    luna = "openai/gpt-5.6-luna"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -190,6 +192,45 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert afc_oss.intelligence_per_dollar is None
     assert "20260912-0142-gpt-oss-120b" in afc_oss.oracle_note
 
+    # Second catalog AFC stamp (Scrolly headed 20260912-0150).
+    afc_luna = board.result_for("afc", luna)
+    assert afc_luna is not None
+    assert afc_luna.product_bar == "NOT_HAPPY"
+    assert afc_luna.oracle == "FAIL"
+    assert afc_luna.stamp == "20260912-0150-gpt-5.6-luna"
+    assert afc_luna.oracle_passed is False
+    assert afc_luna.oracle_failure_count == 1
+    assert afc_luna.oracle_failures == (
+        "R from Sample Size Calculation is missing or < 1",
+    )
+    assert afc_luna.oracle_check_count is None
+    assert afc_luna.partial_score is None
+    assert afc_luna.afc_s_flags == 68
+    assert afc_luna.afc_r_required is None
+    assert afc_luna.husk_cells == 0
+    assert afc_luna.scored_cells == 810
+    assert afc_luna.input_tokens == 562909
+    assert afc_luna.output_tokens == 10467
+    assert afc_luna.total_tokens == 573376
+    assert afc_luna.wall_time_s == 406
+    assert afc_luna.total_cost_usd == pytest.approx(0.0419)
+    assert afc_luna.intelligence_per_dollar is None
+    assert "20260912-0150-gpt-5.6-luna" in afc_luna.oracle_note
+    assert "0.1252" in afc_luna.oracle_note
+
+    # No invented Luna scores outside AFC.
+    for task_id in (
+        "tenant-retention",
+        "cadaver-proposal",
+        "gmp-change-control",
+        "writer-calc-peer-write",
+        "calc-primary-model",
+        "draw-primary",
+        "reverse-tenant",
+        "long-writer-pack",
+    ):
+        assert board.result_for(task_id, luna) is None
+
     # Catalog peers stay empty until a real stamp lands.
     for mid in (
         "openai/gpt-oss-20b",
@@ -200,8 +241,9 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.happy_count(mid) == 0
 
     # Other seed cells must not invent run costs or oracle-partial counts.
+    recorded_afc = {( "afc", oss), ("afc", luna)}
     for row in board.results:
-        if row.task_id == "afc" and row.model == oss:
+        if (row.task_id, row.model) in recorded_afc:
             continue
         assert row.total_tokens is None
         assert row.input_tokens is None
@@ -227,9 +269,13 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert afc is not None
     assert pel.has_recorded_partial(afc)
     assert pel.has_recorded_partial(afc_oss)
+    assert pel.has_recorded_partial(afc_luna)
 
 
-_RECORDED_AFC_OSS = ("afc", "openai/gpt-oss-120b")
+_RECORDED_AFC_CATALOG = {
+    ("afc", "openai/gpt-oss-120b"),
+    ("afc", "openai/gpt-5.6-luna"),
+}
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
     "input_tokens",
@@ -258,7 +304,7 @@ def test_every_seed_source_points_at_an_in_repo_doc() -> None:
         path = _REPO / first
         assert path.is_file(), first
         assert row.get("run_artifacts_committed") is False
-        if (row.get("task_id"), row.get("model")) == _RECORDED_AFC_OSS:
+        if (row.get("task_id"), row.get("model")) in _RECORDED_AFC_CATALOG:
             continue
         for key in _OPTIONAL_COST_PARTIAL_KEYS:
             assert key not in row or row[key] is None, row
@@ -304,13 +350,15 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "0 HAPPY / 0 scored" in coverage
     assert "No HAPPY cell has recorded total_cost_usd yet" in cost
     assert "data-cost-usd=" not in cost
-    # Seed has one oracle PASS (AFC Gemini) → partial 1. Catalog AFC 120b
-    # recorded S/R + failure_count without a check-count ratio.
+    # Seed has one oracle PASS (AFC Gemini) → partial 1. Catalog AFC
+    # 120b / Luna recorded S/R + failure_count without a check-count ratio.
     assert "data-partial-score=\"1.00\"" in partial
     assert "Gemini 3.8 Flash" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
+    assert "GPT-5.6 Luna" in partial
     assert "S=585 R=—" in partial
+    assert "S=68 R=—" in partial
     assert "no ratio" in partial
     assert "data-partial-score=\"0." not in partial
 
@@ -347,6 +395,8 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert 'data-partial-score="1.00"' in partial_text
     assert "0.50" not in partial_text
     assert "S=585 R=—" in partial_text
+    assert "S=68 R=—" in partial_text
+    assert "GPT-5.6 Luna" in partial_text
     assert "no ratio" in partial_text
 
 

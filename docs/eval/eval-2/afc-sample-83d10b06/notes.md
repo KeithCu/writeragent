@@ -37,3 +37,11 @@ Sample+SSC nonempty but wrong shape (`sample_data_rows=1516`); S=585,
 R=None, husks 0/15159. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0142-gpt-oss-120b/`.
 Scoreboard cell: [`../eval2_benchmark_results.json`](../eval2_benchmark_results.json).
+
+Second catalog cell: `openai/gpt-5.6-luna`, stamp `20260912-0150-gpt-5.6-luna`
+(Scrolly headed). Product bar **NOT_HAPPY**, oracle **FAIL** (same R
+hole). Sample+SSC present but incomplete (`sample_data_rows=81`; S=68;
+husks 0/810) — better shape than the 120b dump. OpenRouter usage sum
+~$0.0419 stored; model_configs estimate ~$0.1252 is an alternate only.
+Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0150-gpt-5.6-luna/`.
