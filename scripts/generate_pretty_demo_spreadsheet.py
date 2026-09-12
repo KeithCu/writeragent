@@ -884,6 +884,10 @@ def standard_sheet_specs() -> list[dict[str, Any]]:
                     "round(data[2][1] * 0.0689476, 2)",
                     (ENG_RANGE,),
                 ),
+                # ODS card 3 used to be ``=PY("round(...)", A5:E11)`` — comma instead
+                # of OpenFormula ``;``, so Calc treated the range as part of the
+                # Python string / one argument. ``py_formula(..., ods=True)`` always
+                # joins with ``;`` and the shared A4 header skeleton.
                 (
                     "3. Temperature: 85 °C -> °F",
                     "Pint dimensional conversion: Q_(85, 'degC').to('degF')",

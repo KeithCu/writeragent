@@ -12,6 +12,7 @@ from pathlib import Path
 
 from scripts.generate_pretty_demo_spreadsheet import (
     CALC_PYTHON_ADDIN_FN,
+    ENG_RANGE,
     FORECAST_RANGE_ODS_CROSS,
     MARKETING_NAMED_RANGE,
     MARKETING_RANGE_XLSX,
@@ -39,6 +40,7 @@ from scripts.generate_pretty_demo_spreadsheet import (
     get_marketing_dataset,
     get_sales_dataset,
     ods_formula,
+    py_formula,
     relative_named_range_eval_start_row,
     sql_demo_scenarios,
     sql_query_lines,
@@ -99,6 +101,22 @@ def test_ods_formula_python_wrapper_and_cross_sheet_cell() -> None:
 
 def test_ods_formula_leaves_non_formula_text() -> None:
     assert ods_formula("plain") == "plain"
+
+
+def test_ods_engineering_temperature_uses_openformula_semicolon() -> None:
+    """Regression: card 3 was ``=PY("...", A5:E11)`` (comma, old row-5 range)."""
+    eng = next(s for s in standard_sheet_specs() if s["name"] == "Engineering_Math")
+    title, unused_desc, code, args = next(m for m in eng["metrics"] if "Temperature" in m[0])
+    assert title.startswith("3. Temperature")
+    assert args == (ENG_RANGE,)
+    assert ENG_RANGE == "A4:E10"
+    formula = py_formula(code, *args, ods=True)
+    assert formula == f'=PY("{code}"; {ENG_RANGE})'
+    assert ", A" not in formula
+    out = ods_formula(formula)
+    assert "[.A4:.E10]" in out
+    assert ", [.A" not in out
+    assert "; [.A4:.E10]" in out or ";[.A4:.E10]" in out
 
 
 def test_ods_formula_statistics_ml_range_not_rematched() -> None:
@@ -196,6 +214,11 @@ def _assert_ods_formulas_and_layout(xml: str) -> None:
     assert sales_of in xml
     forecast_of = f"[${FORECAST_RANGE_ODS_CROSS.replace(':', ':.')}]"
     assert forecast_of in xml
+    # Engineering °C→°F used a comma before the range; OpenFormula needs ``;``.
+    assert (
+        "9/5 + 32, 1)&quot;; [.A4:.E10]" in xml
+        or '9/5 + 32, 1)"; [.A4:.E10]' in xml
+    )
     assert "[$S[$ales_Analytics" not in xml
     assert "[$F[$orecasting" not in xml
     assert "[$S[$tatistics_ML" not in xml
