@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="2208" height="714" viewBox="0 0 2208 714" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="2358" height="714" viewBox="0 0 2358 714" role="img">
   <title>Eval-2 headed task × model heatmap</title>
-  <rect width="2208" height="714" fill="#ffffff"/>
+  <rect width="2358" height="714" fill="#ffffff"/>
   <text x="24" y="28" font-family="DejaVu Sans, sans-serif" font-size="16" font-weight="700" fill="#202124">Eval-2 headed scoreboard (product bar × oracle)</text>
   <text x="24" y="46" font-family="DejaVu Sans, sans-serif" font-size="11" fill="#5f6368">Gate google/gemini-3.8-flash · updated 2026-09-12 · empty cells have no headed stamp</text>
   <text x="309.0" y="84" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Gemini 3.8 Flash (gate)</text>
@@ -30,6 +30,8 @@
   <text x="1959.0" y="100" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">meta/muse-spark-1.3-contributor</text>
   <text x="2109.0" y="84" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Laguna S 2.1</text>
   <text x="2109.0" y="100" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">poolside/laguna-s-2.1</text>
+  <text x="2259.0" y="84" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#202124">Laguna XS 2.1</text>
+  <text x="2259.0" y="100" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">poolside/laguna-xs-2.1</text>
   <text x="224" y="154" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">1. Tenant Retention</text>
   <text x="224" y="170" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">tenant-retention-ed2bc14c</text>
   <rect x="238.0" y="134.0" width="142" height="46" rx="6" fill="#009E73" stroke="#dadce0"/>
@@ -71,6 +73,9 @@
   <rect x="2038.0" y="134.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="2109.0" y="154.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="2109.0" y="170.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="2188.0" y="134.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
+  <text x="2259.0" y="154.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
+  <text x="2259.0" y="170.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
   <text x="224" y="212" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">2. Cadaver Proposal</text>
   <text x="224" y="228" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">cadaver-proposal-61b0946a</text>
   <rect x="238.0" y="192.0" width="142" height="46" rx="6" fill="#009E73" stroke="#dadce0"/>
@@ -112,6 +117,9 @@
   <rect x="2038.0" y="192.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="2109.0" y="212.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="2109.0" y="228.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="2188.0" y="192.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
+  <text x="2259.0" y="212.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
+  <text x="2259.0" y="228.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
   <text x="224" y="270" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">3. AFC Population</text>
   <text x="224" y="286" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">afc-sample-83d10b06</text>
   <rect x="238.0" y="250.0" width="142" height="46" rx="6" fill="#009E73" stroke="#dadce0"/>
@@ -153,6 +161,9 @@
   <rect x="2038.0" y="250.0" width="142" height="46" rx="6" fill="#D55E00" stroke="#dadce0"/>
   <text x="2109.0" y="270.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#ffffff">NOT_HAPPY</text>
   <text x="2109.0" y="286.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#ffffff">oracle FAIL</text>
+  <rect x="2188.0" y="250.0" width="142" height="46" rx="6" fill="#D55E00" stroke="#dadce0"/>
+  <text x="2259.0" y="270.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#ffffff">NOT_HAPPY</text>
+  <text x="2259.0" y="286.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#ffffff">oracle FAIL</text>
   <text x="224" y="328" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">4. GMP Change Control</text>
   <text x="224" y="344" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">gmp-change-control-58ac1cc5</text>
   <rect x="238.0" y="308.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
@@ -194,6 +205,9 @@
   <rect x="2038.0" y="308.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="2109.0" y="328.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="2109.0" y="344.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="2188.0" y="308.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
+  <text x="2259.0" y="328.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
+  <text x="2259.0" y="344.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
   <text x="224" y="386" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">5. Floorstand Writer→Calc</text>
   <text x="224" y="402" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">writer-calc-peer-write</text>
   <rect x="238.0" y="366.0" width="142" height="46" rx="6" fill="#D55E00" stroke="#dadce0"/>
@@ -235,6 +249,9 @@
   <rect x="2038.0" y="366.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="2109.0" y="386.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="2109.0" y="402.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="2188.0" y="366.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
+  <text x="2259.0" y="386.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
+  <text x="2259.0" y="402.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
   <text x="224" y="444" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">6. Calc-primary model</text>
   <text x="224" y="460" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">calc-primary-model</text>
   <rect x="238.0" y="424.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
@@ -276,6 +293,9 @@
   <rect x="2038.0" y="424.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="2109.0" y="444.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="2109.0" y="460.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="2188.0" y="424.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
+  <text x="2259.0" y="444.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
+  <text x="2259.0" y="460.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
   <text x="224" y="502" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">8. Draw-primary</text>
   <text x="224" y="518" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">draw-primary-deliverable</text>
   <rect x="238.0" y="482.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
@@ -317,6 +337,9 @@
   <rect x="2038.0" y="482.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="2109.0" y="502.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="2109.0" y="518.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="2188.0" y="482.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
+  <text x="2259.0" y="502.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
+  <text x="2259.0" y="518.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
   <text x="224" y="560" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">9. Reverse Tenant</text>
   <text x="224" y="576" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">reverse-tenant</text>
   <rect x="238.0" y="540.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
@@ -358,6 +381,9 @@
   <rect x="2038.0" y="540.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="2109.0" y="560.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="2109.0" y="576.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="2188.0" y="540.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
+  <text x="2259.0" y="560.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
+  <text x="2259.0" y="576.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
   <text x="224" y="618" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="12" fill="#202124">10. Long Writer pack</text>
   <text x="224" y="634" text-anchor="end" font-family="DejaVu Sans, sans-serif" font-size="9" fill="#5f6368">long-writer-pack</text>
   <rect x="238.0" y="598.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
@@ -399,5 +425,8 @@
   <rect x="2038.0" y="598.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
   <text x="2109.0" y="618.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
   <text x="2109.0" y="634.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
+  <rect x="2188.0" y="598.0" width="142" height="46" rx="6" fill="#F1F3F4" stroke="#dadce0"/>
+  <text x="2259.0" y="618.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="11" font-weight="700" fill="#5f6368">no data</text>
+  <text x="2259.0" y="634.0" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">—</text>
   <text x="24" y="696" font-family="DejaVu Sans, sans-serif" font-size="10" fill="#5f6368">Headed sibling of the string pack (hard / partial / cost). Empty = no in-repo stamp. Do not merge into hard_pass_rate JSON.</text>
 </svg>

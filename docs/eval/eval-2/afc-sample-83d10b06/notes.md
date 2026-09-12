@@ -142,3 +142,15 @@ tool loop. tip_at_run `6c6017b7`. UNO/assert/PreContract=0.
 OpenRouter usage sum ~$0.01480 stored; model_configs estimate
 ~$0.02142 is an alternate only. Run dir is box-local / untracked:
 `docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0419-laguna-s-2.1/`.
+
+Thirteenth catalog cell: `poolside/laguna-xs-2.1`, stamp
+`20260912-0429-laguna-xs-2.1`. Product bar **NOT_HAPPY**, oracle
+**FAIL** (`failure_count=2`: missing sheet 'Sample Size
+Calculation'; Sample has no data rows). SSC tab named
+`Sample_Size_Calculation`, not "Sample Size Calculation"; Sample
+empty (`sample_data_rows=0`); S=0; R=None; husks 0/0. Raw
+`tool_call` text in the reply. Recorded wall ~85s (observer
+~3m12s). tip_at_run `6c6017b7`. UNO/assert/PreContract=0.
+OpenRouter usage sum ~$0.04341 stored; model_configs estimate
+~$0.07804 is an alternate only. Run dir is box-local / untracked:
+`docs/eval/eval-2/afc-sample-83d10b06/runs/20260912-0429-laguna-xs-2.1/`.

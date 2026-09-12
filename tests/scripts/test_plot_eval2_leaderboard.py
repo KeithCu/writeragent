@@ -110,6 +110,7 @@ def test_seed_json_loads_and_matches_schema_enums() -> None:
         "meta/muse-glimmer-30b",
         "meta/muse-spark-1.3-contributor",
         "poolside/laguna-s-2.1",
+        "poolside/laguna-xs-2.1",
     }
 
 
@@ -128,6 +129,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     glimmer = "meta/muse-glimmer-30b"
     spark = "meta/muse-spark-1.3-contributor"
     laguna = "poolside/laguna-s-2.1"
+    laguna_xs = "poolside/laguna-xs-2.1"
 
     tenant = board.result_for("tenant-retention", gemini)
     assert tenant is not None
@@ -508,6 +510,35 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert "6c6017b7" in afc_laguna.oracle_note
     assert "finish_reason=length" in afc_laguna.oracle_note
 
+    # Thirteenth catalog AFC stamp (Scrolly headed 20260912-0429).
+    afc_laguna_xs = board.result_for("afc", laguna_xs)
+    assert afc_laguna_xs is not None
+    assert afc_laguna_xs.product_bar == "NOT_HAPPY"
+    assert afc_laguna_xs.oracle == "FAIL"
+    assert afc_laguna_xs.stamp == "20260912-0429-laguna-xs-2.1"
+    assert afc_laguna_xs.oracle_passed is False
+    assert afc_laguna_xs.oracle_failure_count == 2
+    assert afc_laguna_xs.oracle_failures == (
+        "missing sheet 'Sample Size Calculation'",
+        "Sample has no data rows",
+    )
+    assert afc_laguna_xs.oracle_check_count is None
+    assert afc_laguna_xs.partial_score is None
+    assert afc_laguna_xs.afc_s_flags == 0
+    assert afc_laguna_xs.afc_r_required is None
+    assert afc_laguna_xs.husk_cells == 0
+    assert afc_laguna_xs.scored_cells == 0
+    assert afc_laguna_xs.input_tokens == 1280356
+    assert afc_laguna_xs.output_tokens == 10168
+    assert afc_laguna_xs.total_tokens == 1290524
+    assert afc_laguna_xs.wall_time_s == 85
+    assert afc_laguna_xs.total_cost_usd == pytest.approx(0.04341)
+    assert afc_laguna_xs.intelligence_per_dollar is None
+    assert "20260912-0429-laguna-xs-2.1" in afc_laguna_xs.oracle_note
+    assert "0.07804" in afc_laguna_xs.oracle_note
+    assert "6c6017b7" in afc_laguna_xs.oracle_note
+    assert "Sample_Size_Calculation" in afc_laguna_xs.oracle_note
+
     # No invented catalog AFC-only scores outside AFC.
     for task_id in (
         "tenant-retention",
@@ -530,6 +561,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         assert board.result_for(task_id, glimmer) is None
         assert board.result_for(task_id, spark) is None
         assert board.result_for(task_id, laguna) is None
+        assert board.result_for(task_id, laguna_xs) is None
 
     # Other seed cells must not invent run costs or oracle-partial counts.
     recorded_afc = {
@@ -545,6 +577,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
         ("afc", glimmer),
         ("afc", spark),
         ("afc", laguna),
+        ("afc", laguna_xs),
     }
     for row in board.results:
         if (row.task_id, row.model) in recorded_afc:
@@ -588,6 +621,7 @@ def test_seed_cells_match_autopsy_and_leave_unknowns_empty() -> None:
     assert pel.has_recorded_partial(afc_glimmer)
     assert pel.has_recorded_partial(afc_spark)
     assert pel.has_recorded_partial(afc_laguna)
+    assert pel.has_recorded_partial(afc_laguna_xs)
 
 
 _RECORDED_AFC_CATALOG = {
@@ -603,6 +637,7 @@ _RECORDED_AFC_CATALOG = {
     ("afc", "meta/muse-glimmer-30b"),
     ("afc", "meta/muse-spark-1.3-contributor"),
     ("afc", "poolside/laguna-s-2.1"),
+    ("afc", "poolside/laguna-xs-2.1"),
 }
 _OPTIONAL_COST_PARTIAL_KEYS = (
     "total_tokens",
@@ -694,6 +729,7 @@ def test_scoreboard_markdown_matches_seed_matrix() -> None:
     assert "Muse Glimmer 30B" in partial
     assert "Muse Spark 1.3" in partial
     assert "Laguna S 2.1" in partial
+    assert "Laguna XS 2.1" in partial
     assert "AFC Population" in partial
     assert "GPT-OSS 120B" in partial
     assert "GPT-5.6 Luna" in partial
@@ -757,6 +793,7 @@ def test_plot_writes_distinct_svgs_with_honest_empty_cells(tmp_path: Path) -> No
     assert "Muse Glimmer 30B" in partial_text
     assert "Muse Spark 1.3" in partial_text
     assert "Laguna S 2.1" in partial_text
+    assert "Laguna XS 2.1" in partial_text
     assert "S=0 R=66" in partial_text
     assert "S=494 R=68" in partial_text
     assert "2/—" in partial_text
