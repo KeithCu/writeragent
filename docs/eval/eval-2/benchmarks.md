@@ -39,8 +39,8 @@ deliverable. **—** means no in-repo headed stamp; do not invent a
 score. Luna, 20B, Flash Lite, Gemma 4 31B, Gemma 4 26B A4B, Nemotron
 3.5 Lightning, Mercury 2.5 Preview, and Grok 4.6 have an AFC stamp
 only. Muse Glimmer 30B also has an AFC stamp only. Muse Spark 1.3 is
-still a placeholder. The catalog-wide headed sweep has **not**
-happened.
+still a placeholder. The catalog-wide headed
+sweep has **not** happened.
 
 ## Snapshot ranking (2026-09-12)
 
