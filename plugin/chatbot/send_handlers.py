@@ -4,7 +4,7 @@ This mixin is used by SendButtonListener in panel.py and contains
 alternate send flows that would otherwise bloat that class:
 
 - Audio transcription fallback
-- Direct image generation (sidebar Image mode)
+- Direct image generation / img2img (sidebar Image mode)
 - External agent backends (Aider, Hermes)
 - Web research sub-agent
 """
@@ -39,8 +39,25 @@ from plugin.chatbot.state_machine import SendHandlerState, StartEvent, StreamChu
 from plugin.chatbot.dialogs import get_control_text, show_approval_dialog
 from plugin.chatbot.config_ui_helpers import update_lru_history
 from plugin.framework.tool import ToolContext
+from plugin.doc.visual_helpers import selected_graphic_object
 
 log = logging.getLogger(__name__)
+
+
+def _direct_image_source_arg(model: Any) -> str | None:
+    """Return ``'selection'`` when a document graphic is selected, else ``None``.
+
+    Sidebar Image mode calls ``image_generate`` with no LLM. The tool only
+    runs img2img and replaces in place when ``source_image='selection'``.
+    The old worker always omitted that arg, so an edit prompt with a
+    selected image still text-to-image inserted a new graphic.
+    """
+    try:
+        if selected_graphic_object(model) is not None:
+            return "selection"
+    except Exception:
+        log.debug("Direct image: selection probe failed", exc_info=True)
+    return None
 
 if TYPE_CHECKING:
     from plugin.chatbot.panel import ChatSession
@@ -234,6 +251,9 @@ class SendHandlersMixin:
 
 
         q: queue.Queue[Any] = queue.Queue()
+        # Probe on the UI thread. The tool re-reads the selection when it
+        # executes; this flag only decides whether to request img2img.
+        source_image = _direct_image_source_arg(model)
 
         def run_direct_image():
             try:
@@ -266,10 +286,11 @@ class SendHandlersMixin:
                 with suppress_disposed("LRU update", logger=log, exc_info=True):
                     update_lru_history(base_size_val, "image_base_size_lru", "")
 
-
-
                 # generate_image is async; UNO is marshalled inside the tool (worker runs HTTP).
-                res = get_tools().execute("image_generate", tctx, bypass_thread_guard=False, **{"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_val, "image_model": image_model_text})
+                image_args: dict[str, Any] = {"prompt": query_text, "aspect_ratio": mapped_aspect, "base_size": base_size_val, "image_model": image_model_text}
+                if source_image:
+                    image_args["source_image"] = source_image
+                res = get_tools().execute("image_generate", tctx, bypass_thread_guard=False, **image_args)
                 if isinstance(res, dict) and res.get("status") == "error":
                     log.error("generate_image (direct) failed: %s details=%s", res.get("message"), res.get("details"))
                 result = json.dumps(res) if isinstance(res, dict) else str(res)
