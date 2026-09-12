@@ -17,7 +17,11 @@ import os
 
 from plugin.framework.uno_context import uno_same
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import TestingFactory, with_native_doc
+from plugin.tests.testing_utils import (
+    TestingFactory,
+    skip_windows_leftover_hidden_load,
+    with_native_doc,
+)
 from plugin.writer.images.image_tools import insert_image_into_header_footer
 from plugin.writer.page import (
     PageGetHeaderFooterText,
@@ -39,6 +43,10 @@ def _header_logo_path() -> str:
 
 
 def _tool_ctx(doc, ctx):
+    # GHA 34689136372: leftover Hidden `_blank` in xtext_to_content
+    # hung page-header get. This file is the next PageGetHeaderFooterText
+    # victim.
+    skip_windows_leftover_hidden_load("page_header Hidden _blank xtext_to_content")
     from plugin.framework.tool import ToolContext
 
     services = None

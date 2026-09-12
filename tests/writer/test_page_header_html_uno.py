@@ -14,7 +14,7 @@ import os
 import tempfile
 
 from plugin.testing_runner import native_test
-from plugin.tests.testing_utils import with_native_doc
+from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
 from plugin.writer.page import PageGetHeaderFooterText, PageSetHeaderFooterText
 
 # Known-good 1x1 PNG (not the truncated IDAT that libpng rejects).
@@ -24,6 +24,10 @@ _PNG_BYTES = base64.b64decode(
 
 
 def _tool_ctx(doc, ctx):
+    # GHA 34689136372: leftover writer reuse then
+    # html_export._open_hidden_writer Hidden `_blank` hung 30s in
+    # test_plain_header_footer_html_roundtrip (_get → xtext_to_content).
+    skip_windows_leftover_hidden_load("page_header Hidden _blank xtext_to_content")
     from plugin.framework.tool import ToolContext
 
     services = None

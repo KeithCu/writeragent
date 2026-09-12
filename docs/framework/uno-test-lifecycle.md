@@ -297,6 +297,8 @@ POSIX still `close_doc`. Breadcrumbs:
 `windows leftover skip: format_uno Hidden _blank small_doc leftovers=`,
 `windows leftover skip: format_uno cross-paragraph color leftover reuse leftovers=`,
 `windows leftover skip: inline_review view cursor leftover reuse leftovers=`,
+`windows leftover skip: page_header Hidden _blank xtext_to_content leftovers=`,
+`windows leftover skip: ops_uno leftover text offsets leftovers=`,
 `windows hidden skip: create_native_doc Hidden _blank after system bitmap`,
 `windows awt skip: slash_popup createPeer/setVisible`,
 `slash_popup_uno: createPeer start/done setVisible start/done`,
@@ -577,6 +579,16 @@ Inline-review `_body` now
 (`windows leftover skip: inline_review view cursor leftover reuse`).
 Not a product change.
 
+GHA 34689136372 (PR #746 tip `4bdaa1b3`): inline-review leftover
+view-cursor skips fired (suite green). Then
+`test_get_text_cursor_at_range` FAIL leftover offsets
+(`P1\\n` vs `P1\\n `; suite continued). Next
+`test_plain_header_footer_html_roundtrip` hung 30s in
+`html_export._open_hidden_writer` Hidden `_blank` via
+`xtext_to_content` (office alive). Same leftover Hidden `_blank`
+family. Page-header / page UNO `_tool_ctx` and ops `_populate`
+now leftover-skip. Not a product change.
+
 **Windows proof** still needs a `workflow_dispatch` of PR CI on the
 branch: `os=windows-latest`, `ci_debug=true`. Look for
 `html_paste_writer: leftovers open` with a real `keeper=` uid (not
@@ -658,6 +670,14 @@ inline-review `TEST end … SKIP` with
 `windows leftover skip: inline_review view cursor leftover reuse`
 when leftover_open>0 (no 30s Timeout on `getViewCursor().gotoRange`
 — GHA 34687044125 `_caret_in`),
+ops leftover offsets `TEST end … SKIP` with
+`windows leftover skip: ops_uno leftover text offsets`
+when leftover_open>0 (no leftover `P1\\n` vs `P1\\n ` FAIL —
+GHA 34689136372),
+page-header `TEST end … SKIP` with
+`windows leftover skip: page_header Hidden _blank xtext_to_content`
+when leftover_open>0 (no 30s Timeout on `_open_hidden_writer` —
+GHA 34689136372),
 **then**
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**
