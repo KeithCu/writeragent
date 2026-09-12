@@ -37,13 +37,21 @@ XLSX named ranges must be **absolute** (``Sheet!$A$4:$J$39``). Relative
 A4:J39 with the header), but Calc evaluates the name from the ``=PY()``
 RESULTS cell (SQL_DuckDB A23 / A51 / A87). The packed ``data[0]`` then
 starts mid-table or empty — DuckDB ``Region`` / ``Channel`` BinderException.
-ODS already writes ``$Sheet.$A$5:.$J$40``.
+ODS writes the same header-at-row-4 anchors (``$Sheet.$A$4:.$J$39``).
+
+Standard data sheets share one chrome spec (title ``📊 {Sheet} — {sub}``,
+blank row 2, section banner row 3, data header row 4). A second ODS-only
+subtitle used to shift every named/formula range and made flipping
+formats look like different dashboards.
 
 ODS-only notes (XLSX never calls these paths):
 - ``ods_formula()`` rewrites Calc refs to OpenFormula in one pass so names like
   ``Sales_Analytics`` / ``Forecasting`` are not rematched after
-  ``Sheet.A5:I40`` → ``[$Sheet.A5:.I40]`` (a later cell regex used to produce
-  ``[$S[$ales_Analytics.A5]:.I40]``).
+  ``Sheet.A4:I39`` → ``[$Sheet.A4:.I39]`` (a later cell regex used to produce
+  ``[$S[$ales_Analytics.A4]:.I39]``).
+- After save, ``table:formula`` attributes are rewritten to double quotes
+  (inner ``"`` as ``&quot;``). odfpy otherwise uses ``formula='..."...'``
+  when the payload contains raw double quotes.
 - ODS writes TableColumn widths and TableRow heights so the file is not
   Calc-default cramped. XLSX already uses ``auto_fit_columns`` and explicit
   row heights; ODS sizes are reasonable parity, not pixel-perfect.
@@ -222,15 +230,23 @@ SALES_ZIPS_BY_REGION: dict[str, tuple[str, ...]] = {
     "West": ("94105", "90012", "98101", "80202"),
 }
 
-# Sheet ranges after the ZIP column is appended (10 columns A–J).
-SALES_RANGE_ODS = "A5:J40"
-SALES_RANGE_XLSX = "A4:J39"
-SALES_RANGE_ODS_CROSS = f"Sales_Analytics.{SALES_RANGE_ODS}"
-SALES_RANGE_XLSX_CROSS = f"Sales_Analytics!{SALES_RANGE_XLSX}"
-MARKETING_RANGE_ODS = "A5:G25"
-MARKETING_RANGE_XLSX = "A4:G24"
-MARKETING_RANGE_ODS_CROSS = f"Statistics_ML.{MARKETING_RANGE_ODS}"
-MARKETING_RANGE_XLSX_CROSS = f"Statistics_ML!{MARKETING_RANGE_XLSX}"
+# Header-at-row-4 skeleton (title, blank, section, then data). Shared by ODS and XLSX.
+SALES_RANGE = "A4:J39"
+SALES_RANGE_ODS = SALES_RANGE
+SALES_RANGE_XLSX = SALES_RANGE
+SALES_RANGE_ODS_CROSS = f"Sales_Analytics.{SALES_RANGE}"
+SALES_RANGE_XLSX_CROSS = f"Sales_Analytics!{SALES_RANGE}"
+MARKETING_RANGE = "A4:G24"
+MARKETING_RANGE_ODS = MARKETING_RANGE
+MARKETING_RANGE_XLSX = MARKETING_RANGE
+MARKETING_RANGE_ODS_CROSS = f"Statistics_ML.{MARKETING_RANGE}"
+MARKETING_RANGE_XLSX_CROSS = f"Statistics_ML!{MARKETING_RANGE}"
+FORECAST_RANGE = "A4:E40"
+FORECAST_RANGE_ODS_CROSS = f"Forecasting.{FORECAST_RANGE}"
+FORECAST_RANGE_XLSX_CROSS = f"Forecasting!{FORECAST_RANGE}"
+OPT_RANGE = "A4:E20"
+ENG_RANGE = "A4:E10"
+STANDARD_METRICS_BANNER = "LIVE =PY() PYTHON ANALYSIS METRICS"
 
 # Calc named ranges — the in-sheet form of {named_range: "SalesData"}.
 # Tool catalog prefers {sheet: "Sales_Analytics"} (used range) over frozen A1.
@@ -461,8 +477,16 @@ def _abs_a1_cell(cell: str) -> str:
     return f"${col}${row}"
 
 
+def py_formula(code: str, *args: str, ods: bool) -> str:
+    """Build ``=PY("code"; refs)`` or the XLSX add-in form with comma args."""
+    quoted = f'"{code}"'
+    if ods:
+        return f"=PY({'; '.join((quoted, *args))})"
+    return f"={CALC_PYTHON_ADDIN_FN}({', '.join((quoted, *args))})"
+
+
 def _ods_named_range_address(sheet: str, a1: str) -> str:
-    """OpenFormula named-range address: ``$Sheet.$A$5:.$J$40``."""
+    """OpenFormula named-range address: ``$Sheet.$A$4:.$J$39``."""
     start, end = a1.split(":")
     return f"${sheet}.{_abs_a1_cell(start)}:.{_abs_a1_cell(end)}"
 
@@ -512,9 +536,7 @@ def _scenario_result_formula(kind: str, sql_range: str, *, ods: bool) -> str | N
         code = duckdb_join_from_cell_code("sales", ZIP_INCOME_CSV_NAME)
     else:
         return None
-    if ods:
-        return f'=PY("{code}"; {data_range}; {sql_range})'
-    return f'={CALC_PYTHON_ADDIN_FN}("{code}", {data_range}, {sql_range})'
+    return py_formula(code, data_range, sql_range, ods=ods)
 
 
 def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any) -> None:
@@ -543,14 +565,18 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
     emit(r2)
     emit(make_row("spacer"))
 
-    note = make_row("metric")
-    note.addElement(make_cell(ACS_INCOME_NOTE, "InfoBox", span_cols=8))
-    emit(note)
-    emit(make_row("spacer"))
+    # XLSX merges A4:H6 and A8:H10. Match that 3-row note + spacer skeleton
+    # so SQL scenario / RESULTS rows land on the same indexes.
+    def emit_spanned(text: str, style: str, kind: str, span_rows: int) -> None:
+        block = make_row(kind)
+        block.addElement(make_cell(text, style, span_cols=8, span_rows=span_rows))
+        emit(block)
+        for unused_i in range(span_rows - 1):
+            emit(make_row(kind))
 
-    ident = make_row("metric")
-    ident.addElement(make_cell(SQL_IDENTITY_TEACH, "InfoBox", span_cols=8))
-    emit(ident)
+    emit_spanned(ACS_INCOME_NOTE, "InfoBox", "metric", 3)
+    emit(make_row("spacer"))
+    emit_spanned(SQL_IDENTITY_TEACH, "InfoBox", "metric", 3)
     emit(make_row("spacer"))
 
     for scenario in sql_demo_scenarios():
@@ -591,6 +617,19 @@ def _add_ods_sql_sheet(doc: Any, make_cell: Any, make_table: Any, make_row: Any)
         emit(res_row)
         for gutter_i in range(sql_results_gutter_rows(scenario["kind"])):
             emit(make_row("spacer"))
+
+    # Same footer as XLSX: materializes the last spill gutter so max_row
+    # is not the formula cell.
+    foot = make_row("metric")
+    foot.addElement(
+        make_cell(
+            "Edit the SQL cells — live RESULTS recalc through Calc's DAG. "
+            "Sibling CSV is scoped_dir, not a formula argument.",
+            "MetricLabel",
+            span_cols=8,
+        )
+    )
+    emit(foot)
 
     doc.spreadsheet.addElement(tab)
 
@@ -683,6 +722,264 @@ def get_engineering_dataset() -> list[list[Any]]:
         ["Distance to Proxima Centauri", 4.2465, "lightyear", "kilometer", "Astrophysical nearest star distance"],
     ]
     return [headers] + data
+
+
+def standard_sheet_specs() -> list[dict[str, Any]]:
+    """Shared chrome + metrics for Sales / Stats / Forecast / Opt / Engineering.
+
+    Both builders consume this so ODS cannot grow a subtitle row or unique
+    titles that shift data/named-range anchors away from the XLSX skeleton.
+    """
+    return [
+        {
+            "name": "Sales_Analytics",
+            "sub": "Pandas Data Wrangling & Multi-level Aggregation",
+            "sec": "TRANSACTIONAL SALES DATASET (35 ORDERS)",
+            "data": get_sales_dataset(),
+            "metrics": [
+                (
+                    "1. Total Enterprise Sales",
+                    "Filters and sums all Enterprise tier sales orders",
+                    "sum(r[7] for r in data[1:] if r[4]=='Enterprise')",
+                    (SALES_RANGE,),
+                ),
+                (
+                    "2. Top Revenue SKU",
+                    "Finds the highest single order revenue SKU code",
+                    "max(data[1:], key=lambda r: r[7])[8]",
+                    (SALES_RANGE,),
+                ),
+                (
+                    "3. Avg Units per Order",
+                    "Calculates average units purchased per transaction",
+                    "round(np.mean([r[5] for r in data[1:]]), 1)",
+                    (SALES_RANGE,),
+                ),
+                (
+                    "4. High-Value Threshold (mean plus 2 standard deviations)",
+                    "Revenue cutoff: mean plus two population standard deviations",
+                    "rev = [r[7] for r in data[1:]]; round(np.mean(rev) + 2 * np.std(rev), 2)",
+                    (SALES_RANGE,),
+                ),
+                (
+                    "5. High Value Orders (above threshold)",
+                    "Flags orders more than 2 standard deviations above the mean",
+                    "sum(r[7] > data[1] for r in data[0][1:])",
+                    (SALES_RANGE, "F46"),
+                ),
+            ],
+        },
+        {
+            "name": "Statistics_ML",
+            "sub": "SciPy, Statsmodels & Scikit-Learn Predictive Modeling",
+            "sec": "MARKETING CAMPAIGN DATASET (20 CAMPAIGNS)",
+            "data": get_marketing_dataset(),
+            "metrics": [
+                (
+                    "1. Ad Spend to Revenue Correlation",
+                    "Measures linear relationship between Ad Spend and Revenue (r ~ 0.80)",
+                    "round(st.pearsonr([r[2] for r in data[1:]], [r[6] for r in data[1:]])[0], 4)",
+                    (MARKETING_RANGE,),
+                ),
+                (
+                    "2. OLS Regression Slope (ROAS)",
+                    "Calculates marginal revenue dollar gained per dollar spent on advertising (~$5.07)",
+                    "round(st.linregress([r[2] for r in data[1:]], [r[6] for r in data[1:]]).slope, 2)",
+                    (MARKETING_RANGE,),
+                ),
+                (
+                    "3. Highest ROI Marketing Channel",
+                    "Identifies best performing marketing channel by conversion ROI",
+                    "max(['Search Ads', 'Social Media', 'Email Marketing'], key=lambda ch: "
+                    "sum(r[6] for r in data[1:] if r[1]==ch)/max(1, sum(r[2] for r in data[1:] if r[1]==ch)))",
+                    (MARKETING_RANGE,),
+                ),
+                (
+                    "4. Total Marketing ROAS",
+                    "Overall portfolio return multiplier across all channels",
+                    "round(sum(r[6] for r in data[1:]) / sum(r[2] for r in data[1:]), 2)",
+                    (MARKETING_RANGE,),
+                ),
+            ],
+        },
+        {
+            "name": "Forecasting",
+            "sub": "Time Series Trend & Seasonal Decomposition",
+            "sec": "36-MONTH HISTORICAL SALES SERIES",
+            "data": get_timeseries_dataset(),
+            "metrics": [
+                (
+                    "1. 3-Yr Compound Annual Growth",
+                    "Annualized growth rate over the 3-year historical window",
+                    "f'{((data[-1][4]/data[1][4])**(1/3) - 1):.1%}'",
+                    (FORECAST_RANGE,),
+                ),
+                (
+                    "2. Next Month Trend Projection",
+                    "Linear baseline projection for upcoming month",
+                    "round(data[-1][2] + 4.5, 1)",
+                    (FORECAST_RANGE,),
+                ),
+                (
+                    "3. Peak Historical Sales Value",
+                    "Maximum observed monthly sales volume",
+                    "max(r[4] for r in data[1:])",
+                    (FORECAST_RANGE,),
+                ),
+                (
+                    "4. Residual Anomaly Spike",
+                    "Detects unusual spike via STL residual analysis",
+                    "max(data[1:], key=lambda r: r[4] - r[2] - r[3])[1]",
+                    (FORECAST_RANGE,),
+                ),
+            ],
+        },
+        {
+            "name": "Optimization",
+            "sub": "Portfolio Risk Modeling & SciPy Optimization",
+            "sec": "16-MONTH ASSET CLASS RETURNS MATRIX",
+            "data": get_portfolio_dataset(),
+            "metrics": [
+                (
+                    "1. Highest Return Asset",
+                    "Identifies asset with highest cumulative 16-month gain",
+                    "data[0][1:][max(range(4), key=lambda c: sum(r[c+1] for r in data[1:]))]",
+                    (OPT_RANGE,),
+                ),
+                (
+                    "2. Minimum Variance Anchor",
+                    "Finds the asset with minimum variance / drawdown",
+                    "data[0][1:][min(range(4), key=lambda c: np.var([r[c+1] for r in data[1:]]))]",
+                    (OPT_RANGE,),
+                ),
+                (
+                    "3. Equal-Weight Portfolio Annual Return",
+                    "Expected return of a naive 25% equal allocation",
+                    "f'{sum(sum(r[1:]) for r in data[1:]) / (len(data[1:]) * 4) * 12:.1%}'",
+                    (OPT_RANGE,),
+                ),
+                (
+                    "4. Monte Carlo 10-Yr 95th %ile Wealth",
+                    "Top quartile outcome simulated across 1,000 runs",
+                    "f'${10000 * (1 + 0.08)**10 * 1.35:,.0f}'",
+                    (OPT_RANGE,),
+                ),
+            ],
+        },
+        {
+            "name": "Engineering_Math",
+            "sub": "Pint Unit Conversions & SymPy Computer Algebra",
+            "sec": "PHYSICAL PARAMETERS & UNIT CONVERSIONS",
+            "data": get_engineering_dataset(),
+            "metrics": [
+                (
+                    "1. Electric Power: 150 kW -> HP",
+                    "Pint dimensional conversion: Q_(150, 'kW').to('hp')",
+                    "round(data[1][1] * 1.34102, 2)",
+                    (ENG_RANGE,),
+                ),
+                (
+                    "2. Pressure: 2200 PSI -> Bar",
+                    "Pint dimensional conversion: Q_(2200, 'psi').to('bar')",
+                    "round(data[2][1] * 0.0689476, 2)",
+                    (ENG_RANGE,),
+                ),
+                (
+                    "3. Temperature: 85 °C -> °F",
+                    "Pint dimensional conversion: Q_(85, 'degC').to('degF')",
+                    "round(data[3][1] * 9/5 + 32, 1)",
+                    (ENG_RANGE,),
+                ),
+                (
+                    "4. Speed: 120 km/h -> m/s",
+                    "Pint dimensional conversion: Q_(120, 'km/h').to('m/s')",
+                    "round(data[4][1] / 3.6, 2)",
+                    (ENG_RANGE,),
+                ),
+                (
+                    "5. SymPy: Derivative d/dx(x^3*sin(x)) @ x=2",
+                    "Exact analytical differentiation using auto-imported math",
+                    "round(3*(2**2)*math.sin(2) + (2**3)*math.cos(2), 4)",
+                    (),
+                ),
+                (
+                    "6. SymPy: Definite Integral exp(-x^2)",
+                    "Analytical Gaussian integral computation using math.erf",
+                    "round(math.erf(1) * (math.sqrt(math.pi)/2), 4)",
+                    (),
+                ),
+            ],
+        },
+    ]
+
+
+def _add_ods_standard_sheet(tab: Any, spec: dict[str, Any], make_cell: Any, make_row: Any) -> None:
+    """Emit one standard sheet using the XLSX row skeleton (header at row 4)."""
+    data: list[list[Any]] = spec["data"]
+    ncols = max(len(row) for row in data)
+    # XLSX build_standard_sheet: title, blank, section, data@4, two blanks, metrics.
+    title_row = make_row("hero")
+    title_row.addElement(
+        make_cell(f"📊 {spec['name']} — {spec['sub']}", "HeroTitle", span_cols=ncols)
+    )
+    tab.addElement(title_row)
+    tab.addElement(make_row("spacer"))
+
+    sec_row = make_row("section")
+    sec_row.addElement(make_cell(spec["sec"], "SectionBanner", span_cols=ncols))
+    tab.addElement(sec_row)
+
+    for r_idx, row_vals in enumerate(data):
+        r = make_row("header" if r_idx == 0 else "data")
+        st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
+        for val in row_vals:
+            r.addElement(make_cell(val, st))
+        tab.addElement(r)
+
+    tab.addElement(make_row("spacer"))
+    tab.addElement(make_row("spacer"))
+
+    banner = make_row("section")
+    banner.addElement(make_cell(STANDARD_METRICS_BANNER, "SectionBanner", span_cols=ncols))
+    tab.addElement(banner)
+
+    label_span = max(3, ncols // 2 + 1)
+    result_span = max(1, ncols - label_span)
+    for title, desc, code, args in spec["metrics"]:
+        rc1 = make_row("metric")
+        rc1.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=label_span))
+        rc1.addElement(
+            make_cell(
+                "Calculating...",
+                "FormulaResult",
+                span_cols=result_span,
+                formula=py_formula(code, *args, ods=True),
+            )
+        )
+        tab.addElement(rc1)
+
+
+def _ensure_ods_formula_attrs_double_quoted(path: Path) -> None:
+    """Rewrite ``table:formula='..."...'`` to double-quoted attrs with ``&quot;``.
+
+    odfpy picks single quotes when the OpenFormula payload contains raw ``"``.
+    XML still parses; double-quoted attrs match the rest of content.xml.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(path, "r") as zin:
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename == "content.xml":
+                    text = data.decode("utf-8")
+                    text = re.sub(
+                        r"table:formula='([^']*)'",
+                        lambda m: f'table:formula="{m.group(1).replace(chr(34), "&quot;")}"',
+                        text,
+                    )
+                    data = text.encode("utf-8")
+                zout.writestr(info, data)
+    path.write_bytes(buf.getvalue())
 
 
 # --- OpenDocument (.ods) Builder ---
@@ -833,7 +1130,7 @@ def build_ods_showcase(out_path: Path) -> None:
     rk_vals.addElement(make_cell("$119,142.00", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{sum(r[7] for r in data[1:]):,.2f}}\'"; {SALES_RANGE_ODS_CROSS})'))
     rk_vals.addElement(make_cell("28.4%", "KPICardVal", span_cols=2, formula=f'=PY("f\'{{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}}\'"; {SALES_RANGE_ODS_CROSS})'))
     rk_vals.addElement(make_cell("2 Detected", "KPICardVal", span_cols=2, formula='=PY("f\'{int(data)} Detected\'"; Sales_Analytics.F47)'))
-    rk_vals.addElement(make_cell("$349.02", "KPICardVal", span_cols=2, formula='=PY("f\'${data[-1][4] * 1.15:,.2f}\'"; Forecasting.A5:E41)'))
+    rk_vals.addElement(make_cell("$349.02", "KPICardVal", span_cols=2, formula=f'=PY("f\'${{data[-1][4] * 1.15:,.2f}}\'"; {FORECAST_RANGE_ODS_CROSS})'))
     tab1.addElement(rk_vals)
 
     tab1.addElement(make_row("spacer"))
@@ -867,223 +1164,10 @@ def build_ods_showcase(out_path: Path) -> None:
 
     doc.spreadsheet.addElement(tab1)
 
-    # --- TAB 2: 📊 Sales Analytics (Pandas Wrangling) ---
-    tab2 = make_table("Sales_Analytics")
-    t2_title = make_row("hero")
-    t2_title.addElement(make_cell("📊 Sales & Customer Intelligence — Pandas Data Wrangling & Aggregation", "HeroTitle", span_cols=10))
-    tab2.addElement(t2_title)
-
-    t2_sub = make_row("sub")
-    t2_sub.addElement(make_cell("Demonstrating multi-column aggregation, regex feature extraction, customer segmentation, and IQR outlier detection", "HeroSubtitle", span_cols=10))
-    tab2.addElement(t2_sub)
-    tab2.addElement(make_row("spacer"))
-
-    t2_sec = make_row("section")
-    t2_sec.addElement(make_cell("TRANSACTIONAL SALES DATASET (35 ORDERS) — ZIP/ZCTA FOR DUCKDB JOINS", "SectionBanner", span_cols=10))
-    tab2.addElement(t2_sec)
-
-    sales_data = get_sales_dataset()
-    for r_idx, row_vals in enumerate(sales_data):
-        r = make_row("header" if r_idx == 0 else "data")
-        st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
-        for val in row_vals:
-            r.addElement(make_cell(val, st))
-        tab2.addElement(r)
-
-    tab2.addElement(make_row("spacer"))
-
-    t2_an_title = make_row("section")
-    t2_an_title.addElement(make_cell(f"LIVE =PY() PYTHON ANALYSIS METRICS (DRIVEN BY SALES DATA {SALES_RANGE_ODS})", "SectionBanner", span_cols=10))
-    tab2.addElement(t2_an_title)
-
-    calc_cards_t2 = [
-        ("1. Total Enterprise Revenue", "Filters and sums all Enterprise tier sales orders", f'=PY("sum(r[7] for r in data[1:] if r[4] == \'Enterprise\')"; {SALES_RANGE_ODS})'),
-        ("2. Top Selling SKU by Revenue", "Finds the highest single order revenue SKU code", f'=PY("max(data[1:], key=lambda r: r[7])[8]"; {SALES_RANGE_ODS})'),
-        ("3. Regional Average Order Size", "Calculates average units purchased per transaction", f'=PY("round(np.mean([r[5] for r in data[1:]]), 1)"; {SALES_RANGE_ODS})'),
-        ("4. High-Value Threshold (mean plus 2 standard deviations)", "Revenue cutoff: mean plus two population standard deviations", f'=PY("rev = [r[7] for r in data[1:]]; round(np.mean(rev) + 2 * np.std(rev), 2)"; {SALES_RANGE_ODS})'),
-        ("5. High Value Orders (above threshold)", "Flags orders more than 2 standard deviations above the mean", f'=PY("sum(r[7] > data[1] for r in data[0][1:])"; {SALES_RANGE_ODS}; F46)'),
-    ]
-    for title, desc, form in calc_cards_t2:
-        rc1 = make_row("metric")
-        rc1.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=5))
-        rc1.addElement(make_cell("Calculating...", "FormulaResult", span_cols=4, formula=form))
-        tab2.addElement(rc1)
-
-    doc.spreadsheet.addElement(tab2)
-
-    # --- TAB 3: 📈 Statistics & ML (SciPy, Statsmodels, Scikit-Learn) ---
-    tab3 = make_table("Statistics_ML")
-    t3_title = make_row("hero")
-    t3_title.addElement(make_cell("📈 Statistical Modeling & Machine Learning — SciPy, Statsmodels & Scikit-Learn", "HeroTitle", span_cols=7))
-    tab3.addElement(t3_title)
-
-    t3_sub = make_row("sub")
-    t3_sub.addElement(make_cell("Multi-channel marketing campaign dataset analyzed with descriptive stats, Pearson correlation, OLS linear regression, and K-Means", "HeroSubtitle", span_cols=7))
-    tab3.addElement(t3_sub)
-    tab3.addElement(make_row("spacer"))
-
-    t3_sec = make_row("section")
-    t3_sec.addElement(make_cell("MARKETING CAMPAIGN DATASET (20 CAMPAIGNS)", "SectionBanner", span_cols=7))
-    tab3.addElement(t3_sec)
-
-    mkt_data = get_marketing_dataset()
-    for r_idx, row_vals in enumerate(mkt_data):
-        r = make_row("header" if r_idx == 0 else "data")
-        st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
-        for val in row_vals:
-            r.addElement(make_cell(val, st))
-        tab3.addElement(r)
-
-    tab3.addElement(make_row("spacer"))
-
-    t3_an_title = make_row("section")
-    t3_an_title.addElement(make_cell("PREDICTIVE MODELING & STATISTICAL METRICS (FROM DATA A5:G25)", "SectionBanner", span_cols=7))
-    tab3.addElement(t3_an_title)
-
-    stat_cards = [
-        ("1. Ad Spend to Revenue Correlation", "Measures linear relationship between Ad Spend and Revenue (r ~ 0.80)", '=PY("round(st.pearsonr([r[2] for r in data[1:]], [r[6] for r in data[1:]])[0], 4)"; A5:G25)'),
-        ("2. OLS Regression Slope (ROAS)", "Calculates marginal revenue dollar gained per dollar spent on advertising (~$5.07)", '=PY("round(st.linregress([r[2] for r in data[1:]], [r[6] for r in data[1:]]).slope, 2)"; A5:G25)'),
-        ("3. Highest ROI Marketing Channel", "Identifies best performing marketing channel by conversion ROI", '=PY("max([\'Search Ads\', \'Social Media\', \'Email Marketing\'], key=lambda ch: sum(r[6] for r in data[1:] if r[1]==ch)/max(1, sum(r[2] for r in data[1:] if r[1]==ch)))"; A5:G25)'),
-        ("4. Total Marketing Return on Ad Spend", "Overall portfolio return multiplier across all channels", '=PY("round(sum(r[6] for r in data[1:]) / sum(r[2] for r in data[1:]), 2)"; A5:G25)'),
-    ]
-    for title, desc, form in stat_cards:
-        rc1 = make_row("metric")
-        rc1.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=4))
-        rc1.addElement(make_cell("Calculating...", "FormulaResult", span_cols=3, formula=form))
-        tab3.addElement(rc1)
-
-    doc.spreadsheet.addElement(tab3)
-
-    # --- TAB 4: 🔮 Time Series & Forecasting ---
-    tab4 = make_table("Forecasting")
-    t4_title = make_row("hero")
-    t4_title.addElement(make_cell("🔮 Time Series Forecasting & Decomposition — Statsmodels", "HeroTitle", span_cols=5))
-    tab4.addElement(t4_title)
-
-    t4_sub = make_row("sub")
-    t4_sub.addElement(make_cell("36-Month historical sales series with Trend, Seasonal periodicity, and Anomaly residual detection", "HeroSubtitle", span_cols=5))
-    tab4.addElement(t4_sub)
-    tab4.addElement(make_row("spacer"))
-
-    t4_sec = make_row("section")
-    t4_sec.addElement(make_cell("36-MONTH HISTORICAL SALES SERIES", "SectionBanner", span_cols=5))
-    tab4.addElement(t4_sec)
-
-    ts_data = get_timeseries_dataset()
-    for r_idx, row_vals in enumerate(ts_data):
-        r = make_row("header" if r_idx == 0 else "data")
-        st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
-        for val in row_vals:
-            r.addElement(make_cell(val, st))
-        tab4.addElement(r)
-
-    tab4.addElement(make_row("spacer"))
-
-    t4_an_title = make_row("section")
-    t4_an_title.addElement(make_cell("TIME SERIES METRICS & PROJECTIONS (FROM DATA A5:E41)", "SectionBanner", span_cols=5))
-    tab4.addElement(t4_an_title)
-
-    ts_cards = [
-        ("1. 36-Month Compound Growth Rate", "Annualized growth rate over the 3-year historical window", '=PY("f\'{((data[-1][4]/data[1][4])**(1/3) - 1):.1%}\'"; A5:E41)'),
-        ("2. Next Month Trend Projection (Month 37)", "Linear baseline projection for upcoming month", '=PY("round(data[-1][2] + 4.5, 1)"; A5:E41)'),
-        ("3. Peak Historical Sales Value", "Maximum observed monthly sales volume", '=PY("max(r[4] for r in data[1:])"; A5:E41)'),
-        ("4. Residual Anomaly Spike Month", "Detects unusual spike via STL residual analysis", '=PY("max(data[1:], key=lambda r: r[4] - r[2] - r[3])[1]"; A5:E41)'),
-    ]
-    for title, desc, form in ts_cards:
-        rc = make_row("metric")
-        rc.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=3))
-        rc.addElement(make_cell("Calculating...", "FormulaResult", span_cols=2, formula=form))
-        tab4.addElement(rc)
-
-    doc.spreadsheet.addElement(tab4)
-
-    # --- TAB 5: ⚡ Financial Optimization (SciPy Optimize & Quant) ---
-    tab5 = make_table("Optimization")
-    t5_title = make_row("hero")
-    t5_title.addElement(make_cell("⚡ Financial Optimization & Monte Carlo — SciPy Optimize", "HeroTitle", span_cols=5))
-    tab5.addElement(t5_title)
-
-    t5_sub = make_row("sub")
-    t5_sub.addElement(make_cell("Asset return modeling, Sharpe ratio portfolio optimization, and Monte Carlo wealth projections", "HeroSubtitle", span_cols=5))
-    tab5.addElement(t5_sub)
-    tab5.addElement(make_row("spacer"))
-
-    t5_sec = make_row("section")
-    t5_sec.addElement(make_cell("16-MONTH ASSET CLASS RETURNS MATRIX", "SectionBanner", span_cols=5))
-    tab5.addElement(t5_sec)
-
-    port_data = get_portfolio_dataset()
-    for r_idx, row_vals in enumerate(port_data):
-        r = make_row("header" if r_idx == 0 else "data")
-        st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
-        for val in row_vals:
-            r.addElement(make_cell(val, st))
-        tab5.addElement(r)
-
-    tab5.addElement(make_row("spacer"))
-
-    t5_an_title = make_row("section")
-    t5_an_title.addElement(make_cell("PORTFOLIO OPTIMIZATION & RISK METRICS (FROM DATA A5:E21)", "SectionBanner", span_cols=5))
-    tab5.addElement(t5_an_title)
-
-    opt_cards = [
-        ("1. Highest Return Asset Class", "Identifies asset with highest cumulative 16-month gain", '=PY("data[0][1:][max(range(4), key=lambda c: sum(r[c+1] for r in data[1:]))]"; A5:E21)'),
-        ("2. Lowest Volatility Asset (Safety Anchor)", "Finds the asset with minimum variance / drawdown", '=PY("data[0][1:][min(range(4), key=lambda c: np.var([r[c+1] for r in data[1:]]))]"; A5:E21)'),
-        ("3. Equal-Weight Portfolio Annual Return", "Expected return of a naive 25% equal allocation", '=PY("f\'{sum(sum(r[1:]) for r in data[1:]) / (len(data[1:]) * 4) * 12:.1%}\'"; A5:E21)'),
-        ("4. Monte Carlo 10-Yr 95th %ile Wealth ($10k)", "Top quartile outcome simulated across 1,000 runs", '=PY("f\'${10000 * (1 + 0.08)**10 * 1.35:,.0f}\'"; A5:E21)'),
-    ]
-    for title, desc, form in opt_cards:
-        rc = make_row("metric")
-        rc.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=3))
-        rc.addElement(make_cell("Calculating...", "FormulaResult", span_cols=2, formula=form))
-        tab5.addElement(rc)
-
-    doc.spreadsheet.addElement(tab5)
-
-    # --- TAB 6: 🔬 Engineering, Math & Pint Units ---
-    tab6 = make_table("Engineering_Math")
-    t6_title = make_row("hero")
-    t6_title.addElement(make_cell("🔬 Engineering Units & Symbolic Math — Pint & SymPy", "HeroTitle", span_cols=5))
-    tab6.addElement(t6_title)
-
-    t6_sub = make_row("sub")
-    t6_sub.addElement(make_cell("Physical dimension unit conversions using Pint and exact analytical calculus using SymPy CAS", "HeroSubtitle", span_cols=5))
-    tab6.addElement(t6_sub)
-    tab6.addElement(make_row("spacer"))
-
-    t6_sec = make_row("section")
-    t6_sec.addElement(make_cell("PHYSICAL PARAMETERS & UNIT CONVERSION TABLE", "SectionBanner", span_cols=5))
-    tab6.addElement(t6_sec)
-
-    eng_data = get_engineering_dataset()
-    for r_idx, row_vals in enumerate(eng_data):
-        r = make_row("header" if r_idx == 0 else "data")
-        st = "TableHeader" if r_idx == 0 else ("TableZebraEven" if r_idx % 2 == 1 else "TableZebraOdd")
-        for val in row_vals:
-            r.addElement(make_cell(val, st))
-        tab6.addElement(r)
-
-    tab6.addElement(make_row("spacer"))
-
-    t6_an_title = make_row("section")
-    t6_an_title.addElement(make_cell("LIVE SCIENTIFIC CONVERSIONS & SYMBOLIC CALCULUS (FROM DATA A5:E11)", "SectionBanner", span_cols=5))
-    tab6.addElement(t6_an_title)
-
-    eng_cards = [
-        ("1. Electric Power: 150 kW -> Horsepower", "Pint dimensional conversion: Q_(150, 'kW').to('hp')", '=PY("round(data[1][1] * 1.34102, 2)"; A5:E11)'),
-        ("2. Hydraulic Pressure: 2200 PSI -> Bar", "Pint dimensional conversion: Q_(2200, 'psi').to('bar')", '=PY("round(data[2][1] * 0.0689476, 2)"; A5:E11)'),
-        ("3. Temperature: 85 °C -> °F", "Pint dimensional conversion: Q_(85, 'degC').to('degF')", '=PY("round(data[3][1] * 9/5 + 32, 1)", A5:E11)'),
-        ("4. Speed: 120 km/h -> m/s", "Pint dimensional conversion: Q_(120, 'km/h').to('m/s')", '=PY("round(data[4][1] / 3.6, 2)"; A5:E11)'),
-        ("5. SymPy: Derivative d/dx(x^3*sin(x)) @ x=2", "Exact analytical differentiation using auto-imported math", '=PY("round(3*(2**2)*math.sin(2) + (2**3)*math.cos(2), 4)")'),
-        ("6. SymPy: Definite Integral exp(-x^2)", "Analytical Gaussian integral computation using math.erf", '=PY("round(math.erf(1) * (math.sqrt(math.pi)/2), 4)")'),
-    ]
-    for title, desc, form in eng_cards:
-        rc = make_row("metric")
-        rc.addElement(make_cell(f"{title} — {desc}", "MetricLabel", span_cols=3))
-        rc.addElement(make_cell("Calculating...", "FormulaResult", span_cols=2, formula=form))
-        tab6.addElement(rc)
-
-    doc.spreadsheet.addElement(tab6)
+    for spec in standard_sheet_specs():
+        tab = make_table(spec["name"])
+        _add_ods_standard_sheet(tab, spec, make_cell, make_row)
+        doc.spreadsheet.addElement(tab)
 
     # --- TAB 7: 🎨 Visualization Gallery ---
     tab7 = make_table("Viz_Gallery")
@@ -1104,7 +1188,7 @@ def build_ods_showcase(out_path: Path) -> None:
         ("1. Sales Revenue Trend Chart", "Matplotlib Line Plot — Generates and anchors line chart of order revenues", f'=PY("plt.figure(figsize=(6,3)); plt.plot([r[7] for r in data[1:]], color=\'#0284C7\', lw=2); plt.title(\'Sales Revenue Trend\'); plt.xlabel(\'Order #\'); plt.ylabel(\'Revenue ($)\'); plt.grid(True, alpha=0.3); plt.tight_layout()"; {SALES_RANGE_ODS_CROSS})'),
         ("2. Marketing Channel ROAS Bar Chart", "Matplotlib Bar Chart — Visualizes return multiplier across ad channels", '=PY("plt.figure(figsize=(6,3)); plt.bar([\'Search\', \'Social\', \'Email\'], [37100/5200, 13770/2600, 18480/900], color=[\'#0284C7\',\'#10B981\',\'#6366F1\']); plt.title(\'Top Channel ROAS Multiplier\'); plt.ylabel(\'ROAS (x)\'); plt.tight_layout()")'),
         ("3. Asset Risk vs. Return Profile", "Matplotlib Scatter Plot — Risk/volatility vs expected return map", '=PY("plt.figure(figsize=(6,3)); plt.scatter([0.06, 0.08, 0.01, 0.04], [0.04, 0.06, 0.015, 0.035], color=\'#F59E0B\', s=80); plt.title(\'Risk vs Return Profile\'); plt.xlabel(\'Expected Return\'); plt.ylabel(\'Volatility\'); plt.grid(True, alpha=0.3); plt.tight_layout()")'),
-        ("4. Historical Sales Distribution", "Matplotlib Histogram — Distribution of monthly sales volume", '=PY("plt.figure(figsize=(6,3)); plt.hist([r[4] for r in data[1:]], bins=8, color=\'#10B981\', edgecolor=\'white\'); plt.title(\'Sales Volume Distribution\'); plt.xlabel(\'Volume ($k)\'); plt.tight_layout()"; Forecasting.A5:E41)'),
+        ("4. Historical Sales Distribution", "Matplotlib Histogram — Distribution of monthly sales volume", f'=PY("plt.figure(figsize=(6,3)); plt.hist([r[4] for r in data[1:]], bins=8, color=\'#10B981\', edgecolor=\'white\'); plt.title(\'Sales Volume Distribution\'); plt.xlabel(\'Volume ($k)\'); plt.tight_layout()"; {FORECAST_RANGE_ODS_CROSS})'),
     ]
 
     for title, desc, form in viz_cards:
@@ -1113,12 +1197,13 @@ def build_ods_showcase(out_path: Path) -> None:
         hdr_row.addElement(make_cell(f"📊 {title} — {desc}", "SectionBanner", span_cols=8))
         tab7.addElement(hdr_row)
 
+        # XLSX merges 11 body rows (D{start}:H{end} with end = header+11).
         c_row1 = make_row("viz")
-        c_row1.addElement(make_cell(f"Plot Definition:\n{desc}\n\nLive Formula:\n{form}", "InfoBox", span_cols=3, span_rows=10))
-        c_row1.addElement(make_cell("Rendering Plot...", "ChartCanvas", span_cols=5, span_rows=10, formula=form))
+        c_row1.addElement(make_cell(f"Plot Definition:\n{desc}\n\nLive Formula:\n{form}", "InfoBox", span_cols=3, span_rows=11))
+        c_row1.addElement(make_cell("Rendering Plot...", "ChartCanvas", span_cols=5, span_rows=11, formula=form))
         tab7.addElement(c_row1)
 
-        viz_follow = 9
+        viz_follow = 10
         while viz_follow > 0:
             tab7.addElement(make_row("viz"))
             viz_follow -= 1
@@ -1132,14 +1217,14 @@ def build_ods_showcase(out_path: Path) -> None:
         NamedRange(
             name=SALES_NAMED_RANGE,
             cellrangeaddress=_ods_named_range_address("Sales_Analytics", SALES_RANGE_ODS),
-            basecelladdress="$Sales_Analytics.$A$5",
+            basecelladdress="$Sales_Analytics.$A$4",
         )
     )
     named.addElement(
         NamedRange(
             name=MARKETING_NAMED_RANGE,
             cellrangeaddress=_ods_named_range_address("Statistics_ML", MARKETING_RANGE_ODS),
-            basecelladdress="$Statistics_ML.$A$5",
+            basecelladdress="$Statistics_ML.$A$4",
         )
     )
     doc.spreadsheet.addElement(named)
@@ -1147,6 +1232,7 @@ def build_ods_showcase(out_path: Path) -> None:
     # Save ODS
     out_path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(out_path))
+    _ensure_ods_formula_attrs_double_quoted(out_path)
     print(f"Generated ODS showcase: {out_path}")
 
 
@@ -1270,7 +1356,7 @@ def build_xlsx_showcase(out_path: Path) -> None:
         ("A5:B5", "A6:B6", "TOTAL REVENUE (YTD)", f'={CALC_PYTHON_ADDIN_FN}("f\'${{sum(r[7] for r in data[1:]):,.2f}}\'", {SALES_RANGE_XLSX_CROSS})'),
         ("C5:D5", "C6:D6", "AVG PROFIT MARGIN", f'={CALC_PYTHON_ADDIN_FN}("f\'{{sum(r[7] * (0.28 if r[3]==\'Electronics\' else 0.30 if r[3]==\'Furniture\' else 0.22) for r in data[1:]) / sum(r[7] for r in data[1:]):.1%}}\'", {SALES_RANGE_XLSX_CROSS})'),
         ("E5:F5", "E6:F6", "ANOMALIES FLAGGED", f'={CALC_PYTHON_ADDIN_FN}("f\'{{int(data)}} Detected\'", Sales_Analytics!F47)'),
-        ("G5:H5", "G6:H6", "FORECAST TARGET (Q3)", f'={CALC_PYTHON_ADDIN_FN}("f\'${{data[-1][4] * 1.15:,.2f}}\'", Forecasting!A4:E40)'),
+        ("G5:H5", "G6:H6", "FORECAST TARGET (Q3)", f'={CALC_PYTHON_ADDIN_FN}("f\'${{data[-1][4] * 1.15:,.2f}}\'", {FORECAST_RANGE_XLSX_CROSS})'),
     ]
 
     for l_span, v_span, label, formula_val in kpi_spans:
@@ -1416,78 +1502,12 @@ def build_xlsx_showcase(out_path: Path) -> None:
 
         auto_fit_columns(ws)
 
-    # Sales Analytics
-    build_standard_sheet(
-        "Sales_Analytics",
-        "Pandas Data Wrangling & Multi-level Aggregation",
-        "TRANSACTIONAL SALES DATASET (35 ORDERS)",
-        get_sales_dataset(),
-        [
-            ("1. Total Enterprise Sales", "Filters and sums all Enterprise tier sales orders", f'={CALC_PYTHON_ADDIN_FN}("sum(r[7] for r in data[1:] if r[4]==\'Enterprise\')", {SALES_RANGE_XLSX})'),
-            ("2. Top Revenue SKU", "Finds the highest single order revenue SKU code", f'={CALC_PYTHON_ADDIN_FN}("max(data[1:], key=lambda r: r[7])[8]", {SALES_RANGE_XLSX})'),
-            ("3. Avg Units per Order", "Calculates average units purchased per transaction", f'={CALC_PYTHON_ADDIN_FN}("round(np.mean([r[5] for r in data[1:]]), 1)", {SALES_RANGE_XLSX})'),
-            ("4. High-Value Threshold (mean plus 2 standard deviations)", "Revenue cutoff: mean plus two population standard deviations", f'={CALC_PYTHON_ADDIN_FN}("rev = [r[7] for r in data[1:]]; round(np.mean(rev) + 2 * np.std(rev), 2)", {SALES_RANGE_XLSX})'),
-            ("5. High Value Orders (above threshold)", "Flags orders more than 2 standard deviations above the mean", f'={CALC_PYTHON_ADDIN_FN}("sum(r[7] > data[1] for r in data[0][1:])", {SALES_RANGE_XLSX}, F46)'),
+    for spec in standard_sheet_specs():
+        blocks = [
+            (title, desc, py_formula(code, *args, ods=False))
+            for title, desc, code, args in spec["metrics"]
         ]
-    )
-
-    # Statistics & ML
-    build_standard_sheet(
-        "Statistics_ML",
-        "SciPy, Statsmodels & Scikit-Learn Predictive Modeling",
-        "MARKETING CAMPAIGN DATASET (20 CAMPAIGNS)",
-        get_marketing_dataset(),
-        [
-            ("1. Ad Spend to Revenue Correlation", "Measures linear relationship between Ad Spend and Revenue (r ~ 0.80)", f'={CALC_PYTHON_ADDIN_FN}("round(st.pearsonr([r[2] for r in data[1:]], [r[6] for r in data[1:]])[0], 4)", A4:G24)'),
-            ("2. OLS Regression Slope (ROAS)", "Calculates marginal revenue dollar gained per dollar spent on advertising (~$5.07)", f'={CALC_PYTHON_ADDIN_FN}("round(st.linregress([r[2] for r in data[1:]], [r[6] for r in data[1:]]).slope, 2)", A4:G24)'),
-            ("3. Highest ROI Marketing Channel", "Identifies best performing marketing channel by conversion ROI", f'={CALC_PYTHON_ADDIN_FN}("max([\'Search Ads\', \'Social Media\', \'Email Marketing\'], key=lambda ch: sum(r[6] for r in data[1:] if r[1]==ch)/max(1, sum(r[2] for r in data[1:] if r[1]==ch)))", A4:G24)'),
-            ("4. Total Marketing ROAS", "Overall portfolio return multiplier across all channels", f'={CALC_PYTHON_ADDIN_FN}("round(sum(r[6] for r in data[1:]) / sum(r[2] for r in data[1:]), 2)", A4:G24)'),
-        ]
-    )
-
-    # Forecasting
-    build_standard_sheet(
-        "Forecasting",
-        "Time Series Trend & Seasonal Decomposition",
-        "36-MONTH HISTORICAL SALES SERIES",
-        get_timeseries_dataset(),
-        [
-            ("1. 3-Yr Compound Annual Growth", "Annualized growth rate over the 3-year historical window", f'={CALC_PYTHON_ADDIN_FN}("f\'{{((data[-1][4]/data[1][4])**(1/3) - 1):.1%}}\'", A4:E40)'),
-            ("2. Next Month Trend Projection", "Linear baseline projection for upcoming month", f'={CALC_PYTHON_ADDIN_FN}("round(data[-1][2] + 4.5, 1)", A4:E40)'),
-            ("3. Peak Historical Sales Value", "Maximum observed monthly sales volume", f'={CALC_PYTHON_ADDIN_FN}("max(r[4] for r in data[1:])", A4:E40)'),
-            ("4. Residual Anomaly Spike", "Detects unusual spike via STL residual analysis", f'={CALC_PYTHON_ADDIN_FN}("max(data[1:], key=lambda r: r[4] - r[2] - r[3])[1]", A4:E40)'),
-        ]
-    )
-
-    # Optimization
-    build_standard_sheet(
-        "Optimization",
-        "Portfolio Risk Modeling & SciPy Optimization",
-        "16-MONTH ASSET CLASS RETURNS MATRIX",
-        get_portfolio_dataset(),
-        [
-            ("1. Highest Return Asset", "Identifies asset with highest cumulative 16-month gain", f'={CALC_PYTHON_ADDIN_FN}("data[0][1:][max(range(4), key=lambda c: sum(r[c+1] for r in data[1:]))]", A4:E20)'),
-            ("2. Minimum Variance Anchor", "Finds the asset with minimum variance / drawdown", f'={CALC_PYTHON_ADDIN_FN}("data[0][1:][min(range(4), key=lambda c: np.var([r[c+1] for r in data[1:]]))]", A4:E20)'),
-            ("3. Equal-Weight Portfolio Annual Return", "Expected return of a naive 25% equal allocation", f'={CALC_PYTHON_ADDIN_FN}("f\'{{sum(sum(r[1:]) for r in data[1:]) / (len(data[1:]) * 4) * 12:.1%}}\'", A4:E20)'),
-            ("4. Monte Carlo 10-Yr 95th %ile Wealth", "Top quartile outcome simulated across 1,000 runs", f'={CALC_PYTHON_ADDIN_FN}("f\'${{10000 * (1 + 0.08)**10 * 1.35:,.0f}}\'", A4:E20)'),
-        ]
-    )
-
-    # Engineering Math
-    build_standard_sheet(
-        "Engineering_Math",
-        "Pint Unit Conversions & SymPy Computer Algebra",
-        "PHYSICAL PARAMETERS & UNIT CONVERSIONS",
-        get_engineering_dataset(),
-        [
-            ("1. Electric Power: 150 kW -> HP", "Pint dimensional conversion: Q_(150, 'kW').to('hp')", f'={CALC_PYTHON_ADDIN_FN}("round(data[1][1] * 1.34102, 2)", A4:E10)'),
-            ("2. Pressure: 2200 PSI -> Bar", "Pint dimensional conversion: Q_(2200, 'psi').to('bar')", f'={CALC_PYTHON_ADDIN_FN}("round(data[2][1] * 0.0689476, 2)", A4:E10)'),
-            ("3. Temperature: 85 °C -> °F", "Pint dimensional conversion: Q_(85, 'degC').to('degF')", f'={CALC_PYTHON_ADDIN_FN}("round(data[3][1] * 9/5 + 32, 1)", A4:E10)'),
-            ("4. Speed: 120 km/h -> m/s", "Pint dimensional conversion: Q_(120, 'km/h').to('m/s')", f'={CALC_PYTHON_ADDIN_FN}("round(data[4][1] / 3.6, 2)", A4:E10)'),
-            ("5. SymPy: Derivative d/dx(x^3*sin(x)) @ x=2", "Exact analytical differentiation using auto-imported math", f'={CALC_PYTHON_ADDIN_FN}("round(3*(2**2)*math.sin(2) + (2**3)*math.cos(2), 4)")'),
-            ("6. SymPy: Definite Integral exp(-x^2)", "Analytical Gaussian integral computation using math.erf", f'={CALC_PYTHON_ADDIN_FN}("round(math.erf(1) * (math.sqrt(math.pi)/2), 4)")'),
-        ]
-    )
+        build_standard_sheet(spec["name"], spec["sub"], spec["sec"], spec["data"], blocks)
 
     # Viz Gallery
     ws7 = wb.create_sheet(title="Viz_Gallery")
@@ -1520,7 +1540,7 @@ def build_xlsx_showcase(out_path: Path) -> None:
         ("1. Sales Revenue Trend Chart", "Matplotlib Line Plot — Generates and anchors line chart of order revenues", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.plot([r[7] for r in data[1:]], color=\'#0284C7\', lw=2); plt.title(\'Sales Revenue Trend\'); plt.xlabel(\'Order #\'); plt.ylabel(\'Revenue ($)\'); plt.grid(True, alpha=0.3); plt.tight_layout()", {SALES_RANGE_XLSX_CROSS})'),
         ("2. Marketing Channel ROAS Bar Chart", "Matplotlib Bar Chart — Visualizes return multiplier across ad channels", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.bar([\'Search\', \'Social\', \'Email\'], [37100/5200, 13770/2600, 18480/900], color=[\'#0284C7\',\'#10B981\',\'#6366F1\']); plt.title(\'Top Channel ROAS Multiplier\'); plt.ylabel(\'ROAS (x)\'); plt.tight_layout()")'),
         ("3. Asset Risk vs. Return Profile", "Matplotlib Scatter Plot — Risk/volatility vs expected return map", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.scatter([0.06, 0.08, 0.01, 0.04], [0.04, 0.06, 0.015, 0.035], color=\'#F59E0B\', s=80); plt.title(\'Risk vs Return Profile\'); plt.xlabel(\'Expected Return\'); plt.ylabel(\'Volatility\'); plt.grid(True, alpha=0.3); plt.tight_layout()")'),
-        ("4. Historical Sales Distribution", "Matplotlib Histogram — Distribution of monthly sales volume", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.hist([r[4] for r in data[1:]], bins=8, color=\'#10B981\', edgecolor=\'white\'); plt.title(\'Sales Volume Distribution\'); plt.xlabel(\'Volume ($k)\'); plt.tight_layout()", Forecasting!A4:E40)'),
+        ("4. Historical Sales Distribution", "Matplotlib Histogram — Distribution of monthly sales volume", f'={CALC_PYTHON_ADDIN_FN}("plt.figure(figsize=(6,3)); plt.hist([r[4] for r in data[1:]], bins=8, color=\'#10B981\', edgecolor=\'white\'); plt.title(\'Sales Volume Distribution\'); plt.xlabel(\'Volume ($k)\'); plt.tight_layout()", {FORECAST_RANGE_XLSX_CROSS})'),
     ]
 
     current_row = 6
