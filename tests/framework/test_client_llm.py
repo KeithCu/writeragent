@@ -1058,14 +1058,18 @@ def test_openrouter_shim_image(client):
         body = json.loads(kwargs["data"])
         assert body["prompt"] == "Draw a galaxy"
         assert body["model"] == "bytedance-seed/seedream-4.5"
-        assert body["size"] == "1024x1024"
-        assert "aspect_ratio" not in body
+        assert body["aspect_ratio"] == "1:1"
+        assert "size" not in body
         assert body["n"] == 1
         assert body["output_format"] == "png"
 
 
-def test_openrouter_shim_image_flux_klein_png_no_aspect(client):
-    """flux.2-klein-4b rejects webp and size+aspect_ratio pairs (create + img2img)."""
+def test_openrouter_shim_image_flux_klein_png_aspect_not_size(client):
+    """flux.2-klein-4b rejects webp and size+aspect_ratio pairs (create + img2img).
+
+    Hint with aspect_ratio alone; pixel size is omitted so OpenRouter does not
+    400 a mismatched pair. Gemini ignores size and needs the aspect hint.
+    """
     client.config["endpoint"] = "https://openrouter.ai/api"
     with (
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
@@ -1083,9 +1087,9 @@ def test_openrouter_shim_image_flux_klein_png_no_aspect(client):
 
         body = json.loads(mock_sync.call_args.kwargs["data"])
         assert body["model"] == "black-forest-labs/flux.2-klein-4b"
-        assert body["size"] == "1024x576"
+        assert body["aspect_ratio"] == "16:9"
+        assert "size" not in body
         assert body["output_format"] == "png"
-        assert "aspect_ratio" not in body
         assert "webp" not in json.dumps(body)
 
         client.image_completion(
@@ -1098,8 +1102,8 @@ def test_openrouter_shim_image_flux_klein_png_no_aspect(client):
 
         body = json.loads(mock_sync.call_args.kwargs["data"])
         assert body["output_format"] == "png"
-        assert body["size"] == "1024x1024"
-        assert "aspect_ratio" not in body
+        assert body["aspect_ratio"] == "1:1"
+        assert "size" not in body
         assert "image_url" not in body
         assert body["input_references"] == [
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}}

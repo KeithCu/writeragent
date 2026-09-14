@@ -22,6 +22,7 @@ import tempfile
 import re
 import base64
 from plugin.framework.client.llm_client import LlmClient
+from plugin.framework.client.base_provider_shim import canonical_aspect_ratio
 from plugin.framework.client.requests import sync_request
 from plugin.framework.config import get_config_int
 
@@ -100,6 +101,14 @@ class EndpointImageProvider(ImageProvider):
             _method, _path, body, _headers = self.client.make_chat_request(messages, max_tokens=1000, model=model)
             body_dict = json.loads(body)
             body_dict["modalities"] = ["image"]
+            # What was wrong: Gemini image models on OpenRouter use this chat
+            # path (they output text+image, so they are not image-only). We
+            # never sent aspect_ratio. Pixel size is not a chat-completions
+            # field; image_config.aspect_ratio is the documented hint
+            # (https://openrouter.ai/google/gemini-3.1-flash-lite-image).
+            hint = canonical_aspect_ratio(width, height, named=kwargs.get("aspect_ratio"))
+            if hint:
+                body_dict["image_config"] = {"aspect_ratio": hint}
             if steps is not None and steps > 0:
                 body_dict["steps"] = steps
             if "max_tokens" in kwargs:

@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.dirname(get_plugin_dir()))
 
 from plugin.writer.images.image_utils import ImageService, EndpointImageProvider
+from plugin.framework.client.base_provider_shim import canonical_aspect_ratio
 from plugin.framework.client.llm_client import LlmClient
 from plugin.tests.testing_utils import MockContext, create_mock_client
 
@@ -416,6 +417,57 @@ class TestImageService(unittest.TestCase):
         self.assertEqual(captured.get("model"), "black-forest-labs/flux.2-klein-4b")
         self.assertEqual(captured.get("width"), 1024)
         self.assertEqual(captured.get("height"), 1024)
+
+    def test_openrouter_chat_path_sends_image_config_aspect(self):
+        """Gemini multimodal path must hint aspect_ratio via image_config, not pixel size."""
+        mock_ctx = MagicMock()
+        api = {
+            "endpoint": "https://openrouter.ai/api/v1",
+            "api_key": "k",
+            "is_openrouter": True,
+            "model": "google/gemini-3.1-flash-lite-image",
+        }
+        provider = EndpointImageProvider(api, mock_ctx)
+        captured: dict[str, object] = {}
+
+        def fake_make_chat_request(messages, max_tokens=512, tools=None, stream=False, model=None, **kw):
+            return "POST", "/v1/chat/completions", '{"model":"m","messages":[]}', {}
+
+        def fake_request_with_tools(messages, body_override=None, model=None, **kw):
+            captured["body"] = json.loads(body_override)
+            return {"content": "", "images": []}
+
+        with (
+            patch("plugin.framework.client.model_fetcher.is_image_only_model", return_value=False),
+            patch.object(provider.client, "make_chat_request", side_effect=fake_make_chat_request),
+            patch.object(provider.client, "request_with_tools", side_effect=fake_request_with_tools),
+        ):
+            provider.generate(
+                "a tabby cat",
+                width=512,
+                height=512,
+                aspect_ratio="square",
+                image_model="google/gemini-3.1-flash-lite-image",
+            )
+
+        body = captured["body"]
+        assert isinstance(body, dict)
+        self.assertEqual(body["modalities"], ["image"])
+        self.assertEqual(body["image_config"], {"aspect_ratio": "1:1"})
+        self.assertNotIn("size", body)
+
+
+class TestCanonicalAspectRatio(unittest.TestCase):
+    def test_canonical_aspect_ratio_named_and_pixels(self):
+        self.assertEqual(canonical_aspect_ratio(named="square"), "1:1")
+        self.assertEqual(canonical_aspect_ratio(named="Square"), "1:1")
+        self.assertEqual(canonical_aspect_ratio(named="Landscape (16:9)"), "16:9")
+        self.assertEqual(canonical_aspect_ratio(named="landscape_3_2"), "3:2")
+        self.assertEqual(canonical_aspect_ratio(1024, 1024), "1:1")
+        self.assertEqual(canonical_aspect_ratio(1024, 576), "16:9")
+        self.assertEqual(canonical_aspect_ratio(896, 512), "16:9")
+        self.assertEqual(canonical_aspect_ratio(1024, 768), "4:3")
+        self.assertEqual(canonical_aspect_ratio(768, 1024), "3:4")
 
 
 if __name__ == '__main__':

@@ -15,7 +15,7 @@ import logging
 from typing import Any
 
 from plugin.framework.url_utils import get_url_path_and_query
-from .base_provider_shim import coerce_raw_b64, inline_image_mime
+from .base_provider_shim import canonical_aspect_ratio, coerce_raw_b64, inline_image_mime
 from .openai_shim import OpenAIShim
 
 log = logging.getLogger(__name__)
@@ -50,18 +50,7 @@ class GoogleShim(OpenAIShim):
                     "Imagen models cannot edit an existing image. Pick a Gemini image model (for example gemini-2.5-flash-image)."
                 )
             url = f"{endpoint}/v1beta/models/{model_name}:predict"
-            aspect = "1:1"
-            if width and height:
-                ratio = width / height
-                if abs(ratio - (16 / 9)) < 0.15:
-                    aspect = "16:9"
-                elif abs(ratio - (4 / 3)) < 0.1:
-                    aspect = "4:3"
-                elif abs(ratio - (3 / 4)) < 0.1:
-                    aspect = "3:4"
-                elif abs(ratio - (9 / 16)) < 0.15:
-                    aspect = "9:16"
-
+            aspect = canonical_aspect_ratio(width, height) or "1:1"
             data: dict[str, Any] = {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1, "aspectRatio": aspect}}
         else:
             url = f"{endpoint}/v1beta/models/{model_name}:generateContent"
@@ -74,7 +63,17 @@ class GoogleShim(OpenAIShim):
                         "data": raw,
                     }
                 })
-            data = {"contents": [{"role": "user", "parts": parts}], "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]}}
+            # Gemini image models ignore pixel size; imageConfig.aspectRatio is
+            # the documented hint (1:1, 16:9, 4:3, …). Native generateContent
+            # previously sent no aspect at all.
+            aspect = canonical_aspect_ratio(width, height) or "1:1"
+            data = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {
+                    "responseModalities": ["IMAGE", "TEXT"],
+                    "imageConfig": {"aspectRatio": aspect},
+                },
+            }
 
         path = get_url_path_and_query(url)
         headers = dict(self.client._headers())

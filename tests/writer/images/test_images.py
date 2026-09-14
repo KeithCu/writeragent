@@ -165,3 +165,4 @@ def test_image_generate_omitted_source_creates_when_no_selection():
     assert "source_image" not in svc.generate_image.call_args.kwargs
     insert.assert_called_once()
     replace.assert_not_called()
+    assert svc.generate_image.call_args.kwargs.get("aspect_ratio") == "square"

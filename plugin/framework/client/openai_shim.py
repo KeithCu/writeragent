@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.url_utils import get_url_path_and_query
-from .base_provider_shim import BaseProviderShim, coerce_image_data_url, coerce_raw_b64
+from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, coerce_image_data_url, coerce_raw_b64
 
 
 class OpenAIShim(BaseProviderShim):
@@ -129,11 +129,19 @@ class OpenRouterShim(BaseProviderShim):
         # png is the Images API default and is accepted by webp-capable models too.
         data: dict[str, Any] = {"prompt": prompt, "model": model, "n": 1, "output_format": "png"}
         if width and height:
-            # Explicit pixel size is authoritative. Sending inferred aspect_ratio
-            # alongside size is rejected with HTTP 400 when OpenRouter considers
-            # them mismatched (retries then sent other ratios). Size already
-            # encodes the intended dimensions.
-            data["size"] = f"{width}x{height}"
+            # What was wrong: we sent explicit pixel size (512x512) and omitted
+            # aspect_ratio. OpenRouter treats size as authoritative and 400s a
+            # paired aspect_ratio it considers mismatched, so Flux kept working
+            # with size-only. Gemini image models (and the Image API catalog for
+            # gemini-*-flash-lite-image) ignore pixel size and honor aspect_ratio
+            # / resolution instead, so Square still came back 4:3.
+            # Hint with aspect_ratio when WxH maps to a standard ratio; do not
+            # also send size (HTTP 400). Fall back to size for odd dimensions.
+            ratio = canonical_aspect_ratio(width, height)
+            if ratio:
+                data["aspect_ratio"] = ratio
+            else:
+                data["size"] = f"{width}x{height}"
 
         # What was wrong: img2img sent a top-level image_url. OpenRouter's
         # /api/v1/images API ignores that field (HTTP 200, prompt_tokens stay

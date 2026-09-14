@@ -96,7 +96,11 @@ def test_google_image_completion(mock_ctx):
     data = json.loads(body.decode("utf-8"))
     assert "responseModalities" in data["generationConfig"]
     assert "IMAGE" in data["generationConfig"]["responseModalities"]
+    assert data["generationConfig"]["imageConfig"]["aspectRatio"] == "1:1"
     assert data["contents"][0]["parts"] == [{"text": "Generate an image"}]
+
+    _, _, body_wide, _ = shim.build_image_request("Generate an image", model="gemini-2.5-flash-image", width=1792, height=1024)
+    assert json.loads(body_wide.decode("utf-8"))["generationConfig"]["imageConfig"]["aspectRatio"] == "16:9"
 
 
 def test_google_gemini_image_edit_sends_inline_data(mock_ctx):

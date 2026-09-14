@@ -184,7 +184,15 @@ class ImageGenerate(ToolWriterImageBase):
             args_copy["source_image"] = source_b64
             args_copy["strength"] = args.get("strength", 0.75)
 
-        paths, error_msg = image_svc.generate_image(prompt, provider_name=provider, width=width, height=height, status_callback=status_callback, **args_copy)
+        paths, error_msg = image_svc.generate_image(
+            prompt,
+            provider_name=provider,
+            width=width,
+            height=height,
+            aspect_ratio=aspect,
+            status_callback=status_callback,
+            **args_copy,
+        )
 
         if not paths:
             return self._tool_error(error_msg or "No image returned.", code="PROVIDER_ERROR", provider=provider)

@@ -9,7 +9,8 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 [`plugin/writer/images/image_utils.py`](../../plugin/writer/images/image_utils.py):
 
 - **`EndpointImageProvider`**: requests images via `LlmClient` (routing dedicated text-to-image models to OpenRouter's dedicated Image API via `POST /api/v1/images`, falling back to standard `modalities: ["image"]` chat completions for multimodal models).
-- **OpenRouter `/images` payload** ([`OpenRouterShim.build_image_request`](../../plugin/framework/client/openai_shim.py)): `output_format` is `png` (not `webp` — models such as `black-forest-labs/flux.2-klein-4b` only accept png/jpeg). When width/height are set it sends `size` (`WxH`) and omits `aspect_ratio`; OpenRouter treats an explicit pixel size as authoritative and returns HTTP 400 if a paired `aspect_ratio` is considered mismatched.
+- **OpenRouter `/images` payload** ([`OpenRouterShim.build_image_request`](../../plugin/framework/client/openai_shim.py)): `output_format` is `png` (not `webp` — models such as `black-forest-labs/flux.2-klein-4b` only accept png/jpeg). When width/height map to a standard ratio it sends `aspect_ratio` (`1:1`, `16:9`, …) and omits pixel `size` — OpenRouter 400s a paired `size` + `aspect_ratio` it considers mismatched, and Gemini image models ignore pixel `size`. Odd dimensions still send `size` (`WxH`) without `aspect_ratio`.
+- **OpenRouter chat / `modalities: ["image"]` path** (Gemini and other multimodal image models): adds `image_config.aspect_ratio`. That path previously sent no size/aspect at all, so Square in the sidebar never reached Gemini.
 - **`ImageService`**: merges config defaults (base size, steps) and delegates to `EndpointImageProvider`.
 
 ### Tools and document insertion
@@ -169,7 +170,7 @@ Tool default is `0.75`; **we send it nowhere today** (`generate_image` kwargs, t
 ## Future Work
 
 ### OpenRouter Image Generation Enhancements
-- **Support Additional Parameters**: Extend settings UI and model request payload to support OpenRouter image parameters such as `aspect_ratio` (e.g. 16:9, 1:1, etc.), `background` (auto/transparent/opaque), `output_format` (png/webp), and `output_compression`.
+- **Support Additional Parameters**: Settings UI and payload already send `aspect_ratio` (and chat `image_config.aspect_ratio`) as hints. Still unused: `background` (auto/transparent/opaque), `output_format` (png/webp), `output_compression`, and `resolution` tiers (`512` / `1K` / `2K` / `4K`).
 - **Image Model Metadata Checking**: Call `GET https://openrouter.ai/api/v1/images/models` (or filter `/api/v1/models` by `output_modalities=image`) dynamically to discover supported parameters (e.g., specific resolutions, aspect ratios) and populate/validate settings.
 
 ## Related docs

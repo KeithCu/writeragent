@@ -12,6 +12,68 @@ from typing import Any
 
 from plugin.framework.url_utils import get_url_path_and_query
 
+# Named UI / tool values → OpenRouter / Gemini aspect_ratio strings.
+_NAMED_ASPECT_RATIOS: dict[str, str] = {
+    "square": "1:1",
+    "1:1": "1:1",
+    "landscape_16_9": "16:9",
+    "landscape_16:9": "16:9",
+    "16:9": "16:9",
+    "portrait_9_16": "9:16",
+    "portrait_9:16": "9:16",
+    "9:16": "9:16",
+    "landscape_3_2": "3:2",
+    "landscape_3:2": "3:2",
+    "3:2": "3:2",
+    "portrait_2_3": "2:3",
+    "portrait_2:3": "2:3",
+    "2:3": "2:3",
+    "4:3": "4:3",
+    "3:4": "3:4",
+    "21:9": "21:9",
+    "4:5": "4:5",
+    "5:4": "5:4",
+}
+
+# Closest-match table for WxH. Keep 16:9 before 3:2 so 1792x1024 stays 16:9.
+_PIXEL_ASPECT_RATIOS: tuple[tuple[str, float], ...] = (
+    ("1:1", 1.0),
+    ("16:9", 16 / 9),
+    ("9:16", 9 / 16),
+    ("4:3", 4 / 3),
+    ("3:4", 3 / 4),
+    ("3:2", 1.5),
+    ("2:3", 2 / 3),
+    ("21:9", 21 / 9),
+    ("4:5", 4 / 5),
+    ("5:4", 5 / 4),
+)
+
+
+def canonical_aspect_ratio(
+    width: int | None = None,
+    height: int | None = None,
+    named: str | None = None,
+) -> str | None:
+    """Return a provider aspect-ratio hint (``1:1``, ``16:9``, …) or None.
+
+    Named UI/tool values win. Pixel WxH maps to the closest standard ratio
+    within a small tolerance so 64-pixel rounding (``896x512``) still yields
+    ``16:9``.
+    """
+    if named:
+        key = str(named).strip().lower().replace(" ", "_").replace("(", "").replace(")", "")
+        mapped = _NAMED_ASPECT_RATIOS.get(key)
+        if mapped:
+            return mapped
+    if not width or not height or width < 1 or height < 1:
+        return None
+    ratio = width / height
+    label, expected = min(_PIXEL_ASPECT_RATIOS, key=lambda item: abs(ratio - item[1]))
+    if abs(ratio - expected) <= 0.12:
+        return label
+    return None
+
 
 def coerce_image_data_url(image_url: str | None = None, source_image: str | None = None) -> str | None:
     """Normalize a source image to a data URL or http(s) URL for JSON image APIs."""
