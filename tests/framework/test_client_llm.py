@@ -1077,7 +1077,10 @@ def test_openrouter_shim_image_flux_klein_png_no_aspect(client):
         assert body["output_format"] == "png"
         assert body["size"] == "1024x1024"
         assert "aspect_ratio" not in body
-        assert body["image_url"] == "data:image/png;base64,abc123"
+        assert "image_url" not in body
+        assert body["input_references"] == [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}}
+        ]
 
 
 def test_is_image_only_model(client):

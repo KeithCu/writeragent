@@ -239,13 +239,31 @@ class TestEndpointImageProvider(unittest.TestCase):
 
     @patch('plugin.framework.client.llm_client.init_logging')
     def test_make_image_request_body_includes_image_url_when_source_image(self, mock_init):
-        """LlmClient.make_image_request adds image_url (data URL) to body when source_image is provided."""
+        """Non-OpenRouter image requests keep OpenAI-style image_url for source_image."""
         config = {"endpoint": "https://api.example.com", "model": "test-model"}
         client = LlmClient(config, MockContext())
         method, path, body, headers = client.make_image_request("a cat", source_image="b64data")
         data = json.loads(body.decode("utf-8"))
         self.assertIn("image_url", data)
         self.assertEqual(data["image_url"], "data:image/png;base64,b64data")
+
+    @patch('plugin.framework.client.llm_client.init_logging')
+    def test_openrouter_image_request_uses_input_references_for_edit(self, mock_init):
+        """OpenRouter /images img2img must send input_references, not top-level image_url.
+
+        OpenRouter ignores image_url on POST /api/v1/images (HTTP 200, no input image
+        tokens), so a selected graphic would not be edited.
+        """
+        config = {"endpoint": "https://openrouter.ai/api", "model": "black-forest-labs/flux.2-klein-4b", "is_openrouter": True}
+        client = LlmClient(config, MockContext())
+        with patch.object(client, "_resolve_auth", return_value={"provider": "openrouter"}):
+            method, path, body, headers = client.make_image_request("make him a wizard", source_image="b64data")
+        data = json.loads(body.decode("utf-8"))
+        self.assertNotIn("image_url", data)
+        self.assertEqual(
+            data["input_references"],
+            [{"type": "image_url", "image_url": {"url": "data:image/png;base64,b64data"}}],
+        )
 
 class TestImageService(unittest.TestCase):
     def test_endpoint_provider_with_none_config(self):

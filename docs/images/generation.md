@@ -63,7 +63,7 @@ Single `generate_image(prompt, source_image=...)` API:
 
 | Backend | How edit works |
 |---------|----------------|
-| **OpenRouter** | Multimodal user message: text prompt + source image as `image_url` data URL; same response parsing as create. |
+| **OpenRouter** | Dedicated `/api/v1/images` (image-only models such as `black-forest-labs/flux.2-klein-4b`): `input_references` with a `image_url` data URL. Chat-completions multimodal path (`modalities: ["image"]`) still sends the source as a user `image_url` part. |
 | **OpenAI-compatible / Ollama / Together-style** | Same image endpoint as create; optional `source_image` / `image_url` in the request body where the shim supports it. |
 
 Tool usage: pass `source_image='selection'` with an image selected in the document; optional `strength` (default 0.75) controls edit strength. If `source_image` is omitted and a graphic is selected, `image_generate` treats that as an in-place edit. Clear the selection to create a new image.

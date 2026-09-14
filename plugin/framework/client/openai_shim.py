@@ -80,13 +80,17 @@ class OpenRouterShim(BaseProviderShim):
             # encodes the intended dimensions.
             data["size"] = f"{width}x{height}"
 
-        if image_url:
-            data["image_url"] = image_url
-        elif source_image:
-            if source_image.startswith("data:image"):
-                data["image_url"] = source_image
-            else:
-                data["image_url"] = "data:image/png;base64," + source_image
+        # What was wrong: img2img sent a top-level image_url. OpenRouter's
+        # /api/v1/images API ignores that field (HTTP 200, prompt_tokens stay
+        # text-only), so a selected graphic was never used and Flux generated
+        # a new image from the prompt. The documented field is input_references
+        # (https://openrouter.ai/docs/guides/overview/multimodal/image-generation);
+        # flux.2-klein-4b advertises 0–4 references in supported_parameters.
+        ref = image_url or source_image
+        if ref:
+            if not (ref.startswith("data:image") or ref.startswith("http://") or ref.startswith("https://")):
+                ref = "data:image/png;base64," + ref
+            data["input_references"] = [{"type": "image_url", "image_url": {"url": ref}}]
 
         path = get_url_path_and_query(url)
         return "POST", path, json.dumps(data).encode("utf-8"), self.client._headers()
