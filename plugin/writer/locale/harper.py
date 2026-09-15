@@ -364,6 +364,12 @@ def _can_start_ensure_locked() -> bool:
     return True
 
 
+def harper_runtime_is_ready() -> bool:
+    """True when harper-ls is in-process and the runtime state is READY."""
+    with _HARPER_LOCK:
+        return _HARPER_STATE is HarperRuntimeState.READY and _alive_client() is not None
+
+
 def _broadcast_proofread_again() -> None:
     """Writer may have already walked the document while harper-ls was starting."""
     from plugin.writer.locale.grammar_persistence import grammar_registry

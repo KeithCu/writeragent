@@ -18,6 +18,7 @@ from plugin.writer.locale.harper import (
     HarperRuntimeState,
     _harper_lsp_settings,
     _pump_grammar_status_ui,
+    harper_runtime_is_ready,
     harper_try_lint,
     lsp_range_to_offset,
     maybe_start_harper_async,
@@ -1172,6 +1173,52 @@ def test_harper_ensure_ready_body_schedules_proofread_again() -> None:
         harper_module._harper_ensure_ready_body("/tmp", "en-US")
     mock_sched.assert_called_once()
     assert harper_module._HARPER_STATE is HarperRuntimeState.READY
+
+
+def test_harper_runtime_is_ready_requires_alive_client() -> None:
+    assert harper_runtime_is_ready() is False
+    harper_module._set_state(HarperRuntimeState.READY)
+    assert harper_runtime_is_ready() is False
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = mock_client
+    assert harper_runtime_is_ready() is True
+    mock_client.is_alive.return_value = False
+    assert harper_runtime_is_ready() is False
+
+
+def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
+    """READY + PROOFREAD_AGAIN with no listeners must still re-walk once a listener hooks."""
+    from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.framework.logging.init_logging"),
+        patch("plugin.writer.locale.grammar_persistence.grammar_registry.register_live_proofreader"),
+    ):
+        pr = WriterAgentAiGrammarProofreader(ctx)
+    pr._provider = "harper"
+    from plugin.writer.locale.grammar_persistence import grammar_registry
+
+    grammar_registry.register_live_proofreader(pr)
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    listener = MagicMock()
+    try:
+        with (
+            patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+            patch("plugin.writer.locale.harper._get_or_create_client", return_value=mock_client),
+            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+            patch("plugin.writer.locale.grammar_obs.emit_harper_worker_status"),
+        ):
+            harper_module._harper_ensure_ready_body("/tmp", "en-US")
+            assert pr._pending_proofread_again is True
+            listener.processLinguServiceEvent.assert_not_called()
+            pr.addLinguServiceEventListener(listener)
+        listener.processLinguServiceEvent.assert_called_once()
+        assert listener.processLinguServiceEvent.call_args[0][0].nEvent == 8
+    finally:
+        grammar_registry.live_proofreaders.discard(pr)
 
 
 

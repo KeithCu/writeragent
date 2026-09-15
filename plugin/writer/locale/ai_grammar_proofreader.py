@@ -392,6 +392,10 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         self.ctx = ctx
         self._last_doc_id: str | None = None
         self._lingu_listeners: list[Any] = []
+        # First-session Harper: ensure-ready can broadcast before Writer hooks
+        # XLinguServiceEventListener. Remember the miss and recover once.
+        self._pending_proofread_again = False
+        self._first_listener_proofread_again_done = False
         from plugin.framework.logging import init_logging
         from plugin.writer.locale.grammar_persistence import grammar_registry
 
@@ -742,8 +746,11 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def addLinguServiceEventListener(self, xLstnr: Any) -> bool:
         if xLstnr is None:
             return False
+        first_listener = not self._lingu_listeners
         if xLstnr not in self._lingu_listeners:
             self._lingu_listeners.append(xLstnr)
+        if first_listener:
+            self._maybe_proofread_again_after_first_listener()
         return True
 
     def removeLinguServiceEventListener(self, xLstnr: Any) -> bool:
@@ -755,10 +762,47 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         except ValueError:
             return False
 
+    def _maybe_proofread_again_after_first_listener(self) -> None:
+        """Fire one missed PROOFREAD_AGAIN now that Writer can receive it.
+
+        ``broadcast_proofread_again`` no-ops when ``_lingu_listeners`` is empty.
+        On first Harper session Writer often walks during download (empty
+        results), then ensure-ready emits "Harper ready" and broadcasts while
+        this list is still empty. Without recovery, marks stay missing until
+        LO restart (binary is then on disk and the first walk hits a ready
+        client with listeners hooked).
+        """
+        if self._first_listener_proofread_again_done:
+            return
+        pending = self._pending_proofread_again
+        ready = False
+        if not pending:
+            try:
+                from plugin.writer.locale.harper import harper_runtime_is_ready
+
+                ready = self._active_grammar_provider() == "harper" and harper_runtime_is_ready()
+            except Exception:
+                ready = False
+        if not pending and not ready:
+            return
+        self._first_listener_proofread_again_done = True
+        self._pending_proofread_again = False
+        try:
+            from plugin.framework.queue_executor import post_to_main_thread
+
+            post_to_main_thread(self.broadcast_proofread_again)
+        except Exception:
+            self.broadcast_proofread_again()
+
     def broadcast_proofread_again(self) -> None:
         """Ask Writer's grammar iterator to walk the document again (PROOFREAD_AGAIN)."""
         if not self._lingu_listeners:
+            # Remember the miss: first addLinguServiceEventListener recovers it.
+            # Dropping this used to leave first-session Harper with a ready
+            # status bar and no grammar marks until LibreOffice restart.
+            self._pending_proofread_again = True
             return
+        self._pending_proofread_again = False
         n_event = 8  # com.sun.star.linguistic2.LinguServiceEventFlags.PROOFREAD_AGAIN
         event: Any = None
         if uno_mod is not None:

@@ -651,12 +651,94 @@ def test_proofreader_broadcast_proofread_again_notifies_listeners(
     del mock_locale_fixture
     pr = _make_proofreader()
     listener = MagicMock()
-    assert pr.addLinguServiceEventListener(listener) is True
+    with patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=False):
+        assert pr.addLinguServiceEventListener(listener) is True
     pr.broadcast_proofread_again()
     listener.processLinguServiceEvent.assert_called_once()
     event = listener.processLinguServiceEvent.call_args[0][0]
     assert event.nEvent == 8
     assert pr.removeLinguServiceEventListener(listener) is True
+
+
+def test_broadcast_proofread_again_without_listeners_recovers_on_first_attach(
+    mock_config_fixture, mock_locale_fixture
+) -> None:
+    """Empty-listener PROOFREAD_AGAIN must not drop the re-walk forever."""
+    del mock_locale_fixture
+    pr = _make_proofreader()
+    listener = MagicMock()
+    pr.broadcast_proofread_again()
+    assert pr._pending_proofread_again is True
+    listener.processLinguServiceEvent.assert_not_called()
+    with (
+        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=False),
+    ):
+        assert pr.addLinguServiceEventListener(listener) is True
+    listener.processLinguServiceEvent.assert_called_once()
+    assert listener.processLinguServiceEvent.call_args[0][0].nEvent == 8
+    assert pr._pending_proofread_again is False
+    extra = MagicMock()
+    with (
+        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
+    ):
+        pr._provider = "harper"
+        assert pr.addLinguServiceEventListener(extra) is True
+    listener.processLinguServiceEvent.assert_called_once()
+    extra.processLinguServiceEvent.assert_not_called()
+
+
+def test_first_listener_while_harper_ready_triggers_one_rewalk(
+    mock_config_fixture, mock_locale_fixture
+) -> None:
+    del mock_locale_fixture
+    pr = _make_proofreader()
+    pr._provider = "harper"
+    first = MagicMock()
+    second = MagicMock()
+    with (
+        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)),
+        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
+    ):
+        assert pr.addLinguServiceEventListener(first) is True
+        assert pr.addLinguServiceEventListener(second) is True
+        assert pr.addLinguServiceEventListener(first) is True
+    first.processLinguServiceEvent.assert_called_once()
+    second.processLinguServiceEvent.assert_not_called()
+    assert first.processLinguServiceEvent.call_args[0][0].nEvent == 8
+
+
+def test_first_listener_while_harper_idle_does_not_rewalk(
+    mock_config_fixture, mock_locale_fixture
+) -> None:
+    del mock_locale_fixture
+    pr = _make_proofreader()
+    pr._provider = "harper"
+    listener = MagicMock()
+    with (
+        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=False),
+    ):
+        assert pr.addLinguServiceEventListener(listener) is True
+    mock_post.assert_not_called()
+    listener.processLinguServiceEvent.assert_not_called()
+    assert pr._pending_proofread_again is False
+
+
+def test_first_listener_ready_rewalk_skips_non_harper_provider(
+    mock_config_fixture, mock_locale_fixture
+) -> None:
+    del mock_locale_fixture
+    pr = _make_proofreader()
+    listener = MagicMock()
+    with (
+        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
+    ):
+        assert pr.addLinguServiceEventListener(listener) is True
+    mock_post.assert_not_called()
+    listener.processLinguServiceEvent.assert_not_called()
 
 
 def test_ensure_writeragent_proofreader_configured_triggers_harper_warmup() -> None:
