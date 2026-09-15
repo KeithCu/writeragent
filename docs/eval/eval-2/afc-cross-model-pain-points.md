@@ -157,7 +157,7 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 
 **DO:**
 - Keep / sharpen `create_sheet` description + ok payload (“sheet created; **no cells copied**”) — already present in `plugin/calc/sheets.py`; verify the ok string stays visible in tool results models actually see.
-- Colocate on `copy_range` / `write_formula_range` (source+dest): one line — “empty tab is not the deliverable; copy or write the data block onto the new sheet.”
+- Colocate on `write_formula_range` with `source` (block copy; there is **no** separate `copy_range` tool): one line — “empty tab is not the deliverable; copy or write the data block onto the new sheet.”
 - Keep `CALC_WORKFLOW` create≠populate one-liner; don’t restack a grab-bag essay.
 
 **Why:** Empty Sample with tabs present is still one of the most common Ready-looking fails. Teaching at call time beats restating step 4 in the task prompt alone.
@@ -234,6 +234,173 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 
 ---
 
+## 2b. 2026-09-12 review addendum — minimal fix set
+
+**Short answer.** Do **three** things and treat the rest as one-line polish:
+
+1. **L9 — selection as one row-wise formula + fill-down.** Attacks the `S=0` half of C3, the largest cluster (≥10 models), using shipped fill-down.
+2. **L11 — machine-readable answer cell.** Attacks the `R=None` half of C3 (≥6 models that compute ~65–68 and still score `R=None`).
+3. **L10 — finish-time deliverable verification.** Attacks C1/C2/C6 (missing/empty Sample tabs), the other ≥9-model mass.
+
+L2/L4/L5/L12/L13 are single-line sharpenings — land them alongside because they cost almost nothing. L6/L7/L8 are supporting or parallel-track. Chasing C8 stalls, C9 infra, or single-model quirks is out of scope here.
+
+**Correction to §2:** block copy is the `source` argument on `write_formula_range`; there is **no** `copy_range` tool. Any plan that waits on a new copy tool is blocked on a tool we are not building.
+
+### Already in the tree (verify wording, don't re-spec)
+
+| Item | State at tip (`2bd13bf4` era) |
+|---|---|
+| L1 | `create_sheet` description + ok payload already say “no cells copied”; `CALC_WORKFLOW` step 2 repeats it. |
+| L5 (partial) | Truncated-read message already steers fill-down first, `=PY` peek second; `write_formula_range` already has `source` + relative-ref fill-down. |
+| L3 / L4 / L6 / L8 | Open — no label convention, no finish check, no S≥R coupling. |
+
+### Shipped 2026-09-12 (this review)
+
+| Lever | Landed where |
+|---|---|
+| L9 | `CALC_WORKFLOW` step 2 `SELECT:` line + colocated `WriteCellRange.parameters.values` sentence: one `=IF(OR(<criterion>; …);1;0)` in the named flag column + fill-down, then `COUNTIF` (in a scratch cell). Also writes literal `1`s, so it covers the teaching half of L4. |
+| L11 | `CALC_WORKFLOW` step 2 `ANSWER:` line + the same `values` sentence: computed result in its own cell with a plain label **naming the quantity in the user's words** (e.g. `Sample size` — no "rounded up"/"minimum"); ordinary formula/value, not `=PY`. Bare `R` stays in this doc / oracle notes only. |
+| L10 | `CALC_WORKFLOW` step 3: `get_sheet_summary` each named deliverable sheet before finishing. Uses the **core** summary tool, not `list_sheets` (that is `sheets`-domain specialized). |
+| L13 | The step-2 copy line now says the copy must cover every column the user named (flags/variance). |
+| L12 | `CreateSheet.parameters.sheet` now carries the exact-title contract: preserve spaces, no snake_case / invented aliases. |
+
+Tests: `tests/framework/test_constants.py::test_calc_workflow_teaches_selection_answer_and_deliverable_verify`, `tests/calc/test_cells.py::test_write_formula_range_values_teaches_fill_down_not_json_pin`, and `tests/calc/test_sheets.py::test_create_sheet_description_and_ok_mentions_no_cells_copied`. Next: retest the slice (Grok empty-Sample, Luna/Qwen-Flash R-hole, Muse-Glimmer K-empty, Nemotron missing sheets).
+
+### L9 — Selection is one row-wise boolean formula + fill-down
+
+**Hits:** C3 `S=0` (≥6 models) and every “select rows matching a rule” request.
+
+**DO:** Teach (on the `write_formula_range` values line and/or `CALC_WORKFLOW` step 2):
+- When the user lists criteria, do **not** hand-pick rows. Put **one** `=IF(OR(<crit1>;<crit2>;…);1;0)` in the first data cell of the column the user named for flags (AFC: K) and fill-down over the table.
+- Each criterion is a cell comparison on the named columns, e.g. `E2="Willett Bank Rome"`, `F2="Terrorist Financing breaches"`, `OR(G2=0;H2=0)`. Guard the variance ratio (`H2=0`) and wrap it in `IFERROR(...)`.
+- Then confirm the count before finishing: `COUNTIF(K2:K1518;1)` (or `get_sheet_summary` on the Sample sheet) ≥ the required sample size.
+
+**Why:** every observed `S=0` shape is “the marks did not land in the flag column” — K empty, `1.0` parked in G, or the copy stopped at A–H. A single row-wise OR formula (a) makes “each selected row satisfies ≥1 criterion” true by construction, (b) writes literal numeric `1`s the oracle/user can count, (c) is ordinary Calc reused by the general select-rows task. **Caveat:** the OR can flag a large share of rows; that is oracle-legal (Mercury passed with a near-full dump) and users can tighten it, so don’t cap it.
+
+### L10 — Finish-time deliverable verification
+
+**Hits:** C1 + C2 + C6 (≥9 compound).
+
+**DO:** Extend `CALC_WORKFLOW` step 3 only: when the request names deliverable sheets, `get_sheet_summary` each named sheet and confirm it exists, is non-empty (`row_count` > header), and shows the named result cell; create/populate before finishing if not. Use the **core** summary tool only — do **not** call `list_sheets` (`sheets`-domain specialized).
+- Do **not** gate interactive Ready (unchanged invariant). This is a tool-using habit, not an FSM predicate.
+
+**Why:** “tab exists but empty” and “never created the named tab” are the two most common Ready-looking fails; one cheap `get_sheet_summary` surfaces both. General to every multi-sheet Calc task.
+
+### L11 — Machine-readable answer cell for computed results
+
+**Hits:** C3 R-hole (≥6 models) + C4.
+
+**DO:** One line near the sample-size/answer write: put the final number in **its own cell** with a plain label in the **adjacent** cell (`Sample size` | `68`), computed with an ordinary Calc formula (e.g. `=ROUNDUP(...;0)`) or a plain value — not `=PY`. Do not put a label + qualifier + number in one string (“Required sample size (rounded up): 66”), and do not merge the cells.
+
+**Why:** Luna / Qwen Flash / Muse Glimmer / Granite all landed ~65–68 and scored `R=None` on label shape alone. Adjacent label/value + a normal formula is recalc-safe, standard sheet design and generalizes to “show your workings.” Keep `_R_LABEL_RE` unchanged.
+
+### L12 — Exact-title contract on `create_sheet`
+
+**Hits:** C5 (cheap; also prevents false “I made the tab”).
+
+**DO:** Extend `CreateSheet.parameters.sheet` (today just “New sheet name”): “Use the exact title from the request, spaces included; do not snake_case or invent aliases (`Sample Size Calculation`, not `Sample_Size_Calculation` or `Analysis`).” The ok message already echoes the created name.
+
+**Why:** Laguna XS’s underscore made the tab read as missing; MiniMax `Analysis` is the same hygiene miss. Fully general naming discipline.
+
+### L13 — Copy width must cover the named columns (folds into L4)
+
+**Hits:** C3 `S=0`.
+
+**DO:** Sharpen the existing `source`-copy sentence: “Copy the columns the user named — if variance/flags live in J/K, the copy range must reach K; if the source is narrower, add J/K to the destination after copying.”
+
+**Why:** Mistral Small copied A–H only and scored `S=0` on a non-empty Sample; same shape as Muse Glimmer’s empty K.
+
+### Revised cut order (supersedes §4)
+
+1. **L9 + L13** — selection formula + copy width (`S=0` half of C3).
+2. **L11** — machine-readable R (`R=None` half of C3).
+3. **L10** — finish verification (C1/C2/C6).
+4. **L12 + L2 remainder + L4** — one-line sharpenings (C5, flag column).
+5. **L5 + L6 + L8** — supporting lines once the above land.
+6. **L7** — stall plumbing, parallel track.
+
+**Retest slice:** Grok / Luna / Muse Glimmer / Nemotron Super on tip `969d4776` — results in **§2c** (0/4 HAPPY; only Grok R parse clear). Not a full 24-model FIFO.
+
+### Still don’t chase
+
+- Single-model shapes (Laguna underscore, Seed `=PY("""`, Solar infra) — general hygiene covers the first two; infra is out of scope.
+- Oracle regex / fuzzy sheet-name matching — keeps everyone honest; rejected as eval softening.
+- Full selection *quality* (all-criteria coverage, representative size) — track as a secondary product metric; the oracle is intentionally soft (Mercury).
+
+---
+
+## 2c. PR #750 deep-dive — what shipped, why, what the retest did
+
+**Date:** 2026-09-12 (living note on branch `eval-2/afc-minimal-fixes`; keep #750 draft/unready while this evolves)  
+**Product tip:** `969d4776` (ANSWER soften) on top of `305bac07` (named quantity + L12) / `9d1d96b1` (no-qualifier + L10 doc) / `2be8c4ed` (SELECT / ANSWER / verify).  
+**Bar:** honest headed evidence only — no invented HAPPY. None of the four retest cells are HAPPY.
+
+### 1. What we implemented (product tips on this PR)
+
+| Lever | Where | Teaching (tip wording at `969d4776`) |
+|---|---|---|
+| **L9 SELECT** | `CALC_WORKFLOW` step 2 + `WriteCellRange.parameters.values` | One `=IF(OR(<criterion>; …);1;0)` in the **named flag column** first data cell, fill-down; then `COUNTIF` **in a scratch cell** (do not overwrite flags). Do not hand-pick rows or park the mark elsewhere. |
+| **L11 ANSWER** | same | Computed result in its **own cell**; plain label **naming the quantity in the user’s words** in the adjacent cell (e.g. `Sample size` — **no** “rounded up” / “minimum”); ordinary formula/value, **not** `=PY`. Bare `R` deliberately **dropped** from the product tip (oracle/`R = N` notes stay in this doc only). |
+| **L10 verify** | `CALC_WORKFLOW` step 3 | Before finish: `get_sheet_summary` each **named deliverable** sheet; confirm exists + has data; create/populate first if not. Core tool only — **not** specialized `list_sheets`. No Ready FSM gate. |
+| **L13 copy-width** | `CALC_WORKFLOW` step 2 create/populate line | Copy via `write_formula_range` `source` must cover every column the user named (flags/variance). (There is **no** separate `copy_range` tool.) |
+| **L12 exact-title** | `CreateSheet.parameters.sheet` | Exact title the user asked for; preserve spaces; no snake_case / invented aliases. Tool remains **specialized** `sheets` (outer may not see this tip until create is delegated). |
+
+Tests lock the workflow / values / create_sheet strings (`test_calc_workflow_teaches_selection_answer_and_deliverable_verify`, `test_write_formula_range_values_teaches_fill_down_not_json_pin`, `test_create_sheet_description_and_ok_mentions_no_cells_copied`).
+
+**Merged from master (#751-era):** `CALC_WORKFLOW` create line now says empty tabs via **specialized** `domain="sheets"` + `write_formula_range` populate (`create is not populate`) — not the older “`create_sheet` makes an empty tab” outer wording. SELECT / ANSWER / L10 / L13 from this PR sit on top of that. Outer populate handoff after specialized create remains important for Sample-missing cases on the retest slice.
+
+### 2. Why (map to catalog clusters)
+
+| Teaching | Cluster attacked | Intent |
+|---|---|---|
+| L9 SELECT | C3 `S=0` (K empty / wrong column / husked flags) | Row-wise OR + fill-down writes literal `1`s where the user named flags; COUNTIF confirms count without clobbering K. |
+| L11 ANSWER | C3 `R=None` + C4 | Adjacent label/value + ordinary Calc so a computed sample size is machine-readable; ban qualifier burial (`Rounded up sample size: 68`). Soften after review: user’s words, not oracle magic strings / bare `R`. |
+| L10 verify | C1 / C2 / C6 | Catch empty or missing named deliverable tabs before “done” — habit, not Ready gate. |
+| L13 | C3 width (Mistral A–H) | Sample that stops before J/K cannot carry flags. |
+| L12 | C5 | Underscore / invented titles (`Sample_Size_Calculation`, `Analysis`) read as missing. |
+
+No oracle softens; no interactive Ready predicates. Pass/fail stays document-local.
+
+### 3. What worked / what didn’t — headed retest on tip `969d4776`
+
+Slice stamps under `docs/eval/eval-2/afc-sample-83d10b06/runs/` (parent-driven #750 retest, not catalog FIFO). **0 / 4 HAPPY.**
+
+| Model | Stamp | vs prior catalog | What moved | What didn’t |
+|---|---|---|---|---|
+| **Grok 4.6** | `20260912-1603-pr750-grok-4.6` | Prior `0342`: empty Sample + R=None (2 fails) | **ANSWER partial win:** SSC has parseable **R=65** with plain `Sample size`\|65 | **Sample sheet still missing** (only failure left). Exhausted rounds / final stream NetworkError. L10 did not force Sample into existence before finish. |
+| **GPT-5.6 Luna** | `20260912-1624-pr750-gpt-5.6-luna` | Prior `0150`: S=68 R=None | Sample grew (S=199, ~200 rows) | **ANSWER tip did not stick:** UI still showed **`Required sample size (rounded up)`\|68** → oracle **R=None**. Same Luna near-miss shape the tip was written to kill. |
+| **Muse Glimmer 30B** | `20260912-1637-pr750-muse-glimmer-30b` | Prior `0353`: Sample 81 rows, S=0 R=None | Population J/K looked better (SELECT visual) | **Sample sheet regression** — Sample **missing**; invented **Audit Summary**; R=None. Worse workbook shape than prior on the deliverable tab. L12 did not stop the alias tab. |
+| **Nemotron 3 Super** | `20260912-1646-pr750-nemotron-3-super` | Same-day catalog `1513`: Sample 1516 + rounded-up 68 / R=None | Sample more selective (81 rows vs near-full dump) | **R still None**; Sample J/K blank on inspection; SSC blankish. R-hole unresolved; SELECT marks did not clearly land on Sample. |
+
+**Clear product win (only one):** Grok’s labeled **R=65**. Everything else is mixed or flat.
+
+**Plain failures (say it):**
+
+1. **ANSWER is not reliable across models.** Grok obeyed; Luna repeated the exact “rounded up” burial the tip forbids. Softening to “user’s words (e.g. Sample size)” was the right anti-oracle move, but it did **not** fix Luna on this tip. Do not claim L11 “solved” C3 R-hole.
+2. **L10 verify did not save Sample-missing.** Grok and Muse finished (or errored out) without a Sample tab. A workflow sentence is weaker than create→populate actuation when rounds exhaust or the model invents `Audit Summary` instead.
+3. **SELECT did not translate to oracle S.** Muse’s K work stayed on Population while Sample vanished; Super’s Sample lacked J/K. L9 alone does not guarantee flags on the **deliverable** sheet.
+4. **No HAPPY cell on the slice.** Do not merge #750 on “teachings look good in code” — retest says otherwise.
+
+### 4. Separate stamps (not #750 tip — do not conflate)
+
+| Stamp | Model | Role |
+|---|---|---|
+| `20260912-1506-nemotron-3-ultra-550b` | Ultra 550B | Pre-#750 / master catalog land — Population-only NOT_HAPPY (Scrolly first-class JSON/SVG track). |
+| `20260912-1513-nemotron-3-super-120b` | Super 120B | Pre-#750 catalog baseline — near-full Sample + rounded-up / R=None. Retest `1646` is the #750 comparison, not the catalog cell. |
+
+### 5. What to iterate next (doc advice — no new tip code in this commit)
+
+Ranked by what the slice actually blocked:
+
+1. **Sample presence / create→populate** — biggest remaining hole (Grok, Muse). Watch **#751** outer instruction after specialized create; if that lands, re-run Grok + Muse before stacking more ANSWER wording.
+2. **ANSWER adherence for Luna-class models** — tip text alone failed once. Prefer a sharper colocated example or a write-path result echo (“wrote label `Sample size` + value”) over expanding `_R_LABEL_RE`. Still no oracle softens.
+3. **SELECT on the deliverable sheet** — teach (when iterating code) that flags must land on the sheet the user named as Sample, not only Population; L13 copy-width is necessary but wasn’t enough when Sample was never created or J/K stayed blank.
+4. **Keep #750 draft** until a retest shows ≥1 slice HAPPY or a clear multi-model R recovery beyond Grok.
+
+**Retest order when tips change again:** Grok (Sample missing + R regression check), Luna (rounded-up label), Muse (Sample missing / alias tabs), Super (R + Sample J/K). Optional: Qwen Flash / Ultra — not required for the primary slice.
+
+---
+
 ## 3. Explicitly out of scope
 
 | Item | Why |
@@ -249,6 +416,8 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 ---
 
 ## 4. Suggested cut order (for a later product PR — not this doc)
+
+**Superseded by §2b’s revised cut order** (L9–L13). Kept below as the original ranking.
 
 1. **L1 + L2** — create/populate + exact titles (C1/C2/C5).  
 2. **L3 + L4** — labeled R + literal K flags (C3 bulk).  
