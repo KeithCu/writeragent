@@ -20,6 +20,10 @@ from compute_service.json_forward import (
     ExecuteRequestError,
     decode_worker_result,
     dumps_response,
+    encode_multipart_execute,
+    is_multipart_content_type,
+    parse_execute_request,
+    parse_multipart_execute,
     peel_execute_request,
 )
 from compute_service.server import create_wsgi_app
@@ -32,7 +36,14 @@ def _cleanup_formula_pool():
     shutdown_formula_pool()
 
 
-def _wsgi_post(app, body: bytes, *, path: str = "/v1/execute", query: str = "") -> tuple[str, bytes]:
+def _wsgi_post(
+    app,
+    body: bytes,
+    *,
+    path: str = "/v1/execute",
+    query: str = "",
+    content_type: str | None = None,
+) -> tuple[str, bytes]:
     status_holder: list[str] = []
 
     def start_response(status: str, _headers: list) -> None:
@@ -45,6 +56,8 @@ def _wsgi_post(app, body: bytes, *, path: str = "/v1/execute", query: str = "") 
         "CONTENT_LENGTH": str(len(body)),
         "wsgi.input": io.BytesIO(body),
     }
+    if content_type is not None:
+        environ["CONTENT_TYPE"] = content_type
     out = b"".join(app(environ, start_response))
     return status_holder[0], out
 
@@ -110,6 +123,58 @@ class TestPeelExecuteRequest:
             peel_execute_request(b'{"code":"result=1"}{"x":1}')
 
 
+GRID_BYTES = b"[[1,2,3],[4,5,6]]"
+# Compact JSON a default json.dumps (spaces after separators) would not emit.
+CUSTOM_RESULT_JSON = b'{"status":"ok","result":[[1,2,3],[4,5,6]],"stdout":""}'
+
+
+class TestMultipartExecute:
+    def test_data_part_bytes_are_not_loaded(self) -> None:
+        content_type, body = encode_multipart_execute(
+            {"id": "p-1", "code": "result = 1", "mode": "isolated"},
+            GRID_BYTES,
+        )
+        parts = parse_multipart_execute(body, content_type)
+        assert parts.req_id == "p-1"
+        assert parts.code == "result = 1"
+        assert parts.mode == "isolated"
+        assert parts.data_json == GRID_BYTES
+        assert parts.has_session_id is False
+
+    def test_meta_must_not_embed_data(self) -> None:
+        content_type, body = encode_multipart_execute(
+            {"code": "result = 1", "data": [1, 2]},
+            GRID_BYTES,
+        )
+        with pytest.raises(ExecuteRequestError, match="data"):
+            parse_multipart_execute(body, content_type)
+
+    def test_session_id_in_meta_is_flagged(self) -> None:
+        content_type, body = encode_multipart_execute(
+            {"code": "result = 1", "session_id": "nope"},
+            GRID_BYTES,
+        )
+        parts = parse_multipart_execute(body, content_type)
+        assert parts.has_session_id is True
+        assert parts.data_json == GRID_BYTES
+
+    def test_mime_dispatch(self) -> None:
+        content_type, body = encode_multipart_execute({"code": "result = 1"}, GRID_BYTES)
+        assert is_multipart_content_type(content_type)
+        assert not is_multipart_content_type("application/json")
+        assert not is_multipart_content_type(None)
+        assert not is_multipart_content_type("")
+        mp = parse_execute_request(body, content_type)
+        assert mp.data_json == GRID_BYTES
+        peeled = parse_execute_request(b'{"code":"result = 1","data":[9]}', "application/json")
+        assert peeled.data_json == b"[9]"
+        peeled_default = parse_execute_request(b'{"code":"result = 1"}', None)
+        assert peeled_default.data_json is None
+        # Same bytes under application/json must not take the multipart parser.
+        with pytest.raises(ExecuteRequestError):
+            parse_execute_request(body, "application/json")
+
+
 class TestHttpBlobForward:
     def test_raw_data_bytes_reach_execute_fn(self) -> None:
         seen: dict = {}
@@ -142,6 +207,93 @@ class TestHttpBlobForward:
             mock_dumps.side_effect = AssertionError("host must not re-dumps a result_json success")
             status, out = _wsgi_post(app, b'{"code":"result = data","data":[[1,2],[3,4]]}')
         assert status.startswith("200")
+        assert out == result_json
+
+    def test_multipart_forwards_data_bytes_and_result_json(self) -> None:
+        seen: dict = {}
+
+        def execute_fn(**kwargs):
+            seen.update(kwargs)
+            return {"status": "ok", "result_json": CUSTOM_RESULT_JSON}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        content_type, body = encode_multipart_execute(
+            {"id": "m-1", "code": "result = float(np.sum(data))"},
+            GRID_BYTES,
+        )
+        status, out = _wsgi_post(app, body, content_type=content_type)
+        assert status.startswith("200")
+        assert seen["data_json"] == GRID_BYTES
+        assert "data" not in seen
+        assert seen.get("decode_result") is False
+        assert seen.get("wire") == WIRE_JSON_FORWARD
+        assert out == CUSTOM_RESULT_JSON
+
+    def test_multipart_host_does_not_json_loads_grid(self) -> None:
+        real_loads = json.loads
+        loaded: list[str] = []
+
+        def spy(value: object, *args: object, **kwargs: object) -> object:
+            if isinstance(value, (bytes, bytearray)):
+                text = bytes(value).decode("utf-8")
+            elif isinstance(value, str):
+                text = value
+            else:
+                text = ""
+            loaded.append(text)
+            return real_loads(value, *args, **kwargs)
+
+        def execute_fn(**_kwargs):
+            return {"status": "ok", "result_json": CUSTOM_RESULT_JSON}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        content_type, body = encode_multipart_execute({"code": "result = 1"}, GRID_BYTES)
+        with patch("compute_service.json_forward.json.loads", side_effect=spy):
+            status, out = _wsgi_post(app, body, content_type=content_type)
+        assert status.startswith("200")
+        assert out == CUSTOM_RESULT_JSON
+        assert GRID_BYTES.decode("utf-8") not in loaded
+        assert not any(item.lstrip().startswith("[[1,2,3]") for item in loaded)
+
+    def test_multipart_host_does_not_dumps_result(self) -> None:
+        def execute_fn(**_kwargs):
+            return {"status": "ok", "result_json": CUSTOM_RESULT_JSON}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        content_type, body = encode_multipart_execute({"code": "result = 1"}, GRID_BYTES)
+        with patch("compute_service.server._json_bytes") as mock_dumps:
+            mock_dumps.side_effect = AssertionError("host must not re-dumps a result_json success")
+            status, out = _wsgi_post(app, body, content_type=content_type)
+        assert status.startswith("200")
+        assert out == CUSTOM_RESULT_JSON
+
+    def test_bad_multipart_is_400(self) -> None:
+        app = create_wsgi_app(
+            ComputeSettings(),
+            execute_fn=lambda **_kw: {"status": "ok", "result": 1, "stdout": ""},
+        )
+        status, out = _wsgi_post(
+            app,
+            b"not-actually-multipart",
+            content_type="multipart/form-data; boundary=wa-compute",
+        )
+        assert status.startswith("400")
+        assert json.loads(out)["error"] == "Invalid multipart execute body"
+
+    def test_json_content_type_still_peels(self) -> None:
+        seen: dict = {}
+        result_json = dumps_response({"status": "ok", "result": 6, "stdout": ""})
+
+        def execute_fn(**kwargs):
+            seen.update(kwargs)
+            return {"status": "ok", "result_json": result_json}
+
+        app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+        data_literal = b"[1, 2, 3]"
+        body = b'{"code":"result = sum(data)","data":' + data_literal + b"}"
+        status, out = _wsgi_post(app, body, content_type="application/json")
+        assert status.startswith("200")
+        assert seen["data_json"] == data_literal
         assert out == result_json
 
     def test_mock_dict_result_still_dumps_for_compat(self) -> None:
@@ -288,5 +440,35 @@ class TestHttpLargeRoundTrip:
         parsed = json.loads(out)
         assert parsed["status"] == "ok"
         assert parsed["id"] == "http-big"
+        assert parsed["result"][0][0] == 0.0
+        assert parsed["result"][-1][-1] == float(rows * cols - 1)
+
+    def test_multipart_large_data_in_out_no_host_pack_or_result_dumps(self) -> None:
+        rows, cols = 25, 40
+        grid = [[float(r * cols + c) for c in range(cols)] for r in range(rows)]
+        data_json = json.dumps(grid, allow_nan=False).encode("utf-8")
+        content_type, body = encode_multipart_execute(
+            {"id": "http-mp-big", "code": "result = data"},
+            data_json,
+        )
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        app = create_wsgi_app(
+            ComputeSettings(host="127.0.0.1", workers=1),
+            execute_fn=lambda **kw: pool.execute(**kw),
+        )
+        try:
+            with (
+                patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack,
+                patch("compute_service.server._json_bytes") as mock_host_dumps,
+            ):
+                mock_host_dumps.side_effect = AssertionError("host must not dumps the large result")
+                status, out = _wsgi_post(app, body, content_type=content_type)
+        finally:
+            pool.shutdown()
+        assert status.startswith("200"), out
+        assert mock_pack.call_count == 0
+        parsed = json.loads(out)
+        assert parsed["status"] == "ok"
+        assert parsed["id"] == "http-mp-big"
         assert parsed["result"][0][0] == 0.0
         assert parsed["result"][-1][-1] == float(rows * cols - 1)

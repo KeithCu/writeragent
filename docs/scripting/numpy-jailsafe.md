@@ -148,7 +148,7 @@ flowchart LR
 - Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `config.py`, `executor.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
 - Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
-- `POST /v1/execute[?session_id=...]` body: `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` → `{ "id?", "status", "result"|"error", "stdout?", "images?" }`.
+- `POST /v1/execute[?session_id=...]` **today:** one JSON object `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` (host peels small keys, forwards raw `data` bytes). **Optional:** `multipart/form-data` with `meta` + raw `data` JSON part (`Content-Type` dispatch). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }`.
 - **Dumb JSON egress only** toward kit/coolwsd: the worker dumps kit-safe JSON once (`allow_nan=False`, NaN/Inf → `null`); the HTTP host forwards those bytes. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
 - `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.

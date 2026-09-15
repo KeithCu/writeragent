@@ -283,16 +283,25 @@ def create_wsgi_app(
             from compute_service.json_forward import (
                 WIRE_JSON_FORWARD,
                 ExecuteRequestError,
-                peel_execute_request,
+                is_multipart_content_type,
+                parse_execute_request,
             )
 
+            content_type = environ.get("CONTENT_TYPE") or ""
             try:
-                parts = peel_execute_request(raw_body)
+                # application/json (or missing) → #766 peel. multipart/* →
+                # optional kit parts; same ExecuteRequestParts either way.
+                parts = parse_execute_request(raw_body, content_type)
             except ExecuteRequestError:
+                err = (
+                    "Invalid multipart execute body"
+                    if is_multipart_content_type(content_type)
+                    else "Invalid JSON"
+                )
                 return _start_json(
                     start_response,
                     "400 Bad Request",
-                    {"status": "error", "error": "Invalid JSON"},
+                    {"status": "error", "error": err},
                 )
 
             req_id = parts.req_id
