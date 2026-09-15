@@ -337,13 +337,15 @@ Log format includes timestamps, log level, request IDs, modes, code size, execut
 2026-08-17 20:00:01,489 [INFO] compute_service: done /v1/execute id='req-123' status='ok' duration=32.40ms
 ```
 
-### Cython Binary Acceleration & Canary Verification
+### Cython Binary Acceleration (host pack only)
 
-The service automatically detects compiled Cython binaries (`pack.*.so` / `pack.*.pyd`) from:
-1. In-tree git repository checkouts (`contrib/vec_pack`)
+The **HTTP host** packs large formula `data` grids (`FormulaProcessPool.execute` → `host_pack_data(..., min_cells=1000)`) with Cython `fast_flatten_grid_2d` / `fast_flatten_grid_1d` when a matching `pack.*.so` / `pack.*.pyd` is available. Formula workers do **not** load the accelerator: ingress is `child_unpack_split_grid` (`np.frombuffer`) and ndarray egress is `child_pack_split_grid` (`tobytes()`). Vision workers also skip it.
+
+The host looks for binaries in:
+1. In-tree `contrib/vec_pack` (copied into the Docker image)
 2. Installed LibrePy user profile locations (`audio_binaries/writeragent_vec`)
 
-On startup, a runtime canary verification test (`_verify_accelerator`) runs to ensure binary integrity and compatibility before enabling Cython binary acceleration for `split_grid` 2D array packing. If no compatible binary is found or the canary check fails, the service logs a warning and falls back to pure Python without interrupting execution.
+On HTTP service startup the host calls `load_cython_accelerator()`, runs the `_verify_accelerator` canary, and logs `Cython Accelerator: Active (Optimized, source: …)` or a clear Inactive reason (`not found` / `canary failed`). Worker logs are not used for this status. If the binary is missing or the canary fails, the host falls back to pure Python without interrupting execution.
 
 ---
 
@@ -363,6 +365,7 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 
 - For cross-container networking within a private bridge network, set `HOST=0.0.0.0`.
 - The multi-stage Dockerfile copies only pre-compiled packages into the runner image, drops root privileges (`USER appuser`), and excludes compiler build tools (`build-essential`).
+- The image also copies `contrib/vec_pack` so the host can load the matching CPython 3.12 Linux `.so` and report Active at startup.
 
 ---
 
