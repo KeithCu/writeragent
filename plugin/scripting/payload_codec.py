@@ -83,6 +83,9 @@ log = logging.getLogger(__name__)
 
 _CYTHON_ACCELERATOR_DISABLED = False
 _CYTHON_ACCELERATOR_LOCATION: str | None = None
+# Set only after a load attempt fails. None means "not attempted yet" so
+# report-only status stays "Inactive (Pure Python)" until the host loads.
+_CYTHON_ACCELERATOR_INACTIVE_REASON: str | None = None
 
 fast_flatten_grid_2d: Any = None
 fast_flatten_grid_1d: Any = None
@@ -134,9 +137,16 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
 
 
 def load_cython_accelerator() -> None:
-    """Attempt to load the Cython accelerator and verify it via a runtime canary test."""
+    """Attempt to load the Cython accelerator and verify it via a runtime canary test.
+
+    Host-only: the HTTP compute service calls this at startup to log Active/Inactive.
+    Desktop host pack also calls it from ``host_pack_data``. Compute workers unpack
+    via ``frombuffer`` / pack ndarrays via ``tobytes`` and must not call this
+    (importing unpack helpers is not a load).
+    """
     # crosshair: off  # sys.path/import sniffs (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Engine-hostile; keep off.
-    global fast_flatten_grid_2d, fast_flatten_grid_1d, _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION
+    global fast_flatten_grid_2d, fast_flatten_grid_1d
+    global _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION, _CYTHON_ACCELERATOR_INACTIVE_REASON
     if fast_flatten_grid_2d is not None or _CYTHON_ACCELERATOR_DISABLED:
         return
 
@@ -209,14 +219,17 @@ def load_cython_accelerator() -> None:
             fast_flatten_grid_1d = fn1d
             _CYTHON_ACCELERATOR_LOCATION = loc
             _CYTHON_ACCELERATOR_DISABLED = False
+            _CYTHON_ACCELERATOR_INACTIVE_REASON = None
             log.debug("payload_codec: Cython accelerator (%s) verified and loaded", loc)
         else:
             _CYTHON_ACCELERATOR_DISABLED = True
             _CYTHON_ACCELERATOR_LOCATION = None
+            _CYTHON_ACCELERATOR_INACTIVE_REASON = "canary failed"
             log.warning("payload_codec: Cython accelerator found at %s but failed canary check; using pure Python", loc)
     else:
         _CYTHON_ACCELERATOR_DISABLED = True
         _CYTHON_ACCELERATOR_LOCATION = None
+        _CYTHON_ACCELERATOR_INACTIVE_REASON = "not found"
         log.debug("payload_codec: Cython accelerator not found, using pure Python")
 
 
@@ -228,11 +241,13 @@ def invalidate_host_cython_accelerator() -> None:
     the next load binds the new file instead of calling into a stale mapping.
     """
     # crosshair: off  # sys.modules sniffs (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Engine-hostile; keep off.
-    global fast_flatten_grid_2d, fast_flatten_grid_1d, _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION
+    global fast_flatten_grid_2d, fast_flatten_grid_1d
+    global _CYTHON_ACCELERATOR_DISABLED, _CYTHON_ACCELERATOR_LOCATION, _CYTHON_ACCELERATOR_INACTIVE_REASON
     fast_flatten_grid_2d = None
     fast_flatten_grid_1d = None
     _CYTHON_ACCELERATOR_DISABLED = False
     _CYTHON_ACCELERATOR_LOCATION = None
+    _CYTHON_ACCELERATOR_INACTIVE_REASON = None
     for key in list(sys.modules):
         if key in ("writeragent_vec", "contrib.vec_pack", "vec_pack", "plugin.contrib.vec_pack") or key.startswith(
             ("writeragent_vec.", "contrib.vec_pack.", "vec_pack.", "plugin.contrib.vec_pack.")
@@ -254,6 +269,8 @@ def get_cython_status_info() -> tuple[bool, str | None, str]:
         if loc and loc != "active":
             return True, loc, f"Cython Accelerator: Active (Optimized, source: {loc})"
         return True, loc, "Cython Accelerator: Active (Optimized)"
+    if _CYTHON_ACCELERATOR_INACTIVE_REASON:
+        return False, None, f"Cython Accelerator: Inactive (Pure Python; {_CYTHON_ACCELERATOR_INACTIVE_REASON})"
     return False, None, "Cython Accelerator: Inactive (Pure Python)"
 
 
@@ -268,8 +285,9 @@ def host_cython_status_line(*, reload: bool = False) -> str:
     return get_cython_status_info()[2]
 
 
-# Initial load attempt
-load_cython_accelerator()
+# Do not load at import. Compute workers import unpack helpers from this
+# module; eager load would make every formula child pay for / claim Cython.
+# Host paths call load_cython_accelerator() (HTTP startup, host_pack_data).
 
 # --- Wire kind (JSON-safe dict tag) -----------------------------------------------
 
@@ -1287,6 +1305,10 @@ def host_pack_data(
 ) -> Any:
     """Pack ``data`` for worker request field (list or split_grid dict)."""
     # crosshair: off
+    # First host pack loads Cython (desktop =PY(), compute HTTP host). Workers
+    # use child_unpack / child_pack_split_grid and never reach this function
+    # on the hot path, so they stay Inactive.
+    load_cython_accelerator()
     try:
         if grid:
             if force == "always":

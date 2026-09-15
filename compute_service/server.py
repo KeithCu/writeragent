@@ -687,7 +687,7 @@ def run_server(settings: ComputeSettings) -> None:
         settings.workers,
         settings.ocr_workers,
     )
-    # Initialize Cython accelerator and log status on startup
+    # Host-only Cython status. Workers unpack / pack ndarrays without loading.
     from plugin.scripting.payload_codec import get_cython_status_info, load_cython_accelerator
 
     load_cython_accelerator()
