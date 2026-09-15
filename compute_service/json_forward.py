@@ -31,6 +31,8 @@ COMPUTE_MAX_PAYLOAD_BYTES = 33 * 1024 * 1024
 WIRE_JSON_FORWARD = "json_forward"
 WIRE_PICKLE = "pickle"
 
+# Peel-walker only (single-JSON ingress). Transitional Collabora contract;
+# delete with peel_execute_request after kit ships multipart.
 _WS = frozenset({0x09, 0x0A, 0x0D, 0x20})
 _MAX_JSON_DEPTH = 256
 _BOM = b"\xef\xbb\xbf"
@@ -172,14 +174,19 @@ def parse_multipart_execute(body: bytes, content_type: str) -> ExecuteRequestPar
 
 
 def parse_execute_request(body: bytes, content_type: str | None) -> ExecuteRequestParts:
-    """MIME dispatch: multipart (optional kit) vs JSON object peel (today)."""
+    """MIME dispatch: multipart (long-term) vs JSON-object peel (transitional)."""
     if is_multipart_content_type(content_type):
         return parse_multipart_execute(body, content_type or "")
+    # Transitional Collabora contract. Keep until kit ships multipart;
+    # then delete this peel branch. Multipart is the long-term ingress.
     return peel_execute_request(body)
 
 
 def peel_execute_request(body: bytes) -> ExecuteRequestParts:
     """Walk a top-level JSON object; decode small keys; keep ``data`` raw.
+
+    Transitional Collabora contract. Keep until kit ships multipart; then
+    delete this peel path. Multipart is the long-term ingress.
 
     Does not ``json.loads`` the ``data`` value (the large grid). ``code`` /
     ``mode`` / ``timeout_ms`` / ``id`` / ``init_script`` are loaded as isolated
@@ -237,9 +244,8 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
         if key == "data":
             data_json = value_slice
         elif key == "data_json":
-            # Kit may send a JSON string that already holds the data blob.
-            # Prefer an explicit ``data`` key when both are present (last
-            # ``data`` still wins if it appears later).
+            # Peel-only alias (single-JSON body). Prefer explicit ``data`` if
+            # both appear (last ``data`` still wins). Goes away with peel.
             if data_json is None:
                 data_json = _coerce_data_json_field(value_slice)
         elif key == "session_id":
@@ -276,7 +282,10 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
 
 
 def _coerce_data_json_field(value_slice: bytes) -> bytes:
-    """``data_json`` as a JSON string → inner UTF-8 bytes; otherwise raw slice."""
+    """Peel-only: ``data_json`` string → inner UTF-8 bytes; else raw slice.
+
+    Transitional Collabora contract. Delete with the peel path.
+    """
     stripped = value_slice.lstrip()
     if stripped.startswith(b'"'):
         try:
@@ -287,6 +296,11 @@ def _coerce_data_json_field(value_slice: bytes) -> bytes:
             return decoded.encode("utf-8")
         raise ExecuteRequestError("data_json string must decode to text")
     return value_slice
+
+
+# --- peel walker (single-JSON only) ---
+# Transitional Collabora contract. Keep until kit ships multipart; then
+# delete this whole helper block. Multipart is the long-term ingress.
 
 
 def _loads_small(value_slice: bytes) -> Any:

@@ -289,8 +289,9 @@ def create_wsgi_app(
 
             content_type = environ.get("CONTENT_TYPE") or ""
             try:
-                # application/json (or missing) → #766 peel. multipart/* →
-                # optional kit parts; same ExecuteRequestParts either way.
+                # multipart/* = long-term ingress. application/json (or
+                # missing) = peel walker — transitional Collabora contract;
+                # keep until kit ships multipart, then delete that branch.
                 parts = parse_execute_request(raw_body, content_type)
             except ExecuteRequestError:
                 err = (
