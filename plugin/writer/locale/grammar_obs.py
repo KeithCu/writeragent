@@ -226,17 +226,16 @@ def emit_grammar_status(
             if is_routine_libreharper_status(phase, result):
                 return
             from plugin.framework.queue_executor import post_to_main_thread
-            from plugin.framework.thread_guard import get_background_task_name, on_main_thread
 
-            # doProofreading is already on the VCL thread. post() only enqueues
-            # AsyncCallback, so "Checking..." never paints until after the walk.
-            if on_main_thread() and not get_background_task_name():
-                update_libreoffice_status_bar(phase, text, result)
-            else:
-                try:
-                    post_to_main_thread(update_libreoffice_status_bar, phase, text, result)
-                except Exception:
-                    log.debug("Failed to post status bar update to main thread", exc_info=True)
+            # Always post. Linguistic doProofreading can look like VCL
+            # (on_main_thread True) while still being the proofreading worker
+            # that holds _HARPER_LOCK. Inline XStatusIndicator there freezes
+            # or kills Writer. Progress strings (Starting Harper…, download)
+            # still paint — just never on this thread.
+            try:
+                post_to_main_thread(update_libreoffice_status_bar, phase, text, result)
+            except Exception:
+                log.debug("Failed to post status bar update to main thread", exc_info=True)
         else:
             event_bus.global_event_bus.emit("grammar:status", phase=phase, preview=preview, length=length, result=result, elapsed_ms=elapsed_ms)
     except Exception as e:

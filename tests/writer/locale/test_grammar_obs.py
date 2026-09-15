@@ -118,17 +118,16 @@ def test_emit_grammar_status_routes_to_libreoffice_status_bar_when_libreharper()
     mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "complete", "Hello world.", "clean")
 
 
-def test_emit_grammar_status_updates_status_bar_inline_on_main_thread() -> None:
+def test_emit_grammar_status_always_posts_to_main_thread() -> None:
+    """Linguistic workers can look like VCL; never paint XStatusIndicator inline."""
     with (
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
         patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
-        patch("plugin.writer.locale.grammar_obs.update_libreoffice_status_bar") as mock_bar,
         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
     ):
-        go.emit_grammar_status("start", "Hello world.", result="Starting harper-ls…")
-    mock_bar.assert_called_once_with("start", "Hello world.", "Starting harper-ls…")
-    mock_post.assert_not_called()
+        go.emit_grammar_status("start", "Hello world.", result="Starting Harper…")
+    mock_post.assert_called_once_with(go.update_libreoffice_status_bar, "start", "Hello world.", "Starting Harper…")
 
 
 def test_is_routine_libreharper_status_covers_per_keystroke_strings() -> None:

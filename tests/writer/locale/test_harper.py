@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import json
+import logging
 import os
 import queue
 import pytest
@@ -1063,15 +1064,17 @@ def test_harper_try_lint_ready_returns_errors(mock_bg: MagicMock) -> None:
 
 
 @patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_dead_process_kicks_ensure(mock_bg: MagicMock) -> None:
+def test_harper_try_lint_dead_process_kicks_ensure(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
     mock_client = MagicMock()
     mock_client.is_alive.return_value = False
     harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = mock_client
     harper_module._set_state(HarperRuntimeState.READY)
 
+    caplog.set_level(logging.ERROR, logger="writeragent.grammar")
     assert harper_try_lint("Hello.", "/tmp") is None
     assert mock_bg.call_count == 1
     assert harper_module._HARPER_STATE is HarperRuntimeState.RESOLVING
+    assert any("harper-ls process is dead" in r.message for r in caplog.records)
 
 
 @patch("plugin.framework.worker_pool.run_in_background")
@@ -1223,10 +1226,26 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
 
 
 @patch("plugin.framework.worker_pool.run_in_background")
-def test_harper_try_lint_empty_config_dir_does_not_ensure(mock_bg: MagicMock) -> None:
+def test_harper_try_lint_empty_config_dir_does_not_ensure(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.ERROR, logger="writeragent.grammar")
     assert harper_try_lint("Hello.", "") is None
     mock_bg.assert_not_called()
     assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
+    assert any("empty user config dir" in r.message for r in caplog.records)
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_logs_error_on_lint_exception(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    mock_client.lint.side_effect = RuntimeError("broken pipe")
+    harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = mock_client
+    harper_module._set_state(HarperRuntimeState.READY)
+
+    caplog.set_level(logging.ERROR, logger="writeragent.grammar")
+    assert harper_try_lint("He go to the store.", "/tmp") is None
+    assert any("lint failed on ready client" in r.message for r in caplog.records)
+    assert mock_bg.call_count == 1
 
 
 def test_harper_close_does_not_block_on_stuck_stdin() -> None:

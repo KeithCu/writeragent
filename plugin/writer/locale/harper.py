@@ -483,9 +483,14 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US") -> di
     """Lint now if harper-ls is already in-process; else kick one ensure and return None.
 
     Never downloads or ``Popen``s on the caller thread (UNO ``doProofreading``).
+    A ``None`` return is never silent: failures log ERROR, not-ready walks emit obs.
     """
+    from plugin.writer.locale.grammar_obs import grammar_obs
+
     if not user_config_dir:
+        log.error("[harper] lint skipped: empty user config dir")
         return None
+    none_reason = "not_ready"
     with _HARPER_LOCK:
         client = _alive_client()
         if client is not None:
@@ -493,10 +498,21 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US") -> di
             try:
                 return _lint_with_client(client, text, bcp47=bcp47, restart=False)
             except Exception:
+                # restart=False: do not Popen on the linguistic thread. The
+                # walk returns empty; background ensure restarts harper-ls.
+                log.exception("[harper] lint failed on ready client; empty aErrors this walk")
                 _set_state(HarperRuntimeState.IDLE)
+                none_reason = "lint_exception"
         elif _HARPER_STATE is HarperRuntimeState.READY:
+            log.error("[harper] lint missed: state READY but harper-ls process is dead")
             _set_state(HarperRuntimeState.IDLE)
-    harper_ensure_ready_async(user_config_dir, bcp47)
+            none_reason = "dead_client"
+        else:
+            none_reason = f"state_{_HARPER_STATE.value}"
+    submitted = harper_ensure_ready_async(user_config_dir, bcp47)
+    if none_reason in ("lint_exception", "dead_client"):
+        return None
+    grammar_obs("harper_try_lint_none", reason=none_reason, ensure_submitted=submitted)
     return None
 
 
