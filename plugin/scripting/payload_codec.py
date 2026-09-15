@@ -139,10 +139,10 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
 def load_cython_accelerator() -> None:
     """Attempt to load the Cython accelerator and verify it via a runtime canary test.
 
-    Host-only: the HTTP compute service calls this at startup to log Active/Inactive.
-    Desktop host pack also calls it from ``host_pack_data``. Compute workers unpack
-    via ``frombuffer`` / pack ndarrays via ``tobytes`` and must not call this
-    (importing unpack helpers is not a load).
+    The HTTP compute host calls this at startup to log Active/Inactive.
+    Desktop host pack also calls it from ``host_pack_data``. Formula workers
+    call it for rare large list-grid egress (``host_pack_split_grid``).
+    Importing unpack helpers is not a load.
     """
     # crosshair: off  # sys.path/import sniffs (cover-all 33355986432: payload_codec in-flight 6h, no flushed COVER TIMING). Engine-hostile; keep off.
     global fast_flatten_grid_2d, fast_flatten_grid_1d
@@ -285,9 +285,8 @@ def host_cython_status_line(*, reload: bool = False) -> str:
     return get_cython_status_info()[2]
 
 
-# Do not load at import. Compute workers import unpack helpers from this
-# module; eager load would make every formula child pay for / claim Cython.
-# Host paths call load_cython_accelerator() (HTTP startup, host_pack_data).
+# Do not load at import. Unpack-helper imports must stay Inactive until an
+# explicit load (HTTP host startup, host_pack_data, or formula_worker).
 
 # --- Wire kind (JSON-safe dict tag) -----------------------------------------------
 
@@ -1305,9 +1304,9 @@ def host_pack_data(
 ) -> Any:
     """Pack ``data`` for worker request field (list or split_grid dict)."""
     # crosshair: off
-    # First host pack loads Cython (desktop =PY(), compute HTTP host). Workers
-    # use child_unpack / child_pack_split_grid and never reach this function
-    # on the hot path, so they stay Inactive.
+    # First host pack loads Cython (desktop =PY(), compute HTTP host).
+    # Formula workers load separately for list-grid egress via
+    # host_pack_split_grid; ndarray egress is child_pack_split_grid (tobytes).
     load_cython_accelerator()
     try:
         if grid:

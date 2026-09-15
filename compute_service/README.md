@@ -333,19 +333,22 @@ Log format includes timestamps, log level, request IDs, modes, code size, execut
 ```text
 2026-08-17 20:00:00,123 [INFO] compute_service: Starting Python Compute Service on 127.0.0.1:8000 (auth=yes)...
 2026-08-17 20:00:00,125 [INFO] compute_service: Cython Accelerator: Active (Optimized, source: contrib.vec_pack)
+2026-08-17 20:00:00,180 [INFO] compute_service: Formula worker Cython Accelerator: Active (Optimized, source: contrib.vec_pack)
 2026-08-17 20:00:01,456 [INFO] compute_service: exec /v1/execute id='req-123' mode=isolated session=None code_len=32 timeout=30s
 2026-08-17 20:00:01,489 [INFO] compute_service: done /v1/execute id='req-123' status='ok' duration=32.40ms
 ```
 
-### Cython Binary Acceleration (host pack only)
+### Cython Binary Acceleration
 
-The **HTTP host** packs large formula `data` grids (`FormulaProcessPool.execute` → `host_pack_data(..., min_cells=1000)`) with Cython `fast_flatten_grid_2d` / `fast_flatten_grid_1d` when a matching `pack.*.so` / `pack.*.pyd` is available. Formula workers do **not** load the accelerator: ingress is `child_unpack_split_grid` (`np.frombuffer`) and ndarray egress is `child_pack_split_grid` (`tobytes()`). Vision workers also skip it.
+The **HTTP host** packs large formula `data` grids (`FormulaProcessPool.execute` → `host_pack_data(..., min_cells=1000)`) with Cython `fast_flatten_grid_2d` / `fast_flatten_grid_1d` when a matching `pack.*.so` / `pack.*.pyd` is available.
+
+Formula workers may also load the accelerator for **rare large nested list-grid egress** (`child_pack_result` → `host_pack_split_grid` → Cython flatten). Ndarray egress stays `child_pack_split_grid` (`tobytes()`). Ingress unpack is `child_unpack_split_grid` (`np.frombuffer`). Vision workers skip the load.
 
 The host looks for binaries in:
 1. In-tree `contrib/vec_pack` (copied into the Docker image)
 2. Installed LibrePy user profile locations (`audio_binaries/writeragent_vec`)
 
-On HTTP service startup the host calls `load_cython_accelerator()`, runs the `_verify_accelerator` canary, and logs `Cython Accelerator: Active (Optimized, source: …)` or a clear Inactive reason (`not found` / `canary failed`). Worker logs are not used for this status. If the binary is missing or the canary fails, the host falls back to pure Python without interrupting execution.
+On HTTP service startup the host calls `load_cython_accelerator()`, runs the `_verify_accelerator` canary, and logs `Cython Accelerator: Active (Optimized, source: …)` or a clear Inactive reason (`not found` / `canary failed`). After the formula pool is up, the host probes **one** formula worker once and logs `Formula worker Cython Accelerator: …` (Active/Inactive + source/reason). The host line remains the ingress/host report; the worker line is not a substitute for it. If the binary is missing or the canary fails, pack falls back to pure Python without interrupting execution.
 
 ---
 
@@ -365,7 +368,7 @@ docker run --rm -p 127.0.0.1:8000:8000 \
 
 - For cross-container networking within a private bridge network, set `HOST=0.0.0.0`.
 - The multi-stage Dockerfile copies only pre-compiled packages into the runner image, drops root privileges (`USER appuser`), and excludes compiler build tools (`build-essential`).
-- The image also copies `contrib/vec_pack` so the host can load the matching CPython 3.12 Linux `.so` and report Active at startup.
+- The image also copies `contrib/vec_pack` so the host and formula workers can load the matching CPython 3.12 Linux `.so`.
 
 ---
 

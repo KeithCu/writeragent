@@ -25,11 +25,14 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service.executor import execute_code
 from compute_service.worker_base import run_worker_stdio_loop
+from plugin.scripting.payload_codec import get_cython_status_info, load_cython_accelerator
 
-# Do not load the Cython accelerator here. Ingress is child_unpack_split_grid
-# (NumPy frombuffer) and ndarray egress is child_pack_split_grid (tobytes).
-# Cython flatten runs on the HTTP host via host_pack_data. Importing
-# payload_codec unpack helpers must not load or claim Cython Active.
+# Large nested list-grid egress uses child_pack_result → host_pack_split_grid
+# → Cython flatten when loaded. Ndarray egress stays child_pack_split_grid
+# (NumPy tobytes). Ingress unpack is frombuffer. Load here so list-grid pack
+# is not silent pure-Python. The HTTP host probes one child once for status;
+# do not log Active/Inactive from every worker.
+load_cython_accelerator()
 
 
 def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
@@ -53,6 +56,10 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
                 "error": f"Missing required dependencies in worker environment: {', '.join(missing)}",
             }
         return {"id": req_id, "status": "ok"}
+
+    if action == "cython_status":
+        cy_line = get_cython_status_info()[2]
+        return {"id": req_id, "status": "ok", "cython_status": cy_line}
 
     if action == "reset_session":
         session_id = req.get("session_id")

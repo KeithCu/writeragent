@@ -192,6 +192,28 @@ class FormulaProcessPool(BaseProcessPool):
         finally:
             self.release_worker(leased)
 
+    def probe_cython_status(self, timeout_sec: float = 10.0) -> str | None:
+        """Ask one idle formula worker for Cython load status (once per call).
+
+        The HTTP host logs this as a single ``Formula worker Cython Accelerator``
+        line after the pool is up. Do not call per worker or on every request.
+        """
+        if self._is_shutdown or not self.workers:
+            return None
+
+        leased = self.lease_any(timeout_sec=timeout_sec)
+        if leased is None:
+            return None
+
+        try:
+            res = leased.execute({"action": "cython_status"}, timeout_sec=timeout_sec)
+            line = res.get("cython_status")
+            if res.get("status") == "ok" and isinstance(line, str) and line:
+                return line
+            return None
+        finally:
+            self.release_worker(leased)
+
     def execute(
         self,
         code: str,

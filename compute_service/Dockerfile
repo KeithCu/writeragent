@@ -42,8 +42,8 @@ COPY plugin/framework/constants.py /app/plugin/framework/constants.py
 COPY plugin/framework/deal_shim.py /app/plugin/framework/deal_shim.py
 COPY plugin/contrib/smolagents /app/plugin/contrib/smolagents
 COPY plugin/contrib/__init__.py /app/plugin/contrib/__init__.py
-# Host-side Cython flatten for large HTTP grids (python:3.12-slim → cp312 .so).
-# Formula workers unpack / pack ndarrays without this binary.
+# Cython flatten for large HTTP ingress and rare worker list-grid egress
+# (python:3.12-slim → cp312 .so). Ndarray egress stays NumPy tobytes.
 COPY contrib/vec_pack /app/contrib/vec_pack
 
 ENV PYTHONPATH=/app/pkgs:/app

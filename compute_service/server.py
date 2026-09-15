@@ -687,7 +687,8 @@ def run_server(settings: ComputeSettings) -> None:
         settings.workers,
         settings.ocr_workers,
     )
-    # Host-only Cython status. Workers unpack / pack ndarrays without loading.
+    # Host ingress/host Cython status. Formula workers load separately;
+    # one child is probed after the pool is up (see below).
     from plugin.scripting.payload_codec import get_cython_status_info, load_cython_accelerator
 
     load_cython_accelerator()
@@ -699,6 +700,13 @@ def run_server(settings: ComputeSettings) -> None:
 
     formula_pool = get_formula_pool(settings)
     check_dependencies(formula_pool)
+    # Probe one child once. Host line above is the ingress/host report;
+    # this worker line is list-grid egress load, not a substitute for it.
+    worker_cy_status = formula_pool.probe_cython_status()
+    if worker_cy_status:
+        log.info("Formula worker %s", worker_cy_status)
+    else:
+        log.info("Formula worker Cython Accelerator: Inactive (Pure Python; probe failed)")
 
     if settings.ocr_workers > 0:
         from compute_service.vision_pool import get_vision_pool
