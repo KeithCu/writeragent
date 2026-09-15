@@ -295,6 +295,10 @@ def _apply_proofreading_end_positions(a_res: Any, a_text: str, covered_end: int)
     a_res.nBehindEndOfSentencePosition = n_next
 
 
+# Cap rule-id sample so one result-window line stays greppable on long paragraphs.
+_RULE_ID_SAMPLE_MAX = 8
+
+
 def classify_errors_against_window(
     errors: Sequence[dict[str, Any]], n_start: int, n_behind: int
 ) -> dict[str, Any]:
@@ -331,6 +335,17 @@ def classify_errors_against_window(
     }
 
 
+def _rule_ids_sample(errors: Sequence[dict[str, Any]], *, limit: int = _RULE_ID_SAMPLE_MAX) -> str:
+    """CSV of rule ids (first ``limit``) for one-line result-window obs."""
+    if not errors:
+        return ""
+    ids = [str(e.get("rule_identifier") or "") for e in errors[:limit]]
+    extra = len(errors) - limit
+    if extra > 0:
+        return ",".join(ids) + f",+{extra}"
+    return ",".join(ids)
+
+
 def _obs_result_window(
     doc_id: str,
     loc_key: str,
@@ -340,24 +355,40 @@ def _obs_result_window(
     paragraph_span_count: int,
     active_span_count: int,
     uncached_active_count: int,
+    source: str,
+    skip: str = "",
 ) -> None:
+    """Emit final ``do_proofreading_result_window`` after cache / Harper / enqueue.
+
+    ``n_errors`` is the Python list we built; ``n_aErrors`` is ``len(a_res.aErrors)``
+    after UNO conversion. Grep ``stage='final'`` — this is not the pre-fast-path
+    cache snapshot (empty lint vs Linguistic paint drop).
+    """
     n_start = int(getattr(a_res, "nStartOfSentencePosition", 0) or 0)
     n_behind = int(getattr(a_res, "nBehindEndOfSentencePosition", 0) or 0)
     n_next = int(getattr(a_res, "nStartOfNextSentencePosition", 0) or 0)
     cls = classify_errors_against_window(combined_errors, n_start, n_behind)
-    grammar_obs(
-        "do_proofreading_result_window",
-        doc_id=doc_id,
-        grammar_bcp47=loc_key,
-        n_start=n_start,
-        n_behind=n_behind,
-        n_next=n_next,
-        n_errors=len(combined_errors),
-        paragraph_spans=paragraph_span_count,
-        active_spans=active_span_count,
-        uncached_active=uncached_active_count,
+    a_errors = getattr(a_res, "aErrors", ()) or ()
+    fields: dict[str, Any] = {
+        "doc_id": doc_id,
+        "grammar_bcp47": loc_key,
+        "n_start": n_start,
+        "n_behind": n_behind,
+        "n_next": n_next,
+        "n_errors": len(combined_errors),
+        "n_aErrors": len(a_errors),
+        "paragraph_spans": paragraph_span_count,
+        "active_spans": active_span_count,
+        "uncached_active": uncached_active_count,
+        "source": source,
+        "stage": "final",
         **cls,
-    )
+    }
+    if skip:
+        fields["skip"] = skip
+    if combined_errors:
+        fields["rule_ids"] = _rule_ids_sample(combined_errors)
+    grammar_obs("do_proofreading_result_window", **fields)
 
 
 def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ...]:
@@ -632,22 +663,15 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 paragraph_spans,
             )
             if not active_spans:
-                grammar_obs(
-                    "do_proofreading_result_window",
-                    doc_id=aDocumentIdentifier,
-                    grammar_bcp47=loc_key,
-                    n_start=nStartOfSentencePosition,
-                    n_behind=getattr(a_res, "nBehindEndOfSentencePosition", None),
-                    n_next=getattr(a_res, "nStartOfNextSentencePosition", None),
-                    n_errors=0,
-                    paragraph_spans=len(paragraph_spans),
-                    active_spans=0,
-                    uncached_active=0,
-                    in_window=0,
-                    before_window=0,
-                    after_window=0,
-                    straddle=0,
-                    error_spans="",
+                _obs_result_window(
+                    aDocumentIdentifier,
+                    loc_key,
+                    a_res,
+                    (),
+                    paragraph_span_count=len(paragraph_spans),
+                    active_span_count=0,
+                    uncached_active_count=0,
+                    source="no_active_spans",
                     skip="no_active_spans",
                 )
                 return a_res
@@ -688,6 +712,33 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 else reconcile_active_and_paragraph_spans(active_spans, uncached_cache_spans)
             )
 
+            # Result-window obs waits until Harper (or enqueue) has built the
+            # list we actually return. Emitting n_errors before _try_harper_fast_path
+            # looked like an empty lint when headed later dropped paint.
+            result_source = "cache"
+            if not uncached_active_spans:
+                grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(active_spans), error_count=len(combined_errors))
+            else:
+                cached_ct = len(active_spans) - len(uncached_active_spans)
+                miss_reason = "partial_miss" if cached_ct > 0 else "all_uncached"
+                grammar_obs(
+                    "do_proofreading_cache_partial_hit",
+                    doc_id=aDocumentIdentifier,
+                    grammar_bcp47=loc_key,
+                    cached_count=cached_ct,
+                    uncached_count=len(uncached_active_spans),
+                    cache_error_count=len(combined_errors),
+                    miss_reason=miss_reason,
+                )
+                if self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors):
+                    if combined_errors:
+                        a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
+                    result_source = "harper_fast"
+                else:
+                    self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans)
+                    log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
+                    result_source = "enqueue"
+
             _obs_result_window(
                 aDocumentIdentifier,
                 loc_key,
@@ -696,24 +747,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 paragraph_span_count=len(paragraph_spans),
                 active_span_count=len(active_spans),
                 uncached_active_count=len(uncached_active_spans),
+                source=result_source,
             )
-
-            if not uncached_active_spans:
-                grammar_obs("do_proofreading_cache_all_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, sentence_count=len(active_spans), error_count=len(combined_errors))
-                return a_res
-
-            cached_ct = len(active_spans) - len(uncached_active_spans)
-            miss_reason = "partial_miss" if cached_ct > 0 else "all_uncached"
-
-            grammar_obs("do_proofreading_cache_partial_hit", doc_id=aDocumentIdentifier, grammar_bcp47=loc_key, cached_count=cached_ct, uncached_count=len(uncached_active_spans), errors_returned=len(combined_errors), miss_reason=miss_reason)
-
-            if self._try_harper_fast_path(aDocumentIdentifier, loc_key, uncached_active_spans, combined_errors):
-                if combined_errors:
-                    a_res.aErrors = _cached_errors_to_uno_tuple(tuple(combined_errors), self.ctx, aDocumentIdentifier)
-                return a_res
-
-            self._enqueue_misses(aDocumentIdentifier, aText, loc_key, uncached_active_spans)
-            log.debug("[grammar] doProofreading: async miss returning partial or empty errors; sentence cache fills in background")
             return a_res
 
         except Exception as e:
