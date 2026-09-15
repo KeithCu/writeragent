@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any
+from typing import Any, cast
 
 from plugin.framework import event_bus
 
@@ -81,7 +81,7 @@ def _frame_from_controller(obj: Any) -> Any | None:
         controller = getter() if callable(getter) else None
         if controller is None:
             return None
-        return controller.getFrame()
+        return cast("Any", controller).getFrame()
     except Exception:
         return None
 
@@ -121,7 +121,7 @@ def _frame_from_existing_desktop_singleton(ctx: Any) -> Any | None:
         gvn = getattr(ctx, "getValueByName", None)
         if not callable(gvn):
             return None
-        desktop = gvn("/singletons/com.sun.star.frame.theDesktop")
+        desktop = cast("Any", gvn("/singletons/com.sun.star.frame.theDesktop"))
         if desktop is None:
             return None
         try:
