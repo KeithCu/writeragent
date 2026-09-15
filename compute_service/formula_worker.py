@@ -12,6 +12,7 @@ termination on hangs/timeouts without affecting the master HTTP server.
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
 import traceback
@@ -24,6 +25,7 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from compute_service.executor import execute_code
+from compute_service.json_forward import DATA_JSON_KEY, dump_worker_http_json
 from compute_service.worker_base import run_worker_stdio_loop
 from plugin.scripting.payload_codec import load_cython_accelerator
 
@@ -73,7 +75,30 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             "error": "Missing or invalid 'code' parameter",
         }
 
-    data = req.get("data")
+    # Host forwards raw JSON bytes; this is the single grid deserialize.
+    data_json = req.get(DATA_JSON_KEY)
+    if isinstance(data_json, (bytes, bytearray)):
+        try:
+            data = json.loads(bytes(data_json).decode("utf-8"))
+        except Exception as exc:
+            return {
+                "id": req_id,
+                "status": "error",
+                "code": "INVALID_DATA_JSON",
+                "error": f"Invalid data JSON: {exc}",
+            }
+    elif isinstance(data_json, str):
+        try:
+            data = json.loads(data_json)
+        except Exception as exc:
+            return {
+                "id": req_id,
+                "status": "error",
+                "code": "INVALID_DATA_JSON",
+                "error": f"Invalid data JSON: {exc}",
+            }
+    else:
+        data = req.get("data")
     session_id = req.get("session_id")
     mode = req.get("mode") or "isolated"
     timeout_sec = req.get("timeout_sec")
@@ -90,7 +115,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         )
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
-        return res
+        # Dump HTTP JSON once here; the host forwards these bytes as-is.
+        return dump_worker_http_json(res)
     except Exception as exc:
         return {
             "id": req_id,

@@ -2,7 +2,7 @@
 
 Back to the [core NumPy and Python guide](../enabling_numpy_in_libreoffice.md).
 
-**Production wire format:** length-prefixed **Pickle5** frames carrying `split_grid` envelopes (for qualifying 2D grids) or plain nested Python lists (small grids). There is no JSON on the runtime host↔venv path for data/results. JSON and Base64 variants exist only in the benchmark suite and a few legacy test helpers.
+**Production wire format (LibrePy desktop `=PY()`):** length-prefixed **Pickle5** frames carrying `split_grid` envelopes (for qualifying 2D grids) or plain nested Python lists (small grids). There is no JSON on the LibreOffice host↔venv path for data/results. The Collabora **compute service** is a different hop — HTTP multipart JSON blob-forward, documented in [`numpy-jailsafe.md`](numpy-jailsafe.md) and [`compute_service/README.md`](../../compute_service/README.md). JSON and Base64 variants also exist in the benchmark suite and a few legacy test helpers.
 
 This page is the technical reference for WriterAgent's **host↔venv compute bridge**: warm worker lifecycle, length-prefixed Pickle5 IPC, Linux pipe performance, wire formats (`split_grid`, `multi_data`), benchmarks, pipeline costs, and future optimization work. The [core guide](../enabling_numpy_in_libreoffice.md) covers ABI strategy, Settings, sandbox safety, trusted extension code, and `=PY()` author UX. Range/`data` behavior: [../calc/py-data-shapes.md](../calc/py-data-shapes.md).
 

@@ -123,7 +123,7 @@ flowchart LR
   end
   subgraph py [Python compute service]
     Http[stdlib HTTP]
-    Pack[lists to numpy / optional split_grid to workers]
+    Pack[forward data JSON bytes; worker loads once]
     Run[venv_sandbox curated worker]
   end
   Calc1 -.->|optional remote test| Http
@@ -140,17 +140,17 @@ flowchart LR
 |-------|----------|------|----------|
 | Kit `=PY()` stub | C++ (small) | Register formula; on recalc read ranges via existing LOKit/cell APIs into **plain nested values**; send request up; apply returned scalar/matrix to cells | `split_grid`, Pickle, NumPy, AST sandbox |
 | coolwsd | C++ (small) | Feature flag + URL config; `http::Session` POST/response routing (copy Online `AIChatSession` outbound HTTP) | Compute or dense packing logic |
-| Compute service | **Python** | Parse dumb JSON → numpy/lists; optional internal [`payload_codec`](../../plugin/scripting/payload_codec.py) if talking to a warm worker; run sandboxed code; return JSON result | Live inside kit jail |
+| Compute service | **Python** | Peel multipart `meta`; **forward raw `data` JSON bytes** to the formula worker (one `json.loads` there); worker dumps kit-safe JSON once; host forwards those result bytes | Live inside kit jail; no host `split_grid` |
 
-**Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. Dense optimization happens **inside** the Python service when bridging to workers, if at all. The kit never loads NumPy.
+**Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. The kit/compute hop is JSON both ways: multipart `data` bytes in, worker-dumped result JSON out. LibrePy desktop `=PY()` is a different process and still uses Pickle5 + `split_grid`. The kit never loads NumPy.
 
 ### Python compute service
 
-- Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `config.py`, `executor.py`, [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
+- Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `config.py`, `executor.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
 - Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
-- `POST /v1/execute[?session_id=...]` body: `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` → `{ "id?", "status", "result"|"error", "stdout?", "images?" }`.
-- **Dumb JSON egress only** toward kit/coolwsd: ndarrays and `split_grid` become nested lists; NaN/Inf → `null`; `json.dumps(..., allow_nan=False)`. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
+- `POST /v1/execute[?session_id=...]` **kit body:** `multipart/form-data` with `meta` (small JSON: `id?`, `code`, `timeout_ms?`, `mode?`, `init_script?`) and `data` (raw grid JSON bytes). Host forwards Part B; worker `json.loads` once. **Small/dev fallback:** a single JSON object `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }`. Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` is worker-dumped JSON that the host forwards without re-serializing a large result.
+- **Dumb JSON egress only** toward kit/coolwsd: the **worker** unpacks ndarrays to nested lists (NaN/Inf → `null`) and `json.dumps(..., allow_nan=False)` once. Plots go in top-level `images[]` (`format` + `data_b64`). The HTTP host does not run [`json_egress`](../../compute_service/json_egress.py) or `split_grid` pack.
 - `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
 - Reuse desktop sandbox: [`venv_sandbox`](../../plugin/scripting/venv/venv_sandbox.py), import whitelist, curated Docker image (pinned numpy/pandas/**Pillow**/…).

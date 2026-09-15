@@ -22,6 +22,7 @@ import time
 from typing import Any
 
 from compute_service.config import ComputeSettings
+from compute_service.json_forward import DATA_JSON_KEY, encode_data_json, merge_worker_response
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker
 
 log = logging.getLogger("compute_service.formula")
@@ -202,8 +203,15 @@ class FormulaProcessPool(BaseProcessPool):
         mode: str = "isolated",
         init_script: str | None = None,
         req_id: str | None = None,
+        data_json: bytes | None = None,
     ) -> dict[str, Any]:
-        """Execute formula code on an appropriate worker subprocess."""
+        """Execute formula code on an appropriate worker subprocess.
+
+        Compute is JSON-forward: the host sends raw ``data_json`` bytes (no
+        ``host_pack`` / ``split_grid``) and returns worker ``http_json`` bytes
+        for the HTTP path. LibrePy desktop ``=PY()`` is a different process
+        and still uses Pickle5 + ``split_grid``.
+        """
         if self._is_shutdown or not self.workers:
             return {
                 "id": req_id,
@@ -215,20 +223,16 @@ class FormulaProcessPool(BaseProcessPool):
         eff_timeout = float(timeout_sec or self.default_timeout_sec)
         deadline = time.monotonic() + eff_timeout
 
-        # Optimize large matrix data using zero-copy split_grid binary envelope
-        wire_data = data
-        if isinstance(data, list) and data:
-            from plugin.scripting.payload_codec import host_pack_data
-
-            try:
-                wire_data = host_pack_data(data, min_cells=1000)
-            except Exception:
-                wire_data = data
+        # Prefer caller-supplied blob (HTTP multipart Part B). Direct pool API
+        # callers may still pass a Python ``data`` value; encode once here.
+        wire_data_json = data_json
+        if wire_data_json is None and data is not None:
+            wire_data_json = encode_data_json(data)
 
         payload = {
             "id": req_id,
             "code": code,
-            "data": wire_data,
+            DATA_JSON_KEY: wire_data_json,
             "session_id": session_id,
             "mode": mode,
             "timeout_sec": int(eff_timeout),
@@ -271,9 +275,7 @@ class FormulaProcessPool(BaseProcessPool):
 
         try:
             res = leased.execute(payload, timeout_sec=_remaining_sec(deadline))
-            if req_id is not None and isinstance(res, dict):
-                res["id"] = req_id
-            return res
+            return merge_worker_response(res, req_id)
         finally:
             if mode == "shared" and session_id:
                 with self._cond:

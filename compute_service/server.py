@@ -30,6 +30,12 @@ if _PROJECT_ROOT not in sys.path:
 
 from compute_service import __version__
 from compute_service.config import ComputeSettings, ConfigError, load_settings, ocr_path_is_allowed
+from compute_service.json_forward import (
+    ExecuteRequestParseError,
+    ExecuteRequestParts,
+    extract_http_json,
+    parse_execute_request,
+)
 
 log = logging.getLogger("compute_service")
 
@@ -71,14 +77,14 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
 
 
-def _start_json(
+def _start_raw_json(
     start_response: Any,
     status: str,
-    payload: dict[str, Any],
+    body: bytes,
     *,
     extra_headers: list[tuple[str, str]] | None = None,
 ) -> list[bytes]:
-    body = _json_bytes(payload)
+    """Write already-serialized JSON bytes (worker egress). Do not re-dump."""
     headers = [
         ("Content-Type", "application/json"),
         ("Content-Length", str(len(body))),
@@ -89,12 +95,27 @@ def _start_json(
     return [body]
 
 
-def _read_request_json(
+def _start_json(
+    start_response: Any,
+    status: str,
+    payload: dict[str, Any],
+    *,
+    extra_headers: list[tuple[str, str]] | None = None,
+) -> list[bytes]:
+    return _start_raw_json(
+        start_response,
+        status,
+        _json_bytes(payload),
+        extra_headers=extra_headers,
+    )
+
+
+def _read_raw_body(
     environ: dict[str, Any],
     settings: ComputeSettings,
     start_response: Any,
-) -> tuple[dict[str, Any] | None, list[bytes] | None]:
-    """Parse a POST JSON object. Returns ``(payload, None)`` or ``(None, error_body)``."""
+) -> tuple[bytes | None, list[bytes] | None]:
+    """Read a bounded POST body. Returns ``(body, None)`` or ``(None, error_body)``."""
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
         return None, _start_json(
@@ -138,6 +159,19 @@ def _read_request_json(
             "400 Bad Request",
             {"status": "error", "error": "Request body truncated"},
         )
+    return body, None
+
+
+def _read_request_json(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[dict[str, Any] | None, list[bytes] | None]:
+    """Parse a POST JSON object. Returns ``(payload, None)`` or ``(None, error_body)``."""
+    body, err_resp = _read_raw_body(environ, settings, start_response)
+    if err_resp is not None:
+        return None, err_resp
+    assert body is not None
     try:
         req_data = json.loads(body.decode("utf-8"))
     except Exception:
@@ -154,6 +188,27 @@ def _read_request_json(
             {"status": "error", "error": "JSON body must be an object"},
         )
     return req_data, None
+
+
+def _read_execute_request(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[ExecuteRequestParts | None, list[bytes] | None]:
+    """Peel ``/v1/execute``: multipart kit body or JSON-object fallback."""
+    body, err_resp = _read_raw_body(environ, settings, start_response)
+    if err_resp is not None:
+        return None, err_resp
+    assert body is not None
+    content_type = environ.get("CONTENT_TYPE") or ""
+    try:
+        return parse_execute_request(body, content_type), None
+    except ExecuteRequestParseError as exc:
+        return None, _start_json(
+            start_response,
+            "400 Bad Request",
+            {"status": "error", "error": str(exc) or "Invalid request body"},
+        )
 
 
 def authenticate_request(
@@ -247,10 +302,12 @@ def create_wsgi_app(
                     extra_headers=[("WWW-Authenticate", "Bearer")],
                 )
 
-            req_data, err_resp = _read_request_json(environ, settings, start_response)
+            parts, err_resp = _read_execute_request(environ, settings, start_response)
             if err_resp is not None:
                 return err_resp
-            assert req_data is not None
+            assert parts is not None
+            req_data = parts.meta
+            data_json = parts.data_json
 
             req_id = req_data.get("id")
 
@@ -274,7 +331,9 @@ def create_wsgi_app(
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
 
-            if "session_id" in req_data:
+            # JSON fallback keeps the historic rule (session_id is a query param
+            # for L7 affinity). Multipart meta may include session_id; URL wins.
+            if not parts.multipart and "session_id" in req_data:
                 err_body = {
                     "status": "error",
                     "error": "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.",
@@ -287,8 +346,11 @@ def create_wsgi_app(
             query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
             session_ids = query_params.get("session_id")
             session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
+            if session_id is None and parts.multipart:
+                meta_sid = req_data.get("session_id")
+                if isinstance(meta_sid, str) and meta_sid.strip():
+                    session_id = meta_sid.strip()
 
-            data = req_data.get("data")
             mode = req_data.get("mode") or "isolated"
             if mode not in ("isolated", "shared"):
                 mode = "isolated"
@@ -346,7 +408,7 @@ def create_wsgi_app(
             try:
                 result_payload = run_execute(
                     code=code,
-                    data=data,
+                    data_json=data_json,
                     session_id=sid,
                     timeout_sec=timeout_sec,
                     mode=mode,
@@ -361,6 +423,11 @@ def create_wsgi_app(
                     status,
                     duration_ms,
                 )
+
+                http_json = extract_http_json(result_payload if isinstance(result_payload, dict) else None)
+                if http_json is not None:
+                    # Worker already dumped; do not json.dumps the large result.
+                    return _start_raw_json(start_response, "200 OK", http_json)
 
                 if req_id is not None and isinstance(result_payload, dict):
                     result_payload["id"] = req_id

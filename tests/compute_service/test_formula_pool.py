@@ -662,3 +662,26 @@ class TestFormulaHttpEndpoint:
         )
         assert status2 == 200
         assert body2.get("result") == 50
+
+    def test_multipart_data_bytes_execute(self, formula_server: str) -> None:
+        from compute_service.json_forward import encode_multipart_execute
+
+        content_type, body = encode_multipart_execute(
+            {"id": "mp-1", "code": "import numpy as np\nresult = float(np.sum(data))"},
+            b"[[1,2,3],[4,5,6]]",
+        )
+        req = urllib.request.Request(
+            f"{formula_server}/v1/execute",
+            data=body,
+            headers={
+                "Content-Type": content_type,
+                "Authorization": "Bearer formula-secret",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
+            assert resp.status == 200
+            parsed = json.loads(resp.read().decode("utf-8"))
+        assert parsed.get("id") == "mp-1"
+        assert parsed.get("status") == "ok"
+        assert parsed.get("result") == 21.0
