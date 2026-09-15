@@ -1119,10 +1119,12 @@ def test_invalidate_host_cython_accelerator_clears_globals_and_modules() -> None
 def test_host_cython_status_line_report_only_by_default() -> None:
     prev_2d = payload_codec.fast_flatten_grid_2d
     prev_loc = payload_codec._CYTHON_ACCELERATOR_LOCATION
+    prev_reason = payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON
     try:
         with patch.object(payload_codec, "reload_host_cython_accelerator") as mock_reload:
             payload_codec.fast_flatten_grid_2d = None
             payload_codec._CYTHON_ACCELERATOR_LOCATION = None
+            payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = None
             line = payload_codec.host_cython_status_line()
             mock_reload.assert_not_called()
             assert line == "Cython Accelerator: Inactive (Pure Python)"
@@ -1134,6 +1136,7 @@ def test_host_cython_status_line_report_only_by_default() -> None:
     finally:
         payload_codec.fast_flatten_grid_2d = prev_2d
         payload_codec._CYTHON_ACCELERATOR_LOCATION = prev_loc
+        payload_codec._CYTHON_ACCELERATOR_INACTIVE_REASON = prev_reason
 
 
 @pytest.mark.parametrize(

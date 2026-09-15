@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from hypothesis import given, settings, example, assume, HealthCheck
 
-from plugin.scripting.payload_codec import fast_flatten_grid_2d
+from plugin.scripting.payload_codec import load_cython_accelerator
 from tests.scripting.payload_codec_test_support import MIXED_WITH_ZIP
 from tests.scripting.serialization_ab_support import (
     VENV_CODE_ECHO,
@@ -33,6 +33,11 @@ from tests.scripting.serialization_ab_support import (
     numeric_rectangular_grid,
     hypothesis_grid_ok,
 )
+
+# payload_codec no longer loads Cython at import (compute workers import unpack
+# helpers). Parity tests need the host accelerator bound before skipif.
+load_cython_accelerator()
+from plugin.scripting.payload_codec import fast_flatten_grid_2d  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     fast_flatten_grid_2d is None,
