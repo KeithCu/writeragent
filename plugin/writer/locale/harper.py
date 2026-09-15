@@ -40,6 +40,10 @@ _INIT_PARAMS = {"processId": os.getpid(), "rootUri": "file:///tmp", "capabilitie
 _LINT_BUDGET_SEC = 15.0
 _INIT_BUDGET_SEC = 5.0
 
+# LibreHarper often logs at WARN only. One line when lint+normalize exceeds
+# this budget so slowness shows up in writeragent_debug.log; faster calls stay quiet.
+HARPER_SLOW_RESULT_MS = 500
+
 _LSP_POSITION_CODEC = PositionCodec("utf-16")
 
 _BCP47_TO_DIALECT: dict[str, str] = {"en-GB": "British", "en-AU": "Australian", "en-CA": "Canadian", "en-IN": "Indian"}
@@ -527,6 +531,32 @@ def normalize_spaces_1to1(text: str) -> str:
     return "".join(" " if ch.isspace() and ch not in "\r\n" else ch for ch in text)
 
 
+def warn_if_harper_result_slow(
+    elapsed_ms: int,
+    *,
+    text_len: int,
+    error_count: int,
+    cache: str = "miss",
+) -> bool:
+    """Log one WARN when Harper lint+normalize took more than 500ms.
+
+    Returns True if a warning was emitted. Sub-threshold calls are silent so
+    the linguistic hot path does not spam. ``cache`` is ``miss`` when we
+    actually linted (the usual path) or ``hit`` if a caller timed a cache
+    return — cheap to pass when known.
+    """
+    if elapsed_ms <= HARPER_SLOW_RESULT_MS:
+        return False
+    log.warning(
+        "[harper] slow result elapsed_ms=%s text_len=%s errors=%s cache=%s",
+        elapsed_ms,
+        text_len,
+        error_count,
+        cache,
+    )
+    return True
+
+
 def _diagnostics_to_errors(text: str, results: list) -> dict:
     errors = []
     for item in results:
@@ -571,18 +601,33 @@ def _lint_with_client(
     restart: bool = True,
 ) -> dict:
     """Caller holds ``_HARPER_LOCK``. ``restart=False`` avoids ``Popen`` on the UNO thread."""
+    started = time.monotonic()
     lint_text = normalize_spaces_1to1(text)
+    error_count = 0
     try:
-        results = client.lint(lint_text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
-    except Exception:
-        log.exception("[harper] Linting error or connection lost, restarting client")
-        client.close()
-        if not restart:
-            raise
-        restarted = HarperLSClient(client.binary_path, user_config_dir=client.user_config_dir, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
-        _HARPER_CLIENT_CACHE[client.binary_path] = restarted
-        results = restarted.lint(lint_text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
-    return _diagnostics_to_errors(text, results)
+        try:
+            results = client.lint(lint_text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+        except Exception:
+            log.exception("[harper] Linting error or connection lost, restarting client")
+            client.close()
+            if not restart:
+                raise
+            restarted = HarperLSClient(client.binary_path, user_config_dir=client.user_config_dir, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+            _HARPER_CLIENT_CACHE[client.binary_path] = restarted
+            results = restarted.lint(lint_text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+        out = _diagnostics_to_errors(text, results)
+        error_count = len(out.get("errors") or [])
+        return out
+    finally:
+        # Wall time of lint + normalize into errors. WARN only when this
+        # result is slow; doProofreading calls this on the linguistic thread.
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        warn_if_harper_result_slow(
+            elapsed_ms,
+            text_len=len(text),
+            error_count=error_count,
+            cache="miss",
+        )
 
 
 def run_harper_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> dict:

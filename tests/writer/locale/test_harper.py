@@ -15,6 +15,7 @@ import pytest
 
 from plugin.contrib.lsp.json_rpc_framing import read_exactly
 from plugin.writer.locale.harper import (
+    HARPER_SLOW_RESULT_MS,
     HarperLSClient,
     HarperRuntimeState,
     _harper_lsp_settings,
@@ -26,6 +27,7 @@ from plugin.writer.locale.harper import (
     run_harper_check,
     run_harper_lint,
     shutdown_harper_runtime,
+    warn_if_harper_result_slow,
 )
 from plugin.writer.locale.harper_binary import (
     HarperReleaseAsset,
@@ -1278,3 +1280,50 @@ def test_shutdown_harper_runtime_closes_cached_clients() -> None:
     mock_client.close.assert_called_once()
     assert harper_module._HARPER_CLIENT_CACHE == {}
     assert harper_module._HARPER_STATE is HarperRuntimeState.IDLE
+
+
+def test_warn_if_harper_result_slow_silent_at_and_below_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="writeragent.grammar")
+    assert HARPER_SLOW_RESULT_MS == 500
+    assert warn_if_harper_result_slow(500, text_len=40, error_count=2) is False
+    assert warn_if_harper_result_slow(0, text_len=40, error_count=0) is False
+    assert not any("slow result" in r.message for r in caplog.records)
+
+
+def test_warn_if_harper_result_slow_warns_above_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.WARNING, logger="writeragent.grammar")
+    assert warn_if_harper_result_slow(501, text_len=87, error_count=3, cache="miss") is True
+    records = [r for r in caplog.records if "slow result" in r.message]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert "elapsed_ms=501" in records[0].message
+    assert "text_len=87" in records[0].message
+    assert "errors=3" in records[0].message
+    assert "cache=miss" in records[0].message
+
+
+def test_lint_with_client_warns_when_lint_exceeds_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    mock_client = MagicMock()
+    mock_client.lint.return_value = []
+    caplog.set_level(logging.WARNING, logger="writeragent.grammar")
+    times = iter((10.0, 10.75))
+    with patch("plugin.writer.locale.harper.time.monotonic", side_effect=lambda: next(times)):
+        out = harper_module._lint_with_client(mock_client, "Hello world.", "en-US")
+    assert out == {"errors": []}
+    records = [r for r in caplog.records if "slow result" in r.message]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert "elapsed_ms=750" in records[0].message
+    assert "text_len=12" in records[0].message
+    assert "errors=0" in records[0].message
+    assert "cache=miss" in records[0].message
+
+
+def test_lint_with_client_silent_when_lint_is_fast(caplog: pytest.LogCaptureFixture) -> None:
+    mock_client = MagicMock()
+    mock_client.lint.return_value = []
+    caplog.set_level(logging.WARNING, logger="writeragent.grammar")
+    times = iter((10.0, 10.1))
+    with patch("plugin.writer.locale.harper.time.monotonic", side_effect=lambda: next(times)):
+        harper_module._lint_with_client(mock_client, "Hello world.", "en-US")
+    assert not any("slow result" in r.message for r in caplog.records)
