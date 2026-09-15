@@ -21,6 +21,44 @@ from compute_service.executor import clamp_timeout_sec, execute_code, timeout_ms
 from compute_service.json_egress import sanitize_for_strict_json, to_dumb_json_value
 from compute_service.server import create_wsgi_app
 from compute_service.config import ComputeSettings, load_settings
+
+
+def _wsgi_post(
+    app,
+    body: bytes | None,
+    *,
+    path: str = "/v1/session/reset",
+    query: str = "",
+    headers: dict[str, str] | None = None,
+) -> tuple[str, list[tuple[str, str]], dict]:
+    status_holder: list[str] = []
+    header_holder: list[tuple[str, str]] = []
+
+    def start_response(status: str, resp_headers: list) -> None:
+        status_holder.append(status)
+        header_holder.extend(resp_headers)
+
+    payload = b"" if body is None else body
+    environ: dict = {
+        "PATH_INFO": path,
+        "REQUEST_METHOD": "POST",
+        "QUERY_STRING": query,
+        "wsgi.input": io.BytesIO(payload),
+    }
+    if body is None:
+        environ["CONTENT_LENGTH"] = ""
+    else:
+        environ["CONTENT_LENGTH"] = str(len(payload))
+    if headers:
+        for key, value in headers.items():
+            env_key = "HTTP_" + key.upper().replace("-", "_")
+            if key.lower() == "content-type":
+                environ["CONTENT_TYPE"] = value
+            else:
+                environ[env_key] = value
+    out = b"".join(app(environ, start_response))
+    parsed = json.loads(out.decode("utf-8")) if out else {}
+    return status_holder[0], header_holder, parsed
 from plugin.version import EXTENSION_VERSION
 
 
@@ -298,6 +336,36 @@ class TestComputeHttp:
         assert body.get("status") == "error"
         assert "query parameter" in body.get("error", "")
 
+    def test_session_reset_clears_shared_names(self, compute_url: str) -> None:
+        """After shared executes, reset drops the kernel so later shared code cannot see prior names."""
+        sid = "http-reset-session-1"
+        r1 = _post_execute(
+            compute_url,
+            {"code": "prior_name = 7\nresult = prior_name", "mode": "shared"},
+            path=f"?session_id={sid}",
+        )
+        assert r1["status"] == "ok" and r1["result"] == 7
+
+        req = urllib.request.Request(
+            f"{compute_url}/v1/session/reset?session_id={sid}",
+            data=json.dumps({"id": "reset-corr"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            assert resp.status == 200
+            reset_body = json.loads(resp.read().decode("utf-8"))
+        assert reset_body.get("status") == "ok"
+        assert reset_body.get("id") == "reset-corr"
+
+        r2 = _post_execute(
+            compute_url,
+            {"code": "result = prior_name", "mode": "shared"},
+            path=f"?session_id={sid}",
+        )
+        assert r2["status"] == "error"
+        assert "prior_name" in r2.get("error", "") or "NameError" in r2.get("error", "")
+
     def test_shared_mode_missing_session_id_returns_400(self, compute_url: str) -> None:
         req = urllib.request.Request(
             f"{compute_url}/v1/execute",
@@ -527,22 +595,29 @@ class TestBearerAuthHttp:
             executed.append(kwargs["code"])
             return {"status": "ok", "result": 1, "stdout": ""}
 
+        reset_calls: list[str] = []
+
+        def fake_reset(session_id: str, **_kw):
+            reset_calls.append(session_id)
+            return {"status": "ok"}
+
         settings = ComputeSettings(host="127.0.0.1", port=port, api_key="correct-secret")
-        app = create_wsgi_app(settings, execute_fn=fake_execute)
+        app = create_wsgi_app(settings, execute_fn=fake_execute, reset_fn=fake_reset)
         server = WSGIDualStackServer("127.0.0.1", port)
         server.set_app(app)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         time.sleep(0.15)
-        yield f"http://127.0.0.1:{port}", executed
+        yield f"http://127.0.0.1:{port}", executed, reset_calls
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
 
     @pytest.fixture(autouse=True)
     def _clear_executed(self, auth_server):
-        _url, executed = auth_server
+        _url, executed, reset_calls = auth_server
         executed.clear()
+        reset_calls.clear()
         yield
 
     def _post(self, url: str, headers: dict[str, str] | None = None) -> tuple[int, dict]:
@@ -560,7 +635,7 @@ class TestBearerAuthHttp:
             return err.code, json.loads(body) if body else {}
 
     def test_health_public(self, auth_server) -> None:
-        url, executed = auth_server
+        url, executed, reset_calls = auth_server
         with urllib.request.urlopen(f"{url}/health") as resp:
             assert resp.status == 200
             data = json.loads(resp.read().decode("utf-8"))
@@ -568,35 +643,36 @@ class TestBearerAuthHttp:
             assert data["service"] == "python-compute"
             assert data["version"] == EXTENSION_VERSION
         assert executed == []
+        assert reset_calls == []
 
     def test_correct_bearer(self, auth_server) -> None:
-        url, executed = auth_server
+        url, executed, _reset_calls = auth_server
         status, body = self._post(url, {"Authorization": "Bearer correct-secret"})
         assert status == 200
         assert body["result"] == 1
         assert executed == ["result = 1"]
 
     def test_missing_bearer(self, auth_server) -> None:
-        url, executed = auth_server
+        url, executed, _reset_calls = auth_server
         status, body = self._post(url)
         assert status == 401
         assert body.get("status") == "error"
         assert executed == []
 
     def test_wrong_bearer(self, auth_server) -> None:
-        url, executed = auth_server
+        url, executed, _reset_calls = auth_server
         status, body = self._post(url, {"Authorization": "Bearer wrong"})
         assert status == 401
         assert executed == []
 
     def test_malformed_bearer(self, auth_server) -> None:
-        url, executed = auth_server
+        url, executed, _reset_calls = auth_server
         status, _body = self._post(url, {"Authorization": "bearer correct-secret"})
         assert status == 401
         assert executed == []
 
     def test_www_authenticate_header(self, auth_server) -> None:
-        url, _ = auth_server
+        url, _executed, _reset_calls = auth_server
         req = urllib.request.Request(
             f"{url}/v1/execute",
             data=b'{"code":"result=1"}',
@@ -610,12 +686,49 @@ class TestBearerAuthHttp:
     def test_hmac_rejects_tokens_of_different_length(self, auth_server) -> None:
         """Removing the len() pre-check means compare_digest is always called.
         Tokens of any length that don't match must still be rejected with 401."""
-        url, executed = auth_server
+        url, executed, _reset_calls = auth_server
         # shorter, longer, empty — all must be rejected
         for bad_token in ["x", "correct-secret-plus-extra", ""]:
             status, body = self._post(url, {"Authorization": f"Bearer {bad_token}"})
             assert status == 401, f"Expected 401 for token {bad_token!r}, got {status}"
             assert body.get("status") == "error"
+        assert executed == []
+
+    def _post_reset(self, url: str, headers: dict[str, str] | None = None) -> tuple[int, dict]:
+        req = urllib.request.Request(
+            f"{url}/v1/session/reset?session_id=auth-reset-1",
+            data=b"{}",
+            headers={"Content-Type": "application/json", **(headers or {})},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req) as resp:
+                return resp.status, json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as err:
+            body = err.read().decode("utf-8")
+            return err.code, json.loads(body) if body else {}
+
+    def test_reset_correct_bearer(self, auth_server) -> None:
+        url, executed, reset_calls = auth_server
+        status, body = self._post_reset(url, {"Authorization": "Bearer correct-secret"})
+        assert status == 200
+        assert body.get("status") == "ok"
+        assert reset_calls == ["auth-reset-1"]
+        assert executed == []
+
+    def test_reset_missing_bearer(self, auth_server) -> None:
+        url, executed, reset_calls = auth_server
+        status, body = self._post_reset(url)
+        assert status == 401
+        assert body.get("status") == "error"
+        assert reset_calls == []
+        assert executed == []
+
+    def test_reset_wrong_bearer(self, auth_server) -> None:
+        url, executed, reset_calls = auth_server
+        status, body = self._post_reset(url, {"Authorization": "Bearer wrong"})
+        assert status == 401
+        assert reset_calls == []
         assert executed == []
 
 
@@ -690,6 +803,119 @@ class TestRequestBodyLimits:
         assert parsed["status"] == "error"
         assert parsed.get("id") == "v-x"
         assert "vision boom" in parsed["error"]
+
+
+class TestSessionResetHttp:
+    def test_missing_session_id_is_400(self) -> None:
+        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
+        status, _headers, body = _wsgi_post(app, b"{}", query="")
+        assert status.startswith("400")
+        assert body.get("status") == "error"
+        assert "session_id" in body.get("error", "")
+
+    def test_empty_session_id_is_400(self) -> None:
+        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
+        status, _headers, body = _wsgi_post(app, b'{"id": "empty-sid"}', query="session_id=")
+        assert status.startswith("400")
+        assert body.get("id") == "empty-sid"
+        assert body.get("status") == "error"
+
+    def test_whitespace_session_id_is_400(self) -> None:
+        app = create_wsgi_app(ComputeSettings(), reset_fn=lambda sid, **_kw: {"status": "ok"})
+        status, _headers, body = _wsgi_post(app, b"{}", query="session_id=%20")
+        assert status.startswith("400")
+        assert body.get("status") == "error"
+
+    def test_session_id_in_body_is_400(self) -> None:
+        reset_calls: list[str] = []
+
+        def fake_reset(session_id: str, **_kw):
+            reset_calls.append(session_id)
+            return {"status": "ok"}
+
+        app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "body-sid", "session_id": "nope"}).encode("utf-8"),
+            query="session_id=ok-query",
+        )
+        assert status.startswith("400")
+        assert body.get("id") == "body-sid"
+        assert "query parameter" in body.get("error", "")
+        assert reset_calls == []
+
+    def test_unknown_session_is_200_ok(self) -> None:
+        seen: list[str] = []
+
+        def fake_reset(session_id: str, **_kw):
+            seen.append(session_id)
+            return {"status": "ok"}
+
+        app = create_wsgi_app(ComputeSettings(), reset_fn=fake_reset)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "unk-1"}).encode("utf-8"),
+            query="session_id=never-seen",
+        )
+        assert status.startswith("200")
+        assert body == {"id": "unk-1", "status": "ok"}
+        assert seen == ["never-seen"]
+
+    def test_empty_body_is_ok(self) -> None:
+        app = create_wsgi_app(
+            ComputeSettings(),
+            reset_fn=lambda sid, **_kw: {"status": "ok"},
+        )
+        status, _headers, body = _wsgi_post(app, b"", query="session_id=empty-body")
+        assert status.startswith("200")
+        assert body == {"status": "ok"}
+
+    def test_missing_content_length_is_ok(self) -> None:
+        app = create_wsgi_app(
+            ComputeSettings(),
+            reset_fn=lambda sid, **_kw: {"status": "ok"},
+        )
+        status, _headers, body = _wsgi_post(app, None, query="session_id=no-cl")
+        assert status.startswith("200")
+        assert body == {"status": "ok"}
+
+    def test_lease_failure_is_503(self) -> None:
+        def busy_reset(_session_id: str, **_kw):
+            return {
+                "status": "error",
+                "code": "WORKER_POOL_BUSY",
+                "error": "Could not lease worker to reset session.",
+            }
+
+        app = create_wsgi_app(ComputeSettings(), reset_fn=busy_reset)
+        status, _headers, body = _wsgi_post(
+            app,
+            json.dumps({"id": "busy-1"}).encode("utf-8"),
+            query="session_id=busy-sid",
+        )
+        assert status.startswith("503")
+        assert body.get("id") == "busy-1"
+        assert body.get("status") == "error"
+        assert body.get("code") == "WORKER_POOL_BUSY"
+
+    def test_auth_required_matches_execute(self) -> None:
+        app = create_wsgi_app(
+            ComputeSettings(api_key="reset-secret"),
+            reset_fn=lambda sid, **_kw: {"status": "ok"},
+        )
+        status, headers, body = _wsgi_post(app, b"{}", query="session_id=authed")
+        assert status.startswith("401")
+        assert body.get("status") == "error"
+        assert ("WWW-Authenticate", "Bearer") in headers
+
+        status_ok, _headers_ok, body_ok = _wsgi_post(
+            app,
+            b"{}",
+            query="session_id=authed",
+            headers={"Authorization": "Bearer reset-secret"},
+        )
+        assert status_ok.startswith("200")
+        assert body_ok.get("status") == "ok"
 
 
 class TestImportBoundary:

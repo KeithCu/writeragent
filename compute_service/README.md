@@ -20,6 +20,7 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"<version>"}` (no auth required)
 - `POST /v1/execute[?session_id=<id>]` — `application/json` (peel one object) **or** `multipart/form-data` (`meta` + raw `data` part). Same execute fields; same egress. Peel is compatibility; multipart is the preferred wire.
   (`init_script` runs **once** per worker: shared uses `{session_id}:init`, isolated uses a hash of the script. Later cells are seeded from that namespace; a changed script replaces the snapshot.)
+- `POST /v1/session/reset?session_id=<id>` — optional `{ "id?" }` → `{ "id?", "status": "ok" }`. Query-only `session_id` (same L7 sticky reason as execute). Idempotent: unknown / already-gone is still `ok`. Caller is coolwsd on DocumentBroker destroy / last view leave (service-side only today; Online still hard-codes `isolated`).
 - Docker (hardened run flags): `./compute_service/start-docker.sh` — see **Production / Collabora Online** below.
 
 ---
@@ -94,7 +95,26 @@ Both formats work **now**. Dispatch is strictly `Content-Type`.
 
 **Unchanged either way:** worker dumps kit JSON once (`result_json`); the HTTP host forwards those bytes (no host re-`dumps` of a large result). LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways and never uses this HTTP hop.
 
-### 3. Vision & OCR Endpoint (`POST /v1/vision`)
+### 3. Session Reset Endpoint (`POST /v1/session/reset?session_id=<id>`)
+
+Drops the shared sandbox and init companion for one workbook kernel. Reuses `FormulaPool.reset_session` → worker `action: reset_session` → LibrePy `reset_sandbox_session` (no second reset path).
+
+Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This endpoint lands ahead of Online shared-kernel work; Collabora Online still hard-codes `mode: isolated` and does not call reset yet.
+
+- **Sticky routing:** `session_id` is **URL query only** (`POST /v1/session/reset?session_id=<id>`), same L7 reason as `/v1/execute` — the request must hit the host that owns the kernel. Reject if `session_id` is only in the JSON body (or present in the body at all).
+- **Request body** (optional; empty body is fine):
+  ```json
+  { "id": "corr-1" }
+  ```
+  `id` is a correlation echo only. It is not a session identifier.
+- **Success (`200 OK`)** — **idempotent**: unknown / already-gone still `ok`:
+  ```json
+  { "id": "corr-1", "status": "ok" }
+  ```
+- **Errors:** `400` missing/empty query `session_id` or `session_id` in the JSON body; `401` auth (same Bearer as execute); worker lease failure → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
+- Idle TTL (`shared_kernel_ttl_sec`) remains the safety net if reset is missed. Do not remove it.
+
+### 4. Vision & OCR Endpoint (`POST /v1/vision`)
 
 Evaluates heavy document/image OCR and layout structure extraction in a dedicated, isolated worker subprocess pool. Supports both in-memory image buffers (`image_b64`) and server-local/mounted filesystem paths (`file_path`).
 
@@ -140,16 +160,16 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
   }
   ```
 
-### 4. HTTP Status Codes & Error Semantics
+### 5. HTTP Status Codes & Error Semantics
 
 | HTTP Status | Condition | Response Payload Shape |
 | :--- | :--- | :--- |
-| **`200 OK`** | Evaluation completed (success or runtime evaluation error) | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
-| **`400 Bad Request`** | Malformed JSON, missing `code`, `code` longer than `max_code_chars` (`CODE_TOO_LARGE`), or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
-| **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
+| **`200 OK`** | Evaluation completed (success or runtime evaluation error); session reset succeeded (including unknown / already-gone) | `{"id"?: "...", "status": "ok"\|"error", "result"\|"error": ...}` |
+| **`400 Bad Request`** | Malformed JSON, missing `code`, `code` longer than `max_code_chars` (`CODE_TOO_LARGE`), missing/empty reset `session_id`, `session_id` in the JSON body, or vision `file_path` not under `ocr.allow_paths` (`FILE_PATH_DENIED`) | `{"id"?: "...", "status": "error", "code"?: "...", "error": "..."}` |
+| **`401 Unauthorized`** | Missing or incorrect `Authorization: Bearer <secret>` on `/v1/execute`, `/v1/session/reset`, or `/v1/vision` | `{"status": "error", "error": "Unauthorized"}` + `WWW-Authenticate: Bearer` |
 | **`404 Not Found`** | Unknown path or unsupported HTTP method | Plaintext `Not Found` |
 | **`413 Payload Too Large`**| Request body exceeds `max_body_bytes` | `{"status": "error", "error": "Request body too large"}` |
-| **`503 Service Unavailable`** | Process or per-session in-flight cap (`INFLIGHT_LIMIT` / `SESSION_INFLIGHT_LIMIT`). coolwsd may map this to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
+| **`503 Service Unavailable`** | Process or per-session in-flight cap (`INFLIGHT_LIMIT` / `SESSION_INFLIGHT_LIMIT`), or `/v1/session/reset` worker lease failure (`WORKER_POOL_BUSY`). coolwsd may map this to `#N/A`. | `{"id"?: "...", "status": "error", "code": "...", "error": "..."}` |
 | **`500 Internal Server Error`**| Unhandled server exception or JSON encoding failure | `{"id"?: "...", "status": "error", "error": "..."}` |
 
 ---
@@ -169,8 +189,8 @@ There is **no** `--api-key` CLI flag (secrets in argv are visible in `ps`).
 
 Rules:
 
-- **No key configured** → `/v1/execute` is open (insecure; fine for local/dev/test).
-- **Key configured** → `/v1/execute` requires an exact `Bearer <token>` match
+- **No key configured** → `/v1/execute` and `/v1/session/reset` are open (insecure; fine for local/dev/test).
+- **Key configured** → `/v1/execute` and `/v1/session/reset` require an exact `Bearer <token>` match
   (`hmac.compare_digest`). Failures return HTTP 401 + `WWW-Authenticate: Bearer`.
 
 Match coolwsd (`coolwsd.xml`):
@@ -239,7 +259,7 @@ docker run --read-only --tmpfs /tmp:rw,size=64m,mode=1777 \
   python-compute
 ```
 
-Shared `mode=shared` **must** use a per-document `session_id` query parameter (`?session_id=<id>`) (not a user id). Idle kernels are reset after `shared_kernel_ttl_sec`.
+Shared `mode=shared` **must** use a per-document `session_id` query parameter (`?session_id=<id>`) (not a user id). coolwsd should `POST /v1/session/reset?session_id=<id>` on DocumentBroker destroy / last view leave (caller not shipped; Online still hard-codes isolated). Idle TTL (`shared_kernel_ttl_sec`) remains the safety net if reset is missed.
 
 ---
 

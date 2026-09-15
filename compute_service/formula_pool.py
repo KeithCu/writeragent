@@ -141,7 +141,12 @@ class FormulaProcessPool(BaseProcessPool):
         return worker.tasks_executed >= self.max_tasks
 
     def reset_session(self, session_id: str, timeout_sec: float = 5.0) -> dict[str, Any]:
-        """Reset shared sandbox session and update active session tracking."""
+        """Drop the shared sandbox + init companion for *session_id*.
+
+        HTTP ``POST /v1/session/reset`` calls this (do not add a second reset
+        path). Unknown / already-gone ids are idempotent ``ok``. TTL eviction
+        in ``_evict_stale_sessions`` stays the safety net if reset is missed.
+        """
         with self._cond:
             self._session_last_activity.pop(session_id, None)
             worker = self._active_sessions.pop(session_id, None)
@@ -155,7 +160,12 @@ class FormulaProcessPool(BaseProcessPool):
 
         leased = self.lease_specific(worker, timeout_sec=timeout_sec)
         if leased is None:
-            return {"status": "error", "error": "Could not lease worker to reset session."}
+            # Same status/code/error shape as execute pool-busy; HTTP maps to 503.
+            return {
+                "status": "error",
+                "code": "WORKER_POOL_BUSY",
+                "error": "Could not lease worker to reset session.",
+            }
         try:
             res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
             return res

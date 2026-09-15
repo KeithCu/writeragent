@@ -166,6 +166,7 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 - Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
 - `POST /v1/execute[?session_id=...]` accepts **both** ingresses (`Content-Type` dispatch). Peel of `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` is today’s kit contract and will be retired after kit moves to `multipart/form-data` (`meta` + raw `data` part). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` — worker-dumped, host-forwarded. Details: [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
+- `POST /v1/session/reset?session_id=...` — same Bearer auth as execute. `session_id` is **URL query only** (L7 sticky; reject if only in the JSON body). Optional body `{ "id?" }` is a correlation echo. Response `200` `{ "id?", "status": "ok" }` is **idempotent** (unknown / already-gone still `ok`). Reuses pool `reset_session` / LibrePy `reset_sandbox_session`. Intended caller: coolwsd on DocumentBroker destroy / last view leave. This lands ahead of Online shared; Online still hard-codes `isolated` and does not call reset yet. Idle TTL remains the safety net if reset is missed.
 - **Dumb JSON egress only** toward kit/coolwsd: the worker dumps kit-safe JSON once (`allow_nan=False`, NaN/Inf → `null`); the HTTP host forwards those bytes. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
 - `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
@@ -458,6 +459,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 **Today:**
 
 - Service [`execute_code`](../../compute_service/executor.py) already honors `mode=="shared"` + non-empty `session_id`, with a per-id `threading.Lock`.
+- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; idle TTL (`shared_kernel_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated.
 - Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`. That emit is the **peel / single-JSON** ingress (today’s contract). Compute already accepts `multipart/form-data` too; when kit switches to multipart, peel retires. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 - LibrePy derives workbook ids via [`session_manager.calc_workbook_base_session_id`](../../plugin/scripting/session_manager.py) and seeds init scripts from document properties.
 
@@ -476,8 +478,8 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
    - Optionally inject `init_script` once per docKey (cache flag on DocumentBroker) by reading a document property via an existing kit command if available; v1 can skip init and only share namespace across `=PY` cells.
 3. **AddIn:** keep emitting isolated always **or** emit `mode` omit and let wsd decide — prefer **wsd owns mode** so a rebuilt AddIn is not required to flip admin policy.
 4. **Lifecycle:**
-   - On DocumentBroker destroy / last session leave: `POST /v1/session/reset` (new service endpoint) or include `reset:true` on next unused call — implement `reset` in executor by dropping sandboxed globals for that `session_id` (mirror LibrePy `reset_python_session`).
-   - TTL: expire idle shared sessions in the service (dict + last-used timestamp) to bound memory.
+   - On DocumentBroker destroy / last session leave: coolwsd `POST /v1/session/reset?session_id=<id>` (service endpoint is landed; **coolwsd caller is not**). Query-only `session_id` (same L7 sticky as execute). Idempotent `ok` if the kernel is already gone. Do not put `session_id` in the JSON body.
+   - TTL: expire idle shared sessions in the service (`shared_kernel_ttl_sec`) to bound memory if reset is missed. Do not remove the reaper.
 5. **Recalc semantics:** document Online limitation — without Excel-style co-volatility, multi-cell shared-kernel scripts need real `data` precedents for dirtying and operator-managed run order (same advisory as LibrePy §6; the OOXML rewriter does not invent prior-PY edges). Do not invent Online co-volatility in v1.
 6. **Tests:**
    - Service unit: two sequential executes with same `session_id` share a name; different ids do not.

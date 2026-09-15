@@ -405,6 +405,8 @@ class TestFormulaPoolSupervisor:
 
             reset_res = pool.reset_session(sid)
             assert reset_res.get("status") == "ok"
+            # Unknown / already-gone stays idempotent ok (HTTP /v1/session/reset contract).
+            assert pool.reset_session("never-mapped-session").get("status") == "ok"
 
             # Execute an isolated task; worker will recycle because tasks_executed (3) >= max_tasks (2) and no active sessions
             r4 = pool.execute(code="result = 'fresh'", mode="isolated", req_id="sp-4")
@@ -662,3 +664,44 @@ class TestFormulaHttpEndpoint:
         )
         assert status2 == 200
         assert body2.get("result") == 50
+
+    def test_http_session_reset_unknown_is_ok(self, formula_server: str) -> None:
+        status, body = self._post(
+            formula_server,
+            {"id": "reset-unknown"},
+            headers={"Authorization": "Bearer formula-secret"},
+            path="/v1/session/reset?session_id=never-created",
+        )
+        assert status == 200
+        assert body == {"id": "reset-unknown", "status": "ok"}
+
+    def test_http_session_reset_clears_shared_state(self, formula_server: str) -> None:
+        session_id = "session-reset-http"
+        headers = {"Authorization": "Bearer formula-secret"}
+        status1, body1 = self._post(
+            formula_server,
+            {"id": "rs-1", "code": "kept = 19\nresult = kept", "mode": "shared"},
+            headers=headers,
+            path=f"/v1/execute?session_id={session_id}",
+        )
+        assert status1 == 200
+        assert body1.get("result") == 19
+
+        status_reset, reset_body = self._post(
+            formula_server,
+            {"id": "rs-reset"},
+            headers=headers,
+            path=f"/v1/session/reset?session_id={session_id}",
+        )
+        assert status_reset == 200
+        assert reset_body == {"id": "rs-reset", "status": "ok"}
+
+        status2, body2 = self._post(
+            formula_server,
+            {"id": "rs-2", "code": "result = kept", "mode": "shared"},
+            headers=headers,
+            path=f"/v1/execute?session_id={session_id}",
+        )
+        assert status2 == 200
+        assert body2.get("status") == "error"
+        assert "kept" in body2.get("error", "") or "NameError" in body2.get("error", "")

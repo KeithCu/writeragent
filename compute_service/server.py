@@ -34,6 +34,7 @@ from compute_service.config import ComputeSettings, ConfigError, load_settings, 
 log = logging.getLogger("compute_service")
 
 ExecuteFn = Callable[..., dict[str, Any]]
+ResetFn = Callable[..., dict[str, Any]]
 
 
 def setup_logging(level_name: str = "INFO") -> None:
@@ -184,6 +185,38 @@ def _read_request_json(
     return req_data, None
 
 
+def _read_optional_request_json(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[dict[str, Any] | None, list[bytes] | None]:
+    """Parse an optional POST JSON object. Missing or empty body is ``{}``.
+
+    ``/v1/session/reset`` allows an empty body (correlation ``id`` only).
+    ``/v1/execute`` still requires Content-Length > 0 via ``_read_request_body``.
+    """
+    raw_len = environ.get("CONTENT_LENGTH")
+    if raw_len is None or raw_len == "":
+        return {}, None
+    try:
+        content_length = int(raw_len)
+    except (TypeError, ValueError):
+        return None, _start_json(
+            start_response,
+            "400 Bad Request",
+            {"status": "error", "error": "Invalid Content-Length"},
+        )
+    if content_length < 0:
+        return None, _start_json(
+            start_response,
+            "400 Bad Request",
+            {"status": "error", "error": "Invalid Content-Length"},
+        )
+    if content_length == 0:
+        return {}, None
+    return _read_request_json(environ, settings, start_response)
+
+
 def authenticate_request(
     environ: dict[str, Any],
     settings: ComputeSettings,
@@ -218,13 +251,16 @@ def create_wsgi_app(
     settings: ComputeSettings,
     *,
     execute_fn: ExecuteFn | None = None,
+    reset_fn: ResetFn | None = None,
 ) -> Callable[[dict[str, Any], Any], list[bytes]]:
-    """Build a WSGI app bound to *settings* (and optional test *execute_fn*).
+    """Build a WSGI app bound to *settings* (and optional test hooks).
 
-    Executor imports are deferred until the first ``/v1/execute`` so config/auth
-    startup does not pull WriterAgent ``plugin.framework.config``.
+    Executor / pool imports are deferred until the first ``/v1/execute`` or
+    ``/v1/session/reset`` so config/auth startup does not pull WriterAgent
+    ``plugin.framework.config``.
     """
     run_execute = execute_fn
+    run_reset = reset_fn
     inflight_sema = threading.BoundedSemaphore(settings.max_inflight)
     session_inflight: dict[str, int] = {}
     session_inflight_lock = threading.Lock()
@@ -253,7 +289,7 @@ def create_wsgi_app(
         inflight_sema.release()
 
     def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
-        nonlocal run_execute
+        nonlocal run_execute, run_reset
         path = environ.get("PATH_INFO", "")
         method = environ.get("REQUEST_METHOD", "GET")
 
@@ -447,6 +483,105 @@ def create_wsgi_app(
                 )
             finally:
                 _release_inflight(inflight_sid)
+
+        if path == "/v1/session/reset" and method == "POST":
+            # Query-only session_id so L7 can stick to the host that owns the
+            # kernel (same reason as /v1/execute). coolwsd will call this on
+            # DocumentBroker destroy; unknown / already-gone is still ok.
+            _principal, auth_err = authenticate_request(environ, settings)
+            if auth_err is not None:
+                return _start_json(
+                    start_response,
+                    "401 Unauthorized",
+                    {"status": "error", "error": "Unauthorized"},
+                    extra_headers=[("WWW-Authenticate", "Bearer")],
+                )
+
+            req_data, err_resp = _read_optional_request_json(environ, settings, start_response)
+            if err_resp is not None:
+                return err_resp
+            assert req_data is not None
+
+            req_id = req_data.get("id")
+
+            if "session_id" in req_data:
+                err_body = {
+                    "status": "error",
+                    "error": (
+                        "session_id must be provided as a URL query parameter "
+                        "(?session_id=...), not in the JSON body."
+                    ),
+                }
+                if req_id is not None:
+                    err_body["id"] = req_id
+                return _start_json(start_response, "400 Bad Request", err_body)
+
+            query_string = environ.get("QUERY_STRING", "")
+            query_params = urllib.parse.parse_qs(query_string, keep_blank_values=False)
+            session_ids = query_params.get("session_id")
+            session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
+
+            if not session_id:
+                err_body = {
+                    "status": "error",
+                    "error": "Missing 'session_id' URL query parameter (?session_id=...).",
+                }
+                if req_id is not None:
+                    err_body["id"] = req_id
+                return _start_json(start_response, "400 Bad Request", err_body)
+
+            log.info("reset /v1/session/reset id=%r session=%r", req_id, session_id)
+            start_t = time.perf_counter()
+            try:
+                if run_reset is None:
+                    from compute_service.formula_pool import get_formula_pool
+
+                    run_reset = get_formula_pool(settings).reset_session
+
+                result_payload = run_reset(session_id)
+                duration_ms = (time.perf_counter() - start_t) * 1000.0
+                status = result_payload.get("status") if isinstance(result_payload, dict) else None
+                log.info(
+                    "done /v1/session/reset id=%r session=%r status=%r duration=%.2fms",
+                    req_id,
+                    session_id,
+                    status,
+                    duration_ms,
+                )
+
+                if isinstance(result_payload, dict) and result_payload.get("status") == "error":
+                    # Lease failure — execute-style shape; 503 matches pool-busy /
+                    # inflight unavailability (reset is control-plane, not eval).
+                    err_body = {
+                        "status": "error",
+                        "code": result_payload.get("code") or "WORKER_POOL_BUSY",
+                        "error": result_payload.get("error") or "Could not lease worker to reset session.",
+                    }
+                    if req_id is not None:
+                        err_body["id"] = req_id
+                    return _start_json(start_response, "503 Service Unavailable", err_body)
+
+                ok_body: dict[str, Any] = {"status": "ok"}
+                if req_id is not None:
+                    ok_body["id"] = req_id
+                return _start_json(start_response, "200 OK", ok_body)
+            except Exception as e:
+                duration_ms = (time.perf_counter() - start_t) * 1000.0
+                log.exception(
+                    "fail /v1/session/reset id=%r session=%r duration=%.2fms: %s",
+                    req_id,
+                    session_id,
+                    duration_ms,
+                    e,
+                )
+                err_body = {"status": "error", "error": f"Server execution failure: {e}"}
+                if req_id is not None:
+                    err_body["id"] = req_id
+                return _start_json(
+                    start_response,
+                    "500 Internal Server Error",
+                    err_body,
+                )
 
         if path == "/v1/vision" and method == "POST":
             _principal, auth_err = authenticate_request(environ, settings)
