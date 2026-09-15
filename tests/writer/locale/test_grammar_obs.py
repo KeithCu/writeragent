@@ -126,33 +126,177 @@ def test_emit_grammar_status_updates_status_bar_inline_on_main_thread() -> None:
         patch("plugin.writer.locale.grammar_obs.update_libreoffice_status_bar") as mock_bar,
         patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
     ):
-        go.emit_grammar_status("start", "Hello world.", result="Harper")
-    mock_bar.assert_called_once_with("start", "Hello world.", "Harper")
+        go.emit_grammar_status("start", "Hello world.", result="Starting harper-ls…")
+    mock_bar.assert_called_once_with("start", "Hello world.", "Starting harper-ls…")
     mock_post.assert_not_called()
+
+
+def test_is_routine_libreharper_status_covers_per_keystroke_strings() -> None:
+    assert go.is_routine_libreharper_status("start", "Harper")
+    assert go.is_routine_libreharper_status("request", "Harper check")
+    assert go.is_routine_libreharper_status("start", "queued")
+    assert go.is_routine_libreharper_status("done", "0 issues")
+    assert go.is_routine_libreharper_status("done", "1 issue")
+    assert go.is_routine_libreharper_status("request", "")
+    assert not go.is_routine_libreharper_status("request", "Downloading harper-ls v2.7.0…")
+    assert not go.is_routine_libreharper_status("request", "Starting harper-ls…")
+    assert not go.is_routine_libreharper_status("request", "Starting Harper…")
+    assert not go.is_routine_libreharper_status("failed", "Harper")
+    assert not go.is_routine_libreharper_status("failed", "")
+
+
+def test_emit_grammar_status_skips_routine_libreharper_paints() -> None:
+    for result in ("Harper", "Harper check", "queued", "0 issues", "2 issues"):
+        with (
+            patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+            patch("plugin.writer.locale.grammar_obs.update_libreoffice_status_bar") as mock_bar,
+            patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        ):
+            go.emit_grammar_status("start", "Hello world.", result=result)
+        mock_bar.assert_not_called()
+        mock_post.assert_not_called()
+
+
+def test_emit_grammar_status_paints_progress_and_failure_when_libreharper() -> None:
+    cases = (
+        ("request", "Downloading harper-ls v2.7.0…"),
+        ("request", "Starting harper-ls…"),
+        ("failed", "timed out"),
+    )
+    for phase, result in cases:
+        with (
+            patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+        ):
+            go.emit_grammar_status(phase, "Hello world.", result=result)
+        mock_post.assert_called_once_with(go.update_libreoffice_status_bar, phase, "Hello world.", result)
+
+
+def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
+    import sys
+
+    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+        assert go.desktop_create_is_unsafe()
+    with patch.object(sys, "argv", ["soffice"]):
+        assert not go.desktop_create_is_unsafe()
+
+
+def test_resolve_status_bar_frame_skips_desktop_create_when_helper_or_missing() -> None:
+    mock_ctx = MagicMock()
+    mock_ctx.getValueByName.return_value = None
+    with (
+        patch.object(go, "_frame_from_bound_grammar_docs", return_value=None),
+        patch.object(go, "desktop_create_is_unsafe", return_value=True),
+        patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
+        patch("plugin.framework.uno_context.get_active_document") as mock_doc,
+    ):
+        assert go.resolve_status_bar_frame(mock_ctx) is None
+        mock_ctx.getValueByName.assert_not_called()
+        mock_desktop.assert_not_called()
+        mock_doc.assert_not_called()
+
+    mock_ctx.reset_mock()
+    with (
+        patch.object(go, "_frame_from_bound_grammar_docs", return_value=None),
+        patch.object(go, "desktop_create_is_unsafe", return_value=False),
+        patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
+        patch("plugin.framework.uno_context.get_active_document") as mock_doc,
+    ):
+        assert go.resolve_status_bar_frame(mock_ctx) is None
+        mock_ctx.getValueByName.assert_called_once_with("/singletons/com.sun.star.frame.theDesktop")
+        mock_desktop.assert_not_called()
+        mock_doc.assert_not_called()
+
+
+def test_frame_from_bound_grammar_docs_reads_registry_model() -> None:
+    mock_frame = MagicMock()
+    mock_model = MagicMock()
+    mock_model.getCurrentController().getFrame.return_value = mock_frame
+    mock_persistence = MagicMock()
+    mock_persistence._model = mock_model
+    mock_registry = MagicMock()
+    mock_registry.doc_persistence_instances = {"d1": mock_persistence}
+    mock_registry.lock = MagicMock()
+    mock_registry.lock.__enter__.return_value = None
+    mock_registry.lock.__exit__.return_value = False
+    with patch("plugin.writer.locale.grammar_persistence.grammar_registry", mock_registry):
+        assert go._frame_from_bound_grammar_docs() is mock_frame
+
+
+def test_resolve_status_bar_frame_uses_bound_document_without_desktop() -> None:
+    mock_frame = MagicMock(name="bound_frame")
+    mock_ctx = MagicMock()
+    with (
+        patch.object(go, "_frame_from_bound_grammar_docs", return_value=mock_frame),
+        patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
+        patch("plugin.framework.uno_context.get_active_document") as mock_doc,
+    ):
+        assert go.resolve_status_bar_frame(mock_ctx) is mock_frame
+        mock_ctx.getValueByName.assert_not_called()
+        mock_desktop.assert_not_called()
+        mock_doc.assert_not_called()
+
+
+def test_resolve_status_bar_frame_uses_existing_desktop_singleton() -> None:
+    mock_frame = MagicMock(name="singleton_frame")
+    mock_desktop = MagicMock()
+    mock_desktop.getCurrentFrame.return_value = mock_frame
+    mock_ctx = MagicMock()
+    mock_ctx.getValueByName.return_value = mock_desktop
+    with (
+        patch.object(go, "_frame_from_bound_grammar_docs", return_value=None),
+        patch.object(go, "desktop_create_is_unsafe", return_value=False),
+        patch("plugin.framework.uno_context.get_desktop") as mock_create,
+        patch("plugin.framework.uno_context.get_active_document") as mock_doc,
+    ):
+        assert go.resolve_status_bar_frame(mock_ctx) is mock_frame
+        mock_ctx.getValueByName.assert_called_once_with("/singletons/com.sun.star.frame.theDesktop")
+        mock_create.assert_not_called()
+        mock_doc.assert_not_called()
+
+
+def test_update_libreoffice_status_bar_skips_paint_when_frame_missing() -> None:
+    with (
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=None),
+        patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
+        patch("plugin.framework.uno_context.get_active_document") as mock_doc,
+    ):
+        go._last_status_indicator = None
+        go.update_libreoffice_status_bar("request", "Text", "Downloading harper-ls v2.7.0…")
+        mock_desktop.assert_not_called()
+        mock_doc.assert_not_called()
+        assert go._last_status_indicator is None
+
+
+def test_update_libreoffice_status_bar_skips_routine_result_without_resolving_frame() -> None:
+    with patch.object(go, "resolve_status_bar_frame") as mock_resolve:
+        go._last_status_indicator = None
+        go.update_libreoffice_status_bar("start", "Text", "Harper")
+        mock_resolve.assert_not_called()
 
 
 def test_update_libreoffice_status_bar_lifecycle() -> None:
     mock_indicator = MagicMock()
     mock_frame = MagicMock()
     mock_frame.createStatusIndicator.return_value = mock_indicator
-    mock_doc = MagicMock()
-    mock_doc.getCurrentController().getFrame.return_value = mock_frame
 
     with (
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
-        patch("plugin.framework.uno_context.get_active_document", return_value=mock_doc),
+        patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
     ):
         # Reset any leftover global indicator
         go._last_status_indicator = None
 
-        # 1. Start phase
-        go.update_libreoffice_status_bar("start", "Text", "queued")
+        # 1. Start phase (progress, not the per-keystroke "queued" string)
+        go.update_libreoffice_status_bar("start", "Text", "Downloading harper-ls v2.7.0…")
         mock_frame.createStatusIndicator.assert_called_once()
-        mock_indicator.start.assert_called_once_with("LibreHarper: queued", 100)
+        mock_indicator.start.assert_called_once_with("LibreHarper: Downloading harper-ls v2.7.0…", 100)
 
         # 2. Request phase updates text/value
-        go.update_libreoffice_status_bar("request", "Text", "Linting…")
-        mock_indicator.setText.assert_called_with("LibreHarper: Linting…")
+        go.update_libreoffice_status_bar("request", "Text", "Starting harper-ls…")
+        mock_indicator.setText.assert_called_with("LibreHarper: Starting harper-ls…")
         mock_indicator.setValue.assert_called_with(50)
 
         # 3. Complete phase ends indicator
