@@ -1,8 +1,13 @@
 # Python Compute Service
 
 Standalone HTTP service for Collabora Online / Collabora Office `=PY()` formulas.
-coolwsd POSTs dumb JSON to `/v1/execute`; this process runs sandboxed Python and
-returns JSON results. **It does not read `writeragent.json`.**
+coolwsd POSTs to `/v1/execute`; this process runs sandboxed Python and returns
+JSON results. **It does not read `writeragent.json`.**
+
+**Both ingress formats are supported now** (dispatch on `Content-Type`). Peel of
+a single JSON object is **today’s Collabora/kit contract** and is **transitional**.
+Multipart is the long-term preferred kit↔compute shape. See
+[HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 
 ## Quick start
 
@@ -13,7 +18,7 @@ python compute_service/server.py --host 127.0.0.1 --port 8000
 ```
 
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"<version>"}` (no auth required)
-- `POST /v1/execute[?session_id=<id>]` — **today:** one JSON object (host peels small keys, forwards raw `data` bytes). **Optional kit:** `multipart/form-data` (`meta` JSON + raw `data` JSON part). Dispatch is `Content-Type`.
+- `POST /v1/execute[?session_id=<id>]` — `application/json` (peel one object) **or** `multipart/form-data` (`meta` + raw `data` part). Same execute fields; same egress. Peel is compatibility; multipart is the preferred wire.
   (`init_script` runs **once** per worker: shared uses `{session_id}:init`, isolated uses a hash of the script. Later cells are seeded from that namespace; a changed script replaces the snapshot.)
 - Docker (hardened run flags): `./compute_service/start-docker.sh` — see **Production / Collabora Online** below.
 
@@ -46,25 +51,8 @@ Evaluates sandboxed Python code and emits kit-safe dumb JSON (`allow_nan=False`,
   - **Envoy**: `hash_policy: [query_parameter: { name: "session_id" }]`
   - **AWS ALB**: Query string routing conditions on `session_id`.
 
-- **Request (today / Collabora): `application/json` or missing `Content-Type`**
-
-  One JSON object. The host **peels** `id` / `code` / `mode` / `timeout_ms` / `init_script` and forwards the raw `data` value bytes — it does not `json.loads` the nested grid.
-
-  ```json
-  {
-    "id": "req-123",
-    "code": "result = float(np.sum(data))",
-    "data": [10, 20, 30],
-    "mode": "isolated",
-    "timeout_ms": 5000,
-    "init_script": "optional-init-code"
-  }
-  ```
-  *(Note: `session_id` must be the URL query parameter `?session_id=...`, not a body / `meta` field).*
-
-- **Request (optional / future kit): `multipart/form-data`**
-
-  Same execute contract, cleaner split: Part `meta` (`application/json`) is small control fields only; Part `data` (`application/json`) is the raw grid bytes. The host parses `meta` with the same peel helper and **forwards Part B untouched**. Egress is unchanged (worker dumps once; host forwards `result_json`).
+See **[HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart)** for both
+request shapes, why multipart exists, and the plan to retire peel.
 
 - **Success Response (`200 OK`)**:
   ```json
@@ -88,6 +76,23 @@ Evaluates sandboxed Python code and emits kit-safe dumb JSON (`allow_nan=False`,
     "message": "SyntaxError: invalid syntax (<string>, line 1)"
   }
   ```
+
+#### HTTP ingress: peel vs multipart
+
+Both formats work **now**. Dispatch is strictly `Content-Type`.
+
+| `Content-Type` | Body | Host does | Role |
+|----------------|------|-----------|------|
+| `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid) | **Today’s Collabora/kit contract.** Compatibility. The walker/peel exists so we do not deserialize the nested grid. |
+| `multipart/form-data` (or other `multipart/*`) | Part `meta` (`application/json`, control fields only) + part `data` (`application/json`, raw grid bytes) | Parse `meta` only; **forward Part B bytes untouched** | **Preferred kit↔compute shape.** Control vs payload are separate MIME parts. |
+
+`session_id` stays on the URL (`?session_id=...`) for L7 affinity — not in the JSON body and not in `meta`.
+
+**Why multipart:** cleaner framing (tiny control JSON vs the grid blob). No custom JSON walker to slice `data` out of one object. Same “forward bytes, don’t re-serialize” win. That is the long-term wire we want between kit and this service.
+
+**Migration:** support both until Collabora/kit switches to multipart. After that, retire the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. No kit date — eventually switch kit to multipart, then delete peel.
+
+**Unchanged either way:** worker dumps kit JSON once (`result_json`); the HTTP host forwards those bytes (no host re-`dumps` of a large result). LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways and never uses this HTTP hop.
 
 ### 3. Vision & OCR Endpoint (`POST /v1/vision`)
 
@@ -261,21 +266,16 @@ LibrePy desktop `=PY()` and this HTTP service are **asymmetric**. Do not regress
 | Product | Host ↔ worker | Large `data` in | Large result out |
 |---------|---------------|-----------------|------------------|
 | **LibrePy / desktop `=PY()`** | Length-prefixed **Pickle 5** | Host Cython `host_pack_data` → `split_grid` both ways; child `np.frombuffer` / `tobytes` | Host stdlib `host_unpack` for Calc spill |
-| **Python Compute Service** (default) | Length-prefixed **Pickle 5 envelope** of **control fields + JSON blobs** | Host peels `code` / `mode` / `timeout_ms` / `id` and **forwards the raw `data` JSON value bytes** (`data_json`). No host `json.loads` of the grid, no `host_pack_data`, no re-`dumps`. | Worker dumps kit JSON **once** (`result_json` bytes). Host **forwards those bytes** into the HTTP response. No pickle-of-grid → `host_unpack` → `json.dumps`. |
+| **Python Compute Service** (default) | Length-prefixed **Pickle 5 envelope** of **control fields + JSON blobs** | Host forwards raw `data` JSON bytes (`data_json`) from either peel or multipart. No host `json.loads` of the grid, no `host_pack_data`, no re-`dumps`. | Worker dumps kit JSON **once** (`result_json` bytes). Host **forwards those bytes** into the HTTP response. No pickle-of-grid → `host_unpack` → `json.dumps`. |
 
-HTTP ingress is MIME-dispatched (`POST /v1/execute[?session_id=...]`):
+Kit HTTP is MIME-dispatched — [peel vs multipart](#http-ingress-peel-vs-multipart). Both are live. Peel of one JSON object is **today’s Collabora contract** and **goes away** once kit speaks multipart. Multipart is the preferred wire (control vs payload as parts; no walker). Egress does not care which ingress you used.
 
-| `Content-Type` | Ingress | Role |
-|----------------|---------|------|
-| `application/json` or missing | #766 peel of one JSON object | **Today's Collabora contract** |
-| `multipart/form-data` (or other `multipart/*`) | `meta` peel + raw `data` part bytes | **Optional** cleaner kit path |
-
-The host is a proxy: auth, sticky routing, timeouts, worker lease. One deserialize of `data` happens on the **worker**. Small control fields may be deserialized on the host. The expensive rule is **no host re-serialize** of large ingress or egress. Egress is the same for both ingresses.
+The host is a proxy: auth, sticky routing, timeouts, worker lease. One deserialize of `data` happens on the **worker**. Small control fields may be deserialized on the host. The expensive rule is **no host re-serialize** of large ingress or egress.
 
 **Compute JSON-forward** ([`json_forward.py`](json_forward.py)):
 
-- Peel (default): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob).
-- Multipart (optional): `parse_multipart_execute` peels the `meta` part with the same helper; Part B is `data_json` as-is. `meta` must not nest `data`.
+- Peel (transitional): scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob). Retire this walker after kit switches to multipart.
+- Multipart (preferred): `parse_multipart_execute` loads only the small `meta` part; Part B is `data_json` as-is. `meta` must not nest `data`.
 - Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: <bytes>}`. Pickle copies the byte buffer; it does not walk the JSON tree.
 - Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`.
 - HTTP: `_start_raw_json` writes `result_json` as the response body.

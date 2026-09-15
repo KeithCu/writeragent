@@ -122,7 +122,7 @@ flowchart LR
     Wsd[coolwsd broker]
   end
   subgraph py [Python compute service]
-    Http[stdlib HTTP peel + forward]
+    Http[stdlib HTTP peel or multipart; forward bytes]
     Run[venv_sandbox worker JSON-once]
   end
   Calc1 -.->|optional remote test| Http
@@ -139,16 +139,29 @@ flowchart LR
 |-------|----------|------|----------|
 | Kit `=PY()` stub | C++ (small) | Register formula; on recalc read ranges via existing LOKit/cell APIs into **plain nested values**; send request up; apply returned scalar/matrix to cells | `split_grid`, Pickle, NumPy, AST sandbox |
 | coolwsd | C++ (small) | Feature flag + URL config; `http::Session` POST/response routing (copy Online `AIChatSession` outbound HTTP) | Compute or dense packing logic |
-| Compute service | **Python** | Peel small HTTP fields; forward raw `data` JSON bytes to the formula worker; worker deserializes once and dumps the kit JSON result once; host forwards those bytes. LibrePy desktop still uses [`payload_codec`](../../plugin/scripting/payload_codec.py) `split_grid` | Live inside kit jail |
+| Compute service | **Python** | MIME-dispatch: peel today’s single JSON object **or** multipart `meta`+`data`; forward raw `data` bytes; worker loads once and dumps kit JSON once; host forwards those bytes. LibrePy desktop still uses [`payload_codec`](../../plugin/scripting/payload_codec.py) `split_grid` | Live inside kit jail |
 
 **Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. The compute host does **not** re-pack that JSON into `split_grid`; it forwards the `data` blob and the worker's `result_json`. LibrePy desktop `=PY()` is the path that still uses Pickle5 + `split_grid` both ways. The kit never loads NumPy.
+
+**Two HTTP ingresses (both live; `Content-Type` dispatch):**
+
+| `Content-Type` | What kit sends | Host | Status |
+|----------------|----------------|------|--------|
+| `application/json` (or missing) | One object `{code, data, …}` | Peel small keys; forward raw `data` value bytes (custom walker so we never `loads` the grid) | **Today’s Collabora contract.** Transitional. |
+| `multipart/form-data` | `meta` JSON + raw `data` JSON part | Parse `meta` only; forward Part B untouched | **Preferred** kit↔compute shape. Cleaner control vs payload; no walker. |
+
+**Why multipart:** framing, not a new codec. Same “forward bytes, don’t re-serialize” win without slicing a nested `data` value out of one object. Long-term wire we want.
+
+**Migration:** support both until kit switches to multipart, then retire peel (the walker). Peel is compatibility, not the forever design. No kit date — eventually switch, then delete peel.
+
+**Unchanged:** egress is worker dumps once + host forwards `result_json` for either ingress. LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways.
 
 ### Python compute service
 
 - Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `config.py`, `executor.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
 - Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
-- `POST /v1/execute[?session_id=...]` **today:** one JSON object `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` (host peels small keys, forwards raw `data` bytes). **Optional:** `multipart/form-data` with `meta` + raw `data` JSON part (`Content-Type` dispatch). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }`.
+- `POST /v1/execute[?session_id=...]` accepts **both** ingresses (`Content-Type` dispatch). Peel of `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` is today’s kit contract and will be retired after kit moves to `multipart/form-data` (`meta` + raw `data` part). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` — worker-dumped, host-forwarded. Details: [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
 - **Dumb JSON egress only** toward kit/coolwsd: the worker dumps kit-safe JSON once (`allow_nan=False`, NaN/Inf → `null`); the HTTP host forwards those bytes. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
 - `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
