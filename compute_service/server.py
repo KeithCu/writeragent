@@ -306,12 +306,12 @@ def create_wsgi_app(
             if err_resp is not None:
                 return err_resp
             assert parts is not None
-            req_data = parts.meta
+            req_meta = parts.meta
             data_json = parts.data_json
 
-            req_id = req_data.get("id")
+            req_id = req_meta.get("id")
 
-            code = req_data.get("code")
+            code = req_meta.get("code")
             if not code or not isinstance(code, str):
                 err_body: dict[str, Any] = {"status": "error", "error": "Missing 'code' string parameter."}
                 if req_id is not None:
@@ -333,7 +333,7 @@ def create_wsgi_app(
 
             # JSON fallback keeps the historic rule (session_id is a query param
             # for L7 affinity). Multipart meta may include session_id; URL wins.
-            if not parts.multipart and "session_id" in req_data:
+            if not parts.multipart and "session_id" in req_meta:
                 err_body = {
                     "status": "error",
                     "error": "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.",
@@ -347,11 +347,11 @@ def create_wsgi_app(
             session_ids = query_params.get("session_id")
             session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
             if session_id is None and parts.multipart:
-                meta_sid = req_data.get("session_id")
+                meta_sid = req_meta.get("session_id")
                 if isinstance(meta_sid, str) and meta_sid.strip():
                     session_id = meta_sid.strip()
 
-            mode = req_data.get("mode") or "isolated"
+            mode = req_meta.get("mode") or "isolated"
             if mode not in ("isolated", "shared"):
                 mode = "isolated"
 
@@ -364,7 +364,7 @@ def create_wsgi_app(
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
 
-            init_script = req_data.get("init_script")
+            init_script = req_meta.get("init_script")
             if init_script is not None and not isinstance(init_script, str):
                 init_script = None
 
@@ -378,7 +378,7 @@ def create_wsgi_app(
                 run_execute = lambda **kw: formula_pool.execute(**kw)
 
             timeout_sec = timeout_ms_to_sec(
-                req_data.get("timeout_ms"),
+                req_meta.get("timeout_ms"),
                 default_timeout_sec=settings.default_timeout_sec,
                 max_timeout_sec=settings.max_timeout_sec,
             )
