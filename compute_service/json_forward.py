@@ -37,7 +37,7 @@ _BOM = b"\xef\xbb\xbf"
 
 
 class ExecuteRequestError(ValueError):
-    """Raised when the HTTP body is not a JSON object we can peel."""
+    """Raised when the HTTP body is not a peelable JSON object or multipart kit body."""
 
 
 @dataclass(frozen=True)
