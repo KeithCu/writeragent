@@ -52,7 +52,7 @@ Track with Collabora: [online#16010](https://github.com/CollaboraOnline/online/i
 
 - **Small C++ hooks** in coolkit + coolwsd that call out to a Python compute service (same outbound-HTTP *shape* as AI chat’s `http::Session`).
 - **All NumPy / packing / sandbox** stay in **Python** — C++ never implements [`split_grid`](numpy-serialization.md#strategy-3-split-grid-serialization-detail) or Pickle5.
-- **Lightweight service** — **stdlib `http.server`** (or equivalent minimal HTTP) so coolwsd can POST JSON.
+- **Lightweight service** — **stdlib `http.server`** (or equivalent minimal HTTP) so coolwsd can POST (`application/json` peel today, or `multipart/form-data` when kit switches).
 
 ### Excel `xl()` compatibility is handled before execution
 
@@ -128,7 +128,7 @@ flowchart LR
   Calc1 -.->|optional remote test| Http
   PY --> Kit
   Kit -->|"dumb JSON numbers strings null"| Wsd
-  Wsd -->|"http::Session POST"| Http
+  Wsd -->|"http::Session POST (JSON peel or multipart)"| Http
   Http -->|"raw data JSON bytes"| Run
   Run -->|"result_json bytes"| Http --> Wsd --> Kit
 ```
@@ -141,20 +141,24 @@ flowchart LR
 | coolwsd | C++ (small) | Feature flag + URL config; `http::Session` POST/response routing (copy Online `AIChatSession` outbound HTTP) | Compute or dense packing logic |
 | Compute service | **Python** | MIME-dispatch: peel today’s single JSON object **or** multipart `meta`+`data`; forward raw `data` bytes; worker loads once and dumps kit JSON once; host forwards those bytes. LibrePy desktop still uses [`payload_codec`](../../plugin/scripting/payload_codec.py) `split_grid` | Live inside kit jail |
 
-**Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. The compute host does **not** re-pack that JSON into `split_grid`; it forwards the `data` blob and the worker's `result_json`. LibrePy desktop `=PY()` is the path that still uses Pickle5 + `split_grid` both ways. The kit never loads NumPy.
+**Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. The compute host does **not** re-pack that JSON into `split_grid`; it forwards the `data` blob and the worker's `result_json`. The kit never loads NumPy.
 
-**Two HTTP ingresses (both live; `Content-Type` dispatch):**
+### HTTP ingress: peel vs multipart
 
-| `Content-Type` | What kit sends | Host | Status |
-|----------------|----------------|------|--------|
-| `application/json` (or missing) | One object `{code, data, …}` | Peel small keys; forward raw `data` value bytes (custom walker so we never `loads` the grid) | **Today’s Collabora contract.** Transitional. |
-| `multipart/form-data` | `meta` JSON + raw `data` JSON part | Parse `meta` only; forward Part B untouched | **Preferred** kit↔compute shape. Cleaner control vs payload; no walker. |
+Same contract as [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart). Both formats work **now**. Dispatch is strictly `Content-Type`.
 
-**Why multipart:** framing, not a new codec. Same “forward bytes, don’t re-serialize” win without slicing a nested `data` value out of one object. Long-term wire we want.
+| `Content-Type` | Body | Host does | Role |
+|----------------|------|-----------|------|
+| `application/json` (or missing) | One JSON object `{id?, code, data?, mode?, timeout_ms?, init_script?}` | Peel small keys; **forward the raw `data` value bytes** (no `json.loads` of the grid). Custom walker exists only so we do not deserialize the nested grid. | **Today’s Collabora/kit contract.** Transitional compatibility. |
+| `multipart/form-data` (or other `multipart/*`) | Part `meta` (`application/json`, control fields only) + part `data` (`application/json`, raw grid bytes) | Parse `meta` only; **forward Part B bytes untouched** | **Preferred kit↔compute shape.** Control vs payload are separate MIME parts. |
 
-**Migration:** support both until kit switches to multipart, then retire peel (the walker). Peel is compatibility, not the forever design. No kit date — eventually switch, then delete peel.
+`session_id` stays on the URL (`?session_id=...`) for L7 affinity — not in the JSON body and not in `meta`.
 
-**Unchanged:** egress is worker dumps once + host forwards `result_json` for either ingress. LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways.
+**Why multipart:** cleaner framing (tiny control JSON vs the grid blob). No custom JSON walker to slice `data` out of one object. Same “forward bytes, don’t re-serialize” win. That is the long-term wire between kit and this service.
+
+**Migration:** support both until Collabora/kit switches to multipart. After that, retire the single-JSON peel (the walker). Peel is **transitional compatibility**, not the forever design. No kit date — eventually switch kit to multipart, then delete peel. Today’s C++ `buildExecuteRequestJson` still emits the single-object peel body.
+
+**Unchanged either way:** worker dumps kit JSON once (`result_json`); the HTTP host forwards those bytes (no host re-`dumps` of a large result). LibrePy desktop `=PY()` stays Pickle5 + `split_grid` both ways and never uses this HTTP hop.
 
 ### Python compute service
 
@@ -454,7 +458,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 **Today:**
 
 - Service [`execute_code`](../../compute_service/executor.py) already honors `mode=="shared"` + non-empty `session_id`, with a per-id `threading.Lock`.
-- Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`.
+- Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`. That emit is the **peel / single-JSON** ingress (today’s contract). Compute already accepts `multipart/form-data` too; when kit switches to multipart, peel retires. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 - LibrePy derives workbook ids via [`session_manager.calc_workbook_base_session_id`](../../plugin/scripting/session_manager.py) and seeds init scripts from document properties.
 
 **Online design constraints:**
@@ -565,7 +569,7 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 - **Parse:** local hand parser in the same file (not `boost::property_tree`, not Boost.JSON, not Poco in Core). It combines UTF-16 surrogate pairs, rejects unpaired surrogates/trailing junk, and rejects ragged nested arrays. Online coolwsd stays on Poco/`JsonUtil`.
 - **Scalars:** JSON `"42"` / `"true"` / `"null"` stay strings; bare `42` / `true` / `null` → double / bool / empty string (Classic `None` parity).
 - **Grids:** nested lists; rectangular numerics → `sequence<sequence<double>>`; mixed → `sequence<sequence<Any>>`; one-element lists of every scalar type stay 1×1 matrices. Single-cell formulas keep **top-left only** until [F7](#f7--single-cell-auto-spill).
-- **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today).
+- **Envelope:** `id`, `status`, `error`, `result`, optional `images[]` (sheet insert still [F3](#f3--images-sheet-insert); Core shows a placeholder string today). Request emit today is one JSON object (peel path). Service also accepts multipart; kit will switch later — [HTTP ingress](#http-ingress-peel-vs-multipart).
 - **Tests:** `engine/scaddins/qa/pythoncompute.cxx` + writeragent `tests/compute_service/test_online_py_json_contract.py`.
 
 ### G4 — No request / response / in-flight resource caps
