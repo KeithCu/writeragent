@@ -174,6 +174,9 @@ def test_collect_libreharper_plugin_paths() -> None:
     assert "plugin/chatbot/extension_update_check.py" in paths
     assert "plugin/chatbot/dialogs.py" in paths
     assert "plugin/framework/client/requests.py" in paths
+    # Dual-install: WriterAgent's chatbot package init imports ModuleBase.
+    assert "plugin/framework/module_base.py" in paths
+    assert "plugin/chatbot/__init__.py" not in paths
 
 
 def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
@@ -255,5 +258,71 @@ def test_harper_proofreader_skips_warmup_without_config_dir() -> None:
             mock_start.assert_not_called()
     finally:
         reset_package_extension_id_for_tests()
+
+
+def test_libreharper_bundle_covers_chatbot_package_init_for_dual_install() -> None:
+    """WriterAgent ``plugin.chatbot`` init imports ModuleBase; slim OXT must ship it.
+
+    ``make deploy-harper`` does not remove WriterAgent. ``plugin/__init__.py``
+    uses ``pkgutil.extend_path``, so the full chatbot package init can run
+    against LibreHarper's regular ``plugin.framework`` package. The shipped-
+    file import graph does not see that parent init because LibreHarper does
+    not copy ``plugin/chatbot/__init__.py``.
+    """
+    from scripts.libreharper_bundle_paths import collect_libreharper_plugin_paths
+
+    root = _repo_root()
+    shipped = set(collect_libreharper_plugin_paths(root))
+    init_path = os.path.join(root, "plugin", "chatbot", "__init__.py")
+    tree = ast.parse(open(init_path, encoding="utf-8").read(), filename="plugin/chatbot/__init__.py")
+    missing: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or not node.module:
+            continue
+        if not (node.module == "plugin" or node.module.startswith("plugin.")):
+            continue
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            rel = node.module.replace(".", "/") + "/" + alias.name + ".py"
+            pkg = node.module.replace(".", "/") + "/" + alias.name + "/__init__.py"
+            file_mod = node.module.replace(".", "/") + ".py"
+            if rel not in shipped and pkg not in shipped and file_mod not in shipped:
+                missing.append(f"plugin/chatbot/__init__.py -> from {node.module} import {alias.name}")
+    assert missing == []
+
+
+def test_libreharper_dual_install_can_import_extension_update_check(tmp_path) -> None:
+    """Stage slim files + WriterAgent chatbot init; update-check import must work."""
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    from scripts.libreharper_bundle_paths import collect_libreharper_plugin_paths
+
+    root = Path(_repo_root())
+    stage = tmp_path / "bundle"
+    for rel in collect_libreharper_plugin_paths(str(root)):
+        dest = stage / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(root / rel, dest)
+    shutil.copy2(root / "plugin" / "chatbot" / "__init__.py", stage / "plugin" / "chatbot" / "__init__.py")
+
+    code = (
+        "from plugin.chatbot.extension_update_check import schedule_extension_update_check_once\n"
+        "assert schedule_extension_update_check_once is not None\n"
+        "from plugin.framework.module_base import ModuleBase\n"
+        "assert ModuleBase is not None\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(stage),
+        env={**os.environ, "PYTHONPATH": str(stage), "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
 
 
