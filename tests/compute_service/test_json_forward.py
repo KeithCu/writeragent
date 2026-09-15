@@ -156,36 +156,38 @@ class TestHttpBlobForward:
 
 class TestFormulaPoolWire:
     def test_json_forward_does_not_host_pack(self) -> None:
-        grid = [[float(i), float(i + 1)] for i in range(600)]  # 1200 cells
+        # 40×30 = 1200 cells (above compute pickle min_cells=1000) but under
+        # DEAL_MAX_SHAPE_DIM so materialize_inputs' list-of-grids pre still holds.
+        grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             with patch("plugin.scripting.payload_codec.host_pack_data") as mock_pack:
                 res = pool.execute(
-                    code="result = [len(data), data[-1][-1]]",
+                    code="result = [len(data.values), data.values[-1][-1]]",
                     data=grid,
                     req_id="jf-1",
                     wire=WIRE_JSON_FORWARD,
                 )
             assert mock_pack.call_count == 0
-            assert res.get("status") == "ok"
-            assert res.get("result") == [600, 600.0]
+            assert res.get("status") == "ok", res
+            assert res.get("result") == [40, 1199.0]
         finally:
             pool.shutdown()
 
     def test_pickle_wire_still_host_packs_large_grid(self) -> None:
-        grid = [[float(i)] for i in range(1000)]
+        grid = [[float(r * 30 + c) for c in range(30)] for r in range(40)]
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             with patch("plugin.scripting.payload_codec.host_pack_data", wraps=host_pack_data) as mock_pack:
                 res = pool.execute(
-                    code="result = len(data)",
+                    code="result = len(data.values)",
                     data=grid,
                     req_id="pk-1",
                     wire=WIRE_PICKLE,
                 )
             assert mock_pack.call_count == 1
-            assert res.get("status") == "ok"
-            assert res.get("result") == 1000
+            assert res.get("status") == "ok", res
+            assert res.get("result") == 40
         finally:
             pool.shutdown()
 
