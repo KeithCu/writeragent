@@ -71,14 +71,14 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, allow_nan=False).encode("utf-8")
 
 
-def _start_json(
+def _start_raw_json(
     start_response: Any,
     status: str,
-    payload: dict[str, Any],
+    body: bytes,
     *,
     extra_headers: list[tuple[str, str]] | None = None,
 ) -> list[bytes]:
-    body = _json_bytes(payload)
+    """Send already-encoded JSON bytes (worker result_json) without re-dumps."""
     headers = [
         ("Content-Type", "application/json"),
         ("Content-Length", str(len(body))),
@@ -89,12 +89,27 @@ def _start_json(
     return [body]
 
 
-def _read_request_json(
+def _start_json(
+    start_response: Any,
+    status: str,
+    payload: dict[str, Any],
+    *,
+    extra_headers: list[tuple[str, str]] | None = None,
+) -> list[bytes]:
+    return _start_raw_json(
+        start_response,
+        status,
+        _json_bytes(payload),
+        extra_headers=extra_headers,
+    )
+
+
+def _read_request_body(
     environ: dict[str, Any],
     settings: ComputeSettings,
     start_response: Any,
-) -> tuple[dict[str, Any] | None, list[bytes] | None]:
-    """Parse a POST JSON object. Returns ``(payload, None)`` or ``(None, error_body)``."""
+) -> tuple[bytes | None, list[bytes] | None]:
+    """Read a bounded POST body. Returns ``(body, None)`` or ``(None, error_body)``."""
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
         return None, _start_json(
@@ -138,6 +153,19 @@ def _read_request_json(
             "400 Bad Request",
             {"status": "error", "error": "Request body truncated"},
         )
+    return body, None
+
+
+def _read_request_json(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[dict[str, Any] | None, list[bytes] | None]:
+    """Parse a POST JSON object. Returns ``(payload, None)`` or ``(None, error_body)``."""
+    body, err_resp = _read_request_body(environ, settings, start_response)
+    if err_resp is not None:
+        return None, err_resp
+    assert body is not None
     try:
         req_data = json.loads(body.decode("utf-8"))
     except Exception:
@@ -247,14 +275,29 @@ def create_wsgi_app(
                     extra_headers=[("WWW-Authenticate", "Bearer")],
                 )
 
-            req_data, err_resp = _read_request_json(environ, settings, start_response)
+            raw_body, err_resp = _read_request_body(environ, settings, start_response)
             if err_resp is not None:
                 return err_resp
-            assert req_data is not None
+            assert raw_body is not None
 
-            req_id = req_data.get("id")
+            from compute_service.json_forward import (
+                WIRE_JSON_FORWARD,
+                ExecuteRequestError,
+                peel_execute_request,
+            )
 
-            code = req_data.get("code")
+            try:
+                parts = peel_execute_request(raw_body)
+            except ExecuteRequestError:
+                return _start_json(
+                    start_response,
+                    "400 Bad Request",
+                    {"status": "error", "error": "Invalid JSON"},
+                )
+
+            req_id = parts.req_id
+
+            code = parts.code
             if not code or not isinstance(code, str):
                 err_body: dict[str, Any] = {"status": "error", "error": "Missing 'code' string parameter."}
                 if req_id is not None:
@@ -274,7 +317,7 @@ def create_wsgi_app(
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
 
-            if "session_id" in req_data:
+            if parts.has_session_id:
                 err_body = {
                     "status": "error",
                     "error": "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.",
@@ -288,8 +331,7 @@ def create_wsgi_app(
             session_ids = query_params.get("session_id")
             session_id = session_ids[0].strip() if session_ids and session_ids[0].strip() else None
 
-            data = req_data.get("data")
-            mode = req_data.get("mode") or "isolated"
+            mode = parts.mode or "isolated"
             if mode not in ("isolated", "shared"):
                 mode = "isolated"
 
@@ -302,7 +344,7 @@ def create_wsgi_app(
                     err_body["id"] = req_id
                 return _start_json(start_response, "400 Bad Request", err_body)
 
-            init_script = req_data.get("init_script")
+            init_script = parts.init_script
             if init_script is not None and not isinstance(init_script, str):
                 init_script = None
 
@@ -316,7 +358,7 @@ def create_wsgi_app(
                 run_execute = lambda **kw: formula_pool.execute(**kw)
 
             timeout_sec = timeout_ms_to_sec(
-                req_data.get("timeout_ms"),
+                parts.timeout_ms,
                 default_timeout_sec=settings.default_timeout_sec,
                 max_timeout_sec=settings.max_timeout_sec,
             )
@@ -346,12 +388,14 @@ def create_wsgi_app(
             try:
                 result_payload = run_execute(
                     code=code,
-                    data=data,
+                    data_json=parts.data_json,
                     session_id=sid,
                     timeout_sec=timeout_sec,
                     mode=mode,
                     init_script=init_script,
                     req_id=req_id,
+                    wire=WIRE_JSON_FORWARD,
+                    decode_result=False,
                 )
                 duration_ms = (time.perf_counter() - start_t) * 1000.0
                 status = result_payload.get("status") if isinstance(result_payload, dict) else None
@@ -362,8 +406,12 @@ def create_wsgi_app(
                     duration_ms,
                 )
 
-                if req_id is not None and isinstance(result_payload, dict):
-                    result_payload["id"] = req_id
+                if isinstance(result_payload, dict):
+                    raw_out = result_payload.get("result_json")
+                    if isinstance(raw_out, (bytes, bytearray)) and raw_out:
+                        return _start_raw_json(start_response, "200 OK", bytes(raw_out))
+                    if req_id is not None:
+                        result_payload["id"] = req_id
 
                 try:
                     return _start_json(start_response, "200 OK", result_payload)

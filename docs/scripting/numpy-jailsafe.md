@@ -122,16 +122,15 @@ flowchart LR
     Wsd[coolwsd broker]
   end
   subgraph py [Python compute service]
-    Http[stdlib HTTP]
-    Pack[lists to numpy / optional split_grid to workers]
-    Run[venv_sandbox curated worker]
+    Http[stdlib HTTP peel + forward]
+    Run[venv_sandbox worker JSON-once]
   end
   Calc1 -.->|optional remote test| Http
   PY --> Kit
   Kit -->|"dumb JSON numbers strings null"| Wsd
   Wsd -->|"http::Session POST"| Http
-  Http --> Pack --> Run
-  Run -->|JSON result grid| Wsd --> Kit
+  Http -->|"raw data JSON bytes"| Run
+  Run -->|"result_json bytes"| Http --> Wsd --> Kit
 ```
 
 ### Split of responsibility
@@ -140,17 +139,17 @@ flowchart LR
 |-------|----------|------|----------|
 | Kit `=PY()` stub | C++ (small) | Register formula; on recalc read ranges via existing LOKit/cell APIs into **plain nested values**; send request up; apply returned scalar/matrix to cells | `split_grid`, Pickle, NumPy, AST sandbox |
 | coolwsd | C++ (small) | Feature flag + URL config; `http::Session` POST/response routing (copy Online `AIChatSession` outbound HTTP) | Compute or dense packing logic |
-| Compute service | **Python** | Parse dumb JSON → numpy/lists; optional internal [`payload_codec`](../../plugin/scripting/payload_codec.py) if talking to a warm worker; run sandboxed code; return JSON result | Live inside kit jail |
+| Compute service | **Python** | Peel small HTTP fields; forward raw `data` JSON bytes to the formula worker; worker deserializes once and dumps the kit JSON result once; host forwards those bytes. LibrePy desktop still uses [`payload_codec`](../../plugin/scripting/payload_codec.py) `split_grid` | Live inside kit jail |
 
-**Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. Dense optimization happens **inside** the Python service when bridging to workers, if at all. The kit never loads NumPy.
+**Dumb JSON** means cell values LO already exposes (float / string / empty / error string)—not LibrePy’s binary `split_grid` envelope. The compute host does **not** re-pack that JSON into `split_grid`; it forwards the `data` blob and the worker's `result_json`. LibrePy desktop `=PY()` is the path that still uses Pickle5 + `split_grid` both ways. The kit never loads NumPy.
 
 ### Python compute service
 
-- Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `config.py`, `executor.py`, [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
+- Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `config.py`, `executor.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
 - Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
 - `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
 - `POST /v1/execute[?session_id=...]` body: `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` → `{ "id?", "status", "result"|"error", "stdout?", "images?" }`.
-- **Dumb JSON egress only** toward kit/coolwsd: ndarrays and `split_grid` become nested lists; NaN/Inf → `null`; `json.dumps(..., allow_nan=False)`. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
+- **Dumb JSON egress only** toward kit/coolwsd: the worker dumps kit-safe JSON once (`allow_nan=False`, NaN/Inf → `null`); the HTTP host forwards those bytes. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
 - `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
 - Reuse desktop sandbox: [`venv_sandbox`](../../plugin/scripting/venv/venv_sandbox.py), import whitelist, curated Docker image (pinned numpy/pandas/**Pillow**/…).

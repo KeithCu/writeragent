@@ -42,7 +42,11 @@ _SPAWN_READY_TIMEOUT_SEC = 15.0
 _STDERR_SNIPPET = 500
 
 
-def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> int:
+def run_worker_stdio_loop(
+    handler: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
+) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
     stdin_bin = sys.stdin.buffer
     stdout_bin = sys.stdout.buffer
@@ -52,7 +56,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]]) -
 
     while True:
         try:
-            req = read_pickle_frame(stdin_bin, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+            req = read_pickle_frame(stdin_bin, max_payload_bytes=max_payload_bytes)
             if req is None:
                 break
             if not isinstance(req, dict):
@@ -63,7 +67,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]]) -
             res = {"status": "error", "error": f"Invalid IPC frame or unhandled error: {exc}"}
 
         try:
-            write_pickle_frame(stdout_bin, res)
+            write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
         except Exception:
             break
 
@@ -73,10 +77,18 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]]) -
 class BaseProcessWorker:
     """Wrapper around one persistent child subprocess communicating via Pickle 5 frames."""
 
-    def __init__(self, worker_id: int, script_path: str, worker_name: str = "Worker") -> None:
+    def __init__(
+        self,
+        worker_id: int,
+        script_path: str,
+        worker_name: str = "Worker",
+        *,
+        max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
+    ) -> None:
         self.worker_id = worker_id
         self.script_path = script_path
         self.worker_name = worker_name
+        self.max_payload_bytes = max_payload_bytes
         self.process: subprocess.Popen[bytes] | None = None
         self.lock = threading.Lock()
         self.tasks_executed = 0
@@ -120,7 +132,7 @@ class BaseProcessWorker:
                     proc.stdout,
                     _SPAWN_READY_TIMEOUT_SEC,
                     is_alive=self.is_alive,
-                    max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
+                    max_payload_bytes=self.max_payload_bytes,
                     require_dict=True,
                 )
                 if isinstance(ready_data, dict):
@@ -194,7 +206,11 @@ class BaseProcessWorker:
             assert self.process.stdout is not None
 
             try:
-                write_pickle_frame(self.process.stdin, payload)
+                write_pickle_frame(
+                    self.process.stdin,
+                    payload,
+                    max_payload_bytes=self.max_payload_bytes,
+                )
             except (BrokenPipeError, OSError) as exc:
                 snippet = self._stderr_snippet()
                 self.kill()
@@ -212,6 +228,7 @@ class BaseProcessWorker:
                     self.process.stdout,
                     timeout_sec,
                     is_alive=self.is_alive,
+                    max_payload_bytes=self.max_payload_bytes,
                 )
             except subprocess.TimeoutExpired:
                 log.warning(
@@ -270,6 +287,7 @@ class BaseProcessPool:
         max_tasks: int = 500,
         worker_name: str = "Worker",
         idle_worker_ttl_sec: float | None = None,
+        max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
     ) -> None:
         self.script_path = script_path
         self.num_workers = max(0, num_workers)
@@ -277,6 +295,7 @@ class BaseProcessPool:
         self.max_tasks = max_tasks
         self.worker_name = worker_name
         self.idle_worker_ttl_sec = idle_worker_ttl_sec
+        self.max_payload_bytes = max_payload_bytes
         self.workers: list[BaseProcessWorker] = []
         self._is_shutdown = False
         self._lock = threading.Lock()
@@ -288,7 +307,12 @@ class BaseProcessPool:
         if self.num_workers > 0:
             now = time.monotonic()
             for i in range(self.num_workers):
-                w = BaseProcessWorker(i + 1, script_path=script_path, worker_name=worker_name)
+                w = BaseProcessWorker(
+                    i + 1,
+                    script_path=script_path,
+                    worker_name=worker_name,
+                    max_payload_bytes=max_payload_bytes,
+                )
                 self.workers.append(w)
                 self._idle.add(w)
                 self._worker_last_active[w] = now

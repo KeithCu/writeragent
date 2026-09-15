@@ -243,35 +243,40 @@ Shared `mode=shared` **must** use a per-document `session_id` query parameter (`
 The Python Compute Service is structured as a resilient master HTTP server fronting two specialized subprocess worker pools:
 
 ### 1. Master HTTP Router (~20MB RAM)
-- Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 frame** on the worker's stdin pipe.
+- Ultra-thin network process that accepts HTTP connections, verifies Bearer authentication tokens, and forwards each job as a **length-prefixed Pickle 5 envelope** on the worker's stdin pipe. Large formula `data` / results are **raw JSON bytes** inside that envelope (not a second codec stage).
 - **Multi-Threaded HTTP Listener (`threads`, default `2`)**: Uses a `ThreadPoolExecutor` to handle concurrent HTTP connections, Kubernetes `/health` probes, and requests waiting on worker leases without socket stalls.
 - **Unbreakable Design**: The master process never executes user code directly, ensuring that user errors, native crashes, or memory spikes cannot destabilize the HTTP service.
 
-### Internal wire: HTTP JSON vs Pickle + split_grid
+### Internal wire: two products, two codecs
 
-Two stacked protocols:
+LibrePy desktop `=PY()` and this HTTP service are **asymmetric**. Do not regress the desktop path when changing compute.
 
-| Hop | Format | What travels |
-|-----|--------|--------------|
-| coolwsd → HTTP server | Dumb JSON (`POST /v1/execute[?session_id=...]`, `POST /v1/vision`) | `code`, `data` as nested lists, `mode`, … (session in URL query) / vision `image_b64` or `file_path` |
-| HTTP server → formula/vision workers | Length-prefixed **Pickle 5** on stdio | Request/response **dicts**; large formula `data` may be a `split_grid` envelope |
+| Product | Host ↔ worker | Large `data` in | Large result out |
+|---------|---------------|-----------------|------------------|
+| **LibrePy / desktop `=PY()`** | Length-prefixed **Pickle 5** | Host Cython `host_pack_data` → `split_grid` both ways; child `np.frombuffer` / `tobytes` | Host stdlib `host_unpack` for Calc spill |
+| **Python Compute Service** (default) | Length-prefixed **Pickle 5 envelope** of **control fields + JSON blobs** | Host peels `code` / `mode` / `timeout_ms` / `id` and **forwards the raw `data` JSON value bytes** (`data_json`). No host `json.loads` of the grid, no `host_pack_data`, no re-`dumps`. | Worker dumps kit JSON **once** (`result_json` bytes). Host **forwards those bytes** into the HTTP response. No pickle-of-grid → `host_unpack` → `json.dumps`. |
+
+HTTP remains dumb JSON on the kit hop (`POST /v1/execute[?session_id=...]`). The host is a proxy: auth, sticky routing, timeouts, worker lease. One deserialize of `data` happens on the **worker**. Small control fields may be deserialized on the host. The expensive rule is **no host re-serialize** of large ingress or egress.
+
+**Compute JSON-forward** ([`json_forward.py`](json_forward.py)):
+
+- Peel: scan the top-level JSON object; `json.loads` only isolated small values. The `data` value is sliced from the request body unchanged. A kit `data_json` string field is also accepted (inner text becomes the forwarded blob).
+- Envelope: `{code, mode, timeout_sec, session_id, init_script, wire: "json_forward", data_json: <bytes>}`. Pickle copies the byte buffer; it does not walk the JSON tree.
+- Worker: `json.loads(data_json)` → sandbox → [`json_egress.normalize_execute_response`](json_egress.py) → `json.dumps(..., allow_nan=False)` → `{status, result_json}`.
+- HTTP: `_start_raw_json` writes `result_json` as the response body.
+
+`FormulaProcessPool.execute(..., wire="pickle")` keeps the old `host_pack_data(..., min_cells=1000)` + `split_grid` path for fallback / tests. LibrePy never calls this pool.
 
 **Pickle framing** ([`plugin/scripting/ipc.py`](../plugin/scripting/ipc.py), [`worker_base.py`](worker_base.py)):
 
 - Write: `pickle.dumps(dict, protocol=5)` prefixed with a 4-byte big-endian length.
 - Read: 4-byte size, then exactly *N* bytes, `pickle.loads`.
 - Spawn handshake: the child writes `{status: "ready", pid: ...}` before the request loop.
+- Formula workers allow up to ~33 MiB per frame so a 32 MiB HTTP body can travel as `data_json`. LibrePy's editor/venv cap stays 16 MiB.
 
-**split_grid** ([`plugin/scripting/payload_codec.py`](../plugin/scripting/payload_codec.py)):
+Vision workers share the pickle framing. HTTP `image_b64` is decoded to raw `bytes` (`image_bytes`) on the pipe so the child does not re-decode Base64. Vision is unchanged (full JSON parse of a small OCR body).
 
-- [`FormulaProcessPool.execute`](formula_pool.py) calls `host_pack_data(data, min_cells=1000)` when `data` is a non-empty list (desktop `=PY()` uses `BINARY_MIN_CELLS = 100`; this service uses a higher bar so small HTTP grids stay nested lists).
-- ≥ 1000 cells → `{__wa_payload__: "split_grid", dtype, column_kinds, shape, buffer: <float64 bytes>, strings: {flat_index: str}}` inside the pickled request dict.
-- Below threshold → nested Python lists in that same dict.
-- The worker unpacks with `child_unpack_data` (numeric-only grids materialize via `np.frombuffer`). Large ndarray results may pack as `split_grid` on the way back; [`json_egress`](json_egress.py) unpacks them to nested lists / scalars before the HTTP JSON response so the kit never sees the envelope.
-
-Vision workers share the pickle framing. HTTP `image_b64` is decoded to raw `bytes` (`image_bytes`) on the pipe so the child does not re-decode Base64.
-
-Wire-format detail for `split_grid` and Pickle5: [`docs/scripting/numpy-serialization.md`](../docs/scripting/numpy-serialization.md). Kit-side dumb JSON contract: [`docs/scripting/numpy-jailsafe.md`](../docs/scripting/numpy-jailsafe.md).
+Desktop `split_grid` detail: [`docs/scripting/numpy-serialization.md`](../docs/scripting/numpy-serialization.md). Kit-side dumb JSON contract: [`docs/scripting/numpy-jailsafe.md`](../docs/scripting/numpy-jailsafe.md).
 
 ### 2. Tier 1: Formula Compute Pool (`FormulaProcessPool`)
 - Manages persistent worker subprocesses (`workers`, default `1`).
@@ -337,9 +342,9 @@ Log format includes timestamps, log level, request IDs, modes, code size, execut
 2026-08-17 20:00:01,489 [INFO] compute_service: done /v1/execute id='req-123' status='ok' duration=32.40ms
 ```
 
-### Cython Binary Acceleration (host pack only)
+### Cython Binary Acceleration (LibrePy / pickle fallback)
 
-The **HTTP host** packs large formula `data` grids (`FormulaProcessPool.execute` → `host_pack_data(..., min_cells=1000)`) with Cython `fast_flatten_grid_2d` / `fast_flatten_grid_1d` when a matching `pack.*.so` / `pack.*.pyd` is available. Formula workers do **not** load the accelerator: ingress is `child_unpack_split_grid` (`np.frombuffer`) and ndarray egress is `child_pack_split_grid` (`tobytes()`). Vision workers also skip it.
+Default compute HTTP is JSON-forward and does **not** call `host_pack_data`. Cython `fast_flatten_grid_2d` / `fast_flatten_grid_1d` is for LibrePy desktop `=PY()` and `FormulaProcessPool.execute(..., wire="pickle")`. Formula workers do **not** load the accelerator. Vision workers also skip it.
 
 The host looks for binaries in:
 1. In-tree `contrib/vec_pack` (copied into the Docker image)
@@ -382,6 +387,10 @@ python compute_service/server.py --config compute_service/python-compute.example
 ### 1. Functional Tests
 ```bash
 pytest tests/compute_service/
+# JSON-forward peel / no host re-dumps / LibrePy pickle fallback:
+pytest tests/compute_service/test_json_forward.py
+# LibrePy split_grid regression smoke (desktop path, not this service):
+pytest tests/scripting/test_payload_codec.py
 ```
 
 ### 2. Concurrency & Throughput Benchmarks
@@ -404,4 +413,4 @@ python scripts/benchmark_compute_service.py --concurrency 1,2,4,8,16,32 --reques
 - **`stateful_session` (`mode="shared"`)**: Fast in-memory stateful recalculations (400–430 RPS) with median latency under 10ms for multi-tenant sessions.
 - **`pure_python` (GIL Held)**: Constant single-interpreter CPU throughput (~30 RPS) per worker process, scaling linearly across CPU cores as formula worker subprocesses are added (`--workers 1,2,4`).
 
-See also [`docs/scripting/numpy-jailsafe.md`](../docs/scripting/numpy-jailsafe.md) (kit JSON contract) and [`docs/scripting/numpy-serialization.md`](../docs/scripting/numpy-serialization.md) (Pickle5 + `split_grid`).
+See also [`docs/scripting/numpy-jailsafe.md`](../docs/scripting/numpy-jailsafe.md) (kit JSON contract) and [`docs/scripting/numpy-serialization.md`](../docs/scripting/numpy-serialization.md) (LibrePy Pickle5 + `split_grid`).
