@@ -72,6 +72,7 @@ def test_formula_worker_source_does_not_load_cython() -> None:
 def test_dockerfile_copies_contrib_vec_pack() -> None:
     text = (_REPO / "compute_service" / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY contrib/vec_pack" in text
+    assert "COPY plugin/framework/deal_shim.py" in text
     assert (_REPO / "contrib" / "vec_pack" / "__init__.py").is_file()
 
 
