@@ -17,7 +17,7 @@ Exploratory headed play (not a formal eval harness). Goal was to see whether Imp
 | Extension | WriterAgent **debug** deploy (`make deploy`) |
 | Model | **`inception/mercury-2.5` only** (OpenRouter; confirmed `used_model` in debug log) |
 | Doc | New Impress presentation |
-| Artifacts | `docs/draw/impress-ai-mercury-explore/` (shots below); full debug log kept on the box under `/workspace/impress-ai-explore/writeragent_debug.log` |
+| Artifacts | Headed shots for this run lived on the box under `/workspace/impress-ai-explore/` (not committed — keeps git history lean). Debug log: same dir `writeragent_debug.log`. |
 
 ### Ops gotcha: LibreHarper + WriterAgent ChatPanel
 
@@ -38,21 +38,8 @@ Ask chat to create a **multi-slide presentation about the space elevator**, then
 
 ### Screenshots
 
-![Initial multi-slide deck](impress-ai-mercury-explore/01-space-elevator-deck.png)
+Not in-repo (Keith: avoid bloating history). For this run they were on the box at `/workspace/impress-ai-explore/01-space-elevator-deck.png` … `04-visual.png`.
 
-*Fig. 1 — After create: title + concept/benefits/challenges style deck (4 slides visible).*
-
-![Slide 2 after edit](impress-ai-mercury-explore/02-edited.png)
-
-*Fig. 2 — Slide 2 retitled “Why It Matters” with an extra bullet (thumbnail lag vs canvas).*
-
-![After structural add](impress-ai-mercury-explore/03-structural.png)
-
-*Fig. 3 — Structural follow-up (fifth slide / path-forward content in the run).*
-
-![Green rectangle on title slide](impress-ai-mercury-explore/04-visual.png)
-
-*Fig. 4 — Visual ask: green rectangle on slide 1 via shapes specialist.*
 
 ---
 
