@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <manifest:manifest xmlns:manifest="http://openoffice.org/2001/manifest">
+	<!-- Grammar only. Do not register chat sidebar factory, deck, or dialog
+	     UI — WriterAgent owns the sidebar. Co-install must not steal it. -->
 	<manifest:file-entry manifest:media-type="application/vnd.sun.star.uno-component;type=Python" manifest:full-path="plugin/writer/locale/harper_proofreader.py" />
 	<manifest:file-entry manifest:media-type="application/vnd.sun.star.configuration-data" manifest:full-path="registry/org/openoffice/Office/LinguisticLibreHarperGrammar.xcu" />
 </manifest:manifest>

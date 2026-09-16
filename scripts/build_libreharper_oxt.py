@@ -28,6 +28,7 @@ from scripts.build_oxt import (  # noqa: E402
 )
 from scripts.libreharper_bundle_paths import (  # noqa: E402
     collect_libreharper_plugin_paths,
+    is_libreharper_forbidden_chat_ui,
     iter_libreharper_vendor_packages,
     slim_libreharper_package_inits,
 )
@@ -89,6 +90,15 @@ def assemble_libreharper_bundle(base_dir: str, *, with_tests: bool = False, stri
     include.extend(plugin_paths)
 
     files = collect_files(base_dir, include, with_tests=with_tests)
+    # E: Harper must not register ChatPanelFactory / WriterAgentDeck / ChatPanel XDL.
+    leaked = [rel for rel in files if is_libreharper_forbidden_chat_ui(rel) or is_libreharper_forbidden_chat_ui(_libreharper_remap_path(rel))]
+    if leaked:
+        print(
+            "ERROR: LibreHarper bundle must not include WriterAgent ChatPanel UI: %s"
+            % ", ".join(leaked),
+            file=sys.stderr,
+        )
+        return 0
 
     count = 0
     for rel in files:
