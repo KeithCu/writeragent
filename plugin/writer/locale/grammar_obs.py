@@ -7,12 +7,11 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
-import sys
 from typing import Any, cast
 
 from plugin.framework import event_bus
+from plugin.framework.uno_context import desktop_create_is_unsafe
 
 log = logging.getLogger("writeragent.grammar")
 
@@ -36,15 +35,6 @@ _ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
 })
 _ISSUE_COUNT_RESULT = re.compile(r"^\d+ issues?$", re.IGNORECASE)
 
-_UNO_HELPER_BASENAMES = frozenset({
-    "uno",
-    "uno.bin",
-    "unopkg",
-    "unopkg.bin",
-    "unopkg.com",
-    "unopkg.exe",
-})
-
 
 def is_routine_libreharper_status(phase: str, result: str) -> bool:
     """True for steady-state LibreHarper strings that must not paint the status bar.
@@ -59,20 +49,6 @@ def is_routine_libreharper_status(phase: str, result: str) -> bool:
     if normalized in _ROUTINE_LIBREHARPER_STATUS_RESULTS:
         return True
     return _ISSUE_COUNT_RESULT.fullmatch(normalized) is not None
-
-
-def desktop_create_is_unsafe() -> bool:
-    """True in uno.bin / unopkg helpers that have no VCL.
-
-    ``createInstanceWithContext("com.sun.star.frame.Desktop")`` on that ctx
-    takes SolarMutexGuard → GetYieldMutex and SEGVs (issue #768). GUI soffice
-    already has Desktop; this is only the register/enable URP helper.
-    """
-    argv = [str(arg) for arg in sys.argv]
-    argv0 = os.path.basename(argv[0]) if argv else ""
-    if argv0 in _UNO_HELPER_BASENAMES:
-        return True
-    return any(arg == "--singleaccept" or arg.startswith("--singleaccept=") for arg in argv)
 
 
 def _frame_from_controller(obj: Any) -> Any | None:
@@ -110,9 +86,9 @@ def _frame_from_bound_grammar_docs() -> Any | None:
 def _frame_from_existing_desktop_singleton(ctx: Any) -> Any | None:
     """Look up ``theDesktop`` only when it cannot SEGV; never create Desktop.
 
-    Register-time uno.bin has no VCL. ``get_active_document`` / ``get_desktop``
-    always ``createInstanceWithContext(Desktop)`` and that is the #768 crash.
-    Singleton lookup on a helper ctx can instantiate too, so skip it there.
+    Register-time uno.bin has no VCL. ``get_desktop`` fail-softs there, but
+    ``getValueByName(theDesktop)`` can still instantiate and SEGV (#768).
+    Skip singleton lookup on helper ctxs.
     No existing Desktop → fail soft (status paint is optional).
     """
     if ctx is None or desktop_create_is_unsafe():
@@ -224,6 +200,10 @@ def emit_grammar_status(
             # Skip main-thread posts for per-keystroke strings so typing does not
             # thrash XStatusIndicator (issue #768 status-bar flash / stalls).
             if is_routine_libreharper_status(phase, result):
+                return
+            # pythonloader in uno.bin can rewrite argv; do not post a status
+            # paint that would look up theDesktop on a no-VCL ctx (#768).
+            if desktop_create_is_unsafe():
                 return
             from plugin.framework.queue_executor import post_to_main_thread
 

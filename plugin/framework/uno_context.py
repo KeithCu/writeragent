@@ -35,6 +35,7 @@ document model safe from any thread — wrap document access with
 
 import logging
 import os
+import sys
 from contextlib import contextmanager
 from typing import Any, cast
 
@@ -59,6 +60,73 @@ _KNOWN_EXTENSION_IDS = (
 )
 
 _is_libreharper_cache: bool | None = None
+
+# uno.bin / unopkg register helpers have no VCL. Creating Desktop there SEGVs
+# (issue #768). pythonloader often rewrites sys.argv, so also read /proc.
+_UNO_HELPER_BASENAMES = frozenset({
+    "uno",
+    "uno.bin",
+    "uno.exe",
+    "unopkg",
+    "unopkg.bin",
+    "unopkg.com",
+    "unopkg.exe",
+})
+
+
+def _basename_is_uno_helper(name: str) -> bool:
+    return os.path.basename(name).strip().lower() in _UNO_HELPER_BASENAMES
+
+
+def _tokens_have_singleaccept(tokens: list[str]) -> bool:
+    return any(token == "--singleaccept" or token.startswith("--singleaccept=") for token in tokens)
+
+
+def _linux_process_tokens() -> list[str]:
+    """Real process image and args. pythonloader may rewrite ``sys.argv`` (#768)."""
+    tokens: list[str] = []
+    try:
+        tokens.append(os.readlink("/proc/self/exe"))
+    except OSError:
+        pass
+    try:
+        with open("/proc/self/comm", encoding="utf-8") as comm_file:
+            comm = comm_file.read().strip()
+        if comm:
+            tokens.append(comm)
+    except OSError:
+        pass
+    try:
+        with open("/proc/self/cmdline", "rb") as cmdline_file:
+            raw = cmdline_file.read().split(b"\0")
+        tokens.extend(part.decode("utf-8", "replace") for part in raw if part)
+    except OSError:
+        pass
+    return tokens
+
+
+def desktop_create_is_unsafe() -> bool:
+    """True in uno.bin / unopkg helpers that have no VCL.
+
+    ``createInstanceWithContext("com.sun.star.frame.Desktop")`` and
+    ``getValueByName(theDesktop)`` on that ctx take SolarMutexGuard →
+    GetYieldMutex and SEGV (issue #768). GUI soffice already has Desktop.
+
+    Do not trust ``sys.argv`` alone: pythonloader inside
+    ``uno.bin --singleaccept`` often leaves argv as ``['']`` or a .py path.
+    """
+    argv = [str(arg) for arg in sys.argv]
+    if argv and _basename_is_uno_helper(argv[0]):
+        return True
+    if _tokens_have_singleaccept(argv):
+        return True
+    exe = getattr(sys, "executable", "") or ""
+    if exe and _basename_is_uno_helper(exe):
+        return True
+    proc_tokens = _linux_process_tokens()
+    if any(_basename_is_uno_helper(token) for token in proc_tokens):
+        return True
+    return _tokens_have_singleaccept(proc_tokens)
 
 
 def is_libreharper() -> bool:
@@ -182,7 +250,15 @@ def get_service_manager(ctx: Any) -> Any | None:
 
 @main_thread_only
 def get_desktop(ctx=None):
-    """Return the UNO Desktop instance."""
+    """Return the UNO Desktop instance, or None when creating it would SEGV.
+
+    uno.bin / unopkg register helpers have no VCL. ``createInstance(Desktop)``
+    takes SolarMutexGuard → GetYieldMutex and crashes (issue #768). GUI
+    soffice keeps the existing create path.
+    """
+    if desktop_create_is_unsafe():
+        log.debug("get_desktop skipped: no-VCL helper process (issue #768)")
+        return None
     ctx = ctx or get_ctx()
     assert ctx is not None
     ctx_any = cast("Any", ctx)
@@ -197,6 +273,8 @@ def get_active_document(ctx=None):
     """Return the currently active document model."""
     try:
         desktop = get_desktop(ctx)
+        if desktop is None:
+            return None
         check_disposed(desktop, "Desktop")
         doc = safe_call(desktop.getCurrentComponent, "Desktop component resolution")
         return _wrap_uno(doc)
@@ -351,11 +429,12 @@ def restore_query_if_user_still_there() -> None:
 
 def _current_document_controller(ctx):
     try:
-        smgr = getattr(ctx, "ServiceManager", None)
-        if smgr is None:
+        # Same no-VCL fail-soft as get_desktop (issue #768). Do not create
+        # Desktop via ServiceManager here — that bypassed the choke point.
+        desktop = get_desktop(ctx)
+        if desktop is None:
             return None
-        desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-        comp = desktop.getCurrentComponent() if desktop is not None else None
+        comp = desktop.getCurrentComponent()
         if comp is None:
             return None
         return comp.getCurrentController()

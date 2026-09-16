@@ -242,6 +242,29 @@ def test_harper_proofreader_initialization_starts_harper_warmup() -> None:
         reset_package_extension_id_for_tests()
 
 
+def test_harper_proofreader_skips_register_side_effects_on_no_vcl() -> None:
+    """uno.bin register/enable must not warmup harper-ls or schedule update check (#768)."""
+    from unittest.mock import MagicMock, patch
+    from plugin.writer.locale.harper_proofreader import HarperProofreader
+    from plugin.framework.uno_context import reset_package_extension_id_for_tests
+
+    try:
+        ctx = MagicMock()
+        with (
+            patch("plugin.framework.uno_context.desktop_create_is_unsafe", return_value=True),
+            patch("plugin.chatbot.extension_update_check.schedule_extension_update_check_once") as mock_update,
+            patch("plugin.framework.config.init_config") as mock_init,
+            patch("plugin.writer.locale.harper.maybe_start_harper_async") as mock_start,
+        ):
+            HarperProofreader(ctx)
+        mock_update.assert_not_called()
+        mock_init.assert_not_called()
+        mock_start.assert_not_called()
+        ctx.ServiceManager.createInstanceWithContext.assert_not_called()
+    finally:
+        reset_package_extension_id_for_tests()
+
+
 def test_harper_proofreader_skips_warmup_without_config_dir() -> None:
     from unittest.mock import MagicMock, patch
     from plugin.writer.locale.harper_proofreader import HarperProofreader

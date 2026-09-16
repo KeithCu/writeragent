@@ -177,8 +177,33 @@ def test_desktop_create_is_unsafe_for_uno_bin_helper() -> None:
 
     with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
         assert go.desktop_create_is_unsafe()
-    with patch.object(sys, "argv", ["soffice"]):
+    with (
+        patch.object(sys, "argv", ["soffice"]),
+        patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+    ):
         assert not go.desktop_create_is_unsafe()
+
+
+def test_desktop_create_is_unsafe_when_pythonloader_rewrites_argv() -> None:
+    """pythonloader inside uno.bin often leaves argv as '' or a .py path (#768)."""
+    import sys
+
+    proc = ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]
+    with (
+        patch.object(sys, "argv", [""]),
+        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+    ):
+        assert go.desktop_create_is_unsafe()
+
+
+def test_emit_grammar_status_skips_post_on_no_vcl_helper() -> None:
+    with (
+        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch.object(go, "desktop_create_is_unsafe", return_value=True),
+        patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post,
+    ):
+        go.emit_grammar_status("request", "Hello world.", result="Starting Harper…")
+    mock_post.assert_not_called()
 
 
 def test_resolve_status_bar_frame_skips_desktop_create_when_helper_or_missing() -> None:

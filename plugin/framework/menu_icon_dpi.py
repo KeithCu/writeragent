@@ -79,8 +79,10 @@ def _candidate_windows(ctx: Any = None) -> list[Any]:
     try:
         import uno
 
-        from plugin.framework.uno_context import get_service_manager
+        from plugin.framework.uno_context import desktop_create_is_unsafe, get_service_manager
 
+        if desktop_create_is_unsafe():
+            return wins
         if ctx is None:
             ctx = uno.getComponentContext()
         sm = get_service_manager(ctx)

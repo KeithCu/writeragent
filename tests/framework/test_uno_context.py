@@ -270,6 +270,73 @@ def test_product_display_name_follows_extension_id():
         reset_package_extension_id_for_tests()
 
 
+def test_get_desktop_skips_create_on_uno_bin_helper():
+    """Register/enable uno.bin must not createInstance(Desktop) (#768)."""
+    from plugin.framework.uno_context import get_desktop
+
+    smgr = MagicMock()
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+        assert get_desktop(ctx) is None
+    smgr.createInstanceWithContext.assert_not_called()
+
+
+def test_get_desktop_skips_create_when_proc_exe_is_uno_bin():
+    """pythonloader may rewrite sys.argv; /proc/self/exe is the real process (#768)."""
+    from plugin.framework.uno_context import get_desktop
+
+    smgr = MagicMock()
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+    proc = ["/usr/lib64/libreoffice/program/uno.bin", "--quiet", "--singleaccept"]
+    with (
+        patch.object(sys, "argv", [""]),
+        patch("plugin.framework.uno_context._linux_process_tokens", return_value=proc),
+    ):
+        assert get_desktop(ctx) is None
+    smgr.createInstanceWithContext.assert_not_called()
+
+
+def test_get_desktop_creates_on_soffice():
+    from plugin.framework.uno_context import get_desktop
+
+    desktop = MagicMock()
+    smgr = MagicMock()
+    smgr.createInstanceWithContext.return_value = desktop
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+    with (
+        patch.object(sys, "argv", ["soffice"]),
+        patch("plugin.framework.uno_context._linux_process_tokens", return_value=["/usr/lib64/libreoffice/program/soffice.bin"]),
+        patch("plugin.framework.uno_context._wrap_uno", side_effect=lambda obj: obj),
+    ):
+        assert get_desktop(ctx) is desktop
+    smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.frame.Desktop", ctx)
+
+
+def test_get_active_document_skips_desktop_create_on_no_vcl():
+    from plugin.framework.uno_context import get_active_document
+
+    smgr = MagicMock()
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+        assert get_active_document(ctx) is None
+    smgr.createInstanceWithContext.assert_not_called()
+
+
+def test_current_document_controller_skips_desktop_create_on_no_vcl():
+    from plugin.framework.uno_context import _current_document_controller
+
+    smgr = MagicMock()
+    ctx = MagicMock()
+    ctx.ServiceManager = smgr
+    with patch.object(sys, "argv", ["/usr/lib64/libreoffice/program/uno.bin", "--singleaccept"]):
+        assert _current_document_controller(ctx) is None
+    smgr.createInstanceWithContext.assert_not_called()
+
+
 def test_extension_id_constants_match_package_ids():
     from plugin.framework.constants import (
         EXTENSION_ID_LIBREHARPER,

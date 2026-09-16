@@ -98,19 +98,26 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
         # Identity before base init: register_live_proofreader / warmup may run doProofreading.
         self._checker_identity = "harper"
         self._provider = "harper"
+        # uno.bin register/enable has no VCL. Warmup status and the weekly
+        # update dialog both touch Desktop; skip those side effects here (#768).
+        skip_register_ui = False
         try:
-            from plugin.framework.uno_context import set_package_extension_id
+            from plugin.framework.uno_context import desktop_create_is_unsafe, set_package_extension_id
 
             set_package_extension_id(EXTENSION_ID_LIBREHARPER)
-            from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
+            skip_register_ui = desktop_create_is_unsafe()
+            if not skip_register_ui:
+                from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
 
-            schedule_extension_update_check_once(ctx, EXTENSION_ID_LIBREHARPER)
+                schedule_extension_update_check_once(ctx, EXTENSION_ID_LIBREHARPER)
         except Exception as e:
             log.warning("[grammar] LibreHarper extension update check schedule failed: %s", e)
 
         super().__init__(ctx, *args)
         self._implementation_name = IMPLEMENTATION_NAME
         self._locales = _harper_locale_tuple()
+        if skip_register_ui:
+            return
         # LibreHarper has no OnStartApp job; start harper-ls only once the profile path exists.
         try:
             from plugin.framework.config import init_config, user_config_dir

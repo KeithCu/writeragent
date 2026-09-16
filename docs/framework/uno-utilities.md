@@ -461,7 +461,7 @@ Unifying `detect_doc_type` onto `doc_type_label_for_enum` would change unknown â
 
 **Desktop / GraphicProvider duplication (lower value)**
 
-- `uno_context._current_document_controller` creates Desktop via ServiceManager instead of `get_desktop`.
+- `uno_context._current_document_controller` uses `get_desktop` (no-VCL fail-soft, issue #768).
 - `main.py._load_icon_graphic` vs `librepy/sidebar_menus.py` GraphicProvider-from-URL (LibrePy also tries filesystem).
 - `create_property_value` (`writer/format.py`) vs inline `PropertyValue()` / `createUnoStruct` at load sites. `open_document_for_read` already imports `create_property_value`.
 
