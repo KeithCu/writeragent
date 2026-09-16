@@ -44,7 +44,7 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `set_active_page` | `pages.py` | Drawing+Presentation | Switch current view to slide |
 | `read_slide_text` | `pages.py` | Drawing+Presentation | Extract text from all shapes on a page |
 | `get_presentation_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
-| `list_designs` | `designs.py` | Drawing+Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix) |
+| `list_designs` | `designs.py` | Drawing+Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix). Each entry includes a short `look` vibe string from the template ZIP thumbnail (mood, accent hues, illustrated / graphic chrome) |
 | `apply_design` | `designs.py` | Drawing+Presentation | New-doc create-from-template (`AsTemplate`). Current-doc apply → `LO_WALL` |
 | `set_presentation_design` | `designs.py` | Drawing+Presentation | Core one-shot: new doc from design + master + HF/slide numbers. Draw → not-Impress |
 | `get_draw_tree` | `tree.py` | Drawing+Presentation | JSON DOM of shapes and layout; `fillable` blanks + ControlShape value/state |
@@ -167,7 +167,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Custom Shows** | ❌ Missing | — | Non-linear presentation paths |
 | **Timings** | ❌ Missing | — | Rehearse, auto-advance |
 | **Themes** | ❌ No Theme API | — | M0′: master `XTheme.getColorSet` is a palette hook, **not** apply-design. No list/apply theme wrappers. See [M0′ results](impress-lo-first-m0-probe-results.md). |
-| **Templates / design** | ✅ M1′ (new-doc only) | `list_designs`, `apply_design`, `set_presentation_design` | Create-from-template (`loadComponentFromURL` + `AsTemplate`). **Current-doc apply is an LO wall** (`loadStylesFromURL` absent/incomplete). Draw → not-Impress. |
+| **Templates / design** | ✅ M1′ (new-doc only) | `list_designs`, `apply_design`, `set_presentation_design` | Create-from-template (`loadComponentFromURL` + `AsTemplate`). **`list_designs` adds a short `look` string** derived from the `.otp` ZIP (`Thumbnails/thumbnail.png`, `Pictures/`, `styles.xml` fallback) so small models can pick dark/tech vs candy/illustrated. **Current-doc apply is an LO wall** (`loadStylesFromURL` absent/incomplete). Draw → not-Impress. |
 | **Headers/Footers (specialized)** | ✅ Complete | 2 tools | `get_headers_footers`, `set_headers_footers` (Impress only) |
 | **Tables** | ✅ | same names as Writer | `table_insert`, list/get/set, `manage_table_structure` on TableShape |
 | **3D Shapes** | ❌ Missing | — | 3D objects and scenes |

@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import struct
+import zipfile
+import zlib
 from unittest.mock import MagicMock, patch
 
 from plugin.draw.designs import (
@@ -51,7 +54,39 @@ def test_enumerate_designs_from_mocked_pathsettings(tmp_path):
     assert designs[0]["name"] == "Metropolis"
     assert designs[0]["path"] == str(otp)
     assert designs[0]["url"].startswith("file:")
+    assert designs[0]["look"] == ""
     assert "/usr/lib/libreoffice" not in designs[0]["path"]
+
+
+def _rgb_png(color: tuple[int, int, int], width: int = 8, height: int = 8) -> bytes:
+    raw = b""
+    for unused_y in range(height):
+        raw += b"\x00" + bytes(color) * width
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        crc = zlib.crc32(tag + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", crc)
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+
+
+def test_enumerate_includes_derived_look(tmp_path):
+    presnt = tmp_path / "presnt"
+    presnt.mkdir()
+    otp = presnt / "Navy.otp"
+    with zipfile.ZipFile(otp, "w") as zf:
+        zf.writestr("Thumbnails/thumbnail.png", _rgb_png((20, 40, 120)))
+        zf.writestr("Pictures/mark.svg", b"<svg/>")
+
+    settings = MagicMock()
+    settings.getPropertySetInfo.return_value = None
+    settings.getPropertyValue.side_effect = lambda name: path_to_file_url(str(presnt)) if name == "Template" else ""
+    ctx = MagicMock()
+    ctx.getValueByName.side_effect = lambda name: settings if name == "/singletons/com.sun.star.util.thePathSettings" else None
+
+    with patch("plugin.draw.designs._resolve_lo_directory_path", return_value=str(presnt)):
+        designs = enumerate_impress_designs(ctx)
+    assert len(designs) == 1
+    assert designs[0]["look"] == "dark background; blue accents; graphic chrome"
 
 
 def test_resolve_design_by_id_and_name(tmp_path):
@@ -101,6 +136,12 @@ def test_list_designs_tool_returns_count():
         out = ListDesigns().execute(ctx)
     assert out["status"] == "ok"
     assert out["count"] == 1
+
+
+def test_list_designs_description_mentions_look():
+    desc = ListDesigns.description.lower()
+    assert "look" in desc
+    assert "appearance" in desc or "mood" in desc or "dark" in desc
 
 
 def test_blank_master_signal():
@@ -153,8 +194,10 @@ def test_current_doc_apply_error_payload():
 def test_designs_module_has_no_hardcoded_install_prefix():
     import inspect
 
+    import plugin.draw.design_look as design_look
     import plugin.draw.designs as designs
 
-    src = inspect.getsource(designs)
-    assert "/usr/lib/libreoffice" not in src
-    assert "/opt/libreoffice" not in src
+    for mod in (designs, design_look):
+        src = inspect.getsource(mod)
+        assert "/usr/lib/libreoffice" not in src
+        assert "/opt/libreoffice" not in src

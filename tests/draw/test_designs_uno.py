@@ -54,6 +54,12 @@ def test_list_designs_finds_metropolis(ctx, doc):
     for d in listed.get("designs") or []:
         assert d.get("path"), d
         assert d.get("url", "").startswith("file:"), d
+        assert "look" in d, d
+    metro = next((d for d in listed.get("designs") or [] if "metropolis" in str(d.get("id") or "").lower()), None)
+    assert metro is not None, listed
+    look = str(metro.get("look") or "")
+    assert "dark" in look.lower(), metro
+    assert "blue" in look.lower(), metro
 
 
 @native_test

@@ -13,6 +13,10 @@ M0′ (``docs/draw/impress-lo-first-m0-probe-results.md``, PR #788) showed:
 
 ``set_presentation_design`` is the main-chat one-shot: new doc from a listed
 design, master assignment, headers/footers + slide numbers.
+
+``list_designs`` includes a short ``look`` string (mood / accent hues /
+illustrated vs graphic chrome) derived from the ``.otp`` ZIP — see
+``design_look.derive_otp_look``. No Desktop open, no vision images.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from plugin.doc.document_research import (
     _resolve_lo_directory_path,
     _should_skip_filename,
 )
+from plugin.draw.design_look import derive_otp_look
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.url_utils import path_to_file_url
 
@@ -201,6 +206,8 @@ def enumerate_impress_designs(ctx: Any) -> list[dict[str, str]]:
                         "name": _design_name_from_path(full),
                         "path": full,
                         "url": path_to_file_url(full),
+                        # ZIP thumbnail / Pictures / styles — never Desktop-open.
+                        "look": derive_otp_look(full),
                     }
                 )
     designs.sort(key=lambda d: (d["name"].lower(), d["path"]))
@@ -380,8 +387,10 @@ class ListDesigns(ToolBase):
     intent = "navigate"
     description = (
         "List shipped Impress .otp designs from LibreOffice PathSettings template "
-        "directories (id, name, path, url). Use a listed id with set_presentation_design "
-        "to start a new deck. Does not hardcode the install prefix."
+        "directories (id, name, path, url, look). Read look to choose a design by "
+        "appearance (dark/tech vs candy/illustrated), not only by name. Use a listed "
+        "id with set_presentation_design to start a new deck. Does not hardcode the "
+        "install prefix."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = [
