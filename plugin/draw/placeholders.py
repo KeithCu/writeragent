@@ -11,6 +11,7 @@ to placeholders by role rather than shape index.
 """
 
 import logging
+from typing import Any
 
 from plugin.framework.tool import ToolBase
 
@@ -150,13 +151,13 @@ def _shape_text_count(page):
     return count
 
 
-def _fallback_text_shape_indices(page):
+def _fallback_text_shape_indices(page) -> list[dict[str, Any]]:
     """Read-only hint of text-like shapes when _list_placeholders is empty.
 
     C1 only — no write. Used when ClassName/Name exist but getString does not
     (so they never enter available). Empty slide → empty list.
     """
-    result = []
+    result: list[dict[str, Any]] = []
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
         if hasattr(shape, "getString"):
@@ -170,7 +171,7 @@ def _fallback_text_shape_indices(page):
             pass
         if not class_name and not name:
             continue
-        entry = {"index": i}
+        entry: dict[str, Any] = {"index": i}
         if class_name:
             entry["class"] = class_name
         if name:
@@ -179,10 +180,10 @@ def _fallback_text_shape_indices(page):
     return result
 
 
-def _role_miss_error_kwargs(page):
+def _role_miss_error_kwargs(page) -> dict[str, Any]:
     """Details for set_placeholder_text when role lookup fails."""
     available = _list_placeholders(page)
-    extra = {"available": available}
+    extra: dict[str, Any] = {"available": available}
     if available:
         return extra
     extra["hint"] = _EMPTY_PLACEHOLDER_HINT
@@ -294,10 +295,11 @@ class SetPlaceholderText(ToolBase):
         elif role:
             shape, shape_index = _find_placeholder(page, role)
             if shape is None:
-                return self._tool_error(
-                    "Placeholder '%s' not found on this slide." % role,
-                    **_role_miss_error_kwargs(page),
-                )
+                # Named details dict (not **unpack) so mixed list/str values
+                # do not collide with _tool_error's code= parameter.
+                payload = self._tool_error("Placeholder '%s' not found on this slide." % role)
+                payload["details"] = _role_miss_error_kwargs(page)
+                return payload
         else:
             return self._tool_error("Specify role or index.")
 
