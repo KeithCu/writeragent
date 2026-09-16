@@ -1195,7 +1195,7 @@ class LlmClient:
                     log.exception("request_with_tools failed")
                     raise NetworkError(err_msg, details={"url": path}) from e
 
-            log.debug("=== Sync response: %s" % json.dumps(result, indent=2))
+            log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 
             if result is None:
                 result = {}
