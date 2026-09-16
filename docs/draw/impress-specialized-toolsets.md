@@ -4,7 +4,7 @@ This document describes Draw/Impress tool organization, current implementation s
 
 > **Note**: Draw and Impress share the same UNO foundation. WriterAgent treats them as a unified domain with presentation-specific extensions.
 
-**Related:** [small-model steal advice (not a SKILL paste)](ppt-master-steal-for-small-models.md)
+**Related:** [small-model steal advice (not a SKILL paste)](ppt-master-steal-for-small-models.md) · [LO-first M0′ probe results](impress-lo-first-m0-probe-results.md) (PR #788)
 
 ----
 
@@ -44,6 +44,9 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `set_active_page` | `pages.py` | Drawing+Presentation | Switch current view to slide |
 | `read_slide_text` | `pages.py` | Drawing+Presentation | Extract text from all shapes on a page |
 | `get_presentation_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
+| `list_designs` | `designs.py` | Drawing+Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix) |
+| `apply_design` | `designs.py` | Drawing+Presentation | New-doc create-from-template (`AsTemplate`). Current-doc apply → `LO_WALL` |
+| `set_presentation_design` | `designs.py` | Drawing+Presentation | Core one-shot: new doc from design + master + HF/slide numbers. Draw → not-Impress |
 | `get_draw_tree` | `tree.py` | Drawing+Presentation | JSON DOM of shapes and layout; `fillable` blanks + ControlShape value/state |
 | `get_image` | `writer/get_image.py` | Text+Drawing+Presentation | Vision: embedded graphic, selection, or `page=N` PNG of the rendered page. **`page` is 0-based.** Complements `get_draw_tree`; does not replace it. |
 | `list_placeholders` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
@@ -147,7 +150,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | Domain | Status | Tools | Notes |
 |--------|--------|-------|-------|
 | **Shapes (core)** | ✅ Complete | 11 tools | Create, edit, delete, connect, group, summary, tree, align, distribute, graphic, diagram |
-| **Pages/Slides (core)** | ✅ Complete | 7 tools | List, add, delete, duplicate, move, rename, read text |
+| **Pages/Slides (core)** | ✅ Complete | 7 tools | List, add (inherits assigned master), delete, duplicate, move, rename, read text |
 | **Master Slides (specialized)** | ✅ Complete | 3 tools | `slide_masters`: list, get, set |
 | **Speaker Notes (specialized)** | ✅ Complete | 2 tools | `speaker_notes`: get, set (Impress only — Draw has no speaker notes) |
 | **Placeholders (core)** | ✅ Complete | 3 tools | List, get text, set text (Impress only) |
@@ -163,8 +166,8 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Media (Audio/Video)** | ❌ Missing | — | Insert, control |
 | **Custom Shows** | ❌ Missing | — | Non-linear presentation paths |
 | **Timings** | ❌ Missing | — | Rehearse, auto-advance |
-| **Themes** | ❌ Missing | — | Color/font schemes |
-| **Templates** | ❌ Missing | — | Document templates |
+| **Themes** | ❌ No Theme API | — | M0′: master `XTheme.getColorSet` is a palette hook, **not** apply-design. No list/apply theme wrappers. See [M0′ results](impress-lo-first-m0-probe-results.md). |
+| **Templates / design** | ✅ M1′ (new-doc only) | `list_designs`, `apply_design`, `set_presentation_design` | Create-from-template (`loadComponentFromURL` + `AsTemplate`). **Current-doc apply is an LO wall** (`loadStylesFromURL` absent/incomplete). Draw → not-Impress. |
 | **Headers/Footers (specialized)** | ✅ Complete | 2 tools | `get_headers_footers`, `set_headers_footers` (Impress only) |
 | **Tables** | ✅ | same names as Writer | `table_insert`, list/get/set, `manage_table_structure` on TableShape |
 | **3D Shapes** | ❌ Missing | — | 3D objects and scenes |
@@ -423,8 +426,8 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 - **OCR**: Text recognition from inserted images
 - **Custom Shows**: Non-linear presentation paths
 - **Presenter Console**: Presenter view with notes timer
-- **Themes**: Color schemes, font schemes
-- **Templates**: Document template management
+- **Themes**: Color schemes, font schemes — **no Theme apply API** (M0′). Look = applied `.otp` + master.
+- **Templates**: Current-doc `.otp` merge remains an LO wall; new-doc create-from-template shipped as M1′.
 - **Macros**: Recording and execution
 - **Versioning**: Document history and rollback
 - **3D Objects**: 3D shape creation and manipulation
@@ -495,6 +498,7 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 - `tests/draw/test_draw_specialized_tiers.py` - Specialized tier registration
 - `tests/draw/test_draw_forms_uno.py` - ControlShapes (list/edit by name, checkbox State) + `fill_draw_fields`
 - `tests/draw/test_draw_headers_footers.py` - Headers/footers
+- `tests/draw/test_designs.py` / `test_designs_uno.py` - PathSettings list, create-from-template, current-doc `LO_WALL`, HF via `set_presentation_design`
 
 ----
 

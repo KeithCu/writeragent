@@ -725,6 +725,7 @@ TOOLS (grouped by use):
 
 READ:
 - list_pages: List pages/slides in the document.
+- list_designs: List shipped Impress .otp designs (e.g. Metropolis).
 - read_slide_text: Extract text content and speaker notes from a slide.
 - get_presentation_info: Slide count, dimensions, master slide names, and Impress status.
 - get_draw_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
@@ -733,7 +734,8 @@ READ:
 - get_placeholder_text: Get text from a slide placeholder by role or index.
 
 WRITE:
-- add_slide: Insert a new slide (page) at specified index.
+- add_slide: Insert a new slide (page) at specified index (inherits the assigned master).
+- set_presentation_design: Start a new Impress deck from a shipped .otp (not blank Default).
 - delete_slide: Remove a slide (page) by index.
 - set_active_page: Switch active slide/page.
 - set_placeholder_text: Set text on a slide placeholder by role or index (Impress).

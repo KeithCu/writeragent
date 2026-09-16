@@ -36,12 +36,16 @@ _SLIDE_SPECIALIZED_NAMES = frozenset(
 )
 
 
+_IMPRESS_DESIGN_CORE = frozenset({"list_designs", "apply_design", "set_presentation_design"})
+
+
 def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
     from plugin.main import get_tools
 
     registry = get_tools()
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc())}
     assert _SLIDE_SPECIALIZED_NAMES.isdisjoint(names)
+    assert _IMPRESS_DESIGN_CORE <= names
 
 
 @pytest.mark.parametrize(

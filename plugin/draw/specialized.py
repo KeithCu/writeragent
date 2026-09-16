@@ -36,7 +36,7 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     description = (
         f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
         f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "
-        "Also: shapes, tables, images, charts, forms, math, slide transitions, slide masters, etc."
+        "Also: shapes, tables, images, charts, forms, math, slide transitions, slide masters, templates/design, etc."
     )
 
     uno_services = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]

@@ -22,6 +22,7 @@ from plugin.framework.module_base import ModuleBase
 from . import specialized as specialized
 from . import tree as tree
 from . import headers_footers as headers_footers
+from . import designs as designs
 
 
 class DrawModule(ModuleBase):

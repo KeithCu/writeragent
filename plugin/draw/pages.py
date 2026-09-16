@@ -37,6 +37,7 @@ class AddSlide(ToolBase):
     description = (
         "Inserts a new slide (page) at the specified index. "
         "Impress defaults to the Title + Content ('text') layout. "
+        "New slides inherit the deck's assigned master. "
         "Call list_placeholders before set_placeholder_text."
     )
     parameters = {
@@ -86,6 +87,14 @@ class AddSlide(ToolBase):
         active_idx = insert_at if switch_view else bridge.get_active_page_index()
 
         result = {"status": "ok", "message": "Slide added", "active_page_index": active_idx}
+        # insertNewByIndex can attach factory Default even when the deck already
+        # has a designed master (M1′). Copy the neighbor slide's MasterPage.
+        if is_impress:
+            from plugin.draw.designs import inherit_master_from_neighbor
+
+            inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, insert_at)
+            if inherited:
+                result["master"] = inherited
         if is_impress and layout_name is not None:
             result["placeholders_hint"] = "call list_placeholders on this page"
             # insertNewByIndex is already empty (Layout=20, 0 shapes). _LAYOUTS
