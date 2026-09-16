@@ -24,49 +24,73 @@ log = logging.getLogger("nelson.draw")
 
 from plugin.draw.bridge import DrawBridge
 
-_PLACEHOLDER_ROLES = {"title": ["Title", "TitleText"], "subtitle": ["SubTitle", "Subtitle"], "body": ["Outline", "Text", "Body"], "notes": ["Notes"]}
+# Specific tokens first so matching is not shape-order / substring-any.
+# "Text" used to be a body pattern: "text" in "titletextshape" returned the
+# title as body. "title" is also a substring of "subtitle" — SubTitle first.
+_CLASS_ROLE_PRIORITY = (
+    ("TitleText", "title"),
+    ("SubTitle", "subtitle"),
+    ("Subtitle", "subtitle"),
+    ("Outliner", "body"),
+    ("Outline", "body"),
+    ("Title", "title"),
+    ("Body", "body"),
+    ("Notes", "notes"),
+)
+
+
+def _role_from_label(label):
+    """Map a ClassName or shape Name to a role. First matching token wins."""
+    if not label:
+        return None
+    lower = str(label).lower()
+    for token, role in _CLASS_ROLE_PRIORITY:
+        if token.lower() in lower:
+            return role
+    return None
+
+
+def _shape_class_name(shape):
+    try:
+        if hasattr(shape, "ClassName") and shape.ClassName:
+            return str(shape.ClassName)
+    except Exception:
+        pass
+    try:
+        cn = shape.getPropertyValue("ClassName")
+        if cn:
+            return str(cn)
+    except Exception:
+        pass
+    return ""
 
 
 def _find_placeholder(page, role):
     """Find a placeholder shape by role name.
 
     Tries multiple identification strategies:
-    1. Check ClassName property (Impress presentation objects)
-    2. Check shape name patterns
-    3. Fall back to positional heuristic (first text shape = title, etc.)
+    1. ClassName via the priority class→role map (TitleText→title, …)
+    2. Shape Name via the same map
+    3. Positional heuristic (first text shape = title, second = body)
     """
     role_lower = role.lower()
-    candidates = _PLACEHOLDER_ROLES.get(role_lower, [role])
 
-    # Strategy 1: match by ClassName (presentation object type)
+    # Strategy 1: class → role (deterministic; not substring-any / shape-order)
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
         try:
-            class_name = ""
-            if hasattr(shape, "ClassName"):
-                class_name = shape.ClassName
-            elif hasattr(shape, "getShapeType"):
-                # Check if it's a presentation shape
-                try:
-                    class_name = shape.getPropertyValue("ClassName")
-                except Exception:
-                    pass
-            if class_name:
-                for cand in candidates:
-                    if cand.lower() in class_name.lower():
-                        return shape, i
+            if _role_from_label(_shape_class_name(shape)) == role_lower:
+                return shape, i
         except Exception:
             pass
 
-    # Strategy 2: match by shape Name
+    # Strategy 2: match by shape Name using the same map
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
         try:
             name = shape.Name if hasattr(shape, "Name") else ""
-            if name:
-                for cand in candidates:
-                    if cand.lower() in name.lower():
-                        return shape, i
+            if name and _role_from_label(name) == role_lower:
+                return shape, i
         except Exception:
             pass
 
@@ -98,25 +122,12 @@ def _list_placeholders(page):
                 entry["name"] = shape.Name
         except Exception:
             pass
-        try:
-            if hasattr(shape, "ClassName") and shape.ClassName:
-                entry["class"] = shape.ClassName
-        except Exception:
-            try:
-                cn = shape.getPropertyValue("ClassName")
-                if cn:
-                    entry["class"] = cn
-            except Exception:
-                pass
-        # Detect role from class
-        cls = str(entry.get("class", "")).lower()
-        for role, patterns in _PLACEHOLDER_ROLES.items():
-            for p in patterns:
-                if p.lower() in cls:
-                    entry["role"] = role
-                    break
-            if "role" in entry:
-                break
+        class_name = _shape_class_name(shape)
+        if class_name:
+            entry["class"] = class_name
+        role = _role_from_label(class_name)
+        if role:
+            entry["role"] = role
         result.append(entry)
     return result
 
