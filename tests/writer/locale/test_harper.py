@@ -925,7 +925,8 @@ def test_run_harper_check_continues_when_pump_post_times_out() -> None:
     """Regression: status UI pump must not abort Harper when main-thread post fails."""
     ctx = MagicMock()
 
-    def _fake_lint(text, config_dir, *, bcp47="en-US", heartbeat_fn=None):
+    def _fake_lint(text, config_dir, *, bcp47="en-US", heartbeat_fn=None, ctx=None):
+        del ctx
         if heartbeat_fn is not None:
             heartbeat_fn({"message": "Downloading harper-ls…"})
         return {"errors": [{"n_error_start": 0, "n_error_length": 4}]}
@@ -951,7 +952,8 @@ def test_run_harper_check_pumps_ui_after_start_and_heartbeat() -> None:
     def _record_pump(c: object) -> None:
         pump_calls.append(c)
 
-    def _fake_lint(text, config_dir, *, bcp47="en-US", heartbeat_fn=None):
+    def _fake_lint(text, config_dir, *, bcp47="en-US", heartbeat_fn=None, ctx=None):
+        del ctx
         if heartbeat_fn is not None:
             heartbeat_fn({"message": "Downloading harper-ls v2.7.0…"})
         return {"errors": []}
@@ -973,7 +975,8 @@ def test_run_harper_check_pumps_ui_after_start_and_heartbeat() -> None:
 def test_run_harper_check_heartbeat_skips_empty_message() -> None:
     ctx = MagicMock()
 
-    def _fake_lint(text, config_dir, *, bcp47="en-US", heartbeat_fn=None):
+    def _fake_lint(text, config_dir, *, bcp47="en-US", heartbeat_fn=None, ctx=None):
+        del ctx
         if heartbeat_fn is not None:
             heartbeat_fn({"message": "   "})
         return {"errors": []}
