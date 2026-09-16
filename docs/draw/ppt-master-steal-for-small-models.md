@@ -7,6 +7,7 @@
 **Doctrine (Keith, 2026-09-16):** **Use every LibreOffice Impress feature first; invent WriterAgent-only systems only after a headed repro shows a real LO wall.**
 **Upstream:** [hugohe3/ppt-master](https://github.com/hugohe3/ppt-master) (MIT), skill v6.x.
 **Evidence base:** rendered slides from `hugohe3/ppt-master-examples` (glassmorphism, swiss-grid); `plugin/draw/*`; `plugin/framework/prompts.py`; `scripts/eval_2_draw_oracle.py`; [impress-ai-mercury-2.5-headed-findings.md](impress-ai-mercury-2.5-headed-findings.md); [impress-specialized-toolsets.md](impress-specialized-toolsets.md); filesystem probe of the installed LO (23 shipped slide designs, `.otp` internals).
+**Related:** [M0′ / UNO-probe farm brief](impress-lo-first-m0-probe-brief.md)
 
 > **Not a product brief:** do **not** paste upstream `references/*.md` or the forked SKILL into a WriterAgent prompt. This doc steals *patterns*. Route B implementation is WriterAgent-original and **LibreOffice-first**.
 
