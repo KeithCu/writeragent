@@ -62,6 +62,7 @@ def test_get_image_draw_page_png(ctx, doc):
     assert missing.get("status") == "error"
     assert "page not found" in missing.get("message", "")
     assert "2 page(s)" in missing.get("message", "")
+    assert "0-based" in missing.get("message", "")
 
     unnamed = _exec(doc, ctx, "draw", image="NoSuchGraphic")
     assert unnamed.get("status") == "error"

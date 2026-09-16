@@ -430,7 +430,7 @@ WRITER_IMAGES_RULES = """IMAGES:
 - To edit, change, or restyle an existing or selected image, delegate domain=images with a task that instructs image_generate(source_image='selection') and keeps the user's wording (e.g. 'make it look like a wizard'). That runs img2img and replace_image_in_place. A generate-new paraphrase inserts a new graphic.
 - Writer letterhead logos: image_insert(target='header'|'footer'). A different first page needs page_set_style_properties(first_is_shared=false) then target='header_first' (or footer_first) — otherwise the logo lands in the shared header and repeats on every page.
 - image_set_properties resizes (width_mm/height_mm), repositions (hori_orient/vert_orient — friendly values like left/center/right/top/bottom work), and crops (crop_top_mm / crop_bottom_mm / crop_left_mm / crop_right_mm — mm trimmed per edge).
-- To actually SEE an image (vision-capable models), call get_image — by graphic name, selection=true, or page=N to render that whole page.
+- To actually SEE an image (vision-capable models), call get_image — by graphic name, selection=true, or page=N (0-based; first page is 0) to render that whole page.
   For a bulk read with pictures embedded, pass include_images=true to get_document_content."""
 
 
@@ -714,7 +714,7 @@ READ:
 - read_slide_text: Extract text content and speaker notes from a slide.
 - get_presentation_info: Slide count, dimensions, master slide names, and Impress status.
 - get_draw_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
-- get_image: page=N (0-based; first page/slide is 0, same as list_pages / get_draw_tree) renders that page as a PNG so a vision model can see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape.
+- get_image: page=N is 0-based like list_pages / add_slide / set_placeholder_text / get_draw_tree (first page/slide is 0). Renders that page as a PNG so a vision model can see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape.
 - list_placeholders: List text placeholders (title, subtitle, body) on a slide (Impress).
 - get_placeholder_text: Get text from a slide placeholder by role or index.
 

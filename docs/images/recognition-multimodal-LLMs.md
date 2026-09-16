@@ -76,7 +76,7 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 | Item | Location | Notes |
 |------|----------|-------|
 | `GetImage` core tool | [`get_image.py`](../../plugin/writer/get_image.py) | `tier="core"`, Writer `TextDocument` + Draw `DrawingDocument` + Impress `PresentationDocument` |
-| Modes | same | `image=<name>`, `selection=true` (or implicit when no name), `page=<n>` (0-based whole-page PNG; first page/slide is 0) |
+| Modes | same | `image=<name>`, `selection=true` (or implicit when no name), `page=<n>` (0-based whole-page PNG; first page/slide is 0 — unified with Draw/Impress `list_pages` / `get_draw_tree`) |
 | Page render | `_render_page_png` | Writer: native `writer_png_Export` after `jumpToPage` (XRenderable abandoned — BUG-5). Draw/Impress: `GraphicExportFilter` on the `XDrawPage` (`MediaType=image/png`; same bytes as `draw_png_Export` / `impress_png_Export` after `setCurrentPage`, without a view jump). Fail-loud — never returns empty PNG. |
 | Wire marker | same | Returns `{"status":"ok","source":...,"_mcp_image":{"data":"<b64>","mimeType":"image/png"}}` |
 | Schema gating | [`vision_availability.py`](../../plugin/vision/vision_availability.py) `filter_get_image_for_text_only_model` | On **openai** schema path only: drops `get_image` when `has_native_vision` is false. Fail-open on lookup errors. MCP path always exposes it (client assumed vision-capable). Hook in [`tool.py`](../../plugin/framework/tool.py) `get_schemas`. |

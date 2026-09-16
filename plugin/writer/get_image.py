@@ -87,7 +87,7 @@ def _render_writer_page_png(doc, page):
                 total = int(vc.getPage())
             except Exception:
                 total = actual
-            return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
+            return None, "could not render page %d: page not found (document has %d page(s); 0-based, first page is 0)." % (page, total)
         # UNO imports only here: nothing above needs them, so validation/error paths stay
         # exception-free even where the uno module is unavailable (e.g. mocked test envs).
         import uno
@@ -137,7 +137,7 @@ def _render_draw_page_png(ctx, doc, page):
         return None, "could not render page %d: no draw pages available (%s)" % (page, e)
 
     if page < 0 or page >= total:
-        return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
+        return None, "could not render page %d: page not found (document has %d page(s); 0-based, first page is 0)." % (page, total)
 
     tmp_path = None
     try:
@@ -187,10 +187,10 @@ class GetImage(ToolBase):
     description = (
         "Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name "
         "from image_list / get_page_objects> for an embedded picture; selection=true for the image "
-        "currently selected; or page=<n> (0-based; first page/slide is 0) to render that whole PAGE "
-        "as an image (Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — "
-        "use page= here when you need to see the rendered page. Returns the picture itself, not a "
-        "description. "
+        "currently selected; or page=<n> (0-based page/slide index, same as list_pages / add_slide / "
+        "set_placeholder_text; first page is 0) to render that whole PAGE as an image "
+        "(Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= "
+        "here when you need to see the rendered page. Returns the picture itself, not a description. "
         "b64 is stripped from normal reads, so use this when you actually need to look."
     )
     parameters = {
@@ -198,7 +198,7 @@ class GetImage(ToolBase):
         "properties": {
             "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects)."},
             "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one."},
-            "page": {"type": "integer", "description": "0-based page index to render as an image (first page/slide is 0; the whole page layout), instead of fetching one embedded image."},
+            "page": {"type": "integer", "description": "0-based page/slide index; first page is 0 — same as list_pages / add_slide / set_placeholder_text. Renders that whole page layout as an image, instead of fetching one embedded image."},
         },
         "required": [],
     }
@@ -213,7 +213,7 @@ class GetImage(ToolBase):
         try:
             if page is not None:
                 if not isinstance(page, int) or page < 0:
-                    return self._tool_error("page must be a non-negative integer (0-based; first page/slide is 0).")
+                    return self._tool_error("page must be a non-negative integer (0-based; first page is 0).")
                 raw, reason = _render_page_png(ctx.ctx, doc, int(page))
                 if raw is None:
                     return self._tool_error(reason or "Could not render the page.")
