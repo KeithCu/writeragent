@@ -74,6 +74,11 @@ def test_add_slide_blank_and_none_escape_empty(ctx, doc):
             doc, ctx, "set_placeholder_text", {"page": page_idx, "role": "title", "text": "nope"}
         )
         assert miss.get("status") == "error", miss
+        details = miss.get("details") or {}
+        assert details.get("available") == [], miss
+        assert details.get("suggest_layout") == "text", miss
+        assert details.get("shape_text_count") == 0, miss
+        assert "set_slide_layout" in (details.get("hint") or ""), miss
 
 
 @native_test

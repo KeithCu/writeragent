@@ -132,12 +132,78 @@ def _list_placeholders(page):
     return result
 
 
+# C1: available=[] is truthful (no presentation placeholders yet) but mercury
+# retried the same role call. Hint + suggest_layout points at set_slide_layout
+# / delegate slide_layouts — the recovery the headed run eventually stumbled on.
+_EMPTY_PLACEHOLDER_HINT = (
+    "Slide may lack a text layout. Call set_slide_layout (or delegate "
+    "domain=slide_layouts) with layout='text', then list_placeholders."
+)
+
+
+def _shape_text_count(page):
+    """Count shapes that expose getString (same filter as _list_placeholders)."""
+    count = 0
+    for i in range(page.getCount()):
+        if hasattr(page.getByIndex(i), "getString"):
+            count += 1
+    return count
+
+
+def _fallback_text_shape_indices(page):
+    """Read-only hint of text-like shapes when _list_placeholders is empty.
+
+    C1 only — no write. Used when ClassName/Name exist but getString does not
+    (so they never enter available). Empty slide → empty list.
+    """
+    result = []
+    for i in range(page.getCount()):
+        shape = page.getByIndex(i)
+        if hasattr(shape, "getString"):
+            continue
+        class_name = _shape_class_name(shape)
+        name = ""
+        try:
+            if hasattr(shape, "Name") and shape.Name:
+                name = str(shape.Name)
+        except Exception:
+            pass
+        if not class_name and not name:
+            continue
+        entry = {"index": i}
+        if class_name:
+            entry["class"] = class_name
+        if name:
+            entry["name"] = name
+        result.append(entry)
+    return result
+
+
+def _role_miss_error_kwargs(page):
+    """Details for set_placeholder_text when role lookup fails."""
+    available = _list_placeholders(page)
+    extra = {"available": available}
+    if available:
+        return extra
+    extra["hint"] = _EMPTY_PLACEHOLDER_HINT
+    extra["suggest_layout"] = "text"
+    extra["shape_text_count"] = _shape_text_count(page)
+    fallback = _fallback_text_shape_indices(page)
+    if fallback:
+        extra["fallback_indices"] = fallback
+    return extra
+
+
 class ListPlaceholders(ToolBase):
     """List all text placeholders on a slide."""
 
     name = "list_placeholders"
     intent = "navigate"
-    description = "List all text placeholders on a slide with their role (title, subtitle, body), text content, and index."
+    description = (
+        "List all text placeholders on a slide with their role (title, subtitle, body), "
+        "text content, and index. Call this before set_placeholder_text. If count=0, set "
+        "layout 'text' (set_slide_layout or delegate domain=slide_layouts) then retry."
+    )
     parameters = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services = ["com.sun.star.presentation.PresentationDocument"]
 
@@ -153,7 +219,10 @@ class GetPlaceholderText(ToolBase):
 
     name = "get_placeholder_text"
     intent = "navigate"
-    description = "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Use list_placeholders to see available placeholders."
+    description = (
+        "Get text from a slide placeholder. Specify role ('title', 'subtitle', 'body') "
+        "or index. Prefer list_placeholders first; use index when roles are missing."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -193,7 +262,11 @@ class SetPlaceholderText(ToolBase):
 
     name = "set_placeholder_text"
     intent = "edit"
-    description = "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. Use list_placeholders to see available placeholders."
+    description = (
+        "Set text on a slide placeholder. Specify role ('title', 'subtitle', 'body') or index. "
+        "Prefer list_placeholders first; prefer index when role lookup fails. Empty available "
+        "means the slide lacks a text layout — set layout 'text' then retry, not a missing argument."
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -221,7 +294,10 @@ class SetPlaceholderText(ToolBase):
         elif role:
             shape, shape_index = _find_placeholder(page, role)
             if shape is None:
-                return self._tool_error("Placeholder '%s' not found." % role, available=_list_placeholders(page))
+                return self._tool_error(
+                    "Placeholder '%s' not found on this slide." % role,
+                    **_role_miss_error_kwargs(page),
+                )
         else:
             return self._tool_error("Specify role or index.")
 

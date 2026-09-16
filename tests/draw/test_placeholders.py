@@ -1,7 +1,17 @@
 # WriterAgent — unit tests for Impress placeholder role matching
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-from plugin.draw.placeholders import _find_placeholder, _list_placeholders, _role_from_label
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from plugin.draw.placeholders import (
+    SetPlaceholderText,
+    _EMPTY_PLACEHOLDER_HINT,
+    _find_placeholder,
+    _list_placeholders,
+    _role_from_label,
+    _role_miss_error_kwargs,
+)
 
 
 class _FakeShape:
@@ -106,3 +116,59 @@ def test_positional_fallback_when_no_class_tags():
     listed = _list_placeholders(page)
     assert "role" not in listed[0]
     assert "role" not in listed[1]
+
+
+def test_role_miss_empty_available_is_actionable():
+    """C1: available=[] includes hint + suggest_layout so the model can recover."""
+    extra = _role_miss_error_kwargs(_FakePage([]))
+    assert extra["available"] == []
+    assert extra["suggest_layout"] == "text"
+    assert extra["shape_text_count"] == 0
+    assert extra["hint"] == _EMPTY_PLACEHOLDER_HINT
+    assert "fallback_indices" not in extra
+
+
+def test_role_miss_nonempty_available_stays_simple():
+    page = _FakePage([_FakeShape(class_name="TitleTextShape", text="T")])
+    extra = _role_miss_error_kwargs(page)
+    assert extra["available"]
+    assert "suggest_layout" not in extra
+    assert "hint" not in extra
+
+
+def test_role_miss_fallback_indices_for_class_only_shapes():
+    """C1 read-only hint when shapes exist but lack getString (not in available)."""
+
+    class _ClassOnly:
+        def __init__(self):
+            self.ClassName = "TitleTextShape"
+            self.Name = "Title"
+
+    extra = _role_miss_error_kwargs(_FakePage([_ClassOnly()]))
+    assert extra["available"] == []
+    assert extra["suggest_layout"] == "text"
+    assert extra["shape_text_count"] == 0
+    assert extra["fallback_indices"] == [{"index": 0, "class": "TitleTextShape", "name": "Title"}]
+
+
+def test_set_placeholder_text_empty_role_miss_payload():
+    page = _FakePage([])
+    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
+        err = SetPlaceholderText().execute(SimpleNamespace(doc=object()), text="x", role="title")
+    assert err["status"] == "error"
+    details = err["details"]
+    assert details["available"] == []
+    assert details["suggest_layout"] == "text"
+    assert details["shape_text_count"] == 0
+    assert "set_slide_layout" in details["hint"]
+    assert "Placeholder 'title' not found on this slide." == err["message"]
+
+
+def test_placeholder_tool_descriptions_steer_list_then_layout():
+    assert "list_placeholders" in SetPlaceholderText.description
+    assert "index" in SetPlaceholderText.description
+    assert "layout" in SetPlaceholderText.description
+    from plugin.draw.placeholders import ListPlaceholders
+
+    assert "before set_placeholder_text" in ListPlaceholders.description
+    assert "slide_layouts" in ListPlaceholders.description
