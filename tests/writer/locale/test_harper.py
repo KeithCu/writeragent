@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import queue
+import threading
 import pytest
 
 from plugin.contrib.lsp.json_rpc_framing import read_exactly
@@ -1248,6 +1249,80 @@ def test_harper_try_lint_logs_error_on_lint_exception(mock_bg: MagicMock, caplog
     assert harper_try_lint("He go to the store.", "/tmp") is None
     assert any("lint failed on ready client" in r.message for r in caplog.records)
     assert mock_bg.call_count == 1
+
+
+def _ready_harper_client(lint_side_effect: object) -> MagicMock:
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    mock_client.lint.side_effect = lint_side_effect
+    harper_module._HARPER_CLIENT_CACHE["/bin/harper-ls"] = mock_client
+    harper_module._set_state(HarperRuntimeState.READY)
+    return mock_client
+
+
+def test_harper_try_lint_pumps_events_while_lint_outstanding() -> None:
+    """Linguistic wait loop must PE2I while a slow lint is still on the worker."""
+    lint_started = threading.Event()
+    release_lint = threading.Event()
+
+    def _slow_lint(*_a: object, **_k: object) -> list:
+        lint_started.set()
+        release_lint.wait(timeout=2.0)
+        return []
+
+    _ready_harper_client(_slow_lint)
+    pumps: list[bool] = []
+
+    def _pe2i(_ctx: object, rounds: int = 1, force: bool = False) -> bool:
+        pumps.append(force)
+        if lint_started.is_set():
+            release_lint.set()
+        return True
+
+    ctx = MagicMock()
+    with patch("plugin.framework.uno_context.process_events_to_idle", side_effect=_pe2i):
+        res = harper_try_lint("Hello.", "/tmp", ctx=ctx)
+
+    assert res == {"errors": []}
+    assert pumps
+    assert all(force is False for force in pumps)
+
+
+def test_harper_try_lint_reenter_during_wait_logs_and_returns_none(caplog: pytest.LogCaptureFixture) -> None:
+    """Nested try_lint while a wait is active fail-softs and logs harper_wait_reenter once."""
+    lint_started = threading.Event()
+    release_lint = threading.Event()
+    nested: dict[str, object] = {}
+
+    def _slow_lint(*_a: object, **_k: object) -> list:
+        lint_started.set()
+        release_lint.wait(timeout=2.0)
+        return []
+
+    def _pe2i(_ctx: object, rounds: int = 1, force: bool = False) -> bool:
+        # One nest per wait (not every later PE2I tick) — matches field logging.
+        if "res" not in nested:
+            nested["res"] = harper_try_lint("Other sentence.", "/tmp", ctx=_ctx)
+        if lint_started.is_set():
+            release_lint.set()
+        return True
+
+    _ready_harper_client(_slow_lint)
+    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
+    ctx = MagicMock()
+    with patch("plugin.framework.uno_context.process_events_to_idle", side_effect=_pe2i):
+        res = harper_try_lint("Hello.", "/tmp", ctx=ctx)
+
+    assert res == {"errors": []}
+    assert nested.get("res") is None
+    warn_recs = [r for r in caplog.records if r.levelno == logging.WARNING and "harper_wait_reenter" in r.message]
+    assert len(warn_recs) == 1
+    assert "wait_age_ms=" in warn_recs[0].message
+    assert "provider=" in warn_recs[0].message
+    assert any(
+        r.levelno == logging.DEBUG and "harper_wait_reenter" in r.message
+        for r in caplog.records
+    )
 
 
 def test_harper_close_does_not_block_on_stuck_stdin() -> None:

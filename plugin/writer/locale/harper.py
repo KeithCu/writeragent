@@ -39,6 +39,9 @@ _INIT_PARAMS = {"processId": os.getpid(), "rootUri": "file:///tmp", "capabilitie
 
 _LINT_BUDGET_SEC = 15.0
 _INIT_BUDGET_SEC = 5.0
+# Linguistic wait loop: PE2I then a short Event.wait so typing can proceed
+# without spinning. Stay inside 50–100ms (Keith PE2I-in-proofread prior art).
+_LINT_POLL_SEC = 0.075
 
 # LibreHarper often logs at WARN only. One line when lint+normalize exceeds
 # this budget so slowness shows up in writeragent_debug.log; faster calls stay quiet.
@@ -73,10 +76,18 @@ def _harper_lsp_settings(bcp47: str, user_config_dir: str) -> dict:
     return {"harper-ls": settings}
 
 
-# One LSP client per binary path. Lock serializes UNO doProofreading vs the
-# single background ensure / leftover drain thread (Harper is never multi-flight).
+# One LSP client per binary path. Lock serializes brief client critical
+# sections (cache/state + ``client.lint`` on the worker). Never hold it
+# across ``process_events_to_idle`` or a long LSP wait on the linguistic
+# thread: PE2I can re-enter ``doProofreading`` and a non-reentrant mutex
+# would deadlock.
 _HARPER_CLIENT_CACHE: dict[str, HarperLSClient] = {}
 _HARPER_LOCK = threading.Lock()
+# Wait-active is a separate flag so a nested walk can fail soft without
+# touching ``_HARPER_LOCK``. One WARN/obs line per nest, not per PE2I tick.
+_HARPER_WAIT_META = threading.Lock()
+_HARPER_WAIT_STARTED: float | None = None
+_HARPER_WAIT_THREAD = ""
 _HARPER_FAIL_COOLDOWN_SEC = 30.0
 
 
@@ -319,8 +330,62 @@ def lsp_range_to_offset(text: str, line: int, character: int) -> int:
     return min(offset + pos.character, len(text))
 
 
+def _try_begin_harper_wait() -> bool:
+    """Mark a Harper lint wait in flight. False if one is already active."""
+    global _HARPER_WAIT_STARTED, _HARPER_WAIT_THREAD
+    with _HARPER_WAIT_META:
+        if _HARPER_WAIT_STARTED is not None:
+            return False
+        _HARPER_WAIT_STARTED = time.monotonic()
+        _HARPER_WAIT_THREAD = threading.current_thread().name
+        return True
+
+
+def _end_harper_wait() -> None:
+    global _HARPER_WAIT_STARTED, _HARPER_WAIT_THREAD
+    with _HARPER_WAIT_META:
+        _HARPER_WAIT_STARTED = None
+        _HARPER_WAIT_THREAD = ""
+
+
+def _harper_wait_snapshot() -> tuple[float | None, str]:
+    with _HARPER_WAIT_META:
+        return _HARPER_WAIT_STARTED, _HARPER_WAIT_THREAD
+
+
+def _log_harper_wait_reenter() -> None:
+    """One WARN + obs when PE2I / another walk nests during an active Harper wait."""
+    from plugin.writer.locale.grammar_obs import grammar_obs
+
+    started, wait_thread = _harper_wait_snapshot()
+    wait_age_ms = int((time.monotonic() - started) * 1000) if started is not None else 0
+    provider = "harper"
+    try:
+        from plugin.framework.config import get_grammar_provider
+
+        provider = get_grammar_provider() or "harper"
+    except Exception:
+        pass
+    thread_name = threading.current_thread().name
+    log.warning(
+        "[harper] harper_wait_reenter thread=%s wait_thread=%s wait_age_ms=%s provider=%s",
+        thread_name,
+        wait_thread,
+        wait_age_ms,
+        provider,
+    )
+    grammar_obs(
+        "harper_wait_reenter",
+        thread=thread_name,
+        wait_thread=wait_thread,
+        wait_age_ms=wait_age_ms,
+        provider=provider,
+    )
+
+
 def shutdown_harper_runtime() -> None:
     """Close every cached harper-ls client. Safe from tests and extension teardown."""
+    _end_harper_wait()
     with _HARPER_LOCK:
         clients = list(_HARPER_CLIENT_CACHE.values())
         _HARPER_CLIENT_CACHE.clear()
@@ -483,41 +548,61 @@ def maybe_start_harper_async(
     return harper_ensure_ready_async(ucd, bcp47=bcp47)
 
 
-def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US") -> dict | None:
+def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ctx: Any = None) -> dict | None:
     """Lint now if harper-ls is already in-process; else kick one ensure and return None.
 
     Never downloads or ``Popen``s on the caller thread (UNO ``doProofreading``).
     A ``None`` return is never silent: failures log ERROR, not-ready walks emit obs.
+
+    When ``ctx`` is set (proofreader / ``run_harper_check``), the blocking LSP
+    wait runs on a dedicated worker and the caller pumps ``process_events_to_idle``
+    so typing stays alive. Nested ``doProofreading`` / ``harper_try_lint`` while
+    that wait is active fail soft (``None``) and log ``harper_wait_reenter``.
+    Missing ``ctx`` falls back to today's blocking wait (no pump).
     """
     from plugin.writer.locale.grammar_obs import grammar_obs
 
     if not user_config_dir:
         log.error("[harper] lint skipped: empty user config dir")
         return None
+    # Fail soft before ``_HARPER_LOCK``: PE2I can re-enter this function on
+    # the linguistic thread; waiting on a lock the parent still needs deadlocks.
+    if _harper_wait_snapshot()[0] is not None:
+        _log_harper_wait_reenter()
+        return None
     none_reason = "not_ready"
+    client: HarperLSClient | None = None
     with _HARPER_LOCK:
         client = _alive_client()
         if client is not None:
             _set_state(HarperRuntimeState.READY)
-            try:
-                return _lint_with_client(client, text, bcp47=bcp47, restart=False)
-            except Exception:
-                # restart=False: do not Popen on the linguistic thread. The
-                # walk returns empty; background ensure restarts harper-ls.
-                log.exception("[harper] lint failed on ready client; empty aErrors this walk")
-                _set_state(HarperRuntimeState.IDLE)
-                none_reason = "lint_exception"
         elif _HARPER_STATE is HarperRuntimeState.READY:
             log.error("[harper] lint missed: state READY but harper-ls process is dead")
             _set_state(HarperRuntimeState.IDLE)
             none_reason = "dead_client"
         else:
             none_reason = f"state_{_HARPER_STATE.value}"
-    submitted = harper_ensure_ready_async(user_config_dir, bcp47)
-    if none_reason in ("lint_exception", "dead_client"):
+    if client is None:
+        submitted = harper_ensure_ready_async(user_config_dir, bcp47)
+        if none_reason in ("lint_exception", "dead_client"):
+            return None
+        grammar_obs("harper_try_lint_none", reason=none_reason, ensure_submitted=submitted)
         return None
-    grammar_obs("harper_try_lint_none", reason=none_reason, ensure_submitted=submitted)
-    return None
+    if not _try_begin_harper_wait():
+        _log_harper_wait_reenter()
+        return None
+    try:
+        return _lint_ready_client(client, text, bcp47=bcp47, ctx=ctx)
+    except Exception:
+        # restart=False: do not Popen on the linguistic thread. The
+        # walk returns empty; background ensure restarts harper-ls.
+        log.exception("[harper] lint failed on ready client; empty aErrors this walk")
+        with _HARPER_LOCK:
+            _set_state(HarperRuntimeState.IDLE)
+        harper_ensure_ready_async(user_config_dir, bcp47)
+        return None
+    finally:
+        _end_harper_wait()
 
 
 def normalize_spaces_1to1(text: str) -> str:
@@ -592,6 +677,91 @@ def _diagnostics_to_errors(text: str, results: list) -> dict:
     return {"errors": errors}
 
 
+def _lint_ready_client(
+    client: HarperLSClient,
+    text: str,
+    bcp47: str,
+    *,
+    ctx: Any,
+) -> dict:
+    """Lint a READY client. With ``ctx``, worker waits; caller pumps PE2I.
+
+    Without ``ctx`` there is nothing to pump: block on the caller thread
+    (tests / scripts). The wait-active flag is already set by ``harper_try_lint``.
+    """
+    if ctx is None:
+        with _HARPER_LOCK:
+            return _lint_with_client(client, text, bcp47=bcp47, restart=False)
+    return _run_lint_off_caller_thread(client, text, bcp47=bcp47, ctx=ctx, restart=False)
+
+
+def _run_lint_off_caller_thread(
+    client: HarperLSClient,
+    text: str,
+    bcp47: str,
+    ctx: Any,
+    *,
+    restart: bool,
+    heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
+) -> dict:
+    """Worker owns blocking ``client.lint`` + ``_HARPER_LOCK``; caller pumps or joins.
+
+    Linguistic thread must not hold ``_HARPER_LOCK`` here: PE2I can nest
+    ``doProofreading`` and that walk fail-softs via wait-active, not this mutex.
+    """
+    box: dict[str, Any] = {}
+    done = threading.Event()
+
+    def _worker() -> None:
+        try:
+            with _HARPER_LOCK:
+                box["result"] = _lint_with_client(
+                    client, text, bcp47=bcp47, heartbeat_fn=heartbeat_fn, restart=restart
+                )
+        except Exception as exc:
+            box["exc"] = exc
+        finally:
+            done.set()
+
+    from plugin.framework.worker_pool import run_in_background
+
+    handle = run_in_background(_worker, name="harper-lint-wait", dedicated=True)
+    deadline = time.monotonic() + _LINT_BUDGET_SEC
+    _pump_or_join_lint_wait(done, handle, deadline, ctx)
+    if not done.is_set():
+        # Budget ended while lint still ran (its own ``_LINT_BUDGET_SEC``).
+        # Join leftover without PE2I so wait-active is not cleared under an
+        # in-flight LSP that still holds ``_HARPER_LOCK``.
+        handle.join(timeout=max(1.0, _LINT_BUDGET_SEC))
+    if "exc" in box:
+        raise box["exc"]
+    result = box.get("result")
+    if result is None:
+        raise TimeoutError("Harper LSP operation timed out")
+    return result
+
+
+def _pump_or_join_lint_wait(done: threading.Event, handle: Any, deadline: float, ctx: Any) -> None:
+    """Pump VCL while a Harper lint worker is outstanding; no-ctx joins only."""
+    if ctx is None:
+        handle.join(timeout=_deadline_remaining(deadline))
+        return
+    from plugin.framework.uno_context import process_events_to_idle
+
+    while not done.is_set() and _deadline_remaining(deadline) > 0:
+        try:
+            # force=False: skip VCL when a chat/MCP drain owner is active.
+            process_events_to_idle(ctx, force=False)
+        except Exception:
+            # Thread-guard / toolkit misses must not abort lint; fall through
+            # to the poll so a missing main-thread affinity cannot livelock.
+            log.debug("[harper] process_events_to_idle during lint wait failed", exc_info=True)
+        remaining = _deadline_remaining(deadline)
+        if remaining <= 0 or done.is_set():
+            break
+        done.wait(timeout=min(_LINT_POLL_SEC, remaining))
+
+
 def _lint_with_client(
     client: HarperLSClient,
     text: str,
@@ -619,8 +789,7 @@ def _lint_with_client(
         error_count = len(out.get("errors") or [])
         return out
     finally:
-        # Wall time of lint + normalize into errors. WARN only when this
-        # result is slow; doProofreading calls this on the linguistic thread.
+        # Wall time of lint + normalize into errors (worker or caller thread).
         elapsed_ms = int((time.monotonic() - started) * 1000)
         warn_if_harper_result_slow(
             elapsed_ms,
@@ -630,7 +799,14 @@ def _lint_with_client(
         )
 
 
-def run_harper_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> dict:
+def run_harper_lint(
+    text: str,
+    user_config_dir: str,
+    bcp47: str = "en-US",
+    *,
+    heartbeat_fn: Callable[[dict[str, str]], None] | None = None,
+    ctx: Any = None,
+) -> dict:
     """Run harper-ls on a text segment and return parsed errors (no LibreOffice UI)."""
     try:
         harper_bin = _get_harper_binary(user_config_dir, heartbeat_fn=heartbeat_fn)
@@ -641,7 +817,17 @@ def run_harper_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, he
     with _HARPER_LOCK:
         client = _get_or_create_client(harper_bin, user_config_dir, bcp47, heartbeat_fn=heartbeat_fn)
         _set_state(HarperRuntimeState.READY)
-        return _lint_with_client(client, text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+        if ctx is None:
+            return _lint_with_client(client, text, bcp47=bcp47, heartbeat_fn=heartbeat_fn)
+    # Grammar-queue path with ctx: do not hold the lock across PE2I / LSP wait.
+    acquired_wait = _try_begin_harper_wait()
+    try:
+        return _run_lint_off_caller_thread(
+            client, text, bcp47=bcp47, ctx=ctx, restart=True, heartbeat_fn=heartbeat_fn
+        )
+    finally:
+        if acquired_wait:
+            _end_harper_wait()
 
 
 def _pump_grammar_status_ui(ctx: Any) -> None:
@@ -678,4 +864,4 @@ def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-U
             emit_harper_worker_status(text, message)
             _pump_grammar_status_ui(ctx)
 
-    return run_harper_lint(text, config_dir, bcp47=bcp47, heartbeat_fn=_on_progress)
+    return run_harper_lint(text, config_dir, bcp47=bcp47, heartbeat_fn=_on_progress, ctx=ctx)

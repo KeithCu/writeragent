@@ -585,7 +585,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         for sent_start, unused_end, sent_text in uncached_spans:
             del unused_end
             last_text = sent_text
-            res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key)
+            # Pass ctx so READY lint can PE2I; missing ctx blocks typing.
+            res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key, ctx=self.ctx)
             if res is None:
                 grammar_obs("do_proofreading_harper_ensure", doc_id=a_doc_id, grammar_bcp47=loc_key)
                 emit_grammar_status("request", sent_text, result="Starting Harper…")
