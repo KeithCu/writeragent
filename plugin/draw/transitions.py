@@ -79,6 +79,40 @@ _LAYOUTS = {
 # Reverse lookup for display.
 _LAYOUT_NAMES = {v: k for k, v in _LAYOUTS.items()}
 
+# add_slide escape hatch: "none" means today's blank-page behavior.
+_LAYOUT_ALIASES = {"none": "blank"}
+
+
+def _canonical_layout_name(name: str) -> str:
+    return _LAYOUT_ALIASES.get(name.strip().lower(), name.strip().lower())
+
+
+def layout_id(name: str) -> int | None:
+    """Return PpSlideLayout id for a named layout, or None if unknown.
+
+    ``none`` is an alias for ``blank`` so add_slide can keep an empty-page hatch.
+    """
+    if not isinstance(name, str):
+        return None
+    key = _canonical_layout_name(name)
+    if not key:
+        return None
+    return _LAYOUTS.get(key)
+
+
+def apply_slide_layout(page, name: str) -> str:
+    """Set ``page.Layout`` from a named layout. Returns the canonical name.
+
+    Impress instantiates placeholders synchronously on this assignment — no
+    ``processEvents`` refresh. Shared by AddSlide and SetSlideLayout so the
+    two cannot drift.
+    """
+    lid = layout_id(name)
+    if lid is None:
+        raise ValueError("Unknown layout: %s" % name)
+    page.Layout = lid
+    return _canonical_layout_name(name)
+
 
 class GetSlideTransition(ToolDrawSlideTransitionsBase):
     """Read the current transition settings from a slide."""
@@ -303,9 +337,9 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
 
     def execute(self, ctx, **kwargs):
         layout_name = kwargs.get("layout", "").strip().lower()
-        if layout_name not in _LAYOUTS:
+        if layout_id(layout_name) is None:
             return self._tool_error("Unknown layout: %s" % layout_name, available=sorted(_LAYOUTS.keys()))
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
-        page.Layout = _LAYOUTS[layout_name]
-        return {"status": "ok", "page": page_idx, "layout": layout_name}
+        applied = apply_slide_layout(page, layout_name)
+        return {"status": "ok", "page": page_idx, "layout": applied}

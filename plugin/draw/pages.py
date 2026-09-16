@@ -19,15 +19,37 @@
 from plugin.framework.tool import ToolBase
 
 
+# Impress Title + Content (title + body). Not "title" (id 0 = title+subtitle).
+_DEFAULT_IMPRESS_LAYOUT = "text"
+
+
+def _is_impress_doc(doc):
+    """True for Impress. Draw shares add_slide; PyUNO hasattr is unreliable."""
+    try:
+        return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
+    except Exception:
+        return False
+
+
 class AddSlide(ToolBase):
     name = "add_slide"
     intent = "edit"
-    description = "Inserts a new slide (page) at the specified index."
+    description = (
+        "Inserts a new slide (page) at the specified index. "
+        "Impress defaults to the Title + Content ('text') layout."
+    )
     parameters = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based index where to insert the new slide (defaults to appending at the end if omitted)"},
             "activate": {"type": "boolean", "description": "Whether to switch the view to the new slide (default: true)"},
+            "layout": {
+                "type": "string",
+                "description": (
+                    "Impress layout name (default: 'text' = Title + Content). "
+                    "Use 'blank' or 'none' for an empty slide. Ignored on Draw documents."
+                ),
+            },
         },
         "required": [],
     }
@@ -36,17 +58,35 @@ class AddSlide(ToolBase):
 
     def execute(self, ctx, **kwargs):
         from plugin.draw.bridge import DrawBridge
+        from plugin.draw.transitions import _LAYOUTS, apply_slide_layout, layout_id
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
-        bridge.create_slide(page_idx, switch=switch_view)
-        
-        # Resolve active index
+        is_impress = _is_impress_doc(ctx.doc)
+
+        layout_name = None
+        if is_impress:
+            raw = kwargs.get("layout")
+            if raw is None or (isinstance(raw, str) and not raw.strip()):
+                layout_name = _DEFAULT_IMPRESS_LAYOUT
+            else:
+                layout_name = str(raw).strip().lower()
+            # Validate before insert so a bad name does not leave a stray page.
+            if layout_id(layout_name) is None:
+                return self._tool_error("Unknown layout: %s" % layout_name, available=sorted(_LAYOUTS.keys()))
+
+        new_page = bridge.create_slide(page_idx, switch=switch_view)
         active_idx = bridge.get_active_page_index()
-        
-        return {"status": "ok", "message": "Slide added", "active_page_index": active_idx}
+
+        result = {"status": "ok", "message": "Slide added", "active_page_index": active_idx}
+        if is_impress and layout_name is not None:
+            # insertNewByIndex leaves Layout=20 with 0 shapes; assignment
+            # creates title/body placeholders synchronously (no event loop).
+            result["layout"] = apply_slide_layout(new_page, layout_name)
+            result["placeholders_hint"] = "call list_placeholders on this page"
+        return result
 
 
 class DeleteSlide(ToolBase):
