@@ -141,7 +141,7 @@ Each item is written so a later implementer can pick it up without re-deriving t
 
 ### A. Default layout on `add_slide` (tool behavior)
 
-**Status:** Landed.
+**Status:** Landed. `blank`/`none` skip Layout assignment — `_LAYOUTS["blank"]=11` still grows placeholders on this LO; `insertNewByIndex` is the empty page.
 
 **Problem**
 

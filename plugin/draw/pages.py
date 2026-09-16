@@ -77,15 +77,23 @@ class AddSlide(ToolBase):
             if layout_id(layout_name) is None:
                 return self._tool_error("Unknown layout: %s" % layout_name, available=sorted(_LAYOUTS.keys()))
 
+        # create_slide uses this same index; do not trust get_active_page_index
+        # after insert — Impress DrawPage.getNumber() is missing/None, so the
+        # bridge helper falls back to 0 even when the controller switched.
+        insert_at = bridge.get_pages().getCount() if page_idx is None else page_idx
         new_page = bridge.create_slide(page_idx, switch=switch_view)
-        active_idx = bridge.get_active_page_index()
+        active_idx = insert_at if switch_view else bridge.get_active_page_index()
 
         result = {"status": "ok", "message": "Slide added", "active_page_index": active_idx}
         if is_impress and layout_name is not None:
-            # insertNewByIndex leaves Layout=20 with 0 shapes; assignment
-            # creates title/body placeholders synchronously (no event loop).
-            result["layout"] = apply_slide_layout(new_page, layout_name)
             result["placeholders_hint"] = "call list_placeholders on this page"
+            # insertNewByIndex is already empty (Layout=20, 0 shapes). _LAYOUTS
+            # "blank"=11 is a different autolayout that still grows placeholders.
+            # Skip assignment so blank/none keep today's empty-page hatch.
+            if layout_name in ("blank", "none"):
+                result["layout"] = "blank"
+            else:
+                result["layout"] = apply_slide_layout(new_page, layout_name)
         return result
 
 

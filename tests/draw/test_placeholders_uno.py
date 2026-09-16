@@ -27,8 +27,9 @@ def test_add_slide_default_text_layout_placeholders_and_roles(ctx, doc):
     assert added.get("status") == "ok", added
     assert added.get("layout") == "text", added
     page_idx = added["active_page_index"]
+    assert page_idx == doc.getDrawPages().getCount() - 1, added
     page = doc.getDrawPages().getByIndex(page_idx)
-    assert page.Layout == 1
+    assert page.Layout == 1, "Layout=%s page_idx=%s added=%s" % (page.Layout, page_idx, added)
     assert page.getCount() >= 2
 
     listed = _exec_tool(doc, ctx, "list_placeholders", {"page": page_idx})
@@ -60,8 +61,10 @@ def test_add_slide_blank_and_none_escape_empty(ctx, doc):
         assert added.get("status") == "ok", added
         assert added.get("layout") == "blank", added
         page_idx = added["active_page_index"]
+        assert page_idx == doc.getDrawPages().getCount() - 1, added
         page = doc.getDrawPages().getByIndex(page_idx)
-        assert page.Layout == 11
+        # Escape hatch leaves insertNewByIndex (empty), not _LAYOUTS["blank"]=11.
+        assert page.getCount() == 0, "shapes=%s Layout=%s added=%s" % (page.getCount(), page.Layout, added)
         listed = _exec_tool(doc, ctx, "list_placeholders", {"page": page_idx})
         assert listed.get("status") == "ok", listed
         assert listed.get("count") == 0, listed

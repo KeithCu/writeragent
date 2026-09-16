@@ -23,10 +23,11 @@ def _draw_ctx():
     return ctx
 
 
-def _add_slide_bridge(page, active_idx=1):
+def _add_slide_bridge(page, active_idx=1, page_count=1):
     bridge = MagicMock()
     bridge.create_slide.return_value = page
     bridge.get_active_page_index.return_value = active_idx
+    bridge.get_pages.return_value.getCount.return_value = page_count
     return bridge
 
 
@@ -53,14 +54,14 @@ def test_add_slide_blank_and_none_escape():
         out = AddSlide().execute(ctx, layout="none")
     assert out["status"] == "ok"
     assert out["layout"] == "blank"
-    assert page.Layout == 11
+    assert page.Layout == 20
 
     page.Layout = 20
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page)
         out = AddSlide().execute(ctx, layout="blank")
     assert out["layout"] == "blank"
-    assert page.Layout == 11
+    assert page.Layout == 20
 
 
 def test_add_slide_draw_ignores_layout():
@@ -82,6 +83,18 @@ def test_add_slide_unknown_layout_errors_before_create():
         out = AddSlide().execute(ctx, layout="not_a_layout")
     assert out["status"] == "error"
     bridge_cls.return_value.create_slide.assert_not_called()
+
+
+def test_add_slide_reports_inserted_index_not_stale_active():
+    """Impress get_active_page_index can stay 0; report the created page."""
+    ctx = _impress_ctx()
+    page = MagicMock()
+    page.Layout = 20
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value = _add_slide_bridge(page, active_idx=0, page_count=1)
+        out = AddSlide().execute(ctx)
+    assert out["active_page_index"] == 1
+    assert out["layout"] == "text"
 
 
 def test_bridge_duplicate_calls_doc_duplicate():
