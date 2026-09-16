@@ -7,6 +7,8 @@
 Pins the headed mercury failure: insertNewByIndex left Layout=20 with 0
 shapes, so list_placeholders/set_placeholder_text saw available=[].
 Default add_slide now applies layout 'text' (id 1) synchronously.
+
+Replaces the print-only probe from master (48bf73c1) with assertions.
 """
 import json
 
