@@ -300,13 +300,14 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
 
 def _pump_uno_events(uno_ctx: Any) -> None:
     """Let DiaMode / paste settle. Probe dispatches worked without this; headed
-    Adaption / view switches sometimes need a single idle pump."""
-    try:
-        from plugin.framework.uno_context import get_toolkit
+    Adaption / view switches sometimes need a single idle pump.
 
-        toolkit = get_toolkit(uno_ctx)
-        if toolkit is not None and hasattr(toolkit, "processEventsToIdle"):
-            toolkit.processEventsToIdle()
+    Use the approved chokepoint — raw toolkit.processEventsToIdle is lint-blocked.
+    """
+    try:
+        from plugin.framework.uno_context import process_events_to_idle
+
+        process_events_to_idle(uno_ctx)
     except Exception:
         log.debug("_pump_uno_events failed", exc_info=True)
 
