@@ -12,6 +12,8 @@ from plugin.framework.logging import (
     FLUSH_INTERVAL_SEC,
     LOG_REDACT_AUDIO_PLACEHOLDER,
     LOG_REDACT_IMAGE_PLACEHOLDER,
+    LOG_REDACT_SIGNATURE_MIN_LEN,
+    LOG_REDACT_SIGNATURE_PLACEHOLDER,
     OptionalFlushFileHandler,
     SafeLogger,
     agent_log,
@@ -202,6 +204,46 @@ class TestLogRedaction(unittest.TestCase):
         self.assertEqual(r['data'][0]['b64_json'], (LOG_REDACT_IMAGE_PLACEHOLDER % 4))
         self.assertEqual(r['data'][0]['url'], 'http://ok')
         self.assertEqual(r['data'][1]['url'], (LOG_REDACT_IMAGE_PLACEHOLDER % len('data:image/png;base64,QQ==')))
+
+    def test_redact_long_reasoning_details_signature(self) -> None:
+        long_sig = "S" * (LOG_REDACT_SIGNATURE_MIN_LEN + 100)
+        short_sig = "sig-abc"
+        raw = {
+            "id": "gen-1",
+            "model": "google/gemini-2.5-flash-image",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": "hello",
+                        "reasoning_details": [
+                            {"type": "reasoning.text", "text": "think", "signature": long_sig},
+                            {"type": "reasoning.text", "text": "short", "signature": short_sig},
+                        ],
+                    },
+                }
+            ],
+        }
+        out = redact_sensitive_payload_for_log(raw)
+        self.assertIsNot(out, raw)
+        details = out["choices"][0]["message"]["reasoning_details"]
+        self.assertEqual(details[0]["signature"], LOG_REDACT_SIGNATURE_PLACEHOLDER % len(long_sig))
+        self.assertEqual(details[1]["signature"], short_sig)
+        self.assertEqual(raw["choices"][0]["message"]["reasoning_details"][0]["signature"], long_sig)
+        self.assertEqual(out["id"], "gen-1")
+        self.assertEqual(out["model"], "google/gemini-2.5-flash-image")
+        self.assertEqual(out["choices"][0]["finish_reason"], "stop")
+        self.assertEqual(out["choices"][0]["message"]["content"], "hello")
+
+    def test_redact_signature_threshold_boundary(self) -> None:
+        just_under = "a" * (LOG_REDACT_SIGNATURE_MIN_LEN - 1)
+        at_min = "b" * LOG_REDACT_SIGNATURE_MIN_LEN
+        raw = {"signature": just_under, "nested": {"signature": at_min}}
+        out = redact_sensitive_payload_for_log(raw)
+        self.assertEqual(out["signature"], just_under)
+        self.assertEqual(out["nested"]["signature"], LOG_REDACT_SIGNATURE_PLACEHOLDER % LOG_REDACT_SIGNATURE_MIN_LEN)
+        self.assertEqual(raw["nested"]["signature"], at_min)
 
 def test_resolve_log_level_allowlist():
     assert resolve_log_level("DEBUG") == logging.DEBUG

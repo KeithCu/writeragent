@@ -17,7 +17,7 @@
 """Simple file logging for WriterAgent. Single debug log in the LO user config dir (writeragent_debug.log).
 
 Paths are set via init_logging(ctx). No file logging when the config dir is unavailable.
-Also: redaction helpers for debug logs that would otherwise embed large base64 (chat multimodal parts, image API JSON).
+Also: redaction helpers for debug logs that would otherwise embed large base64 (chat multimodal parts, image API JSON) or long opaque ``signature`` blobs.
 
 Concurrency: ``init_logging`` may run from bootstrap while workers already
 log. ``_init_lock`` serializes installing the file handler and remembering
@@ -79,10 +79,13 @@ DEBUG_LOG_FILENAME = "writeragent_debug.log"
 
 LOG_REDACT_AUDIO_PLACEHOLDER = "<audio base64 data truncated, length=%d>"
 LOG_REDACT_IMAGE_PLACEHOLDER = "<image base64 data truncated, length=%d>"
+LOG_REDACT_SIGNATURE_PLACEHOLDER = "<signature truncated, length=%d>"
+# Image-model reasoning_details[].signature blobs are thousands of chars; keep short values readable.
+LOG_REDACT_SIGNATURE_MIN_LEN = 256
 
 
 def _redact_sensitive_inplace(o: Any) -> None:
-    """Strip large base64 from nested API-shaped JSON (chat multimodal parts, image requests/responses)."""
+    """Strip large base64 and long signature blobs from nested API-shaped JSON (chat multimodal parts, image requests/responses, reasoning_details)."""
     if isinstance(o, dict):
         if o.get("type") == "input_audio":
             ia = o.get("input_audio")
@@ -101,6 +104,9 @@ def _redact_sensitive_inplace(o: Any) -> None:
         u = o.get("url")
         if isinstance(u, str) and u.startswith("data:image"):
             o["url"] = LOG_REDACT_IMAGE_PLACEHOLDER % len(u)
+        sig = o.get("signature")
+        if isinstance(sig, str) and len(sig) >= LOG_REDACT_SIGNATURE_MIN_LEN:
+            o["signature"] = LOG_REDACT_SIGNATURE_PLACEHOLDER % len(sig)
         for v in o.values():
             _redact_sensitive_inplace(v)
     elif isinstance(o, list):
@@ -136,7 +142,7 @@ class OptionalFlushFileHandler(logging.FileHandler):
 
 
 def redact_sensitive_payload_for_log(obj: Any) -> Any:
-    """Deep copy of a request/response payload with audio and image base64 replaced for safe debug logging."""
+    """Deep copy of a request/response payload with audio/image base64 and long signature blobs replaced for safe debug logging."""
     out = deepcopy(obj)
     _redact_sensitive_inplace(out)
     return out
