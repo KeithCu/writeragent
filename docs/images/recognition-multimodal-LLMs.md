@@ -34,7 +34,7 @@ flowchart TB
   end
 ```
 
-**Lazy perception:** Embedded image bytes are stripped from `get_document_content` by default (`include_images=false`). When the model actually needs to *see* one image, it calls the core [`get_image`](../../plugin/writer/get_image.py) tool (by graphic name, current selection, or `page=<n>` for a whole-page PNG). That avoids upfront vision-token cost on every document read.
+**Lazy perception:** Embedded image bytes are stripped from `get_document_content` by default (`include_images=false`). When the model actually needs to *see* one image, it calls the core [`get_image`](../../plugin/writer/get_image.py) tool (by graphic name, current selection, or `page=<n>` for a whole-page PNG — 0-based, unified with Draw/Impress `list_pages`). That avoids upfront vision-token cost on every document read.
 
 ---
 
@@ -266,7 +266,7 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 - **Not all vision models support tools** on local stacks.
 - **Send-path selection:** Raster images in Writer/Calc selection only; Draw/Impress vectors use other paths.
 - **Main chat model only** for send-path attachment; sub-agents/delegates have separate rules.
-- **`get_image`** is on Writer, Draw, and Impress. Calc still has specialized list/info/set but not core fetch (see follow-up §4). Draw/Impress `page=N` is a screenshot; `get_draw_tree` stays the structure read.
+- **`get_image`** is on Writer, Draw, and Impress. Calc still has specialized list/info/set but not core fetch (see follow-up §4). Draw/Impress `page=N` (0-based, unified with `list_pages` / `get_draw_tree`) is a screenshot; `get_draw_tree` stays the structure read.
 - **Complementary OCR:** Use `domain=vision` + `extract_structure_from_image` for text and structure + insert; use native multimodal for visual reasoning.
 
 ---

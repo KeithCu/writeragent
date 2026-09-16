@@ -87,7 +87,7 @@ def _render_writer_page_png(doc, page):
                 total = int(vc.getPage())
             except Exception:
                 total = actual
-            return None, "could not render page %d: page not found (document has %d page(s); 0-based, first page is 0)." % (page, total)
+            return None, "could not render page %d: page not found (document has %d page(s); 0-based (first page is 0))." % (page, total)
         # UNO imports only here: nothing above needs them, so validation/error paths stay
         # exception-free even where the uno module is unavailable (e.g. mocked test envs).
         import uno
@@ -137,7 +137,7 @@ def _render_draw_page_png(ctx, doc, page):
         return None, "could not render page %d: no draw pages available (%s)" % (page, e)
 
     if page < 0 or page >= total:
-        return None, "could not render page %d: page not found (document has %d page(s); 0-based, first page is 0)." % (page, total)
+        return None, "could not render page %d: page not found (document has %d page(s); 0-based (first page is 0))." % (page, total)
 
     tmp_path = None
     try:
@@ -213,7 +213,7 @@ class GetImage(ToolBase):
         try:
             if page is not None:
                 if not isinstance(page, int) or page < 0:
-                    return self._tool_error("page must be a non-negative integer (0-based; first page is 0).")
+                    return self._tool_error("page must be a non-negative integer — 0-based (first page is 0).")
                 raw, reason = _render_page_png(ctx.ctx, doc, int(page))
                 if raw is None:
                     return self._tool_error(reason or "Could not render the page.")
