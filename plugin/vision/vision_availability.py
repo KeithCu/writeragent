@@ -123,6 +123,24 @@ def filter_vision_specialized_tools(tools: list[Any], ctx: Any) -> list[Any]:
     return [t for t in tools if getattr(t, "name", None) != _VISION_TOOL_NAME]
 
 
+def chat_text_model_has_native_vision() -> bool:
+    """True when the configured chat text model can see images.
+
+    Fail-open True when capability cannot be determined — same contract as
+    filter_get_image_for_text_only_model (keep get_image rather than hide it).
+    """
+    try:
+        from plugin.framework.client.model_fetcher import (
+            get_current_endpoint,
+            get_text_model,
+            has_native_vision,
+        )
+
+        return bool(has_native_vision(get_text_model(), get_current_endpoint()))
+    except Exception:
+        return True
+
+
 def filter_get_image_for_text_only_model(tools: list[Any]) -> list[Any]:
     """Drop get_image when the configured CHAT text model has no native vision.
 
@@ -131,11 +149,7 @@ def filter_get_image_for_text_only_model(tools: list[Any]) -> list[Any]:
     a small/blind model can't use is wasted context + a chance to mispick). The MCP path does NOT
     call this -- there we assume the connecting client is vision-capable and always expose it.
     Fail OPEN: if the model's vision can't be determined, keep the tool rather than hide a working one."""
-    try:
-        from plugin.framework.client.model_fetcher import has_native_vision, get_text_model, get_current_endpoint
-        if has_native_vision(get_text_model(), get_current_endpoint()):
-            return tools
-    except Exception:
+    if chat_text_model_has_native_vision():
         return tools
     return [t for t in tools if getattr(t, "name", None) != "get_image"]
 

@@ -8,7 +8,10 @@ from unittest.mock import patch
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
-from plugin.vision.vision_availability import filter_get_image_for_text_only_model
+from plugin.vision.vision_availability import (
+    chat_text_model_has_native_vision,
+    filter_get_image_for_text_only_model,
+)
 
 
 class _T:
@@ -50,3 +53,10 @@ def test_fail_open_keeps_get_image_when_capability_unknown():
          patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
         names = [t.name for t in filter_get_image_for_text_only_model(_tools())]
     assert "get_image" in names
+
+
+def test_chat_text_model_has_native_vision_fail_open():
+    with patch("plugin.framework.client.model_fetcher.has_native_vision", side_effect=RuntimeError("boom")), \
+         patch("plugin.framework.client.model_fetcher.get_text_model", return_value="m"), \
+         patch("plugin.framework.client.model_fetcher.get_current_endpoint", return_value="e"):
+        assert chat_text_model_has_native_vision() is True
