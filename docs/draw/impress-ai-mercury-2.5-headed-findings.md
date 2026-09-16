@@ -1,6 +1,6 @@
 # Impress AI headed findings: `inception/mercury-2.5` (space elevator)
 
-**Status:** Findings + root-cause probe — no product fix in this PR  
+**Status:** Findings + root-cause probe. **A** and **A2** landed (add_slide default `text` layout; class→role map).  
 **Date:** 2026-09-16  
 **Verdict:** **MIXED**  
 **Related:** [impress-specialized-toolsets.md](impress-specialized-toolsets.md)  
@@ -111,7 +111,7 @@ No SEGV in the successful session. Early `UnoObjectError` storm was the LibreHar
 
 ## Probe verification (2026-09-16)
 
-`tests/draw/test_placeholders_uno.py` is a native UNO probe (runs via `make test-uno FILTER=tests/draw/test_placeholders_uno.py`). It reproduces the headed failure in one pass and confirms the fix path. It currently prints rather than asserts, so it documents **pre-fix** behavior; convert it to assertions in the PR that lands A.
+`tests/draw/test_placeholders_uno.py` is a native UNO probe (runs via `make test-uno FILTER=tests/draw/test_placeholders_uno.py`). It pins the headed failure and the A fix with assertions (default `text` layout has placeholders; role set works; `blank`/`none` stay empty).
 
 | Step | Observed |
 |------|----------|
@@ -140,6 +140,8 @@ Each item is written so a later implementer can pick it up without re-deriving t
 ---
 
 ### A. Default layout on `add_slide` (tool behavior)
+
+**Status:** Landed.
 
 **Problem**
 
@@ -206,6 +208,8 @@ Note: on the probe build the role/class labels were absent — `_list_placeholde
 ---
 
 ### A2. Fix placeholder role matching (`body` can match the title)
+
+**Status:** Landed.
 
 **Problem**
 
@@ -474,8 +478,8 @@ Log showed `has_native_vision: model='inception/mercury-2.5' … vision=False`. 
 
 ### Suggested cut order (still Keith’s call)
 
-1. **A** — probe-confirmed root-cause fix; also convert `tests/draw/test_placeholders_uno.py` from prints to assertions in this PR.  
-2. **A2** — role-pattern fix so `role="body"` cannot select the title (unit-testable, no live doc).  
+1. **A** — landed: default `text` layout on Impress `add_slide`; probe file asserts.  
+2. **A2** — landed: class→role map so `role="body"` cannot select the title.  
 3. **C1** — actionable `available: []` error for leftover non-layout slides.  
 4. **B** — cheap steer aligned with A/A2/C.  
 5. **D** — index description hygiene.  
@@ -496,13 +500,13 @@ No mega-PR implied. A and the probe assertions belong together so the fix is act
 | Shapes | `plugin/draw/shapes.py` |
 | Layouts / transitions | `plugin/draw/transitions.py` |
 | Tool catalog (human) | `docs/draw/impress-specialized-toolsets.md` |
-| Probe (pre-fix behavior, no assertions yet) | `tests/draw/test_placeholders_uno.py` |
+| Probe (assertions for A) | `tests/draw/test_placeholders_uno.py` |
 
 ---
 
-## Out of scope for this PR
+## Out of scope for the findings PR
 
-- No product code changes (only the diagnostic probe `tests/draw/test_placeholders_uno.py` is added; it prints, it does not assert)
+- Product code for A/A2 landed in a follow-up (this doc’s cut 1–2)
 - No issue close keywords
 - No formal GDPval / string-harness Impress suite
 
