@@ -36,7 +36,8 @@ class AddSlide(ToolBase):
     intent = "edit"
     description = (
         "Inserts a new slide (page) at the specified index. "
-        "Impress defaults to the Title + Content ('text') layout."
+        "Impress defaults to the Title + Content ('text') layout. "
+        "Call list_placeholders before set_placeholder_text."
     )
     parameters = {
         "type": "object",

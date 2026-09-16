@@ -694,6 +694,14 @@ PEER_INNER_CHOICE_RULES = (
 )
 
 
+# F: omitted from the assembled Draw prompt when the chat model has no vision.
+# Wording matches #782: say 0-based once; no sibling-tool list / "first page is 0".
+DRAW_GET_IMAGE_TOOL_LINE = (
+    "- get_image: page=N (0-based) renders that page as a PNG so a vision model can "
+    "see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= "
+    "fetch an embedded GraphicObjectShape."
+)
+
 DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE = """You are a LibreOffice Draw/Impress assistant who creates polished, professional, and colorful visual content.
 Do not explain - do the operation directly using tools. Perform as many steps as needed in one turn when possible.
 
@@ -707,6 +715,12 @@ WORKFLOW:
 3. Use the specialized delegation tool to perform shape operations (create, edit, group, paper-form fill via fill_draw_fields), transitions, masters, notes, or charts.
 4. Give a short confirmation; when you changed pages/shapes, mention them.
 
+IMPRESS TEXT FILLS:
+1. Prefer list_placeholders(page=N) before set_placeholder_text.
+2. If count=0 or set_placeholder_text returns available=[], call set_slide_layout or delegate_to_specialized_draw_toolset(domain="slide_layouts", task="set layout 'text' on page N") then list_placeholders again.
+3. If roles are missing but indices exist, set_placeholder_text(index=i, text=…).
+4. page on these tools is 0-based.
+
 TOOLS (grouped by use):
 
 READ:
@@ -714,7 +728,7 @@ READ:
 - read_slide_text: Extract text content and speaker notes from a slide.
 - get_presentation_info: Slide count, dimensions, master slide names, and Impress status.
 - get_draw_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
-- get_image: page=N (0-based) renders that page as a PNG so a vision model can see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape.
+""" + DRAW_GET_IMAGE_TOOL_LINE + """
 - list_placeholders: List text placeholders (title, subtitle, body) on a slide (Impress).
 - get_placeholder_text: Get text from a slide placeholder by role or index.
 
@@ -938,6 +952,16 @@ def get_specialized_delegation_tool_hint(special_base_class, agent_label: str, *
     return template.format(domains=domains_str)
 
 
+def _apply_draw_get_image_tool_line(prompt: str) -> str:
+    """Omit the Draw/Impress get_image TOOLS bullet when the chat model has no vision."""
+    from plugin.vision.vision_availability import chat_text_model_has_native_vision
+
+    if chat_text_model_has_native_vision():
+        return prompt
+    line = DRAW_GET_IMAGE_TOOL_LINE
+    return prompt.replace(line + "\n", "").replace(line, "")
+
+
 def get_vision_core_directive(model, ctx) -> str:
     """OCR delegation hint when local vision stack is configured (Writer/Calc only)."""
     if ctx is None:
@@ -989,6 +1013,9 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     elif is_draw(model):
         base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
         base = base.replace("{core_directives}", DRAW_CORE_DIRECTIVES)
+        # F: drop the get_image TOOLS bullet when the selected model cannot see PNGs.
+        # Apply every call (not the cached template) so vision vs text-only can differ.
+        base = _apply_draw_get_image_tool_line(base)
 
         global DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
         if not DEFAULT_DRAW_CHAT_SYSTEM_PROMPT:
