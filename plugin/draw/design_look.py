@@ -360,7 +360,7 @@ def _paeth(a: int, b: int, c: int) -> int:
 
 
 def _unpack_row(
-    row: bytes,
+    row: bytes | bytearray,
     width: int,
     bit_depth: int,
     color_type: int,
@@ -410,7 +410,7 @@ def _unpack_row(
     return out
 
 
-def _unpack_samples(row: bytes, width: int, bit_depth: int, color_type: int) -> list[int] | None:
+def _unpack_samples(row: bytes | bytearray, width: int, bit_depth: int, color_type: int) -> list[int] | None:
     spp = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color_type]
     need = width * spp
     if bit_depth == 8:
