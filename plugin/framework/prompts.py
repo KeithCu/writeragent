@@ -714,7 +714,7 @@ READ:
 - read_slide_text: Extract text content and speaker notes from a slide.
 - get_presentation_info: Slide count, dimensions, master slide names, and Impress status.
 - get_draw_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
-- get_image: page=N (1-based; first page is 1, unlike 0-based get_draw_tree) renders that page as a PNG so a vision model can see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape.
+- get_image: page=N (0-based; first page/slide is 0, same as list_pages / get_draw_tree) renders that page as a PNG so a vision model can see the layout. Use alongside get_draw_tree, not instead of it. image= / selection= fetch an embedded GraphicObjectShape.
 - list_placeholders: List text placeholders (title, subtitle, body) on a slide (Impress).
 - get_placeholder_text: Get text from a slide placeholder by role or index.
 

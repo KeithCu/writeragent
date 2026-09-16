@@ -9,7 +9,7 @@ b64 is stripped from get_document_content by default, so a model never pays visi
 When it actually needs to SEE one image, it calls get_image, which returns that single picture as a
 native MCP image content block (only then are vision tokens spent). One self-documenting tool, by
 graphic name, by the current selection, or page=<n> to render a whole page (_render_page_png below).
-On Draw/Impress, page=N is the vision screenshot; get_draw_tree remains the structure read.
+On Draw/Impress, page=N is the vision screenshot (0-based, same as list_pages / get_draw_tree); get_draw_tree remains the structure read.
 """
 
 import base64
@@ -45,7 +45,10 @@ def _read_png_or_reason(tmp_path, page):
 
 
 def _render_writer_page_png(doc, page):
-    """Render 1-based *page* of a Writer doc to PNG bytes, or (None, reason).
+    """Render 0-based *page* of a Writer doc to PNG bytes, or (None, reason).
+
+    *page* is model-facing (first page = 0). jumpToPage is 1-based, so the only conversion is
+    ``lo_page = page + 1`` here — error text still quotes the 0-based index the model sent.
 
     NATIVE LibreOffice path ONLY — the writer_png_Export graphic filter, targeted per page with the
     view cursor (jumpToPage): cross-platform, no external binary, no PDF round-trip, and the filter
@@ -73,9 +76,11 @@ def _render_writer_page_png(doc, page):
 
     tmp_path = None
     try:
-        vc.jumpToPage(page)
+        # jumpToPage / getPage are 1-based Writer APIs; *page* is 0-based at the tool boundary.
+        lo_page = page + 1
+        vc.jumpToPage(lo_page)
         actual = int(vc.getPage())
-        if actual != page:
+        if actual != lo_page:
             # jumpToPage clamps out-of-range targets; jump to the end to report the real total.
             try:
                 vc.jumpToLastPage()
@@ -111,7 +116,10 @@ def _render_writer_page_png(doc, page):
 
 
 def _render_draw_page_png(ctx, doc, page):
-    """Render 1-based *page* of a Draw/Impress doc to PNG bytes, or (None, reason).
+    """Render 0-based *page* of a Draw/Impress doc to PNG bytes, or (None, reason).
+
+    *page* is already the ``getByIndex`` index (first slide = 0). No ±1 here — that used to
+    exist when the tool was 1-based and is what made get_image the Draw/Impress oddball.
 
     Native ``com.sun.star.drawing.GraphicExportFilter`` with the XDrawPage as source (MediaType
     image/png). Verified live 2026-09-09: this yields a valid PNG and different pages produce
@@ -128,7 +136,7 @@ def _render_draw_page_png(ctx, doc, page):
     except Exception as e:
         return None, "could not render page %d: no draw pages available (%s)" % (page, e)
 
-    if page < 1 or page > total:
+    if page < 0 or page >= total:
         return None, "could not render page %d: page not found (document has %d page(s))." % (page, total)
 
     tmp_path = None
@@ -146,7 +154,7 @@ def _render_draw_page_png(ctx, doc, page):
             return None, "could not render page %d: GraphicExportFilter is unavailable." % page
         # setSourceDocument accepts XDrawPage here (not only XModel) — that is how a specific
         # slide is targeted without a controller page jump.
-        filt.setSourceDocument(pages.getByIndex(page - 1))
+        filt.setSourceDocument(pages.getByIndex(page))
         fd, tmp_path = tempfile.mkstemp(prefix="wa_page_render_", suffix=".png")
         os.close(fd)
         ok = filt.filter((
@@ -167,7 +175,7 @@ def _render_draw_page_png(ctx, doc, page):
 
 
 def _render_page_png(ctx, doc, page):
-    """Render 1-based *page* of Writer, Draw, or Impress to PNG bytes, or (None, reason)."""
+    """Render 0-based *page* of Writer, Draw, or Impress to PNG bytes, or (None, reason)."""
     if _is_draw_family(doc):
         return _render_draw_page_png(ctx, doc, page)
     return _render_writer_page_png(doc, page)
@@ -179,9 +187,10 @@ class GetImage(ToolBase):
     description = (
         "Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name "
         "from image_list / get_page_objects> for an embedded picture; selection=true for the image "
-        "currently selected; or page=<n> (1-based) to render that whole PAGE as an image "
-        "(Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= "
-        "here when you need to see the rendered page. Returns the picture itself, not a description. "
+        "currently selected; or page=<n> (0-based; first page/slide is 0) to render that whole PAGE "
+        "as an image (Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — "
+        "use page= here when you need to see the rendered page. Returns the picture itself, not a "
+        "description. "
         "b64 is stripped from normal reads, so use this when you actually need to look."
     )
     parameters = {
@@ -189,7 +198,7 @@ class GetImage(ToolBase):
         "properties": {
             "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects)."},
             "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one."},
-            "page": {"type": "integer", "description": "Render this 1-based page as an image (the whole page layout), instead of fetching one embedded image."},
+            "page": {"type": "integer", "description": "0-based page index to render as an image (first page/slide is 0; the whole page layout), instead of fetching one embedded image."},
         },
         "required": [],
     }
@@ -203,8 +212,8 @@ class GetImage(ToolBase):
         page = kwargs.get("page")
         try:
             if page is not None:
-                if not isinstance(page, int) or page < 1:
-                    return self._tool_error("page must be a positive integer (1-based).")
+                if not isinstance(page, int) or page < 0:
+                    return self._tool_error("page must be a non-negative integer (0-based; first page/slide is 0).")
                 raw, reason = _render_page_png(ctx.ctx, doc, int(page))
                 if raw is None:
                     return self._tool_error(reason or "Could not render the page.")

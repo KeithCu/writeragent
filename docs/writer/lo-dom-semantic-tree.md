@@ -16,7 +16,7 @@ LibreOffice maintains a rigorous structural hierarchy of its documents via the U
 
 ### Draw and Impress (Draw Tree)
 
-The `get_draw_tree` tool extracts the hierarchical structure of a Draw page or Impress slide. It translates raw UNO objects (`com.sun.star.drawing.RectangleShape`) into semantic JSON nodes. Vision-capable chat can also call `get_image page=N` (1-based) for a PNG of that page — a screenshot for layout QA, not a substitute for this tree.
+The `get_draw_tree` tool extracts the hierarchical structure of a Draw page or Impress slide. It translates raw UNO objects (`com.sun.star.drawing.RectangleShape`) into semantic JSON nodes. Vision-capable chat can also call `get_image page=N` (0-based; first page/slide is 0) for a PNG of that page — a screenshot for layout QA, not a substitute for this tree.
 
 **Features of the Draw Tree:**
 * **Hierarchy:** Grouped shapes become parent nodes with nested children.

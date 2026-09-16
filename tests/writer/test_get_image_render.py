@@ -73,10 +73,19 @@ class FakeDoc:
 
 
 def test_no_view_is_a_clear_error():
-    png, reason = _render_page_png(object(), FakeDoc(has_view=False), 1)
+    png, reason = _render_page_png(object(), FakeDoc(has_view=False), 0)
     assert png is None
-    assert "could not render page 1" in reason
+    assert "could not render page 0" in reason
     assert "no document view available" in reason
+
+
+def test_writer_jumps_to_1based_lo_page():
+    """Model-facing page is 0-based; jumpToPage is the 1-based Writer API."""
+    doc = FakeDoc(page_count=20)
+    _render_page_png(object(), doc, 0)
+    assert doc._vc.current == 1
+    _render_page_png(object(), doc, 2)
+    assert doc._vc.current == 3
 
 
 def test_page_not_found_reports_real_total():
@@ -104,12 +113,40 @@ class FakeDrawPages:
     def __init__(self, page_count):
         self.page_count = page_count
         self.pages = [object() for _unused in range(page_count)]
+        self.last_index = None
 
     def getCount(self):
         return self.page_count
 
     def getByIndex(self, index):
+        self.last_index = index
         return self.pages[index]
+
+
+class FakeGraphicExportFilter:
+    def __init__(self):
+        self.source = None
+
+    def setSourceDocument(self, src):
+        self.source = src
+
+    def filter(self, props):
+        return False
+
+
+class FakeExportServiceManager:
+    def __init__(self, filt):
+        self._filt = filt
+
+    def createInstanceWithContext(self, name, ctx):
+        return self._filt
+
+
+class FakeExportCtx:
+    """Enough of a UNO ctx for GraphicExportFilter create + setSourceDocument."""
+
+    def __init__(self, filt):
+        self.ServiceManager = FakeExportServiceManager(filt)
 
 
 class FakeDrawDoc:
@@ -148,10 +185,32 @@ def test_draw_page_not_found_reports_real_total():
 
 
 def test_draw_no_pages_is_a_clear_error():
-    png, reason = _render_page_png(object(), FakeDrawDoc(pages_error="no pages"), 1)
+    png, reason = _render_page_png(object(), FakeDrawDoc(pages_error="no pages"), 0)
     assert png is None
-    assert "could not render page 1" in reason
+    assert "could not render page 0" in reason
     assert "no draw pages available" in reason
+
+
+def test_draw_first_page_is_zero_not_one():
+    """Regression: under 1-based, page=1 was in range on a 1-page doc and page=0 was not."""
+    png, reason = _render_page_png(object(), FakeDrawDoc(page_count=1), 1)
+    assert png is None
+    assert "page not found" in reason
+    assert "1 page(s)" in reason
+
+    png, reason = _render_page_png(object(), FakeDrawDoc(page_count=1), 0)
+    assert "page not found" not in (reason or "")
+
+
+def test_draw_getbyindex_uses_0based_page():
+    filt = FakeGraphicExportFilter()
+    doc = FakeDrawDoc(page_count=2)
+    _render_page_png(FakeExportCtx(filt), doc, 0)
+    assert doc._pages.last_index == 0
+    assert filt.source is doc._pages.pages[0]
+    _render_page_png(FakeExportCtx(filt), doc, 1)
+    assert doc._pages.last_index == 1
+    assert filt.source is doc._pages.pages[1]
 
 
 def test_impress_uses_draw_page_path_not_writer_view_cursor():
@@ -186,11 +245,23 @@ def test_execute_draw_page_error_is_tool_error():
 def test_execute_draw_page_success_returns_mcp_image():
     png = b"\x89PNG\r\n\x1a\n" + b"draw-page"
     with patch("plugin.writer.get_image._render_page_png", return_value=(png, None)):
-        res = GetImage().execute(_tctx(FakeDrawDoc()), page=1)
+        res = GetImage().execute(_tctx(FakeDrawDoc()), page=0)
     assert res["status"] == "ok"
-    assert res["source"] == "page 1"
+    assert res["source"] == "page 0"
     assert res["_mcp_image"]["mimeType"] == "image/png"
     assert base64.b64decode(res["_mcp_image"]["data"]) == png
+
+
+def test_execute_rejects_negative_page():
+    res = GetImage().execute(_tctx(FakeDrawDoc()), page=-1)
+    assert res["status"] == "error"
+    assert "0-based" in res["message"]
+
+
+def test_execute_page_param_is_0based():
+    assert "0-based" in GetImage.parameters["properties"]["page"]["description"]
+    assert "1-based" not in GetImage.parameters["properties"]["page"]["description"]
+    assert "1-based" not in GetImage.description
 
 
 def test_execute_named_image_uses_visual_helpers_not_graphic_objects():

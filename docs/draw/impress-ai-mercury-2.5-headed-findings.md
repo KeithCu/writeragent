@@ -1,6 +1,6 @@
 # Impress AI headed findings: `inception/mercury-2.5` (space elevator)
 
-**Status:** Findings + root-cause probe. **A** and **A2** landed (add_slide default `text` layout; class→role map).  
+**Status:** Findings + root-cause probe. **A**, **A2**, and **D** (`get_image` page is 0-based) landed.  
 **Date:** 2026-09-16  
 **Verdict:** **MIXED**  
 **Related:** [impress-specialized-toolsets.md](impress-specialized-toolsets.md)  
@@ -81,7 +81,7 @@ Same pattern for `'body'`. Parallel `list_placeholders` often returned `count: 0
 Off-by-one and “edit the wrong slide” behavior showed up in the headed run (agent report + thumbnail vs canvas mismatch in Fig. 2). Prompt/tool surface mixes conventions:
 
 - Many Draw tools: **0-based** `page`
-- `get_image`: **1-based** `page=N` (called out in [impress-specialized-toolsets.md](impress-specialized-toolsets.md) and the Draw system prompt)
+- `get_image`: **1-based** `page=N` at the time of the run (called out in [impress-specialized-toolsets.md](impress-specialized-toolsets.md) and the Draw system prompt) — **since aligned to 0-based**; see D
 
 Mercury recovered, but burned turns.
 
@@ -362,6 +362,8 @@ After (C2): role miss still writes outline/title shape when present → fewer la
 
 ### D. Index hygiene (schemas + prompt + catalog)
 
+**Status:** Landed for the oddball. Do not flip the world to 1-based — model-facing `get_image(page=…)` is **0-based** (first page/slide = 0), same as `list_pages` / `add_slide` / `set_placeholder_text`. Writer `jumpToPage` still converts `page + 1` inside the render helper; Draw/Impress uses `getByIndex(page)` directly.
+
 **Problem**
 
 Headed run showed off-by-one / wrong-slide edits (edit intended slide 2, wrong active page; thumbnail vs canvas lag). Model-facing text mixes:
@@ -482,7 +484,7 @@ Log showed `has_native_vision: model='inception/mercury-2.5' … vision=False`. 
 2. **A2** — landed: class→role map so `role="body"` cannot select the title.  
 3. **C1** — actionable `available: []` error for leftover non-layout slides.  
 4. **B** — cheap steer aligned with A/A2/C.  
-5. **D** — index description hygiene.  
+5. **D** — landed: `get_image` page is 0-based (not a 1-based world flip).  
 6. **E** — co-install ChatPanel (ops/framework).  
 7. **F** — when judging visual quality, don’t use mercury alone.  
 8. **C2** — only if A+A2+C1 still leave TitleTextShape/OutlinerShape gaps.  
