@@ -4,11 +4,84 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.draw.bridge import DrawBridge
-from plugin.draw.pages import DuplicateSlide, MoveSlide, RenameSlide
+from plugin.draw.pages import AddSlide, DuplicateSlide, MoveSlide, RenameSlide
 
 
 def _ctx():
     return MagicMock()
+
+
+def _impress_ctx():
+    ctx = MagicMock()
+    ctx.doc.supportsService.return_value = True
+    return ctx
+
+
+def _draw_ctx():
+    ctx = MagicMock()
+    ctx.doc.supportsService.return_value = False
+    return ctx
+
+
+def _add_slide_bridge(page, active_idx=1):
+    bridge = MagicMock()
+    bridge.create_slide.return_value = page
+    bridge.get_active_page_index.return_value = active_idx
+    return bridge
+
+
+def test_add_slide_impress_defaults_to_text_layout():
+    ctx = _impress_ctx()
+    page = MagicMock()
+    page.Layout = 20
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value = _add_slide_bridge(page, active_idx=1)
+        out = AddSlide().execute(ctx)
+    assert out["status"] == "ok"
+    assert out["layout"] == "text"
+    assert out["active_page_index"] == 1
+    assert "list_placeholders" in out["placeholders_hint"]
+    assert page.Layout == 1
+
+
+def test_add_slide_blank_and_none_escape():
+    ctx = _impress_ctx()
+    page = MagicMock()
+    page.Layout = 20
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value = _add_slide_bridge(page)
+        out = AddSlide().execute(ctx, layout="none")
+    assert out["status"] == "ok"
+    assert out["layout"] == "blank"
+    assert page.Layout == 11
+
+    page.Layout = 20
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value = _add_slide_bridge(page)
+        out = AddSlide().execute(ctx, layout="blank")
+    assert out["layout"] == "blank"
+    assert page.Layout == 11
+
+
+def test_add_slide_draw_ignores_layout():
+    ctx = _draw_ctx()
+    page = MagicMock()
+    page.Layout = 99
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value = _add_slide_bridge(page, active_idx=0)
+        out = AddSlide().execute(ctx, layout="text")
+    assert out["status"] == "ok"
+    assert "layout" not in out
+    assert "placeholders_hint" not in out
+    assert page.Layout == 99
+
+
+def test_add_slide_unknown_layout_errors_before_create():
+    ctx = _impress_ctx()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        out = AddSlide().execute(ctx, layout="not_a_layout")
+    assert out["status"] == "error"
+    bridge_cls.return_value.create_slide.assert_not_called()
 
 
 def test_bridge_duplicate_calls_doc_duplicate():
