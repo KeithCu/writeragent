@@ -735,6 +735,7 @@ READ:
 
 WRITE:
 - add_slide: Insert a new slide (page) at specified index (inherits the assigned master).
+- apply_design: Restyle the open Impress deck from a listed .otp (new_document=false), or create a new deck (new_document=true).
 - set_presentation_design: Start a new Impress deck from a shipped .otp (not blank Default).
 - delete_slide: Remove a slide (page) by index.
 - set_active_page: Switch active slide/page.

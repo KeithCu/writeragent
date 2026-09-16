@@ -1,6 +1,6 @@
 # WriterAgent — native UNO tests for Impress list/apply design (M1′)
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Prove PathSettings list, create-from-template, LO-wall current-doc, HF wire-up."""
+"""Prove PathSettings list, create-from-template, current-doc master import, HF wire-up."""
 
 from __future__ import annotations
 
@@ -64,16 +64,60 @@ def test_list_designs_finds_metropolis(ctx, doc):
 
 @native_test
 @with_native_doc("impress")
-def test_apply_design_current_doc_lo_wall(ctx, doc):
+def test_apply_design_current_doc_metropolis(ctx, doc):
+    """Hidden .otp + DiaMode paste + MasterPage assign restyles the open deck."""
     listed = _exec(doc, ctx, "list_designs", {})
     design = _pick_known_design(listed)
     assert design, listed
+    added = _exec(doc, ctx, "add_slide", {})
+    assert added.get("status") == "ok", added
+    layout0 = _exec(doc, ctx, "set_slide_layout", {"page": 0, "layout": "text"})
+    assert layout0.get("status") == "ok", layout0
+    title0 = _exec(doc, ctx, "set_placeholder_text", {"page": 0, "role": "title", "text": "Keep Title 0"})
+    if title0.get("status") != "ok":
+        title0 = _exec(doc, ctx, "set_placeholder_text", {"page": 0, "index": 0, "text": "Keep Title 0"})
+    assert title0.get("status") == "ok", title0
+    title1 = _exec(
+        doc, ctx, "set_placeholder_text", {"page": 1, "role": "title", "text": "Keep Title 1"}
+    )
+    body1 = _exec(doc, ctx, "set_placeholder_text", {"page": 1, "role": "body", "text": "Keep Body 1"})
+    assert title1.get("status") == "ok", title1
+    assert body1.get("status") == "ok", body1
+    before_count = doc.getDrawPages().getCount()
+    assert before_count >= 2, before_count
+
     out = _exec(doc, ctx, "apply_design", {"design": design["id"], "new_document": False})
-    assert out.get("status") == "error", out
-    assert out.get("code") == "LO_WALL", out
-    details = out.get("details") or {}
-    assert details.get("reason") == "current_doc_apply_unsupported", out
-    assert "loadStylesFromURL" in (out.get("message") or "")
+    assert out.get("status") == "ok", out
+    assert out.get("blank_master") is False, out
+    applied = str(out.get("applied_master") or "")
+    assert applied, out
+    assert applied.lower() != "default", out
+    assert int(out.get("applied_master_shape_count") or 0) >= 6, out
+    assert int(out.get("slides_updated") or 0) == before_count, out
+    pages = doc.getDrawPages()
+    assert pages.getCount() == before_count, "leftover paste slide: %s out=%s" % (
+        pages.getCount(),
+        out,
+    )
+    for i in range(pages.getCount()):
+        master = pages.getByIndex(i).MasterPage
+        name = master.Name if hasattr(master, "Name") else ""
+        assert name == applied, "slide %s master=%s applied=%s out=%s" % (i, name, applied, out)
+        shapes = 0
+        try:
+            shapes = int(master.getCount())
+        except Exception:
+            shapes = 0
+        assert shapes >= 6, "slide %s master shape_count=%s out=%s" % (i, shapes, out)
+
+    kept0 = _exec(doc, ctx, "get_placeholder_text", {"page": 0, "role": "title"})
+    if kept0.get("status") != "ok":
+        kept0 = _exec(doc, ctx, "get_placeholder_text", {"page": 0, "index": 0})
+    kept1 = _exec(doc, ctx, "get_placeholder_text", {"page": 1, "role": "title"})
+    kept_body = _exec(doc, ctx, "get_placeholder_text", {"page": 1, "role": "body"})
+    assert "Keep Title 0" in str(kept0.get("text") or ""), kept0
+    assert "Keep Title 1" in str(kept1.get("text") or ""), kept1
+    assert "Keep Body 1" in str(kept_body.get("text") or ""), kept_body
 
 
 @native_test

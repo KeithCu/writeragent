@@ -14,9 +14,10 @@ from plugin.draw.designs import (
     SetPresentationDesign,
     _blank_master_signal,
     _split_pathsettings_value,
-    current_doc_apply_error,
     enumerate_impress_designs,
+    find_imported_master,
     inherit_master_from_neighbor,
+    remove_pasted_extra_slides,
     resolve_design,
 )
 from plugin.draw.pages import AddSlide
@@ -102,15 +103,52 @@ def test_resolve_design_by_id_and_name(tmp_path):
         assert resolve_design(None, "missing") is None
 
 
-def test_apply_design_current_doc_is_lo_wall():
+def test_apply_design_current_doc_calls_import_path():
     ctx = MagicMock()
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
-    out = ApplyDesign().execute(ctx, design="Metropolis", new_document=False)
+    entry = {"id": "metropolis", "name": "Metropolis", "path": "/tmp/Metropolis.otp"}
+    payload = {
+        "status": "ok",
+        "applied_master": "Metropolis",
+        "blank_master": False,
+        "slides_updated": 2,
+        "applied_master_shape_count": 6,
+    }
+    with (
+        patch("plugin.draw.designs.resolve_design", return_value=entry),
+        patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
+    ):
+        out = ApplyDesign().execute(ctx, design="Metropolis", new_document=False)
+    assert out["status"] == "ok"
+    assert out["applied_master"] == "Metropolis"
+    assert out["blank_master"] is False
+    apply_cur.assert_called_once()
+
+
+def test_apply_design_current_doc_import_failure():
+    ctx = MagicMock()
+    ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
+    entry = {"id": "metropolis", "name": "Metropolis", "path": "/tmp/Metropolis.otp"}
+    with (
+        patch("plugin.draw.designs.resolve_design", return_value=entry),
+        patch(
+            "plugin.draw.designs.apply_design_to_current_doc",
+            side_effect=RuntimeError("paste failed"),
+        ),
+    ):
+        out = ApplyDesign().execute(ctx, design="Metropolis", new_document=False)
     assert out["status"] == "error"
-    assert out["code"] == "LO_WALL"
-    assert "current" in out["message"].lower() or "loadStylesFromURL" in out["message"]
+    assert out.get("code") != "LO_WALL"
     details = out.get("details") or {}
-    assert details.get("reason") == "current_doc_apply_unsupported"
+    assert details.get("reason") == "current_doc_import_failed"
+    assert "current" in out["message"].lower() or "failed" in out["message"].lower()
+
+
+def test_apply_design_description_mentions_current_doc():
+    desc = ApplyDesign.description.lower()
+    assert "current" in desc or "open" in desc
+    assert "lo_wall" not in desc
+    assert "new_document" in desc
 
 
 def test_set_presentation_design_draw_not_impress():
@@ -184,11 +222,42 @@ def test_add_slide_reports_inherited_master():
     assert out["master"] == "Metropolis"
 
 
-def test_current_doc_apply_error_payload():
-    tool = ApplyDesign()
-    err = current_doc_apply_error(tool)
-    assert err["code"] == "LO_WALL"
-    assert err["status"] == "error"
+def test_find_imported_master_prefers_design_name():
+    metro = MagicMock()
+    metro.Name = "Metropolis"
+    metro.getCount.return_value = 6
+    default = MagicMock()
+    default.Name = "Default"
+    default.getCount.return_value = 5
+    masters = MagicMock()
+    masters.getCount.return_value = 2
+    masters.getByIndex.side_effect = lambda i: default if i == 0 else metro
+    doc = MagicMock()
+    doc.getMasterPages.return_value = masters
+    found, name, shapes = find_imported_master(
+        doc, {"id": "metropolis", "name": "Metropolis"}, {"Default"}
+    )
+    assert found is metro
+    assert name == "Metropolis"
+    assert shapes == 6
+
+
+def test_remove_pasted_extra_slides_keeps_marked():
+    keep0 = MagicMock()
+    keep0.Name = "WA_KEEP_0"
+    extra = MagicMock()
+    extra.Name = "Metropolis"
+    store = [keep0, extra]
+    pages = MagicMock()
+    pages.getCount.side_effect = lambda: len(store)
+    pages.getByIndex.side_effect = lambda i: store[i]
+    pages.remove.side_effect = lambda page: store.remove(page)
+    doc = MagicMock()
+    doc.getDrawPages.return_value = pages
+    removed = remove_pasted_extra_slides(doc, [("WA_KEEP_0", "Slide 1")], 1)
+    assert removed == 1
+    assert store == [keep0]
+    assert keep0.Name == "Slide 1"
 
 
 def test_designs_module_has_no_hardcoded_install_prefix():

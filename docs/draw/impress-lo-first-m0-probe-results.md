@@ -7,6 +7,8 @@
 **Date:** 2026-09-16  
 **Verdict:** **Proceed M1′** for **new decks** (create-from-template). Declare an **LO wall** for **current-doc** apply-design. Theme wrappers: **no**.
 
+Later follow-up (load-master probe): current-doc `apply_design` now uses Hidden `.otp` + DiaMode clipboard import + `MasterPage` assign-all. The `loadStylesFromURL` / PresentationLayout walls still stand; do not revert to those APIs.
+
 Shots, ODPs, and debug logs stay **box-local** under `/workspace/impress-m0-probe/` (not committed — same lean-history practice as the headed findings run).
 
 ---
