@@ -1013,13 +1013,13 @@ def get_chat_system_prompt_for_document(model, additional_instructions="", ctx=N
     elif is_draw(model):
         base = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
         base = base.replace("{core_directives}", DRAW_CORE_DIRECTIVES)
-        # F: drop the get_image TOOLS bullet when the selected model cannot see PNGs.
-        # Apply every call (not the cached template) so vision vs text-only can differ.
-        base = _apply_draw_get_image_tool_line(base)
 
         global DEFAULT_DRAW_CHAT_SYSTEM_PROMPT
         if not DEFAULT_DRAW_CHAT_SYSTEM_PROMPT:
             DEFAULT_DRAW_CHAT_SYSTEM_PROMPT = base
+        # F: drop the get_image TOOLS bullet when the selected model cannot see PNGs.
+        # After the cache so DEFAULT_DRAW_CHAT_SYSTEM_PROMPT stays the ungated template.
+        base = _apply_draw_get_image_tool_line(base)
     else:
         base = DEFAULT_CHAT_SYSTEM_PROMPT_TEMPLATE.replace("{specialized_delegation}", delegation)
         base = base.replace("{core_directives}", WRITER_CORE_DIRECTIVES)

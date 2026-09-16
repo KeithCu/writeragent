@@ -101,7 +101,6 @@ def test_libreharper_manifest_registers_harper_proofreader_only() -> None:
 
 
 def test_libreharper_bundle_excludes_chatpanel_ui() -> None:
-    from scripts.build_libreharper_oxt import LIBREHARPER_EXTENSION_INCLUDES
     from scripts.libreharper_bundle_paths import (
         LIBREHARPER_FORBIDDEN_CHAT_UI_MARKERS,
         collect_libreharper_plugin_paths,
@@ -111,13 +110,17 @@ def test_libreharper_bundle_excludes_chatpanel_ui() -> None:
     paths = collect_libreharper_plugin_paths(_repo_root())
     leaked = [p for p in paths if is_libreharper_forbidden_chat_ui(p)]
     assert leaked == []
-    include_leaked = [p for p in LIBREHARPER_EXTENSION_INCLUDES if is_libreharper_forbidden_chat_ui(p)]
-    assert include_leaked == []
     assert "plugin/chatbot/panel_factory.py" in LIBREHARPER_FORBIDDEN_CHAT_UI_MARKERS
     assert is_libreharper_forbidden_chat_ui("registry/org/openoffice/Office/UI/Factories.xcu")
     assert is_libreharper_forbidden_chat_ui("Dialogs/ChatPanelDialog.xdl")
     assert is_libreharper_forbidden_chat_ui("plugin/chatbot/panel_factory.py")
     assert not is_libreharper_forbidden_chat_ui("plugin/writer/locale/harper_proofreader.py")
+    # Harper copies extension-harper/registry (grammar XCU only) and assets, not UI.
+    harper_registry = os.path.join(
+        _repo_root(), "extension-harper", "registry", "org", "openoffice", "Office"
+    )
+    assert os.path.isfile(os.path.join(harper_registry, "LinguisticLibreHarperGrammar.xcu"))
+    assert not os.path.isdir(os.path.join(harper_registry, "UI"))
 
 
 def test_grammar_work_queue_has_no_top_level_framework_client_package_import() -> None:
