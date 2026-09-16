@@ -33,6 +33,7 @@ from plugin.framework.client.model_fetcher import get_text_model, set_native_aud
 from plugin.framework.config import get_config_bool, get_current_endpoint
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, format_error_payload
 from plugin.framework.logging import agent_log, update_activity_state
+from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
@@ -147,7 +148,11 @@ def build_tool_execute_fn(
             try:
                 from plugin.draw.bridge import DrawBridge
 
-                active_page_idx = DrawBridge(doc).get_active_page_index()
+                # Async gateways (delegate_to_specialized_draw_toolset) run
+                # execute_fn on the worker; hasattr(doc, "getDrawPages") is UNO.
+                active_page_idx = execute_on_main_thread(
+                    lambda: DrawBridge(doc).get_active_page_index()
+                )
             except Exception:
                 log.debug("execute_fn: failed to get active page index for %s", doc_type_str)
 

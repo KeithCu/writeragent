@@ -1,11 +1,15 @@
 import queue
-from unittest.mock import MagicMock, Mock
+import sys
+import types
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from plugin.tests.testing_utils import setup_uno_mocks
 
 setup_uno_mocks()
 
-from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter  # noqa: E402
+from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, build_tool_execute_fn  # noqa: E402
 from plugin.chatbot.tool_loop_state import (  # noqa: E402
     AddMessageEffect,
     ExitLoopEffect,
@@ -149,3 +153,61 @@ def test_spawn_tool_worker_effect_runs_sync_tool_and_enqueues_result():
     host._active_execute_tool_fn.assert_called_once_with("apply_document_content", {"content": "hi"}, host._active_model, host.ctx)
     assert host._active_q.get_nowait() == (StreamQueueKind.TOOL_DONE, "call_1", "apply_document_content", '{"content": "hi"}', '{"status": "ok"}')
     assert host._current_tool_call_id == "call_1"
+
+
+def _install_fake_main_registry():
+    """Avoid importing plugin.main (UNO-heavy). execute_fn does a local get_tools import."""
+    registry = MagicMock()
+    registry.execute.return_value = {"status": "ok"}
+    fake_main = types.ModuleType("plugin.main")
+    fake_main.get_tools = MagicMock(return_value=registry)
+    old_main = sys.modules.pop("plugin.main", None)
+    sys.modules["plugin.main"] = fake_main
+    return registry, old_main
+
+
+def _restore_main(old_main):
+    if old_main is not None:
+        sys.modules["plugin.main"] = old_main
+    else:
+        sys.modules.pop("plugin.main", None)
+
+
+@pytest.mark.parametrize("doc_type_str", ["draw", "impress"])
+def test_execute_fn_marshals_draw_active_page_index(doc_type_str):
+    host = FakeHost()
+    execute_fn = build_tool_execute_fn(host, doc_type_str, None, None, MagicMock())
+    doc = MagicMock()
+    registry, old_main = _install_fake_main_registry()
+    try:
+        with (
+            patch("plugin.draw.bridge.DrawBridge") as mock_bridge_cls,
+            patch("plugin.chatbot.tool_loop_actions.execute_on_main_thread") as mock_marshal,
+        ):
+            mock_bridge_cls.return_value.get_active_page_index.return_value = 2
+            mock_marshal.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
+            execute_fn(
+                "delegate_to_specialized_draw_toolset",
+                {"domain": "shapes", "task": "x"},
+                doc,
+                host.ctx,
+            )
+        mock_marshal.assert_called_once()
+        tctx = registry.execute.call_args[0][1]
+        assert tctx.active_page_index == 2
+    finally:
+        _restore_main(old_main)
+
+
+def test_execute_fn_skips_draw_bridge_for_writer():
+    host = FakeHost()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    registry, old_main = _install_fake_main_registry()
+    try:
+        with patch("plugin.chatbot.tool_loop_actions.execute_on_main_thread") as mock_marshal:
+            execute_fn("web_search", {"query": "x"}, MagicMock(), host.ctx)
+        mock_marshal.assert_not_called()
+        tctx = registry.execute.call_args[0][1]
+        assert tctx.active_page_index is None
+    finally:
+        _restore_main(old_main)

@@ -281,7 +281,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 ## 9. Specialized Sub-Agents & Tools Threading
 
 Specialized sub-agents (`plugin/doc/specialized_base.py`) run `DelegateToSpecializedBase.execute` on background worker threads when `is_async()` is True.
-- **Scaffolding**: `get_tools(doc=...)`, shapes canvas, open-documents enumeration, and the document_research workflow hint (peer catalog via `list_v1_peers` / `getRuntimeUID`) must marshal through `execute_on_main_thread()`.
+- **Scaffolding**: `get_tools(doc=...)`, shapes canvas, open-documents enumeration, the document_research workflow hint (peer catalog via `list_v1_peers` / `getRuntimeUID`), and `ToolContext.active_page_index` via `DrawBridge` in `build_tool_execute_fn` must marshal through `execute_on_main_thread()`.
 - **Sync Domain Tools**: Run via `SmolToolAdapter` which marshals tool execution to the main thread by default.
 - **Async Domain Tools** (`image_generate`, `delegate_read_document`): Run on caller worker threads and must marshal PyUNO access internally inside their own `execute_safe()` methods. Verified in [`tests/doc/test_specialized_delegation_threading.py`](../../tests/doc/test_specialized_delegation_threading.py).
 
