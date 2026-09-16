@@ -4,6 +4,8 @@ This document describes Draw/Impress tool organization, current implementation s
 
 > **Note**: Draw and Impress share the same UNO foundation. WriterAgent treats them as a unified domain with presentation-specific extensions.
 
+**Related:** [small-model steal advice (not a SKILL paste)](ppt-master-steal-for-small-models.md)
+
 ----
 
 ## 1. Architecture Overview
