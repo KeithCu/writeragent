@@ -1,6 +1,6 @@
 # Impress AI headed findings: `inception/mercury-2.5` (space elevator)
 
-**Status:** Findings + root-cause probe. **A**, **A2**, and **D** (`get_image` page is 0-based) landed.  
+**Status:** Findings + root-cause probe. **A**, **A2**, **D**, **C1**, **B**, **F**, and **E** landed (C2 not done).  
 **Date:** 2026-09-16  
 **Verdict:** **MIXED**  
 **Related:** [impress-specialized-toolsets.md](impress-specialized-toolsets.md)  
@@ -241,6 +241,8 @@ After: class→role is deterministic by pattern priority, independent of shape o
 
 ### B. Prompt + tool-description steer (no default behavior change)
 
+**Status:** Landed. WORKFLOW `IMPRESS TEXT FILLS` + tighter placeholder/`add_slide` descriptions. Page reminder is **0-based** (aligned with D / #781), not the 1-based `get_image` wording below.
+
 **Problem**
 
 Same placeholder errors as A. The Draw/Impress system prompt (`DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE` in `plugin/framework/prompts.py`) already says “VERIFY … status='error'” and lists `list_placeholders` / `set_placeholder_text`, but does **not** say:
@@ -294,6 +296,8 @@ After: model’s first write path is list → (optional layout) → set by role 
 ---
 
 ### C. Richer `set_placeholder_text` errors + optional shape fallback (tool)
+
+**Status:** **C1 landed.** C2 not done.
 
 **Problem**
 
@@ -404,6 +408,8 @@ After: descriptions + prompt make “slide 2 → page=1” explicit; fewer wrong
 
 ### E. ChatPanel XDL / factory ownership when LibreHarper co-installed (framework)
 
+**Status:** Landed as **manifest/build strip** (Keith: not XDL pin, not stub dialog). Harper `META-INF/manifest.xml` registers only the proofreader + Linguistic XCU. Build denylist + `test_libreharper_oxt.py` forbid `ChatPanelFactory` / `WriterAgentDeck` / `ChatPanelDialog` / `Factories.xcu` / `Sidebar.xcu` / `panel_factory.py`. Grammar registration is unchanged.
+
 **Problem**
 
 With LibreHarper + WriterAgent both installed, opening the Impress chat sidebar failed in a loop:
@@ -450,6 +456,8 @@ After: sidebar loads WriterAgent XDL regardless of Harper presence (or Harper si
 
 ### F. Model choice for visual / layout QA (process, not code)
 
+**Status:** Landed the prompt-only fix: when the selected chat model has **no vision**, omit the `get_image` TOOLS bullet from the Draw/Impress system prompt (reuse `chat_text_model_has_native_vision`; fail-open). No two-model workflow.
+
 **Problem**
 
 Log showed `has_native_vision: model='inception/mercury-2.5' … vision=False`. Prompt advertises `get_image` for layout verification; mercury cannot use those PNGs. Visual quality stayed “title + bullets + one rectangle” despite “polished, colorful” prompt wording.
@@ -482,12 +490,12 @@ Log showed `has_native_vision: model='inception/mercury-2.5' … vision=False`. 
 
 1. **A** — landed: default `text` layout on Impress `add_slide`; probe file asserts.  
 2. **A2** — landed: class→role map so `role="body"` cannot select the title.  
-3. **C1** — actionable `available: []` error for leftover non-layout slides.  
-4. **B** — cheap steer aligned with A/A2/C.  
+3. **C1** — landed: actionable `available: []` error (`hint`, `suggest_layout: "text"`).  
+4. **B** — landed: list-then-set / layout-retry / prefer-index / 0-based page steer.  
 5. **D** — landed: `get_image` page is 0-based (not a 1-based world flip).  
-6. **E** — co-install ChatPanel (ops/framework).  
-7. **F** — when judging visual quality, don’t use mercury alone.  
-8. **C2** — only if A+A2+C1 still leave TitleTextShape/OutlinerShape gaps.  
+6. **E** — landed: LibreHarper must not register ChatPanelFactory / WriterAgentDeck UI.  
+7. **F** — landed: omit `get_image` from the Draw prompt when the model has no vision.  
+8. **C2** — still deferred; only if A+A2+C1 still leave TitleTextShape/OutlinerShape gaps.  
 
 No mega-PR implied. A and the probe assertions belong together so the fix is actually pinned.
 
