@@ -381,7 +381,7 @@ Extended [`test_vision.py`](../../tests/scripting/test_vision.py), [`test_vision
 | Export by graphic name | [`resolve_vision_image_bytes`](plugin/vision/vision_runner.py) + [`_get_graphic_object`](plugin/writer/images/images.py) |
 | List in-document graphics | [`image_list`](../../plugin/writer/images/images.py) |
 | Metadata | [`image_get_info`](../../plugin/writer/images/images.py) |
-| Return a viewable image to the model | [`get_image`](../../plugin/writer/get_image.py) — an embedded graphic by name, the current selection, or `page=<n>` (0-based; first page is 0, unified with Draw/Impress page tools) to render a whole page as PNG (Writer: `writer_png_Export`; Draw/Impress: `GraphicExportFilter` on the draw page) |
+| Return a viewable image to the model | [`get_image`](../../plugin/writer/get_image.py) — an embedded graphic by name, the current selection, or `page=<n>` (0-based) to render a whole page as PNG (Writer: `writer_png_Export`; Draw/Impress: `GraphicExportFilter` on the draw page) |
 | Insert / replace / delete | [`image_tools.py`](../../plugin/writer/images/image_tools.py) |
 | Remote **generation** | [`image_generate`](../../plugin/writer/images/images.py) |
 
