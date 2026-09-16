@@ -249,7 +249,7 @@ def get_service_manager(ctx: Any) -> Any | None:
 
 
 @main_thread_only
-def get_desktop(ctx=None):
+def get_desktop(ctx=None) -> Any:
     """Return the UNO Desktop instance, or None when creating it would SEGV.
 
     uno.bin / unopkg register helpers have no VCL. ``createInstance(Desktop)``
