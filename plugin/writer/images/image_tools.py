@@ -291,6 +291,28 @@ def _place_view_cursor_at_text_range(model, text_cursor):
         log.debug("_place_view_cursor_at_text_range: %s", e)
 
 
+def _cursor_for_writer_view(vc):
+    """Collapsed model cursor at the view cursor, on the host XText.
+
+    Why getStart() first: ``clone_text_range(ViewCursor)`` calls
+    ``host.createTextCursorByRange(vc)`` with the full SwXTextViewCursor.
+    That raises a bare ``RuntimeException`` (empty message) on a plain
+    Writer body — PR #796 / image insert. The pre-#796 path
+    ``createTextCursorByRange(vc.getStart())`` works.
+
+    Why host XText, not ``model.getText()``: a table-cell or frame range
+    cannot be cloned through the body ("End of content node doesn't have
+    the proper start node"). ``clone_text_range`` stays as the nested
+    fallback when getStart() is rejected.
+    """
+    host = vc.getText()
+    try:
+        return host, host.createTextCursorByRange(vc.getStart())
+    except Exception as e:
+        log.debug("_cursor_for_writer_view nested clone: %s", e)
+        return host, clone_text_range(vc)
+
+
 def _insert_embedded_at_writer_cursor(
     model,
     img_path,
@@ -324,8 +346,7 @@ def _insert_embedded_at_writer_cursor(
     view_cursor = model.CurrentController.ViewCursor
 
     def insert_at_view(vc):
-        host = vc.getText()
-        tc = clone_text_range(vc)
+        host, tc = _cursor_for_writer_view(vc)
         host.insertTextContent(tc, image, False)
 
     try:
@@ -363,14 +384,12 @@ def _insert_frame(ctx, model, img_path, width, height, title, description):
     text_frame.setPropertyValue("AnchorType", AT_FRAME)
 
     try:
-        host = view_cursor.getText()
-        text_cursor = clone_text_range(view_cursor)
+        host, text_cursor = _cursor_for_writer_view(view_cursor)
         host.insertTextContent(text_cursor, text_frame, False)
     except Exception as e:
         log.debug("_insert_frame insertTextContent fallback: %s", e)
         view_cursor.jumpToStartOfPage()
-        host = view_cursor.getText()
-        text_cursor = clone_text_range(view_cursor)
+        host, text_cursor = _cursor_for_writer_view(view_cursor)
         host.insertTextContent(text_cursor, text_frame, False)
 
     frame_text = text_frame.getText()

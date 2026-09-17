@@ -202,7 +202,8 @@ class TestWriterImageCursorConversion(unittest.TestCase):
                 add_frame=False,
             )
 
-        doc_text.createTextCursorByRange.assert_called_once_with(model.CurrentController.ViewCursor)
+        # Body must clone via getStart(), not the ViewCursor itself (PR #796).
+        doc_text.createTextCursorByRange.assert_called_once_with("range-start")
         doc_text.insertTextContent.assert_called_once_with(text_cursor, image_instance, False)
         image_instance.GraphicURL = "file:////home/user/photo.png"
 
@@ -218,6 +219,7 @@ class TestWriterImageCursorConversion(unittest.TestCase):
         cell_text.insertTextContent = MagicMock()
 
         view_cursor = MagicMock(name="view_cursor")
+        view_cursor.getStart.return_value = "cell-start"
         view_cursor.getText.return_value = cell_text
         view_cursor.jumpToStartOfPage = MagicMock()
 
@@ -243,7 +245,50 @@ class TestWriterImageCursorConversion(unittest.TestCase):
             )
 
         body.createTextCursorByRange.assert_not_called()
-        cell_text.createTextCursorByRange.assert_called_once_with(view_cursor)
+        cell_text.createTextCursorByRange.assert_called_once_with("cell-start")
+        cell_text.insertTextContent.assert_called_once_with(text_cursor, image_instance, False)
+        view_cursor.jumpToStartOfPage.assert_not_called()
+
+    def test_insert_nested_falls_back_to_clone_when_getstart_rejected(self):
+        """#796: table/frame XText that rejects getStart() still clones on the host."""
+        body = MagicMock()
+        cell_text = MagicMock()
+        text_cursor = MagicMock(name="cell_clone")
+        cell_text.createTextCursorByRange.side_effect = [
+            RuntimeError("getStart rejected"),
+            text_cursor,
+        ]
+        cell_text.insertTextContent = MagicMock()
+
+        view_cursor = MagicMock(name="view_cursor")
+        view_cursor.getStart.return_value = "cell-start"
+        view_cursor.getText.return_value = cell_text
+        view_cursor.jumpToStartOfPage = MagicMock()
+
+        image_instance = MagicMock(name="image_instance")
+        model = MagicMock()
+        model.getText.return_value = body
+        model.CurrentController = MagicMock()
+        model.CurrentController.ViewCursor = view_cursor
+        model.createInstance.return_value = image_instance
+        model.supportsService.side_effect = lambda svc: svc == "com.sun.star.text.TextDocument"
+        ctx = MagicMock()
+
+        with patch.object(image_tools, "_should_link_image_path", return_value=False):
+            image_tools._insert_image_to_writer(
+                ctx,
+                model,
+                "/home/user/photo.png",
+                width=10,
+                height=20,
+                title="t",
+                description="d",
+                add_frame=False,
+            )
+
+        body.createTextCursorByRange.assert_not_called()
+        self.assertEqual(cell_text.createTextCursorByRange.call_args_list[0].args[0], "cell-start")
+        self.assertEqual(cell_text.createTextCursorByRange.call_args_list[1].args[0], view_cursor)
         cell_text.insertTextContent.assert_called_once_with(text_cursor, image_instance, False)
         view_cursor.jumpToStartOfPage.assert_not_called()
 

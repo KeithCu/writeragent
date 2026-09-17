@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""UNO tests: first-page letterhead logos land in HeaderTextFirst / FooterTextFirst."""
+"""UNO tests: Writer image insert (plain body, table cell, first-page letterhead)."""
 
 from __future__ import annotations
 
@@ -95,6 +95,48 @@ def test_insert_image_footer_first_not_shared_footer(ctx, doc):
     _assert_graphic_in_first_not_shared(
         doc, style, "FooterTextFirst", "FooterText", placed["graphic"],
     )
+
+
+@native_test
+@with_native_doc("writer")
+def test_insert_image_plain_writer_body(ctx, doc):
+    """Regression: clone_text_range(ViewCursor) raises RuntimeException on body.
+
+    PR #796 switched body insert to createTextCursorByRange(view_cursor).
+    That fails on a plain Writer body with a bare UNO RuntimeException that
+    execute_safe used to map to DOCUMENT_DISPOSED. Body insert must use
+    getStart() and land a graphic on a still-live document.
+    """
+    logo = _logo_path()
+    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    before = _graphic_count(doc)
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoStart(False)
+    insert_image(ctx, doc, logo, 64, 64, add_to_gallery=False, add_frame=False)
+    assert _graphic_count(doc) == before + 1
+    assert doc.getImplementationName() == "SwXTextDocument"
+    assert vc.getPropertyValue("TextTable") is None
+
+
+@native_test
+@with_native_doc("writer")
+def test_insert_image_in_table_cell(ctx, doc):
+    """#796 nested XText: insert at a cell view cursor must still land a graphic."""
+    logo = _logo_path()
+    assert os.path.isfile(logo), "fixture image missing: %s" % logo
+    text = doc.getText()
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), tbl, False)
+    cell = tbl.getCellByName("A1")
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(cell, False)
+    before = _graphic_count(doc)
+    insert_image(ctx, doc, logo, 64, 64, add_to_gallery=False, add_frame=False)
+    assert _graphic_count(doc) == before + 1
+    restored = vc.getPropertyValue("TextTable")
+    assert restored is not None
+    assert restored.getName() == tbl.getName()
 
 
 @native_test
