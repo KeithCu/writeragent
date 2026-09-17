@@ -52,7 +52,7 @@ class _DirectImageHost(SendHandlersMixin):
         self.image_model_selector = MagicMock()
         self.image_model_selector.getText.return_value = "dall-e-3"
         self.base_size_input = MagicMock()
-        self.base_size_input.getText.return_value = "512"
+        self.base_size_input.getText.return_value = "1024"
 
     def _append_response(self, text, role="assistant"):
         self.responses.append(text)

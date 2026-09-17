@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from plugin.framework.config_schema import (
+    DEFAULT_IMAGE_BASE_SIZE,
     WriterAgentConfig,
     as_bool,
     clamp_schema_value,
@@ -125,6 +126,11 @@ def test_config_schema_has_no_forbidden_imports() -> None:
     forbidden = sorted(mod for mod in imported if _is_forbidden(mod))
     assert forbidden == []
     assert "plugin.framework.config" not in imported
+
+
+def test_image_base_size_default_is_1024() -> None:
+    assert DEFAULT_IMAGE_BASE_SIZE == 1024
+    assert WriterAgentConfig().image_base_size == 1024
 
 
 def test_config_does_not_reexport_schema_names() -> None:

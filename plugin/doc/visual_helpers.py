@@ -67,6 +67,35 @@ def px_to_units(width_px: int | float, height_px: int | float) -> tuple[int, int
     return int(width_px * 26.46), int(height_px * 26.46)
 
 
+# On-page inset for generated (and other px-sized) graphics. API pixels are
+# generate resolution, not print size: 1024px at 96 DPI is ~10.7" and overflows
+# a Writer page. 512px at 96 DPI was ~135mm. Cap the longer edge there so
+# 1024/1536 look sharper at the same footprint, not larger.
+GENERATED_IMAGE_MAX_DISPLAY_MM = 135
+
+
+def px_to_display_units(
+    width_px: int | float,
+    height_px: int | float,
+    *,
+    max_mm: int = GENERATED_IMAGE_MAX_DISPLAY_MM,
+) -> tuple[int, int]:
+    """Convert 96-DPI pixels to 1/100 mm, then cap the longer edge.
+
+    Generate resolution and on-page size are independent. Smaller images are
+    not scaled up.
+    """
+    width_units, height_units = px_to_units(width_px, height_px)
+    if width_units <= 0 or height_units <= 0:
+        return width_units, height_units
+    max_units = max(1, int(max_mm) * 100)
+    longer = max(width_units, height_units)
+    if longer <= max_units:
+        return width_units, height_units
+    scale = max_units / longer
+    return int(width_units * scale), int(height_units * scale)
+
+
 def units_to_px(width_units: int | float, height_units: int | float, *, minimum: int = 1) -> tuple[int, int]:
     """Convert LibreOffice 1/100 mm units to 96-DPI pixels."""
     width_px = int(width_units * 96 / 2540)

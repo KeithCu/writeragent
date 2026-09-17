@@ -26,6 +26,10 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 
 **Sidebar Image mode** (`chat_mode = Image`, not Chat/specialist) calls `image_generate` directly — no chat LLM. With a document graphic selected, the send path passes `source_image='selection'` so the same img2img + in-place replace runs. With nothing selected, it generates and inserts a new graphic.
 
+Default **Base Size** is **1024** (vendor `1K`). Models dislike 512 / `0.5K` — OpenRouter chat rejects `image_size '0.5K'` for some Gemini image models.
+
+**Display size is independent of generate resolution.** `insert_image` and `replace_image_in_place` convert pixels with [`px_to_display_units`](../../plugin/doc/visual_helpers.py) and cap the longer edge at `GENERATED_IMAGE_MAX_DISPLAY_MM` (**135mm**, the old ~512px-at-96-DPI footprint). A 1024 or 1536 generate looks sharper at the same inset size; it does not map 1:1 to page millimetres (~10.7" at 96 DPI would fill a Writer page).
+
 [`plugin/writer/images/image_tools.py`](../../plugin/writer/images/image_tools.py):
 
 - **`image_insert`**: inserts into Writer, Calc, Draw, and Impress; stable paths are linked, temp/cache paths are embedded. Writer letterheads use `target=header`/`footer`; a different-first-page logo needs `first_is_shared=false` then `target=header_first`/`footer_first` (same `AS_CHARACTER` + `auto_height` path). Draw/Impress take millimetres (`page`, `x_mm`, `y_mm`; omitted x/y centers on the page).
@@ -54,7 +58,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 | Config key | Role |
 |------------|------|
 | `image_model` | Image model on the chat endpoint (fallback: text model / provider defaults). |
-| `image_base_size` | Default width/height base dimension. |
+| `image_base_size` | Default generate resolution (pixels; default 1024). On-page display is capped at 135mm on the longer edge. |
 | `image_default_aspect` | Default aspect ratio for the tool. |
 | `image_steps` | Steps passed to the endpoint when &gt; 0. |
 | `image_auto_gallery` | Add generated images to Media Gallery. |

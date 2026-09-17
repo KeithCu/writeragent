@@ -28,7 +28,7 @@ from plugin.framework.errors import (
     suppress_disposed,
 )
 from plugin.framework.config import get_api_config, get_config, get_config_int_safe
-from plugin.framework.config_schema import as_bool
+from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
@@ -268,7 +268,7 @@ class SendHandlersMixin:
                 if self.image_model_selector and hasattr(self.image_model_selector, "getText"):
                     image_model_text = self.image_model_selector.getText()
 
-                base_size_val = 512
+                base_size_val = DEFAULT_IMAGE_BASE_SIZE
                 if self.base_size_input:
                     if hasattr(self.base_size_input, "getText"):
                         base_size_val = self.base_size_input.getText()
@@ -277,7 +277,7 @@ class SendHandlersMixin:
                 try:
                     base_size_val = int(base_size_val)
                 except (ValueError, TypeError):
-                    base_size_val = 512
+                    base_size_val = DEFAULT_IMAGE_BASE_SIZE
 
                 from plugin.main import get_tools
 

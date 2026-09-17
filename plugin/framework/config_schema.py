@@ -295,6 +295,12 @@ def _normalize_configured_endpoint(endpoint_str: str, is_openwebui: bool) -> str
     return _endpoint_normalizer(endpoint_str, is_openwebui)
 
 
+# 1024 maps to vendor "1K". Models dislike 512 / 0.5K — OpenRouter chat
+# rejects image_size "0.5K" for some Gemini image models. On-page display
+# is capped separately (visual_helpers.GENERATED_IMAGE_MAX_DISPLAY_MM).
+DEFAULT_IMAGE_BASE_SIZE = 1024
+
+
 @dataclasses.dataclass
 class WriterAgentConfig:
     """Dataclass schema for WriterAgent configuration."""
@@ -312,7 +318,7 @@ class WriterAgentConfig:
     request_timeout: int = 120
     stt_model: str = ""
     api_keys_by_endpoint: Dict[str, str] = dataclasses.field(default_factory=dict)
-    image_base_size: int = 512
+    image_base_size: int = DEFAULT_IMAGE_BASE_SIZE
     image_default_aspect: str = "Square"
     image_steps: int = -1
     image_auto_gallery: bool = True

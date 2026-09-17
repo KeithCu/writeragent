@@ -341,6 +341,24 @@ def test_unit_conversions_match_existing_image_tool_assumptions():
     assert visual_helpers.units_to_px(2540, 1270) == (96, 48)
 
 
+def test_px_to_display_units_caps_longer_edge_at_135mm():
+    """Generate pixels must not become page mm: 1024px @ 96 DPI is ~10.7\"."""
+    raw_w, raw_h = visual_helpers.px_to_units(1024, 1024)
+    assert max(raw_w, raw_h) > 13500
+    disp_w, disp_h = visual_helpers.px_to_display_units(1024, 1024)
+    assert max(disp_w, disp_h) == visual_helpers.GENERATED_IMAGE_MAX_DISPLAY_MM * 100
+    assert disp_w == disp_h
+
+
+def test_px_to_display_units_preserves_aspect_and_does_not_upscale():
+    wide_w, wide_h = visual_helpers.px_to_display_units(1536, 768)
+    assert wide_w == visual_helpers.GENERATED_IMAGE_MAX_DISPLAY_MM * 100
+    assert wide_h == 6750  # 13500 * (768/1536)
+    small_w, small_h = visual_helpers.px_to_display_units(256, 256)
+    assert (small_w, small_h) == visual_helpers.px_to_units(256, 256)
+    assert max(small_w, small_h) < 13500
+
+
 def test_parse_color_to_uno_int_hex_and_int() -> None:
     assert visual_helpers.parse_color_to_uno_int("#FF0000") == 0xFF0000
     assert visual_helpers.parse_color_to_uno_int("00FF00") == 0x00FF00

@@ -56,7 +56,7 @@
   <!-- === Page 2: Image Settings === -->
 
   <dlg:text dlg:id="label_image_base_size" dlg:page="2" dlg:left="8" dlg:top="26" dlg:width="60" dlg:height="10" dlg:value="Base Size:" dlg:align="left"/>
-  <dlg:combobox dlg:id="image_base_size" dlg:page="2" dlg:left="70" dlg:top="24" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="512" dlg:border="1"/>
+  <dlg:combobox dlg:id="image_base_size" dlg:page="2" dlg:left="70" dlg:top="24" dlg:width="50" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="1024" dlg:border="1"/>
   <dlg:text dlg:id="label_image_default_aspect" dlg:page="2" dlg:left="130" dlg:top="26" dlg:width="70" dlg:height="10" dlg:value="Aspect Ratio:" dlg:align="left"/>
   <dlg:combobox dlg:id="image_default_aspect" dlg:page="2" dlg:left="205" dlg:top="24" dlg:width="120" dlg:height="14" dlg:tabstop="true" dlg:spin="true" dlg:dropdown="true" dlg:value="Square" dlg:border="1"/>
 

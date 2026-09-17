@@ -29,7 +29,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `chat_compaction_enabled` | `boolean` | `true` |  |  |
 | `request_timeout` | `int` | `120` |  |  |
 | `stt_model` | `string` | `""` |  |  |
-| `image_base_size` | `int` | `512` |  |  |
+| `image_base_size` | `int` | `1024` |  | Generate resolution (pixels). On-page display is capped at 135mm on the longer edge. |
 | `image_default_aspect` | `string` | `"Square"` |  |  |
 | `image_steps` | `int` | `-1` |  |  |
 | `image_auto_gallery` | `boolean` | `true` |  |  |

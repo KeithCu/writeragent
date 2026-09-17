@@ -203,6 +203,7 @@ Shared across Writer / Calc / Draw / Impress image and shape tools. **Not** inse
 | `parse_color_to_uno_int` | Hex / name / `rgb()` / int / tuple → 24-bit UNO RGB. |
 | `apply_character_properties` | Batch Char* on a shape/cell/style. |
 | `mm_to_units` / `px_to_units` / `units_to_px` / `mm_to_px` | 1/100 mm ↔ 96-DPI px. |
+| `px_to_display_units` / `GENERATED_IMAGE_MAX_DISPLAY_MM` | Px → 1/100 mm, then cap longer edge at 135mm (generate resolution ≠ page size). |
 | `is_graphic_object` / `selected_graphic_object` / `graphic_objects_in_selection` | Graphic detection and selection. |
 | `list_graphic_objects` / `get_graphic_object_by_name` / `graphic_from_object` | Name lookup across Writer text + Draw pages. |
 | `get_active_draw_page` / `remove_graphic_from_draw_pages` | Draw/Impress page helpers. |

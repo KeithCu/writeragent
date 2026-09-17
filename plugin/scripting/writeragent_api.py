@@ -659,7 +659,7 @@ class _ImagesProxy:
         """Download an image from URL to local cache."""
         return _rpc_call("image_download", url=url, verify_ssl=verify_ssl, force=force)
 
-    def generate(self, prompt: str, *, source_image: str | None = None, strength: float = 0.75, aspect_ratio: str = 'square', base_size: int = 512, width: int | None = None, height: int | None = None, provider: str | None = None, image_model: str | None = None) -> dict:
+    def generate(self, prompt: str, *, source_image: str | None = None, strength: float = 0.75, aspect_ratio: str = 'square', base_size: int = 1024, width: int | None = None, height: int | None = None, provider: str | None = None, image_model: str | None = None) -> dict:
         """Generate an image from a text prompt and insert it."""
         return _rpc_call("image_generate", prompt=prompt, source_image=source_image, strength=strength, aspect_ratio=aspect_ratio, base_size=base_size, width=width, height=height, provider=provider, image_model=image_model)
 

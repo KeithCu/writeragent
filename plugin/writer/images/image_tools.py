@@ -161,14 +161,16 @@ def _create_embedded_graphic(model, inside: str, file_url: str, ctx: Any | None 
 def insert_image(ctx, model, img_path, width_px, height_px, title="", description="", add_to_gallery=True, add_frame=False, page_index=None, x_mm=None, y_mm=None):
     """
     Inserts an image into the document.
-    width_px, height_px: Size in pixels.
+    width_px, height_px: Source/generate pixels, not on-page millimetres.
+    Display size is capped (``px_to_display_units``) so a 1024px generate
+    stays a ~135mm inset instead of filling the Writer page.
     page_index / x_mm / y_mm apply to Draw/Impress (and Calc draw page); omitted x/y centers on the page.
     """
     from plugin.writer.edit_review import WriterCompoundUndo
 
     inside = get_type_doc(model)
 
-    width_units, height_units = visual_helpers.px_to_units(width_px, height_px)
+    width_units, height_units = visual_helpers.px_to_display_units(width_px, height_px)
 
     # Gallery is filesystem-only; keep it outside the document undo group.
     with WriterCompoundUndo(model, "WriterAgent: Insert image"):
@@ -564,7 +566,8 @@ def replace_image_in_place(ctx, model, img_path, width_px, height_px, title="", 
     obj, _inside = _get_selected_graphic_object(model)
     if obj is None:
         return False
-    width_units, height_units = visual_helpers.px_to_units(width_px, height_px)
+    # Same cap as insert_image: generate pixels must not become page mm.
+    width_units, height_units = visual_helpers.px_to_display_units(width_px, height_px)
     try:
         if replace_graphic_source(ctx, model, obj, img_path, width_units, height_units, title, description):
             if add_to_gallery:

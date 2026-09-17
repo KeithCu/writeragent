@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from plugin.tests.testing_utils import TestingFactory, setup_uno_mocks
 setup_uno_mocks()
 
+from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 from plugin.writer.images.images import ImageGenerate, ImageInsert, _resolve_orient, resolve_image_generate_is_edit
 
 
@@ -99,6 +100,36 @@ def test_image_insert_routes_footer_first_to_region_helper():
     assert res["status"] == "ok"
     assert res["target"] == "footer_first"
     assert insert.call_args.args[2] == "footer_first"
+
+
+def test_image_generate_default_base_size_is_1024():
+    assert ImageGenerate.parameters["properties"]["base_size"]["default"] == 1024
+    assert DEFAULT_IMAGE_BASE_SIZE == 1024
+
+
+def test_image_generate_invalid_base_size_falls_back_to_1024():
+    ctx = TestingFactory.create_context(doc_type="writer")
+    svc = MagicMock()
+    svc.generate_image.return_value = (["/tmp/new.png"], None)
+
+    def _run(fn, *args, timeout=60.0, **kwargs):
+        return fn(*args, **kwargs)
+
+    with (
+        patch("plugin.writer.images.images._run_on_main", side_effect=_run),
+        patch("plugin.writer.images.images.get_selected_image_base64", return_value=None),
+        patch("plugin.writer.images.images.ImageService", return_value=svc),
+        patch("plugin.writer.images.images.replace_image_in_place"),
+        patch("plugin.writer.images.images.insert_image"),
+        patch("plugin.writer.images.images.get_config_int", return_value=1024),
+        patch("plugin.writer.images.images.get_config_bool", return_value=False),
+        patch("plugin.writer.images.images.get_config_str", return_value="square"),
+        patch("plugin.writer.images.images.get_image_model", return_value=""),
+    ):
+        res = ImageGenerate().execute(ctx, prompt="a tabby cat", base_size="nope")
+    assert res["status"] == "ok"
+    assert svc.generate_image.call_args.kwargs.get("width") == 1024
+    assert svc.generate_image.call_args.kwargs.get("height") == 1024
 
 
 def test_resolve_image_generate_is_edit_defaults_to_selection():

@@ -443,7 +443,7 @@ class TestImageCompoundUndo(unittest.TestCase):
         ctx = MagicMock()
         with (
             patch.object(image_tools, "get_type_doc", return_value="writer"),
-            patch("plugin.doc.visual_helpers.px_to_units", return_value=(1000, 1000)),
+            patch("plugin.doc.visual_helpers.px_to_display_units", return_value=(1000, 1000)),
             patch.object(
                 image_tools,
                 "_insert_image_to_writer",
@@ -508,6 +508,60 @@ class TestImageCompoundUndo(unittest.TestCase):
                 ("close", "WriterAgent: Replace image"),
             ],
         )
+
+
+class TestDisplaySizeCap(unittest.TestCase):
+    def test_insert_image_caps_1024_to_135mm(self):
+        from plugin.doc import visual_helpers
+
+        captured: dict[str, int] = {}
+
+        def _capture(_ctx, _model, _path, width, height, *_args, **_kwargs):
+            captured["width"] = width
+            captured["height"] = height
+
+        model = MagicMock()
+        ctx = MagicMock()
+        with (
+            patch.object(image_tools, "get_type_doc", return_value="writer"),
+            patch.object(image_tools, "_insert_image_to_writer", side_effect=_capture),
+            patch("plugin.writer.edit_review.WriterCompoundUndo"),
+        ):
+            image_tools.insert_image(
+                ctx, model, "/tmp/x.png", 1024, 1024, add_to_gallery=False, add_frame=False,
+            )
+
+        expected = visual_helpers.px_to_display_units(1024, 1024)
+        self.assertEqual((captured["width"], captured["height"]), expected)
+        self.assertLessEqual(max(captured["width"], captured["height"]), 13500)
+        raw_w, raw_h = visual_helpers.px_to_units(1024, 1024)
+        self.assertGreater(max(raw_w, raw_h), 13500)
+
+    def test_replace_image_in_place_caps_1024_to_135mm(self):
+        from plugin.doc import visual_helpers
+
+        graphic = MagicMock()
+        captured: dict[str, int] = {}
+
+        def _capture(_ctx, _model, _graphic, _path, width_units=None, height_units=None, **_kwargs):
+            captured["width"] = width_units
+            captured["height"] = height_units
+            return True
+
+        model = MagicMock()
+        ctx = MagicMock()
+        with (
+            patch.object(image_tools, "_get_selected_graphic_object", return_value=(graphic, "writer")),
+            patch.object(image_tools, "replace_graphic_source", side_effect=_capture),
+        ):
+            ok = image_tools.replace_image_in_place(
+                ctx, model, "/tmp/x.png", 1536, 768, add_to_gallery=False,
+            )
+
+        self.assertTrue(ok)
+        expected = visual_helpers.px_to_display_units(1536, 768)
+        self.assertEqual((captured["width"], captured["height"]), expected)
+        self.assertEqual(captured["width"], 13500)
 
 
 class TestDrawPageInsertPosition(unittest.TestCase):

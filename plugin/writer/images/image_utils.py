@@ -25,6 +25,7 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.client.base_provider_shim import canonical_aspect_ratio, canonical_resolution
 from plugin.framework.client.requests import sync_request
 from plugin.framework.config import get_config_int
+from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class EndpointImageProvider(ImageProvider):
             tmp.write(sync_request(url, parse_json=False, timeout=get_config_int("request_timeout")))
             return [tmp.name]
 
-    def generate(self, prompt, width=512, height=512, model=None, steps=None, **kwargs):
+    def generate(self, prompt, width=DEFAULT_IMAGE_BASE_SIZE, height=DEFAULT_IMAGE_BASE_SIZE, model=None, steps=None, **kwargs):
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
         override = kwargs.pop("image_model", None)
         if isinstance(override, str) and override.strip():
