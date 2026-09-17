@@ -198,7 +198,8 @@ class TogetherShim(OpenAIShim):
             if height:
                 data["height"] = height
         # What was wrong: the OpenAI-compat default sent top-level image_url.
-        # Together's default image model (google/flash-image-2.5) only accepts
+        # Together's default image model (black-forest-labs/FLUX.2-dev) and
+        # other non-Kontext models (e.g. google/flash-image-2.5) only accept
         # reference_images[]; image_url is ignored or rejected — same silent
         # create-instead-of-edit as OpenRouter's old image_url field.
         # https://docs.together.ai/docs/inference/images/reference-images

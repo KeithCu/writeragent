@@ -42,6 +42,24 @@ class TestGetProviderDefaults(unittest.TestCase):
         d = get_provider_defaults("openrouter")
         self.assertEqual(d.get("image_model"), "google/gemini-3.1-flash-lite-image")
 
+    def test_together_default_image_model_is_flux2_dev(self):
+        from plugin.framework.default_models import DEFAULT_MODELS
+        from plugin.framework.constants import ModelCapability
+
+        d = get_provider_defaults("together")
+        self.assertEqual(d.get("image_model"), "black-forest-labs/FLUX.2-dev")
+
+        flux = next((m for m in DEFAULT_MODELS if m.get("display_name") == "FLUX.2 [dev]"), None)
+        self.assertIsNotNone(flux)
+        self.assertEqual(flux["ids"].get("together"), "black-forest-labs/FLUX.2-dev")
+        self.assertTrue(flux.get("default_image"))
+        self.assertTrue(bool(flux["capability"] & ModelCapability.IMAGE))
+
+        flash = next((m for m in DEFAULT_MODELS if m.get("ids", {}).get("together") == "google/flash-image-2.5"), None)
+        self.assertIsNotNone(flash)
+        self.assertFalse(flash.get("default_image"))
+        self.assertTrue(bool(flash["capability"] & ModelCapability.IMAGE))
+
     def test_openrouter_free_model_catalog(self):
         from plugin.framework.default_models import DEFAULT_MODELS
         from plugin.framework.constants import ModelCapability
