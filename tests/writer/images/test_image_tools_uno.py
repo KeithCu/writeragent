@@ -140,5 +140,7 @@ def test_insert_image_caps_1024_display_size(ctx, doc):
     graphic = doc.getGraphicObjects().getByName(names[0])
     width = int(graphic.getPropertyValue("Width"))
     height = int(graphic.getPropertyValue("Height"))
-    assert max(width, height) <= GENERATED_IMAGE_MAX_DISPLAY_MM * 100
+    # LO can report cap+1 after setSize (13500 set → Width 13501).
+    assert max(width, height) <= GENERATED_IMAGE_MAX_DISPLAY_MM * 100 + 2
     assert max(width, height) >= 13000
+    assert max(width, height) < min(raw_w, raw_h)

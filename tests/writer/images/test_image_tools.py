@@ -543,7 +543,7 @@ class TestDisplaySizeCap(unittest.TestCase):
         graphic = MagicMock()
         captured: dict[str, int] = {}
 
-        def _capture(_ctx, _model, _graphic, _path, width_units=None, height_units=None, **_kwargs):
+        def _capture(_ctx, _model, _graphic, _path, width_units=None, height_units=None, *_args, **_kwargs):
             captured["width"] = width_units
             captured["height"] = height_units
             return True
