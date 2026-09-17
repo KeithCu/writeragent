@@ -420,30 +420,106 @@ def _clear_master_shapes(master: Any) -> int:
     return removed
 
 
-def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any) -> bool:
-    """Copy a GraphicObjectShape bitmap/SVG without sharing the source item pool.
+def _graphic_from_file_url(uno_ctx: Any, file_url: str) -> Any | None:
+    """Load a dest-owned XGraphic from a file URL (never from a Hidden-doc pool)."""
+    if uno_ctx is None or not file_url:
+        return None
+    from plugin.writer.format import create_property_value
 
-    storeGraphic + queryGraphic yields a dest-owned XGraphic. Direct
-    ``dest.Graphic = src.Graphic`` crashes soffice when the Hidden .otp closes.
+    try:
+        smgr = getattr(uno_ctx, "ServiceManager", None) or uno_ctx.getServiceManager()
+        provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
+        if provider is None:
+            return None
+        return provider.queryGraphic((create_property_value("URL", file_url),))
+    except Exception:
+        log.debug("GraphicProvider.queryGraphic failed url=%s", file_url, exc_info=True)
+        return None
+
+
+def _extract_otp_picture(otp_path: str, dest_dir: str) -> str | None:
+    """Extract the first Pictures/* media file from a shipped ``.otp`` ZIP."""
+    if not otp_path or not os.path.isfile(otp_path):
+        return None
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(otp_path, "r") as zf:
+            names = [
+                n
+                for n in zf.namelist()
+                if n.startswith("Pictures/") and not n.endswith("/")
+            ]
+            if not names:
+                return None
+            # Prefer SVG (Metropolis chrome), then any other picture.
+            names.sort(key=lambda n: (0 if n.lower().endswith(".svg") else 1, n.lower()))
+            member = names[0]
+            base = os.path.basename(member) or "chrome.bin"
+            out = os.path.join(dest_dir, base)
+            with zf.open(member) as src, open(out, "wb") as dst:
+                dst.write(src.read())
+            return out
+    except Exception:
+        log.debug("extract_otp_picture failed path=%s", otp_path, exc_info=True)
+        return None
+
+
+def _reimport_graphic(
+    uno_ctx: Any,
+    src_shape: Any,
+    dest_shape: Any,
+    *,
+    otp_path: str | None = None,
+) -> bool:
+    """Attach chrome without sharing the Hidden source SfxItemPool.
+
+    Prefer extracting ``Pictures/*`` from the shipped ``.otp`` ZIP and loading
+    via GraphicProvider. ``storeGraphic`` of the live Hidden Graphic can still
+    touch the source pool; keep it as a last resort only.
     """
     if uno_ctx is None:
-        return False
-    try:
-        graphic = src_shape.Graphic
-    except Exception:
-        return False
-    if graphic is None:
         return False
     import tempfile
 
     from plugin.framework.url_utils import path_to_file_url
     from plugin.writer.format import create_property_value
 
+    # 1) OTP ZIP extract — never opens the Hidden Graphic.
+    if otp_path:
+        tmp_dir = tempfile.mkdtemp(prefix="wa_otp_pic_")
+        try:
+            extracted = _extract_otp_picture(otp_path, tmp_dir)
+            if extracted:
+                url = path_to_file_url(extracted)
+                log.info("clone_master graphic via otp extract path=%s", extracted)
+                new_graphic = _graphic_from_file_url(uno_ctx, url)
+                if new_graphic is not None:
+                    dest_shape.Graphic = new_graphic
+                    return True
+        finally:
+            try:
+                for name in os.listdir(tmp_dir):
+                    try:
+                        os.remove(os.path.join(tmp_dir, name))
+                    except Exception:
+                        pass
+                os.rmdir(tmp_dir)
+            except Exception:
+                pass
+
+    # 2) Last resort: round-trip the live Graphic (may still be pool-sensitive).
+    try:
+        graphic = src_shape.Graphic
+    except Exception:
+        return False
+    if graphic is None:
+        return False
     smgr = getattr(uno_ctx, "ServiceManager", None) or uno_ctx.getServiceManager()
     provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
     if provider is None:
         return False
-    # SVG first (Metropolis chrome); PNG fallback if the provider rejects it.
+    log.info("clone_master graphic via storeGraphic fallback")
     for suffix, mime in ((".svg", "image/svg+xml"), (".png", "image/png")):
         fd, path = tempfile.mkstemp(suffix=suffix)
         try:
@@ -468,7 +544,14 @@ def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any) -> bool:
     return False
 
 
-def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: Any = None) -> str:
+def _clone_one_shape(
+    dest_doc: Any,
+    dest_master: Any,
+    src_shape: Any,
+    uno_ctx: Any = None,
+    *,
+    otp_path: str | None = None,
+) -> str:
     """Create a dest-owned shape, add it, then copy visual props + geometry.
 
     Adding first is required: presentation placeholders ignore Size/Position
@@ -483,7 +566,8 @@ def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: A
     for prop in _CLONE_SHAPE_PROPS:
         _copy_uno_prop(clone, src_shape, prop)
     if "GraphicObject" in shape_type:
-        _reimport_graphic(uno_ctx, src_shape, clone)
+        ok = _reimport_graphic(uno_ctx, src_shape, clone, otp_path=otp_path)
+        log.info("clone_master graphic_reimport ok=%s type=%s", ok, shape_type)
     # Geometry last so layout does not overwrite chrome metrics.
     _copy_uno_prop(clone, src_shape, "Position")
     _copy_uno_prop(clone, src_shape, "Size")
@@ -613,11 +697,18 @@ def clone_master_into_doc(
         src_count = int(src_master.getCount())
     except Exception:
         src_count = 0
+    otp_path = str(design.get("path") or "").strip() or None
     cloned_types: list[str] = []
     for i in range(src_count):
+        src_shape = src_master.getByIndex(i)
+        st = str(getattr(src_shape, "ShapeType", "") or "")
+        log.info("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
         cloned_types.append(
-            _clone_one_shape(dest_doc, dest_master, src_master.getByIndex(i), uno_ctx)
+            _clone_one_shape(
+                dest_doc, dest_master, src_shape, uno_ctx, otp_path=otp_path
+            )
         )
+        log.info("clone_master step=shape_done i=%s type=%s", i, cloned_types[-1])
     try:
         dest_name = str(dest_master.Name or "") or design_name
     except Exception:
@@ -714,20 +805,43 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     master: Any = None
     master_name = ""
     shape_count = 0
+    slides_updated = 0
+    design_label = design.get("name") or design.get("id") or "?"
     try:
+        log.info("apply_design current-doc step=open_hidden design=%s", design_label)
         src = open_design_source_hidden(uno_ctx, design, as_template=True)
+        log.info("apply_design current-doc step=clone_master begin design=%s", design_label)
         master, master_name, shape_count = clone_master_into_doc(
             dest_doc, src, design, uno_ctx
         )
-    finally:
-        _close_hidden_doc(src)
-    if master is None:
-        master, master_name, shape_count = find_imported_master(dest_doc, design, before_names)
-    if master is None:
-        raise RuntimeError(
-            "Master clone did not import a design master from %s" % design.get("name")
+        log.info(
+            "apply_design current-doc step=clone_master done master=%s shapes=%s",
+            master_name,
+            shape_count,
         )
-    slides_updated = assign_master_to_all_slides(dest_doc, master)
+        if master is None:
+            master, master_name, shape_count = find_imported_master(
+                dest_doc, design, before_names
+            )
+        if master is None:
+            raise RuntimeError(
+                "Master clone did not import a design master from %s" % design.get("name")
+            )
+        log.info(
+            "apply_design current-doc step=assign_all master=%s slides~=%s",
+            master_name,
+            original_count,
+        )
+        slides_updated = assign_master_to_all_slides(dest_doc, master)
+        log.info(
+            "apply_design current-doc step=assign_all done slides_updated=%s",
+            slides_updated,
+        )
+    finally:
+        # Close after assign so any residual source-pool refs are unused.
+        log.info("apply_design current-doc step=close_hidden design=%s", design_label)
+        _close_hidden_doc(src)
+        log.info("apply_design current-doc step=close_hidden done design=%s", design_label)
     masters = _master_entries(dest_doc)
     slide_count = original_count
     try:
