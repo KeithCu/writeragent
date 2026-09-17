@@ -494,17 +494,20 @@ class ToolBase(ABC):
             return self.execute(ctx, **kwargs)
 
         except Exception as e:
-            from plugin.framework.errors import is_disposed_exception
+            from plugin.framework.errors import is_tool_document_disposed
 
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
-            if is_disposed_exception(e):
+            doc = getattr(ctx, "doc", None) if ctx is not None else None
+            if is_tool_document_disposed(e, doc):
                 return self._tool_error(
                     "Document was closed or disposed by LibreOffice",
                     code="DOCUMENT_DISPOSED",
                     original_error=str(e),
                     error_type=type(e).__name__,
                 )
-            return self._tool_error(f"Tool execution failed: {str(e)}", code="TOOL_EXECUTION_ERROR", original_error=str(e), error_type=type(e).__name__)
+            # Bare RuntimeException often has an empty message; fall back to the type name.
+            err_msg = str(e).strip() or type(e).__name__
+            return self._tool_error(f"Tool execution failed: {err_msg}", code="TOOL_EXECUTION_ERROR", original_error=str(e), error_type=type(e).__name__)
 
     def get_collection(self, doc, getter_name, missing_msg=None):
         """Helper to safely fetch a named collection from a document.

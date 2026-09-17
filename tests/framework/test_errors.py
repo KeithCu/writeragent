@@ -575,6 +575,36 @@ class TestSuppressDisposed(unittest.TestCase):
         self.assertFalse(is_disposed_exception(UnrelatedError("Regular failure")))
         self.assertFalse(is_disposed_exception(ValueError("Bad value")))
 
+    def test_is_tool_document_disposed_live_doc_bare_runtime(self):
+        from plugin.framework.errors import (
+            DocumentDisposedError,
+            is_tool_document_disposed,
+        )
+
+        class CustomDisposedException(Exception):
+            pass
+
+        class CustomRuntimeException(Exception):
+            pass
+
+        class LiveDoc:
+            def getImplementationName(self):
+                return "SwXTextDocument"
+
+        class DeadDoc:
+            def getImplementationName(self):
+                raise CustomDisposedException("gone")
+
+        live = LiveDoc()
+        # Bare RuntimeException from a live doc is a real UNO error, not dispose.
+        self.assertFalse(is_tool_document_disposed(CustomRuntimeException(""), live))
+        self.assertTrue(is_tool_document_disposed(CustomDisposedException("Disposed"), live))
+        self.assertTrue(is_tool_document_disposed(DocumentDisposedError("gone"), live))
+        # No live probe: keep the lifecycle heuristic.
+        self.assertTrue(is_tool_document_disposed(CustomRuntimeException(""), None))
+        self.assertTrue(is_tool_document_disposed(CustomRuntimeException(""), DeadDoc()))
+        self.assertFalse(is_tool_document_disposed(ValueError("Bad value"), live))
+
     def test_suppress_disposed_with_disposed_error(self):
         from plugin.framework.errors import (
             DocumentDisposedError,

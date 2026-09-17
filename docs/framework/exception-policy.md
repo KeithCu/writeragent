@@ -12,6 +12,8 @@ Use the helpers in `plugin/framework/errors.py`: `is_disposed_exception`, `suppr
 
 Do **not** wrap UNO dispose as `ToolExecutionError(str(e))`. That strips dispose identity, so `execute_safe` returns `TOOL_EXECUTION_ERROR` instead of `DOCUMENT_DISPOSED`, and the native test runner treats a dead URP as a normal tool failure instead of aborting the remaining suite.
 
+`execute_safe` maps dispose via `is_tool_document_disposed`, not the raw `is_disposed_exception` heuristic. A bare `RuntimeException` from a still-live document (`is_document_disposed` is false) is a real UNO error — e.g. `createTextCursorByRange(ViewCursor)` on a Writer body — and must surface as `TOOL_EXECUTION_ERROR`, not the lying “Document was closed or disposed by LibreOffice” chat string. `DisposedException` / `DocumentDisposedError` still map to `DOCUMENT_DISPOSED`. Do **not** narrow `is_disposed_exception` itself; UI lifecycle (`suppress_disposed`) still needs the RuntimeException name match.
+
 Best-effort probes (missing properties, optional controllers, “is this a graphic?”) may still catch `Exception` and return empty. That is not the hang class of bug. Re-raise disposal where a UI callback or tool loop would otherwise keep running on a dead object; do not sprinkle re-raises through every helper.
 
 Related: [chat sidebar lifecycle](../chat/sidebar-implementation.md#ui-lifecycle-exception-handling-suppress_disposed), [UNO thread safety](uno-thread-safety.md).

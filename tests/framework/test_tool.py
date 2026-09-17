@@ -600,6 +600,38 @@ class TestToolIsolation:
         assert result["status"] == "error"
         assert result["code"] == "DOCUMENT_DISPOSED"
 
+    def test_execute_safe_bare_runtime_exception_live_doc(self):
+        """Image insert's empty RuntimeException must not become DOCUMENT_DISPOSED."""
+
+        class BareRuntimeException(Exception):
+            pass
+
+        class LiveDoc:
+            def getImplementationName(self):
+                return "SwXTextDocument"
+
+        class InsertTool(ToolBase):
+            name = "image_generate"
+            description = "x"
+            parameters = {"type": "object", "properties": {}}
+
+            def is_async(self):
+                return True
+
+            def execute(self, ctx, **kwargs):
+                raise BareRuntimeException("")
+
+        class LiveContext:
+            doc = LiveDoc()
+            doc_type = "writer"
+            caller = None
+
+        result = InsertTool().execute_safe(LiveContext())
+        assert result["status"] == "error"
+        assert result["code"] == "TOOL_EXECUTION_ERROR"
+        assert "Document was closed" not in result["message"]
+        assert "BareRuntimeException" in result["message"]
+
     def test_tool_timeout(self):
         class SlowTool(ToolBase):
             name = "test_slow"

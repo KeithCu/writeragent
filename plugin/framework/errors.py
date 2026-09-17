@@ -54,6 +54,8 @@ def is_disposed_exception(exc: BaseException) -> bool:
     bridge teardown often surfaces. Do not narrow this so UI lifecycle can
     still use :class:`suppress_disposed` without crashing the host. Genuine
     failures belong outside those blocks, not in a tighter name check here.
+    Tool chat mapping uses :func:`is_tool_document_disposed` so a live-doc
+    bare RuntimeException is not reported as DOCUMENT_DISPOSED.
     """
     if isinstance(exc, DocumentDisposedError):
         return True
@@ -546,6 +548,26 @@ def is_document_disposed(doc: Any) -> bool:
     return False
 
 
+def is_tool_document_disposed(exc: BaseException, doc: Any = None) -> bool:
+    """True when ``execute_safe`` should report DOCUMENT_DISPOSED.
+
+    ``is_disposed_exception`` is the UI-lifecycle heuristic and matches any
+    ``RuntimeException``. A bare RuntimeException from a still-live document
+    is a real UNO error — e.g. ``createTextCursorByRange(ViewCursor)`` on a
+    Writer body — not a closed document. Do not map that to the lying
+    "Document was closed or disposed by LibreOffice" chat string.
+    """
+    if isinstance(exc, DocumentDisposedError):
+        return True
+    if not is_disposed_exception(exc):
+        return False
+    if "DisposedException" in type(exc).__name__:
+        return True
+    if doc is not None and not is_document_disposed(doc):
+        return False
+    return True
+
+
 
 
 # Three wrappers, three jobs: safe_uno_call is for probes (RuntimeException is
@@ -672,6 +694,7 @@ __all__ = [
     "ignore_disposed",
     "is_disposed_exception",
     "is_document_disposed",
+    "is_tool_document_disposed",
     "make_tool_error",           # Central factory for all tool error dicts
     "safe_call",
     "safe_json_loads",
