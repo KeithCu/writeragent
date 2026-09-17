@@ -43,7 +43,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 
 ## Settings UI
 
-**General tab** ([`SettingsDialog.xdl.tpl`](../../extension/WriterAgentDialogs/SettingsDialog.xdl.tpl)): endpoint, API key, **Text/Chat Model**, **Image Model**, audio model, temperature, max tokens, additional instructions.
+**General tab** ([`SettingsDialog.xdl.tpl`](../../extension/WriterAgentDialogs/SettingsDialog.xdl.tpl)): endpoint, API key, **Text/Chat Model**, **Image Model**, audio model, temperature, max tokens, additional instructions. Switching the endpoint to a different provider clears leftover model combobox text (Text/Chat, image, STT) so a previous provider's slug is not kept; populate then shows that provider's LRU/defaults. See [`uno-dialogs.md`](../framework/uno-dialogs.md) (`EndpointCombinedListener._apply_dropdowns`).
 
 **Image Settings tab**: base size, aspect ratio (same five labels as the sidebar Image-mode dropdown: Square, Landscape 16:9, Portrait 9:16, Landscape 3:2, Portrait 2:3), steps, seed, auto gallery, insert frame.
 

@@ -300,6 +300,96 @@ class TestEndpointCombinedListener(unittest.TestCase):
         self.assertEqual(len(text_calls), 1)
         self.assertEqual(text_calls[0]['current'], 'user-typed-model')
 
+    def test_apply_dropdowns_clears_combo_current_on_provider_switch(self):
+        """Provider change must not seed populate with leftover foreign slugs."""
+        from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+        dialog = MagicMock()
+        ctx = MagicMock()
+        combo = MagicMock()
+        listener = EndpointCombinedListener(dialog, ctx, combo)
+
+        text_ctrl = MagicMock()
+        text_ctrl.getText.return_value = 'inception/mercury-2.5'
+        stt_ctrl = MagicMock()
+        stt_ctrl.getText.return_value = 'openai/whisper-large-v3'
+        image_ctrl = MagicMock()
+        image_ctrl.getText.return_value = 'openai/gpt-5-image'
+        api_key_ctrl = MagicMock()
+        api_key_ctrl.getText.return_value = 'tg-key'
+
+        def get_optional_side_effect(dlg, name):
+            return {
+                'text_model': text_ctrl,
+                'stt_model': stt_ctrl,
+                'image_model': image_ctrl,
+                'api_key': api_key_ctrl,
+            }.get(name)
+
+        populate_calls = []
+
+        def track_populate(ctx, ctrl, current, lru_key, endpoint, **kwargs):
+            populate_calls.append({'lru_key': lru_key, 'current': current, 'endpoint': endpoint})
+
+        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect):
+            with patch('plugin.framework.config.get_current_endpoint', return_value='https://openrouter.ai/api'):
+                listener.populate_combobox_with_lru = track_populate
+                listener._apply_dropdowns('https://api.together.xyz', models=None, skip_fetch=True)
+
+        by_key = {c['lru_key']: c for c in populate_calls}
+        self.assertEqual(by_key['model_lru']['current'], '')
+        self.assertEqual(by_key['audio_model_lru']['current'], '')
+        self.assertEqual(by_key['image_model_lru']['current'], '')
+        self.assertEqual(by_key['model_lru']['endpoint'], 'https://api.together.xyz')
+
+    def test_apply_dropdowns_drops_openrouter_slug_from_together_list(self):
+        """Regression: uncatalogued OpenRouter LRU ids must not reappear on Together."""
+        from plugin.chatbot.dialog_views import EndpointCombinedListener
+
+        dialog = MagicMock()
+        ctx = MagicMock()
+        combo = MagicMock()
+        listener = EndpointCombinedListener(dialog, ctx, combo)
+
+        sticky = 'inception/mercury-2.5'
+        text_ctrl = MagicMock()
+        text_ctrl.getText.return_value = sticky
+        text_ctrl.getItemCount.return_value = 0
+        stt_ctrl = MagicMock()
+        stt_ctrl.getText.return_value = 'openai/whisper-large-v3'
+        stt_ctrl.getItemCount.return_value = 0
+        image_ctrl = MagicMock()
+        image_ctrl.getText.return_value = 'openai/gpt-5-image'
+        image_ctrl.getItemCount.return_value = 0
+        api_key_ctrl = MagicMock()
+        api_key_ctrl.getText.return_value = 'tg-key'
+
+        def get_optional_side_effect(dlg, name):
+            return {
+                'text_model': text_ctrl,
+                'stt_model': stt_ctrl,
+                'image_model': image_ctrl,
+                'api_key': api_key_ctrl,
+            }.get(name)
+
+        def mock_get_config(key, default=None):
+            return [] if isinstance(key, str) and 'lru' in key else ('' if default is None else default)
+
+        with patch('plugin.chatbot.dialog_views.get_optional', side_effect=get_optional_side_effect):
+            with patch('plugin.framework.config.get_current_endpoint', return_value='https://openrouter.ai/api'):
+                with patch('plugin.chatbot.config_ui_helpers.get_config', side_effect=mock_get_config):
+                    listener._apply_dropdowns('https://api.together.xyz', models=None, skip_fetch=True)
+
+        text_items = list(text_ctrl.addItems.call_args[0][0])
+        self.assertNotIn(sticky, text_items)
+        self.assertNotEqual(text_ctrl.setText.call_args[0][0], sticky)
+        self.assertIn('MiniMaxAI/MiniMax-M3', text_items)
+
+        stt_items = list(stt_ctrl.addItems.call_args[0][0])
+        self.assertNotIn('openai/whisper-large-v3', stt_items)
+        image_items = list(image_ctrl.addItems.call_args[0][0])
+        self.assertNotIn('openai/gpt-5-image', image_items)
+
 
 class TestSettingsEnhancements(unittest.TestCase):
     def test_get_signup_url_for_endpoint(self):

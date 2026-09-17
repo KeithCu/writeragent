@@ -93,6 +93,7 @@ For building dialogs entirely in code or adding dynamic widgets:
 | Function | Location | Description |
 | :--- | :--- | :--- |
 | `populate_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint)` | `plugin.chatbot.config_ui_helpers` | Populates dropdown items from recent history + provider catalog with search / fallback. |
+| `EndpointCombinedListener._apply_dropdowns` | `plugin.chatbot.dialog_views` | On a Settings endpoint change to a **different provider**, drop leftover Text/Chat, image, and STT combobox text before populate. Otherwise an OpenRouter-only LRU slug (e.g. `inception/mercury-2.5`) stays selected on Together: `_is_incompatible_model_for_provider` only filters ids catalogued in `DEFAULT_MODELS` for another provider. Same-provider refreshes still keep the field (or saved model if empty). |
 | `populate_endpoint_selector(ctx, ctrl, current_endpoint)` | `plugin.chatbot.config_ui_helpers` | Populates the endpoint dropdown with known provider URLs. |
 | `update_lru_history(val, lru_key, endpoint, max_items=None)` | `plugin.chatbot.config_ui_helpers` | Appends a selected item to the LRU history in `writeragent.json`. |
 

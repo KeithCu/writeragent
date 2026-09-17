@@ -739,6 +739,20 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         ak_ctrl = get_optional(self._dlg, "api_key")
         return str(get_control_text(ak_ctrl)) if ak_ctrl else ""
 
+    def _combo_current_for_provider(self, ctrl, *, same_provider, fallback=""):
+        """Return combobox current only when the saved provider still matches.
+
+        After a provider switch the field still holds the previous provider's
+        model id (e.g. OpenRouter ``inception/mercury-2.5`` on Together). That
+        slug is often missing from ``DEFAULT_MODELS``, so
+        ``_is_incompatible_model_for_provider`` will not drop it — discard
+        leftover text and let populate use this provider's LRU/defaults.
+        """
+        if not same_provider:
+            return ""
+        current = self._sanitize_model_combobox_value(str(ctrl.getText() or ""))
+        return current or fallback
+
     def _apply_dropdowns(self, resolved, models=None, skip_fetch=False):
         api_key_ov = self._live_api_key()
         skip_remote = bool(skip_fetch)
@@ -748,9 +762,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
         text_ctrl = get_optional(self._dlg, "text_model")
         if text_ctrl:
-            current = self._sanitize_model_combobox_value(str(text_ctrl.getText() or ""))
-            if not current:
-                current = get_text_model() if same_provider else ""
+            current = self._combo_current_for_provider(
+                text_ctrl,
+                same_provider=same_provider,
+                fallback=str(get_text_model() or ""),
+            )
             self.populate_combobox_with_lru(
                 self._ctx,
                 text_ctrl,
@@ -764,12 +780,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
         stt_ctrl = get_optional(self._dlg, "stt_model")
         if stt_ctrl:
-            stt_val = self._sanitize_model_combobox_value(str(stt_ctrl.getText() or ""))
-            if not stt_val:
-                if same_provider:
-                    stt_val = str(get_config("stt_model") or get_stt_model() or "")
-                else:
-                    stt_val = ""
+            stt_val = self._combo_current_for_provider(
+                stt_ctrl,
+                same_provider=same_provider,
+                fallback=str(get_config("stt_model") or get_stt_model() or ""),
+            )
             stt_remote = None if resolved_provider in {"openrouter", "together"} else models
             self.populate_combobox_with_lru(
                 self._ctx,
@@ -789,9 +804,11 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 if models is not None
                 else None
             )
-            image_val = self._sanitize_model_combobox_value(str(image_ctrl.getText() or ""))
-            if not image_val:
-                image_val = str(self.get_image_model() or "")
+            image_val = self._combo_current_for_provider(
+                image_ctrl,
+                same_provider=same_provider,
+                fallback=str(self.get_image_model() or ""),
+            )
             self.populate_combobox_with_lru(
                 self._ctx,
                 image_ctrl,
