@@ -14,6 +14,7 @@ from plugin.draw.designs import (
     SetPresentationDesign,
     _blank_master_signal,
     _clone_one_shape,
+    _is_safe_style_value,
     _split_pathsettings_value,
     apply_design_to_current_doc,
     enumerate_impress_designs,
@@ -150,7 +151,7 @@ def test_apply_design_description_mentions_current_doc():
     assert "current" in desc or "open" in desc
     assert "lo_wall" not in desc
     assert "new_document" in desc
-    assert "clipboard" not in desc
+    assert "does not use" in desc and "clipboard" in desc
     assert "diamode" not in desc
     assert "clone" in desc
 
@@ -290,6 +291,15 @@ def test_find_imported_master_prefers_design_name():
     assert found is metro
     assert name == "Metropolis"
     assert shapes == 6
+
+
+def test_safe_style_value_rejects_uno_structs():
+    assert _is_safe_style_value(16777215) is True
+    assert _is_safe_style_value(33.0) is True
+    assert _is_safe_style_value("Liberation Sans") is True
+    assert _is_safe_style_value(True) is True
+    assert _is_safe_style_value(MagicMock()) is False
+    assert _is_safe_style_value({"Color": 1}) is False
 
 
 def test_clone_one_shape_rejects_non_uno_type():

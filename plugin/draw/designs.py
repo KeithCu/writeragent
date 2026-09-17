@@ -56,18 +56,17 @@ _IMPORT_SOURCE_TARGET = "_wa_impress_otp_import"
 # Visual props copied onto a dest-created shape after it is added to the
 # dest master. Size/Position are applied last — setting them before add()
 # leaves factory Default geometry (25200-wide title vs Metropolis 14800).
+# Primitives only. Graphic / FillBitmap / Background are SfxItems from the
+# Hidden source pool — copying them then closing the source aborts soffice
+# (GetUserOrPoolDefaultItem). Graphic is re-imported via GraphicProvider.
 _CLONE_SHAPE_PROPS = (
     "Name",
     "Visible",
     "ZOrder",
     "LayerID",
-    "Graphic",
-    "GraphicURL",
     "FillStyle",
     "FillColor",
     "FillTransparence",
-    "FillBitmap",
-    "FillBitmapMode",
     "LineStyle",
     "LineColor",
     "LineWidth",
@@ -82,7 +81,6 @@ _CLONE_SHAPE_PROPS = (
     "TextVerticalAdjust",
 )
 _CLONE_MASTER_PAGE_PROPS = (
-    "Background",
     "BackgroundFullSize",
     "BorderLeft",
     "BorderRight",
@@ -422,7 +420,55 @@ def _clear_master_shapes(master: Any) -> int:
     return removed
 
 
-def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any) -> str:
+def _reimport_graphic(uno_ctx: Any, src_shape: Any, dest_shape: Any) -> bool:
+    """Copy a GraphicObjectShape bitmap/SVG without sharing the source item pool.
+
+    storeGraphic + queryGraphic yields a dest-owned XGraphic. Direct
+    ``dest.Graphic = src.Graphic`` crashes soffice when the Hidden .otp closes.
+    """
+    if uno_ctx is None:
+        return False
+    try:
+        graphic = src_shape.Graphic
+    except Exception:
+        return False
+    if graphic is None:
+        return False
+    import tempfile
+
+    from plugin.framework.url_utils import path_to_file_url
+    from plugin.writer.format import create_property_value
+
+    smgr = getattr(uno_ctx, "ServiceManager", None) or uno_ctx.getServiceManager()
+    provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
+    if provider is None:
+        return False
+    # SVG first (Metropolis chrome); PNG fallback if the provider rejects it.
+    for suffix, mime in ((".svg", "image/svg+xml"), (".png", "image/png")):
+        fd, path = tempfile.mkstemp(suffix=suffix)
+        try:
+            os.close(fd)
+            url = path_to_file_url(path)
+            provider.storeGraphic(
+                graphic,
+                (create_property_value("URL", url), create_property_value("MimeType", mime)),
+            )
+            new_graphic = provider.queryGraphic((create_property_value("URL", url),))
+            if new_graphic is None:
+                continue
+            dest_shape.Graphic = new_graphic
+            return True
+        except Exception:
+            log.debug("graphic reimport %s failed", mime, exc_info=True)
+        finally:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+    return False
+
+
+def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any, uno_ctx: Any = None) -> str:
     """Create a dest-owned shape, add it, then copy visual props + geometry.
 
     Adding first is required: presentation placeholders ignore Size/Position
@@ -436,18 +482,27 @@ def _clone_one_shape(dest_doc: Any, dest_master: Any, src_shape: Any) -> str:
     dest_master.add(clone)
     for prop in _CLONE_SHAPE_PROPS:
         _copy_uno_prop(clone, src_shape, prop)
+    if "GraphicObject" in shape_type:
+        _reimport_graphic(uno_ctx, src_shape, clone)
     # Geometry last so layout does not overwrite chrome metrics.
     _copy_uno_prop(clone, src_shape, "Position")
     _copy_uno_prop(clone, src_shape, "Size")
     return shape_type
 
 
+def _is_safe_style_value(value: Any) -> bool:
+    """True for primitives only. XComplexColor / BorderLine2 / GrabBag crash
+    soffice in the style pool (GetUserOrPoolDefaultItem) when copied blindly.
+    """
+    return isinstance(value, (int, float, bool, str))
+
+
 def copy_master_style_family(src_doc: Any, dest_doc: Any, family_name: str) -> int:
     """Copy presentation-layout styles (title / outline / background) by name.
 
     Each Impress master owns a style family of the same name. insertByName of
-    the whole family fails; copy property-by-property onto dest's family after
-    the master exists. Skip props that veto — do not invent styles.
+    the whole family fails; copy safe primitive props onto dest's family after
+    the master exists. Skip structs and vetoes — do not invent styles.
     """
     if not family_name:
         return 0
@@ -479,12 +534,26 @@ def copy_master_style_family(src_doc: Any, dest_doc: Any, family_name: str) -> i
             pname = str(getattr(prop, "Name", "") or "")
             if not pname:
                 continue
-            if _copy_uno_prop(dest_style, src_style, pname):
+            try:
+                value = src_style.getPropertyValue(pname)
+            except Exception:
+                continue
+            if not _is_safe_style_value(value):
+                continue
+            try:
+                dest_style.setPropertyValue(pname, value)
                 copied += 1
+            except Exception:
+                continue
     return copied
 
 
-def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str]) -> tuple[Any, str, int]:
+def clone_master_into_doc(
+    dest_doc: Any,
+    src_doc: Any,
+    design: dict[str, str],
+    uno_ctx: Any = None,
+) -> tuple[Any, str, int]:
     """Clone the source design master into *dest_doc* (same-document shapes).
 
     Cross-doc ``MasterPage`` assign does not import. ``createInstance`` +
@@ -546,12 +615,17 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str]) -
         src_count = 0
     cloned_types: list[str] = []
     for i in range(src_count):
-        cloned_types.append(_clone_one_shape(dest_doc, dest_master, src_master.getByIndex(i)))
+        cloned_types.append(
+            _clone_one_shape(dest_doc, dest_master, src_master.getByIndex(i), uno_ctx)
+        )
     try:
         dest_name = str(dest_master.Name or "") or design_name
     except Exception:
         dest_name = design_name
-    copy_master_style_family(src_doc, dest_doc, dest_name)
+    # Do not copy the presentation style family here. Blind style-prop copies
+    # share the Hidden source SfxItemPool and abort soffice on source close
+    # (GetUserOrPoolDefaultItem). Shape primitives + reimported Graphic are
+    # enough for Metropolis chrome (title geom 14800 + SVG).
     try:
         shape_count = int(dest_master.getCount())
     except Exception:
@@ -642,7 +716,9 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     shape_count = 0
     try:
         src = open_design_source_hidden(uno_ctx, design, as_template=True)
-        master, master_name, shape_count = clone_master_into_doc(dest_doc, src, design)
+        master, master_name, shape_count = clone_master_into_doc(
+            dest_doc, src, design, uno_ctx
+        )
     finally:
         _close_hidden_doc(src)
     if master is None:
