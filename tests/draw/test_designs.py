@@ -13,11 +13,12 @@ from plugin.draw.designs import (
     ListDesigns,
     SetPresentationDesign,
     _blank_master_signal,
+    _clone_one_shape,
     _split_pathsettings_value,
+    apply_design_to_current_doc,
     enumerate_impress_designs,
     find_imported_master,
     inherit_master_from_neighbor,
-    remove_pasted_extra_slides,
     resolve_design,
 )
 from plugin.draw.pages import AddSlide
@@ -149,6 +150,55 @@ def test_apply_design_description_mentions_current_doc():
     assert "current" in desc or "open" in desc
     assert "lo_wall" not in desc
     assert "new_document" in desc
+    assert "clipboard" not in desc
+    assert "diamode" not in desc
+    assert "clone" in desc
+
+
+def test_apply_design_to_current_doc_uses_clone_not_clipboard():
+    dest = MagicMock()
+    dest.getDrawPages().getCount.return_value = 2
+    src = MagicMock()
+    master = MagicMock()
+    with (
+        patch("plugin.draw.designs.open_design_source_hidden", return_value=src),
+        patch("plugin.draw.designs.clone_master_into_doc", return_value=(master, "Metropolis", 6)) as clone,
+        patch("plugin.draw.designs._close_hidden_doc") as closer,
+        patch("plugin.draw.designs.assign_master_to_all_slides", return_value=2),
+        patch(
+            "plugin.draw.designs._master_entries",
+            return_value=[{"name": "Metropolis", "shape_count": 6}],
+        ),
+    ):
+        out = apply_design_to_current_doc(
+            MagicMock(), dest, {"id": "metropolis", "name": "Metropolis"}
+        )
+    assert out["status"] == "ok"
+    assert out["import_method"] == "clone_master"
+    assert out["applied_master"] == "Metropolis"
+    assert out["applied_master_shape_count"] == 6
+    clone.assert_called_once()
+    closer.assert_called_once_with(src)
+
+
+def test_clone_one_shape_sets_geometry_after_add():
+    calls: list[str] = []
+    dest_doc = MagicMock()
+    clone = MagicMock()
+    dest_doc.createInstance.return_value = clone
+    dest_master = MagicMock()
+    dest_master.add.side_effect = lambda _unused: calls.append("add")
+    src = MagicMock()
+    src.ShapeType = "com.sun.star.drawing.GraphicObjectShape"
+    with patch(
+        "plugin.draw.designs._copy_uno_prop",
+        side_effect=lambda _dest, _src, name: calls.append(name) or True,
+    ):
+        out = _clone_one_shape(dest_doc, dest_master, src)
+    assert out == "com.sun.star.drawing.GraphicObjectShape"
+    assert calls[0] == "add"
+    assert calls[-2:] == ["Position", "Size"]
+    dest_doc.createInstance.assert_called_once_with("com.sun.star.drawing.GraphicObjectShape")
 
 
 def test_set_presentation_design_draw_not_impress():
@@ -242,22 +292,15 @@ def test_find_imported_master_prefers_design_name():
     assert shapes == 6
 
 
-def test_remove_pasted_extra_slides_keeps_marked():
-    keep0 = MagicMock()
-    keep0.Name = "WA_KEEP_0"
-    extra = MagicMock()
-    extra.Name = "Metropolis"
-    store = [keep0, extra]
-    pages = MagicMock()
-    pages.getCount.side_effect = lambda: len(store)
-    pages.getByIndex.side_effect = lambda i: store[i]
-    pages.remove.side_effect = lambda page: store.remove(page)
-    doc = MagicMock()
-    doc.getDrawPages.return_value = pages
-    removed = remove_pasted_extra_slides(doc, [("WA_KEEP_0", "Slide 1")], 1)
-    assert removed == 1
-    assert store == [keep0]
-    assert keep0.Name == "Slide 1"
+def test_clone_one_shape_rejects_non_uno_type():
+    src = MagicMock()
+    src.ShapeType = "NotAShape"
+    try:
+        _clone_one_shape(MagicMock(), MagicMock(), src)
+    except RuntimeError as exc:
+        assert "Unsupported" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
 
 
 def test_designs_module_has_no_hardcoded_install_prefix():

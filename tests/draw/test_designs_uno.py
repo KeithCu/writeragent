@@ -65,7 +65,14 @@ def test_list_designs_finds_metropolis(ctx, doc):
 @native_test
 @with_native_doc("impress")
 def test_apply_design_current_doc_metropolis(ctx, doc):
-    """Hidden .otp + DiaMode paste + MasterPage assign restyles the open deck."""
+    """Hidden .otp master clone + MasterPage assign restyles the open deck.
+
+    Pollutes the system clipboard first: headed #791 DiaMode Paste pulled
+    desktop junk instead of the Hidden template. Clone must ignore that.
+    """
+    from plugin.chatbot.dialogs import copy_to_clipboard
+
+    copy_to_clipboard(ctx, "SPREADSHEET_AUDIT_JUNK_SHOULD_NOT_APPEAR")
     listed = _exec(doc, ctx, "list_designs", {})
     design = _pick_known_design(listed)
     assert design, listed
@@ -88,6 +95,7 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
 
     out = _exec(doc, ctx, "apply_design", {"design": design["id"], "new_document": False})
     assert out.get("status") == "ok", out
+    assert out.get("import_method") == "clone_master", out
     assert out.get("blank_master") is False, out
     applied = str(out.get("applied_master") or "")
     assert applied, out
@@ -95,10 +103,12 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
     assert int(out.get("applied_master_shape_count") or 0) >= 6, out
     assert int(out.get("slides_updated") or 0) == before_count, out
     pages = doc.getDrawPages()
-    assert pages.getCount() == before_count, "leftover paste slide: %s out=%s" % (
+    assert pages.getCount() == before_count, "slide count changed: %s out=%s" % (
         pages.getCount(),
         out,
     )
+    title_w = None
+    has_graphic = False
     for i in range(pages.getCount()):
         master = pages.getByIndex(i).MasterPage
         name = master.Name if hasattr(master, "Name") else ""
@@ -109,6 +119,23 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
         except Exception:
             shapes = 0
         assert shapes >= 6, "slide %s master shape_count=%s out=%s" % (i, shapes, out)
+        for j in range(shapes):
+            sh = master.getByIndex(j)
+            st = str(getattr(sh, "ShapeType", "") or "")
+            if "GraphicObject" in st:
+                has_graphic = True
+            if "TitleText" in st:
+                try:
+                    title_w = int(sh.Size.Width)
+                except Exception:
+                    title_w = None
+    assert has_graphic, "cloned master missing GraphicObjectShape chrome: %s" % out
+    if "metropolis" in str(design.get("id") or "").lower() and title_w is not None:
+        # Probe: factory Default title is 25200; Metropolis chrome is 14800.
+        assert title_w == 14800, "Metropolis title width %s (not cloned geom) out=%s" % (
+            title_w,
+            out,
+        )
 
     kept0 = _exec(doc, ctx, "get_placeholder_text", {"page": 0, "role": "title"})
     if kept0.get("status") != "ok":
@@ -118,6 +145,15 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
     assert "Keep Title 0" in str(kept0.get("text") or ""), kept0
     assert "Keep Title 1" in str(kept1.get("text") or ""), kept1
     assert "Keep Body 1" in str(kept_body.get("text") or ""), kept_body
+    junk_blob = "%s %s %s %s" % (kept0, kept1, kept_body, out)
+    for i in range(pages.getCount()):
+        page = pages.getByIndex(i)
+        for j in range(int(page.getCount())):
+            try:
+                junk_blob += " " + str(page.getByIndex(j).String or "")
+            except Exception:
+                continue
+    assert "SPREADSHEET_AUDIT_JUNK" not in junk_blob, junk_blob
 
 
 @native_test
