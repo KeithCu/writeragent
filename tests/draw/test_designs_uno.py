@@ -1,6 +1,6 @@
 # WriterAgent — native UNO tests for Impress list/apply design (M1′)
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Prove PathSettings list, create-from-template, current-doc master import, HF wire-up."""
+"""Prove PathSettings list, current-doc master import, and the internal create-from-template helper."""
 
 from __future__ import annotations
 
@@ -13,23 +13,6 @@ from plugin.tests.testing_utils import TestingFactory, with_native_doc
 def _exec(doc, ctx, name, args, doc_type="impress"):
     res = TestingFactory.execute_tool(doc, ctx, name, args, doc_type=doc_type)
     return res if isinstance(res, dict) else json.loads(res)
-
-
-def _close_created(ctx, result):
-    """Close a presentation opened by create-from-template so suites do not leak frames."""
-    uid = (result or {}).get("document_uid") or ""
-    url = (result or {}).get("document_url") or ""
-    key = uid or url
-    if not key:
-        return
-    try:
-        from plugin.framework.uno_context import resolve_document_by_url
-
-        model, _unused = resolve_document_by_url(ctx, key)
-    except Exception:
-        model = None
-    if model is not None:
-        TestingFactory.close_doc(model)
 
 
 def _pick_known_design(listed):
@@ -93,7 +76,7 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
     before_count = doc.getDrawPages().getCount()
     assert before_count >= 2, before_count
 
-    out = _exec(doc, ctx, "apply_design", {"design": design["id"], "new_document": False})
+    out = _exec(doc, ctx, "apply_design", {"design": design["id"]})
     assert out.get("status") == "ok", out
     assert out.get("import_method") == "clone_master", out
     assert out.get("blank_master") is False, out
@@ -158,64 +141,49 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
 
 @native_test
 @with_native_doc("impress")
-def test_create_from_template_non_default_master(ctx, doc):
+def test_create_from_template_helper_non_default_master(ctx, doc):
+    """Internal helper only — apply_design must not open this new-doc path."""
+    from plugin.draw.designs import (
+        _blank_master_signal,
+        _master_entries,
+        create_presentation_from_design,
+        resolve_design,
+    )
+
     listed = _exec(doc, ctx, "list_designs", {})
     design = _pick_known_design(listed)
     assert design, listed
+    entry = resolve_design(ctx, design["id"])
+    assert entry, listed
     factory = doc.getMasterPages().getByIndex(0)
     factory_name = factory.Name if hasattr(factory, "Name") else ""
-    out = _exec(doc, ctx, "apply_design", {"design": design["id"], "new_document": True, "hidden": True})
+    new_doc = create_presentation_from_design(ctx, entry, hidden=True)
     try:
-        assert out.get("status") == "ok", out
-        assert out.get("blank_master") is False, out
-        names = [str(m.get("name") or "") for m in out.get("masters") or []]
-        assert names, out
+        masters = _master_entries(new_doc)
+        assert _blank_master_signal(masters) is False, masters
+        names = [str(m.get("name") or "") for m in masters]
+        assert names, masters
         assert any(n and n.lower() != "default" for n in names) or any(
-            int(m.get("shape_count") or 0) >= 3 for m in out.get("masters") or []
-        ), "new-doc-from-template still looks Default: factory=%s out=%s" % (factory_name, out)
+            int(m.get("shape_count") or 0) >= 3 for m in masters
+        ), "create-from-template still looks Default: factory=%s masters=%s" % (
+            factory_name,
+            masters,
+        )
+        assert doc.getDrawPages().getCount() >= 1
+        # The open deck is unchanged — helper opened a separate Hidden model.
+        open_master = doc.getMasterPages().getByIndex(0)
+        open_name = open_master.Name if hasattr(open_master, "Name") else ""
+        assert open_name == factory_name, "open deck master changed: %s vs %s" % (
+            open_name,
+            factory_name,
+        )
     finally:
-        _close_created(ctx, out)
-
-
-@native_test
-@with_native_doc("impress")
-def test_set_presentation_design_enables_hf(ctx, doc):
-    listed = _exec(doc, ctx, "list_designs", {})
-    design = _pick_known_design(listed)
-    assert design, listed
-    out = _exec(doc, ctx, "set_presentation_design", {"design": design["id"], "hidden": True})
-    try:
-        assert out.get("status") == "ok", out
-        hf = out.get("headers_footers") or {}
-        master = hf.get("master") or {}
-        slide = hf.get("slide") or {}
-        assert master.get("status") == "ok", out
-        assert slide.get("status") == "ok", out
-        assert int(master.get("updated_properties") or 0) + int(slide.get("updated_properties") or 0) > 0, out
-        uid = out.get("document_uid")
-        from plugin.framework.uno_context import resolve_document_by_url
-
-        new_doc, _unused = resolve_document_by_url(ctx, uid)
-        assert new_doc is not None, out
-        verify = _exec(new_doc, ctx, "get_headers_footers", {"page": 0, "is_master_page": True})
-        assert verify.get("status") == "ok", verify
-        props = verify.get("properties") or {}
-        assert props.get("IsPageNumberVisible") is True or props.get("IsFooterVisible") is True, verify
-        added = _exec(new_doc, ctx, "add_slide", {})
-        assert added.get("status") == "ok", added
-        pages = new_doc.getDrawPages()
-        m0 = pages.getByIndex(0).MasterPage
-        m1 = pages.getByIndex(added["active_page_index"]).MasterPage
-        n0 = m0.Name if hasattr(m0, "Name") else ""
-        n1 = m1.Name if hasattr(m1, "Name") else ""
-        assert n0 == n1, "add_slide did not inherit master: %s vs %s added=%s" % (n0, n1, added)
-    finally:
-        _close_created(ctx, out)
+        TestingFactory.close_doc(new_doc)
 
 
 @native_test
 @with_native_doc("draw")
-def test_set_presentation_design_draw_not_impress(ctx, doc):
-    out = _exec(doc, ctx, "set_presentation_design", {"design": "Metropolis"}, doc_type="draw")
+def test_apply_design_draw_not_impress(ctx, doc):
+    out = _exec(doc, ctx, "apply_design", {"design": "Metropolis"}, doc_type="draw")
     assert out.get("status") == "error", out
     assert out.get("code") == "UNSUPPORTED_DOC_TYPE", out

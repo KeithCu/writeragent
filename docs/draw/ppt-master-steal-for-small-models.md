@@ -9,6 +9,8 @@
 **Evidence base:** rendered slides from `hugohe3/ppt-master-examples` (glassmorphism, swiss-grid); `plugin/draw/*`; `plugin/framework/prompts.py`; `scripts/eval_2_draw_oracle.py`; [impress-ai-mercury-2.5-headed-findings.md](impress-ai-mercury-2.5-headed-findings.md); [impress-specialized-toolsets.md](impress-specialized-toolsets.md); filesystem probe of the installed LO (23 shipped slide designs, `.otp` internals).
 **Related:** [M0′ / UNO-probe farm brief](impress-lo-first-m0-probe-brief.md)
 
+**Later product change:** core restyle is `list_designs` → `apply_design` on the **open** deck (clone_master). There is no `set_presentation_design` and no `new_document` on `apply_design` — a new Impress window spawned a second sidebar agent. Create-from-template is an internal/test helper. HF stay on specialized `set_headers_footers`. Historical M1′ rows below that name `set_presentation_design` are the original plan, not the shipped API.
+
 > **Not a product brief:** do **not** paste upstream `references/*.md` or the forked SKILL into a WriterAgent prompt. This doc steals *patterns*. Route B implementation is WriterAgent-original and **LibreOffice-first**.
 
 ---

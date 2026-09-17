@@ -2,12 +2,13 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Impress shipped-design tools (list / create-from-template / current-doc apply).
+"""Impress shipped-design tools (list / current-doc apply).
 
 M0′ (``docs/draw/impress-lo-first-m0-probe-results.md``, PR #788) showed:
 
 * PathSettings template dirs enumerate shipped ``.otp`` (Metropolis, …).
-* ``loadComponentFromURL`` + ``AsTemplate`` creates a designed **new** doc.
+* ``loadComponentFromURL`` + ``AsTemplate`` creates a designed **new** doc
+  (kept as ``create_presentation_from_design`` for tests only — not a tool).
 * ``loadStylesFromURL`` is absent/incomplete on Impress — do not use it.
 
 Current-doc restyle (#791 clipboard path failed headed — system clipboard
@@ -23,8 +24,10 @@ add so placeholder geometry matches; GraphicObjectShape via ``Graphic``),
 copy the design's presentation-style family, then
 ``page.MasterPage = cloned_master`` on every slide (Exchange-all).
 
-``set_presentation_design`` stays the main-chat one-shot: **new** doc from a
-listed design, master assignment, headers/footers + slide numbers.
+``apply_design`` always restyles the **open** Impress deck this way. A new
+window would spawn a second sidebar agent with empty chat context — do not
+reintroduce a model-facing create-from-template tool. Start from a blank
+deck or File→Templates, then ``list_designs`` → ``apply_design``.
 
 ``list_designs`` includes a short ``look`` string (mood / accent hues /
 illustrated vs graphic chrome) derived from the ``.otp`` ZIP — see
@@ -871,7 +874,11 @@ def create_presentation_from_design(
     *,
     hidden: bool = False,
 ) -> Any:
-    """``loadComponentFromURL`` + ``AsTemplate`` — new document only (M0′ proven path)."""
+    """``loadComponentFromURL`` + ``AsTemplate`` — new document (M0′ proven path).
+
+    Internal / test helper only. Not model-facing: a new Impress window
+    gets a fresh sidebar agent and drops mid-chat context.
+    """
     from plugin.framework.thread_guard import guard_uno
     from plugin.framework.uno_context import get_desktop
     from plugin.writer.format import create_property_value
@@ -892,57 +899,6 @@ def create_presentation_from_design(
     return guard_uno(model)
 
 
-def enable_design_headers_footers(new_doc: Any, uno_ctx: Any, services: Any) -> dict[str, Any]:
-    """Reuse ``set_headers_footers`` on the new doc's assigned master + first slide."""
-    from plugin.draw.headers_footers import SetHeadersFooters
-
-    hf_ctx = ToolContext(new_doc, uno_ctx, "impress", services, caller="set_presentation_design")
-    tool = SetHeadersFooters()
-    master = tool.execute(
-        hf_ctx,
-        page=0,
-        is_master_page=True,
-        footer_visible=True,
-        page_number_visible=True,
-        header_visible=True,
-    )
-    slide = tool.execute(
-        hf_ctx,
-        page=0,
-        is_master_page=False,
-        footer_visible=True,
-        page_number_visible=True,
-    )
-    return {"master": master, "slide": slide}
-
-
-def _new_doc_payload(new_doc: Any, design: dict[str, str], extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    from plugin.framework.uno_context import get_runtime_uid
-
-    masters = _master_entries(new_doc)
-    url = ""
-    try:
-        url = str(new_doc.getURL() or "")
-    except Exception:
-        url = ""
-    payload: dict[str, Any] = {
-        "status": "ok",
-        "design": design,
-        "document_url": url,
-        "document_uid": get_runtime_uid(new_doc),
-        "masters": masters,
-        "blank_master": _blank_master_signal(masters),
-        "message": (
-            "Opened a new presentation from design '%s'. "
-            "Pass document_url or document_uid to later tools to target it."
-            % design.get("name")
-        ),
-    }
-    if extra:
-        payload.update(extra)
-    return payload
-
-
 class ListDesigns(ToolBase):
     """Enumerate shipped Impress ``.otp`` designs via PathSettings."""
 
@@ -952,7 +908,7 @@ class ListDesigns(ToolBase):
         "List shipped Impress .otp designs from LibreOffice PathSettings template "
         "directories (id, name, path, url, look). Read look to choose a design by "
         "appearance (dark/tech vs candy/illustrated), not only by name. Use a listed "
-        "id with set_presentation_design to start a new deck. Does not hardcode the "
+        "id with apply_design to restyle the open Impress deck. Does not hardcode the "
         "install prefix."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
@@ -969,17 +925,16 @@ class ListDesigns(ToolBase):
 
 
 class ApplyDesign(ToolBase):
-    """Apply a listed ``.otp`` to the current Impress deck, or create a new doc."""
+    """Restyle the open Impress deck from a listed ``.otp`` (clone_master)."""
 
     name = "apply_design"
     intent = "edit"
     description = (
-        "Apply a listed Impress .otp design. new_document=false restyles the OPEN "
-        "deck: Hidden-load the template, clone its master (shapes + layout styles) "
-        "into this document, and assign that master to every slide. Does not use "
-        "the system clipboard. Existing title/body text stays. "
-        "new_document=true (default) still creates a NEW presentation "
-        "(loadComponentFromURL + AsTemplate). Draw documents return a not-Impress error."
+        "Restyle the OPEN Impress deck from a listed .otp: Hidden-load the "
+        "template, clone its master (shapes + layout styles) into this document, "
+        "and assign that master to every slide. Does not use the system clipboard "
+        "and does not open a new presentation. Existing title/body text stays. "
+        "Call list_designs first. Draw documents return a not-Impress error."
     )
     parameters = {
         "type": "object",
@@ -988,13 +943,6 @@ class ApplyDesign(ToolBase):
                 "type": "string",
                 "description": "Design id, name, path, or url from list_designs (e.g. Metropolis).",
             },
-            "new_document": {
-                "type": "boolean",
-                "description": (
-                    "true (default): create a new presentation from the template. "
-                    "false: restyle the current Impress document onto the listed design."
-                ),
-            },
         },
         "required": ["design"],
     }
@@ -1006,75 +954,10 @@ class ApplyDesign(ToolBase):
     is_mutation = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.headers_footers import _coerce_bool_arg
-
         if _is_draw_only_doc(ctx.doc):
             return not_impress_error(self, "apply_design")
-        new_document = True
-        if "new_document" in kwargs:
-            new_document = _coerce_bool_arg(kwargs, "new_document", True)
-        design_key = str(kwargs.get("design") or "").strip()
-        if not design_key:
-            return self._tool_error("design is required.")
-        entry = resolve_design(ctx.ctx, design_key)
-        if entry is None:
-            available = [d["id"] for d in enumerate_impress_designs(ctx.ctx)]
-            return self._tool_error("Design not found: %s" % design_key, available=available[:40])
-        if not new_document:
-            if not _is_impress_doc(ctx.doc):
-                return not_impress_error(self, "apply_design")
-            try:
-                return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)
-            except Exception as e:
-                log.exception("current-doc apply_design failed for %s", entry.get("path"))
-                return self._tool_error(
-                    "Failed to apply design to the current presentation: %s" % e,
-                    reason="current_doc_import_failed",
-                    hint="Hidden .otp master clone or MasterPage assign did not complete.",
-                )
-        try:
-            # ``hidden`` is for native tests (leftover visible frames). Not a product arg.
-            hidden = bool(kwargs.get("hidden"))
-            new_doc = create_presentation_from_design(ctx.ctx, entry, hidden=hidden)
-        except Exception as e:
-            log.exception("create-from-template failed for %s", entry.get("path"))
-            return self._tool_error("Failed to open design as template: %s" % e)
-        return _new_doc_payload(new_doc, entry)
-
-
-class SetPresentationDesign(ToolBase):
-    """Core one-shot: new Impress from design + master + HF / slide numbers."""
-
-    name = "set_presentation_design"
-    intent = "edit"
-    description = (
-        "Start a new Impress presentation from a shipped .otp design (create-from-template), "
-        "assign the design master, and enable headers/footers plus slide numbers. "
-        "To restyle the open deck instead, use apply_design with new_document=false. "
-        "Call list_designs first. Draw documents return a not-Impress error."
-    )
-    parameters = {
-        "type": "object",
-        "properties": {
-            "design": {
-                "type": "string",
-                "description": "Design id or name from list_designs (e.g. Metropolis).",
-            },
-        },
-        "required": ["design"],
-    }
-    uno_services = [
-        "com.sun.star.drawing.DrawingDocument",
-        "com.sun.star.presentation.PresentationDocument",
-    ]
-    tier = "core"
-    is_mutation = True
-
-    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        if _is_draw_only_doc(ctx.doc):
-            return not_impress_error(self, "set_presentation_design")
-        if ctx.doc is not None and not _is_impress_doc(ctx.doc) and not _is_draw_only_doc(ctx.doc):
-            return not_impress_error(self, "set_presentation_design")
+        if not _is_impress_doc(ctx.doc):
+            return not_impress_error(self, "apply_design")
         design_key = str(kwargs.get("design") or "").strip()
         if not design_key:
             return self._tool_error("design is required.")
@@ -1083,15 +966,11 @@ class SetPresentationDesign(ToolBase):
             available = [d["id"] for d in enumerate_impress_designs(ctx.ctx)]
             return self._tool_error("Design not found: %s" % design_key, available=available[:40])
         try:
-            hidden = bool(kwargs.get("hidden"))
-            new_doc = create_presentation_from_design(ctx.ctx, entry, hidden=hidden)
+            return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)
         except Exception as e:
-            log.exception("set_presentation_design create-from-template failed")
-            return self._tool_error("Failed to open design as template: %s" % e)
-        master_name = assign_primary_master_to_slides(new_doc)
-        hf = enable_design_headers_footers(new_doc, ctx.ctx, ctx.services)
-        return _new_doc_payload(
-            new_doc,
-            entry,
-            extra={"assigned_master": master_name, "headers_footers": hf},
-        )
+            log.exception("current-doc apply_design failed for %s", entry.get("path"))
+            return self._tool_error(
+                "Failed to apply design to the current presentation: %s" % e,
+                reason="current_doc_import_failed",
+                hint="Hidden .otp master clone or MasterPage assign did not complete.",
+            )

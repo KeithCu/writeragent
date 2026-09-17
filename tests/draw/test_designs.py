@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 from plugin.draw.designs import (
     ApplyDesign,
     ListDesigns,
-    SetPresentationDesign,
     _blank_master_signal,
     _clone_one_shape,
     _is_safe_style_value,
@@ -120,7 +119,7 @@ def test_apply_design_current_doc_calls_import_path():
         patch("plugin.draw.designs.resolve_design", return_value=entry),
         patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
     ):
-        out = ApplyDesign().execute(ctx, design="Metropolis", new_document=False)
+        out = ApplyDesign().execute(ctx, design="Metropolis")
     assert out["status"] == "ok"
     assert out["applied_master"] == "Metropolis"
     assert out["blank_master"] is False
@@ -138,7 +137,7 @@ def test_apply_design_current_doc_import_failure():
             side_effect=RuntimeError("paste failed"),
         ),
     ):
-        out = ApplyDesign().execute(ctx, design="Metropolis", new_document=False)
+        out = ApplyDesign().execute(ctx, design="Metropolis")
     assert out["status"] == "error"
     assert out.get("code") != "LO_WALL"
     details = out.get("details") or {}
@@ -150,10 +149,28 @@ def test_apply_design_description_mentions_current_doc():
     desc = ApplyDesign.description.lower()
     assert "current" in desc or "open" in desc
     assert "lo_wall" not in desc
-    assert "new_document" in desc
+    assert "new_document" not in desc
     assert "does not use" in desc and "clipboard" in desc
     assert "diamode" not in desc
     assert "clone" in desc
+    assert "new_document" not in ApplyDesign.parameters.get("properties", {})
+
+
+def test_apply_design_ignores_legacy_new_document_kwarg():
+    """Leftover new_document=true must still restyle the open deck, not spawn one."""
+    ctx = MagicMock()
+    ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.presentation.PresentationDocument"
+    entry = {"id": "metropolis", "name": "Metropolis", "path": "/tmp/Metropolis.otp"}
+    payload = {"status": "ok", "applied_master": "Metropolis", "import_method": "clone_master"}
+    with (
+        patch("plugin.draw.designs.resolve_design", return_value=entry),
+        patch("plugin.draw.designs.apply_design_to_current_doc", return_value=payload) as apply_cur,
+        patch("plugin.draw.designs.create_presentation_from_design") as create_new,
+    ):
+        out = ApplyDesign().execute(ctx, design="Metropolis", new_document=True)
+    assert out["status"] == "ok"
+    apply_cur.assert_called_once()
+    create_new.assert_not_called()
 
 
 def test_apply_design_to_current_doc_uses_clone_not_clipboard():
@@ -202,19 +219,10 @@ def test_clone_one_shape_sets_geometry_after_add():
     dest_doc.createInstance.assert_called_once_with("com.sun.star.drawing.GraphicObjectShape")
 
 
-def test_set_presentation_design_draw_not_impress():
-    ctx = MagicMock()
-    ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.DrawingDocument"
-    out = SetPresentationDesign().execute(ctx, design="Metropolis")
-    assert out["status"] == "error"
-    assert out["code"] == "UNSUPPORTED_DOC_TYPE"
-    assert "not a Draw" in out["message"] or "Impress" in out["message"]
-
-
 def test_apply_design_draw_not_impress():
     ctx = MagicMock()
     ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.DrawingDocument"
-    out = ApplyDesign().execute(ctx, design="Metropolis", new_document=True)
+    out = ApplyDesign().execute(ctx, design="Metropolis")
     assert out["status"] == "error"
     assert out["code"] == "UNSUPPORTED_DOC_TYPE"
 
@@ -231,6 +239,25 @@ def test_list_designs_description_mentions_look():
     desc = ListDesigns.description.lower()
     assert "look" in desc
     assert "appearance" in desc or "mood" in desc or "dark" in desc
+    assert "apply_design" in desc
+    assert "set_presentation_design" not in desc
+
+
+def test_draw_prompt_steers_apply_design_on_open_deck():
+    from plugin.framework.prompts import DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
+
+    text = DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
+    assert "apply_design" in text
+    assert "list_designs" in text
+    assert "set_presentation_design" not in text
+    assert "new_document" not in text
+
+
+def test_set_presentation_design_is_not_a_tool():
+    import plugin.draw.designs as designs
+
+    assert not hasattr(designs, "SetPresentationDesign")
+    assert not hasattr(designs, "enable_design_headers_footers")
 
 
 def test_blank_master_signal():

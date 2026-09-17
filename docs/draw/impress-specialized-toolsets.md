@@ -45,8 +45,7 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `read_slide_text` | `pages.py` | Drawing+Presentation | Extract text from all shapes on a page |
 | `get_presentation_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
 | `list_designs` | `designs.py` | Drawing+Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix). Each entry includes a short `look` vibe string from the template ZIP thumbnail (mood, accent hues, illustrated / graphic chrome) |
-| `apply_design` | `designs.py` | Drawing+Presentation | `new_document=false`: Hidden `.otp` master clone + assign-all (no system clipboard). `new_document=true`: create-from-template (`AsTemplate`) |
-| `set_presentation_design` | `designs.py` | Drawing+Presentation | Core one-shot: new doc from design + master + HF/slide numbers. Draw → not-Impress |
+| `apply_design` | `designs.py` | Drawing+Presentation | Restyle the **open** Impress deck: Hidden `.otp` master clone + assign-all (no system clipboard, no new window). Draw → not-Impress |
 | `get_draw_tree` | `tree.py` | Drawing+Presentation | JSON DOM of shapes and layout; `fillable` blanks + ControlShape value/state |
 | `get_image` | `writer/get_image.py` | Text+Drawing+Presentation | Vision: embedded graphic, selection, or `page=N` PNG of the rendered page. **`page` is 0-based.** Complements `get_draw_tree`; does not replace it. |
 | `list_placeholders` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
@@ -167,7 +166,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Custom Shows** | ❌ Missing | — | Non-linear presentation paths |
 | **Timings** | ❌ Missing | — | Rehearse, auto-advance |
 | **Themes** | ❌ No Theme API | — | M0′: master `XTheme.getColorSet` is a palette hook, **not** apply-design. No list/apply theme wrappers. See [M0′ results](impress-lo-first-m0-probe-results.md). |
-| **Templates / design** | ✅ current-doc + new-doc | `list_designs`, `apply_design`, `set_presentation_design` | Create-from-template (`loadComponentFromURL` + `AsTemplate`) for **new** docs. **Current-doc** `apply_design(new_document=false)` Hidden-opens the `.otp`, **clones** its master into the open deck (`createInstance` + add + Size/Position after add; Graphic via `Graphic`; copy the design style family), then assigns `page.MasterPage` to every slide. Does **not** use the system clipboard — headed #791 DiaMode Paste pulled desktop junk and imported no master. **`list_designs` adds a short `look` string** derived from the `.otp` ZIP (`Thumbnails/thumbnail.png`, `Pictures/`, `styles.xml` fallback) so small models can pick dark/tech vs candy/illustrated. Do **not** use `.uno:PresentationLayout` PropertyValues (SDI empty; silent no-op) or DiaMode Copy/Paste. Draw → not-Impress. |
+| **Templates / design** | ✅ current-doc only | `list_designs`, `apply_design` | `apply_design` Hidden-opens the listed `.otp`, **clones** its master into the **open** deck (`createInstance` + add + Size/Position after add; Graphic via `Graphic`), then assigns `page.MasterPage` to every slide. Does **not** open a new presentation (a second Impress window would spawn a fresh sidebar agent). Does **not** use the system clipboard — headed #791 DiaMode Paste pulled desktop junk and imported no master. Create-from-template (`loadComponentFromURL` + `AsTemplate`) remains an **internal/test helper** (`create_presentation_from_design`); start from a blank deck or File→Templates, then `list_designs` → `apply_design`. **`list_designs` adds a short `look` string** derived from the `.otp` ZIP (`Thumbnails/thumbnail.png`, `Pictures/`, `styles.xml` fallback) so small models can pick dark/tech vs candy/illustrated. Do **not** use `.uno:PresentationLayout` PropertyValues (SDI empty; silent no-op) or DiaMode Copy/Paste. Draw → not-Impress. |
 | **Headers/Footers (specialized)** | ✅ Complete | 2 tools | `get_headers_footers`, `set_headers_footers` (Impress only) |
 | **Tables** | ✅ | same names as Writer | `table_insert`, list/get/set, `manage_table_structure` on TableShape |
 | **3D Shapes** | ❌ Missing | — | 3D objects and scenes |
@@ -498,7 +497,7 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 - `tests/draw/test_draw_specialized_tiers.py` - Specialized tier registration
 - `tests/draw/test_draw_forms_uno.py` - ControlShapes (list/edit by name, checkbox State) + `fill_draw_fields`
 - `tests/draw/test_draw_headers_footers.py` - Headers/footers
-- `tests/draw/test_designs.py` / `test_designs_uno.py` - PathSettings list, create-from-template, current-doc Metropolis import+assign, HF via `set_presentation_design`
+- `tests/draw/test_designs.py` / `test_designs_uno.py` - PathSettings list, current-doc Metropolis clone+assign, internal create-from-template helper
 
 ----
 

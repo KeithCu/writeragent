@@ -9,6 +9,8 @@
 
 Later follow-up (load-master probe + headed #791): DiaMode clipboard import is **not** product-safe headed (system clipboard). Current-doc `apply_design` clones the Hidden `.otp` master into the open deck, then `MasterPage` assign-all. The `loadStylesFromURL` / PresentationLayout walls still stand; do not revert to those APIs or to DiaMode Copy/Paste.
 
+Later product change: `apply_design` is **current-doc only** (no `new_document`). `set_presentation_design` was removed — a new Impress window spawned a second sidebar agent with empty chat context. Create-from-template stays an internal/test helper. Headers/footers are no longer auto-enabled on apply; use specialized `set_headers_footers` when needed.
+
 Shots, ODPs, and debug logs stay **box-local** under `/workspace/impress-m0-probe/` (not committed — same lean-history practice as the headed findings run).
 
 ---
@@ -187,8 +189,8 @@ Full JSON dumps live under `/workspace/impress-m0-probe/uno/` (`enumerate_design
 **Proceed M1′:**
 
 1. `list_designs` — enumerate shipped `.otp` via PathSettings (do not hardcode install path).
-2. `apply_design` via **create-from-template** (**new doc** only).
-3. Core `set_presentation_design` — design + master + HF / slide numbers.
+2. `apply_design` restyles the **open** deck (Hidden `.otp` master clone + assign-all). Create-from-template is **not** model-facing.
+3. No core `set_presentation_design` — that new-doc one-shot was removed (second window / fresh sidebar). HF stays on specialized `set_headers_footers`.
 
 **Declare LO wall** for **current-doc** apply-design:
 

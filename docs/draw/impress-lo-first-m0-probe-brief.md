@@ -16,7 +16,7 @@ Two parallel deliverables, same LO-first question:
 1. **M0′ headed 3-arm probe** — can `inception/mercury-2.5` get **non-generic polish** using stock LibreOffice slide designs + master / layout / placeholder / headers-footers (no WriterAgent design engine)?
 2. **Parallel UNO probe** — how to **enumerate and apply** shipped `.otp` slide designs, how to set **page/master background**, and whether any **ODF Theme API** exists on this LO. Written result, not guessed wrappers.
 
-If arms B/C pass the criteria below, next work is **M1′** (expose list/apply design + core `set_presentation_design`). If they fail, the write-up of *which* LO feature failed **is** the LO wall for **M3′** — do not invent `deck.py` / `DeckTheme` in this brief’s scope.
+If arms B/C pass the criteria below, next work is **M1′** (expose list/apply design). Product later shipped current-doc `apply_design` only — no core `set_presentation_design` / `new_document`. If they fail, the write-up of *which* LO feature failed **is** the LO wall for **M3′** — do not invent `deck.py` / `DeckTheme` in this brief’s scope.
 
 ---
 
@@ -112,7 +112,7 @@ Deliver a **written result** (paths that work / don’t). Do **not** land Theme 
 
 1. **Headed report** with A/B/C shots + scores vs the five pass criteria (and tool/debug logs per arm).
 2. **UNO probe note**: enumerate path; which apply-design candidate works on current vs new doc; background property names; Theme API **yes/no**.
-3. **Recommendation:** proceed **M1′** (list/apply shipped design + core `set_presentation_design`: design + master + HF) **or** declare an **LO wall** for a specific gap (feeds M3′ only).
+3. **Recommendation:** proceed **M1′** (list/apply shipped design on the open deck) **or** declare an **LO wall** for a specific gap (feeds M3′ only). Do not add a new-doc `set_presentation_design` tool.
 
 Prefer landing the headed report + UNO notes at `docs/draw/impress-lo-first-m0-probe-results.md` when the farmed agent finishes. **This ticket only adds the brief**, not the results file.
 
