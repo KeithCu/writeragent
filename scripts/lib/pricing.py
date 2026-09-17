@@ -50,7 +50,8 @@ def fetch_openrouter_pricing(ctx, force=False):
     log.info("Fetching fresh OpenRouter pricing...")
     url = "https://openrouter.ai/api/v1/models"
     try:
-        data = sync_request(url, parse_json=True)
+        # Eval catalog fetch: short explicit probe, not Settings request_timeout.
+        data = sync_request(url, parse_json=True, timeout=10)
         if data and "data" in data:
             if not cache_path:
                 return

@@ -15,6 +15,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 - **Together**: integer `width` / `height` (Kontext: `aspect_ratio` only). The OpenAI `size` string is dropped — Together ignores it.
 - **Google native**: Imagen `parameters.aspectRatio` + `imageSize` (`1K` / `2K`); Gemini `imageConfig.aspectRatio` + `imageSize` (`512` / `1K` / `2K` / `4K`).
 - **`ImageService`**: merges config defaults (base size, steps) and delegates to `EndpointImageProvider`.
+- **HTTP timeout**: `LlmClient.image_completion` and `EndpointImageProvider._save_url` pass Settings `request_timeout` into [`sync_request`](../../plugin/framework/client/requests.py). That helper has **no default timeout** — every caller must pass `timeout=` (chat/STT already used `self._timeout()`; image generate/edit used to omit it and die at 10s while the Settings message said to raise Request Timeout). Catalog probes (`model_fetcher`) keep an explicit short timeout at the call site.
 
 ### Tools and document insertion
 
@@ -58,6 +59,7 @@ Image generation and editing in WriterAgent uses the **same endpoint URL and API
 | `image_steps` | Steps passed to the endpoint when &gt; 0. |
 | `image_auto_gallery` | Add generated images to Media Gallery. |
 | `image_insert_frame` | Wrap inserted images in a frame. |
+| `request_timeout` | Connect+read budget for `image_completion` and generated-URL downloads (same Settings knob as chat). |
 | `seed` | Reserved for future local generation backends. |
 
 After a successful endpoint generation, the model used is pushed into `image_model_lru`.

@@ -627,7 +627,12 @@ class LlmClient:
         # Path/query must not include API keys (Google image used to put ?key= here).
         log.debug("URL: %s" % urllib.parse.urlunparse(urllib.parse.urlparse(url)._replace(query="", fragment="")))
 
-        res = sync_request(url, method=method, data=body, headers=headers)
+        # Image generate/edit used to omit timeout, so sync_request's old
+        # default of 10s fired while Settings request_timeout (e.g. 122) was
+        # ignored — OpenRouter /images then showed a misleading "increase
+        # Request Timeout" message after ~10s wall clock. Pass the same
+        # Settings budget as chat sync / STT.
+        res = sync_request(url, method=method, data=body, headers=headers, timeout=self._timeout())
         if not res:
             return []
 

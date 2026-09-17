@@ -40,7 +40,12 @@ class TestEndpointImageProvider(unittest.TestCase):
         self.assertEqual(len(paths), 1)
         self.assertEqual(err, "")
         self.assertTrue(paths[0].endswith(".webp"))
-        mock_sync.assert_called_once_with("http://example.com/image.png", parse_json=False)
+        from plugin.framework.config import get_config_int
+        mock_sync.assert_called_once_with(
+            "http://example.com/image.png",
+            parse_json=False,
+            timeout=get_config_int("request_timeout"),
+        )
 
     def test_generate_openrouter_b64(self):
         self.mock_client.config.get.side_effect = lambda k, d=None: True if k == "is_openrouter" else d
@@ -93,7 +98,12 @@ class TestEndpointImageProvider(unittest.TestCase):
         
         self.assertEqual(len(paths), 1)
         self.assertEqual(err, "")
-        mock_sync.assert_called_with("http://fallback.com/image.png", parse_json=False)
+        from plugin.framework.config import get_config_int
+        mock_sync.assert_called_with(
+            "http://fallback.com/image.png",
+            parse_json=False,
+            timeout=get_config_int("request_timeout"),
+        )
         os.unlink(paths[0])
 
     def test_fallback_logic_b64(self):

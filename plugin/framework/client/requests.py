@@ -18,11 +18,14 @@ from .errors import _format_http_error_response
 log = logging.getLogger(__name__)
 
 
-def sync_request(url, data=None, headers=None, timeout=10, parse_json=True, method=None):
+def sync_request(url, data=None, headers=None, parse_json=True, method=None, *, timeout):
     """
     Blocking HTTP GET or POST. Shared by LLM client and other code.
     url: str or urllib.request.Request. If Request, headers/data come from it.
     data: optional bytes for POST. headers: optional dict (used only if url is str).
+    timeout: required seconds for connect+read (no silent default — callers must
+    pass Settings ``request_timeout`` / ``LlmClient._timeout()`` for LLM and
+    image work, or an explicit short probe value at the call site).
     Returns response data: decoded JSON if parse_json else raw bytes. Raises on error.
     """
     if headers is None:

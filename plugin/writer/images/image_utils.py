@@ -51,7 +51,9 @@ class EndpointImageProvider(ImageProvider):
 
     def _save_url(self, url, suffix=".webp"):
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(sync_request(url, parse_json=False))
+            # Same Settings budget as image_completion — downloading the
+            # generated file can take as long as the provider POST.
+            tmp.write(sync_request(url, parse_json=False, timeout=get_config_int("request_timeout")))
             return [tmp.name]
 
     def generate(self, prompt, width=512, height=512, model=None, steps=None, **kwargs):

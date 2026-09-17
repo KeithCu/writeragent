@@ -37,6 +37,10 @@ from plugin.framework.config_schema import as_bool
 
 log = logging.getLogger(__name__)
 
+# Catalog / show probes are short and unrelated to LLM generate time.
+# Written at each sync_request call site (timeout is required, no default).
+_MODEL_FETCH_TIMEOUT = 10
+
 # Endpoint presets: local first, then FOSS-friendly / open-model providers, proprietary last. Base URLs only; get_api_version_suffix adds /v1, /api (OpenWebUI), or /api/paas/v4 (Z.ai).
 ENDPOINT_PRESETS = [
     ("Local (Ollama)", "http://localhost:11434"),
@@ -277,7 +281,7 @@ def fetch_available_models(endpoint, api_key_override: str | None = None):
 
     try:
         from plugin.framework.client.requests import sync_request
-        data = sync_request(url, parse_json=True, headers=req_headers)
+        data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
         parsed = _parse_v1_models_response(data)
         if parsed is not None:
             models, image_models, vision_models = parsed
@@ -348,7 +352,7 @@ def fetch_available_image_models(endpoint, api_key_override: str | None = None):
 
         try:
             from plugin.framework.client.requests import sync_request
-            data = sync_request(url, parse_json=True, headers=req_headers)
+            data = sync_request(url, parse_json=True, headers=req_headers, timeout=_MODEL_FETCH_TIMEOUT)
             entries = _v1_models_entries_from_body(data)
             if entries is not None:
                 image_models = []
@@ -712,7 +716,7 @@ def query_ollama_show(endpoint: str, model_id: str) -> dict[str, Any] | None:
     try:
         from plugin.framework.client.requests import sync_request
         headers = {"Content-Type": "application/json"}
-        res = sync_request(url, data=json.dumps(req_body).encode("utf-8"), headers=headers, parse_json=True)
+        res = sync_request(url, data=json.dumps(req_body).encode("utf-8"), headers=headers, parse_json=True, timeout=_MODEL_FETCH_TIMEOUT)
         if isinstance(res, dict):
             caps = res.get("capabilities") or []
             if not isinstance(caps, list):

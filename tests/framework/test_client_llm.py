@@ -1056,6 +1056,19 @@ def test_ollama_shim_image(client):
         assert shim.parse_image_responses({"data": [{"b64_json": "ghi"}]}) == ["ghi"]
 
 
+def test_image_completion_passes_client_timeout(client):
+    """Image generate/edit must use Settings request_timeout, not a silent 10s default."""
+    client.config["request_timeout"] = 122
+    with (
+        patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth,
+        patch("plugin.framework.client.llm_client.sync_request") as mock_sync,
+    ):
+        mock_auth.return_value = {"provider": "openai"}
+        mock_sync.return_value = {"data": []}
+        client.image_completion("Draw a cat", model="dall-e-3", width=1024, height=1024)
+        assert mock_sync.call_args.kwargs["timeout"] == 122
+
+
 def test_openrouter_shim_image(client):
     client.config["endpoint"] = "https://openrouter.ai/api"
     with (
