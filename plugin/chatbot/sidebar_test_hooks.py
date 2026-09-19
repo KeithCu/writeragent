@@ -197,6 +197,29 @@ def _read_debug_snapshot() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _parse_debug_sidebar_command(command: str) -> tuple[str, str]:
+    """Split ``chatbot.debug_sidebar.<OP>`` / ``?OP&uid=`` into ``(op, uid)``.
+
+    ``DispatchHandler`` joins Path+Query with ``.``. LO often leaves the op
+    in Path as ``chatbot.debug_sidebar?INFLATE_HISTORY`` (Query empty). The
+    URP client may append ``&uid=<RuntimeUID>`` so soffice inflate/snapshot
+    bind that deck — not leftover Calc from ``getCurrentComponent()``.
+    Parse *before* ``upper()`` so a hyphenated uid is not rewritten.
+    """
+    rest = command
+    if command.startswith(_DEBUG_SIDEBAR_PREFIX):
+        rest = command[len(_DEBUG_SIDEBAR_PREFIX) :]
+    rest = rest.lstrip(".?")
+    op_part, _, extra = rest.partition("&")
+    op = (op_part or "SNAPSHOT").upper().replace("-", "_")
+    uid = ""
+    for part in extra.split("&"):
+        key, sep, val = part.partition("=")
+        if sep and key.lower() == "uid":
+            uid = val
+    return op, uid
+
+
 def handle_debug_sidebar_command(command: str) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
@@ -209,17 +232,17 @@ def handle_debug_sidebar_command(command: str) -> None:
     """
     _require_debug()
     adopt_runtime_send_listeners()
-    # DispatchHandler joins Path+Query with ``.``, but LO often leaves the op
-    # in Path as ``chatbot.debug_sidebar?OPEN_CALC`` (Query empty). Strip both.
-    rest = command[len(_DEBUG_SIDEBAR_PREFIX) :].lstrip(".?")
-    op = (rest or "SNAPSHOT").upper().replace("-", "_")
-    # INFLATE must use the current doc's listener. ``_listener_with_slash_popup``
-    # can steal a leftover Calc listener that still has Ask-box state.
-    sl = (
-        _listener_for_current_doc()
-        if op == "INFLATE_HISTORY"
-        else _listener_with_slash_popup(send_listener())
-    )
+    op, target_uid = _parse_debug_sidebar_command(command)
+    # Prefer the URP client's document uid (executeDispatch frame). #802 bound
+    # INFLATE to soffice getCurrentComponent(); leftover Calc after Packet P /
+    # E12 is often still current there, so pads missed the Writer Send deck.
+    sl = send_listener_for_uid(target_uid) if target_uid else None
+    if sl is None:
+        sl = (
+            _listener_for_current_doc()
+            if op == "INFLATE_HISTORY"
+            else _listener_with_slash_popup(send_listener())
+        )
     if op == "SNAPSHOT":
         _write_debug_snapshot(sl)
         return
@@ -325,6 +348,15 @@ def handle_debug_sidebar_command(command: str) -> None:
         set_force_marshal_mode(False)
 
 
+def _debug_sidebar_query(op: str, uid: str = "") -> str:
+    """``INFLATE_HISTORY`` or ``INFLATE_HISTORY&uid=34`` for executeDispatch."""
+    token = (op or "SNAPSHOT").strip()
+    uid = str(uid or "").strip()
+    if uid:
+        return "%s&uid=%s" % (token, uid)
+    return token
+
+
 def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
     """URP client: dispatch ``org.extension.writeragent:chatbot.debug_sidebar.<OP>`` in soffice."""
     _require_debug()
@@ -342,13 +374,24 @@ def execute_debug_sidebar_op(op: str, *, ctx: Any = None) -> dict[str, Any]:
         frame = None
     if frame is None:
         raise RuntimeError("debug_sidebar: no frame for executeDispatch")
-    url = "%s:%s?%s" % (EXTENSION_ID_WRITERAGENT, _DEBUG_SIDEBAR_PREFIX, op)
+    uid = ""
+    try:
+        from plugin.framework.uno_context import get_runtime_uid
+
+        uid = get_runtime_uid(doc) or ""
+    except Exception:
+        uid = ""
+    url = "%s:%s?%s" % (EXTENSION_ID_WRITERAGENT, _DEBUG_SIDEBAR_PREFIX, _debug_sidebar_query(op, uid))
     smgr = uno_ctx.getServiceManager()
     helper = smgr.createInstanceWithContext("com.sun.star.frame.DispatchHelper", uno_ctx)
     helper.executeDispatch(frame, url, "", 0, ())
     if op.upper() != "SNAPSHOT":
         time.sleep(0.25)
-        snap_url = "%s:%s?SNAPSHOT" % (EXTENSION_ID_WRITERAGENT, _DEBUG_SIDEBAR_PREFIX)
+        snap_url = "%s:%s?%s" % (
+            EXTENSION_ID_WRITERAGENT,
+            _DEBUG_SIDEBAR_PREFIX,
+            _debug_sidebar_query("SNAPSHOT", uid),
+        )
         helper.executeDispatch(frame, snap_url, "", 0, ())
     return _read_debug_snapshot()
 
@@ -1008,6 +1051,42 @@ def send_listener_for_doc(doc: Any) -> Any:
     except Exception:
         return None
     return send_listener(frame)
+
+
+def send_listener_for_uid(uid: str) -> Any:
+    """``SendButtonListener`` for *uid* (production live-panel map, then debug walk).
+
+    Packet K inflate must not use soffice ``getCurrentComponent()`` when the
+    URP client already named the Writer RuntimeUID. Leftover Calc after
+    Packet P / E12 stays current in soffice and used to eat INFLATE_HISTORY.
+    """
+    _require_debug()
+    token = str(uid or "").strip()
+    if not token:
+        return None
+    try:
+        from plugin.doc.live_panels import get_live_panel
+
+        panel = get_live_panel(token)
+    except Exception:
+        panel = None
+    if panel is not None:
+        sl = getattr(panel, "send_listener", None)
+        if sl is not None:
+            return sl
+    from plugin.framework.uno_context import get_runtime_uid
+
+    for sl in iter_send_listeners():
+        frame = getattr(sl, "frame", None)
+        if frame is None:
+            continue
+        try:
+            model = frame.getController().getModel()
+            if str(get_runtime_uid(model) or "") == token:
+                return sl
+        except Exception:
+            continue
+    return None
 
 
 def iter_send_listeners() -> list[Any]:

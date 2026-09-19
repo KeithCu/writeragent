@@ -66,6 +66,7 @@ from plugin.chatbot.sidebar_test_hooks import (
     handle_debug_sidebar_command,
     inflate_sidebar_history,
     open_calc_document,
+    send_listener_for_uid,
 )
 from tests.chatbot.mock_llm_harness import mock_config
 
@@ -549,6 +550,70 @@ def test_inflate_history_pads_current_doc_not_leftover_calc(
     os.remove(path)
     assert sum(len(str(m.get("content") or "")) for m in writer_session.messages) >= 20000
     assert calc_session.messages == [{"role": "system", "content": "calc"}]
+
+
+def test_parse_debug_sidebar_command_strips_uid() -> None:
+    from plugin.chatbot.sidebar_test_hooks import (
+        _debug_sidebar_query,
+        _parse_debug_sidebar_command,
+    )
+
+    parse_op = _parse_debug_sidebar_command
+    assert parse_op("chatbot.debug_sidebar.INFLATE_HISTORY") == ("INFLATE_HISTORY", "")
+    assert parse_op("chatbot.debug_sidebar?INFLATE_HISTORY&uid=34") == ("INFLATE_HISTORY", "34")
+    assert parse_op("chatbot.debug_sidebar.SNAPSHOT&uid=writer-uid") == ("SNAPSHOT", "writer-uid")
+    assert parse_op("chatbot.debug_sidebar.OPEN_CALC") == ("OPEN_CALC", "")
+    assert _debug_sidebar_query("INFLATE_HISTORY", "34") == "INFLATE_HISTORY&uid=34"
+    assert _debug_sidebar_query("SNAPSHOT", "") == "SNAPSHOT"
+
+
+def test_inflate_history_uid_pads_writer_when_soffice_current_is_calc(
+    fake_listener: _FakeListener, monkeypatch
+) -> None:
+    """URP ``&uid=`` must win over leftover Calc as soffice current component.
+
+    #802 bound INFLATE to getCurrentComponent(); CI K1 still saw hello
+    n_messages=2 because soffice current stayed on leftover Calc after P/E12
+    while URP Send clicked Writer.
+    """
+    from plugin.chatbot import sidebar_test_hooks as hooks
+    from plugin.chatbot.sidebar_test_hooks import debug_sidebar_snapshot_path
+    from plugin.doc.live_panels import register_live_panel, reset_live_panels
+
+    class _Session:
+        def __init__(self, name: str) -> None:
+            self.messages = [{"role": "system", "content": name}]
+            self.compaction = None
+
+    writer_session = _Session("writer")
+    calc_session = _Session("calc")
+    writer_sl = fake_listener
+    writer_sl.session = writer_session
+    writer_sl.model_selector = None
+    writer_sl._last_compact_reason = None
+    calc_sl = _FakeListener()
+    calc_sl.session = calc_session
+    calc_sl.slash_popup = "leftover"
+    calc_sl.model_selector = None
+    writer = SimpleNamespace(xFrame=object(), Frame=object(), send_listener=writer_sl)
+    reset_live_panels()
+    register_live_panel("writer-uid", writer)
+    monkeypatch.setattr(hooks, "adopt_runtime_send_listeners", lambda: 0)
+    # Soffice current is leftover Calc — the #802 path would pad this session.
+    monkeypatch.setattr(hooks, "_listener_for_current_doc", lambda: calc_sl)
+    monkeypatch.setattr(hooks, "send_listener", lambda frame=None: calc_sl)
+    monkeypatch.setattr(hooks, "_listener_with_slash_popup", lambda sl: sl)
+    try:
+        handle_debug_sidebar_command("chatbot.debug_sidebar.INFLATE_HISTORY&uid=writer-uid")
+        path = debug_sidebar_snapshot_path()
+        assert os.path.isfile(path)
+        os.remove(path)
+        assert sum(len(str(m.get("content") or "")) for m in writer_session.messages) >= 20000
+        assert calc_session.messages == [{"role": "system", "content": "calc"}]
+        assert send_listener_for_uid("writer-uid") is writer_sl
+        assert send_listener_for_uid("missing") is None
+    finally:
+        reset_live_panels()
 
 
 def test_clear_sidebar_chat_resets_session_and_widget(fake_listener: _FakeListener) -> None:
