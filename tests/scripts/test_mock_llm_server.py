@@ -1906,6 +1906,29 @@ def test_calc_inner_reply_copies_peer_ask_id_then_finishes():
     assert finish.tool_name == "specialized_workflow_finished"
 
 
+def test_calc_inner_reply_task_without_envelope_sends_peer():
+    """Live P3: specialized user text is the scripted Reply task, not the envelope.
+
+    After write_formula_range the outer delegates with peer_ask_id in the task.
+    Phrase-only 'add a total row' does not appear there. Treating that as
+    leftover-Calc discovery (list_nearby_files) finishes without a reply.
+    """
+    task = (
+        "Reply to the peer envelope with send_peer_message: document_url=writer-uid "
+        "peer_ask_id=ask-1 message=<one HTML/result string> then finish immediately."
+    )
+    send = decide_completion(_payload(task, _INNER_PEER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
+    assert send.tool_name == "send_peer_message"
+    assert send.tool_name != "list_nearby_files"
+    assert (send.tool_args or {}).get("peer_ask_id") == "ask-1"
+    assert (send.tool_args or {}).get("document_url") == "writer-uid"
+    finish = decide_completion(
+        _payload(task, _INNER_PEER, system=_WRITER_SYS, prior=_tool_follow("send_peer_message")),
+        MockLLMConfig(delay_ms=0),
+    )
+    assert finish.tool_name == "specialized_workflow_finished"
+
+
 def test_writer_followup_applies_peer_reply():
     envelope = (
         "[Peer from: BudgetPeer.ods | uid=calc-uid | url=file:///tmp/BudgetPeer.ods | peer_ask_id=ask-1]\n\n"

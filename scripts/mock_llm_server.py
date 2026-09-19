@@ -1052,9 +1052,14 @@ def _specialized_inner_discovery(tool_names: set[str]) -> Completion | None:
 
 
 def _peer_phrase(text: str) -> bool:
+    # Include the live Calc-reply task (peer_ask_id / "reply to the peer").
+    # Phrase-only "add a total row" matches the inbound envelope; after
+    # write_formula_range the specialized POST is the scripted Reply string
+    # (P3). Without this, leftover-Calc discovery (list_nearby_files) wins.
     return bool(
         re.search(
-            r"\b(add a total row|ask the budget workbook|peer total|wait after accepted|do not finish peer)\b",
+            r"\b(add a total row|ask the budget workbook|peer total|wait after accepted|"
+            r"do not finish peer|peer_ask_id|reply to the peer)\b",
             text or "",
             re.IGNORECASE,
         )
