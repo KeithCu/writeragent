@@ -1437,6 +1437,7 @@ def test_native_doc_impress_teardown_closes_on_posix_with_leftovers(monkeypatch)
         "_log_office_health_after_close",
         lambda _ctx, doc_type: events.append(("health", doc_type)),
     )
+    monkeypatch.setattr(tu.sys, "platform", "linux")
     saved = tu._windows_leftover_open()
     tu._set_windows_leftover_open(1)
     try:
