@@ -451,6 +451,7 @@ def test_handle_debug_sidebar_inflate_history(fake_listener: _FakeListener, monk
     fake_listener.session = _Session()
     fake_listener._last_compact_reason = None
     monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.adopt_runtime_send_listeners", lambda: 0)
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks._listener_for_current_doc", lambda: fake_listener)
     monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: fake_listener)
     handle_debug_sidebar_command("chatbot.debug_sidebar.INFLATE_HISTORY")
     path = debug_sidebar_snapshot_path()
@@ -480,6 +481,74 @@ def test_inflate_sidebar_history_in_process(fake_listener: _FakeListener, monkey
     assert estimate_tokens(fake_listener.session.messages) >= int(32768 * 0.75)
     assert fake_listener.session.messages[0]["role"] == "system"
     assert fake_listener.session.messages[-1]["role"] == "assistant"
+
+
+def test_sidebar_panel_prefers_current_doc_not_weakset_first(monkeypatch) -> None:
+    """Packet K: leftover Calc must not win inflate / send_listener()."""
+    from plugin.chatbot import sidebar_test_hooks as hooks
+
+    class _Session:
+        def __init__(self, name: str) -> None:
+            self.messages = [{"role": "system", "content": name}]
+            self.compaction = None
+
+    writer_frame = object()
+    calc_frame = object()
+    writer_sl = SimpleNamespace(session=_Session("writer"), slash_popup=None, name="writer")
+    calc_sl = SimpleNamespace(session=_Session("calc"), slash_popup="stolen", name="calc")
+    writer = SimpleNamespace(xFrame=writer_frame, Frame=writer_frame, send_listener=writer_sl)
+    calc = SimpleNamespace(xFrame=calc_frame, Frame=calc_frame, send_listener=calc_sl)
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [calc, writer])
+    monkeypatch.setattr(hooks, "_current_frame", lambda: writer_frame)
+    assert hooks.sidebar_panel() is writer
+    assert hooks.sidebar_panel(writer_frame) is writer
+    assert hooks.sidebar_panel(calc_frame) is calc
+    assert hooks.send_listener() is writer_sl
+    assert hooks.send_listener() is not calc_sl
+
+
+def test_inflate_history_pads_current_doc_not_leftover_calc(
+    fake_listener: _FakeListener, monkeypatch
+) -> None:
+    """INFLATE_HISTORY must grow the current Writer session, not WeakSet[0]."""
+    from plugin.chatbot import sidebar_test_hooks as hooks
+    from plugin.chatbot.sidebar_test_hooks import debug_sidebar_snapshot_path
+
+    class _Session:
+        def __init__(self, name: str) -> None:
+            self.messages = [{"role": "system", "content": name}]
+            self.compaction = None
+
+    writer_frame = object()
+    calc_frame = object()
+    writer_session = _Session("writer")
+    calc_session = _Session("calc")
+    writer_sl = fake_listener
+    writer_sl.session = writer_session
+    writer_sl.model_selector = None
+    writer_sl._last_compact_reason = None
+    calc_sl = _FakeListener()
+    calc_sl.session = calc_session
+    calc_sl.slash_popup = "leftover"
+    calc_sl.model_selector = None
+    writer = SimpleNamespace(xFrame=writer_frame, Frame=writer_frame, send_listener=writer_sl)
+    calc = SimpleNamespace(xFrame=calc_frame, Frame=calc_frame, send_listener=calc_sl)
+    monkeypatch.setattr(hooks, "adopt_runtime_send_listeners", lambda: 0)
+    monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [calc, writer])
+    monkeypatch.setattr(hooks, "_current_frame", lambda: writer_frame)
+    monkeypatch.setattr(hooks, "_HOOK_CTX", object())
+    monkeypatch.setattr(hooks, "current_component", lambda ctx: SimpleNamespace(_frame=writer_frame))
+    monkeypatch.setattr(
+        hooks,
+        "send_listener_for_doc",
+        lambda doc: writer_sl if getattr(doc, "_frame", None) is writer_frame else calc_sl,
+    )
+    handle_debug_sidebar_command("chatbot.debug_sidebar.INFLATE_HISTORY")
+    path = debug_sidebar_snapshot_path()
+    assert os.path.isfile(path)
+    os.remove(path)
+    assert sum(len(str(m.get("content") or "")) for m in writer_session.messages) >= 20000
+    assert calc_session.messages == [{"role": "system", "content": "calc"}]
 
 
 def test_clear_sidebar_chat_resets_session_and_widget(fake_listener: _FakeListener) -> None:

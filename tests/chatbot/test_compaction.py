@@ -555,6 +555,16 @@ def test_resolve_context_window_writeragent_mock():
     assert C.resolve_context_window(client) != 256000
 
 
+def test_resolve_context_window_slash_lru_unknown_is_none():
+    """Slash LRU ids are not in DEFAULT_MODELS — compact returns no_window, no retry."""
+    client = DummyClient(
+        provider="custom",
+        model="mock-bravo",
+        endpoint="http://127.0.0.1:18766",
+    )
+    assert C.resolve_context_window(client) is None
+
+
 def _clear_v1_context_cache_keys(substr):
     import plugin.framework.client.model_fetcher as mf
 

@@ -213,7 +213,13 @@ def handle_debug_sidebar_command(command: str) -> None:
     # in Path as ``chatbot.debug_sidebar?OPEN_CALC`` (Query empty). Strip both.
     rest = command[len(_DEBUG_SIDEBAR_PREFIX) :].lstrip(".?")
     op = (rest or "SNAPSHOT").upper().replace("-", "_")
-    sl = _listener_with_slash_popup(send_listener())
+    # INFLATE must use the current doc's listener. ``_listener_with_slash_popup``
+    # can steal a leftover Calc listener that still has Ask-box state.
+    sl = (
+        _listener_for_current_doc()
+        if op == "INFLATE_HISTORY"
+        else _listener_with_slash_popup(send_listener())
+    )
     if op == "SNAPSHOT":
         _write_debug_snapshot(sl)
         return
@@ -415,15 +421,64 @@ def _send_event_or_urp(kind: SendEventKind, *, listener: Any = None) -> None:
     execute_debug_sidebar_op(kind.name)
 
 
+def _panel_frame(panel: Any) -> Any:
+    return getattr(panel, "xFrame", None) or getattr(panel, "Frame", None)
+
+
+def _frames_match(left: Any, right: Any) -> bool:
+    """True when *left* and *right* are the same frame.
+
+    PyUNO hands out distinct wrappers; bare ``is`` misses after Packet P / E12
+    reopen the Writer deck. ``uno_same`` is the product identity test.
+    """
+    if left is None or right is None:
+        return False
+    if left is right:
+        return True
+    try:
+        from plugin.framework.uno_context import uno_same
+
+        return bool(uno_same(left, right))
+    except Exception:
+        return False
+
+
+def _current_frame() -> Any:
+    """Frame of ``desktop.getCurrentComponent()``, or None.
+
+    Packet K inflate / URP debug ops must bind this frame. WeakSet[0] is
+    leftover Calc after Packet P / E12 (those panels stay alive because
+    ``_LIVE_SEND_LISTENERS`` holds a strong ref).
+    """
+    try:
+        ctx = _HOOK_CTX
+        if ctx is None:
+            from plugin.framework.uno_context import get_ctx
+
+            ctx = get_ctx()
+        doc = current_component(ctx)
+        if doc is None:
+            return None
+        return doc.getCurrentController().getFrame()
+    except Exception:
+        return None
+
+
 def sidebar_panel(frame: Any = None) -> Any:
-    """Return the live ``ChatPanelElement`` for *frame*, or the only live panel."""
+    """Return the live ``ChatPanelElement`` for *frame*, or the current doc's panel.
+
+    When *frame* is omitted and several decks are live, prefer the current
+    component. Returning ``panels[0]`` padded a leftover Calc ``ChatSession``
+    while URP Send clicked Writer (Packet K CI: n_messages=2, no summarizer).
+    """
     _require_debug()
     panels = iter_live_chat_panels()
     if not panels:
         return None
-    if frame is not None:
+    target = frame if frame is not None else _current_frame()
+    if target is not None:
         for panel in panels:
-            if getattr(panel, "xFrame", None) is frame or getattr(panel, "Frame", None) is frame:
+            if _frames_match(_panel_frame(panel), target):
                 return panel
     if len(panels) == 1:
         return panels[0]
@@ -733,12 +788,9 @@ def send_listener(frame: Any = None) -> Any:
     panel = sidebar_panel(frame)
     if panel is not None:
         sl = getattr(panel, "send_listener", None)
-        if sl is not None and getattr(sl, "slash_popup", None) is not None:
-            return sl
         if sl is not None:
-            found = _listener_with_slash_popup(sl)
-            if found is not None:
-                return found
+            # Do not steal a leftover slash-popup listener from another deck.
+            # Packet K inflate + URP Send must share this panel's ChatSession.
             return sl
     with_popup = [obj for obj in _LIVE_SEND_LISTENERS if getattr(obj, "slash_popup", None) is not None]
     if with_popup:
@@ -746,6 +798,22 @@ def send_listener(frame: Any = None) -> Any:
     if _LIVE_SEND_LISTENERS:
         return _LIVE_SEND_LISTENERS[-1]
     return None
+
+
+def _listener_for_current_doc() -> Any:
+    """SendButtonListener for the current component (Packet K inflate)."""
+    try:
+        ctx = _HOOK_CTX
+        if ctx is None:
+            from plugin.framework.uno_context import get_ctx
+
+            ctx = get_ctx()
+        sl = send_listener_for_doc(current_component(ctx))
+        if sl is not None:
+            return sl
+    except Exception:
+        pass
+    return send_listener()
 
 
 def _listener_with_slash_popup(sl: Any) -> Any:
@@ -1355,7 +1423,14 @@ def transcript_contains(needle: str, *, listener: Any = None) -> bool:
 def inflate_sidebar_history(*, ctx: Any = None) -> dict[str, Any]:
     """Grow ChatSession.messages in soffice past the mock compaction gate."""
     _require_debug()
-    sl = send_listener()
+    sl = None
+    if ctx is not None:
+        try:
+            sl = send_listener_for_doc(current_component(ctx))
+        except Exception:
+            sl = None
+    if sl is None:
+        sl = send_listener()
     session = getattr(sl, "session", None) if sl is not None else None
     messages = getattr(session, "messages", None)
     # In-process listener only. A URP proxy has no ChatSession.messages list.

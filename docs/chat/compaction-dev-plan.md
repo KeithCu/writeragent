@@ -28,6 +28,7 @@ WriterAgent sidebar chat sends conversational history along with a freshly rebui
 - **Overflow retry loop:** On prompt-too-large HTTP errors (distinguished from server process crashes), the turn is automatically retried with `force_compact=True` up to 3 times, gated by a more-than-5% shrink (`after < before * 0.95`; exact 5% is not a shrink).
 - **Dedicated worker execution:** Compaction runs inside the existing `llm_request_lane` lock on background worker threads, never stalling the UI thread.
 - **Single kill switch:** `chat_compaction_enabled` in `writeragent.json` disables both proactive compaction and overflow retries.
+- **Mock-sidebar inflate** (Packet K) must pad the current document's `ChatSession`, not WeakSet[0]. Leftover Calc panels after Packet P / E12 made K1/K2 look like a compact-wire break (`n_messages=2`, no summarizer, no respawn).
 
 ### Invariants
 

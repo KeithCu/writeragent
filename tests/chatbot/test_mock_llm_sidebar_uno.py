@@ -2566,10 +2566,39 @@ def _ensure_compaction_enabled(enabled: bool) -> None:
         time.sleep(2.1)
 
 
-def _k_reset() -> None:
+def _prepare_k_sidebar(ctx: Any) -> None:
+    """Re-bind Packet K to the live Writer deck (not a leftover Calc panel).
+
+    Packet P / E12 leave extra ChatPanelElements in the soffice WeakSet.
+    Inflate used to pad WeakSet[0] while URP Send clicked Writer — hello
+    POSTs were n_messages=2 with no summarizer. Re-adopt Writer and pin
+    ``writeragent-mock`` on the same controls ``_send_and_wait`` uses so
+    ``sync_sidebar_text_model`` cannot restore a slash-LRU id (no_window).
+    """
+    from plugin.chatbot.dialogs import set_control_text
+    from plugin.chatbot.sidebar_test_hooks import (
+        ensure_sidebar_chat_mode,
+        wait_for_chat_dialog_controls,
+    )
+    from plugin.framework.client.model_fetcher import set_text_model
+    from scripts.mock_llm_server import MOCK_MODEL_ID
+
+    _ensure_writer_doc(ctx)
+    controls = wait_for_chat_dialog_controls(ctx, timeout=15.0)
+    ensure_sidebar_chat_mode(controls)
+    if controls and "model_selector" in controls:
+        set_control_text(controls["model_selector"], MOCK_MODEL_ID)
+    set_text_model(MOCK_MODEL_ID, update_lru=False)
+    if _session is not None:
+        _session.controls = controls
+
+
+def _k_reset(ctx: Any = None) -> None:
     _reset_mock_runtime()
     assert _session is not None
     _session.config.delay_ms = 0
+    if ctx is not None:
+        _prepare_k_sidebar(ctx)
     _clear_chat()
 
 
@@ -2621,7 +2650,7 @@ def _inflate_history(ctx: Any = None) -> dict[str, Any]:
 @native_test
 def test_k1_proactive_compact_then_hello(ctx):
     _ensure_compaction_enabled(True)
-    _k_reset()
+    _k_reset(ctx)
     _inflate_history(ctx)
     from scripts.mock_llm_server import clear_captures
 
@@ -2639,7 +2668,7 @@ def test_k1_proactive_compact_then_hello(ctx):
 @native_test
 def test_k1b_update_compaction_second_turn(ctx):
     _ensure_compaction_enabled(True)
-    _k_reset()
+    _k_reset(ctx)
     _inflate_history(ctx)
     from scripts.mock_llm_server import clear_captures
 
@@ -2665,7 +2694,7 @@ def test_k1b_update_compaction_second_turn(ctx):
 @native_test
 def test_k2_overflow_once_retries_then_hello(ctx):
     _ensure_compaction_enabled(True)
-    _k_reset()
+    _k_reset(ctx)
     _inflate_history(ctx)
     from scripts.mock_llm_server import clear_captures
 
@@ -2696,7 +2725,7 @@ def test_k2_overflow_once_retries_then_hello(ctx):
 
 @native_test
 def test_k3_kill_switch_overflow_no_retry(ctx):
-    _k_reset()
+    _k_reset(ctx)
     _ensure_compaction_enabled(False)
     try:
         from scripts.mock_llm_server import clear_captures
@@ -2725,7 +2754,7 @@ def test_k3_kill_switch_overflow_no_retry(ctx):
 @native_test
 def test_k4_process_death_does_not_compact_retry(ctx):
     _ensure_compaction_enabled(True)
-    _k_reset()
+    _k_reset(ctx)
     from scripts.mock_llm_server import clear_captures
 
     clear_captures(_session.config)
