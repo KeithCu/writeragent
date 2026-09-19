@@ -744,7 +744,23 @@ when leftover Writer is already open — not
 `close_draw_family: raw close(True)` / `LIFECYCLE office dead after
 close doc_type=impress`), then the peer file last (six peer
 `TEST end … OK`), then
-`LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
+`LIFECYCLE recycle office skipped; no remaining suites`.
+
+GHA 35466498641 (`fd0ce933`, leftover_open=0 so the Hidden skips
+above did **not** fire): seven Writer UNO tests failed on Windows
+semantics / incomplete pool wipe, not #806 occurrence or
+nested-table product diffs. Body wipe now also resets page-style
+header/footer XText, `FirstIsShared`, and `PageDescName`.
+`page_set_style_properties` skips first/left **mirrors** when the
+matching `*IsShared` flag is true (stale `HeaderTextFirst` on
+Windows). Tree cache rebuilds when `CharacterCount` moves even if
+`XModifyListener` misses `insertString`. Ops / cross-para color
+tests normalize CR/CRLF. Origin-detection canary forces Standard
+and reads real style defaults (leftover Heading 1 re-apply is a
+Char* no-op, not improved origin detection). Still needs a
+`workflow_dispatch` Windows recheck.
+
+Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 
 **Harness-only attribution (not a product fix):** if a test body returns OK

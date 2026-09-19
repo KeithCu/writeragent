@@ -121,10 +121,21 @@ def test_apply_style_known_limitation_direct_equals_old_default_uno(ctx, doc):
     insert_cur = text.createTextCursor()
     text.insertString(insert_cur, "Directly-normal text.", False)
 
+    # Force Standard first. Leftover Heading 1 / Quotations (Windows pool
+    # reuse, leftover_open=0 so the skip above does not fire) makes
+    # re-applying Heading 1 a no-op for Char*, which looks like "origin
+    # detection improved" (GHA 35466498641). Read the real style defaults
+    # instead of assuming Standard=100 / Heading 1=150.
+    para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+    standard = para_styles.getByName("Standard")
+    heading = para_styles.getByName("Heading 1")
+    old_default = float(standard.getPropertyValue("CharWeight") or 100)
+    new_default = float(heading.getPropertyValue("CharWeight") or 150)
     fmt = text.createTextCursorByRange(text.getStart())
     fmt.gotoEnd(True)
-    fmt.setPropertyValue("CharWeight", 100.0)  # NORMAL, set directly = Standard's default
-    assert fmt.getPropertyValue("CharWeight") == 100.0
+    fmt.setPropertyValue("ParaStyleName", "Standard")
+    fmt.setPropertyValue("CharWeight", old_default)  # equals Standard's default, set directly
+    assert fmt.getPropertyValue("CharWeight") == old_default
 
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyStyle().execute(
@@ -134,8 +145,8 @@ def test_apply_style_known_limitation_direct_equals_old_default_uno(ctx, doc):
 
     chk = text.createTextCursorByRange(text.getStart())
     chk.gotoEnd(True)
-    # LIMITATION: the 'normal' override (= Standard's default) was not preserved -> Heading 1 bold.
-    assert chk.getPropertyValue("CharWeight") == 150.0, \
+    # LIMITATION: the override (= old style default) was not preserved.
+    assert chk.getPropertyValue("CharWeight") == new_default, \
         "if this fails, origin detection improved — update the doc/limitation"
 
 

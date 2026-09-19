@@ -278,6 +278,16 @@ def test_first_page_footer_analogue(ctx, doc):
 @with_native_doc("writer")
 def test_search_still_reaches_header_after_html_set(ctx, doc):
     """Augusto's findFirst-into-headers reach must stay open (PR #365)."""
+    # findFirst only searches headers of in-use page styles. Windows pool
+    # reuse can leave PageDescName='First Page' while we write Standard
+    # (GHA 35466498641). Pin the body to Standard before the set.
+    try:
+        body = doc.getText().createTextCursor()
+        body.gotoStart(False)
+        body.gotoEnd(True)
+        body.setPropertyValue("PageDescName", "Standard")
+    except Exception:
+        pass
     token = "UniqueHeaderTokenXYZ4229"
     applied = _set(doc, ctx, "header", "<p>%s</p>" % token)
     assert applied["status"] == "ok"

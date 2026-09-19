@@ -408,8 +408,17 @@ def _paragraph_strings(doc):
 
 
 def _letter_colors_from_range(doc, range_cursor):
-    """CharBackColor for non-newline characters in *range_cursor*."""
-    return [c for ch, c in zip(range_cursor.getString(), _get_char_colors(doc, range_cursor)) if ch != "\n"]
+    """CharBackColor for non-linebreak characters in *range_cursor*.
+
+    Windows ``getString()`` can emit ``\\r`` or ``\\r\\n`` for a paragraph
+    break while Linux emits ``\\n``. Filtering only ``\\n`` counted the
+    CR as a letter (GHA 35466498641).
+    """
+    return [
+        c
+        for ch, c in zip(range_cursor.getString(), _get_char_colors(doc, range_cursor))
+        if ch not in "\r\n"
+    ]
 
 
 @native_test

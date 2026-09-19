@@ -550,6 +550,8 @@ def test_apply_style_uno_skips_windows_leftover_origin_canary() -> None:
     assert "skip_windows_leftover_hidden_load" in src
     assert "apply_style origin canary leftover reuse" in src
     assert "34683742049" in src
+    assert 'fmt.setPropertyValue("ParaStyleName", "Standard")' in src
+    assert "35466498641" in src
 
 
 def test_apply_style_selection_failure_at_tool_layer(mock_ctx):

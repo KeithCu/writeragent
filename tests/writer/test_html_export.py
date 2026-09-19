@@ -17,6 +17,8 @@ def test_ops_uno_skips_windows_leftover_text_offsets() -> None:
     assert "skip_windows_leftover_hidden_load" in src
     assert "ops_uno leftover text offsets" in src
     assert "34689136372" in src
+    assert "normalize_linebreaks" in src
+    assert "35466498641" in src
 
 
 def test_html_export_uno_skips_windows_leftover_hidden_temp_doc() -> None:

@@ -774,6 +774,52 @@ def test_note_windows_html_paste_leftover_noop_on_posix(monkeypatch):
         tu._set_windows_leftover_open(saved)
 
 
+def test_reset_writer_page_regions_clears_first_page_and_shares(monkeypatch):
+    """GHA 35466498641: body wipe left header_first / FirstIsShared on the pool."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+
+    header = MagicMock()
+    header.getString.return_value = "leftover"
+    header_first = MagicMock()
+    header_first.getString.return_value = "letterhead"
+    table = MagicMock()
+    table.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    leftover_enum = MagicMock()
+    leftover_enum.hasMoreElements.side_effect = [True, False]
+    leftover_enum.nextElement.return_value = table
+    header_first.createEnumeration.return_value = leftover_enum
+
+    style = MagicMock()
+    props = {
+        "HeaderText": header,
+        "HeaderTextFirst": header_first,
+        "HeaderTextLeft": None,
+        "FooterText": None,
+        "FooterTextFirst": None,
+        "FooterTextLeft": None,
+    }
+    style.getPropertyValue.side_effect = props.get
+    styles = MagicMock()
+    styles.getElementNames.return_value = ("Standard",)
+    styles.getByName.return_value = style
+    families = MagicMock()
+    families.getByName.return_value = styles
+    body = MagicMock()
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value = families
+    doc.getText.return_value.createTextCursor.return_value = body
+
+    tu._reset_writer_page_regions(doc)
+
+    style.setPropertyValue.assert_any_call("FirstIsShared", True)
+    header.setString.assert_called_with("")
+    header_first.setString.assert_called_with("")
+    header_first.removeTextContent.assert_called_with(table)
+    body.setPropertyValue.assert_called_with("PageDescName", "Standard")
+
+
 def test_skip_windows_leftover_hidden_load_raises_on_win32(monkeypatch):
     """GHA 34646877587 / 34648929578 / 34649699848: leftover Hidden/AWT hang."""
     import unittest

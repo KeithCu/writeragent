@@ -2031,6 +2031,77 @@ def _reset_writer_style_families(doc) -> None:
                     pass
 
 
+def _reset_writer_page_regions(doc) -> None:
+    """Clear leftover header/footer XText and restore shared-page defaults.
+
+    Body wipe does not touch page-style regions. Windows Writer reuse
+    (leftover_open=0) then left ``header_first`` / ``FirstIsShared=False``
+    from a prior letterhead test, so ``page_set_style_properties``
+    correctly refused disable (GHA 35466498641). Also reset
+    ``PageDescName`` so findFirst searches the Standard header we write.
+    """
+    try:
+        styles = doc.getStyleFamilies().getByName("PageStyles")
+    except Exception:
+        styles = None
+    if styles is not None:
+        try:
+            names = list(styles.getElementNames())
+        except Exception:
+            names = []
+        for name in names:
+            try:
+                style = styles.getByName(name)
+            except Exception:
+                continue
+            for flag in ("FirstIsShared", "HeaderIsShared", "FooterIsShared"):
+                try:
+                    style.setPropertyValue(flag, True)
+                except Exception:
+                    pass
+            for text_prop in (
+                "HeaderText",
+                "HeaderTextFirst",
+                "HeaderTextLeft",
+                "FooterText",
+                "FooterTextFirst",
+                "FooterTextLeft",
+            ):
+                try:
+                    text_obj = style.getPropertyValue(text_prop)
+                except Exception:
+                    continue
+                if text_obj is None:
+                    continue
+                try:
+                    text_obj.setString("")
+                except Exception:
+                    pass
+                try:
+                    enum = text_obj.createEnumeration()
+                except Exception:
+                    continue
+                while True:
+                    try:
+                        if enum.hasMoreElements() is not True:
+                            break
+                        el = enum.nextElement()
+                    except Exception:
+                        break
+                    try:
+                        if el.supportsService("com.sun.star.text.TextTable") is True:
+                            text_obj.removeTextContent(el)
+                    except Exception:
+                        continue
+    try:
+        body = doc.getText().createTextCursor()
+        body.gotoStart(False)
+        body.gotoEnd(True)
+        body.setPropertyValue("PageDescName", "Standard")
+    except Exception:
+        pass
+
+
 def _writer_pool_is_clean(doc) -> bool:
     """False if wipe left text, bold, or graphics — caller should factory-load."""
     try:
@@ -2146,6 +2217,7 @@ def _reset_writer_doc(doc, ctx) -> None:
                         pass
         except Exception:
             pass
+    _reset_writer_page_regions(doc)
     _reset_writer_style_families(doc)
     _clear_undo(doc)
 
