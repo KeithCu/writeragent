@@ -2459,12 +2459,51 @@ class TestingFactory:
                     except Exception:
                         pass
             else:
-                _native_teardown_progress("native_doc: teardown close_doc start")
-                TestingFactory.close_doc(doc)
-                # Harness probe (not a product fix): if close toasted URP, name
-                # it now instead of waiting for the next loadComponentFromURL.
-                _log_office_health_after_close(ctx, doc_type)
-                _native_teardown_progress("native_doc: teardown close_doc done")
+                # GHA 35413789298 (master 609490ec) / 29079e14: first
+                # designs_uno Impress @with_native_doc teardown called
+                # close_doc (gc.collect + 50 ms + close(True)) after
+                # leftover Writer reuse (leftover_open=1). soffice exited
+                # 0; URP disposed; runner aborted remaining suites.
+                # How: close_doc's pre-close GC/sleep is the Windows
+                # Impress/Draw killer (34518091151 / 34532953982 /
+                # 34535868114). Peer tests already use
+                # close_draw_family_doc (bare close(True) on win32) +
+                # settle_after_draw_family_close.
+                # Why this: Draw-family never pools, so this is the only
+                # native_doc teardown for impress/draw. Do not route
+                # those types through close_doc on Windows. Math OLE
+                # Draw still uses close_doc so the existing skip stays
+                # (34607010446: raw close of that Draw killed soffice).
+                uid = ""
+                try:
+                    uid = str(getattr(doc, "RuntimeUID", None) or "")
+                except Exception:
+                    uid = ""
+                if (
+                    doc_type in ("impress", "draw")
+                    and not _windows_should_skip_math_ole_close(uid)
+                ):
+                    from plugin.testing_runner import _progress
+
+                    _progress(
+                        "native_doc: teardown close_draw_family start doc_type=%s"
+                        % doc_type
+                    )
+                    close_draw_family_doc(doc)
+                    doc = None
+                    settle_after_draw_family_close()
+                    _log_office_health_after_close(ctx, doc_type)
+                    _progress(
+                        "native_doc: teardown close_draw_family done doc_type=%s"
+                        % doc_type
+                    )
+                else:
+                    _native_teardown_progress("native_doc: teardown close_doc start")
+                    TestingFactory.close_doc(doc)
+                    # Harness probe (not a product fix): if close toasted URP, name
+                    # it now instead of waiting for the next loadComponentFromURL.
+                    _log_office_health_after_close(ctx, doc_type)
+                    _native_teardown_progress("native_doc: teardown close_doc done")
 
 
 

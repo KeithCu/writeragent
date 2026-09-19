@@ -16,7 +16,7 @@ skip inventory (keep / simplify / delete):
 |------|--------|------|-------|
 | Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
 | Writer `@with_native_doc` | Windows yes (leftover pool; leftover notebook host uses `_wa_notebook_host`) | Factory on first use / dead pool | `close_doc` (Windows **skips** Writer close while leftovers remain) |
-| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | `close_doc` (Windows **skips** close when the Draw still holds Math OLE) |
+| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | `close_draw_family_doc` + `settle_after_draw_family_close` (Windows bare `close(True)`; Math OLE Draw still uses `close_doc` so that skip stays) |
 
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
 share a pooled document. A keeper hidden Writer is opened once in
@@ -38,6 +38,19 @@ finish `~SvxShape` / `SdrObject` before the drawing item pool dies — not
 proof LibreOffice is healthy. If SalAbort still prints, `#698` fail-closed
 still names that test. Details and soak rates:
 [salabort-svxshape-close.md](salabort-svxshape-close.md).
+
+**`@with_native_doc` Impress/Draw teardown (Windows):** GHA 35413789298
+(master `609490ec`, 0.8.77) and the same abort on `29079e14`: 122 UNO
+tests passed, leftover Writer reuse (`leftover_open=1`), then
+`draw.test_designs_uno.test_list_designs_finds_metropolis` loaded
+`private:factory/simpress`. The body returned; `native_doc` teardown
+called `close_doc`. soffice exited 0
+(`LIFECYCLE office dead after close doc_type=impress`). Peer tests
+already use `close_draw_family_doc` (bare `close(True)` on win32).
+`native_doc` now routes non-pooled `impress`/`draw` through that path
+(drop the proxy, `settle_after_draw_family_close`, then the
+office-health probe). Math OLE Draw still uses `close_doc` so the
+existing Windows skip stays (34607010446). Not a product fix.
 
 **Peer Impress → next Writer factory (Windows):** GHA 34419828920 hung 30s
 in `tests/chatbot/test_peer_message_uno.py` at `_load("private:factory/swriter")`
@@ -279,6 +292,7 @@ modules; `format_lifecycle_breadcrumb` adopts from the sibling if
 this copy is empty.
 
 POSIX still `close_doc`. Breadcrumbs:
+`native_doc: teardown close_draw_family start/done`,
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
 `peer_message_uno: skip writer close after impress`,

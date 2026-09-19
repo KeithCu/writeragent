@@ -1207,6 +1207,144 @@ def test_native_doc_windows_reuses_calc_when_leftovers_open(monkeypatch):
         tu._NATIVE_DOC_POOL.clear()
 
 
+def test_native_doc_impress_teardown_uses_close_draw_family(monkeypatch):
+    """GHA 35413789298: non-pooled Impress must not close_doc (GC+50ms)."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc = MagicMock(name="impress_doc")
+    doc.RuntimeUID = "impress-uid"
+    events = []
+
+    def _fail_close_doc(_closed):
+        raise AssertionError("native_doc impress teardown must not call close_doc")
+
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
+    monkeypatch.setattr(TestingFactory, "close_doc", _fail_close_doc)
+    monkeypatch.setattr(
+        tu,
+        "close_draw_family_doc",
+        lambda closed: events.append(("close_draw_family", closed)),
+    )
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", lambda: events.append("settle"))
+    monkeypatch.setattr(
+        tu,
+        "_log_office_health_after_close",
+        lambda _ctx, doc_type: events.append(("health", doc_type)),
+    )
+    with TestingFactory.native_doc(object(), "impress") as got:
+        assert got is doc
+    assert events == [
+        ("close_draw_family", doc),
+        "settle",
+        ("health", "impress"),
+    ]
+
+
+def test_native_doc_draw_teardown_uses_close_draw_family(monkeypatch):
+    """Same Draw-family routing for @with_native_doc('draw')."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc = MagicMock(name="draw_doc")
+    doc.RuntimeUID = "draw-uid"
+    events = []
+
+    def _fail_close_doc(_closed):
+        raise AssertionError("native_doc draw teardown must not call close_doc")
+
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
+    monkeypatch.setattr(TestingFactory, "close_doc", _fail_close_doc)
+    monkeypatch.setattr(
+        tu,
+        "close_draw_family_doc",
+        lambda closed: events.append(("close_draw_family", closed)),
+    )
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", lambda: events.append("settle"))
+    monkeypatch.setattr(
+        tu,
+        "_log_office_health_after_close",
+        lambda _ctx, doc_type: events.append(("health", doc_type)),
+    )
+    with TestingFactory.native_doc(object(), "draw") as got:
+        assert got is doc
+    assert events == [
+        ("close_draw_family", doc),
+        "settle",
+        ("health", "draw"),
+    ]
+
+
+def test_native_doc_writer_teardown_still_uses_close_doc(monkeypatch):
+    """Writer is not Draw-family; keep close_doc."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc = MagicMock(name="writer_doc")
+    events = []
+
+    def _fail_draw_family(_closed):
+        raise AssertionError("Writer teardown must not call close_draw_family_doc")
+
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
+    monkeypatch.setattr(
+        TestingFactory, "close_doc", lambda *_a, **_k: events.append("close_doc")
+    )
+    monkeypatch.setattr(tu, "close_draw_family_doc", _fail_draw_family)
+    monkeypatch.setattr(
+        tu, "settle_after_draw_family_close", lambda: events.append("settle")
+    )
+    monkeypatch.setattr(
+        tu, "_log_office_health_after_close", lambda *_a, **_k: events.append("health")
+    )
+    monkeypatch.setattr(tu, "_windows_should_reuse_writer", lambda _ctx: False)
+    with TestingFactory.native_doc(object(), "writer", reuse=False) as got:
+        assert got is doc
+    assert events == ["close_doc", "health"]
+
+
+def test_native_doc_draw_math_ole_teardown_keeps_close_doc_skip(monkeypatch):
+    """GHA 34607010446: Math OLE Draw still skips via close_doc, not raw close."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc = MagicMock(name="math_draw")
+    doc.RuntimeUID = "math-ole-uid"
+    events = []
+
+    def _fail_draw_family(_closed):
+        raise AssertionError("Math OLE Draw must not raw-close via close_draw_family_doc")
+
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._clear_windows_math_ole_uids()
+    tu.mark_windows_math_ole_doc(doc)
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
+    monkeypatch.setattr(
+        TestingFactory, "close_doc", lambda *_a, **_k: events.append("close_doc")
+    )
+    monkeypatch.setattr(tu, "close_draw_family_doc", _fail_draw_family)
+    monkeypatch.setattr(
+        tu, "settle_after_draw_family_close", lambda: events.append("settle")
+    )
+    monkeypatch.setattr(
+        tu, "_log_office_health_after_close", lambda *_a, **_k: events.append("health")
+    )
+    try:
+        with TestingFactory.native_doc(object(), "draw") as got:
+            assert got is doc
+        assert events == ["close_doc", "health"]
+    finally:
+        tu._clear_windows_math_ole_uids()
+
+
 def test_native_doc_teardown_reset_failure_closes_without_session_clear(monkeypatch):
     """Failed pooled reset closes the doc and skips session clear (no return in finally)."""
     from unittest.mock import MagicMock
