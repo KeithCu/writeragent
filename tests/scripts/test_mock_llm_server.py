@@ -899,6 +899,47 @@ def test_nested_never_finish_keeps_discovery():
     assert second.tool_name != "specialized_workflow_finished"
 
 
+def test_nested_never_finish_wins_over_advertised_peer_tool():
+    """E22 after E12/P: leftover Calc advertises send_peer_message on the inner wire.
+
+    The old ``if send_peer_message in tool_names`` gate finished immediately
+    (Packet P) instead of looping until nested max_steps.
+    """
+    tools = _tools("send_peer_message", "list_nearby_files", "specialized_workflow_finished")
+    cfg = MockLLMConfig(delay_ms=0, nested_never_finish=True)
+    first = decide_completion(
+        {"messages": [{"role": "user", "content": "endless nested outline"}], "tools": tools},
+        cfg,
+    )
+    assert first.tool_name == "list_nearby_files"
+    assert first.tool_name != "send_peer_message"
+    assert first.tool_name != "specialized_workflow_finished"
+    second = decide_completion(
+        {
+            "messages": [
+                {"role": "user", "content": "endless nested outline"},
+                {
+                    "role": "user",
+                    "content": 'Action:\n{"name": "list_nearby_files", "arguments": {}}\nObservation:\n[]',
+                },
+            ],
+            "tools": tools,
+        },
+        cfg,
+    )
+    assert second.tool_name == "list_nearby_files"
+    assert second.tool_name != "specialized_workflow_finished"
+    phrase_only = decide_completion(
+        {
+            "messages": [{"role": "user", "content": "endless nested outline"}],
+            "tools": tools,
+        },
+        MockLLMConfig(delay_ms=0),
+    )
+    assert phrase_only.tool_name == "list_nearby_files"
+    assert phrase_only.tool_name != "specialized_workflow_finished"
+
+
 def test_empty_transcript_stt_returns_empty_text():
     from scripts.mock_llm_server import canned_transcript
 

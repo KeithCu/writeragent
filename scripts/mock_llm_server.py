@@ -1061,14 +1061,29 @@ def _peer_phrase(text: str) -> bool:
     )
 
 
+def _nested_never_finish(messages: list[Any], config: MockLLMConfig | None) -> bool:
+    """Packet E22: inner HTTP must keep discovery until chatbot.max_tool_rounds."""
+    if config is not None and config.nested_never_finish:
+        return True
+    forced = config.scenario if config is not None else "none"
+    user_raw = _last_user_raw(messages)
+    return detect_scenario(_current_query(messages, user_raw), forced) == "nested_never_finish"
+
+
 def _should_script_peer_inner(
     messages: list[Any],
     tool_names: set[str],
     config: MockLLMConfig | None,
 ) -> bool:
-    """True when this specialized POST should send_peer_message / finish-after-accepted."""
-    if _PEER_TOOL in tool_names:
-        return True
+    """True when this specialized POST should send_peer_message / finish-after-accepted.
+
+    Advertisement of send_peer_message is not enough. After Packet P / E12 a leftover
+    Calc stays open, so the document_research inner wire lists that tool. Treating
+    ``tool in names`` as a peer scenario made E22 call specialized_workflow_finished
+    instead of looping until nested max_steps.
+    """
+    if _nested_never_finish(messages, config):
+        return False
     forced = config.scenario if config is not None else "none"
     if forced in {"peer_total", "peer_wait"}:
         return True
@@ -1077,7 +1092,11 @@ def _should_script_peer_inner(
     user_raw = _last_user_raw(messages)
     if parse_peer_envelope(user_raw) is not None:
         return True
-    return _peer_phrase(_current_query(messages, user_raw))
+    if _peer_phrase(_current_query(messages, user_raw)):
+        return True
+    # Later smol turns drop the peer phrase from the last user text. Stay on
+    # the finish-after-accepted path only after send_peer_message already ran.
+    return _PEER_TOOL in tool_names and _PEER_TOOL in _called_tool_names(messages)
 
 
 def _peer_specialized_inner(
@@ -1162,14 +1181,12 @@ def _specialized_inner_completion(
     tool_names: set[str],
     config: MockLLMConfig | None = None,
 ) -> Completion:
-    if _should_script_peer_inner(messages, tool_names, config):
-        return _peer_specialized_inner(messages, tool_names, config)
     called = _called_tool_names(messages)
     finish_name = "final_answer" if "final_answer" in tool_names else "specialized_workflow_finished"
     user_text = _last_user_text(messages)
     forced = config.scenario if config is not None else "none"
     scenario = detect_scenario(_current_query(messages, user_text), forced)
-    never = bool(config and config.nested_never_finish) or scenario == "nested_never_finish"
+    never = _nested_never_finish(messages, config)
     empty = bool(config and config.empty_nested_answer) or scenario == "empty_nested"
 
     def _finish(answer: str) -> Completion:
@@ -1178,6 +1195,10 @@ def _specialized_inner_completion(
             tool_args={"answer": answer},
             finish_reason="tool_calls",
         )
+
+    # Never-finish before peer-inner: leftover Calc advertises send_peer_message.
+    if not never and _should_script_peer_inner(messages, tool_names, config):
+        return _peer_specialized_inner(messages, tool_names, config)
 
     if never:
         # Keep calling discovery so smol/specialized hits max_steps (Packet E22).
