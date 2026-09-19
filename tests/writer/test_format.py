@@ -177,6 +177,9 @@ def test_insert_content_at_position_text_selection_clears_range():
 
     with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
         "plugin.writer.html_import._insert_mixed_or_plain_html"
+    ), patch(
+        # Master nested-table check walks MagicMock enumerations forever.
+        "plugin.writer.specialized.tables.raise_if_range_hosts_nested_table",
     ):
         insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
 

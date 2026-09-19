@@ -1706,6 +1706,36 @@ def _windows_should_skip_math_ole_close(uid: str = "") -> bool:
     return uid in _windows_math_ole_uids()
 
 
+def _windows_should_skip_draw_family_close() -> bool:
+    """True when native_doc must not close Impress/Draw on Windows.
+
+    What was wrong: GHA 35450779692 (post-#803 SHA ``cd9da961``)
+    leftover Writer reuse (``leftover_open=1``,
+    ``html_paste_writer: leftovers open=1 uids=['27']``) then
+    ``draw.test_designs_uno`` loaded ``private:factory/simpress``
+    (``target=_wa_simpress`` flags=63, uid=30). Body returned
+    (~300ms). ``native_doc`` teardown already used
+    ``close_draw_family_doc`` (bare ``close(True)`` on win32). During
+    that raw close (~3s) soffice exited 0; pids disappeared;
+    ``LIFECYCLE close_doc dispose`` / ``LIFECYCLE office dead after
+    close doc_type=impress``; raw close raised ``DisposedException``;
+    runner aborted remaining suites. Same abort as pre-#803
+    35413789298 / 35407952704 — GC/sleep avoidance is not enough
+    when a leftover Writer is open.
+
+    How: skip ``close_draw_family_doc`` on win32 only when
+    ``_windows_leftover_open() > 0``. Drop the proxy; leftover
+    ``CREATE|GLOBAL`` ``_wa_simpress`` / ``_wa_sdraw`` reuse replaces
+    instead of stacking (34657826349). Peer skip-close is the same
+    family (``test_peer_message_uno``); suite-end recycle kills the
+    leftover Draw-family doc. Math OLE Draw still uses ``close_doc``
+    so that skip stays (34607010446). Not a product fix.
+    """
+    if sys.platform != "win32":
+        return False
+    return _windows_leftover_open() > 0
+
+
 def close_draw_family_doc(doc):
     """Harness-only Impress/Draw close. Does **not** go through ``close_doc``.
 
@@ -2469,11 +2499,11 @@ class TestingFactory:
                 # 34535868114). Peer tests already use
                 # close_draw_family_doc (bare close(True) on win32) +
                 # settle_after_draw_family_close.
-                # Why this: Draw-family never pools, so this is the only
-                # native_doc teardown for impress/draw. Do not route
-                # those types through close_doc on Windows. Math OLE
-                # Draw still uses close_doc so the existing skip stays
-                # (34607010446: raw close of that Draw killed soffice).
+                # GHA 35450779692 (post-#803 cd9da961): that raw close
+                # still killed soffice with leftover_open=1. Skip the
+                # Draw-family close on win32 while leftovers remain
+                # (peer skip-close family). Math OLE Draw still uses
+                # close_doc so the existing skip stays (34607010446).
                 uid = ""
                 try:
                     uid = str(getattr(doc, "RuntimeUID", None) or "")
@@ -2485,18 +2515,37 @@ class TestingFactory:
                 ):
                     from plugin.testing_runner import _progress
 
-                    _progress(
-                        "native_doc: teardown close_draw_family start doc_type=%s"
-                        % doc_type
-                    )
-                    close_draw_family_doc(doc)
-                    doc = None
-                    settle_after_draw_family_close()
-                    _log_office_health_after_close(ctx, doc_type)
-                    _progress(
-                        "native_doc: teardown close_draw_family done doc_type=%s"
-                        % doc_type
-                    )
+                    leftover_open = _windows_leftover_open()
+                    if _windows_should_skip_draw_family_close():
+                        from plugin.testing_runner import (
+                            request_office_recycle_after_suite,
+                        )
+
+                        # Do not close(True) while leftover Writer is
+                        # open (35450779692). Drop the proxy; leftover
+                        # CREATE|GLOBAL _wa_simpress / _wa_sdraw reuse
+                        # replaces instead of stacking. Suite-end
+                        # recycle kills leftovers (34537826720).
+                        _progress(
+                            "native_doc: teardown skip impress/draw close leftover_open=%s"
+                            % leftover_open
+                        )
+                        doc = None
+                        request_office_recycle_after_suite()
+                        _log_office_health_after_close(ctx, doc_type)
+                    else:
+                        _progress(
+                            "native_doc: teardown close_draw_family start doc_type=%s"
+                            % doc_type
+                        )
+                        close_draw_family_doc(doc)
+                        doc = None
+                        settle_after_draw_family_close()
+                        _log_office_health_after_close(ctx, doc_type)
+                        _progress(
+                            "native_doc: teardown close_draw_family done doc_type=%s"
+                            % doc_type
+                        )
                 else:
                     _native_teardown_progress("native_doc: teardown close_doc start")
                     TestingFactory.close_doc(doc)
