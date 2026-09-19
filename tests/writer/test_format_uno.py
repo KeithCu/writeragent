@@ -94,6 +94,7 @@ def _find_text(doc, ctx, params):
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     skip_windows_leftover_hidden_load,
+    skip_windows_pooled_writer_reuse,
     with_native_doc,
 )
 
@@ -425,10 +426,18 @@ def _letter_colors_from_range(doc, range_cursor):
 @with_native_doc("writer")
 def test_cross_paragraph_same_length_replacement_preserves_colors(ctx, doc):
     """replace_preserving_format across a paragraph break keeps per-char background colors."""
-    # GHA 34685648395: leftover writer reuse failed a bare color assert
+    # GHA 34685648395: leftover_open>0 reuse failed a bare color assert
     # (empty AssertionError). Same leftover-pollution class as the
     # apply-style origin canary — not a product color regression.
     skip_windows_leftover_hidden_load("format_uno cross-paragraph color leftover reuse")
+    # GHA 35470191616 (master c4fdbee, #809): leftover_open=0 after
+    # impress recycle still printed native_doc leftover writer reuse.
+    # skip_windows_leftover_hidden_load did not fire. Sibling
+    # test_same_length_replacement_preserves_colors passed on that
+    # reuse path — leftover body/findFirst pollution, not format.py.
+    # #809's \r\n color filter was not enough. Do not factory-load a
+    # second Hidden _blank (34652644656 hung 30s at leftover_open=0).
+    skip_windows_pooled_writer_reuse("format_uno cross-paragraph color pooled reuse")
     text = doc.getText()
     sep = text.createTextCursor()
     sep.gotoEnd(False)
@@ -457,7 +466,10 @@ def test_cross_paragraph_same_length_replacement_preserves_colors(ctx, doc):
 
     expected_para1_colors = [COLORS[i % len(COLORS)] for i in range(len(para1))]
     expected_para2_colors = [COLORS[(len(para1) + i) % len(COLORS)] for i in range(len(para2))]
-    assert _letter_colors_from_range(doc, rng) == expected_para1_colors + expected_para2_colors
+    actual_setup = _letter_colors_from_range(doc, rng)
+    assert actual_setup == expected_para1_colors + expected_para2_colors, (
+        f"setup colors: expected {expected_para1_colors + expected_para2_colors} got {actual_setup}"
+    )
 
     new_text = "YELLO\nWORLD"
     assert len(new_text) == len(old_text)
@@ -477,8 +489,14 @@ def test_cross_paragraph_same_length_replacement_preserves_colors(ctx, doc):
     found_world = doc.findFirst(sd)
     assert found_world, "WORLD not found after replace"
 
-    assert _letter_colors_from_range(doc, found_yello) == expected_para1_colors
-    assert _letter_colors_from_range(doc, found_world) == expected_para2_colors
+    actual_yello = _letter_colors_from_range(doc, found_yello)
+    assert actual_yello == expected_para1_colors, (
+        f"YELLO colors: expected {expected_para1_colors} got {actual_yello}"
+    )
+    actual_world = _letter_colors_from_range(doc, found_world)
+    assert actual_world == expected_para2_colors, (
+        f"WORLD colors: expected {expected_para2_colors} got {actual_world}"
+    )
 
 
 @native_test

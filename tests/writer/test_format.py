@@ -746,7 +746,7 @@ def test_source_style_is_cached_and_tolerates_a_missing_style():
 
 
 def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
-    """GHA 34683742049 / 34685648395: leftover Hidden apply and _blank close."""
+    """GHA 34683742049 / 34685648395 / 35470191616: leftover Hidden and pool reuse."""
     from pathlib import Path
 
     src = Path(__file__).with_name("test_format_uno.py").read_text(encoding="utf-8")
@@ -758,3 +758,6 @@ def test_format_uno_skips_windows_leftover_hidden_apply() -> None:
     assert "format_uno cross-paragraph color leftover reuse" in src
     assert "non-linebreak" in src
     assert "35466498641" in src
+    assert "skip_windows_pooled_writer_reuse" in src
+    assert "format_uno cross-paragraph color pooled reuse" in src
+    assert "35470191616" in src

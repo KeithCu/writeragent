@@ -862,6 +862,58 @@ def test_skip_windows_leftover_hidden_load_noop_without_leftovers(monkeypatch):
         tu._set_windows_leftover_open(saved)
 
 
+def test_skip_windows_pooled_writer_reuse_raises_on_win32_reuse(monkeypatch):
+    """GHA 35470191616: leftover_open=0 pool reuse still needs a skip."""
+    import unittest
+
+    import plugin.tests.testing_utils as tu
+
+    saved_leftover = tu._WINDOWS_LEFTOVER_OPEN
+    saved_reused = tu._WINDOWS_WRITER_POOL_REUSED
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_leftover_open(0)
+    tu._set_windows_writer_pool_reused(True)
+    try:
+        assert tu.windows_leftover_hidden_load_unsafe() is False
+        assert tu.windows_pooled_writer_reuse() is True
+        tu.skip_windows_leftover_hidden_load("unit")
+        try:
+            tu.skip_windows_pooled_writer_reuse("unit")
+        except unittest.SkipTest as exc:
+            assert "unit" in str(exc)
+            assert "leftovers=0" in str(exc)
+        else:
+            raise AssertionError("expected SkipTest")
+    finally:
+        tu._set_windows_leftover_open(saved_leftover)
+        tu._set_windows_writer_pool_reused(saved_reused)
+
+
+def test_skip_windows_pooled_writer_reuse_noop_without_reuse(monkeypatch):
+    import plugin.tests.testing_utils as tu
+
+    saved_leftover = tu._WINDOWS_LEFTOVER_OPEN
+    saved_reused = tu._WINDOWS_WRITER_POOL_REUSED
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    tu._set_windows_leftover_open(0)
+    tu._set_windows_writer_pool_reused(False)
+    try:
+        assert tu.windows_pooled_writer_reuse() is False
+        tu.skip_windows_pooled_writer_reuse("unit")
+    finally:
+        tu._set_windows_leftover_open(saved_leftover)
+        tu._set_windows_writer_pool_reused(saved_reused)
+    monkeypatch.setattr(tu.sys, "platform", "linux")
+    tu._set_windows_leftover_open(0)
+    tu._set_windows_writer_pool_reused(True)
+    try:
+        assert tu.windows_pooled_writer_reuse() is False
+        tu.skip_windows_pooled_writer_reuse("unit")
+    finally:
+        tu._set_windows_leftover_open(saved_leftover)
+        tu._set_windows_writer_pool_reused(saved_reused)
+
+
 def test_skip_windows_awt_top_dialog_raises_on_win32(monkeypatch):
     """GHA 34671277292: leftover_open=0 slash setVisible hung 30s after calc."""
     import unittest
@@ -1185,6 +1237,58 @@ def test_native_doc_windows_reuses_writer_when_leftovers_open(monkeypatch):
             assert second is writer
         assert created == ["create"]
     finally:
+        tu._NATIVE_DOC_POOL.clear()
+
+
+def test_native_doc_windows_marks_pooled_writer_reuse_at_leftover_open_zero(
+    monkeypatch,
+):
+    """GHA 35470191616: leftover_open=0 still reuses; skip must see the pool."""
+    import unittest
+    from unittest.mock import MagicMock
+
+    from plugin.tests.testing_utils import TestingFactory
+    import plugin.tests.testing_utils as tu
+
+    writer = MagicMock(name="pooled_writer")
+    created = []
+    saved_leftover = tu._WINDOWS_LEFTOVER_OPEN
+    saved_reused = tu._WINDOWS_WRITER_POOL_REUSED
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(tu, "reset_native_doc", lambda *a, **k: None)
+    monkeypatch.setattr(tu, "_writer_pool_is_clean", lambda _doc: True)
+    monkeypatch.setattr(
+        TestingFactory,
+        "create_native_doc",
+        lambda *a, **k: created.append("create") or writer,
+    )
+    monkeypatch.setattr(
+        TestingFactory, "close_doc", lambda *a, **k: created.append("close")
+    )
+    tu._NATIVE_DOC_POOL.clear()
+    tu._set_windows_leftover_open(0)
+    tu._set_windows_writer_pool_reused(False)
+    ctx = object()
+    try:
+        with TestingFactory.native_doc(ctx, "writer") as first:
+            assert first is writer
+            assert tu._windows_writer_pool_reused() is False
+            tu.skip_windows_pooled_writer_reuse("unit")
+        with TestingFactory.native_doc(ctx, "writer") as second:
+            assert second is writer
+            assert tu._windows_writer_pool_reused() is True
+            assert tu.windows_leftover_hidden_load_unsafe() is False
+            try:
+                tu.skip_windows_pooled_writer_reuse("unit")
+            except unittest.SkipTest as exc:
+                assert "unit" in str(exc)
+                assert "leftovers=0" in str(exc)
+            else:
+                raise AssertionError("expected SkipTest")
+        assert created == ["create"]
+    finally:
+        tu._set_windows_leftover_open(saved_leftover)
+        tu._set_windows_writer_pool_reused(saved_reused)
         tu._NATIVE_DOC_POOL.clear()
 
 

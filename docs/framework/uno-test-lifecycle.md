@@ -324,6 +324,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `windows leftover skip: apply_style origin canary leftover reuse leftovers=`,
 `windows leftover skip: format_uno Hidden _blank small_doc leftovers=`,
 `windows leftover skip: format_uno cross-paragraph color leftover reuse leftovers=`,
+`windows pool skip: format_uno cross-paragraph color pooled reuse leftovers=`,
 `windows leftover skip: inline_review view cursor leftover reuse leftovers=`,
 `windows leftover skip: page_header Hidden _blank xtext_to_content leftovers=`,
 `windows leftover skip: ops_uno leftover text offsets leftovers=`,
@@ -711,7 +712,10 @@ when leftover_open>0 (no 30s Timeout on `finally: small_doc.close(True)`
 format_uno cross-paragraph color `TEST end … SKIP` with
 `windows leftover skip: format_uno cross-paragraph color leftover
 reuse` when leftover_open>0 (no leftover-reuse AssertionError —
-GHA 34685648395),
+GHA 34685648395) **or** `windows pool skip: format_uno
+cross-paragraph color pooled reuse` when leftover_open=0 but the
+Writer came from the pool (GHA 35470191616; #809's `\\r\\n` filter
+and leftover Hidden skip were not enough),
 inline-review `TEST end … SKIP` with
 `windows leftover skip: inline_review view cursor leftover reuse`
 when leftover_open>0 (no 30s Timeout on `getViewCursor().gotoRange`
@@ -761,6 +765,22 @@ Char* no-op, not improved origin detection). Header findFirst idle
 drain lives in `test_search_still_reaches_header_after_html_set`
 only, not in `page_set_header_footer_text`. Still needs a
 `workflow_dispatch` Windows recheck.
+
+GHA 35470191616 (master `c4fdbee`, #809): leftover_open=0 after
+impress recycle printed `native_doc: leftover writer reuse`.
+`skip_windows_leftover_hidden_load` did not fire (leftover_open=0).
+`test_cross_paragraph_same_length_replacement_preserves_colors`
+failed a bare AssertionError; sibling
+`test_same_length_replacement_preserves_colors` passed on the same
+reuse path. #809's `\\r\\n` color filter was not enough. Windows now
+`skip_windows_pooled_writer_reuse`s
+(`windows pool skip: format_uno cross-paragraph color pooled reuse`)
+when this test's Writer came from the pool, including leftover_open=0.
+Factory-fresh Windows Writer still runs the test. Not a product
+`replace_preserving_format` change. Same run: Pytest+UNO step timed
+out at 25m mid `test_insert_html_fragment_at_cursor` (body had
+returned). leftover_open=0 runs more tests + impress recycles;
+Windows test step is 40m and the job 50m (55m if ci_debug).
 
 Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
