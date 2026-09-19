@@ -585,6 +585,11 @@ def test_inflate_history_uid_pads_writer_when_soffice_current_is_calc(
             self.messages = [{"role": "system", "content": name}]
             self.compaction = None
 
+    class _Panel:
+        # live_panels is a WeakValueDictionary — SimpleNamespace is not weakref-able.
+        def __init__(self, sl) -> None:
+            self.send_listener = sl
+
     writer_session = _Session("writer")
     calc_session = _Session("calc")
     writer_sl = fake_listener
@@ -595,7 +600,7 @@ def test_inflate_history_uid_pads_writer_when_soffice_current_is_calc(
     calc_sl.session = calc_session
     calc_sl.slash_popup = "leftover"
     calc_sl.model_selector = None
-    writer = SimpleNamespace(xFrame=object(), Frame=object(), send_listener=writer_sl)
+    writer = _Panel(writer_sl)
     reset_live_panels()
     register_live_panel("writer-uid", writer)
     monkeypatch.setattr(hooks, "adopt_runtime_send_listeners", lambda: 0)
