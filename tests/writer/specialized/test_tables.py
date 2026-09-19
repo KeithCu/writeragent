@@ -62,6 +62,43 @@ class FakeTable:
         )
 
 
+class FakeEnumeration:
+    def __init__(self, elements):
+        self._elements = list(elements)
+        self._index = 0
+
+    def hasMoreElements(self):
+        return self._index < len(self._elements)
+
+    def nextElement(self):
+        element = self._elements[self._index]
+        self._index += 1
+        return element
+
+
+class FakeTextTableElement:
+    def __init__(self, name):
+        self._name = name
+
+    def getSupportedServiceNames(self):
+        return ("com.sun.star.text.TextTable",)
+
+    def getName(self):
+        return self._name
+
+
+class FakeParentTable(FakeTable):
+    def __init__(self, rows, cols, cells=None, nested_by_cell=None):
+        super().__init__(rows, cols, cells=cells)
+        self._nested_by_cell = nested_by_cell or {}
+
+    def getCellByName(self, name):
+        cell = super().getCellByName(name)
+        elements = self._nested_by_cell.get(name, [])
+        cell.createEnumeration = lambda: FakeEnumeration(elements)
+        return cell
+
+
 class FakeTables:
     def __init__(self, mapping):
         self._m = mapping
@@ -101,6 +138,33 @@ def test_get_table_cells_matrix():
     t = FakeTable(2, 2, cells={"A1": "x", "B1": "y", "A2": "z", "B2": "w"})
     res = TableGetCells().execute(_ctx({"T": t}), name="T")
     assert res["matrix"] == [["x", "y"], ["z", "w"]]
+
+
+def test_get_table_cells_reports_direct_nested_parent():
+    child = FakeTable(1, 1, cells={"A1": "nested-alpha"})
+    parent = FakeParentTable(
+        2,
+        2,
+        nested_by_cell={"B2": [FakeTextTableElement("Child")]},
+    )
+    res = TableGetCells().execute(_ctx({"Parent": parent, "Child": child}), name="Child")
+    assert res["matrix"] == [["nested-alpha"]]
+    assert res["nesting"] == {
+        "is_nested": True,
+        "parent_table": "Parent",
+        "parent_cell": "B2",
+    }
+
+
+def test_get_table_cells_reports_top_level_table_as_not_nested():
+    standalone = FakeTable(1, 1, cells={"A1": "standalone-alpha"})
+    res = TableGetCells().execute(_ctx({"Standalone": standalone}), name="Standalone")
+    assert res["matrix"] == [["standalone-alpha"]]
+    assert res["nesting"] == {
+        "is_nested": False,
+        "parent_table": None,
+        "parent_cell": None,
+    }
 
 
 def test_get_table_cells_unknown_table_lists_names():

@@ -85,6 +85,65 @@ def _resolve_cell_name(table: Any, raw: str) -> str | None:
     return None
 
 
+def _find_parent_table(doc: Any, child_name: str) -> dict[str, Any]:
+    """Return the direct Writer table/cell that contains *child_name*, if any.
+
+    Writer exposes a nested TextTable as an element in the owning cell's
+    XEnumeration. Inspect only that structural level; this does not depend on
+    rendered geometry or on TextTable anchors.
+    """
+    tables = _tables(doc)
+
+    for parent_name in tables.getElementNames():
+        if parent_name == child_name:
+            continue
+
+        try:
+            parent = tables.getByName(parent_name)
+            cell_names = parent.getCellNames()
+        except Exception:
+            continue
+
+        for cell_name in cell_names:
+            try:
+                cell = parent.getCellByName(cell_name)
+                enum = cell.createEnumeration()
+            except Exception:
+                continue
+
+            while enum.hasMoreElements():
+                try:
+                    element = enum.nextElement()
+                except Exception:
+                    break
+
+                try:
+                    services = element.getSupportedServiceNames()
+                except Exception:
+                    services = ()
+
+                if "com.sun.star.text.TextTable" not in services:
+                    continue
+
+                try:
+                    nested_name = element.getName()
+                except Exception:
+                    nested_name = ""
+
+                if nested_name == child_name:
+                    return {
+                        "is_nested": True,
+                        "parent_table": parent_name,
+                        "parent_cell": cell_name,
+                    }
+
+    return {
+        "is_nested": False,
+        "parent_table": None,
+        "parent_cell": None,
+    }
+
+
 class TableList(ToolWriterTableBase):
     name = "table_list"
     description = (
@@ -168,7 +227,15 @@ class TableGetCells(ToolWriterTableBase):
                             val = ""
                     row.append(val)
                 matrix.append(row)
-            return {"status": "ok", "table_name": name, "rows": rows, "cols": cols, "matrix": matrix}
+            nesting = _find_parent_table(ctx.doc, name)
+            return {
+                "status": "ok",
+                "table_name": name,
+                "rows": rows,
+                "cols": cols,
+                "matrix": matrix,
+                "nesting": nesting,
+            }
         except ValueError as ve:
             return self._tool_error(str(ve))
         except Exception as e:
