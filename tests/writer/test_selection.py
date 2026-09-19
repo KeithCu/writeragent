@@ -191,5 +191,9 @@ def test_apply_document_content_selection_failure_not_silent():
     with patch("plugin.writer.content.selection_anchor", return_value=MagicMock()), \
          patch.object(format_support, "insert_content_at_position",
                       side_effect=ToolExecutionError("Could not resolve the current selection")):
-        with pytest.raises(ToolExecutionError, match="selection"):
-            ApplyDocumentContent().execute(ctx, content="x", target="selection")
+        # _execute maps ToolExecutionError to the standard tool error dict so chat/MCP
+        # see status=error (nested-table follow-up). Raising here was the old contract
+        # and failed PR CI 35451880001 after that change.
+        result = ApplyDocumentContent().execute(ctx, content="x", target="selection")
+    assert result["status"] == "error"
+    assert "selection" in result.get("message", "")

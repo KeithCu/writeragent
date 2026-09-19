@@ -221,6 +221,44 @@ def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
     shape.setString.assert_not_called()
 
 
+def test_insert_content_at_position_nested_table_refuse_not_silent_end():
+    """ToolExecutionError from the nested-table check must not become a doc-end insert."""
+    from unittest.mock import MagicMock, patch
+
+    from plugin.doc import visual_helpers
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.format import insert_content_at_position
+
+    text_rng = MagicMock()
+    text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
+    text_rng.supportsService.return_value = False
+
+    sel = MagicMock()
+    sel.getCount.return_value = 1
+    sel.getByIndex.return_value = text_rng
+
+    controller = MagicMock()
+    controller.getSelection.return_value = sel
+
+    body_cursor = MagicMock()
+    body_text = MagicMock()
+    body_text.createTextCursor.return_value = body_cursor
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+    model.getText.return_value = body_text
+
+    with patch.object(visual_helpers, "is_graphic_object", return_value=False), patch(
+        "plugin.writer.html_import._raise_if_range_hosts_nested_table",
+        side_effect=ToolExecutionError("nested table(s) Inner"),
+    ), patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
+        with pytest.raises(ToolExecutionError, match="nested table"):
+            insert_content_at_position(model, MagicMock(), "<p>hi</p>", "selection")
+
+    mock_insert.assert_not_called()
+    body_cursor.gotoEnd.assert_not_called()
+    text_rng.setString.assert_not_called()
+
+
 def test_insert_content_at_position_empty_selection_uses_doc_end():
     from unittest.mock import MagicMock, patch
 

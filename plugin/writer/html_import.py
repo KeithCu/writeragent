@@ -25,6 +25,20 @@ from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_
 
 log = logging.getLogger("writeragent.writer")
 
+
+def _raise_if_range_hosts_nested_table(text_range):
+    """Refuse setString on a host cell that contains nested TextTables.
+
+    The check lives in WriterAgent ``specialized.tables`` (not in the LibrePy
+    OXT). An unguarded import here fails ``test_librepy_shipped_function_level_imports_are_safe``
+    after the nested-table follow-up and would crash LibrePy HTML insert.
+    """
+    try:
+        from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+    except ImportError:
+        return
+    raise_if_range_hosts_nested_table(text_range)
+
 _MARKUP_PATTERNS = [
     # Markdown
     "**",
@@ -603,10 +617,13 @@ def insert_content_at_position(model, ctx, content, position, config_svc=None):
                     raise AttributeError("insertDocumentFromURL")
                 # Clear only real text selections (never shapes).
                 if hasattr(rng, "setString") and not _selection_is_draw_shape(rng):
-                    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
-
-                    raise_if_range_hosts_nested_table(rng)
+                    _raise_if_range_hosts_nested_table(rng)
                     rng.setString("")
+            except ToolExecutionError:
+                # Nested-table refuse must not fall through to document-end: that
+                # made apply_document_content report success after wiping/skipping
+                # the selection (PR CI 35451880001 / nested-table follow-up).
+                raise
             except Exception as e:
                 log.debug(
                     "insert_content_at_position: text selection unusable (%s); using document end",
@@ -688,10 +705,8 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
             saved_style = None
 
     cursor = text_obj.createTextCursorByRange(text_range)
-    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
-
     # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
-    raise_if_range_hosts_nested_table(text_range)
+    _raise_if_range_hosts_nested_table(text_range)
     with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
 
@@ -963,9 +978,7 @@ def replace_preserving_format(model, target_range, new_text, ctx=None,
     # createTextCursorByRange() raises "End of content node doesn't have the proper
     # start node". target_range.getText() resolves to the cell (or body) correctly,
     # matching the markup path which already uses found.getText().
-    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
-
-    raise_if_range_hosts_nested_table(target_range)
+    _raise_if_range_hosts_nested_table(target_range)
     text = target_range.getText()
     old_text = _normalize(target_range.getString())
     new_text = _normalize(new_text)
