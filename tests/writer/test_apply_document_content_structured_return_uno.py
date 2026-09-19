@@ -94,3 +94,58 @@ def test_empty_old_content_is_a_parameter_error_uno(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
     res = ApplyDocumentContent().execute(tool_ctx, target="search", old_content="   ", content="BAR")
     assert res.get("status") == "error", res
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_occurrence_selects_exact_match_uno(ctx, doc):
+    """occurrence is 0-based and replaces only the requested Writer text match."""
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    _set_body(doc, "foo | foo")
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        target="search",
+        old_content="foo",
+        content="BAR",
+        occurrence=0,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("occurrence") == 0, res
+    assert doc.getText().getString() == "BAR | foo"
+
+    _set_body(doc, "foo | foo")
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        target="search",
+        old_content="foo",
+        content="BAR",
+        occurrence=1,
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("occurrence") == 1, res
+    assert doc.getText().getString() == "foo | BAR"
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_occurrence_dry_run_does_not_edit_uno(ctx, doc):
+    """dry_run resolves the requested occurrence without mutating the document."""
+    _set_body(doc, "foo | foo")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    before = doc.getText().getString()
+
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        target="search",
+        old_content="foo",
+        content="BAR",
+        occurrence=1,
+        dry_run=True,
+    )
+
+    assert res.get("status") == "ok", res
+    assert res.get("dry_run") is True, res
+    assert res.get("selected_occurrence") == 1, res
+    assert res.get("replaceable_count") == 2, res
+    assert doc.getText().getString() == before
