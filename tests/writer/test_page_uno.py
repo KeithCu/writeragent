@@ -159,6 +159,11 @@ def test_disable_header_ok_after_clear(ctx, doc):
     assert applied["status"] == "ok"
     cleared = _set_text(doc, ctx, "header", "")
     assert cleared["status"] == "ok"
+    # Shared first page is the fixture: leftover FirstIsShared=False +
+    # header_first from a prior letterhead test is not this scenario
+    # (GHA 35466498641). Product also skips mirror regions when shared.
+    style, _name = _style(doc)
+    style.setPropertyValue("FirstIsShared", True)
 
     res = _set_props(doc, ctx, header_is_on=False)
     assert res["status"] == "ok", res
@@ -196,6 +201,7 @@ def test_enable_header_allowed_with_content(ctx, doc):
 def test_disable_empty_header_allowed(ctx, doc):
     style, _name = _style(doc)
     style.setPropertyValue("HeaderIsOn", True)
+    style.setPropertyValue("FirstIsShared", True)
     header = style.getPropertyValue("HeaderText")
     header.setString("")
     res = _set_props(doc, ctx, header_is_on=False)

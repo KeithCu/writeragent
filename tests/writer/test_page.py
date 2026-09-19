@@ -18,6 +18,7 @@ from plugin.writer.page import (
     PageInsertBreak,
     _disable_blocked_by_content,
     _region_holds_content,
+    _region_mirrors_shared,
     _scan_region_content,
 )
 
@@ -608,6 +609,63 @@ def test_disable_blocked_by_content_skips_enable_and_lists_held_regions():
     assert msg is not None
     assert "header" in msg
     assert "page_set_header_footer_text" in msg
+
+
+def test_region_mirrors_shared_is_true_only_for_bool_true():
+    style = MagicMock()
+    style.getPropertyValue.return_value = True
+    assert _region_mirrors_shared(style, "header_first") is True
+    assert _region_mirrors_shared(style, "footer_left") is True
+    assert _region_mirrors_shared(style, "header") is False
+    style.getPropertyValue.return_value = False
+    assert _region_mirrors_shared(style, "header_first") is False
+    style.getPropertyValue.return_value = MagicMock()
+    assert _region_mirrors_shared(style, "header_first") is False
+
+
+def test_disable_ignores_stale_first_page_mirror_when_shared():
+    """GHA 35466498641: Windows HeaderTextFirst leftover while FirstIsShared."""
+    shared = _empty_text_obj()
+    leftover = _empty_text_obj()
+    leftover.getString.return_value = "Stale first-page letterhead"
+    doc, style = _page_style_doc(shared)
+    style.getPropertyValue.side_effect = lambda n: {
+        "HeaderIsOn": True,
+        "FooterIsOn": True,
+        "FirstIsShared": True,
+        "HeaderIsShared": True,
+        "FooterIsShared": True,
+        "HeaderText": shared,
+        "FooterText": shared,
+        "HeaderTextFirst": leftover,
+        "FooterTextFirst": leftover,
+        "HeaderTextLeft": leftover,
+        "FooterTextLeft": leftover,
+    }[n]
+    assert _disable_blocked_by_content(doc, style, {"header_is_on": False}) is None
+
+
+def test_disable_still_refuses_independent_first_page_letterhead():
+    shared = _empty_text_obj()
+    first = _empty_text_obj()
+    first.getString.return_value = "First-page letterhead"
+    doc, style = _page_style_doc(shared)
+    style.getPropertyValue.side_effect = lambda n: {
+        "HeaderIsOn": True,
+        "FooterIsOn": True,
+        "FirstIsShared": False,
+        "HeaderIsShared": True,
+        "FooterIsShared": True,
+        "HeaderText": shared,
+        "FooterText": shared,
+        "HeaderTextFirst": first,
+        "FooterTextFirst": shared,
+        "HeaderTextLeft": shared,
+        "FooterTextLeft": shared,
+    }[n]
+    msg = _disable_blocked_by_content(doc, style, {"header_is_on": False})
+    assert msg is not None
+    assert "header_first" in msg
 
 
 def test_page_uno_skips_windows_leftover_hidden_xtext() -> None:

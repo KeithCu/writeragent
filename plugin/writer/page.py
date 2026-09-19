@@ -108,6 +108,29 @@ def _region_holds_content(doc, text_obj) -> bool:
     return _region_has_table(text_obj)
 
 
+def _region_mirrors_shared(style, region: str) -> bool:
+    """True when a first/left variant is only a view of the shared region.
+
+    ``FirstIsShared=True`` means HeaderTextFirst / FooterTextFirst mirror
+    HeaderText / FooterText; ``HeaderIsShared`` / ``FooterIsShared`` do the
+    same for ``*_left``. Windows can still report leftover ``getString()``
+    on the mirror after the shared region was cleared (GHA 35466498641),
+    which made the disable guard refuse ``header_first`` even though first
+    page is shared. ``is True`` so unit-test MagicMocks stay conservative
+    (treated as independent).
+    """
+    if region.endswith("_first"):
+        flag = "FirstIsShared"
+    elif region.endswith("_left"):
+        flag = "HeaderIsShared" if region.startswith("header") else "FooterIsShared"
+    else:
+        return False
+    try:
+        return style.getPropertyValue(flag) is True
+    except Exception:
+        return False
+
+
 def _disable_blocked_by_content(doc, style, kwargs: dict[str, Any]) -> str | None:
     """Error text if ``header_is_on=false`` / ``footer_is_on=false`` would wipe content.
 
@@ -117,8 +140,10 @@ def _disable_blocked_by_content(doc, style, kwargs: dict[str, Any]) -> str | Non
     first, then turn off.
 
     ``HeaderIsOn`` / ``FooterIsOn`` are the only toggles (no first/left IsOn props).
-    Turning one off drops every variant of that kind, so all matching regions are
-    scanned. Enabling (``true``) is never blocked. No force-off flag.
+    Turning one off drops every variant of that kind, so independent matching
+    regions are scanned. Shared-mirror first/left variants are skipped — they
+    are the same XText when the matching ``*IsShared`` flag is on. Enabling
+    (``true``) is never blocked. No force-off flag.
     """
     for kw, kind in (("header_is_on", "header"), ("footer_is_on", "footer")):
         if kw not in kwargs or kwargs[kw]:
@@ -126,6 +151,8 @@ def _disable_blocked_by_content(doc, style, kwargs: dict[str, Any]) -> str | Non
         held: list[str] = []
         for region, (_unused_is_on, text_prop) in _REGION_PROPS.items():
             if _region_kind(region) != kind:
+                continue
+            if _region_mirrors_shared(style, region):
                 continue
             try:
                 text_obj = style.getPropertyValue(text_prop)
@@ -677,6 +704,16 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             replace_xtext_with_html(
                 text_obj, content, config_svc=config_svc, model=ctx.doc,
             )
+            # Windows findFirst can miss a just-written header until idle
+            # (GHA 35466498641 test_search_still_reaches_header_after_html_set).
+            try:
+                from plugin.framework.uno_context import get_toolkit
+
+                toolkit = get_toolkit(getattr(ctx, "ctx", None))
+                if toolkit is not None:
+                    toolkit.processEventsToIdle()
+            except Exception:
+                pass
             result: dict[str, Any] = {
                 "status": "ok",
                 "style_name": style_name,
