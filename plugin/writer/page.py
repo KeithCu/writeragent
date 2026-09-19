@@ -706,12 +706,12 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             )
             # Windows findFirst can miss a just-written header until idle
             # (GHA 35466498641 test_search_still_reaches_header_after_html_set).
+            # force=True: UNO tests set WRITERAGENT_TESTING=1, which would
+            # otherwise skip the approved VCL pump.
             try:
-                from plugin.framework.uno_context import get_toolkit
+                from plugin.framework.uno_context import process_events_to_idle
 
-                toolkit = get_toolkit(getattr(ctx, "ctx", None))
-                if toolkit is not None:
-                    toolkit.processEventsToIdle()
+                process_events_to_idle(getattr(ctx, "ctx", None), force=True)
             except Exception:
                 pass
             result: dict[str, Any] = {
