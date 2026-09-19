@@ -55,11 +55,19 @@ def test_pr_ci_test_step_has_timeout_and_serial_escape() -> None:
     test_step = text.split("Run tests (Pytest + UNO)", 1)[1].split(
         "Dump leftover processes", 1
     )[0]
-    assert "timeout-minutes: 25" in test_step
+    # Windows leftover_open=0 + impress recycles blew the 25m step
+    # (GHA 35470191616). Ubuntu/macOS stay at 25.
+    assert "matrix.os == 'windows-latest' && 40 || 25" in test_step
     assert "PYTEST_WORKERS=0" in test_step
     assert "inputs.pytest_serial" in test_step
 
 
 def test_pr_ci_job_timeout_grows_only_for_debug() -> None:
     text = _workflow()
+    # Non-Windows stays 30 (40 if ci_debug). Windows job is 50 (55 if
+    # ci_debug) so dump/artifacts can run after the 40m test step.
     assert "inputs.ci_debug == true && 40 || 30" in text
+    assert (
+        "matrix.os == 'windows-latest' && (inputs.ci_debug == true && 55 || 50)"
+        in text
+    )

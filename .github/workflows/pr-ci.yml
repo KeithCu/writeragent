@@ -38,9 +38,13 @@ jobs:
   test:
     name: ${{ inputs.test_mock_sidebar == true && format('Mock LLM Sidebar ({0})', matrix.os) || format('Test & Typecheck ({0})', matrix.os) }}
     runs-on: ${{ matrix.os }}
-    # 30 is the budget that cancelled 33447705893 after the xdist replace wedge.
-    # Debug runs get 40 so dump + artifact upload still run after a 25-min test step.
-    timeout-minutes: ${{ inputs.test_mock_sidebar == true && 60 || (inputs.ci_debug == true && 40 || 30) }}
+    # Ubuntu/macOS: 30 (40 if ci_debug) after the 25-min test step.
+    # 30 cancelled 33447705893 after the xdist replace wedge.
+    # Windows leftover_open=0 + impress recycles no longer fit in 25m
+    # (GHA 35470191616 timed out mid ops_uno after a real format_uno fail).
+    # Windows test step is 40; job 50 (55 if ci_debug) so dump/artifacts
+    # and LibrePy/Harper packaging can still run.
+    timeout-minutes: ${{ inputs.test_mock_sidebar == true && 60 || (matrix.os == 'windows-latest' && (inputs.ci_debug == true && 55 || 50) || (inputs.ci_debug == true && 40 || 30)) }}
     strategy:
       fail-fast: false
       matrix:
@@ -170,7 +174,10 @@ jobs:
 
       - name: Run tests (Pytest + UNO)
         if: ${{ inputs.test_mock_sidebar != true }}
-        timeout-minutes: 25
+        # Ubuntu/macOS stay at 25. Windows UNO after leftover_open=0 +
+        # impress recycles exceeded 25m (GHA 35470191616; last test had
+        # returned — duration blow-up, not a single hung test).
+        timeout-minutes: ${{ matrix.os == 'windows-latest' && 40 || 25 }}
         run: |
           if [ "${{ inputs.pytest_serial }}" = "true" ]; then
             export PYTEST_WORKERS=0
