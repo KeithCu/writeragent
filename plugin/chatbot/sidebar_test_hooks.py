@@ -197,7 +197,41 @@ def _read_debug_snapshot() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def handle_debug_sidebar_command(command: str) -> None:
+def _resolve_debug_listener(ctx: Any = None) -> Any:
+    """SendButtonListener for the current document, not an arbitrary live panel.
+
+    Packet P / E12 / G17 leave a Calc ``SendButtonListener`` in the debug
+    WeakSet and ``_LIVE_SEND_LISTENERS``. ``send_listener()`` with no frame
+    returned ``panels[0]`` (WeakSet order) or ``_LIVE_SEND_LISTENERS[-1]``.
+    ``_listener_with_slash_popup`` could also swap to leftover Calc when that
+    deck still held the Ask popup. Packet K then padded Calc while hello /
+    overflow POSTs used Writer (``n_messages=2``, no summarizer, no retry).
+    Do not call ``get_ctx()`` here — standalone pyuno can SEGV (uno_context).
+    """
+    ctx = ctx if ctx is not None else _HOOK_CTX
+    if ctx is not None:
+        try:
+            doc = current_component(ctx)
+        except Exception:
+            doc = None
+        if doc is not None:
+            try:
+                from plugin.doc.live_panels import get_live_panel
+                from plugin.framework.uno_context import get_runtime_uid
+
+                panel = get_live_panel(get_runtime_uid(doc))
+                sl = getattr(panel, "send_listener", None) if panel is not None else None
+                if sl is not None:
+                    return sl
+            except Exception:
+                log.debug("debug_sidebar live_panels listener lookup failed", exc_info=True)
+            sl = send_listener_for_doc(doc)
+            if sl is not None:
+                return sl
+    return send_listener()
+
+
+def handle_debug_sidebar_command(command: str, ctx: Any = None) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
     ``DispatchHandler`` runs on the URP thread. ``WRITERAGENT_TESTING=1`` makes
@@ -206,6 +240,8 @@ def handle_debug_sidebar_command(command: str) -> None:
     the listener's executor (VCL) before StartSendEffect posts the drain.
     ``OPEN_CALC`` uses the same post-to-VCL rule: factory ``scalc`` over URP
     after a Writer deck never returns.
+    ``ctx`` is the extension context from ``DispatchHandler`` so Packet K can
+    bind inflate/snapshot to the current document's panel.
     """
     _require_debug()
     adopt_runtime_send_listeners()
@@ -213,7 +249,10 @@ def handle_debug_sidebar_command(command: str) -> None:
     # in Path as ``chatbot.debug_sidebar?OPEN_CALC`` (Query empty). Strip both.
     rest = command[len(_DEBUG_SIDEBAR_PREFIX) :].lstrip(".?")
     op = (rest or "SNAPSHOT").upper().replace("-", "_")
-    sl = _listener_with_slash_popup(send_listener())
+    # Inflate/snapshot must not hijack via slash-popup — that leftover Calc
+    # deck is why Packet K compacted the wrong ChatSession.
+    current_sl = _resolve_debug_listener(ctx)
+    sl = current_sl if op in ("SNAPSHOT", "INFLATE_HISTORY") else _listener_with_slash_popup(current_sl)
     if op == "SNAPSHOT":
         _write_debug_snapshot(sl)
         return
@@ -1352,10 +1391,10 @@ def transcript_contains(needle: str, *, listener: Any = None) -> bool:
     return needle in transcript_text(listener=listener)
 
 
-def inflate_sidebar_history(*, ctx: Any = None) -> dict[str, Any]:
+def inflate_sidebar_history(*, ctx: Any = None, listener: Any = None) -> dict[str, Any]:
     """Grow ChatSession.messages in soffice past the mock compaction gate."""
     _require_debug()
-    sl = send_listener()
+    sl = listener if listener is not None else _resolve_debug_listener(ctx)
     session = getattr(sl, "session", None) if sl is not None else None
     messages = getattr(session, "messages", None)
     # In-process listener only. A URP proxy has no ChatSession.messages list.

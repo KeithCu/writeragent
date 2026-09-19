@@ -463,6 +463,52 @@ def test_handle_debug_sidebar_inflate_history(fake_listener: _FakeListener, monk
     assert sum(data["session_content_chars"]) >= 20000
 
 
+def test_inflate_history_uses_current_document_not_leftover_calc(
+    fake_listener: _FakeListener, monkeypatch
+) -> None:
+    """Packet K must pad Writer, not a leftover Calc listener from P/E12/G17."""
+
+    class _Session:
+        def __init__(self, label: str) -> None:
+            self.messages = [{"role": "system", "content": label}]
+            self.compaction = None
+
+    class _Doc:
+        def getRuntimeUID(self) -> str:
+            return "writer-uid"
+
+    class _Panel:
+        def __init__(self, sl) -> None:
+            self.send_listener = sl
+
+    writer_sl = fake_listener
+    writer_sl.session = _Session("writer")
+    writer_sl.slash_popup = None
+
+    calc_sl = _FakeListener()
+    calc_sl.session = _Session("calc")
+    calc_sl.slash_popup = object()
+
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.adopt_runtime_send_listeners", lambda: 0)
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.send_listener", lambda frame=None: calc_sl)
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.send_listener_for_doc", lambda doc: None)
+    monkeypatch.setattr("plugin.chatbot.sidebar_test_hooks.current_component", lambda ctx: _Doc())
+    monkeypatch.setattr("plugin.doc.live_panels.get_live_panel", lambda uid: _Panel(writer_sl) if uid == "writer-uid" else None)
+    monkeypatch.setattr(
+        "plugin.chatbot.sidebar_test_hooks._LIVE_SEND_LISTENERS",
+        [calc_sl],
+        raising=False,
+    )
+
+    handle_debug_sidebar_command("chatbot.debug_sidebar.INFLATE_HISTORY", ctx=object())
+    writer_chars = sum(len(str(m.get("content") or "")) for m in writer_sl.session.messages)
+    calc_chars = sum(len(str(m.get("content") or "")) for m in calc_sl.session.messages)
+    assert len(writer_sl.session.messages) >= 5
+    assert writer_chars >= 20000
+    assert len(calc_sl.session.messages) == 1
+    assert calc_chars < 100
+
+
 def test_inflate_sidebar_history_in_process(fake_listener: _FakeListener, monkeypatch) -> None:
     from plugin.chatbot.compaction import estimate_tokens
 

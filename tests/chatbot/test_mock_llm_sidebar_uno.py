@@ -2610,7 +2610,8 @@ def _inflate_history(ctx: Any = None) -> dict[str, Any]:
         ctrls = chat_dialog_controls(ctx, current_component(ctx)) or {}
         if "model_selector" in ctrls:
             set_control_text(ctrls["model_selector"], MOCK_MODEL_ID)
-    snap = inflate_sidebar_history(ctx=ctx)
+    sl = getattr(_session, "listener", None)
+    snap = inflate_sidebar_history(ctx=ctx, listener=sl)
     n = int(snap.get("session_n_messages") or 0)
     chars = snap.get("session_content_chars") or []
     assert n >= 5, "K inflate did not grow ChatSession: %r" % snap

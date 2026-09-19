@@ -448,7 +448,7 @@ def _run_test_suite(test_func, doc_checker, test_name):
 _NOTEBOOK_RUN_CELL_PREFIX = "notebook.run_cell."
 
 
-def _dispatch_command(command):
+def _dispatch_command(command, ctx=None):
     """Dispatch command using handler registry, falling back to module actions."""
     bootstrap()
     if command.startswith("chatbot.debug_sidebar"):
@@ -456,7 +456,7 @@ def _dispatch_command(command):
         try:
             from plugin.chatbot.sidebar_test_hooks import handle_debug_sidebar_command
 
-            handle_debug_sidebar_command(command)
+            handle_debug_sidebar_command(command, ctx=ctx)
         except ImportError:
             logging.getLogger("writeragent.main").debug("debug_sidebar omitted (release)")
         except Exception:
@@ -963,7 +963,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")
             # msgbox(self.ctx, "Dispatch", f"Command: {command}") # Temporary probe
-            _dispatch_command(command)
+            _dispatch_command(command, ctx=self.ctx)
             # After action, push updated menu text
             from plugin.framework.worker_pool import run_in_background
 

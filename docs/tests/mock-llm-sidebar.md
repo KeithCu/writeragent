@@ -408,7 +408,7 @@ See [peer-messaging.md](../chat/peer-messaging.md#dual-mock-peer-tests).
 - **Focus:** Proactive compact at the tiered threshold, overflow compact-and-retry (≤3), kill switch, process death ≠ overflow. Chat mode only.
 - **Mode:** Automated (`make test-mock-sidebar FILTER=K`). Unit scripts in `make pytest` (`tests/scripts/test_mock_llm_server.py`, `tests/chatbot/test_compaction.py`).
 - **Window:** `writeragent-mock` is in `DEFAULT_MODELS` (`ids.mock`, `context_length` 32768) so `resolve_context_window` has a denominator. 8192 left `keep=None` against the live Writer system prompt plus 14 tool schemas. Not Hermes 256k. `chat_max_tokens` is not subtracted.
-- **History grow:** URP Packet K calls debug `INFLATE_HISTORY` (`sidebar_test_hooks.inflate_sidebar_history`) to pad `ChatSession.messages` in soffice. Streaming `flood history` through the rich control was not a reliable way to land those bytes on the model-facing list.
+- **History grow:** URP Packet K calls debug `INFLATE_HISTORY` (`sidebar_test_hooks.inflate_sidebar_history`) to pad `ChatSession.messages` in soffice. The handler binds to the **current document** panel (`live_panels` RuntimeUID, then `send_listener_for_doc`). Bare `send_listener()` can hit leftover Calc after Packet P / E12 / G17 (`panels[0]` / slash-popup hijack), which left Writer at `n_messages=2` and skipped the summarizer. Streaming `flood history` through the rich control was not a reliable way to land those bytes on the model-facing list.
 - **Summarizer:** non-stream `request_with_tools` with the compaction system prompt returns a canned summary. Phrase matching does **not** run on dumped `<conversation>` history.
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
