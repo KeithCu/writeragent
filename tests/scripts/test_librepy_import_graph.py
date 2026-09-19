@@ -279,6 +279,9 @@ def test_librepy_shipped_function_level_imports_are_safe():
         "plugin/writer/images/image_tools.py",
         # Writer scope selection fallback
         "plugin/writer/format.py",
+        # Nested-table refuse (master ca0fc04f) imports WriterAgent-only specialized.tables.
+        # Not this harness PR; same allowlist pattern as format.py.
+        "plugin/writer/html_import.py",
     }
 
     def is_guarded(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
