@@ -1279,6 +1279,178 @@ def test_native_doc_draw_teardown_uses_close_draw_family(monkeypatch):
     ]
 
 
+def test_native_doc_impress_teardown_skips_close_when_windows_leftovers(
+    monkeypatch, capsys
+):
+    """GHA 35450779692: leftover Writer + raw Impress close killed soffice."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc = MagicMock(name="impress_doc")
+    doc.RuntimeUID = "impress-uid"
+    events = []
+
+    def _fail_close(_closed):
+        raise AssertionError("leftover impress teardown must not close")
+
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
+    monkeypatch.setattr(TestingFactory, "close_doc", _fail_close)
+    monkeypatch.setattr(tu, "close_draw_family_doc", _fail_close)
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", _fail_close)
+    monkeypatch.setattr(
+        tu,
+        "_log_office_health_after_close",
+        lambda _ctx, doc_type: events.append(("health", doc_type)),
+    )
+    recycle_calls = []
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(
+        "plugin.testing_runner.request_office_recycle_after_suite",
+        lambda: recycle_calls.append("recycle"),
+    )
+    saved = tu._windows_leftover_open()
+    tu._set_windows_leftover_open(1)
+    try:
+        with TestingFactory.native_doc(object(), "impress") as got:
+            assert got is doc
+        assert events == [("health", "impress")]
+        assert recycle_calls == ["recycle"]
+        err = capsys.readouterr().err
+        assert "native_doc: teardown skip impress/draw close leftover_open=1" in err
+        assert "native_doc: teardown close_draw_family start" not in err
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_native_doc_draw_teardown_skips_close_when_windows_leftovers(
+    monkeypatch, capsys
+):
+    """Same leftover skip for @with_native_doc('draw') on win32."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc = MagicMock(name="draw_doc")
+    doc.RuntimeUID = "draw-uid"
+    events = []
+
+    def _fail_close(_closed=None):
+        raise AssertionError("leftover draw teardown must not close")
+
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
+    monkeypatch.setattr(TestingFactory, "close_doc", _fail_close)
+    monkeypatch.setattr(tu, "close_draw_family_doc", _fail_close)
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", _fail_close)
+    monkeypatch.setattr(
+        tu,
+        "_log_office_health_after_close",
+        lambda _ctx, doc_type: events.append(("health", doc_type)),
+    )
+    recycle_calls = []
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    monkeypatch.setattr(
+        "plugin.testing_runner.request_office_recycle_after_suite",
+        lambda: recycle_calls.append("recycle"),
+    )
+    saved = tu._windows_leftover_open()
+    tu._set_windows_leftover_open(2)
+    try:
+        with TestingFactory.native_doc(object(), "draw") as got:
+            assert got is doc
+        assert events == [("health", "draw")]
+        assert recycle_calls == ["recycle"]
+        err = capsys.readouterr().err
+        assert "native_doc: teardown skip impress/draw close leftover_open=2" in err
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_native_doc_impress_teardown_closes_on_windows_without_leftovers(monkeypatch):
+    """leftover_open=0 still raw-closes on win32 (not an always-skip)."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc = MagicMock(name="impress_doc")
+    doc.RuntimeUID = "impress-uid"
+    events = []
+
+    def _fail_close_doc(_closed):
+        raise AssertionError("native_doc impress teardown must not call close_doc")
+
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
+    monkeypatch.setattr(TestingFactory, "close_doc", _fail_close_doc)
+    monkeypatch.setattr(
+        tu,
+        "close_draw_family_doc",
+        lambda closed: events.append(("close_draw_family", closed)),
+    )
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", lambda: events.append("settle"))
+    monkeypatch.setattr(
+        tu,
+        "_log_office_health_after_close",
+        lambda _ctx, doc_type: events.append(("health", doc_type)),
+    )
+    monkeypatch.setattr(tu.sys, "platform", "win32")
+    saved = tu._windows_leftover_open()
+    tu._set_windows_leftover_open(0)
+    try:
+        with TestingFactory.native_doc(object(), "impress") as got:
+            assert got is doc
+        assert events == [
+            ("close_draw_family", doc),
+            "settle",
+            ("health", "impress"),
+        ]
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
+def test_native_doc_impress_teardown_closes_on_posix_with_leftovers(monkeypatch):
+    """Linux still close_draw_family even when leftover_open is cached >0."""
+    from unittest.mock import MagicMock
+
+    import plugin.tests.testing_utils as tu
+    from plugin.tests.testing_utils import TestingFactory
+
+    doc = MagicMock(name="impress_doc")
+    doc.RuntimeUID = "impress-uid"
+    events = []
+
+    def _fail_close_doc(_closed):
+        raise AssertionError("native_doc impress teardown must not call close_doc")
+
+    monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
+    monkeypatch.setattr(TestingFactory, "close_doc", _fail_close_doc)
+    monkeypatch.setattr(
+        tu,
+        "close_draw_family_doc",
+        lambda closed: events.append(("close_draw_family", closed)),
+    )
+    monkeypatch.setattr(tu, "settle_after_draw_family_close", lambda: events.append("settle"))
+    monkeypatch.setattr(
+        tu,
+        "_log_office_health_after_close",
+        lambda _ctx, doc_type: events.append(("health", doc_type)),
+    )
+    saved = tu._windows_leftover_open()
+    tu._set_windows_leftover_open(1)
+    try:
+        with TestingFactory.native_doc(object(), "impress") as got:
+            assert got is doc
+        assert events == [
+            ("close_draw_family", doc),
+            "settle",
+            ("health", "impress"),
+        ]
+    finally:
+        tu._set_windows_leftover_open(saved)
+
+
 def test_native_doc_writer_teardown_still_uses_close_doc(monkeypatch):
     """Writer is not Draw-family; keep close_doc."""
     from unittest.mock import MagicMock
@@ -1326,6 +1498,8 @@ def test_native_doc_draw_math_ole_teardown_keeps_close_doc_skip(monkeypatch):
     monkeypatch.setattr(tu.sys, "platform", "win32")
     tu._clear_windows_math_ole_uids()
     tu.mark_windows_math_ole_doc(doc)
+    saved = tu._windows_leftover_open()
+    tu._set_windows_leftover_open(1)
     monkeypatch.setattr(TestingFactory, "create_native_doc", lambda *_a, **_k: doc)
     monkeypatch.setattr(
         TestingFactory, "close_doc", lambda *_a, **_k: events.append("close_doc")
@@ -1343,6 +1517,7 @@ def test_native_doc_draw_math_ole_teardown_keeps_close_doc_skip(monkeypatch):
         assert events == ["close_doc", "health"]
     finally:
         tu._clear_windows_math_ole_uids()
+        tu._set_windows_leftover_open(saved)
 
 
 def test_native_doc_teardown_reset_failure_closes_without_session_clear(monkeypatch):

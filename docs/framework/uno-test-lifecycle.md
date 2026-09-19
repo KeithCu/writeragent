@@ -16,7 +16,7 @@ skip inventory (keep / simplify / delete):
 |------|--------|------|-------|
 | Calc `@with_native_doc` | Yes (wipe-and-reuse pool) | Factory only on first use / dead pool | Close only if reset fails |
 | Writer `@with_native_doc` | Windows yes (leftover pool; leftover notebook host uses `_wa_notebook_host`) | Factory on first use / dead pool | `close_doc` (Windows **skips** Writer close while leftovers remain) |
-| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | `close_draw_family_doc` + `settle_after_draw_family_close` (Windows bare `close(True)`; Math OLE Draw still uses `close_doc` so that skip stays) |
+| Draw / Impress | **Never** | Factory each test (`private:factory/sdraw`); Windows **skips** leftover Draw/Impress when leftover_open>2 | Windows leftover_open>0: skip close (`native_doc: teardown skip impress/draw close leftover_open=N`; suite-end recycle). Else `close_draw_family_doc` + `settle_after_draw_family_close` (Windows bare `close(True)`). Math OLE Draw still uses `close_doc` so that skip stays |
 
 `create_native_doc` is a thin `loadComponentFromURL`. Draw tests do **not**
 share a pooled document. A keeper hidden Writer is opened once in
@@ -49,7 +49,18 @@ called `close_doc`. soffice exited 0
 already use `close_draw_family_doc` (bare `close(True)` on win32).
 `native_doc` now routes non-pooled `impress`/`draw` through that path
 (drop the proxy, `settle_after_draw_family_close`, then the
-office-health probe). Math OLE Draw still uses `close_doc` so the
+office-health probe) when leftover_open=0. GHA 35450779692 (post-#803
+SHA `cd9da961`): that raw close still killed soffice (~3s
+`DisposedException`; `LIFECYCLE office dead after close
+doc_type=impress`) with leftover Writer reuse (`leftover_open=1`,
+`html_paste_writer: leftovers open=1 uids=['27']`,
+`target=_wa_simpress` flags=63 uid=30). On win32 with leftover_open>0,
+`native_doc` now **skips** the Draw-family close (peer skip-close
+family), drops the proxy, logs
+`native_doc: teardown skip impress/draw close leftover_open=N`,
+requests suite-end recycle, and still runs the office-health probe.
+Leftover `CREATE|GLOBAL` `_wa_simpress` / `_wa_sdraw` reuse replaces
+instead of stacking. Math OLE Draw still uses `close_doc` so the
 existing Windows skip stays (34607010446). Not a product fix.
 
 **Peer Impress → next Writer factory (Windows):** GHA 34419828920 hung 30s
@@ -292,6 +303,7 @@ modules; `format_lifecycle_breadcrumb` adopts from the sibling if
 this copy is empty.
 
 POSIX still `close_doc`. Breadcrumbs:
+`native_doc: teardown skip impress/draw close leftover_open=N`,
 `native_doc: teardown close_draw_family start/done`,
 `close_draw_family: raw close(True) start/done`,
 `peer_message_uno: writer reactivated`,
@@ -727,7 +739,11 @@ rich_html, **then**
 `TEST end draw.test_draw_uno.test_insert_math_draw OK` after
 `insert_math_draw: insert_math start/done` and
 `close_doc: skip math ole close (windows)`, leftover-Impress
-suites, then the peer file last (six peer `TEST end … OK`), then
+suites (`native_doc: teardown skip impress/draw close leftover_open=N`
+when leftover Writer is already open — not
+`close_draw_family: raw close(True)` / `LIFECYCLE office dead after
+close doc_type=impress`), then the peer file last (six peer
+`TEST end … OK`), then
 `LIFECYCLE recycle office skipped; no remaining suites`. Ubuntu PR CI
 is the automatic gate; this cloud agent cannot run `windows-latest`.
 
