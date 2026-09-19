@@ -692,6 +692,7 @@ The mutating edit tools return **structured, machine-readable fields** alongside
 
 **`apply_document_content`** (search path)
 - `replaced_count` — how many occurrences were actually replaced. **`replaced_count: 0` returns `status: "error"`** (a search that matched nothing is no longer a silent "ok"); `> 0` returns `status: "ok"`.
+- `occurrence` — optional 0-based selector for one replaceable Writer text match when `target="search"`; it cannot be combined with `all_matches=true`. Successful edits echo `occurrence`; `dry_run` also returns `selected_occurrence`, `selected_match`, and `replaceable_count`.
 - If a replacement raises mid-`all_matches`, the existing abort behavior stands (no partial-replace handling — the call surfaces the error).
 
 **`apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).

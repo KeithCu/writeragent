@@ -233,6 +233,7 @@ class ApplyDocumentContent(ToolBase):
             "target": {"type": "string", "enum": ["beginning", "end", "selection", "full_document", "search"], "description": "Where to apply the content."},
             "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
             "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'."},
+            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': select one 0-based occurrence among replaceable Writer text matches (body/table/frame). Omit for the existing first-match behavior. Cannot be combined with all_matches=true.")},
             "position": {"type": "string", "enum": ["replace", "before", "after"], "description": ("For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count).")},
             "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return how many times old_content matches and where each match lives, so you can check before committing."},
             "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
@@ -243,6 +244,20 @@ class ApplyDocumentContent(ToolBase):
     uno_services = ["com.sun.star.text.TextDocument"]
     tier = "core"
     is_mutation = True
+
+    @staticmethod
+    def _parse_occurrence(kwargs, target):
+        """Validate optional 0-based search occurrence selector."""
+        raw = kwargs.get("occurrence")
+        if raw is None:
+            return None, None
+        if target != "search":
+            return None, "occurrence only applies to target='search'."
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+            return None, "occurrence must be a non-negative integer."
+        if kwargs.get("all_matches", False):
+            return None, "occurrence cannot be combined with all_matches=true."
+        return raw, None
 
     def _review_wait_seconds(self, uno_ctx):
         """Max seconds the edit call should block waiting for review; 0 = don't wait."""
@@ -317,6 +332,9 @@ class ApplyDocumentContent(ToolBase):
             target = "search"
         if target != "search" or old_content is None:
             return self._tool_error("dry_run only applies to target='search' with old_content.")
+        occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
+        if occurrence_error:
+            return self._tool_error(occurrence_error, code="INVALID_PARAM")
         from . import format as format_support
 
         old_stripped = str(old_content).strip()
@@ -344,6 +362,13 @@ class ApplyDocumentContent(ToolBase):
         except Exception as e:
             log.exception("apply_document_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
+        if occurrence is not None and occurrence >= len(ranges):
+            return self._tool_error(
+                "Requested occurrence %d but only %d replaceable match(es) were found."
+                % (occurrence, len(ranges)),
+                code="OCCURRENCE_OUT_OF_RANGE",
+                count=len(ranges),
+            )
         label_cache = {}
         matches = []
         for found in ranges[:20]:
@@ -364,13 +389,34 @@ class ApplyDocumentContent(ToolBase):
             if len(matches) < 20:
                 matches.append({"location": item["location"], "text": item["text"][:160]})
         total = len(ranges) + len(shape_hits) + len(comment_hits)
-        return {
-            "status": "ok", "dry_run": True, "count": total, "matches": matches,
+        result: dict[str, object] = {
+            "status": "ok",
+            "dry_run": True,
+            "count": total,
+            "matches": matches,
             "edit_reach_note": (
                 "dry_run counts body/table/frame matches the edit path can replace, plus drawing shapes "
                 "and comments (search_in_document uses the same split; only floating shapes are editable "
                 "in review-off mode or via the shapes toolset)."),
         }
+        if occurrence is not None:
+            result["replaceable_count"] = len(ranges)
+            selected = ranges[occurrence]
+            try:
+                selected_location = search_mod.describe_match_location(
+                    selected, ctx.doc, label_cache=label_cache)
+            except Exception:
+                selected_location = "body"
+            try:
+                selected_text = selected.getString()
+            except Exception:
+                selected_text = ""
+            result["selected_occurrence"] = occurrence
+            result["selected_match"] = {
+                "location": selected_location,
+                "text": selected_text[:160],
+            }
+        return result
 
     def execute(self, ctx, **kwargs):
         # Thin wrapper so every return path gets the read-only-attribute note, including the
@@ -492,6 +538,10 @@ class ApplyDocumentContent(ToolBase):
 
         if target == "search" and old_content is None:
             return self._tool_error("target='search' requires old_content."), None
+
+        occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
+        if occurrence_error:
+            return self._tool_error(occurrence_error, code="INVALID_PARAM"), None
 
         # position is a search-only refinement; validate it up front (silently ignoring it on an
         # insert target would teach the model a parameter that "works" by accident).
@@ -674,8 +724,28 @@ class ApplyDocumentContent(ToolBase):
             if count > 1:
                 resp["message"] += " edited_context shows the first occurrence's neighborhood."
             return attach_edited_context(resp, anchor), session
-        found = (search_mod.find_ranges_regex_case(doc, _opts_pattern, _regex_opt, _opts_cs, all_matches=False)
-                 if _use_opts else search_mod.find_first_range(doc, search_string))
+        if occurrence is not None:
+            ranges = (
+                search_mod.find_ranges_regex_case(
+                    doc, _opts_pattern, _regex_opt, _opts_cs, all_matches=True)
+                if _use_opts
+                else search_mod.find_all_ranges(doc, search_string)
+            )
+            if occurrence >= len(ranges):
+                return self._tool_error(
+                    "Requested occurrence %d but only %d replaceable match(es) were found."
+                    % (occurrence, len(ranges)),
+                    code="OCCURRENCE_OUT_OF_RANGE",
+                    count=len(ranges),
+                ), session
+            found = ranges[occurrence]
+        else:
+            found = (
+                search_mod.find_ranges_regex_case(
+                    doc, _opts_pattern, _regex_opt, _opts_cs, all_matches=False)
+                if _use_opts
+                else search_mod.find_first_range(doc, search_string)
+            )
         if found is None:
             # Search covers body/table cells/text frames but not drawing-layer shapes. If the text
             # lives only inside such a floating box, say so (actionable) instead of a bare not-found
@@ -781,6 +851,8 @@ class ApplyDocumentContent(ToolBase):
                     lambda: format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc),
                     track_reviewable, original_preview=original, proposed_preview=_plain_preview(content))
         resp = search_mod.build_search_replace_response(1, use_preserve=use_preserve)
+        if occurrence is not None:
+            resp["occurrence"] = occurrence
         return attach_edited_context(resp, anchor), session
 
 

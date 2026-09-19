@@ -164,3 +164,111 @@ def test_body_text_mentioning_data_lo_para_is_not_a_false_positive():
 
     assert res == original
     assert "ignored_attributes" not in res
+
+
+
+def test_search_occurrence_selects_requested_match(monkeypatch):
+    first = MockRange()
+    second = MockRange()
+    selected = []
+
+    monkeypatch.setattr(
+        search_mod,
+        "find_all_ranges",
+        lambda doc, s: [first, second],
+    )
+    monkeypatch.setattr(
+        "plugin.writer.content.record_preserve_replace",
+        lambda session, doc, found, content, ctx, reviewable: selected.append(found),
+    )
+
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="BAR",
+        occurrence=1,
+    )
+
+    assert res["status"] == "ok", res
+    assert res["replaced_count"] == 1, res
+    assert res["occurrence"] == 1, res
+    assert selected == [second]
+
+
+def test_search_occurrence_rejects_all_matches():
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="BAR",
+        occurrence=0,
+        all_matches=True,
+    )
+
+    assert res["status"] == "error", res
+    assert "cannot be combined with all_matches=true" in res["message"]
+
+
+def test_search_occurrence_out_of_range(monkeypatch):
+    monkeypatch.setattr(
+        search_mod,
+        "find_all_ranges",
+        lambda doc, s: [MockRange(), MockRange()],
+    )
+
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="BAR",
+        occurrence=2,
+    )
+
+    assert res["status"] == "error", res
+    assert res["code"] == "OCCURRENCE_OUT_OF_RANGE", res
+    assert res["details"]["count"] == 2, res
+    assert "only 2 replaceable match(es)" in res["message"]
+
+
+def test_search_occurrence_dry_run_selects_without_editing(monkeypatch):
+    first = MockRange()
+    second = MockRange()
+
+    monkeypatch.setattr(
+        search_mod,
+        "find_all_ranges",
+        lambda doc, s: [first, second],
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "describe_match_location",
+        lambda found, doc, label_cache=None:
+            "first" if found is first else "second",
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "sweep_draw_shape_preview_matches",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "sweep_comment_preview_matches",
+        lambda *args, **kwargs: [],
+    )
+
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="BAR",
+        occurrence=1,
+        dry_run=True,
+    )
+
+    assert res["status"] == "ok", res
+    assert res["dry_run"] is True, res
+    assert res["count"] == 2, res
+    assert res["replaceable_count"] == 2, res
+    assert res["selected_occurrence"] == 1, res
+    assert res["selected_match"]["location"] == "second", res
