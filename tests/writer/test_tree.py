@@ -125,5 +125,15 @@ class TestTreeServiceSearch(unittest.TestCase):
         self.assertEqual(root["children"][0]["text"], "Introduction")
         self.assertEqual(self.tree_svc._tree_cache, {})
 
+    def test_fingerprint_change_rebuilds_without_invalidate_event(self):
+        """GHA 35466498641: Windows modify listener can miss insertString."""
+        self.doc.CharacterCount = 10
+        first = self.tree_svc.build_heading_tree(self.doc)
+        cached = self.tree_svc.build_heading_tree(self.doc)
+        self.assertIs(cached, first)
+        self.doc.CharacterCount = 16
+        second = self.tree_svc.build_heading_tree(self.doc)
+        self.assertIsNot(second, first)
+
 if __name__ == "__main__":
     unittest.main()
