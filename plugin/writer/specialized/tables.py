@@ -86,11 +86,17 @@ def _resolve_cell_name(table: Any, raw: str) -> str | None:
 
 
 def _service_named(obj: Any, name: str) -> bool:
-    """True if *obj* supports *name*. Prefer supportsService; fall back to names."""
+    """True if *obj* supports *name*. Prefer supportsService; fall back to names.
+
+    Only ``True`` / ``1`` count: pytest ``MagicMock.supportsService()`` is
+    truthy for every name, which made every mock a TextTable *and* a
+    TextFrame and turned HTML selection insert into an infinite walk.
+    """
     try:
         ss = getattr(obj, "supportsService", None)
         if callable(ss):
-            return bool(ss(name))
+            result = ss(name)
+            return result is True or result == 1
     except Exception:
         pass
     try:
@@ -130,7 +136,10 @@ def _iter_direct_children(xtext: Any):
         return
     while True:
         try:
-            if not enum.hasMoreElements():
+            # `is True` / ``1`` only: MagicMock hasMoreElements is truthy forever
+            # (same hang as review_scan.py; html_export uses ``is True``).
+            more = enum.hasMoreElements()
+            if more is not True and more != 1:
                 break
             yield enum.nextElement()
         except Exception:
@@ -149,7 +158,8 @@ def _iter_text_frames_in_para(para: Any):
         return
     while True:
         try:
-            if not enum.hasMoreElements():
+            more = enum.hasMoreElements()
+            if more is not True and more != 1:
                 break
             portion = enum.nextElement()
         except Exception:

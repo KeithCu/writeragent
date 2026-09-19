@@ -563,6 +563,15 @@ def test_delete_row_refuses_nested_host_in_frame():
     assert parent._rows.n == 2
 
 
+def test_raise_if_range_hosts_nested_table_magicmock_selection_is_noop():
+    """Auto-mocked UNO selections must not hang the HTML insert nested-table check."""
+    from unittest.mock import MagicMock
+
+    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+
+    raise_if_range_hosts_nested_table(MagicMock())
+
+
 def test_raise_if_range_hosts_nested_table_cell_vs_body():
     from plugin.framework.errors import ToolExecutionError
     from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
