@@ -403,6 +403,8 @@ class ApplyDocumentContent(ToolBase):
                     from plugin.framework.queue_executor import execute_on_main_thread
                     result, _unused = execute_on_main_thread(_do_edit, timeout=60.0)
                 return self._annotate_review_status(ctx.ctx, result)
+            except ToolExecutionError as e:
+                return self._tool_error(str(e))
             finally:
                 if session_box:
                     if on_main:
@@ -430,6 +432,10 @@ class ApplyDocumentContent(ToolBase):
             # default 30s marshalling timeout would reject large full-document replaces that
             # are fine without review mode.
             result, session = execute_on_main_thread(_edit_on_main_thread, timeout=60.0)
+        except ToolExecutionError as e:
+            if session_box:
+                execute_on_main_thread(session_box[0].cleanup)
+            return self._tool_error(str(e))
         except Exception:
             if session_box:
                 execute_on_main_thread(session_box[0].cleanup)

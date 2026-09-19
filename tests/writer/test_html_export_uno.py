@@ -50,3 +50,54 @@ def test_range_export_keeps_bold_inside_odd_para_uno(ctx: Any, doc: Any) -> None
         or "font-weight:700" in compact
     )
     assert has_emphasis, html
+
+
+@native_test
+@with_native_doc("writer")
+def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
+    """_copy_cell_xtext used to skip in-cell TextTables; dest must keep the nest."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    text = doc.getText()
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), outer, False)
+    host = outer.getCellByName("B2")
+    host.setString("EXPORT_CAPTION")
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 2)
+    host.insertTextContent(host.getEnd(), nested, False)
+    nested.setName("ExportNested")
+    nested.getCellByName("A1").setString("NEST_A")
+    nested.getCellByName("B1").setString("NEST_B")
+
+    from plugin.writer.html_export import _copy_xtext_into_doc, _open_hidden_writer
+    from plugin.writer.specialized.tables import TableGetCells, TableList
+    from plugin.tests.testing_utils import TestingFactory
+
+    temp_doc = None
+    try:
+        temp_doc = _open_hidden_writer(ctx)
+        _copy_xtext_into_doc(doc, doc.getText(), temp_doc)
+        tool_ctx = TestingFactory.create_context(doc=temp_doc, ctx=ctx, env="native")
+        listed = TableList().execute(tool_ctx)
+        assert listed.get("status") == "ok", listed
+        assert listed["count"] >= 2, listed
+        hosted = {}
+        for entry in listed["tables"]:
+            hosted.update(entry.get("nested_in_cells") or {})
+        assert hosted, listed
+        nested_name = next(iter(hosted.values()))[0]
+        cells = TableGetCells().execute(tool_ctx, name=nested_name)
+        assert cells["matrix"][0][0] == "NEST_A"
+        assert cells["matrix"][0][1] == "NEST_B"
+        parent_name = next(
+            t["name"] for t in listed["tables"] if t.get("nested_in_cells")
+        )
+        parent_cells = TableGetCells().execute(tool_ctx, name=parent_name)
+        assert "EXPORT_CAPTION" in (parent_cells["matrix"][1][1] or "")
+    finally:
+        if temp_doc is not None:
+            try:
+                temp_doc.close(True)
+            except Exception:
+                pass

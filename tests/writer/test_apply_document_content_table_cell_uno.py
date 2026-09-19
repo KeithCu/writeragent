@@ -42,3 +42,30 @@ def test_apply_document_content_edits_table_cell_uno(ctx, doc):
     )
     assert res.get("status") == "ok", f"expected to edit the cell; got {res}"
     assert "MinerU-EDIT" in tbl.getCellByName("A2").getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_refuses_host_cell_with_nested_table_uno(ctx, doc):
+    """Rewriting a host cell via apply_document_content would wipe the nested table."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    text = doc.getText()
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), outer, False)
+    host = outer.getCellByName("B2")
+    host.setString("HOST_CAPTION")
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    host.insertTextContent(host.getEnd(), nested, False)
+    nested.setName("ApplyNested")
+    nested.getCellByName("A1").setString("KEEP_INNER")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res = ApplyDocumentContent().execute(
+        tool_ctx, content=["WIPED"], old_content="HOST_CAPTION", target="search"
+    )
+    assert res.get("status") == "error", res
+    assert "table_set_cell" in (res.get("message") or ""), res
+    assert doc.getTextTables().hasByName("ApplyNested")
+    assert nested.getCellByName("A1").getString() == "KEEP_INNER"

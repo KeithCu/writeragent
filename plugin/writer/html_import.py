@@ -603,6 +603,9 @@ def insert_content_at_position(model, ctx, content, position, config_svc=None):
                     raise AttributeError("insertDocumentFromURL")
                 # Clear only real text selections (never shapes).
                 if hasattr(rng, "setString") and not _selection_is_draw_shape(rng):
+                    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+
+                    raise_if_range_hosts_nested_table(rng)
                     rng.setString("")
             except Exception as e:
                 log.debug(
@@ -685,6 +688,10 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
             saved_style = None
 
     cursor = text_obj.createTextCursorByRange(text_range)
+    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+
+    # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
+    raise_if_range_hosts_nested_table(text_range)
     with format_mod._deletion_author():  # author the deletion distinctly (split by-author coloring)
         cursor.setString("")
 
@@ -939,6 +946,9 @@ def replace_preserving_format(model, target_range, new_text, ctx=None,
     ``XText`` that owns the range), not ``model.getText()``. The range must lie
     entirely within that text object.
 
+    Refuses a host cell that contains a nested TextTable (setString / whole-range
+    replace would delete it — use table_set_cell).
+
     When recording tracked changes, *split_author* selects the rendering:
     ``True`` (default) authors the deletion and insertion separately so
     LibreOffice's by-author coloring shows removed vs new text in two distinct
@@ -953,6 +963,9 @@ def replace_preserving_format(model, target_range, new_text, ctx=None,
     # createTextCursorByRange() raises "End of content node doesn't have the proper
     # start node". target_range.getText() resolves to the cell (or body) correctly,
     # matching the markup path which already uses found.getText().
+    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+
+    raise_if_range_hosts_nested_table(target_range)
     text = target_range.getText()
     old_text = _normalize(target_range.getString())
     new_text = _normalize(new_text)

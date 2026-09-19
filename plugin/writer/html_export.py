@@ -557,7 +557,11 @@ def _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell):
         except Exception:
             break
         if _supports_service(para, "com.sun.star.text.TextTable"):
-            # Nested TextTable skipped — future work: docs/writer/specialized-toolsets.md §5.4.
+            # Recreate the nested table inside dest_cell (same walk as body _copy_table).
+            _copy_table(src_doc, para, dest_doc, dest_cell)
+            dest_cursor = dest_text.createTextCursor()
+            dest_cursor.gotoEnd(False)
+            first_para = False
             continue
         if not first_para:
             try:
@@ -595,7 +599,12 @@ def _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell):
                     dest_text.insertString(dest_cursor, chunk, False)
 
 
-def _copy_table(src_doc, src_table, dest_doc):
+def _copy_table(src_doc, src_table, dest_doc, dest_text=None):
+    """Recreate *src_table* in *dest_text* (document body if omitted).
+
+    *dest_text* is a cell when copying a nested TextTable; recursion through
+    ``_copy_cell_xtext`` then copies inner cells (including further nests).
+    """
     try:
         rows = int(src_table.getRows().getCount())
         cols = int(src_table.getColumns().getCount())
@@ -605,8 +614,8 @@ def _copy_table(src_doc, src_table, dest_doc):
         return
     dest_table = dest_doc.createInstance("com.sun.star.text.TextTable")
     dest_table.initialize(rows, cols)
-    dest_text = dest_doc.getText()
-    dest_text.insertTextContent(dest_text.getEnd(), dest_table, False)
+    dest_xtext = dest_text if dest_text is not None else dest_doc.getText()
+    dest_xtext.insertTextContent(dest_xtext.getEnd(), dest_table, False)
     for row in range(rows):
         for col in range(cols):
             try:

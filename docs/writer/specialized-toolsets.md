@@ -291,7 +291,7 @@ Some Writer tools intentionally use the default main-chat tier (**`tier = "core"
 | **Tracking**                | ✅ Implemented           | `tracking.py`: TrackChangesStart/Stop/List/Show, ManageTrackedChanges (accept/reject one or all), comment insert/list/delete                                                                                                                       | Document comparison; version control / integration (not agent)                                         |
 | **Bookmarks**               | ✅ Implemented           | `bookmark_tools.py`: BookmarkList/BookmarkCleanup/BookmarkCreate/BookmarkDelete/BookmarkRename/BookmarkGet                                                                                                                                                                                 | —                                                                                                      |
 | **Footnotes / endnotes**    | ✅ Implemented           | `footnotes.py`: Insert, List, Edit, Delete, SettingsGet/Update                                                                                                                                                                                     | —                                                                                                      |
-| **Tables**                  | ✅ Implemented           | HTML path for cell *content*, plus `specialized/tables.py` UNO toolset via `domain=tables`: `table_list`, `table_get_cells`, `table_set_cell`, `manage_table_structure` (insert/delete row or column), `table_insert` (optional `parent`+`cell` to nest), `table_delete` (by name; nested or top-level) | Merge/split cells; HTML export of nested tables; per-cell formatting; host-cell text beside a nested table — see [§5.4](#54-future-work-writer-nested-tables) |
+| **Tables**                  | ✅ Implemented           | HTML path for cell *content*, plus `specialized/tables.py` UNO toolset via `domain=tables`: `table_list`, `table_get_cells` (host cells return host paragraphs only), `table_set_cell` (host cells rewrite paragraphs and keep nested tables), `manage_table_structure` (insert/delete row or column), `table_insert` (optional `parent`+`cell` to nest), `table_delete` (by name; nested or top-level). HTML export copies nested `TextTable`s; `apply_document_content` refuses a host-cell wipe. | Merge/split cells; per-cell formatting; surgical HTML rewrite of a host cell that keeps the inner table — see [§5.4](#54-future-work-writer-nested-tables) |
 | **Structural navigation**   | ✅ Implemented           | `structural.py` (`section_list`, `nav_goto_page`, `section_read`), `navigation.py` (`nav_heading`, `nav_surroundings`), `outline.py` (`nav_heading_children`); delegate `domain=structural`. Core `get_document_tree` includes document stats (`stats` object); `get_document_stats` was removed. `get_page_objects` stays core. | Technical docs: cross-refs, callouts, revision marks, change bars (not agent)                          |
 | **Sections**                | ✅ Partially implemented | `structural.py`: `section_list`, `section_read` (read-only). Create/edit/delete and per-section property setters not implemented. See [§5.3 Future work: Sections specialized toolset](#53-future-work-sections-specialized-toolset).             | Create/insert `TextSection`; `TextColumns`, `IsVisible`/`Condition`, `IsProtected` (+ password), `SectionLeft/RightMargin`, `BackColor`/`BackGraphic*`, `FileLink`/`LinkRegion`, `DDECommand*`, per-section footnote/endnote scoping; nesting; delete/rename |
 | **Forms**                   | ✅ Partially implemented | 'forms.py'                                                                                                                                                                                                                                         | remaining: DB integration                                                                              |
@@ -313,11 +313,14 @@ Some Writer tools intentionally use the default main-chat tier (**`tier = "core"
 
 For Writer text tables, `table_list` and `table_get_cells` report `nesting` (direct parent
 table/cell; top-level tables return null parent fields) and `nested_in_cells` (this table's
-host cells that contain nested tables). `table_set_cell` and `manage_table_structure` delete
-refuse a host cell / band — `setString` / `removeByIndex` would destroy the inner table.
-`table_insert` with optional `parent` + `cell` nests into that host cell (at the cell end).
-`table_delete` removes a table by name (nested or top-level); hosted children go with it.
-Do not reuse `table_set_cell` as a delete. Remaining nested-table holes: [§5.4](#54-future-work-writer-nested-tables).
+host cells that contain nested tables). `table_get_cells` host slots are the host cell's own
+paragraphs, not concatenated inner-table text. `table_set_cell` on a host cell rewrites
+those paragraph siblings and keeps the nested table (`setString` would destroy it).
+`manage_table_structure` delete refuses a host row/column. `table_insert` with optional
+`parent` + `cell` nests into that host cell (at the cell end). `table_delete` removes a
+table by name (nested or top-level); hosted children go with it. Do not reuse
+`table_set_cell` as a delete. `apply_document_content` on a host-cell range is refused
+(same wipe). Remaining gaps: [§5.4](#54-future-work-writer-nested-tables).
 
 ### 5.2 Core infrastructure
 
@@ -414,29 +417,46 @@ Deferred capabilities (file link, DDE, footnote scoping, background, rename) sho
 - User-facing guide: [help.libreoffice.org "Using Sections"](https://help.libreoffice.org/latest/en-US/text/swriter/guide/sections.html).
 - Existing read tools: [`plugin/writer/structural.py`](../../plugin/writer/structural.py).
 
-### 5.4 Future work: Writer nested tables
+### 5.4 Writer nested tables — status and remaining work
 
 Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent`+`cell`,
-`table_delete` by name). These holes are still open — do not treat the toolset as complete.
+`table_delete` by name). The follow-on holes from that work are now closed as follows.
 
-- **Host-cell text beside a nested table.** `table_set_cell` still refuses the whole host
-  cell (`setString` would wipe the inner table). There is no way to edit the host cell’s
-  own paragraphs while keeping the nested table. Do not reuse `table_set_cell` as a
-  delete or as a “set host text” path; a later tool would need to enumerate the cell’s
-  `XText` and rewrite paragraph siblings only.
-- **Parent `matrix` flatten.** `table_get_cells` still uses `getString()` on every cell,
-  so a host cell looks like concatenated inner-table text. `nested_in_cells` is the flag;
-  the numbers in that cell are not a clean “empty host.” A later read could blank the
-  host slot or return a sentinel.
-- **HTML export skips nested `TextTable`s.** `_copy_cell_xtext` in
-  [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py) `continue`s past
-  in-cell tables, so a copy/apply-content round-trip can drop them.
-- **`apply_document_content` can wipe a nested table** if it rewrites the host cell
-  (`setString("")` on the range). The table toolset does not police that path.
-- **Nesting is direct children of a cell only.** A table inside a frame or section
-  inside a cell reports as not nested (`_cell_direct_child_tables` walks the cell
-  `XEnumeration` once).
-- Still out of scope for tables generally: merge/split cells; per-cell formatting.
+**Shipped**
+
+- **Host-cell text beside a nested table.** `table_set_cell` enumerates the cell’s
+  `XText` and rewrites **direct** paragraph siblings only (first para gets the text;
+  extras are cleared; no paragraphs → `insertString` at `getStart()`). It does not
+  `setString` the whole host cell. Do not use `table_set_cell` as a delete
+  (`table_delete` by name).
+- **Parent `matrix` flatten.** `table_get_cells` returns host-paragraph text only for a
+  host cell (`nested_in_cells` remains the flag). An empty host with only a nested table
+  is `""`, not concatenated inner-table text.
+- **HTML export copies nested `TextTable`s.** `_copy_cell_xtext` in
+  [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py) recreates an
+  in-cell table via `_copy_table(..., dest_text=dest_cell)` and recurses. Images in
+  cells are still not copied there.
+- **`apply_document_content` refuses a host-cell wipe.** Search/replace and selection
+  clear raise if the range lives in a cell that hosts a nested table. Use
+  `table_set_cell` / `table_*`. `target='full_document'` is not policed (a full
+  rewrite is supposed to replace the document). Body search-replace is not treated as
+  a host-cell wipe just because the document has top-level tables.
+- **Nesting through a frame or section.** Discovery walks the host cell’s
+  `XEnumeration` and as-character `TextFrame` portions (a frame in a cell is
+  not a sibling of the paragraphs — probed). The parent is still that
+  **host cell**. Table-in-table stays direct parent only — no ancestry walk.
+  A frame that is not in the cell’s XText is not hosted there;
+  `table_set_cell` then uses `setString` and still destroys that anchored
+  frame (and any table inside it).
+
+**Still open / out of scope**
+
+- Merge/split cells; per-cell formatting.
+- `table_set_cell` on a host cell does not rewrite paragraphs **inside** a frame or
+  section (those are a different `XText`).
+- No surgical HTML rewrite of a host cell that keeps the inner table — the apply path
+  refuses instead of trying to preserve through `setString("")`.
+- Cell images are still omitted from `_copy_cell_xtext`.
 
 ### 6.9 Feature: Structural Integrity & Object Preservation
 

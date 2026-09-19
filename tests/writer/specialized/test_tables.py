@@ -109,6 +109,51 @@ class FakeTextTableElement:
         return self._name
 
 
+class FakeParagraph:
+    def __init__(self, text="", portions=None):
+        self._text = text
+        self._portions = list(portions or [])
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.Paragraph"
+
+    def getSupportedServiceNames(self):
+        return ("com.sun.star.text.Paragraph",)
+
+    def getString(self):
+        return self._text
+
+    def setString(self, value):
+        self._text = value
+
+    def createEnumeration(self):
+        return FakeEnumeration(list(self._portions))
+
+
+class FakePortion:
+    def __init__(self, **props):
+        self._props = props
+
+    def getPropertyValue(self, key):
+        if key not in self._props:
+            raise RuntimeError(key)
+        return self._props[key]
+
+
+class FakeTextFrame:
+    def __init__(self, elements):
+        self._elements = list(elements)
+
+    def supportsService(self, name):
+        return name == "com.sun.star.text.TextFrame"
+
+    def getSupportedServiceNames(self):
+        return ("com.sun.star.text.TextFrame",)
+
+    def getText(self):
+        return SimpleNamespace(createEnumeration=lambda: FakeEnumeration(list(self._elements)))
+
+
 class FakeParentTable(FakeTable):
     def __init__(self, rows, cols, cells=None, nested_by_cell=None, name="Parent"):
         super().__init__(rows, cols, cells=cells, name=name)
@@ -133,6 +178,9 @@ class FakeParentTable(FakeTable):
             if nested_name:
                 self._nested_by_cell.setdefault(name, []).append(FakeTextTableElement(nested_name))
 
+        def insertString(cursor, text, absorb):
+            self._nested_by_cell.setdefault(name, []).insert(0, FakeParagraph(text))
+
         def removeTextContent(table):
             self.cell_removes.append((name, table))
             nested_name = ""
@@ -144,6 +192,7 @@ class FakeParentTable(FakeTable):
             self._nested_by_cell[name] = [el for el in hosted if el.getName() != nested_name]
 
         cell.insertTextContent = insertTextContent
+        cell.insertString = insertString
         cell.removeTextContent = removeTextContent
         return cell
 
@@ -290,6 +339,53 @@ def test_get_table_cells_parent_reports_nested_in_cells():
     assert res["status"] == "ok"
     assert res["nesting"]["is_nested"] is False
     assert res["nested_in_cells"] == {"B2": ["Child"]}
+    # Host slot is host paragraphs only — not the child's getString() dump.
+    assert res["matrix"][1][1] == ""
+
+
+def test_get_table_cells_host_matrix_is_paragraph_siblings_only():
+    """getString() on a host cell concatenates inner-table text; matrix must not."""
+    child = FakeTable(1, 1, cells={"A1": "INNER"})
+    parent = FakeParentTable(
+        2, 2,
+        cells={"B2": "CAPTIONINNER"},
+        nested_by_cell={"B2": [FakeParagraph("CAPTION"), FakeTextTableElement("Child")]},
+    )
+    res = TableGetCells().execute(_ctx({"Parent": parent, "Child": child}), name="Parent")
+    assert res["status"] == "ok"
+    assert res["matrix"][1][1] == "CAPTION"
+    assert "INNER" not in res["matrix"][1][1]
+
+
+def test_get_table_cells_reports_table_inside_frame_portion_as_nested():
+    """As-character frames hang off paragraph portions, not cell XEnumeration siblings."""
+    child = FakeTable(1, 1)
+    frame = FakeTextFrame([FakeTextTableElement("Child")])
+    para = FakeParagraph("", portions=[FakePortion(TextFrame=frame, TextContent=None)])
+    parent = FakeParentTable(2, 2, nested_by_cell={"B2": [para]})
+    res = TableGetCells().execute(_ctx({"Parent": parent, "Child": child}), name="Child")
+    assert res["nesting"] == {
+        "is_nested": True,
+        "parent_table": "Parent",
+        "parent_cell": "B2",
+    }
+
+
+def test_get_table_cells_reports_table_inside_frame_as_nested():
+    child = FakeTable(1, 1)
+    parent = FakeParentTable(
+        2, 2,
+        nested_by_cell={"B2": [FakeTextFrame([FakeTextTableElement("Child")])]},
+    )
+    res = TableGetCells().execute(_ctx({"Parent": parent, "Child": child}), name="Child")
+    assert res["nesting"] == {
+        "is_nested": True,
+        "parent_table": "Parent",
+        "parent_cell": "B2",
+    }
+    listed = TableList().execute(_ctx({"Parent": parent, "Child": child}))
+    by = {t["name"]: t for t in listed["tables"]}
+    assert by["Parent"]["nested_in_cells"] == {"B2": ["Child"]}
 
 
 def test_get_table_cells_triple_nest_reports_direct_parent():
@@ -330,19 +426,57 @@ def test_set_table_cell_ok():
     assert t._cells["B2"] == "new"
 
 
-def test_set_table_cell_refuses_host_cell():
-    """setString on a host cell would wipe the nested TextTable — refuse and leave it."""
+def test_set_table_cell_host_keeps_nested_table():
+    """Host cell: rewrite paragraphs, leave the nested TextTable (do not setString)."""
     parent = FakeParentTable(
         2, 2, cells={"A1": "keep", "B2": "host"},
         nested_by_cell={"B2": [FakeTextTableElement("Child")]},
     )
     child = FakeTable(1, 1)
     ctx = _ctx({"Parent": parent, "Child": child})
-    res = TableSetCell().execute(ctx, name="Parent", cell="B2", text="wipe")
-    assert res["status"] == "error" and "Child" in res["message"]
-    assert parent._cells["B2"] == "host"
+    res = TableSetCell().execute(ctx, name="Parent", cell="B2", text="caption")
+    assert res["status"] == "ok", res
+    assert res["nested_tables"] == ["Child"]
+    assert isinstance(parent._nested_by_cell["B2"][0], FakeParagraph)
+    assert parent._nested_by_cell["B2"][0].getString() == "caption"
+    assert parent._nested_by_cell["B2"][-1].getName() == "Child"
     sibling = TableSetCell().execute(ctx, name="Parent", cell="A1", text="ok")
     assert sibling["status"] == "ok" and parent._cells["A1"] == "ok"
+
+
+def test_set_table_cell_host_rewrites_existing_paragraphs():
+    para = FakeParagraph("old-caption")
+    child = FakeTable(1, 1, name="Child")
+    parent = FakeParentTable(
+        2, 2,
+        nested_by_cell={"B2": [para, FakeTextTableElement("Child")]},
+        name="Parent",
+    )
+    ctx = _ctx({"Parent": parent, "Child": child})
+    res = TableSetCell().execute(ctx, name="Parent", cell="B2", text="new-caption")
+    assert res["status"] == "ok", res
+    assert res["old_text"] == "old-caption" and res["new_text"] == "new-caption"
+    assert res["nested_tables"] == ["Child"]
+    assert para.getString() == "new-caption"
+    assert parent._nested_by_cell["B2"][-1].getName() == "Child"
+
+
+def test_set_cell_keeps_nested_table_in_frame():
+    parent = FakeParentTable(
+        2, 2,
+        cells={"B2": "host"},
+        nested_by_cell={"B2": [FakeTextFrame([FakeTextTableElement("Child")])]},
+    )
+    res = TableSetCell().execute(
+        _ctx({"Parent": parent, "Child": FakeTable(1, 1)}), name="Parent", cell="B2", text="caption"
+    )
+    assert res["status"] == "ok", res
+    assert res["nested_tables"] == ["Child"]
+    assert parent._nested_by_cell["B2"][-1].getName() == "Child" if hasattr(
+        parent._nested_by_cell["B2"][-1], "getName"
+    ) else True
+    # Frame stays; a caption paragraph is inserted at the start.
+    assert any(isinstance(el, FakeTextFrame) for el in parent._nested_by_cell["B2"])
 
 
 def test_set_table_cell_out_of_bounds_lists_real_names():
@@ -415,6 +549,41 @@ def test_delete_row_refuses_nested_host():
     # The other row has no nested table — delete still works.
     ok = tool.execute(ctx, action="delete", axis="row", name="Parent", index=0)
     assert ok["status"] == "ok" and parent._rows.n == 1
+
+
+def test_delete_row_refuses_nested_host_in_frame():
+    parent = FakeParentTable(
+        2, 2, nested_by_cell={"B2": [FakeTextFrame([FakeTextTableElement("Child")])]}
+    )
+    res = ManageTableStructure().execute(
+        _ctx({"Parent": parent, "Child": FakeTable(1, 1)}),
+        action="delete", axis="row", name="Parent", index=1,
+    )
+    assert res["status"] == "error" and "Child" in res["message"]
+    assert parent._rows.n == 2
+
+
+def test_raise_if_range_hosts_nested_table_cell_vs_body():
+    from plugin.framework.errors import ToolExecutionError
+    from plugin.writer.specialized.tables import raise_if_range_hosts_nested_table
+
+    parent = FakeParentTable(2, 2, nested_by_cell={"B2": [FakeTextTableElement("Child")]})
+    cell = parent.getCellByName("B2")
+    cell.createTextCursorByRange = lambda start: SimpleNamespace(
+        getPropertyValue=lambda key: object() if key == "TextTable" else None
+    )
+    rng = SimpleNamespace(getText=lambda: cell, getStart=lambda: "S")
+    try:
+        raise_if_range_hosts_nested_table(rng)
+        raise AssertionError("expected ToolExecutionError")
+    except ToolExecutionError as exc:
+        assert "Child" in str(exc) and "table_set_cell" in str(exc)
+
+    body = SimpleNamespace(
+        createTextCursorByRange=lambda start: SimpleNamespace(getPropertyValue=lambda key: None),
+        createEnumeration=lambda: FakeEnumeration([FakeTextTableElement("Top")]),
+    )
+    raise_if_range_hosts_nested_table(SimpleNamespace(getText=lambda: body, getStart=lambda: "S"))
 
 
 def test_delete_column_refuses_nested_host():

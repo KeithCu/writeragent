@@ -85,22 +85,109 @@ def _resolve_cell_name(table: Any, raw: str) -> str | None:
     return None
 
 
-def _is_text_table(obj: Any) -> bool:
-    """True for a Writer TextTable. Prefer supportsService (house style); fall back to names."""
+def _service_named(obj: Any, name: str) -> bool:
+    """True if *obj* supports *name*. Prefer supportsService; fall back to names."""
     try:
         ss = getattr(obj, "supportsService", None)
         if callable(ss):
-            return bool(ss("com.sun.star.text.TextTable"))
+            return bool(ss(name))
     except Exception:
         pass
     try:
-        return "com.sun.star.text.TextTable" in (obj.getSupportedServiceNames() or ())
+        return name in (obj.getSupportedServiceNames() or ())
     except Exception:
         return False
 
 
-def _cell_direct_child_tables(cell: Any) -> list[str]:
-    """Names of TextTables that are direct children of *cell*'s XEnumeration.
+def _is_text_table(obj: Any) -> bool:
+    """True for a Writer TextTable."""
+    return _service_named(obj, "com.sun.star.text.TextTable")
+
+
+def _container_xtext(obj: Any) -> Any | None:
+    """Inner XText of a TextFrame or TextSection, else None.
+
+    A table inside one of these still lives in the host cell — setString on
+    the cell would destroy it — so discovery walks through the container.
+    """
+    if not (
+        _service_named(obj, "com.sun.star.text.TextFrame")
+        or _service_named(obj, "com.sun.star.text.TextSection")
+    ):
+        return None
+    try:
+        inner = obj.getText() if hasattr(obj, "getText") else obj
+    except Exception:
+        inner = obj
+    return inner
+
+
+def _iter_direct_children(xtext: Any):
+    """Yield each element of *xtext*'s XEnumeration (one level, no recurse)."""
+    try:
+        enum = xtext.createEnumeration()
+    except Exception:
+        return
+    while True:
+        try:
+            if not enum.hasMoreElements():
+                break
+            yield enum.nextElement()
+        except Exception:
+            return
+
+
+def _iter_text_frames_in_para(para: Any):
+    """As-character TextFrames in *para* (portion property ``TextFrame``).
+
+    Probed: a frame in a cell is not an XEnumeration sibling — the cell enum
+    is only Paragraph; the frame hangs off a portion.
+    """
+    try:
+        enum = para.createEnumeration()
+    except Exception:
+        return
+    while True:
+        try:
+            if not enum.hasMoreElements():
+                break
+            portion = enum.nextElement()
+        except Exception:
+            return
+        try:
+            frame = portion.getPropertyValue("TextFrame")
+        except Exception:
+            continue
+        if frame is not None:
+            yield frame
+
+
+def _walk_xtext_siblings(xtext: Any, *, into_containers: bool = True):
+    """Yield ``('table', obj)`` or ``('para', obj)`` from *xtext*.
+
+    When *into_containers* is true (cell / body), follow TextFrame /
+    TextSection siblings and as-character ``TextFrame`` portions. Once
+    inside a container, leave it false so the frame's own portions do not
+    re-enter the same frame (UNO hands back a new proxy each time).
+    """
+    for element in _iter_direct_children(xtext):
+        if _is_text_table(element):
+            yield ("table", element)
+            continue
+        if into_containers:
+            inner = _container_xtext(element)
+            if inner is not None:
+                yield from _walk_xtext_siblings(inner, into_containers=False)
+                continue
+            for frame in _iter_text_frames_in_para(element):
+                nested = _container_xtext(frame)
+                if nested is not None:
+                    yield from _walk_xtext_siblings(nested, into_containers=False)
+        yield ("para", element)
+
+
+def _cell_hosted_table_names(cell: Any) -> list[str]:
+    """Names of TextTables hosted in *cell* (direct or via frame/section).
 
     Writer nests a TextTable as a sibling of the cell's paragraphs — not via
     anchors or geometry. Empty if the cell cannot be enumerated (plain fakes,
@@ -108,26 +195,93 @@ def _cell_direct_child_tables(cell: Any) -> list[str]:
     not the whole document.
     """
     names: list[str] = []
-    try:
-        enum = cell.createEnumeration()
-    except Exception:
-        return names
-    while True:
-        try:
-            if not enum.hasMoreElements():
-                break
-            element = enum.nextElement()
-        except Exception:
-            break
-        if not _is_text_table(element):
+    for kind, obj in _walk_xtext_siblings(cell):
+        if kind != "table":
             continue
         try:
-            nested_name = str(element.getName() or "")
+            nested_name = str(obj.getName() or "")
         except Exception:
             nested_name = ""
         if nested_name:
             names.append(nested_name)
     return names
+
+
+def _cell_plain_siblings(cell: Any) -> str:
+    """Host-cell paragraph text only — skips nested tables' getString() dump."""
+    parts: list[str] = []
+    for kind, obj in _walk_xtext_siblings(cell):
+        if kind != "para":
+            continue
+        try:
+            part = obj.getString()
+        except Exception:
+            part = ""
+        if part:
+            parts.append(str(part))
+    return "\n".join(parts)
+
+
+def _cell_matrix_text(cell: Any) -> str:
+    """Cell text for table_get_cells: host cells omit concatenated inner-table text."""
+    if _cell_hosted_table_names(cell):
+        return _cell_plain_siblings(cell)
+    try:
+        return cell.getString()
+    except Exception:
+        return ""
+
+
+def _set_host_paragraphs(cell: Any, text: str) -> None:
+    """Rewrite the cell's own paragraph siblings; leave tables and frames.
+
+    Direct children only — do not rewrite text inside a frame/section (that
+    would be a different XText). No paragraphs: insert at getStart() so a
+    caption lands before a table that table_insert placed at getEnd().
+    """
+    paras: list[Any] = []
+    for element in _iter_direct_children(cell):
+        if _is_text_table(element) or _container_xtext(element) is not None:
+            continue
+        paras.append(element)
+    if not paras:
+        cell.insertString(cell.getStart(), text, False)
+        return
+    paras[0].setString(text)
+    for extra in paras[1:]:
+        extra.setString("")
+
+
+def range_hosted_nested_tables(text_range: Any) -> list[str]:
+    """Nested table names that setString on *text_range* would destroy.
+
+    Only when the range lives inside a table cell (cursor ``TextTable`` is
+    set). Body XText tables are top-level — a body search-replace must not
+    be treated as a host-cell wipe.
+    """
+    try:
+        text_obj = text_range.getText()
+        cur = text_obj.createTextCursorByRange(text_range.getStart())
+        if cur.getPropertyValue("TextTable") is None:
+            return []
+    except Exception:
+        return []
+    return _cell_hosted_table_names(text_obj)
+
+
+def raise_if_range_hosts_nested_table(text_range: Any) -> None:
+    """Refuse a rewrite that would setString a host cell (wipes nested tables)."""
+    hosted = range_hosted_nested_tables(text_range)
+    if not hosted:
+        return
+    from plugin.framework.errors import ToolExecutionError
+
+    raise ToolExecutionError(
+        "This range is in a table cell that contains nested table(s) %s. "
+        "Use table_set_cell for the host cell's own paragraphs, or "
+        "edit those tables by name — apply_document_content would delete them."
+        % ", ".join(hosted)
+    )
 
 
 def _not_nested() -> dict[str, Any]:
@@ -155,7 +309,7 @@ def _writer_nesting(doc: Any) -> tuple[dict[str, dict[str, Any]], dict[str, dict
                 cell = parent.getCellByName(cell_name)
             except Exception:
                 continue
-            children = _cell_direct_child_tables(cell)
+            children = _cell_hosted_table_names(cell)
             if not children:
                 continue
             hosted.setdefault(parent_name, {})[cell_name] = children
@@ -214,8 +368,7 @@ def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any
 def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     """Nested table names hosted in the row/column about to be deleted.
 
-    Local to that band (getCellByPosition, then the computed A1 name). Does not
-    walk the rest of the document — setString/removeByIndex would destroy these.
+    Local to that band (getCellByPosition, then the computed A1 name).
     """
     rows, cols = _dims(table)
     hosted: list[str] = []
@@ -229,7 +382,7 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
                 cell = table.getCellByName(_cell_name(c, r))
             except Exception:
                 continue
-        hosted.extend(_cell_direct_child_tables(cell))
+        hosted.extend(_cell_hosted_table_names(cell))
     # Preserve first-seen order (a band can host more than one nested table).
     seen: list[str] = []
     for name in hosted:
@@ -243,7 +396,7 @@ class TableList(ToolWriterTableBase):
     description = (
         "List tables with name and dimensions (rows x columns). Writer: text-table names; each "
         "row includes nesting (direct parent table/cell) and nested_in_cells (host cells that "
-        "contain nested tables — do not overwrite or delete those cells). "
+        "contain nested tables — table_set_cell keeps those tables; do not delete the host row/column). "
         "Draw/Impress: also page and shape index."
     )
     is_mutation = False
@@ -278,10 +431,11 @@ class TableGetCells(ToolWriterTableBase):
     name = "table_get_cells"
     description = (
         "Return a table's cell text as a row-major matrix (matrix[row][col]) by position — not by "
-        "cell name. Writer also reports nesting (direct parent table/cell) and nested_in_cells "
-        "(this table's host cells that contain nested tables — do not table_set_cell those cells). "
+        "cell name. Writer host cells that contain nested tables return only the host cell's own "
+        "paragraphs (not concatenated inner-table text); nested_in_cells names those cells. "
         "Use matrix indices to read values; for table_set_cell use Writer cell names from "
-        "table_set_cell error hints (columns A..Z then a..z past column 26, not spreadsheet AA)."
+        "table_set_cell error hints (columns A..Z then a..z past column 26, not spreadsheet AA). "
+        "table_set_cell on a host cell updates that host text and leaves nested tables."
     )
     is_mutation = False
     parameters = {
@@ -324,10 +478,10 @@ class TableGetCells(ToolWriterTableBase):
                     # (merged/covered cells have no addressable cell).
                     val = ""
                     try:
-                        val = table.getCellByPosition(c, r).getString()
+                        val = _cell_matrix_text(table.getCellByPosition(c, r))
                     except Exception:
                         try:
-                            val = table.getCellByName(_cell_name(c, r)).getString()
+                            val = _cell_matrix_text(table.getCellByName(_cell_name(c, r)))
                         except Exception:
                             val = ""
                     row.append(val)
@@ -352,9 +506,10 @@ class TableGetCells(ToolWriterTableBase):
 class TableSetCell(ToolWriterTableBase):
     name = "table_set_cell"
     description = (
-        "Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). Replaces the "
-        "cell's text and any in-cell formatting (setString). Refuses a cell that hosts a nested table "
-        "(setString would delete it — edit the nested table by name instead). "
+        "Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). "
+        "A normal cell is replaced with setString (clears in-cell formatting). "
+        "A cell that hosts a nested table keeps that table and rewrites only the host "
+        "paragraphs. Edit the nested table by its own name. "
         "Not a tracked change even when review mode is on."
     )
     is_mutation = True
@@ -402,14 +557,19 @@ class TableSetCell(ToolWriterTableBase):
                 return self._tool_error(
                     "Cell '%s' not in table '%s'. Its cells are: %s." % (cell_raw, name, sample))
             cell = table.getCellByName(cell_name)
-            # setString wipes the cell's XText, including any nested TextTable.
-            nested = _cell_direct_child_tables(cell)
+            # setString wipes nested TextTables. Rewrite host paragraphs instead.
+            nested = _cell_hosted_table_names(cell)
             if nested:
-                return self._tool_error(
-                    "Cell '%s' in table '%s' contains nested table(s) %s. "
-                    "Edit those tables by name; setString would delete them."
-                    % (cell_name, name, ", ".join(nested))
-                )
+                old = _cell_plain_siblings(cell)
+                _set_host_paragraphs(cell, str(text))
+                return {
+                    "status": "ok",
+                    "table_name": name,
+                    "cell": cell_name,
+                    "old_text": old,
+                    "new_text": str(text),
+                    "nested_tables": nested,
+                }
             old = cell.getString()
             cell.setString(str(text))
             return {"status": "ok", "table_name": name, "cell": cell_name, "old_text": old, "new_text": str(text)}

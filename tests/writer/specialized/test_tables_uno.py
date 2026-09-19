@@ -73,6 +73,8 @@ def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
         "parent_cell": None,
     }
     assert outer_res["nested_in_cells"] == {"B2": ["FixtureNested"]}
+    # Host slot is host paragraphs only — not NESTED_ALPHA concatenated in.
+    assert "NESTED_ALPHA" not in (outer_res["matrix"][1][1] or "")
 
     listed = TableList().execute(tool_ctx)
     assert listed.get("status") == "ok", listed
@@ -81,9 +83,10 @@ def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
     assert by["FixtureOuter"]["nested_in_cells"] == outer_res["nested_in_cells"]
     assert by["FixtureStandalone"]["nesting"]["is_nested"] is False
 
-    wipe = TableSetCell().execute(tool_ctx, name="FixtureOuter", cell="B2", text="wipe")
-    assert wipe.get("status") == "error" and "FixtureNested" in wipe.get("message", ""), wipe
+    wipe = TableSetCell().execute(tool_ctx, name="FixtureOuter", cell="B2", text="HOST_CAPTION")
+    assert wipe.get("status") == "ok", wipe
     assert nested.getName() == "FixtureNested"
+    assert nested.getCellByName("A1").getString() == "NESTED_ALPHA"
 
     del_row = ManageTableStructure().execute(
         tool_ctx, action="delete", axis="row", name="FixtureOuter", index=1
@@ -144,3 +147,73 @@ def test_table_insert_parent_cell_nests_and_table_delete_removes_uno(ctx, doc):
     assert gone.get("status") == "ok", gone
     assert not doc.getTextTables().hasByName(top_name)
     assert doc.getTextTables().hasByName("InsertOuter")
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_set_cell_host_keeps_nested_table_uno(ctx, doc):
+    """table_set_cell on a host cell rewrites the caption and leaves the nested table."""
+    text = doc.getText()
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), outer, False)
+    outer.setName("HostOuter")
+    host = outer.getCellByName("B2")
+    host.setString("OLD_CAPTION")
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    host.insertTextContent(host.getEnd(), nested, False)
+    nested.setName("HostNested")
+    nested.getCellByName("A1").setString("INNER")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    set_host = TableSetCell().execute(
+        tool_ctx, name="HostOuter", cell="B2", text="NEW_CAPTION"
+    )
+    assert set_host.get("status") == "ok", set_host
+    assert doc.getTextTables().hasByName("HostNested")
+    assert nested.getCellByName("A1").getString() == "INNER"
+    cells = TableGetCells().execute(tool_ctx, name="HostOuter")
+    assert cells["matrix"][1][1] == "NEW_CAPTION"
+    assert cells["nested_in_cells"] == {"B2": ["HostNested"]}
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_in_frame_not_in_cell_xtext_is_not_hosted_uno(ctx, doc):
+    """A TextFrame inserted into a cell is not in that cell's XText (probed).
+
+    The frame is anchored to the cell, but the cell enum is Paragraph only
+    and portions have TextFrame=None. table_list therefore does not nest it.
+    table_set_cell uses setString, which destroys the anchored frame and the
+    table inside it. In-cell frames that *do* appear as as-character portions
+    are covered by the unit walk.
+    """
+    text = doc.getText()
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(2, 2)
+    text.insertTextContent(text.getEnd(), outer, False)
+    outer.setName("FrameOuter")
+    host = outer.getCellByName("B2")
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+
+    frame.setPropertyValue("AnchorType", AS_CHARACTER)
+    frame.setPropertyValue("Width", 5000)
+    frame.setPropertyValue("Height", 3000)
+    host.insertTextContent(host.getEnd(), frame, False)
+    inner = doc.createInstance("com.sun.star.text.TextTable")
+    inner.initialize(1, 1)
+    frame.getText().insertTextContent(frame.getText().getEnd(), inner, False)
+    inner.setName("FrameNested")
+    inner.getCellByName("A1").setString("FRAMED")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    listed = TableList().execute(tool_ctx)
+    assert listed.get("status") == "ok", listed
+    by = {t["name"]: t for t in listed["tables"]}
+    assert by["FrameNested"]["nesting"]["is_nested"] is False
+    assert by["FrameOuter"]["nested_in_cells"] == {}
+    wipe = TableSetCell().execute(tool_ctx, name="FrameOuter", cell="B2", text="wipe")
+    assert wipe.get("status") == "ok", wipe
+    assert not doc.getTextTables().hasByName("FrameNested")
