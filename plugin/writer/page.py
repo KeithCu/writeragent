@@ -704,16 +704,6 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             replace_xtext_with_html(
                 text_obj, content, config_svc=config_svc, model=ctx.doc,
             )
-            # Windows findFirst can miss a just-written header until idle
-            # (GHA 35466498641 test_search_still_reaches_header_after_html_set).
-            # force=True: UNO tests set WRITERAGENT_TESTING=1, which would
-            # otherwise skip the approved VCL pump.
-            try:
-                from plugin.framework.uno_context import process_events_to_idle
-
-                process_events_to_idle(getattr(ctx, "ctx", None), force=True)
-            except Exception:
-                pass
             result: dict[str, Any] = {
                 "status": "ok",
                 "style_name": style_name,

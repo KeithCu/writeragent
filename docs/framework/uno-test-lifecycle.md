@@ -757,7 +757,9 @@ Windows). Tree cache rebuilds when `CharacterCount` moves even if
 `XModifyListener` misses `insertString`. Ops / cross-para color
 tests normalize CR/CRLF. Origin-detection canary forces Standard
 and reads real style defaults (leftover Heading 1 re-apply is a
-Char* no-op, not improved origin detection). Still needs a
+Char* no-op, not improved origin detection). Header findFirst idle
+drain lives in `test_search_still_reaches_header_after_html_set`
+only, not in `page_set_header_footer_text`. Still needs a
 `workflow_dispatch` Windows recheck.
 
 Ubuntu PR CI

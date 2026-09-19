@@ -291,6 +291,11 @@ def test_search_still_reaches_header_after_html_set(ctx, doc):
     token = "UniqueHeaderTokenXYZ4229"
     applied = _set(doc, ctx, "header", "<p>%s</p>" % token)
     assert applied["status"] == "ok"
+    # Windows findFirst can miss a just-written header until idle
+    # (GHA 35466498641). Test-only — not in page_set_header_footer_text.
+    from plugin.framework.uno_context import process_events_to_idle
+
+    process_events_to_idle(ctx, force=True)
     sd = doc.createSearchDescriptor()
     sd.SearchString = token
     found = doc.findFirst(sd)
