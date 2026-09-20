@@ -84,3 +84,6 @@ def test_sandbox_filesystem_helpers_are_off_cover_all() -> None:
     )
     for name in offed:
         assert not any(f.endswith(f".{name}") for f in fqns), name
+    # cover-all 35526755391: basename stays on with ascii dual-profile (not off).
+    assert any(f.endswith("._is_acceptable_python_basename") for f in fqns)
+

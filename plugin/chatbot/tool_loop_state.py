@@ -146,6 +146,8 @@ def delegate_status_label(func_args: Mapping[str, Any]) -> str:
     and 1 <= max_len <= _DEAL_TRUNCATE_MAX_LEN
 )
 def _truncate_delegate_task(task: str, max_len: int = DELEGATE_TASK_CHAT_MAX) -> str:
+    # crosshair: off
+    # cover-all 35526755391: ~31m / 433 examples / 36k lines despite dual-profile len=1. Engine-hostile display helper. Doable later: closed task alphabet.
     # Display-only helper. ascii_bounded on the *full* task PreContract-failed debug
     # OXTs when specialize task was long / non-ASCII (GMP retest). Chat may show 120
     # chars; specialize still gets kwargs["task"] intact (specialized_base.execute).

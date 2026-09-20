@@ -93,7 +93,7 @@ def _template_body(helper: str, params: dict[str, Any]) -> str:
     )
 
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
 
 
 @deal.post(lambda result: isinstance(result, dict) and "query_folder_sql" in result and "query_sheet_sql" in result)
@@ -114,6 +114,26 @@ def parse_sql_script_header(code: str) -> SqlScriptMeta | None:
     return parse_helper_script_header(code, tag="sql", helper_names=SQL_HELPER_NAMES)
 
 
+
+# cover-all 35526755391: is_sql_result 8130 examples / 169k lines on unbounded dict[Any]. Dual-profile closed dict.
+_DEAL_SQL_RESULT_KEYS = 4 if UNDER_CROSSHAIR else 32
+_DEAL_SQL_RESULT_STR = 8 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
+
+
+def _deal_sql_result_value_ok(value: object) -> bool:
+    if not isinstance(value, dict):
+        return True
+    if len(value) > _DEAL_SQL_RESULT_KEYS:
+        return False
+    for k, v in value.items():
+        if not isinstance(k, str) or not str_bounded(k, _DEAL_SQL_RESULT_STR):
+            return False
+        if isinstance(v, str) and not str_bounded(v, _DEAL_SQL_RESULT_STR):
+            return False
+    return True
+
+
+@deal.pre(lambda value: _deal_sql_result_value_ok(value))
 def is_sql_result(value: Any) -> bool:
     """True when *value* matches the compact DuckDB SQL helper result contract."""
     if not isinstance(value, dict):

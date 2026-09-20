@@ -282,6 +282,7 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
     (deep check-all run 32840960268: Prev 95:09 / 15:20). Range formatters
     stay on — closed A1/sheet alphabet, no regex. cover-all 33797534946
     offs (extract/build/escape/rebuild wrappers) also stay out of cover FQNs.
+    cover-all 35526755391 offs (range bodies, ensure helpers, format_data_binding_text) too.
     """
     skip_if_release_build("scripts/ not in stripped release tree")
     from scripts.crosshair_stream import cover_fqns_for_module
@@ -304,6 +305,14 @@ def test_rewrite_wrappers_dropped_from_check_all_fqns() -> None:
         "rebuild_python_formula_with_code_ref",
         "cell_looks_python_like",
         "replace_python_code",
+        # cover-all 35526755391 leftovers (~2.45h formula_edit)
+        "_format_py_data_range_body",
+        "_format_excel_data_range_body",
+        "_parts_result_ok",
+        "_quoted_parse_result_ok",
+        "_py_call_open_end",
+        "_find_matching_paren",
+        "format_data_binding_text",
     ):
         assert not any(f.endswith(f".{name}") for f in cover_fqns), name
     preprocess = cover_fqns_for_module(

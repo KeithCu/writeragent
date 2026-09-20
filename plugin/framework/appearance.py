@@ -81,6 +81,8 @@ def _deal_theme_color_ok(color: object) -> bool:
 @deal.pre(lambda color: _deal_theme_color_ok(color))
 @deal.post(lambda result: isinstance(result, float) and 0.0 <= result <= 255.0)
 def _luminance(color: int) -> float:
+    # crosshair: off
+    # cover-all 35526755391: appearance module ~19m despite 2-color theme domain (_luminance). Doable later: leave finite domain only.
     # No deal.pre used to let CrossHair wander on unbounded ints (3:24 on
     # check-all 32877875221). ``type(color) is int`` rejects bool; 24-bit RGB.
     r = (color >> 16) & 0xFF
@@ -91,6 +93,8 @@ def _luminance(color: int) -> float:
 
 @deal.pre(lambda color, factor: _deal_theme_color_ok(color) and factor in _DEAL_DARKEN_FACTORS)
 def _darken(color: int, factor: float) -> int:
+    # crosshair: off
+    # cover-all 35526755391: appearance module ~19m (_darken ~9.7k lines). Doable later: finite theme colors already; entry off for speed.
     r = int(((color >> 16) & 0xFF) * factor)
     g = int(((color >> 8) & 0xFF) * factor)
     b = int((color & 0xFF) * factor)

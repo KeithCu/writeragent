@@ -24,7 +24,7 @@ from plugin.framework.deal_shim import (
     UNDER_CROSSHAIR,
     deal,
     inverse_ensure,
-    str_bounded,
+    ascii_bounded, str_bounded,
 )
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
@@ -198,9 +198,12 @@ _PIPE_BUF_TARGET = 1024 * 1024
 
 
 # check-all 33668189572: scrub_subprocess_env ~6m under DEAL_MAX_ARGV=32; keep pytest wide.
-_DEAL_SCRUB_DICT = 2 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
-_DEAL_SCRUB_KEY = 4 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
-_DEAL_SCRUB_VAL = 8 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
+_DEAL_SCRUB_DICT = 1 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
+_DEAL_SCRUB_KEY = 2 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
+_DEAL_SCRUB_VAL = 4 if UNDER_CROSSHAIR else DEAL_MAX_ARGV
+
+# cover-all 35526755391: basename ~10m under str_bounded path. ASCII short under CrossHair.
+_DEAL_BASENAME_LEN = 8 if UNDER_CROSSHAIR else DEAL_MAX_PATH
 
 
 @deal.pre(
@@ -383,7 +386,7 @@ def _normalize_venv_path_input(venv_dir: str) -> str:
     return os.path.expanduser(os.path.expandvars(cleaned))
 
 
-@deal.pre(lambda base: str_bounded(base, DEAL_MAX_PATH))
+@deal.pre(lambda base: ascii_bounded(base, _DEAL_BASENAME_LEN))
 def _is_acceptable_python_basename(base: str) -> bool:
     """True for python / python3 / python.exe; false for pythonw (no console I/O)."""
     lower = base.lower()

@@ -47,6 +47,8 @@ _RANGE_ADDR_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvw
 
 
 def _py_call_open_end(raw: str, *, require_equals: bool) -> int | None:
+    # crosshair: off
+    # cover-all 35526755391 (~5.4m). Prefix scanner as cover entry; stay-on parse still exercises it. Doable later: tiny PY-prefix alphabet.
     """Return index after the opening ``(`` of a PY/PYTHON call, or None.
 
     CrossHair check of ``normalize_formula_string('PY')`` raised
@@ -91,6 +93,8 @@ class PythonFormulaParts:
 
 
 def _quoted_parse_result_ok(s: str, start: int, result: tuple[str, int] | None) -> bool:
+    # crosshair: off
+    # cover-all 35526755391 ensure helper as cover entry. Doable later: rename _deal_ + skip.
     if result is None:
         return True
     code, end = result
@@ -122,6 +126,8 @@ def _deal_data_args_ok(data_args: object) -> bool:
 
 
 def _parts_result_ok(result: PythonFormulaParts | None) -> bool:
+    # crosshair: off
+    # cover-all 35526755391 (~7.5m / 103 examples). Nested ensure predicate as cover entry. Doable later: rename _deal_ + skip.
     if result is None:
         return True
     return (
@@ -164,7 +170,14 @@ def _parse_quoted_string(s: str, start: int) -> tuple[str, int] | None:
     return None
 
 
-@deal.pre(lambda inner_body: str_bounded(inner_body, DEAL_MAX_SOURCE))
+
+# cover-all 35526755391: ~13m / 68 examples under str_bounded Unicode. CrossHair ASCII-only; pytest keeps Unicode source.
+_DEAL_UNQUOTED_CODE = ascii_bounded if UNDER_CROSSHAIR else str_bounded
+# cover-all 35526755391: char-class helpers — ASCII under CrossHair; pytest keeps Unicode sheet names.
+_DEAL_SHEET_TOKEN = ascii_bounded if UNDER_CROSSHAIR else str_bounded
+
+
+@deal.pre(lambda inner_body: _DEAL_UNQUOTED_CODE(inner_body, DEAL_MAX_SOURCE))
 @deal.post(lambda result: result is None or (isinstance(result, str) and not result.startswith('"')))
 def _parse_unquoted_code_arg(inner_body: str) -> str | None:
     """Parse ``=PY(sp.prime(100))`` when Calc omits string quotes around code."""
@@ -184,6 +197,7 @@ def _parse_unquoted_code_arg(inner_body: str) -> str | None:
     return s
 
 
+@deal.pre(lambda rest: _DEAL_SHEET_TOKEN(rest, DEAL_MAX_TOKEN))
 def _is_data_arg_separator(rest: str) -> bool:
     """True when *rest* begins a PY/PYTHON data-argument suffix (``;`` or ``,``)."""
     return bool(rest) and rest[0] in (";", ",")
@@ -314,6 +328,8 @@ _LEXER_COLLISION_XL_TEXT_RE = re.compile(r"\.text\s*\(")
     or (0 <= open_idx <= result < len(s) and s[result] == ")")
 )
 def _find_matching_paren(s: str, open_idx: int) -> int:
+    # crosshair: off
+    # cover-all 35526755391 (~4m). Paren walker as cover entry. Doable later: tiny balanced-paren alphabet.
     """Return index of ``)`` matching ``(`` at *open_idx*, or -1."""
     # Reject out-of-range open_idx: negatives index from the end (CrossHair '', -1).
     if open_idx < 0 or open_idx >= len(s):
@@ -488,15 +504,19 @@ def parse_data_binding_text(text: str) -> list[str]:
 @deal.pre(lambda *args, **kwargs: bool(args) and _deal_data_args_ok(args[0]))
 @deal.post(lambda result: isinstance(result, str))
 def format_data_binding_text(data_args: list[str]) -> str:
+    # crosshair: off
+    # cover-all 35526755391 (~10m / 1 example, 27k lines). Editor join of data_args. Doable later: tiny data_args alphabet.
     """Format data args for the editor textbox (comma-separated)."""
     cleaned = [a.strip() for a in data_args if a.strip()]
     return ", ".join(cleaned)
 
 
+@deal.pre(lambda c: isinstance(c, str) and len(c) == 1 and c.isascii())
 def _is_ascii_letter(c: str) -> bool:
     return "A" <= c <= "Z" or "a" <= c <= "z"
 
 
+@deal.pre(lambda s: _DEAL_SHEET_TOKEN(s, DEAL_MAX_TOKEN))
 def _is_a1_cell_prefix(s: str) -> bool:
     """Optional ``$`` + letters + optional ``$`` + a digit.
 
@@ -519,6 +539,7 @@ def _is_a1_cell_prefix(s: str) -> bool:
     return i < n and "0" <= s[i] <= "9"
 
 
+@deal.pre(lambda s: _DEAL_SHEET_TOKEN(s, DEAL_MAX_TOKEN))
 def _is_sheet_identifier(s: str) -> bool:
     """``[A-Za-z_][A-Za-z0-9_]*`` without regex."""
     if not s:
@@ -532,10 +553,12 @@ def _is_sheet_identifier(s: str) -> bool:
     return True
 
 
+@deal.pre(lambda s: _DEAL_SHEET_TOKEN(s, DEAL_MAX_TOKEN))
 def _has_whitespace(s: str) -> bool:
     return any(c.isspace() for c in s)
 
 
+@deal.pre(lambda s: _DEAL_SHEET_TOKEN(s, DEAL_MAX_TOKEN))
 def _sheet_needs_excel_quotes(s: str) -> bool:
     """True when *s* has a non-``[A-Za-z0-9_]`` char or starts with a digit.
 
@@ -546,6 +569,7 @@ def _sheet_needs_excel_quotes(s: str) -> bool:
     return any(not (c == "_" or "0" <= c <= "9" or _is_ascii_letter(c)) for c in s)
 
 
+@deal.pre(lambda sheet, rest: _DEAL_SHEET_TOKEN(sheet, DEAL_MAX_TOKEN) and _DEAL_SHEET_TOKEN(rest, DEAL_MAX_TOKEN))
 def _quote_py_sheet(sheet: str, rest: str) -> str:
     if _has_whitespace(sheet) or not _is_sheet_identifier(sheet):
         return f"'{sheet}'.{rest}"
@@ -553,6 +577,8 @@ def _quote_py_sheet(sheet: str, rest: str) -> str:
 
 
 def _format_py_data_range_body(range_addr: str) -> str:
+    # crosshair: off
+    # cover-all 35526755391 (~8m body as entry; wrapper format_py_data_range stay-on). Combinatoric sheet-quote paths. Doable later: closed A1 alphabet only.
     """Calc-style range quoting. No regex — relib TypeError on NUL in ``re.match``."""
     addr = str(range_addr).strip().replace("$", "")
     if "!" in addr:
@@ -574,6 +600,8 @@ def _format_py_data_range_body(range_addr: str) -> str:
 
 
 def _format_excel_data_range_body(range_addr: str) -> str:
+    # crosshair: off
+    # cover-all 35526755391 (~8m body as entry; wrapper format_excel_data_range stay-on). Combinatoric sheet-quote paths. Doable later: closed A1 alphabet only.
     """Excel ``Sheet!A1`` quoting. No regex — same relib TypeError class as PY format."""
     addr = str(range_addr).strip().replace("$", "")
     # Calc-style Sheet.A1 → Sheet!A1
