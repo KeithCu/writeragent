@@ -233,11 +233,14 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
         return FsmTransition(new_state, effects)
 
     elif event.kind == SendEventKind.ERROR_OCCURRED:
+        # Keep typed text so the user can retry. Always drop has_audio: Stop Rec
+        # auto-send and _transcribe_audio already consume/delete the WAV. Leaving
+        # has_audio True after STT/chat errors (G13/G28) shows a dead Send button.
         new_state = SendButtonState(
             is_busy=False,
             is_recording=False,
             has_text=state.has_text,  # Keep text on error so user can retry
-            has_audio=state.has_audio,
+            has_audio=False,
             audio_supported=state.audio_supported,
         )
         label = _get_send_label(new_state)

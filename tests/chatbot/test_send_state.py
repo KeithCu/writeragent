@@ -80,8 +80,30 @@ def test_error_flow():
     tr2 = next_state(tr.state, SendEvent(SendEventKind.ERROR_OCCURRED))
     assert tr2.state.is_busy is False
     assert tr2.state.has_text is True
+    assert tr2.state.has_audio is False
     ui_effect = next(e for e in tr2.effects if isinstance(e, UpdateUIEffect))
     assert ui_effect.status_text == "Error"
+
+
+def test_error_after_stop_rec_clears_has_audio():
+    """G28: STT/chat errors dispatch ERROR_OCCURRED while has_audio is still True.
+
+    The WAV is already gone (_transcribe_audio finally / stream error cleanup).
+    Keeping has_audio left a dead Send button; SEND_COMPLETED already clears it.
+    """
+    state = SendButtonState(False, False, False, False, True)
+    tr = next_state(state, SendEvent(SendEventKind.RECORD_CLICKED))
+    tr2 = next_state(tr.state, SendEvent(SendEventKind.STOP_REC_CLICKED))
+    assert tr2.state.has_audio is True
+    assert tr2.state.is_busy is True
+
+    tr3 = next_state(tr2.state, SendEvent(SendEventKind.ERROR_OCCURRED))
+    assert tr3.state.is_busy is False
+    assert tr3.state.is_recording is False
+    assert tr3.state.has_audio is False
+    ui_effect = next(e for e in tr3.effects if isinstance(e, UpdateUIEffect))
+    assert ui_effect.send_label == "Record"
+    assert ui_effect.send_enabled is True
 
 
 def test_invalid_record_does_not_emit_recording_or_send_effects():
