@@ -5,7 +5,7 @@
 
 """A1 peer send: ``send_peer_message``.
 
-Queues a user-equivalent turn on another already-open Writer/Calc/Draw
+Queues a user-equivalent turn on another already-open Writer/Calc/Draw/Impress
 sidebar and returns immediately. Experiment: advertised on the
 document_research specialized loop only (not outer chat, not MCP).
 See ``docs/chat/peer-messaging.md``.
@@ -46,8 +46,8 @@ _DRAW_SERVICE = "com.sun.star.drawing.DrawingDocument"
 _IMPRESS_SERVICE = "com.sun.star.presentation.PresentationDocument"
 
 _BASE_DESCRIPTION = (
-    "Send a natural-language turn to another already-open Writer, Calc, or Draw "
-    "sidebar (not Impress). Returns immediately {status: ok, accepted: true, "
+    "Send a natural-language turn to another already-open Writer, Calc, Draw, "
+    "or Impress sidebar. Returns immediately {status: ok, accepted: true, "
     "peer_ask_id}. After ok/accepted you MUST call specialized_workflow_finished "
     "immediately — the peer runs after this loop exits; waiting deadlocks the reply. "
     "document_url is the one target argument: a file URL, RuntimeUID, or a "
@@ -90,30 +90,37 @@ def _supports_service(model: Any, service: str) -> bool:
 
 
 def is_v1_peer_model(model: Any) -> bool:
-    """True for Writer / Calc / Draw. Impress is out of v1 — check the model.
+    """True for Writer / Calc / Draw / Impress.
 
-    Catalog ``doc_type: "draw"`` includes Impress. Reject PresentationDocument
-    first; Impress also supports DrawingDocument so a Draw-only check is not enough.
+    Impress also supports DrawingDocument, so a Draw-only check already
+    matches it. PresentationDocument is listed so a model that only
+    reports the Impress service still counts.
     """
     if model is None:
-        return False
-    if _supports_service(model, _IMPRESS_SERVICE):
         return False
     return (
         _supports_service(model, _TEXT_SERVICE)
         or _supports_service(model, _CALC_SERVICE)
         or _supports_service(model, _DRAW_SERVICE)
+        or _supports_service(model, _IMPRESS_SERVICE)
     )
 
 
 def v1_peer_type_label(model: Any) -> str | None:
-    """``writer`` / ``calc`` / ``draw``, or None if unsupported (including Impress)."""
-    if model is None or _supports_service(model, _IMPRESS_SERVICE):
+    """``writer`` / ``calc`` / ``draw`` / ``impress``, or None if unsupported.
+
+    Check PresentationDocument before DrawingDocument. Impress supports both,
+    and research catalog ``doc_type: "draw"`` (impress_as_draw) would otherwise
+    collapse the peer type. Draw-only models stay ``draw``.
+    """
+    if model is None:
         return None
     if _supports_service(model, _TEXT_SERVICE):
         return "writer"
     if _supports_service(model, _CALC_SERVICE):
         return "calc"
+    if _supports_service(model, _IMPRESS_SERVICE):
+        return "impress"
     if _supports_service(model, _DRAW_SERVICE):
         return "draw"
     return None
@@ -275,7 +282,7 @@ def resolve_peer_target(
                 model = None
 
     if model is None:
-        return None, "PEER_NOT_FOUND", f"No open Writer, Calc, or Draw peer matches {target!r}."
+        return None, "PEER_NOT_FOUND", f"No open Writer, Calc, Draw, or Impress peer matches {target!r}."
 
     peer_uid = ""
     try:
@@ -285,10 +292,8 @@ def resolve_peer_target(
     if self_uid and peer_uid and self_uid == peer_uid:
         return None, "PEER_SELF", "Cannot send a peer message to the same document."
 
-    if _supports_service(model, _IMPRESS_SERVICE):
-        return None, "PEER_UNSUPPORTED", "Impress is not a v1 peer. Open a Writer, Calc, or Draw document."
     if not is_v1_peer_model(model):
-        return None, "PEER_UNSUPPORTED", "Target is not a Writer, Calc, or Draw document."
+        return None, "PEER_UNSUPPORTED", "Target is not a Writer, Calc, Draw, or Impress document."
     return model, None, ""
 
 
@@ -563,12 +568,16 @@ class SendPeerMessage(ToolBase):
     description = _BASE_DESCRIPTION
     tier = "chat"
     # Domain membership: inner document_research sees this; outer chat does not
-    # advertise it (filter_peer_message_schemas). Cross-cutting so Writer/Calc/Draw
-    # document_research toolsets all get the same tool.
+    # advertise it (filter_peer_message_schemas). Cross-cutting so Writer/Calc/
+    # Draw/Impress document_research toolsets all get the same tool.
     specialized_domain: ClassVar[str | None] = PEER_SPECIALIZED_DOMAIN
     specialized_cross_cutting: ClassVar[bool] = True
     is_mutation = False
-    uno_services = [_TEXT_SERVICE, _CALC_SERVICE, _DRAW_SERVICE]
+    # PresentationDocument is required when the Impress sidebar caches
+    # doc_type="impress" (services map is PresentationDocument only).
+    # DrawingDocument still matches Draw-only; do not treat Impress as Draw
+    # in the peer catalog (see v1_peer_type_label).
+    uno_services = [_TEXT_SERVICE, _CALC_SERVICE, _DRAW_SERVICE, _IMPRESS_SERVICE]
     parameters = {
         "type": "object",
         "properties": {

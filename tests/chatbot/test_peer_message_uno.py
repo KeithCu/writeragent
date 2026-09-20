@@ -372,12 +372,16 @@ def test_peer_unique_name_and_self_reject(ctx):
 
 
 @native_test
-def test_peer_impress_rejected_on_resolved_model(ctx):
+def test_peer_impress_resolves_as_v1_peer(ctx):
+    """Writer can resolve a live Impress model and inject a queued turn."""
+    from plugin.doc.peer_message import v1_peer_type_label
+
     reset_peer_queues()
     reset_live_panels()
     reset_sentry_state()
     writer = None
     impress = None
+    listener = _Listener()
     try:
         writer = _load(ctx, "private:factory/swriter")
         impress = _load(ctx, "private:factory/simpress")
@@ -385,18 +389,38 @@ def test_peer_impress_rejected_on_resolved_model(ctx):
         impress_uid = get_runtime_uid(impress)
         assert impress_uid
         model, code, msg = resolve_peer_target(ctx, writer, impress_uid)
-        assert model is None
-        assert code == "PEER_UNSUPPORTED"
-        assert "Impress" in msg
+        assert code is None, msg
+        assert model is not None
+        assert get_runtime_uid(model) == impress_uid
+        assert v1_peer_type_label(model) == "impress"
+
+        panel = type("P", (), {"send_listener": listener})()
+        register_live_panel(impress_uid, panel)
+        tool = SendPeerMessage()
+        with drain_owner_scope("stream"):
+            result = tool.execute(
+                _tool_ctx(ctx, writer), document_url=impress_uid, message="Add a title slide"
+            )
+            assert result["status"] == "ok"
+            assert result["accepted"] is True
+            assert listener.started == []
+            assert listener.session.messages
+            assert "[Peer from:" in listener.session.messages[0]["content"]
+        kick_pending_peer_starts()
+        assert listener.started
+        assert listener.started[0][1] is True
     finally:
+        drop_listener_queue(listener)
+        unregister_live_panel(get_runtime_uid(impress) if impress is not None else "")
         writer, impress = _teardown_peer_pair(writer, impress, ctx)
         reset_peer_queues()
         reset_live_panels()
+        reset_sentry_state()
 
 
 @native_test
-def test_peer_catalog_draw_label_is_not_enough_for_impress(ctx):
-    """get_open_documents labels Impress as draw; v1 still rejects the model."""
+def test_peer_catalog_labels_impress_explicitly(ctx):
+    """get_open_documents still labels Impress as draw; v1 catalog uses type=impress."""
     from plugin.doc.document_research import get_open_documents
     from plugin.doc.peer_message import list_v1_peers
 
@@ -412,6 +436,8 @@ def test_peer_catalog_draw_label_is_not_enough_for_impress(ctx):
         assert rec is not None
         assert rec.get("doc_type") == "draw"
         peers = list_v1_peers(ctx, writer)
-        assert all(p.get("uid") != impress_uid for p in peers)
+        peer = next((p for p in peers if p.get("uid") == impress_uid), None)
+        assert peer is not None, peers
+        assert peer.get("type") == "impress"
     finally:
         writer, impress = _teardown_peer_pair(writer, impress, ctx)

@@ -476,7 +476,7 @@ class _DocumentResearchProxy:
         return _rpc_call("search_nearby_files", query=query, k=k, near_slop=near_slop, file_subset=file_subset)
 
     def send_peer_message(self, document_url: str, message: str, *, peer_ask_id: str | None = None) -> dict:
-        """Send a natural-language turn to another already-open Writer, Calc, or Draw sidebar (not Impress)."""
+        """Send a natural-language turn to another already-open Writer, Calc, Draw, or Impress sidebar."""
         return _rpc_call("send_peer_message", document_url=document_url, message=message, peer_ask_id=peer_ask_id)
 
 document_research = _DocumentResearchProxy()

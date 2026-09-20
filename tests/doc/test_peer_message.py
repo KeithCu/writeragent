@@ -123,19 +123,83 @@ def test_envelope_untitled_url_empty():
     assert ident["name"] == "Untitled 1"
 
 
-def test_impress_rejected_on_model_not_catalog_draw():
+def test_impress_is_distinct_v1_peer_not_draw():
+    """Impress is a v1 peer, but must not collapse into Draw in the catalog."""
     impress = MagicMock()
     impress.supportsService.side_effect = lambda s: s in (
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument",
     )
-    assert is_v1_peer_model(impress) is False
-    assert v1_peer_type_label(impress) is None
+    assert is_v1_peer_model(impress) is True
+    assert v1_peer_type_label(impress) == "impress"
 
     draw = MagicMock()
     draw.supportsService.side_effect = lambda s: s == "com.sun.star.drawing.DrawingDocument"
     assert is_v1_peer_model(draw) is True
     assert v1_peer_type_label(draw) == "draw"
+
+
+def test_list_v1_peers_includes_impress_type():
+    """Research catalog may say draw; list_v1_peers still emits type=impress."""
+    from plugin.doc.peer_message import list_v1_peers
+
+    self_doc = MagicMock()
+    impress = MagicMock()
+    impress.supportsService.side_effect = lambda s: s in (
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    )
+    catalog = [{"name": "Deck.odp", "uid": "impress-uid", "url": "file:///tmp/Deck.odp", "doc_type": "draw"}]
+
+    with patch("plugin.framework.thread_guard.assert_main_thread"):
+        with patch("plugin.framework.uno_context.get_runtime_uid", side_effect=lambda m: "self" if m is self_doc else "impress-uid"):
+            with patch("plugin.doc.document_research.get_open_documents", return_value=catalog):
+                with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(impress, "draw")):
+                    peers = list_v1_peers(object(), self_doc)
+    assert peers == [
+        {"name": "Deck.odp", "uid": "impress-uid", "url": "file:///tmp/Deck.odp", "type": "impress"}
+    ]
+
+
+def test_addressing_impress_accepted():
+    """resolve_peer_target accepts PresentationDocument; type stays impress."""
+    self_doc = MagicMock()
+    self_doc.getRuntimeUID.return_value = "self"
+    impress = MagicMock()
+    impress.getRuntimeUID.return_value = "impress-uid"
+    impress.supportsService.side_effect = lambda s: s in (
+        "com.sun.star.drawing.DrawingDocument",
+        "com.sun.star.presentation.PresentationDocument",
+    )
+
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(impress, "draw")):
+        with patch(
+            "plugin.framework.uno_context.get_runtime_uid",
+            side_effect=lambda m: "self" if m is self_doc else "impress-uid",
+        ):
+            model, code, _msg = resolve_peer_target(object(), self_doc, "impress-uid")
+    assert code is None
+    assert model is impress
+    assert v1_peer_type_label(model) == "impress"
+
+
+def test_addressing_unsupported_unknown_model():
+    """PEER_UNSUPPORTED is for non-v1 apps, not Impress."""
+    self_doc = MagicMock()
+    self_doc.getRuntimeUID.return_value = "self"
+    other = MagicMock()
+    other.getRuntimeUID.return_value = "other-uid"
+    other.supportsService.return_value = False
+
+    with patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(other, "unknown")):
+        with patch(
+            "plugin.framework.uno_context.get_runtime_uid",
+            side_effect=lambda m: "self" if m is self_doc else "other-uid",
+        ):
+            model, code, msg = resolve_peer_target(object(), self_doc, "other-uid")
+    assert model is None
+    assert code == "PEER_UNSUPPORTED"
+    assert "not a Writer, Calc, Draw, or Impress document" in msg
 
 
 def test_list_v1_peers_magicmock_ctx_does_not_hang():
@@ -497,6 +561,30 @@ def test_schemas_main_hides_specialized_shows_when_peers_open():
     assert "uid=u2" in inner_desc
 
 
+def test_schemas_impress_doc_type_sees_peer_tool_on_specialized():
+    """Impress sidebar caches PresentationDocument only — tool must list that service."""
+    registry = ToolRegistry(services=None)
+    registry.register(SendPeerMessage())
+    peers = [{"name": "Memo.odt", "uid": "u2", "url": "", "type": "writer"}]
+    with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
+        inner = registry.get_schemas(
+            "openai",
+            doc_type="impress",
+            ctx=object(),
+            doc=object(),
+            active_domain=PEER_SPECIALIZED_DOMAIN,
+        )
+        draw_inner = registry.get_schemas(
+            "openai",
+            doc_type="draw",
+            ctx=object(),
+            doc=object(),
+            active_domain=PEER_SPECIALIZED_DOMAIN,
+        )
+    assert PEER_TOOL_NAME in [s["function"]["name"] for s in inner]
+    assert PEER_TOOL_NAME in [s["function"]["name"] for s in draw_inner]
+
+
 def test_specialized_get_tools_includes_peer_when_peers_open():
     registry = ToolRegistry(services=None)
     registry.register(SendPeerMessage())
@@ -517,6 +605,8 @@ def test_is_mutation_false_and_sync():
     assert tool.is_async() is False
     assert tool.tier == "chat"
     assert tool.name == "send_peer_message"
+    assert "com.sun.star.presentation.PresentationDocument" in tool.uno_services
+    assert "com.sun.star.drawing.DrawingDocument" in tool.uno_services
 
 
 def test_prompts_outer_thin_inner_choice():
