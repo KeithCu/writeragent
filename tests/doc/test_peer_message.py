@@ -11,6 +11,7 @@ from plugin.doc.peer_message import (
     PEER_RESULT_TOOL_NAME,
     PEER_SPECIALIZED_DOMAIN,
     PEER_TOOL_NAMES,
+    PEER_WORK_DELIVERY_FOOTER,
     PEER_WORK_TOOL_NAME,
     PeerPendingTurn,
     SendPeerResult,
@@ -110,7 +111,9 @@ def test_envelope_from_ctx_doc():
     )
     assert wrapped.startswith("[Peer work from: Budget 2026.ods | uid=uid-budget |")
     assert "peer_ask_id" not in wrapped
-    assert wrapped.endswith("Compute Q4.")
+    assert "Compute Q4." in wrapped
+    assert wrapped.endswith(PEER_WORK_DELIVERY_FOOTER)
+    assert "send_peer_result" in PEER_WORK_DELIVERY_FOOTER
 
 
 def test_envelope_untitled_url_empty():
@@ -665,6 +668,7 @@ def test_prompts_outer_thin_inner_choice():
     assert "only that envelope does" in PEER_INNER_CHOICE_RULES
     assert "NEVER delegate_read_document on that open peer" in PEER_INNER_CHOICE_RULES
     assert "NEVER send_peer_result from the asker" in PEER_INNER_CHOICE_RULES
+    assert "answer must come back as a peer result" in PEER_INNER_CHOICE_RULES
     assert "stamps [Peer result" in PEER_INNER_CHOICE_RULES
     assert "On the reply path only" in PEER_INNER_CHOICE_RULES
     # Open-peer hard fork: matching catalog entry → send_peer_work, not silent read.
@@ -807,7 +811,7 @@ def test_chat_tier_excluded_from_mcp_frozensets():
 
 
 def test_format_peer_envelope_work_vs_result():
-    from plugin.doc.peer_message import format_peer_envelope
+    from plugin.doc.peer_message import PEER_WORK_DELIVERY_FOOTER, format_peer_envelope
 
     work = format_peer_envelope(
         name="A.ods", uid="u1", url="", message="do thing", kind="work"
@@ -818,5 +822,14 @@ def test_format_peer_envelope_work_vs_result():
     assert work.startswith("[Peer work from: A.ods |")
     assert result.startswith("[Peer result from: A.ods |")
     assert "peer_ask_id" not in work and "peer_ask_id" not in result
-    assert work == "[Peer work from: A.ods | uid=u1 | url=]\n\ndo thing"
+    assert work == (
+        "[Peer work from: A.ods | uid=u1 | url=]\n\ndo thing\n\n"
+        + PEER_WORK_DELIVERY_FOOTER
+    )
     assert result == "[Peer result from: A.ods | uid=u1 | url=]\n\n<table/>"
+    assert PEER_WORK_DELIVERY_FOOTER in work
+    assert PEER_WORK_DELIVERY_FOOTER not in result
+    assert 'domain="document_research"' in PEER_WORK_DELIVERY_FOOTER
+    assert "send_peer_result" in PEER_WORK_DELIVERY_FOOTER
+    assert "envelope header" in PEER_WORK_DELIVERY_FOOTER
+    assert "never reaches the asking peer" in PEER_WORK_DELIVERY_FOOTER

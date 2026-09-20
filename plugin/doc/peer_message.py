@@ -179,6 +179,18 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
     return {"name": name, "uid": uid, "url": url}
 
 
+# Fixed footer on work envelopes only. Outer PEER_OUTER_DELEGATE_HINT already
+# says to re-delegate for send_peer_result, but models ignore it when the body
+# is a short list/read ask and Ready with a chat-only answer — the asker never
+# gets a peer result. Result envelopes must stay body-only (no delivery footer).
+PEER_WORK_DELIVERY_FOOTER = (
+    "When the local work is done, you MUST Do domain=\"document_research\" to deliver "
+    "via send_peer_result(document_url=<uid or url from this envelope header>, "
+    "message=<one HTML/result string>). "
+    "Why: a chat-only answer in this sidebar never reaches the asking peer."
+)
+
+
 def format_peer_envelope(
     *,
     name: str,
@@ -191,11 +203,14 @@ def format_peer_envelope(
 
     ``kind`` is which tool was called: ``"work"`` for ``send_peer_work``,
     ``"result"`` for ``send_peer_result``. Models must not invent the header.
+    Work envelopes append ``PEER_WORK_DELIVERY_FOOTER``; result envelopes do not.
     """
     label = "Peer result from" if kind == "result" else "Peer work from"
     header = f"[{label}: {name} | uid={uid} | url={url}]"
-    body = message if message.endswith("\n") else message
-    return f"{header}\n\n{body}"
+    body = message.rstrip("\n") if message else message
+    if kind == "result":
+        return f"{header}\n\n{body}"
+    return f"{header}\n\n{body}\n\n{PEER_WORK_DELIVERY_FOOTER}"
 
 
 def format_peer_catalog(peers: list[dict[str, str]]) -> str:

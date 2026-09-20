@@ -215,7 +215,7 @@ Reviewed against the current send/drain code. Not v1; do not delete — we may r
 Compute Q4 revenue by region and reply with an HTML table.
 ```
 
-Layout: `[Peer work from: Name | uid=… | url=…]` for `send_peer_work`; `[Peer result from: Name | uid=… | url=…]` for `send_peer_result`. No correlation id. Body is `message` after a blank line. The wrapper is not model-written.
+Layout: `[Peer work from: Name | uid=… | url=…]` for `send_peer_work` (gateway appends a fixed delivery footer: after local work, Do `domain="document_research"` to deliver via `send_peer_result` with the asker's uid/url from the header); `[Peer result from: Name | uid=… | url=…]` for `send_peer_result` (body only — no footer). No correlation id. Body is `message` after a blank line. The wrapper is not model-written.
 
 **Outbound `execute` (immediate, RED, `is_async=False`):**
 
