@@ -255,6 +255,13 @@ def test_stream_request_with_tools_text_and_tool(client):
 
 
 def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, caplog):
+    # Cerebras/OpenRouter gpt-oss stream-split: first delta is the real call
+    # (index 0, name=lookup, partial args); second delta is a phantom
+    # continuation (new index, empty id/name, remainder of arguments).
+    # accumulate_delta keeps both slots; coalesce_split_tool_calls then
+    # merges the phantom into the real call and rebases index to 0.
+    # Merge unit coverage lives in test_async_stream.py; this test is the
+    # stream_request_with_tools end-to-end + raw/accumulated logging path.
     mock_responses = [
         b'data: {"id":"chunk-1","model":"gpt-oss","provider":"Cerebras","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\\"query\\":\\"part"}}]}}]}\n\n',
         b'data: {"id":"chunk-2","model":"gpt-oss","provider":"Cerebras","choices":[{"delta":{"tool_calls":[{"index":1,"id":"","type":"function","function":{"name":"","arguments":" two\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n',
@@ -276,11 +283,13 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
                 tools=[{"type": "function", "function": {"name": "lookup"}}],
             )
 
-    # Second chunk is an empty-name continuation (new index). After
-    # coalesce_split_tool_calls this is one complete lookup, not two calls.
+    assert result["tool_calls"] is not None
     assert len(result["tool_calls"]) == 1
-    assert result["tool_calls"][0]["function"]["name"] == "lookup"
-    assert result["tool_calls"][0]["function"]["arguments"] == '{"query":"part two"}'
+    kept = result["tool_calls"][0]
+    assert kept["id"] == "call_1"
+    assert kept["function"]["name"] == "lookup"
+    assert kept["function"]["arguments"] == '{"query":"part two"}'
+    assert kept["index"] == 0
 
     from plugin.framework.client import llm_client as llm_mod
     from tests.strip_bundle import module_source_contains
@@ -288,10 +297,15 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
     if not module_source_contains(llm_mod, "raw tool_call delta"):
         pytest.skip("log.debug stripped in release bundle")
 
+    # Raw deltas are logged before accumulate/coalesce — the phantom
+    # index=1 chunk must still appear on the wire log.
     assert "raw tool_call delta" in caplog.text
-    assert 'chunk_provider=\'Cerebras\'' in caplog.text
+    assert "chunk_provider='Cerebras'" in caplog.text
     assert '"index": 1' in caplog.text
+    # After coalesce the accumulated snapshot is one rebased call.
     assert "accumulated tool_calls" in caplog.text
+    assert '"query":"part two"' in caplog.text
+    assert '"index": 0' in caplog.text
 
 
 def test_stream_request_with_tools_preserves_reasoning_replay(client):

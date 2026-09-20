@@ -1362,6 +1362,34 @@ def test_coalesce_split_tool_calls_merges_empty_name_continuation():
     assert out[0]["index"] == 0
 
 
+def test_coalesce_split_tool_calls_merges_cerebras_lookup_stream_split():
+    # Same OpenRouter/Cerebras gpt-oss shape as the client stream fixture:
+    # new index, empty id/name, remainder of arguments.
+    from plugin.framework.async_stream import coalesce_split_tool_calls
+
+    out = coalesce_split_tool_calls(
+        [
+            {
+                "index": 0,
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": '{"query":"part'},
+            },
+            {
+                "index": 1,
+                "id": "",
+                "type": "function",
+                "function": {"name": "", "arguments": ' two"}'},
+            },
+        ]
+    )
+    assert len(out) == 1
+    assert out[0]["id"] == "call_1"
+    assert out[0]["function"]["name"] == "lookup"
+    assert out[0]["function"]["arguments"] == '{"query":"part two"}'
+    assert out[0]["index"] == 0
+
+
 def test_coalesce_split_tool_calls_lone_empty_name_dropped():
     from plugin.framework.async_stream import coalesce_split_tool_calls
 
