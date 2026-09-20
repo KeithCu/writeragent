@@ -1,7 +1,7 @@
 # Cross-app sidebar peer messaging (Writer ↔ Calc ↔ Draw ↔ Impress)
 
-**Status:** A1 inject/queue/envelope shipped on `master` (#672). **This branch is the specialized-inner experiment** — outer chat no longer advertises peer send tools.  
-**One-liner:** four peers (Writer / Calc / Draw / Impress), A1 async `send_peer_work` / `send_peer_result` (user-send equivalence), **document_research specialized only** (not outer chat, not MCP), pre-open only, GMP via a staged Draw/Writer form (not a PDF product claim), no spawn.
+**Status:** A1 inject/queue/envelope on `master` (#672). Specialized-inner + two-tool polarity landed via **#814** (`send_peer_work` / `send_peer_result`; outer never advertises them). Headed Scenarios 2/4/5 HAPPY; Scenario 8 PARTIAL — see [§5.1](#51-headed-status-and-open-issue-2026-09-20).  
+**One-liner:** four peers (Writer / Calc / Draw / Impress), A1 async `send_peer_work` / `send_peer_result` (kind = which tool), **document_research specialized only** (not outer chat, not MCP), pre-open only, GMP via a staged Draw/Writer form (not a PDF product claim), no spawn.
 
 **Assumption:** Writer, Calc, Draw, and Impress documents are already open in **one LibreOffice process** / one WriterAgent extension. Talk-to-already-open is enough for SAR/floorstand (Writer ↔ Calc), GMP (Writer ↔ Draw), and Writer↔Impress / Calc↔Impress. Creating or spawning a peer mid-session is later product polish.
 
@@ -31,7 +31,7 @@ Recorded 2026-09-08. Implement these; do not implement the older “don’t Read
 
 **Shipped on master (#672):** A1 inject / queue / envelope / live panels / Ready-after-accepted / explicit `document_url` / chat execute path. That main-wire stays on `master`.
 
-**This experiment (specialized-inner):** outer/main schemas never list peer send tools (even when peers are open). Outer prompt is a thin DO: delegate `document_research` for sibling work. After that inner send is accepted (or the answer says waiting for a peer reply), the **outer Readys** — do not start more `document_research` / python / query tools in the same turn. On a `[Peer work from: …]` envelope, do local work; delegate again to send a peer reply **only when the peer asked for work that needs an answer back**. If the envelope is already a data/result reply (a result table or HTML payload to insert), apply locally and stop — no ack specialize. The document_research subagent is the only loop that calls `send_peer_work` / `send_peer_result`. After `ok`/`accepted` it **must** `specialized_workflow_finished` immediately — waiting deadlocks the peer. MCP stays refused.
+**Specialized-inner (#814 on master):** outer/main schemas never list peer send tools (even when peers are open). Outer prompt is a thin DO: delegate `document_research` for sibling work. After that inner send is accepted (or the answer says waiting for a peer reply), the **outer Readys** — do not start more `document_research` / python / query tools in the same turn. On a `[Peer work from: …]` envelope: do local work (nested domains like `ranges` OK), then you **MUST** still `{delegate}(domain="document_research")` to deliver via `send_peer_result` — finishing `ranges`/`sheets`/… alone is not delivery. Work envelopes append a fixed delivery footer; specialize returns may stamp `PEER_OUTER_DELIVERY_STILL_REQUIRED` when a Peer-work turn finished without `send_peer_result`. On a `[Peer result from: …]` envelope: apply/insert locally and stop — no ack specialize. Inner ask vs reply is selected **only** by a `[Peer work from: …]` envelope in the specialize task (asker never `send_peer_result` / never silent `delegate_read_document` on an open peer). The document_research subagent is the only loop that calls `send_peer_work` / `send_peer_result`. After `ok`/`accepted` it **must** `specialized_workflow_finished` immediately — waiting deadlocks the peer. MCP stays refused.
 
 **Still later (kept, not v1):** A2 blocking `ask_*` / silent fallback; multiplexed drain + mid-loop `PEER_REPLY`; waiting chrome; last-sender default; MCP exposure; spawn; PDF/AcroForm. See [§3](#3-candidate-designs) and [§3.1](#31-alternatives-considered--kept). Do **not** sneak Ready-hold back in — that deadlocks the queue.
 
@@ -309,7 +309,7 @@ Suggested error codes: `PEER_NOT_FOUND`, `PEER_SIDEBAR_NOT_OPEN`, `PEER_UNSUPPOR
 
 **Prompts** (shorter than #672’s main-wire `PEER_MESSAGING_RULES`; outer may name `send_peer_result` as the delivery goal, but does not advertise the tools):
 
-- **Outer / main chat** (`PEER_OUTER_DELEGATE_HINT`, per-app `{delegate}` = `delegate_to_specialized_writer_toolset` / `_calc_` / `_draw_`): when a v1 peer is open — Do `{delegate}(domain="document_research")` for sibling work. After that inner result means a peer message was sent/accepted (or the answer says waiting for a peer reply): stop tool use and Ready (short “peer was asked” chat is OK). Why: the reply is a later user turn; more tools in this turn race the peer. When this turn is a `[Peer work from: …]` envelope: do local work; delegate again to send a peer reply **only when the peer asked for work that needs an answer back** (envelope uid/url, HTML/result as one string). If the envelope is already a data/result reply to our earlier ask (a result table or HTML payload to insert), apply/insert locally and stop — do not delegate an ack specialize. No Open-peers catalog on the outer loop. Specialize return may append the same idle sentence when inner peer send ran.
+- **Outer / main chat** (`PEER_OUTER_DELEGATE_HINT`, per-app `{delegate}` = `delegate_to_specialized_writer_toolset` / `_calc_` / `_draw_`): when a v1 peer is open — Do `{delegate}(domain="document_research")` for sibling work. After that inner result means a peer message was sent/accepted (or the answer says waiting for a peer reply): stop tool use and Ready (short “peer was asked” chat is OK). Why: the reply is a later user turn; more tools in this turn race the peer. When this turn is a `[Peer work from: …]` envelope: do local work (including nested specializes), then you **MUST** Do `{delegate}(domain="document_research")` to deliver via `send_peer_result` (envelope uid/url + one HTML/result string). Nested specialize done ≠ peer delivery. When this turn is a `[Peer result from: …]` envelope: apply/insert locally and stop — do not delegate an ack specialize. No Open-peers catalog on the outer loop. Specialize return may append idle-after-send when inner peer send ran, or `PEER_OUTER_DELIVERY_STILL_REQUIRED` when a Peer-work turn finished without `send_peer_result`.
 - **Inner document_research** (`PEER_INNER_CHOICE_RULES` + catalog): **Ask vs reply** is selected only by a `[Peer work from: …]` envelope in the task — mentioning `send_peer_result` / “reply back” in an ask task does **not** flip polarity. **Ask path** (Open peer file, no envelope): Do `send_peer_work` then `specialized_workflow_finished`; **never** `delegate_read_document` on that open peer; **never** `send_peer_result` from the asker. Why: the live peer will reply; silent reopen races them; asker `send_peer_result` stamps a result onto the peer. When the ask needs a change/fill/write on that peer's own document, ask them in `message` to perform the edit and include the values/facts. Do `delegate_read_document` only when the file is **not** in Open peers. **Reply path** (task replies to a `[Peer work from: …]` envelope — outer stuffed uid/url + HTML/result): you **must** `send_peer_result` with that `document_url` **before** `specialized_workflow_finished`; on this path only, HTML/table/result text in the task is the `message` argument. Do `send_peer_result` even when you can answer from the task alone. After `ok`/`accepted` (ask or reply) you **must** `specialized_workflow_finished` immediately.
 
 **Undo:** peer edits use the peer document’s undo. `WriterCompoundUndo` only if the peer is Writer.
@@ -355,7 +355,7 @@ The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty
 1. Writer **outer** schemas stay Writer-only and do **not** list peer send tools. The outer turn stays high-level and delegates `document_research`.
 2. The document_research subagent sees both peer send tools because the budget `.ods` is a resolvable other peer; it calls `send_peer_work(document_url=<budget uid>, message="Compute Q4 revenue by region and reply with an HTML table plus the ranges you used.")` → `{ok, accepted}`. It does **not** put the Writer URL in `message`.
 3. Gateway prepends `[Peer work from: Risk memo.odt | uid=… | url=…]` on the **Calc** session. The inner agent finishes (`specialized_workflow_finished`); Writer **Readys** (no further document_research / python / query in that turn). Caller drain exits.
-4. Calc **main** sees the `[Peer work from: …]` envelope, does the local work (`write_formula_range` / Total row) **on the Calc model only**, then `delegate_to_specialized_calc_toolset(domain="document_research")` with a task to reply (Writer uid/url, correlation id, HTML/table). Calc main does **not** call a peer send tool.
+4. Calc **main** sees the `[Peer work from: …]` envelope (plus delivery footer), does the local work (`write_formula_range` / Total row / `ranges`→`sort_range`) **on the Calc model only**, then `delegate_to_specialized_calc_toolset(domain="document_research")` with a task to reply (Writer uid/url from the envelope, HTML/table). Calc main does **not** call a peer send tool on the outer loop.
 5. Calc document_research calls `send_peer_result(document_url=<Writer uid or url from the envelope>, message=<table + ranges>)``, then **must** `specialized_workflow_finished` immediately. Host wraps with Calc’s `ctx.doc` envelope and queues/injects onto **Writer**.
 6. Writer follow-up turn: `apply_document_content` on the Writer doc and **stop**. This envelope is a data/result reply, not a new ask — do **not** delegate an ack specialize.
 
@@ -420,6 +420,57 @@ Concrete touch points so this is implementable without rediscovering the review.
 | **GMP gold PDF** | Staged Draw/Writer stand-in only. |
 | **Peer not in Chat mode** | Extracted send errors (do not silently flip librarian/image to chat). |
 | **Waiting chrome / multiplex / mid-loop inject** | Later. See [§3.1](#31-alternatives-considered--kept). |
+| **Wrong tool on reply (both on wire)** | Open. Separate work/result tools help teach polarity but do not force the right call — see [§5.1](#51-headed-status-and-open-issue-2026-09-20). Prefer context gating. |
+
+---
+
+## 5.1 Headed status and open issue (2026-09-20)
+
+Recorded after #814 landed and Scrolly ran headed cross-doc proves on tip (`cc281f17` / merge `98417471`). Evidence under `/workspace/peer-happy-proofs/` (box). Prefer **debug-log** envelopes over headed UI captions — the computerUse agent often missed `[Peer result …]` lines that were present in `writeragent_debug.log`.
+
+### Current design (post-#814) — short recap
+
+| Piece | Behavior |
+| ----- | -------- |
+| **Tools** | `send_peer_work(document_url, message)` and `send_peer_result(document_url, message)` on **document_research** specialized only. Kind = which tool was called → `[Peer work from: …]` vs `[Peer result from: …]`. No `peer_ask_id` / correlation id. |
+| **Outer** | Never lists peer send tools. Thin `PEER_OUTER_DELEGATE_HINT`: sibling work → `{delegate}(domain="document_research")`; after ask accepted → Ready; on Peer **work** → local work then **MUST** re-delegate to deliver via `send_peer_result`; on Peer **result** → apply and stop. |
+| **Inner ask vs reply** | `PEER_INNER_CHOICE_RULES`: reply path **only** when the specialize **task** contains a `[Peer work from: …]` envelope. Ask path: `send_peer_work` then finish — never asker `send_peer_result`, never silent `delegate_read_document` on an open peer. |
+| **Delivery nudges** | Work envelopes append `PEER_WORK_DELIVERY_FOOTER`. Specialize returns (any domain) may stamp `PEER_OUTER_DELIVERY_STILL_REQUIRED` when the outer turn is Peer work and `send_peer_result` did not run (covers nested `ranges` finishing without delivery). |
+| **Stream quirk** | `coalesce_split_tool_calls` merges phantom empty-name tool_call fragments from gpt-oss streaming so the next OpenRouter round does not 400. |
+
+### Headed scoreboard
+
+| Scenario | Pair | Verdict |
+| -------- | ---- | ------- |
+| **2** | Writer ↔ Calc (column headers) | **HAPPY** — work → result; Writer got `[Peer result from: table_fixture…]`. |
+| **4** | Writer ↔ Calc (sort revenue) | **HAPPY** — nested `ranges`/`sort_range` then `send_peer_result`; delivery-pending stamp used. |
+| **5** | Writer ↔ Impress (Risks slide) | **HAPPY** — slide + `[Peer result from: blank.odp…]` in log. |
+| **8** | Writer ↔ Calc (+ Impress KPI) | **PARTIAL** — Calc total **254** peer result OK; Impress confirm weak (below). |
+
+### Issue: separate APIs did not stop the wrong tool
+
+Splitting `send_peer_message` into **work** vs **result** made polarity teachable and fixed asker silent-read / asker-`send_peer_result` races on Writer↔Calc. It did **not** stop a model from calling the **wrong** of the two when **both** are on the specialized wire.
+
+**Scenario 8 (Impress):** after adding a KPIs slide, Impress specialized called **`send_peer_work`** with a completion body (“Added slide titled KPIs…”) instead of **`send_peer_result`**. Writer therefore received another **`[Peer work from: blank.odp…]`** (plus delivery footer), not a clean **`[Peer result from: …]`**. Calc→Writer sum (`<p>254</p>`) was fine on the same tip. On-disk `blank.odp` also stayed empty placeholders in one prove (unsaved in-memory edit and/or incomplete edit) — Save before disk checks; do not treat empty file alone as “tools lied.”
+
+**Also observed:** compound one-Ask “Calc then Impress” turns are flaky; prefer split asks for proves. Outer log line `peer tools: on_wire=False … peer_count=0` means peer tools are **not on the outer schema wire**, not “zero open peers.”
+
+### Possible solutions (not decided)
+
+Ordered preference from design chat (2026-09-20); implement separately after this doc lands.
+
+1. **Context gating (preferred)** — On a specialize whose outer turn / task is a `[Peer work from: …]` reply path, **advertise only `send_peer_result`** (hide `send_peer_work`). On an ask specialize (no envelope), advertise only `send_peer_work`. Wrong tool cannot be chosen if it is not on the wire.
+2. **Gateway reject** — `send_peer_work.execute` errors when the current turn is already a Peer-work reply path (or when the message is clearly a completion ack). Stronger than prompts; needs a crisp detector to avoid false positives.
+3. **Prompt-only tighten** — Already insufficient for Sc8; keep as documentation, not the fix.
+4. **Prove / harness** — Split Scenario 8 Ask 1 (Calc) / Ask 2 (Impress); File→Save before disk asserts. Does not fix product polarity.
+5. **Narrow Scenario 8** — Score Writer↔Calc KPI as the happy path; treat Impress as a separate prove (like Scenario 5).
+
+### What not to confuse with this issue
+
+- **Asker polarity** (Writer specialized silent-read + `send_peer_result` onto Calc) — addressed by ASK vs REPLY envelope rule + ask-path bans.
+- **Nested specialize Ready without delivery** (Calc `ranges` then stop) — addressed by outer MUST-deliver + delivery footer + `annotate_outer_peer_delivery_pending`.
+- **Empty `function.name` OpenRouter 400** — addressed by `coalesce_split_tool_calls` / sanitize.
+
 
 ---
 
