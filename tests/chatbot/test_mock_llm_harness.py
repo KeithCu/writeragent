@@ -37,15 +37,15 @@ def test_write_minimal_ods_is_ods_zip(tmp_path):
 def test_finish_immediately_after_peer_sends():
     captures = [
         {"decided_tools": ["delegate_to_specialized_writer_toolset"]},
-        {"decided_tools": ["send_peer_message"]},
+        {"decided_tools": ["send_peer_work"]},
         {"decided_tools": ["specialized_workflow_finished"]},
         {"decided_tools": ["write_formula_range"]},
-        {"decided_tools": ["send_peer_message"]},
+        {"decided_tools": ["send_peer_work"]},
         {"decided_tools": ["final_answer"]},
     ]
     assert finish_immediately_after_peer_sends(captures) is True
     hang = [
-        {"decided_tools": ["send_peer_message"]},
+        {"decided_tools": ["send_peer_work"]},
         {"decided_tools": ["list_nearby_files"]},
         {"decided_tools": ["list_nearby_files"]},
     ]

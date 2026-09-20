@@ -900,19 +900,19 @@ def test_nested_never_finish_keeps_discovery():
 
 
 def test_nested_never_finish_wins_over_advertised_peer_tool():
-    """E22 after E12/P: leftover Calc advertises send_peer_message on the inner wire.
+    """E22 after E12/P: leftover Calc advertises peer send tools on the inner wire.
 
-    The old ``if send_peer_message in tool_names`` gate finished immediately
+    The old ``if peer tool in tool_names`` gate finished immediately
     (Packet P) instead of looping until nested max_steps.
     """
-    tools = _tools("send_peer_message", "list_nearby_files", "specialized_workflow_finished")
+    tools = _tools("send_peer_work", "send_peer_result", "list_nearby_files", "specialized_workflow_finished")
     cfg = MockLLMConfig(delay_ms=0, nested_never_finish=True)
     first = decide_completion(
         {"messages": [{"role": "user", "content": "endless nested outline"}], "tools": tools},
         cfg,
     )
     assert first.tool_name == "list_nearby_files"
-    assert first.tool_name != "send_peer_message"
+    assert first.tool_name not in {"send_peer_work", "send_peer_result"}
     assert first.tool_name != "specialized_workflow_finished"
     second = decide_completion(
         {
@@ -1749,7 +1749,8 @@ _CALC_OUTER = (
     "delegate_to_specialized_calc_toolset",
 )
 _INNER_PEER = (
-    "send_peer_message",
+    "send_peer_work",
+    "send_peer_result",
     "specialized_workflow_finished",
     "list_nearby_files",
     "delegate_read_document",
@@ -1767,7 +1768,7 @@ def _payload(user: str, tools: tuple[str, ...], *, system: str = "", prior: list
     return {"messages": messages, "tools": _tools(*tools)}
 
 
-def _tool_follow(name: str, content: str = '{"status":"ok","accepted":true,"peer_ask_id":"ask-1"}') -> list[dict[str, Any]]:
+def _tool_follow(name: str, content: str = '{"status":"ok","accepted":true,"envelope_kind":"work"}') -> list[dict[str, Any]]:
     return [
         {
             "role": "assistant",
@@ -1780,13 +1781,13 @@ def _tool_follow(name: str, content: str = '{"status":"ok","accepted":true,"peer
 
 def test_parse_peer_envelope_and_catalog():
     wrapped = (
-        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt]\n\n"
         "Add a Total row."
     )
     env = parse_peer_envelope(wrapped)
     assert env is not None
     assert env["uid"] == "writer-uid"
-    assert env["peer_ask_id"] == "ask-1"
+    assert env.get("kind") == "work"
     peers = parse_peer_catalog(_PEER_SYS)
     assert peers and peers[0]["uid"] == "calc-uid"
     assert peers[0]["type"] == "calc"
@@ -1802,7 +1803,7 @@ def test_detect_peer_total_and_wait_phrases():
 
 
 def test_peer_total_writer_outer_delegates_not_send_peer():
-    """Outer main never calls send_peer_message (#673 specialized-inner)."""
+    """Outer main never calls peer send tools (#673 specialized-inner)."""
     out = decide_completion(
         _payload("Ask the budget workbook to add a Total row", _WRITER_OUTER, system=_PEER_SYS),
         MockLLMConfig(delay_ms=0),
@@ -1810,7 +1811,8 @@ def test_peer_total_writer_outer_delegates_not_send_peer():
     assert out.tool_name == "delegate_to_specialized_writer_toolset"
     assert (out.tool_args or {}).get("domain") == "document_research"
     names = [n for n, _a in completion_tool_calls(out)]
-    assert "send_peer_message" not in names
+    assert "send_peer_work" not in names
+    assert "send_peer_result" not in names
 
 
 def test_peer_total_writer_inner_sends_then_finishes_immediately():
@@ -1819,7 +1821,7 @@ def test_peer_total_writer_inner_sends_then_finishes_immediately():
         _payload("Ask the budget workbook to add a Total row", _INNER_PEER, system=_PEER_SYS),
         cfg,
     )
-    assert first.tool_name == "send_peer_message"
+    assert first.tool_name == "send_peer_work"
     args = first.tool_args or {}
     assert args.get("document_url") == "calc-uid"
     assert "Total" in (args.get("message") or "")
@@ -1829,8 +1831,8 @@ def test_peer_total_writer_inner_sends_then_finishes_immediately():
             _INNER_PEER,
             system=_PEER_SYS,
             prior=_tool_follow(
-                "send_peer_message",
-                '{"status":"ok","accepted":true,"peer_ask_id":"ask-1",'
+                "send_peer_work",
+                '{"status":"ok","accepted":true,"envelope_kind":"work",'
                 '"message":"Queued. You MUST call specialized_workflow_finished immediately."}',
             ),
         ),
@@ -1847,13 +1849,13 @@ def test_peer_wait_after_accepted_never_finishes():
         _payload("wait after accepted then hang", _INNER_PEER, system=_PEER_SYS),
         cfg,
     )
-    assert first.tool_name == "send_peer_message"
+    assert first.tool_name == "send_peer_work"
     stuck = decide_completion(
         _payload(
             "wait after accepted then hang",
             _INNER_PEER,
             system=_PEER_SYS,
-            prior=_tool_follow("send_peer_message"),
+            prior=_tool_follow("send_peer_work"),
         ),
         cfg,
     )
@@ -1864,9 +1866,9 @@ def test_peer_wait_after_accepted_never_finishes():
 def test_peer_wait_flag_same_as_scenario():
     cfg = MockLLMConfig(delay_ms=0, peer_wait_after_accepted=True)
     first = decide_completion(_payload("peer total", _INNER_PEER, system=_PEER_SYS), cfg)
-    assert first.tool_name == "send_peer_message"
+    assert first.tool_name == "send_peer_work"
     stuck = decide_completion(
-        _payload("peer total", _INNER_PEER, system=_PEER_SYS, prior=_tool_follow("send_peer_message")),
+        _payload("peer total", _INNER_PEER, system=_PEER_SYS, prior=_tool_follow("send_peer_work")),
         cfg,
     )
     assert stuck.tool_name != "specialized_workflow_finished"
@@ -1874,7 +1876,7 @@ def test_peer_wait_flag_same_as_scenario():
 
 def test_calc_envelope_writes_formula_then_delegates_reply():
     envelope = (
-        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt]\n\n"
         "Add a Total row under the numbers."
     )
     write = decide_completion(_payload(envelope, _CALC_OUTER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
@@ -1886,21 +1888,21 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
     )
     assert delegate.tool_name == "delegate_to_specialized_calc_toolset"
     assert (delegate.tool_args or {}).get("domain") == "document_research"
-    assert "ask-1" in ((delegate.tool_args or {}).get("task") or "")
-    assert "send_peer_message" not in [n for n, _a in completion_tool_calls(delegate)]
+    assert "send_peer_result" in ((delegate.tool_args or {}).get("task") or "")
+    assert "send_peer_work" not in [n for n, _a in completion_tool_calls(delegate)]
 
 
-def test_calc_inner_reply_copies_peer_ask_id_then_finishes():
+def test_calc_inner_reply_uses_send_peer_result_then_finishes():
     envelope = (
-        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt]\n\n"
         "Add a Total row."
     )
     send = decide_completion(_payload(envelope, _INNER_PEER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
-    assert send.tool_name == "send_peer_message"
-    assert (send.tool_args or {}).get("peer_ask_id") == "ask-1"
+    assert send.tool_name == "send_peer_result"
+    assert "peer_ask_id" not in (send.tool_args or {})
     assert (send.tool_args or {}).get("document_url") == "writer-uid"
     finish = decide_completion(
-        _payload(envelope, _INNER_PEER, system=_WRITER_SYS, prior=_tool_follow("send_peer_message")),
+        _payload(envelope, _INNER_PEER, system=_WRITER_SYS, prior=_tool_follow("send_peer_result", '{"status":"ok","accepted":true,"envelope_kind":"result"}')),
         MockLLMConfig(delay_ms=0),
     )
     assert finish.tool_name == "specialized_workflow_finished"
@@ -1909,21 +1911,21 @@ def test_calc_inner_reply_copies_peer_ask_id_then_finishes():
 def test_calc_inner_reply_task_without_envelope_sends_peer():
     """Live P3: specialized user text is the scripted Reply task, not the envelope.
 
-    After write_formula_range the outer delegates with peer_ask_id in the task.
+    After write_formula_range the outer delegates with send_peer_result in the task.
     Phrase-only 'add a total row' does not appear there. Treating that as
     leftover-Calc discovery (list_nearby_files) finishes without a reply.
     """
     task = (
-        "Reply to the peer envelope with send_peer_message: document_url=writer-uid "
-        "peer_ask_id=ask-1 message=<one HTML/result string> then finish immediately."
+        "Reply to the peer envelope with send_peer_result: document_url=writer-uid "
+        "message=<one HTML/result string> then finish immediately."
     )
     send = decide_completion(_payload(task, _INNER_PEER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
-    assert send.tool_name == "send_peer_message"
+    assert send.tool_name == "send_peer_result"
     assert send.tool_name != "list_nearby_files"
-    assert (send.tool_args or {}).get("peer_ask_id") == "ask-1"
+    assert "peer_ask_id" not in (send.tool_args or {})
     assert (send.tool_args or {}).get("document_url") == "writer-uid"
     finish = decide_completion(
-        _payload(task, _INNER_PEER, system=_WRITER_SYS, prior=_tool_follow("send_peer_message")),
+        _payload(task, _INNER_PEER, system=_WRITER_SYS, prior=_tool_follow("send_peer_result", '{"status":"ok","accepted":true,"envelope_kind":"result"}')),
         MockLLMConfig(delay_ms=0),
     )
     assert finish.tool_name == "specialized_workflow_finished"
@@ -1931,12 +1933,12 @@ def test_calc_inner_reply_task_without_envelope_sends_peer():
 
 def test_writer_followup_applies_peer_reply():
     envelope = (
-        "[Peer work from: BudgetPeer.ods | uid=calc-uid | url=file:///tmp/BudgetPeer.ods | peer_ask_id=ask-1]\n\n"
+        "[Peer result from: BudgetPeer.ods | uid=calc-uid | url=file:///tmp/BudgetPeer.ods]\n\n"
         "Total row written at A4:B4."
     )
     out = decide_completion(_payload(envelope, _WRITER_OUTER), MockLLMConfig(delay_ms=0))
     assert out.tool_name == "apply_document_content"
-    assert "send_peer_message" not in [n for n, _a in completion_tool_calls(out)]
+    assert "send_peer_work" not in [n for n, _a in completion_tool_calls(out)]
 
 
 def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
@@ -1944,9 +1946,9 @@ def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
     cfg = MockLLMConfig(delay_ms=0)
     ramble = decide_completion(_payload("keep talking", _WRITER_OUTER), cfg)
     assert ramble.ramble_parts or (ramble.content and ramble.tool_name is None)
-    assert "send_peer_message" not in [n for n, _a in completion_tool_calls(ramble)]
+    assert "send_peer_work" not in [n for n, _a in completion_tool_calls(ramble)]
     envelope = (
-        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt]\n\n"
         "Add a Total row under the numbers."
     )
     write = decide_completion(_payload(envelope, _CALC_OUTER, system=_WRITER_SYS), cfg)
@@ -1956,7 +1958,7 @@ def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
         cfg,
     )
     assert reply.tool_name == "delegate_to_specialized_calc_toolset"
-    assert "send_peer_message" not in [n for n, _a in completion_tool_calls(reply)]
+    assert "send_peer_work" not in [n for n, _a in completion_tool_calls(reply)]
 
 
 def test_scripted_rules_branch_writer_vs_calc():
@@ -1988,12 +1990,14 @@ def test_decide_hook_wins_over_rules():
 
 def test_match_completion_rule_envelope_and_specialized():
     env_payload = _payload(
-        "[Peer work from: A | uid=u | url= | peer_ask_id=x]\n\nHi",
+        "[Peer work from: A | uid=u | url=]\n\nHi",
         _INNER_PEER,
     )
-    rule = CompletionRule(envelope=True, specialized=True, tool_name="send_peer_message", tool_args={"document_url": "u"})
+    rule = CompletionRule(
+        envelope=True, specialized=True, tool_name="send_peer_result", tool_args={"document_url": "u"}
+    )
     hit = match_completion_rule(rule, env_payload)
-    assert hit is not None and hit.tool_name == "send_peer_message"
+    assert hit is not None and hit.tool_name == "send_peer_result"
     miss = match_completion_rule(CompletionRule(envelope=False, content="x"), env_payload)
     assert miss is None
     assert apply_scripted_rules(env_payload, MockLLMConfig(rules=[rule])) is not None

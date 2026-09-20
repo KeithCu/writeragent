@@ -199,10 +199,12 @@ FAIL_MODES = ("none", "http500", "http429", "hang")
 _DELEGATE_WRITER = "delegate_to_specialized_writer_toolset"
 _DELEGATE_CALC = "delegate_to_specialized_calc_toolset"
 _DELEGATE_DRAW = "delegate_to_specialized_draw_toolset"
-_PEER_TOOL = "send_peer_message"
+_PEER_WORK_TOOL = "send_peer_work"
+_PEER_RESULT_TOOL = "send_peer_result"
+_PEER_TOOLS = frozenset({_PEER_WORK_TOOL, _PEER_RESULT_TOOL})
 _PEER_ENVELOPE_RE = re.compile(
-    r"\[Peer from:\s*(?P<name>[^|\]]+?)\s*\|\s*uid=(?P<uid>[^|\]]*?)\s*\|\s*"
-    r"url=(?P<url>[^|\]]*?)\s*\|\s*peer_ask_id=(?P<ask>[^|\]]+?)\s*\]",
+    r"\[Peer (?P<kind>work|result) from:\s*(?P<name>[^|\]]+?)\s*\|\s*uid=(?P<uid>[^|\]]*?)\s*\|\s*"
+    r"url=(?P<url>[^|\]]*?)\s*\]",
     re.IGNORECASE,
 )
 _PEER_CATALOG_RE = re.compile(
@@ -240,7 +242,7 @@ class MockLLMConfig:
     rules: list[Any] = field(default_factory=list)
     # Optional ``(payload, config) -> Completion | None``. None falls through to decide_completion.
     decide_hook: Any = field(default=None, repr=False, compare=False)
-    # When True, specialized inner never finishes after send_peer_message (Scrolly hang).
+    # When True, specialized inner never finishes after a peer send (Scrolly hang).
     peer_wait_after_accepted: bool = False
     # Packet K: first matching *stream* POST returns prompt-too-large, then OK.
     overflow_once_seen: int = 0
@@ -456,15 +458,15 @@ def _as_text(content: Any) -> str:
 
 
 def parse_peer_envelope(text: str) -> dict[str, str] | None:
-    """Parse the code-inserted ``[Peer from: …]`` header, or None."""
+    """Parse the code-inserted ``[Peer work|result from: …]`` header, or None."""
     match = _PEER_ENVELOPE_RE.search(text or "")
     if match is None:
         return None
     return {
+        "kind": (match.group("kind") or "work").strip().lower(),
         "name": (match.group("name") or "").strip(),
         "uid": (match.group("uid") or "").strip(),
         "url": (match.group("url") or "").strip(),
-        "peer_ask_id": (match.group("ask") or "").strip(),
     }
 
 
@@ -1052,14 +1054,14 @@ def _specialized_inner_discovery(tool_names: set[str]) -> Completion | None:
 
 
 def _peer_phrase(text: str) -> bool:
-    # Include the live Calc-reply task (peer_ask_id / "reply to the peer").
+    # Include the live Calc-reply task ("reply to the peer" / send_peer_result).
     # Phrase-only "add a total row" matches the inbound envelope; after
     # write_formula_range the specialized POST is the scripted Reply string
     # (P3). Without this, leftover-Calc discovery (list_nearby_files) wins.
     return bool(
         re.search(
             r"\b(add a total row|ask the budget workbook|peer total|wait after accepted|"
-            r"do not finish peer|peer_ask_id|reply to the peer)\b",
+            r"do not finish peer|send_peer_result|reply to the peer)\b",
             text or "",
             re.IGNORECASE,
         )
@@ -1075,15 +1077,23 @@ def _nested_never_finish(messages: list[Any], config: MockLLMConfig | None) -> b
     return detect_scenario(_current_query(messages, user_raw), forced) == "nested_never_finish"
 
 
+def _peer_tool_called(called: set[str] | list[str]) -> bool:
+    return bool(_PEER_TOOLS & set(called))
+
+
+def _peer_tool_advertised(tool_names: set[str]) -> bool:
+    return bool(_PEER_TOOLS & tool_names)
+
+
 def _should_script_peer_inner(
     messages: list[Any],
     tool_names: set[str],
     config: MockLLMConfig | None,
 ) -> bool:
-    """True when this specialized POST should send_peer_message / finish-after-accepted.
+    """True when this specialized POST should peer-send / finish-after-accepted.
 
-    Advertisement of send_peer_message is not enough. After Packet P / E12 a leftover
-    Calc stays open, so the document_research inner wire lists that tool. Treating
+    Advertisement of peer tools is not enough. After Packet P / E12 a leftover
+    Calc stays open, so the document_research inner wire lists those tools. Treating
     ``tool in names`` as a peer scenario made E22 call specialized_workflow_finished
     instead of looping until nested max_steps.
     """
@@ -1100,8 +1110,8 @@ def _should_script_peer_inner(
     if _peer_phrase(_current_query(messages, user_raw)):
         return True
     # Later smol turns drop the peer phrase from the last user text. Stay on
-    # the finish-after-accepted path only after send_peer_message already ran.
-    return _PEER_TOOL in tool_names and _PEER_TOOL in _called_tool_names(messages)
+    # the finish-after-accepted path only after a peer send already ran.
+    return _peer_tool_advertised(tool_names) and _peer_tool_called(_called_tool_names(messages))
 
 
 def _peer_specialized_inner(
@@ -1109,7 +1119,7 @@ def _peer_specialized_inner(
     tool_names: set[str],
     config: MockLLMConfig | None,
 ) -> Completion:
-    """#673: send_peer_message then specialized_workflow_finished immediately.
+    """#673: send_peer_work/result then specialized_workflow_finished immediately.
 
     ``peer_wait`` / ``peer_wait_after_accepted`` skips finish so the peer
     never starts — that is the Scrolly hang lock.
@@ -1121,7 +1131,7 @@ def _peer_specialized_inner(
     scenario = detect_scenario(_current_query(messages, user_raw), forced)
     wait = scenario == "peer_wait" or bool(config and getattr(config, "peer_wait_after_accepted", False))
 
-    if _PEER_TOOL in called:
+    if _peer_tool_called(called):
         if wait:
             disc = _specialized_inner_discovery(tool_names)
             if disc is not None:
@@ -1142,41 +1152,43 @@ def _peer_specialized_inner(
     catalog_text = _system_text(messages)
     peers = parse_peer_catalog(catalog_text)
     query = _current_query(messages, user_raw)
-    if env:
-        target = env["uid"] or env["url"] or env["name"] or "peer"
-        args: dict[str, Any] = {
-            "document_url": target,
-            "message": "Total row written at A4:B4 (Amount =SUM(B2:B3)).",
-        }
-        if env["peer_ask_id"]:
-            args["peer_ask_id"] = env["peer_ask_id"]
-    else:
-        # Delegate task may cite document_url / peer_ask_id without the header.
-        ask_m = re.search(r"peer_ask_id[=:\s]+([A-Za-z0-9_-]+)", query)
-        url_m = re.search(r"document_url[=:\s]+(\S+)", query)
-        if ask_m:
+    # Reply path: inbound work envelope, or an outer task that asks for send_peer_result.
+    reply = bool(env and env.get("kind") == "work") or bool(
+        re.search(r"send_peer_result|reply to the peer|reply to the peer envelope", query or "", re.I)
+    )
+    if reply:
+        target = ""
+        if env:
+            target = env["uid"] or env["url"] or env["name"] or ""
+        if not target:
+            url_m = re.search(r"document_url[=:\s]+(\S+)", query or "")
             target = (url_m.group(1).rstrip(".,;") if url_m else "") or _pick_catalog_target(
                 peers, prefer_type="writer"
             )
-            args = {
-                "document_url": target,
-                "message": "Total row written at A4:B4 (Amount =SUM(B2:B3)).",
-                "peer_ask_id": ask_m.group(1),
-            }
-        else:
-            target = _pick_catalog_target(peers, prefer_type="calc")
-            args = {
-                "document_url": target,
-                "message": (
-                    "Add a Total row under the numbers (label Total and =SUM of the amount "
-                    "column) and reply with the range and peer_ask_id."
-                ),
-            }
-    if _PEER_TOOL in tool_names:
-        return Completion(tool_name=_PEER_TOOL, tool_args=args, finish_reason="tool_calls")
+        args: dict[str, Any] = {
+            "document_url": target or "peer",
+            "message": "Total row written at A4:B4 (Amount =SUM(B2:B3)).",
+        }
+        tool_name = _PEER_RESULT_TOOL
+    else:
+        target = _pick_catalog_target(peers, prefer_type="calc")
+        args = {
+            "document_url": target,
+            "message": (
+                "Add a Total row under the numbers (label Total and =SUM of the amount "
+                "column) and reply with the range."
+            ),
+        }
+        tool_name = _PEER_WORK_TOOL
+    if tool_name in tool_names:
+        return Completion(tool_name=tool_name, tool_args=args, finish_reason="tool_calls")
+    # Fall back to whichever peer tool is advertised.
+    for name in (_PEER_WORK_TOOL, _PEER_RESULT_TOOL):
+        if name in tool_names:
+            return Completion(tool_name=name, tool_args=args, finish_reason="tool_calls")
     return Completion(
         tool_name=finish_name,
-        tool_args={"answer": "No send_peer_message on this inner wire."},
+        tool_args={"answer": "No peer send tool on this inner wire."},
         finish_reason="tool_calls",
     )
 
@@ -1201,7 +1213,7 @@ def _specialized_inner_completion(
             finish_reason="tool_calls",
         )
 
-    # Never-finish before peer-inner: leftover Calc advertises send_peer_message.
+    # Never-finish before peer-inner: leftover Calc advertises peer send tools.
     if not never and _should_script_peer_inner(messages, tool_names, config):
         return _peer_specialized_inner(messages, tool_names, config)
 
@@ -1405,7 +1417,7 @@ def _scenario_user_turn(
                 delegate,
                 {
                     "domain": "document_research",
-                    "task": user_text or "Add a Total row and reply via send_peer_message.",
+                    "task": user_text or "Add a Total row and reply via send_peer_result.",
                 },
                 user_text,
                 turn,
@@ -1458,9 +1470,9 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
             delegate = _delegate_for_tools(tool_names) or _DELEGATE_CALC
             env = envelope or {}
             task = (
-                "Reply to the peer envelope with send_peer_message: document_url=%s "
-                "peer_ask_id=%s message=<one HTML/result string> then finish immediately."
-                % (env.get("uid") or env.get("url") or "writer", env.get("peer_ask_id") or "")
+                "Reply to the peer envelope with send_peer_result: document_url=%s "
+                "message=<one HTML/result string> then finish immediately."
+                % (env.get("uid") or env.get("url") or "writer",)
             )
             return Completion(
                 reasoning=reasoning,
@@ -1498,14 +1510,14 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
         # Calc receives a peer task: local formula work first, then (on the
         # tool-follow-up) document_research to send the reply. Writer follow-up
         # applies the HTML reply. Do this before phrase-triggered delegate.
-        if envelope and "write_formula_range" in tool_names:
+        if envelope and envelope.get("kind") != "result" and "write_formula_range" in tool_names:
             return Completion(
                 reasoning=reasoning,
                 tool_name="write_formula_range",
                 tool_args={"range": ["A4:B4"], "values": '["Total","=SUM(B2:B3)"]'},
                 finish_reason="tool_calls",
             )
-        if envelope and "apply_document_content" in tool_names:
+        if envelope and envelope.get("kind") == "result" and "apply_document_content" in tool_names:
             body = user_raw.split("\n\n", 1)[-1].strip() or "Peer reply."
             return Completion(
                 reasoning=reasoning,

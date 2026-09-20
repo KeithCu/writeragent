@@ -74,7 +74,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `two tools` / `in parallel` | Calls `search_in_document` + `get_document_tree` in a single round. |
 | `insert filler` / `append a paragraph` | Calls `apply_document_content` to mutate the document end. |
 | `list sheets` / `list pages` | Calls Calc/Draw list tools (`list_sheets` / `list_pages`) when advertised. |
-| `ask the budget workbook` / `add a Total row` / `peer total` | Packet P: outer delegates `document_research`; inner `send_peer_message` then `specialized_workflow_finished` immediately. Calc envelope → `write_formula_range` then reply via specialized. |
+| `ask the budget workbook` / `add a Total row` / `peer total` | Packet P: outer delegates `document_research`; inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately. Calc envelope → `write_formula_range` then reply via specialized. |
 | `wait after accepted` / `do not finish peer` | Packet P hang lock: inner sends then never finishes (peer does not start). |
 | `crash the stream` / `error 500` | Returns HTTP 500 JSON error payload. |
 | `rate limit` / `error 429` | Returns HTTP 429 Rate Limit error. |
@@ -290,7 +290,7 @@ Every test must satisfy:
 | **E15** | CI | `insert filler` | Stop after tool result queued, before HTML | Mutation applied; UI returns to idle; no double drain; `next_hello_ok()` | **OK / Landed** |
 | **E17** | CI | `empty nested answer` | Specialized delegate returns empty answer | Main wrap-up displays clean empty banner; no stale HTML paste-over; `next_hello_ok()` | **OK / Landed** |
 | **E21** | CI | `mixed tools` / `one tool fails` | Send query | `apply_document_content` succeeds while `add_comment` fails; mutation kept, error surfaced; `next_hello_ok()` | **OK / Landed** |
-| **E22** | CI | `endless nested outline` | Specialized delegate never finishes | Triggers max tool budget error; main UI returns to idle; inner `decided_tools` must not include `final_answer` / `specialized_workflow_finished`; `next_hello_ok()` | **OK / Landed** (leftover Calc after E12/P advertises `send_peer_message`; mock must not take the Packet P finish-immediately path — never-finish / phrase wins so smol hits `chatbot.max_tool_rounds`) |
+| **E22** | CI | `endless nested outline` | Specialized delegate never finishes | Triggers max tool budget error; main UI returns to idle; inner `decided_tools` must not include `final_answer` / `specialized_workflow_finished`; `next_hello_ok()` | **OK / Landed** (leftover Calc after E12/P advertises `send_peer_work / send_peer_result`; mock must not take the Packet P finish-immediately path — never-finish / phrase wins so smol hits `chatbot.max_tool_rounds`) |
 
 #### Dropped Cases (Packet E)
 - **E2 (Live DuckDuckGo):** CI must stay offline; E1 covers the research loop.
@@ -390,14 +390,14 @@ Every test must satisfy:
 
 - **Focus:** Writer + Calc sidebars sharing one process-global mock OpenAI server. Scripts branch on advertised tools, `[Peer from:]` envelopes, and the specialized-inner wire.
 - **Mode:** Automated (`make test-mock-sidebar FILTER=P`). Unit scripts always run in `make pytest` (`tests/scripts/test_mock_llm_server.py`).
-- **Protocol locked:** outer main delegates `document_research` (never advertises `send_peer_message`); inner `send_peer_message` then `specialized_workflow_finished` immediately; Calc does `write_formula_range` then delegates to reply with `peer_ask_id`.
+- **Protocol locked:** outer main delegates `document_research` (never advertises `send_peer_work / send_peer_result`); inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately; Calc does `write_formula_range` then delegates to reply with `envelope kind (work/result)`.
 - **Calc open:** same `open_calc_document` / `adopt_chat_sidebar` helper as E12/G17 (VCL-posted `factory/scalc` + `_blank`; keep Writer open). Never `loadComponentFromURL("private:factory/scalc")` from the URP client after a Writer deck. After Writer Ready, P1 dispatches `KICK_PEERS` so soffice starts the queued extracted send. If dual decks cannot be wired, P1–P3 SkipTest — unit scripts still lock finish-after-accepted, reply-via-specialized, and busy-then-queue.
 
 | ID | Mode | Mock / Trigger | Steps / Actions | Expected Pass Behavior | Status / Notes |
 |:--:|:----:|----------------|-----------------|------------------------|:--------------:|
-| **P1** | mock-sidebar | `Ask the budget workbook to add a Total row` | Dual decks; Writer send | Both Ready; Calc wrote Total; Writer saw reply; finish immediately after accepted; no outer `send_peer_message` | **Landed** (SkipTest if Calc deck cannot open) |
+| **P1** | mock-sidebar | `Ask the budget workbook to add a Total row` | Dual decks; Writer send | Both Ready; Calc wrote Total; Writer saw reply; finish immediately after accepted; no outer `send_peer_work / send_peer_result` | **Landed** (SkipTest if Calc deck cannot open) |
 | **P2** | mock-sidebar | `wait after accepted then hang` | Writer send; assert before max_steps | Specialized stays in discovery after accepted; Calc does not `write_formula_range` (inject-now envelope is OK) | **Landed** (same skip) |
-| **P3** | mock-sidebar + unit | Writer Ready, then `keep talking` (slow SSE); `KICK_PEERS` after Stop enabled | Writer busy when Calc `send_peer_message`s | Reply queues (no inject); after Stop/Ready + kick, extracted send starts | **Landed** (live may SkipTest if dual-deck Send misses ramble; units `test_p3_*` always lock; E12 follow-up if Calc deck missing). Calc reply specialized task is the scripted `Reply to the peer envelope … peer_ask_id=` string — mock peer-inner must match that, not only inbound "add a total row", or leftover-Calc discovery (`list_nearby_files`) finishes without a reply. |
+| **P3** | mock-sidebar + unit | Writer Ready, then `keep talking` (slow SSE); `KICK_PEERS` after Stop enabled | Writer busy when Calc `send_peer_work / send_peer_result`s | Reply queues (no inject); after Stop/Ready + kick, extracted send starts | **Landed** (live may SkipTest if dual-deck Send misses ramble; units `test_p3_*` always lock; E12 follow-up if Calc deck missing). Calc reply specialized task is the scripted `Reply to the peer envelope … envelope kind (work/result)=` string — mock peer-inner must match that, not only inbound "add a total row", or leftover-Calc discovery (`list_nearby_files`) finishes without a reply. |
 
 See [peer-messaging.md](../chat/peer-messaging.md#dual-mock-peer-tests).
 

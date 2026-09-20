@@ -28,7 +28,7 @@ Box run artifacts cited below may be untracked locally; paths are under `docs/ev
 
 ## 2. Cross-cutting finding: peer ask polarity
 
-Two Writer→peer mutation siblings exist. Same machinery (`send_peer_message` / live peer sidebar). Opposite outcomes.
+Two Writer→peer mutation siblings exist. Same machinery (`send_peer_work/send_peer_result` / live peer sidebar). Opposite outcomes.
 
 ### 2.1 GMP — dump then fill (product recovered)
 
@@ -56,7 +56,7 @@ Two Writer→peer mutation siblings exist. Same machinery (`send_peer_message` /
 Evidence (`notes.txt`, `thinking_and_tools.md`, `score.txt`, `/workspace/fs-*.png`):
 
 - Tip `891cd670` (#688). Model gpt-oss-120b:nitro, `max_tool_rounds=150`.
-- Writer fired `send_peer_message` **3×**. Asks were to **extract** component-by-component cost **JSON** from the **empty** budget scaffold / email trail — e.g. extract breakdown, return JSON array.
+- Writer fired `send_peer_work/send_peer_result` **3×**. Asks were to **extract** component-by-component cost **JSON** from the **empty** budget scaffold / email trail — e.g. extract breakdown, return JSON array.
 - Calc: `get_sheet_summary` / `read_cell_range` on empty Cost Comparison; more extract asks.
 - Workbook stayed scaffold: **`nonempty_cells=2`** (titles only).
 - Writer email **blank** (`words: 0`).
@@ -67,7 +67,7 @@ Evidence (`notes.txt`, `thinking_and_tools.md`, `score.txt`, `/workspace/fs-*.pn
 
 **Exact peer asks (observer notes):** Writer asked Calc to *“Please extract the component-by-component cost breakdown … Return a JSON array…”* (×3). Calc then `get_sheet_summary` / `read_cell_range` on empty Cost Comparison. ComputerUse saw assistant text about an empty JSON `[]`. Tip `891cd670` (#688); model `openai/gpt-oss-120b:nitro`; `max_tool_rounds=150`; UNO thread violations **0**; soffice died after peer.
 
-**Prompt already says fill** (`prompt_used.txt` / notes): *“The holiday floorstand budget workbook is already open… Fill that workbook.”* and *“Write the draft email in this open Writer document.”* Product still failed — **eval prompt fill language alone is not enough** when `send_peer_message` tasks default to extract/JSON. GMP recovered only when the **peer task** said update/enter-into-fields (0225), not when the Writer prompt alone said fill.
+**Prompt already says fill** (`prompt_used.txt` / notes): *“The holiday floorstand budget workbook is already open… Fill that workbook.”* and *“Write the draft email in this open Writer document.”* Product still failed — **eval prompt fill language alone is not enough** when `send_peer_work/send_peer_result` tasks default to extract/JSON. GMP recovered only when the **peer task** said update/enter-into-fields (0225), not when the Writer prompt alone said fill.
 
 ### 2.3 Solutions (DO + why) — peer polarity
 
@@ -82,7 +82,7 @@ Ordered by leverage for Floorstand / future Writer→Calc:
    **Why:** eval-2 already remaps deliverable location; a polarity sentence is harness debug, not KPI gaming — but prefer product prompt (1) so all Calc peers benefit.
 
 3. **DO — Peer-tool description / schema hint**  
-   `send_peer_message` description: for writable peers, prefer imperative fill tasks; research of siblings stays `document_research`.  
+   `send_peer_work/send_peer_result` description: for writable peers, prefer imperative fill tasks; research of siblings stays `document_research`.  
    **Why:** tool messages train harder than eval prompts (AFC lesson).
 
 4. **DO — Soft telemetry in headed notes**  
@@ -134,7 +134,7 @@ Paths (box): `docs/eval/eval-2/writer-calc-peer-write/runs/…` under Scrolly’
    Even with a fill ask, peer may have researched (`document_research` / read trail) or hung mid-tool-loop without `write_formula_range` on Cost Comparison. Cannot confirm tool names without the rotated log. Outcome matches research-only / no-write peer: `nonempty_cells=2`.
 
 4. **Nested peer drain / wait-forever (medium — explains stall, not polarity)**  
-   Writer `send_peer_message` → Calc sidebar drain → Writer waits. Nested drain / stuck LLM stream can leave Writer on Thinking with no transcript paint (UI grey box). Related to overnight LO crash class but here **no crash** — soft hang instead. Later Calc-primary log shows at least one Gemini stream `finish_reason=None` / `used_model='unknown'` (different run; signal that Gemini streams can die oddly).
+   Writer `send_peer_work/send_peer_result` → Calc sidebar drain → Writer waits. Nested drain / stuck LLM stream can leave Writer on Thinking with no transcript paint (UI grey box). Related to overnight LO crash class but here **no crash** — soft hang instead. Later Calc-primary log shows at least one Gemini stream `finish_reason=None` / `used_model='unknown'` (different run; signal that Gemini streams can die oddly).
 
 5. **Wrong peer / peer not on wire (lower for this stamp)**  
    Observer recorded fill asks to the budget peer; workbook is the open Cost Comparison scaffold. Post-restart logs show `peer_count=0` on Calc-primary alone — not evidence for Floorstand. Keep as a check if a future run logs `on_wire=False` while two docs are open.
@@ -149,7 +149,7 @@ Paths (box): `docs/eval/eval-2/writer-calc-peer-write/runs/…` under Scrolly’
 #### Light product next steps (few / small; minimal eval cheats)
 
 1. **DO — Keep the private `PEER_INNER` polarity sentence** for Gemini (it flipped polarity vs gpt-oss). Land as a tiny product PR when Scrolly’s tree is free — don’t block on gpt-oss still missing.  
-2. **DO — One more general peer sentence: fill asks must carry the values to write** (counts, shelf-strip +$0.25, line labels) — mirror GMP-0225 payload style. Prefer `PEER_INNER` / `send_peer_message` description over Floorstand eval gold cheats.  
+2. **DO — One more general peer sentence: fill asks must carry the values to write** (counts, shelf-strip +$0.25, line labels) — mirror GMP-0225 payload style. Prefer `PEER_INNER` / `send_peer_work/send_peer_result` description over Floorstand eval gold cheats.  
 3. **DO — Outer Writer: after peer returns, write the email in this doc; if peer workbook still titles-only, one retry peer ask with explicit numbers — then draft what you can.** Small prompt; fights Ready-empty + stall-without-email.  
 4. **DO — Stall plumbing (separate from polarity)** — fail-loud / timeout when peer drain or LLM stream hangs >N minutes; preserve debug log across LO restarts for headed trials. Not an eval cheat.  
 5. **Don’t** add gold dollar totals to `prompt.writeragent.txt`. **Don’t** wait on gpt-oss polarity for Gemini gating. **Don’t** fight Scrolly’s `writeragent-master` deploy while Calc-primary Gemini runs.

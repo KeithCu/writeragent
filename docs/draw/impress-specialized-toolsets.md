@@ -545,5 +545,5 @@ This pattern could be extended to other domains.
 - [LibreOffice API Reference — Presentation](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1star_1_1presentation_1_1XPresentation.html)
 - [LibreOffice Draw/Impress UNO Examples](https://wiki.documentfoundation.org/Documentation/DevGuide/Drawings/Tutorial)
 - [Writer specialized toolsets](../writer/specialized-toolsets.md) — Architecture reference
-- [Peer messaging](../chat/peer-messaging.md) — Writer ↔ Calc ↔ Draw async `send_peer_message`; Draw is a v1 peer, not a mega-agent tool list
+- [Peer messaging](../chat/peer-messaging.md) — Writer ↔ Calc ↔ Draw async `send_peer_work / send_peer_result`; Draw is a v1 peer, not a mega-agent tool list
 - [AGENTS.md](../../AGENTS.md) — Project overview

@@ -3,12 +3,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""A1 peer send: ``send_peer_message``.
+"""A1 peer send: ``send_peer_work`` / ``send_peer_result``.
 
 Queues a user-equivalent turn on another already-open Writer/Calc/Draw/Impress
 sidebar and returns immediately. Experiment: advertised on the
 document_research specialized loop only (not outer chat, not MCP).
-See ``docs/chat/peer-messaging.md``.
+Kind is which tool was called (work vs result). See ``docs/chat/peer-messaging.md``.
 
 This module must not import ``plugin.chatbot.panel`` or
 ``plugin.chatbot.panel_factory`` (cycle: CommonModule → tool → panel →
@@ -20,7 +20,6 @@ from __future__ import annotations
 import copy
 import logging
 import os
-import uuid
 import weakref
 from collections import deque
 from dataclasses import dataclass
@@ -32,7 +31,9 @@ from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger("writeragent.doc.peer_message")
 
-PEER_TOOL_NAME = "send_peer_message"
+PEER_WORK_TOOL_NAME = "send_peer_work"
+PEER_RESULT_TOOL_NAME = "send_peer_result"
+PEER_TOOL_NAMES = frozenset({PEER_WORK_TOOL_NAME, PEER_RESULT_TOOL_NAME})
 PEER_QUEUE_CAP = 8
 PEER_SPECIALIZED_DOMAIN = "document_research"
 # MCP / script / venv RPC must never inject a sidebar turn. Chat main and
@@ -45,16 +46,27 @@ _CALC_SERVICE = "com.sun.star.sheet.SpreadsheetDocument"
 _DRAW_SERVICE = "com.sun.star.drawing.DrawingDocument"
 _IMPRESS_SERVICE = "com.sun.star.presentation.PresentationDocument"
 
-_BASE_DESCRIPTION = (
-    "Send a natural-language turn to another already-open Writer, Calc, Draw, "
-    "or Impress sidebar. Returns immediately {status: ok, accepted: true, "
-    "peer_ask_id}. After ok/accepted you MUST call specialized_workflow_finished "
+_WORK_DESCRIPTION = (
+    "Send a new work request to another already-open Writer, Calc, Draw, "
+    "or Impress sidebar. Returns immediately {status: ok, accepted: true}. "
+    "After ok/accepted you MUST call specialized_workflow_finished "
     "immediately — the peer runs after this loop exits; waiting deadlocks the reply. "
     "document_url is the one target argument: a file URL, RuntimeUID, or a "
     "display name that matches exactly one open peer. Required on every call. "
     "Never put your own path, uid, or URL in message — the gateway inserts "
-    "[Peer work from: …] for a new work request (minted peer_ask_id) or [Peer result from: …] when peer_ask_id is copied from an inbound envelope. On replies, pass peer_ask_id "
-    "copied from the inbound envelope. Never invent the other app's write tools."
+    "[Peer work from: name | uid=… | url=…]. Never invent the other app's write tools."
+)
+
+_RESULT_DESCRIPTION = (
+    "Deliver a result/reply to another already-open Writer, Calc, Draw, "
+    "or Impress sidebar. Returns immediately {status: ok, accepted: true}. "
+    "After ok/accepted you MUST call specialized_workflow_finished "
+    "immediately — the peer runs after this loop exits; waiting deadlocks the reply. "
+    "document_url is the one target argument: a file URL, RuntimeUID, or a "
+    "display name that matches exactly one open peer (usually from the inbound "
+    "[Peer work from: …] envelope). Required on every call. "
+    "Never put your own path, uid, or URL in message — the gateway inserts "
+    "[Peer result from: name | uid=… | url=…]. Never invent the other app's write tools."
 )
 
 # Reinforces the prompt: specialized agents must exit after accepted.
@@ -71,7 +83,6 @@ class PeerPendingTurn:
 
     wrapped_text: str
     already_appended: bool
-    peer_ask_id: str
 
 
 _listener_queues: WeakKeyDictionary[Any, deque[PeerPendingTurn]] = WeakKeyDictionary()
@@ -169,18 +180,16 @@ def format_peer_envelope(
     name: str,
     uid: str,
     url: str,
-    peer_ask_id: str,
     message: str,
     kind: str = "work",
 ) -> str:
     """Code-inserted wrapper. ``message`` is the body only.
 
-    ``kind`` is stamped by the host: ``"work"`` when ``peer_ask_id`` is minted
-    (new request), ``"result"`` when it was copied from an inbound envelope
-    (reply). Models must not invent the header.
+    ``kind`` is which tool was called: ``"work"`` for ``send_peer_work``,
+    ``"result"`` for ``send_peer_result``. Models must not invent the header.
     """
     label = "Peer result from" if kind == "result" else "Peer work from"
-    header = f"[{label}: {name} | uid={uid} | url={url} | peer_ask_id={peer_ask_id}]"
+    header = f"[{label}: {name} | uid={uid} | url={url}]"
     body = message if message.endswith("\n") else message
     return f"{header}\n\n{body}"
 
@@ -443,9 +452,9 @@ def _schema_function_name(schema: dict[str, Any]) -> str:
 
 
 def summarize_peer_tool_on_wire(schemas: list[dict[str, Any]]) -> tuple[bool, int]:
-    """Whether ``send_peer_message`` is advertised, plus Open-peers count from the catalog."""
+    """Whether either peer tool is advertised, plus Open-peers count from the catalog."""
     for schema in schemas:
-        if _schema_function_name(schema) != PEER_TOOL_NAME:
+        if _schema_function_name(schema) not in PEER_TOOL_NAMES:
             continue
         fn = schema.get("function")
         desc = str(fn.get("description") or "") if isinstance(fn, dict) else str(schema.get("description") or "")
@@ -454,9 +463,17 @@ def summarize_peer_tool_on_wire(schemas: list[dict[str, Any]]) -> tuple[bool, in
 
 
 def log_peer_tool_on_wire(schemas: list[dict[str, Any]]) -> None:
-    """Headed dig: prove the tool was on the chat wire (vs the model not calling it)."""
+    """Headed dig: prove peer tools were on the chat wire (vs the model not calling them)."""
     on_wire, peer_count = summarize_peer_tool_on_wire(schemas)
-    log.info("peer tools: send_peer_message on_wire=%s peer_count=%d", on_wire, peer_count)
+    names = sorted(
+        n for n in (_schema_function_name(s) for s in schemas) if n in PEER_TOOL_NAMES
+    )
+    log.info(
+        "peer tools: on_wire=%s names=%s peer_count=%d",
+        on_wire,
+        ",".join(names) or "-",
+        peer_count,
+    )
 
 
 def _document_research_domain(active_domain: str | None) -> bool:
@@ -490,8 +507,8 @@ def peer_message_visible_on_specialized(
 
 
 def filter_peer_tools_for_specialized(tools: list[Any], uno_ctx: Any, doc: Any) -> list[Any]:
-    """Keep ``send_peer_message`` on document_research only when a v1 peer is open."""
-    if not any(getattr(t, "name", None) == PEER_TOOL_NAME for t in tools):
+    """Keep both peer tools on document_research only when a v1 peer is open."""
+    if not any(getattr(t, "name", None) in PEER_TOOL_NAMES for t in tools):
         return tools
     peers: list[dict[str, str]] = []
     if uno_ctx is not None:
@@ -501,7 +518,7 @@ def filter_peer_tools_for_specialized(tools: list[Any], uno_ctx: Any, doc: Any) 
             log.debug("filter_peer_tools_for_specialized: catalog failed", exc_info=True)
             peers = []
     if not peers:
-        return [t for t in tools if getattr(t, "name", None) != PEER_TOOL_NAME]
+        return [t for t in tools if getattr(t, "name", None) not in PEER_TOOL_NAMES]
     return tools
 
 
@@ -511,13 +528,13 @@ def filter_peer_message_schemas(
     doc: Any = None,
     active_domain: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Hide ``send_peer_message`` on the outer chat wire.
+    """Hide peer send tools on the outer chat wire.
 
     Master/#672 advertised this on main chat when a peer was open. This
-    experiment shows it only on ``document_research`` schemas, and only when
-    a resolvable other v1 peer exists. Catalog is baked into the description.
+    experiment shows both tools only on ``document_research`` schemas, and only
+    when a resolvable other v1 peer exists. Catalog is baked into each description.
     """
-    if not any(_schema_function_name(s) == PEER_TOOL_NAME for s in schemas):
+    if not any(_schema_function_name(s) in PEER_TOOL_NAMES for s in schemas):
         return schemas
     peers: list[dict[str, str]] = []
     if ctx is not None and doc is not None:
@@ -527,11 +544,11 @@ def filter_peer_message_schemas(
             log.debug("filter_peer_message_schemas: catalog failed", exc_info=True)
             peers = []
     if not peer_message_visible_on_specialized(active_domain=active_domain, peers=peers):
-        return [s for s in schemas if _schema_function_name(s) != PEER_TOOL_NAME]
+        return [s for s in schemas if _schema_function_name(s) not in PEER_TOOL_NAMES]
     catalog = format_peer_catalog(peers)
     out: list[dict[str, Any]] = []
     for schema in schemas:
-        if _schema_function_name(schema) != PEER_TOOL_NAME:
+        if _schema_function_name(schema) not in PEER_TOOL_NAMES:
             out.append(schema)
             continue
         enriched = copy.deepcopy(schema)
@@ -575,15 +592,40 @@ def _inject_on_listener(listener: Any, wrapped: str) -> None:
         append(wrapped, role="user")
 
 
-class SendPeerMessage(ToolBase):
-    """Async inject onto another live sidebar (document_research specialized)."""
+_PEER_PARAMETERS = {
+    "type": "object",
+    "properties": {
+        "document_url": {
+            "type": "string",
+            "description": (
+                "The one target argument: file URL, RuntimeUID, or a display name "
+                "that matches exactly one open peer. Required on every call. "
+                "Never omit it; never put your own identity here."
+            ),
+        },
+        "message": {
+            "type": "string",
+            "description": (
+                "One string: natural-language task or reply body (an HTML table is one string, "
+                "not a JSON array). Do not paste your own path, uid, or URL — "
+                "the gateway inserts the [Peer work from: …] or [Peer result from: …] envelope."
+            ),
+        },
+    },
+    "required": ["document_url", "message"],
+}
 
-    name = PEER_TOOL_NAME
-    description = _BASE_DESCRIPTION
+
+class _SendPeerBase(ToolBase):
+    """Shared inject/queue/Ready path for work and result peer sends."""
+
+    name = ""  # subclasses set
+    description = ""
+    envelope_kind: ClassVar[str] = "work"
     tier = "chat"
     # Domain membership: inner document_research sees this; outer chat does not
     # advertise it (filter_peer_message_schemas). Cross-cutting so Writer/Calc/
-    # Draw/Impress document_research toolsets all get the same tool.
+    # Draw/Impress document_research toolsets all get the same tools.
     specialized_domain: ClassVar[str | None] = PEER_SPECIALIZED_DOMAIN
     specialized_cross_cutting: ClassVar[bool] = True
     is_mutation = False
@@ -592,35 +634,7 @@ class SendPeerMessage(ToolBase):
     # DrawingDocument still matches Draw-only; do not treat Impress as Draw
     # in the peer catalog (see v1_peer_type_label).
     uno_services = [_TEXT_SERVICE, _CALC_SERVICE, _DRAW_SERVICE, _IMPRESS_SERVICE]
-    parameters = {
-        "type": "object",
-        "properties": {
-            "document_url": {
-                "type": "string",
-                "description": (
-                    "The one target argument: file URL, RuntimeUID, or a display name "
-                    "that matches exactly one open peer. Required on every call "
-                    "(including replies). Never omit it; never put your own identity here."
-                ),
-            },
-            "message": {
-                "type": "string",
-                "description": (
-                    "One string: natural-language task or reply body (an HTML table is one string, "
-                    "not a JSON array). Do not paste your own path, uid, or URL — "
-                    "the gateway inserts the [Peer work from: …] or [Peer result from: …] envelope."
-                ),
-            },
-            "peer_ask_id": {
-                "type": "string",
-                "description": (
-                    "Correlation id from the inbound envelope. Required by protocol on replies; "
-                    "the host does not default the target from it."
-                ),
-            },
-        },
-        "required": ["document_url", "message"],
-    }
+    parameters = _PEER_PARAMETERS
 
     def is_async(self) -> bool:
         return False
@@ -628,7 +642,7 @@ class SendPeerMessage(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if not peer_send_caller_allowed(ctx):
             return self._tool_error(
-                "send_peer_message is sidebar chat / document_research only.",
+                f"{self.name} is sidebar chat / document_research only.",
                 code="PEER_CHAT_ONLY",
             )
         document_url = str(kwargs.get("document_url") or "").strip()
@@ -638,10 +652,7 @@ class SendPeerMessage(ToolBase):
         if not message.strip():
             return self._tool_error("message is required.", code="VALIDATION_ERROR")
 
-        inbound_id = str(kwargs.get("peer_ask_id") or "").strip()
-        peer_ask_id = inbound_id or uuid.uuid4().hex
-        # Host stamps kind: copied peer_ask_id → result; minted → work request.
-        envelope_kind = "result" if inbound_id else "work"
+        envelope_kind = self.envelope_kind
 
         model, err_code, err_msg = resolve_peer_target(ctx.ctx, ctx.doc, document_url)
         if err_code or model is None:
@@ -675,7 +686,6 @@ class SendPeerMessage(ToolBase):
             name=sender["name"],
             uid=sender["uid"],
             url=sender["url"],
-            peer_ask_id=peer_ask_id,
             message=message,
             kind=envelope_kind,
         )
@@ -688,7 +698,6 @@ class SendPeerMessage(ToolBase):
         turn = PeerPendingTurn(
             wrapped_text=wrapped,
             already_appended=already_appended,
-            peer_ask_id=peer_ask_id,
         )
         overflow = schedule_peer_turn(listener, turn)
         if overflow:
@@ -699,7 +708,22 @@ class SendPeerMessage(ToolBase):
         return {
             "status": "ok",
             "accepted": True,
-            "peer_ask_id": peer_ask_id,
             "envelope_kind": envelope_kind,
             "message": PEER_ACCEPTED_FINISH_HINT,
         }
+
+
+class SendPeerWork(_SendPeerBase):
+    """Queue a new work request on another live sidebar (document_research specialized)."""
+
+    name = PEER_WORK_TOOL_NAME
+    description = _WORK_DESCRIPTION
+    envelope_kind: ClassVar[str] = "work"
+
+
+class SendPeerResult(_SendPeerBase):
+    """Queue a result/reply on another live sidebar (document_research specialized)."""
+
+    name = PEER_RESULT_TOOL_NAME
+    description = _RESULT_DESCRIPTION
+    envelope_kind: ClassVar[str] = "result"

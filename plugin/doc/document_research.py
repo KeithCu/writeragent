@@ -716,7 +716,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     docs = []
     # Real UNO hasMoreElements() is bool. unittest MagicMock is always truthy
     # and never becomes False, so `while enum.hasMoreElements()` spun forever.
-    # That wedged unit pytest at ~99% after send_peer_message started calling
+    # That wedged unit pytest at ~99% after peer send tools started calling
     # this from list_v1_peers / chat prompts with ctx=MagicMock().
     while enum is not None:
         try:

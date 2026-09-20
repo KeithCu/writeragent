@@ -845,7 +845,7 @@ class ToolRegistry:
             )
             return schemas
         elif protocol == "mcp":
-            # Never advertise send_peer_message on MCP, including find_tools(domain=…).
+            # Never advertise peer send tools on MCP, including find_tools(domain=…).
             from plugin.doc.peer_message import filter_peer_message_schemas
 
             schemas = [to_mcp_schema(t, doc_type=doc_type) for t in tools]

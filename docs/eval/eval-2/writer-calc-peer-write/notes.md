@@ -29,7 +29,7 @@ No smoother-path remaps of $0.25 / Store 4099 / Store 3737 / overage.
 Do **not** add eval-oracle cheat phrases or exact gold totals
 ($24,670.80 / 1,320) to the product prompt.
 
-The Writer prompt does **not** name product internals (`send_peer_message`,
+The Writer prompt does **not** name product internals (`send_peer_work/send_peer_result`,
 `specialize`, specialized-domain tags). Floorstand / shelf-strip wording
 is the gold claim.
 

@@ -267,7 +267,7 @@ def calc_total_formula(calc: Any) -> str:
 
 
 def finish_immediately_after_peer_sends(captures: list[dict[str, Any]]) -> bool:
-    """True when each ``send_peer_message`` decision is followed by a finish tool.
+    """True when each peer-send decision is followed by a finish tool.
 
     Locks #673: waiting after accepted deadlocks the peer.
     """
@@ -276,7 +276,7 @@ def finish_immediately_after_peer_sends(captures: list[dict[str, Any]]) -> bool:
     finished_after = 0
     sends = 0
     for tools in decided_rows:
-        if "send_peer_message" in tools:
+        if "send_peer_work" in tools or "send_peer_result" in tools:
             saw_send = True
             sends += 1
             continue

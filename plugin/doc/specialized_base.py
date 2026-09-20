@@ -203,7 +203,7 @@ class DelegateToSpecializedBase(ToolBase):
                     get_document_research_workflow_hint,
                 )
                 from plugin.doc.peer_message import (
-                    PEER_TOOL_NAME,
+                    PEER_TOOL_NAMES,
                     filter_peer_tools_for_specialized,
                     format_peer_catalog,
                     list_v1_peers,
@@ -211,7 +211,7 @@ class DelegateToSpecializedBase(ToolBase):
 
                 tools = filter_document_research_discovery_tools(tools, ctx.ctx)
                 tools = filter_peer_tools_for_specialized(tools, ctx.ctx, ctx.doc)
-                if any(getattr(t, "name", None) == PEER_TOOL_NAME for t in tools):
+                if any(getattr(t, "name", None) in PEER_TOOL_NAMES for t in tools):
                     peer_catalog = format_peer_catalog(list_v1_peers(ctx.ctx, ctx.doc))
                 # #673 added list_v1_peers / getRuntimeUID to this hint. Specialized
                 # execute is async: gather the catalog here with get_tools, not on
@@ -229,11 +229,11 @@ class DelegateToSpecializedBase(ToolBase):
         if not domain_tools:
             return self._tool_error(f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered.")
 
-        # Specialized execute must see document_research so send_peer_message's
+        # Specialized execute must see document_research so peer send tools'
         # caller guard allows this loop (not only ctx.caller == "chat").
         prev_active_domain = getattr(ctx, "active_domain", None)
         ctx.active_domain = domain
-        # When inner send_peer_message ran, the outer must Ready (not keep tooling).
+        # When an inner peer send ran, the outer must Ready (not keep tooling).
         peer_send_invoked = False
         # Inner tool results that already carry web-research-style `instruction`
         # (create_sheet, etc.) so specialized finish can forward them to the outer.
@@ -250,10 +250,10 @@ class DelegateToSpecializedBase(ToolBase):
         try:
             smol_tools = [_CaptureInstructionAdapter(t, ctx, safe=True, inputs_style="specialized") for t in domain_tools]
             if peer_catalog:
-                from plugin.doc.peer_message import PEER_TOOL_NAME
+                from plugin.doc.peer_message import PEER_TOOL_NAMES
 
                 for adapter in smol_tools:
-                    if getattr(adapter, "name", None) == PEER_TOOL_NAME:
+                    if getattr(adapter, "name", None) in PEER_TOOL_NAMES:
                         adapter.description = (str(adapter.description or "") + " " + peer_catalog).strip()
 
             footnotes_hint = ""
@@ -332,7 +332,7 @@ class DelegateToSpecializedBase(ToolBase):
                 nonlocal document_open_step_index, peer_send_invoked, create_sheet_ran
                 if step.name == "create_sheet":
                     create_sheet_ran = True
-                if domain == "document_research" and step.name == "send_peer_message":
+                if domain == "document_research" and step.name in ("send_peer_work", "send_peer_result"):
                     peer_send_invoked = True
                 if domain == "document_research" and step.name == "delegate_read_document" and chat_append_callback:
                     from plugin.chatbot.web_research_chat import document_open_step_chat_text

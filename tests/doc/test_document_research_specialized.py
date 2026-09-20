@@ -111,7 +111,8 @@ def test_document_research_workflow_hint_peer_choice_when_peers_open():
     with patch("plugin.framework.constants.folder_search_enabled", return_value=False):
         with patch("plugin.doc.peer_message.list_v1_peers", return_value=peers):
             hint = get_document_research_workflow_hint(ctx, doc)
-    assert "send_peer_message" in hint
+    assert "send_peer_work" in hint
+    assert "send_peer_result" in hint
     assert "delegate_read_document" in hint
     assert "Budget.ods" in hint
     assert "PEER SIDEBARS" not in hint
@@ -183,7 +184,8 @@ def test_document_research_outer_delegation_gets_document_research_tools(
     assert "list_nearby_files" in names
     assert "grep_nearby_files" in names
     assert "delegate_read_document" in names
-    assert "send_peer_message" not in names
+    assert "send_peer_work" not in names
+    assert "send_peer_result" not in names
 
 
 @patch(
@@ -201,12 +203,13 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     mock_get_config,
     _mock_get_config_int,
 ):
-    from plugin.doc.peer_message import SendPeerMessage
+    from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
     r.register(DelegateReadDocument())
-    r.register(SendPeerMessage())
+    r.register(SendPeerWork())
+    r.register(SendPeerResult())
     r.register(SpecializedWorkflowFinished())
     r.register(DelegateToSpecializedWriter())
 
@@ -230,13 +233,17 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     assert result["status"] == "ok"
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
-    assert "send_peer_message" in names
+    assert "send_peer_work" in names
+    assert "send_peer_result" in names
     assert "delegate_read_document" in names
-    peer_adapter = next(t for t in smol_tools if t.name == "send_peer_message")
+    peer_adapter = next(t for t in smol_tools if t.name == "send_peer_work")
+    peer_result_adapter = next(t for t in smol_tools if t.name == "send_peer_result")
+    assert "Budget.ods" in peer_result_adapter.description
     assert "Budget.ods" in peer_adapter.description
     assert "uid=u2" in peer_adapter.description
     instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
-    assert "send_peer_message" in instructions
+    assert "send_peer_work" in instructions
+    assert "send_peer_result" in instructions
     assert "PEER vs READ" in instructions
     assert ctx.active_domain is None
 
@@ -318,14 +325,14 @@ def test_document_research_return_idles_outer_after_peer_send(
     mock_get_config,
     _mock_get_config_int,
 ):
-    """Host appends idle-after-send when inner send_peer_message ran."""
+    """Host appends idle-after-send when an inner peer send ran."""
     from plugin.framework.prompts import PEER_OUTER_IDLE_AFTER_SEND
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
         if tool_call_handler:
             tool_call_handler(
                 ToolCall(
-                    name="send_peer_message",
+                    name="send_peer_work",
                     arguments={"document_url": "u2", "message": "Get KPIs"},
                     id="peer-send-1",
                 )

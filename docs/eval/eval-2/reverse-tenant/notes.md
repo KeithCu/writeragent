@@ -21,7 +21,7 @@ rates” — the oracle fail-closes on CBA / theatre / roster anchors
 instead.
 
 The Writer prompt does **not** name product internals
-(`document_research`, `send_peer_message`, specialized-domain tags).
+(`document_research`, `send_peer_work/send_peer_result`, specialized-domain tags).
 Theatre / CBA / contractor wording is the gold claim.
 
 ## How it differs from existing siblings

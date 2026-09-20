@@ -587,7 +587,7 @@ Per [AGENTS.md](../../AGENTS.md): matching `test_*.py` names; run `make test` be
 - [../writer/specialized-toolsets.md](../writer/specialized-toolsets.md) — nested delegation, gateway pattern
 - [../framework/streaming-and-threading.md](../framework/streaming-and-threading.md) — main-thread UNO, queue drain
 - [../calc/specialized-toolsets.md](../calc/specialized-toolsets.md) — Calc tool surface
-- [peer-messaging.md](peer-messaging.md) — Writer ↔ Calc ↔ Draw async `send_peer_message` (A1 user-send + `ctx.doc` envelope; research stays read-only)
+- [peer-messaging.md](peer-messaging.md) — Writer ↔ Calc ↔ Draw async `send_peer_work` / `send_peer_result` (A1 user-send + `ctx.doc` envelope; research stays read-only)
 - [../mcp-protocol.md](../mcp-protocol.md) — `X-Document-URL`, MCP tool policy
 - [../chat/search.md](../chat/search.md) — external fetch (contrast with nearby files)
 
@@ -597,7 +597,7 @@ Per [AGENTS.md](../../AGENTS.md): matching `test_*.py` names; run `make test` be
 
 | Date | Phase / change | PR / notes |
 | ---- | -------------- | ---------- |
-| 2026-09-08 | Peer-send A1 shipped: Writer ↔ Calc ↔ Draw via async `send_peer_message`; research stays read-only — [peer-messaging.md](peer-messaging.md) | — |
+| 2026-09-08 | Peer-send A1 shipped: Writer ↔ Calc ↔ Draw via async `send_peer_work` / `send_peer_result`; research stays read-only — [peer-messaging.md](peer-messaging.md) | — |
 | 2026-05-20 | **Phase 7.1 shipped:** `grep_nearby_files` + `document_research_grep.py`; shared Writer/Calc search helpers; CPU caps + `processEventsToIdle` between files | — |
 | 2026-05-19 | **Chat status (open-only):** tool + preview blocks for `delegate_read_document` via `chat_append_callback` — [`web_research_chat.py`](../../plugin/chatbot/web_research_chat.py), [`specialized_base.py`](../../plugin/doc/specialized_base.py), [`tool_loop.py`](../../plugin/chatbot/tool_loop.py) | — |
 | 2026-05-17 | **Phase 0 shipped:** `nearby.py`, `nearby_tools.py`, `nearby_specialized.py`; `document_research` on Writer/Calc/Draw delegates; two-tier smol (outer list/delegate_read, inner `READ_TOOLS_BY_DOC_TYPE`); `ToolContext.read_only_target` + `READ_ONLY_TARGET`; untitled → Work path then open-docs fallback; tests in `tests/doc/test_nearby*.py` | — |

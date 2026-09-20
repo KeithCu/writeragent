@@ -6,7 +6,7 @@ import sys
 
 from plugin.doc.live_panels import register_live_panel, reset_live_panels, unregister_live_panel
 from plugin.doc.peer_message import (
-    SendPeerMessage,
+    SendPeerWork,
     drop_listener_queue,
     kick_pending_peer_starts,
     listener_queue_len,
@@ -248,7 +248,7 @@ def test_peer_missing_deck_is_clear_error(ctx):
         writer = _load(ctx, "private:factory/swriter")
         other = _load(ctx, "private:factory/swriter")
         other_uid = get_runtime_uid(other)
-        tool = SendPeerMessage()
+        tool = SendPeerWork()
         result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Hello peer")
         assert result["status"] == "error"
         assert result["code"] == "PEER_SIDEBAR_NOT_OPEN"
@@ -274,7 +274,7 @@ def test_peer_inject_defers_until_drain_idle(ctx):
         other_uid = get_runtime_uid(other)
         panel = type("P", (), {"send_listener": listener})()
         register_live_panel(other_uid, panel)
-        tool = SendPeerMessage()
+        tool = SendPeerWork()
         with drain_owner_scope("stream"):
             result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Compute Q4")
             assert result["status"] == "ok"
@@ -310,7 +310,7 @@ def test_peer_busy_queues_then_starts(ctx):
         panel = type("P", (), {"send_listener": listener})()
         register_live_panel(other_uid, panel)
         listener.sidebar_state.send.is_busy = True
-        tool = SendPeerMessage()
+        tool = SendPeerWork()
         result = tool.execute(_tool_ctx(ctx, writer), document_url=other_uid, message="Queued")
         assert result["status"] == "ok"
         assert listener.started == []
@@ -396,7 +396,7 @@ def test_peer_impress_resolves_as_v1_peer(ctx):
 
         panel = type("P", (), {"send_listener": listener})()
         register_live_panel(impress_uid, panel)
-        tool = SendPeerMessage()
+        tool = SendPeerWork()
         with drain_owner_scope("stream"):
             result = tool.execute(
                 _tool_ctx(ctx, writer), document_url=impress_uid, message="Add a title slide"

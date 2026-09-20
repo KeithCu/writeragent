@@ -50,7 +50,8 @@ _STUB_FILES = (
     "runs/.gitkeep",
 )
 _BANNED_PRODUCT_INTERNALS = (
-    "send_peer_message",
+    "send_peer_work",
+    "send_peer_result",
     "fill_draw_fields",
     "document_research",
     "specialized_workflow_finished",

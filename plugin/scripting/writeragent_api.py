@@ -109,7 +109,8 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                              'grep_nearby_files',
                              'list_nearby_files',
                              'search_nearby_files',
-                             'send_peer_message'],
+                             'send_peer_result',
+                             'send_peer_work'],
     'draw': [   'add_slide',
                 'apply_design',
                 'delegate_to_specialized_draw_toolset',
@@ -475,9 +476,13 @@ class _DocumentResearchProxy:
         """Search the active folder index (keyword BM25/NEAR + semantic embeddings, fused ranking)."""
         return _rpc_call("search_nearby_files", query=query, k=k, near_slop=near_slop, file_subset=file_subset)
 
-    def send_peer_message(self, document_url: str, message: str, *, peer_ask_id: str | None = None) -> dict:
-        """Send a natural-language turn to another already-open Writer, Calc, Draw, or Impress sidebar."""
-        return _rpc_call("send_peer_message", document_url=document_url, message=message, peer_ask_id=peer_ask_id)
+    def send_peer_result(self, document_url: str, message: str) -> dict:
+        """Deliver a result/reply to another already-open Writer, Calc, Draw, or Impress sidebar."""
+        return _rpc_call("send_peer_result", document_url=document_url, message=message)
+
+    def send_peer_work(self, document_url: str, message: str) -> dict:
+        """Send a new work request to another already-open Writer, Calc, Draw, or Impress sidebar."""
+        return _rpc_call("send_peer_work", document_url=document_url, message=message)
 
 document_research = _DocumentResearchProxy()
 
