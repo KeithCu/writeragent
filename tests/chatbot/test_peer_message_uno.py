@@ -281,7 +281,7 @@ def test_peer_inject_defers_until_drain_idle(ctx):
             assert result["accepted"] is True
             assert listener.started == []
             assert listener.session.messages
-            assert "[Peer from:" in listener.session.messages[0]["content"]
+            assert "[Peer work from:" in listener.session.messages[0]["content"]
         kick_pending_peer_starts()
         assert listener.started
         assert listener.started[0][1] is True
@@ -405,7 +405,7 @@ def test_peer_impress_resolves_as_v1_peer(ctx):
             assert result["accepted"] is True
             assert listener.started == []
             assert listener.session.messages
-            assert "[Peer from:" in listener.session.messages[0]["content"]
+            assert "[Peer work from:" in listener.session.messages[0]["content"]
         kick_pending_peer_starts()
         assert listener.started
         assert listener.started[0][1] is True

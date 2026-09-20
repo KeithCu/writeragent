@@ -1780,7 +1780,7 @@ def _tool_follow(name: str, content: str = '{"status":"ok","accepted":true,"peer
 
 def test_parse_peer_envelope_and_catalog():
     wrapped = (
-        "[Peer from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
         "Add a Total row."
     )
     env = parse_peer_envelope(wrapped)
@@ -1874,7 +1874,7 @@ def test_peer_wait_flag_same_as_scenario():
 
 def test_calc_envelope_writes_formula_then_delegates_reply():
     envelope = (
-        "[Peer from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
         "Add a Total row under the numbers."
     )
     write = decide_completion(_payload(envelope, _CALC_OUTER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
@@ -1892,7 +1892,7 @@ def test_calc_envelope_writes_formula_then_delegates_reply():
 
 def test_calc_inner_reply_copies_peer_ask_id_then_finishes():
     envelope = (
-        "[Peer from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
         "Add a Total row."
     )
     send = decide_completion(_payload(envelope, _INNER_PEER, system=_WRITER_SYS), MockLLMConfig(delay_ms=0))
@@ -1931,7 +1931,7 @@ def test_calc_inner_reply_task_without_envelope_sends_peer():
 
 def test_writer_followup_applies_peer_reply():
     envelope = (
-        "[Peer from: BudgetPeer.ods | uid=calc-uid | url=file:///tmp/BudgetPeer.ods | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: BudgetPeer.ods | uid=calc-uid | url=file:///tmp/BudgetPeer.ods | peer_ask_id=ask-1]\n\n"
         "Total row written at A4:B4."
     )
     out = decide_completion(_payload(envelope, _WRITER_OUTER), MockLLMConfig(delay_ms=0))
@@ -1946,7 +1946,7 @@ def test_p3_scripted_writer_ramble_does_not_steal_calc_reply():
     assert ramble.ramble_parts or (ramble.content and ramble.tool_name is None)
     assert "send_peer_message" not in [n for n, _a in completion_tool_calls(ramble)]
     envelope = (
-        "[Peer from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: Memo.odt | uid=writer-uid | url=file:///tmp/Memo.odt | peer_ask_id=ask-1]\n\n"
         "Add a Total row under the numbers."
     )
     write = decide_completion(_payload(envelope, _CALC_OUTER, system=_WRITER_SYS), cfg)
@@ -1988,7 +1988,7 @@ def test_decide_hook_wins_over_rules():
 
 def test_match_completion_rule_envelope_and_specialized():
     env_payload = _payload(
-        "[Peer from: A | uid=u | url= | peer_ask_id=x]\n\nHi",
+        "[Peer work from: A | uid=u | url= | peer_ask_id=x]\n\nHi",
         _INNER_PEER,
     )
     rule = CompletionRule(envelope=True, specialized=True, tool_name="send_peer_message", tool_args={"document_url": "u"})

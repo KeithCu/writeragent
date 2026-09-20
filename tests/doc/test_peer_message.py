@@ -106,7 +106,7 @@ def test_envelope_from_ctx_doc():
         peer_ask_id="ask-1",
         message="Compute Q4.",
     )
-    assert wrapped.startswith("[Peer from: Budget 2026.ods | uid=uid-budget |")
+    assert wrapped.startswith("[Peer work from: Budget 2026.ods | uid=uid-budget |")
     assert "peer_ask_id=ask-1" in wrapped
     assert wrapped.endswith("Compute Q4.")
 
@@ -232,7 +232,7 @@ def test_outer_prompt_with_peers_has_no_send_peer_message():
     assert "send_peer_message" not in prompt
     assert "PEER SIDEBARS" not in prompt
     assert "PEER vs READ" not in prompt
-    assert "[Peer from:" in prompt
+    assert "[Peer work from:" in prompt or "[Peer from:" in prompt
     assert "peer_ask_id" in prompt
 
 
@@ -389,7 +389,7 @@ def test_p3_busy_then_queue_reply():
     listener = _Listener()
     listener.sidebar_state.send.is_busy = True
     wrapped = (
-        "[Peer from: BudgetPeer.ods | uid=calc-uid | url= | peer_ask_id=ask-1]\n\n"
+        "[Peer work from: BudgetPeer.ods | uid=calc-uid | url= | peer_ask_id=ask-1]\n\n"
         "Total row written at A4:B4."
     )
     turn = PeerPendingTurn(wrapped, False, "ask-1")
@@ -622,7 +622,8 @@ def test_prompts_outer_thin_inner_choice():
     assert "send_peer_message" not in PEER_OUTER_DELEGATE_HINT
     assert "PEER SIDEBARS" not in PEER_OUTER_DELEGATE_HINT
     assert "document_research" in PEER_OUTER_DELEGATE_HINT
-    assert "[Peer from:" in PEER_OUTER_DELEGATE_HINT
+    assert "[Peer work from:" in PEER_OUTER_DELEGATE_HINT
+    assert "[Peer result from:" in PEER_OUTER_DELEGATE_HINT
     assert "send_peer_message" in PEER_INNER_CHOICE_RULES
     assert "delegate_read_document" in PEER_INNER_CHOICE_RULES
     assert "specialized_workflow_finished immediately" in PEER_INNER_CHOICE_RULES
@@ -664,7 +665,7 @@ def test_prompts_outer_thin_inner_choice():
     assert "peer_ask_id" in PEER_OUTER_DELEGATE_HINT
     assert "local sidebar answer never reaches" in PEER_OUTER_DELEGATE_HINT
     assert "Do not delegate an ack specialize" in PEER_OUTER_DELEGATE_HINT
-    assert "result table or HTML payload" in PEER_OUTER_DELEGATE_HINT
+    assert "not a new work request" in PEER_OUTER_DELEGATE_HINT
     assert SendPeerMessage.parameters["properties"]["message"]["type"] == "string"
 
     writer = MagicMock()
@@ -691,6 +692,8 @@ def test_prompts_outer_thin_inner_choice():
     assert "you MUST Do" in outer and "document_research" in outer
     assert "local sidebar answer never reaches" in outer
     assert "Do not delegate an ack specialize" in outer
+    assert "[Peer work from:" in outer
+    assert "[Peer result from:" in outer
     assert "send_peer_message" not in outer
 
 
@@ -763,3 +766,17 @@ def test_chat_tier_excluded_from_mcp_frozensets():
 
     assert "chat" in MCP_DELEGATE_EXCLUDE_TIERS
     assert "chat" in MCP_DIRECT_FLAT_EXCLUDE_TIERS
+
+
+def test_format_peer_envelope_work_vs_result():
+    from plugin.doc.peer_message import format_peer_envelope
+
+    work = format_peer_envelope(
+        name="A.ods", uid="u1", url="", peer_ask_id="abc", message="do thing", kind="work"
+    )
+    result = format_peer_envelope(
+        name="A.ods", uid="u1", url="", peer_ask_id="abc", message="<table/>", kind="result"
+    )
+    assert work.startswith("[Peer work from: A.ods |")
+    assert result.startswith("[Peer result from: A.ods |")
+    assert "peer_ask_id=abc" in work and "peer_ask_id=abc" in result

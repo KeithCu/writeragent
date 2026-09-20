@@ -53,7 +53,7 @@ _BASE_DESCRIPTION = (
     "document_url is the one target argument: a file URL, RuntimeUID, or a "
     "display name that matches exactly one open peer. Required on every call. "
     "Never put your own path, uid, or URL in message — the gateway inserts "
-    "[Peer from: name | uid | url | peer_ask_id]. On replies, pass peer_ask_id "
+    "[Peer work from: …] for a new work request (minted peer_ask_id) or [Peer result from: …] when peer_ask_id is copied from an inbound envelope. On replies, pass peer_ask_id "
     "copied from the inbound envelope. Never invent the other app's write tools."
 )
 
@@ -164,9 +164,23 @@ def identity_from_doc(doc: Any) -> dict[str, str]:
     return {"name": name, "uid": uid, "url": url}
 
 
-def format_peer_envelope(*, name: str, uid: str, url: str, peer_ask_id: str, message: str) -> str:
-    """Code-inserted wrapper. ``message`` is the body only."""
-    header = f"[Peer from: {name} | uid={uid} | url={url} | peer_ask_id={peer_ask_id}]"
+def format_peer_envelope(
+    *,
+    name: str,
+    uid: str,
+    url: str,
+    peer_ask_id: str,
+    message: str,
+    kind: str = "work",
+) -> str:
+    """Code-inserted wrapper. ``message`` is the body only.
+
+    ``kind`` is stamped by the host: ``"work"`` when ``peer_ask_id`` is minted
+    (new request), ``"result"`` when it was copied from an inbound envelope
+    (reply). Models must not invent the header.
+    """
+    label = "Peer result from" if kind == "result" else "Peer work from"
+    header = f"[{label}: {name} | uid={uid} | url={url} | peer_ask_id={peer_ask_id}]"
     body = message if message.endswith("\n") else message
     return f"{header}\n\n{body}"
 
@@ -594,7 +608,7 @@ class SendPeerMessage(ToolBase):
                 "description": (
                     "One string: natural-language task or reply body (an HTML table is one string, "
                     "not a JSON array). Do not paste your own path, uid, or URL — "
-                    "the gateway inserts the [Peer from: …] envelope."
+                    "the gateway inserts the [Peer work from: …] or [Peer result from: …] envelope."
                 ),
             },
             "peer_ask_id": {
@@ -626,6 +640,8 @@ class SendPeerMessage(ToolBase):
 
         inbound_id = str(kwargs.get("peer_ask_id") or "").strip()
         peer_ask_id = inbound_id or uuid.uuid4().hex
+        # Host stamps kind: copied peer_ask_id → result; minted → work request.
+        envelope_kind = "result" if inbound_id else "work"
 
         model, err_code, err_msg = resolve_peer_target(ctx.ctx, ctx.doc, document_url)
         if err_code or model is None:
@@ -661,6 +677,7 @@ class SendPeerMessage(ToolBase):
             url=sender["url"],
             peer_ask_id=peer_ask_id,
             message=message,
+            kind=envelope_kind,
         )
 
         busy = listener_is_busy(listener)
@@ -683,5 +700,6 @@ class SendPeerMessage(ToolBase):
             "status": "ok",
             "accepted": True,
             "peer_ask_id": peer_ask_id,
+            "envelope_kind": envelope_kind,
             "message": PEER_ACCEPTED_FINISH_HINT,
         }

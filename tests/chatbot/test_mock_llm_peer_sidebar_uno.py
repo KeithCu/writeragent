@@ -266,13 +266,13 @@ def _wait_calc_envelope(timeout: float = 60.0) -> bool:
     """Writer Readys before the peer drain starts — both look idle for a beat."""
     deadline = time.monotonic() + max(0.5, timeout)
     while time.monotonic() <= deadline:
-        if "[Peer from:" in _transcript("calc"):
+        if "[Peer work from:" in _transcript("calc"):
             return True
         if _is_busy("calc"):
             time.sleep(0.15)
             continue
         time.sleep(0.15)
-    return "[Peer from:" in _transcript("calc")
+    return "[Peer work from:" in _transcript("calc")
 
 
 def _wait_both_idle(timeout: float = 90.0) -> bool:
@@ -450,12 +450,12 @@ def test_p1_total_row_peer_roundtrip(ctx):
     _wait_both_idle(timeout=20.0)
     writer_txt = _transcript("writer")
     calc_txt = _transcript("calc")
-    assert "[Peer from:" in calc_txt, "Calc never received the envelope: %r" % calc_txt[-400:]
+    assert "[Peer work from:" in calc_txt, "Calc never received the envelope: %r" % calc_txt[-400:]
     formula = calc_total_formula(_session.calc_doc)
     assert "SUM" in formula.upper() or "Total" in calc_txt or "total" in writer_txt.lower(), (
         "Calc did not write a Total row: formula=%r calc=%r" % (formula, calc_txt[-300:])
     )
-    assert "[Peer from:" in writer_txt or "Total" in writer_txt or "total" in writer_txt.lower(), (
+    assert "[Peer work from:" in writer_txt or "Total" in writer_txt or "total" in writer_txt.lower(), (
         "Writer follow-up never saw the reply: %r" % writer_txt[-400:]
     )
     snaps = _captures()
@@ -505,7 +505,7 @@ def test_p2_wait_after_accepted_deadlocks_peer(ctx):
         time.sleep(0.2)
         uno_click(controls["send"])
 
-    # Inject-now may paint [Peer from:] on Calc immediately. Lock the hang:
+    # Inject-now may paint [Peer work from:] on Calc immediately. Lock the hang:
     # while specialized keeps calling discovery (not finish), Calc must not
     # start write_formula_range. Do not wait for max_steps — that Readys Writer
     # and finally-kicks the peer.
@@ -618,7 +618,7 @@ def test_p3_writer_busy_queues_calc_reply(ctx):
         mid = (not finished) and ("word" in writer_txt)
         if mid:
             saw_mid = True
-            if "Total row written" in writer_txt or writer_txt.count("[Peer from:") > busy_txt.count("[Peer from:"):
+            if "Total row written" in writer_txt or writer_txt.count("[Peer work from:") > busy_txt.count("[Peer work from:"):
                 injected_mid = True
                 break
         sends = sum(1 for row in _capture_tools() for name in row if name == "send_peer_message")
@@ -630,7 +630,7 @@ def test_p3_writer_busy_queues_calc_reply(ctx):
                 writer_txt = _transcript("writer")
                 if (not finished) and "word" in writer_txt and (
                     "Total row written" in writer_txt
-                    or writer_txt.count("[Peer from:") > busy_txt.count("[Peer from:")
+                    or writer_txt.count("[Peer work from:") > busy_txt.count("[Peer work from:")
                 ):
                     injected_mid = True
                 break
@@ -657,7 +657,7 @@ def test_p3_writer_busy_queues_calc_reply(ctx):
         decided = [name for row in _capture_tools() for name in row]
         if (
             "Total row written" in writer_txt
-            or writer_txt.count("[Peer from:") > busy_txt.count("[Peer from:")
+            or writer_txt.count("[Peer work from:") > busy_txt.count("[Peer work from:")
             or "apply_document_content" in decided
         ):
             drained = True
@@ -666,7 +666,7 @@ def test_p3_writer_busy_queues_calc_reply(ctx):
     _wait_both_idle(timeout=30.0)
     writer_txt = _transcript("writer")
     decided = [name for row in _capture_tools() for name in row]
-    assert drained or "[Peer from:" in writer_txt or "Total" in writer_txt, (
+    assert drained or "[Peer work from:" in writer_txt or "Total" in writer_txt, (
         "queued Calc reply never started after Writer Ready: writer=%r decided=%r"
         % (writer_txt[-300:], decided)
     )
