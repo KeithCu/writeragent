@@ -420,7 +420,7 @@ Concrete touch points so this is implementable without rediscovering the review.
 | **GMP gold PDF** | Staged Draw/Writer stand-in only. |
 | **Peer not in Chat mode** | Extracted send errors (do not silently flip librarian/image to chat). |
 | **Waiting chrome / multiplex / mid-loop inject** | Later. See [§3.1](#31-alternatives-considered--kept). |
-| **Wrong tool on reply (both on wire)** | Open. Separate work/result tools help teach polarity but do not force the right call — see [§5.1](#51-headed-status-and-open-issue-2026-09-20). Prefer context gating. |
+| **Wrong tool on reply (both on wire)** | Open. Separate work/result tools help teach polarity but do not force the right call — see [§5.1](#51-headed-status-and-open-issue-2026-09-20). **Prefer single-tool auto-detect kind** (collapse to `send_peer_message`); context gating is demoted (blocks fan-out). |
 
 ---
 
@@ -457,11 +457,11 @@ Splitting `send_peer_message` into **work** vs **result** made polarity teachabl
 
 ### Possible solutions (not decided)
 
-Ordered preference from design chat (2026-09-20); implement separately after this doc lands.
+Ordered preference (2026-09-20): Keith preferred **(1) single-tool auto-detect** after review — context gating demoted for fan-out. Implement separately; do not forget the notes under envelope-sender matching.
 
 1. **Single tool with auto-detect kind (preferred)** — Collapse `send_peer_work` / `send_peer_result` back to one **`send_peer_message(document_url, message)`**. The gateway infers the envelope kind from the target:
 
-   - If the current task contains a `[Peer work from: X]` envelope **and** `document_url` resolves to `X` (same uid) → stamp **result** (`[Peer result from: …]`, no delivery footer).
+   - If this turn has a `[Peer work from: X]` envelope (see “Where to read the envelope” below) **and** `document_url` resolves to the **same RuntimeUID** as `X` → stamp **result** (`[Peer result from: …]`, no delivery footer).
    - Otherwise (no envelope, or `document_url` is a **different** peer than the envelope sender) → stamp **work** (`[Peer work from: …]`, with delivery footer).
 
    **Why preferred over context gating:** context gating hides `send_peer_work` on reply paths, which breaks **fan-out**. If Writer asks Calc and Calc needs Draw to do something, Calc's task has a `[Peer work from: Writer]` envelope — context gating would show only `send_peer_result`, preventing Calc from sending work to Draw. Auto-detect handles this: Calc calling `send_peer_message(draw_uid, ...)` stamps work (Draw ≠ envelope sender); Calc calling `send_peer_message(writer_uid, ...)` stamps result (Writer = envelope sender).
@@ -477,13 +477,18 @@ Ordered preference from design chat (2026-09-20); implement separately after thi
 
    **What stays the same:** envelope format, inject/queue/schedule, live-panel map, `document_url` required every call, outer delegate hint, outer "apply and stop" on result envelopes, `specialized_workflow_finished` after accepted, `is_mutation=False`, tier `"chat"`, `document_research` specialized only.
 
-   **Envelope-sender matching:** parse the `[Peer work from: … | uid=… | url=…]` header in the specialize task to extract the sender uid. On `execute`, resolve `document_url` to a uid. If sender uid is non-empty and matches → result; else → work. If the task has no `[Peer work from:]` header → always work (ask path). Edge case: envelope uid empty or unparseable → fall back to work (safe default; an accidental work-to-the-asker is less harmful than a suppressed reply, and the asker re-delegates).
+   **Envelope-sender matching:** On `execute`, resolve `document_url` to a **RuntimeUID** (via the usual peer resolve path). Compare that uid to the **envelope sender uid** — never raw URL-string equality (envelope may show uid+url; the model may pass either). If sender uid is non-empty and matches → **result**; else → **work**. If there is no Peer-work envelope on this turn → always **work** (ask path). Edge case: envelope uid empty or unparseable → fall back to **work** (safe default; an accidental work-to-the-asker is less harmful than a suppressed reply, and the asker re-delegates).
+
+   **Where to read the envelope (do not forget):** specialized `task` strings often **omit** the raw `[Peer work from: …]` header — outer stuffs something like `Send peer result for uid=1: …` (exactly the Impress-ack shape in Scenario 8). Parse the sender from the **outer turn** on the peer session: `SendButtonListener._active_query_text` and/or the last user message on that sidebar session (the injected Peer-work line). Do **not** rely only on the specialize `task` text, or auto-detect will fall through to **work** on the path we already broke.
+
+   **Fan-out still needs a second hop:** auto-detect stamps Calc→Draw as **work** and Draw→Calc as **result**, but after Draw's result lands on Calc the outer rule is “apply and stop.” That child reply is **not** the answer to Writer. Prompts must still teach: after a fan-out child returns, Calc must still `send_peer_message(writer_uid, …)` for the **original** envelope sender. Gateway kind-inference does not invent that hop.
 
    ```
    Writer asks Calc        → send_peer_message(calc_uid, task)     → work  (no envelope)
    Calc replies to Writer  → send_peer_message(writer_uid, result) → result (writer_uid = envelope sender)
    Calc also asks Draw     → send_peer_message(draw_uid, task)     → work  (draw_uid ≠ envelope sender)
    Draw replies to Calc    → send_peer_message(calc_uid, result)   → result (calc_uid = envelope sender)
+   Calc then answers Writer → send_peer_message(writer_uid, …)    → result (still Writer = original envelope sender)
    ```
 
 2. **Context gating** — On a specialize whose outer turn / task is a `[Peer work from: …]` reply path, **advertise only `send_peer_result`** (hide `send_peer_work`). On an ask specialize (no envelope), advertise only `send_peer_work`. Wrong tool cannot be chosen if it is not on the wire. **Downside:** blocks fan-out (peer receiving work cannot forward work to a third peer).
