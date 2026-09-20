@@ -959,3 +959,14 @@ between two tests.”
 
 `test-uno-soak` is not in default CI. Invoke it from a CI note or a
 workflow_dispatch job when hunting this flake.
+
+## Process exit after a clean pass
+
+After every suite reports and the runner prints `"total_passed": N` with
+zero failures, `python -m plugin.testing_runner` calls `os._exit(0)`
+instead of a normal `SystemExit(0)`. Interpreter teardown of pyuno /
+LibreOffice proxies can SIGABRT (`FATAL: exception not rethrown`) and
+turn a green Ubuntu `test-uno` into make Error 134 (GHA 35527291175).
+`lo-kill` still reaps soffice. A failing summary still raises
+`SystemExit(1)` so real test failures stay visible. Unit test:
+`test_exit_after_summary_*` in `tests/framework/test_testing_runner.py`.

@@ -12,6 +12,7 @@ from pathlib import Path
 from plugin.testing_runner import (
     _APPLICATION_ERROR_MARKER,
     _cli_filters,
+    _exit_after_summary,
     _fail_reason,
     _fail_reason_with_lifecycle,
     _function_name_matches,
@@ -375,6 +376,50 @@ def test_office_recycle_request_reaches_minus_m_main(monkeypatch) -> None:
     assert consume_office_recycle_request() is True
     assert fake_main._recycle_office_after_suite is False
     assert tr._recycle_office_after_suite is False
+
+
+def test_exit_after_summary_hard_exits_on_clean_pass(monkeypatch) -> None:
+    """GHA 35527291175: pyuno GC SIGABRT after total_passed must not fail make."""
+    import plugin.testing_runner as tr
+
+    seen: list[int] = []
+
+    def fake_exit(code: int) -> None:
+        seen.append(code)
+        raise SystemExit("hard-exit")
+
+    monkeypatch.setattr(tr.os, "_exit", fake_exit)
+    try:
+        _exit_after_summary(0)
+    except SystemExit as exc:
+        assert exc.args == ("hard-exit",)
+    else:
+        raise AssertionError("expected os._exit on clean pass")
+    assert seen == [0]
+
+
+def test_exit_after_summary_keeps_systemexit_on_failure(monkeypatch) -> None:
+    import plugin.testing_runner as tr
+
+    def boom(code: int) -> None:
+        raise AssertionError(f"os._exit must not hide failures, got {code}")
+
+    monkeypatch.setattr(tr.os, "_exit", boom)
+    try:
+        _exit_after_summary(1)
+    except SystemExit as exc:
+        assert exc.code == 1
+    else:
+        raise AssertionError("expected SystemExit(1) on failure")
+
+
+def test_exit_after_summary_minus_m_uses_helper() -> None:
+    import plugin.testing_runner as tr
+
+    text = Path(tr.__file__).read_text(encoding="utf-8")
+    assert "if __name__ == \"__main__\":" in text
+    assert "_exit_after_summary(main())" in text
+    assert "raise SystemExit(main())" not in text
 
 
 def test_fail_reason_with_lifecycle_keeps_crumb_after_cap() -> None:

@@ -15,6 +15,8 @@
 # previous=<last TEST end> (see format_lifecycle_breadcrumb). Soak:
 # --repeat N / make test-uno-soak. SalAbort empty-text
 # ("Unspecified Application Error") fail-closes the OK test.
+# After a clean summary, ``-m`` uses os._exit(0) so pyuno GC SIGABRT
+# cannot fail make test-uno (GHA 35527291175).
 # docs/framework/uno-test-lifecycle.md
 
 import logging
@@ -2125,5 +2127,24 @@ def main() -> int:
     return 0 if int(summary.get("total_failed", 0) or 0) == 0 else 1
 
 
+def _exit_after_summary(code: int) -> None:
+    """End ``python -m plugin.testing_runner`` after the suite summary.
+
+    After a clean pass, normal interpreter shutdown runs pyuno / LibreOffice
+    destructors. Those can SIGABRT (``FATAL: exception not rethrown`` /
+    ``Fatal Python error: Aborted``) once every suite has already printed
+    ``total_passed`` with zero failures. That turned a green Ubuntu
+    ``test-uno`` into make Error 134 (GHA 35527291175, tip cc281f17).
+    ``os._exit(0)`` skips atexit and GC of UNO proxies. The Makefile
+    ``lo-kill`` still reaps soffice.
+
+    A non-zero *code* still raises ``SystemExit`` so real test / bootstrap
+    failures stay visible. Do not hard-exit 0 when the summary failed.
+    """
+    if code == 0:
+        os._exit(0)
+    raise SystemExit(code)
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    _exit_after_summary(main())
