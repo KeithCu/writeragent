@@ -276,7 +276,11 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
                 tools=[{"type": "function", "function": {"name": "lookup"}}],
             )
 
-    assert len(result["tool_calls"]) == 2
+    # Second chunk is an empty-name continuation (new index). After
+    # coalesce_split_tool_calls this is one complete lookup, not two calls.
+    assert len(result["tool_calls"]) == 1
+    assert result["tool_calls"][0]["function"]["name"] == "lookup"
+    assert result["tool_calls"][0]["function"]["arguments"] == '{"query":"part two"}'
 
     from plugin.framework.client import llm_client as llm_mod
     from tests.strip_bundle import module_source_contains
