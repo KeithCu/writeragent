@@ -607,6 +607,9 @@ def summary_pair(summary):
 def sanitize_tool_pairs(messages):
     """Drop orphan role=tool; strip dangling tool_calls (keep assistant text if any).
 
+    Also drops tool_calls with empty/missing ``function.name`` (and their matching
+    tool results), so stream-split phantoms cannot poison the next API round.
+
     Same job as Hermes ``_sanitize_tool_pairs``
     (``context_compressor.py:3846-3884``); not a port of that method.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L3846-L3884
@@ -628,7 +631,9 @@ def sanitize_tool_pairs(messages):
             kept_calls = [
                 tc
                 for tc in (msg.get("tool_calls") or [])
-                if isinstance(tc, dict) and tc.get("id") in have
+                if isinstance(tc, dict)
+                and tc.get("id") in have
+                and (tc.get("function") or {}).get("name")
             ]
             asst = dict(msg)
             if kept_calls:

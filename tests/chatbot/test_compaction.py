@@ -343,6 +343,39 @@ def test_sanitize_drops_orphan_tool_and_dangling_tool_calls():
     assert asst["content"] == "hello"
 
 
+def test_sanitize_drops_empty_name_tool_call_and_matching_result():
+    """Stream-split phantom (empty name/id) must not stay paired into the next round."""
+    messages = [
+        _msg("user", 4),
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": "good",
+                    "type": "function",
+                    "function": {"name": "read_cell_range", "arguments": '{"range":"A1"}'},
+                },
+                {
+                    "id": "",
+                    "type": "function",
+                    "function": {"name": "", "arguments": '"}'},
+                },
+            ],
+        },
+        {"role": "tool", "tool_call_id": "good", "content": "ok"},
+        {"role": "tool", "tool_call_id": "", "content": "UNKNOWN_TOOL"},
+    ]
+    cleaned = C.sanitize_tool_pairs(messages)
+    asst = [m for m in cleaned if m.get("role") == "assistant"][0]
+    assert len(asst["tool_calls"]) == 1
+    assert asst["tool_calls"][0]["id"] == "good"
+    assert asst["tool_calls"][0]["function"]["name"] == "read_cell_range"
+    tools = [m for m in cleaned if m.get("role") == "tool"]
+    assert len(tools) == 1
+    assert tools[0]["tool_call_id"] == "good"
+
+
 def test_last_user_snap_does_not_backward_align_into_tool_group():
     messages = [
         _system_doc(10),

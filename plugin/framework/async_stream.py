@@ -905,3 +905,52 @@ def accumulate_delta(acc: dict[object, object], delta: dict[object, object]) -> 
         acc[key] = acc_value
 
     return acc
+
+
+def coalesce_split_tool_calls(tool_calls: object) -> list[Any]:
+    """Merge provider stream-split phantom tool_calls into the prior real call.
+
+    OpenRouter/gpt-oss-120b:nitro streaming sometimes emits a second tool_call
+    delta with a new ``index``, empty ``id``, empty ``function.name``, and the
+    remainder of the previous call's JSON ``arguments``. Without coalescing,
+    the empty-name call is executed (UNKNOWN_TOOL / ``tool_call_id: ""``) and
+    the next API round 400s with ``tool_calls[n].function.name must be a
+    non-empty string``.
+
+    Walks ``tool_calls`` in order. Empty/missing ``function.name`` entries
+    append their ``function.arguments`` string onto the previous kept call and
+    are dropped. With no previous kept call, the empty-name entry is dropped.
+    Kept calls are re-indexed from 0.
+    """
+    if not isinstance(tool_calls, list):
+        return []
+    kept: list[Any] = []
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        fn_raw = tc.get("function")
+        fn = fn_raw if isinstance(fn_raw, dict) else {}
+        name = fn.get("name")
+        if name:
+            kept_tc = dict(tc)
+            kept_fn = dict(fn)
+            kept_tc["function"] = kept_fn
+            kept.append(kept_tc)
+            continue
+        if not kept:
+            continue
+        args = fn.get("arguments")
+        if args is None:
+            args = ""
+        elif not isinstance(args, str):
+            args = str(args)
+        prev_fn = kept[-1]["function"]
+        prev_args = prev_fn.get("arguments")
+        if prev_args is None:
+            prev_args = ""
+        elif not isinstance(prev_args, str):
+            prev_args = str(prev_args)
+        prev_fn["arguments"] = prev_args + args
+    for i, tc in enumerate(kept):
+        tc["index"] = i
+    return kept

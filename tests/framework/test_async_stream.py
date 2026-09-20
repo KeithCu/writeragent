@@ -1330,3 +1330,43 @@ class TestRunAsyncWorkerOnStoppedFallback:
         assert errors == [], f"resolved_on_stopped raised: {errors}"
         assert done_calls == [None], f"on_done was not called as expected: {done_calls}"
 
+
+# ── coalesce_split_tool_calls tests ─────────────────────────────────
+
+
+def test_coalesce_split_tool_calls_merges_empty_name_continuation():
+    from plugin.framework.async_stream import coalesce_split_tool_calls
+
+    tool_calls = [
+        {
+            "index": 0,
+            "id": "chatcmpl-tool-abc",
+            "type": "function",
+            "function": {
+                "name": "delegate_to_specialized_writer_toolset",
+                "arguments": '{"message": "back to the Writer',
+            },
+        },
+        {
+            "index": 1,
+            "id": "",
+            "type": "function",
+            "function": {"name": "", "arguments": ' sidebar."\n}'},
+        },
+    ]
+    out = coalesce_split_tool_calls(tool_calls)
+    assert len(out) == 1
+    assert out[0]["id"] == "chatcmpl-tool-abc"
+    assert out[0]["function"]["name"] == "delegate_to_specialized_writer_toolset"
+    assert out[0]["function"]["arguments"] == '{"message": "back to the Writer sidebar."\n}'
+    assert out[0]["index"] == 0
+
+
+def test_coalesce_split_tool_calls_lone_empty_name_dropped():
+    from plugin.framework.async_stream import coalesce_split_tool_calls
+
+    assert coalesce_split_tool_calls([
+        {"index": 0, "id": "", "function": {"name": "", "arguments": " orphan"}},
+    ]) == []
+    assert coalesce_split_tool_calls(None) == []
+    assert coalesce_split_tool_calls([]) == []
