@@ -303,8 +303,10 @@ def test_stream_request_with_tools_logs_raw_indexes_before_accumulation(client, 
     assert "chunk_provider='Cerebras'" in caplog.text
     assert '"index": 1' in caplog.text
     # After coalesce the accumulated snapshot is one rebased call.
+    # json.dumps escapes the arguments string, so the merged JSON appears
+    # as \"query\":\"part two\" in the log text.
     assert "accumulated tool_calls" in caplog.text
-    assert '"query":"part two"' in caplog.text
+    assert '\\"query\\":\\"part two\\"' in caplog.text
     assert '"index": 0' in caplog.text
 
 
