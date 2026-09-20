@@ -338,7 +338,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
 
     assert result["status"] == "ok"
     mock_enqueue_index.assert_called_once_with(ctx.ctx, ctx.services, mock_doc)
-    # Open-docs context plus list_v1_peers (peer catalog / inner PEER vs READ hint),
+    # Open-docs context plus list_v1_peers (peer catalog / inner ASK vs REPLY hint),
     # both gathered on the main thread with get_tools.
     assert mock_get_open_docs.call_count >= 1
     mock_get_open_docs.assert_called_with(ctx.ctx, mock_doc)
@@ -394,7 +394,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
     assert hint and "Budget.ods" in hint
     assert "send_peer_work" in hint
     assert "send_peer_result" in hint
-    assert "PEER vs READ" in hint
+    assert "ASK vs REPLY" in hint
     assert inner and "Budget.ods" in inner
     assert "uid=u2" in inner
 
@@ -485,7 +485,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
     assert "Budget.ods" in instructions
     assert "send_peer_work" in instructions
     assert "send_peer_result" in instructions
-    assert "PEER vs READ" in instructions
+    assert "ASK vs REPLY" in instructions
     smol_tools = mock_agent_class.call_args.kwargs.get("tools", [])
     names = {t.name for t in smol_tools}
     assert "send_peer_work" in names

@@ -236,6 +236,7 @@ def test_outer_prompt_with_peers_has_no_peer_send_tools():
     assert "send_peer_result" in prompt  # deliver via send_peer_result after local work
     assert "PEER SIDEBARS" not in prompt
     assert "PEER vs READ" not in prompt
+    assert "ASK vs REPLY" not in prompt
     assert "[Peer work from:" in prompt or "[Peer from:" in prompt
     assert "peer_ask_id" not in prompt
 
@@ -656,9 +657,18 @@ def test_prompts_outer_thin_inner_choice():
     assert "other result text in the task" in PEER_INNER_CHOICE_RULES
     assert "answer from the task alone" in PEER_INNER_CHOICE_RULES
     assert "tool side effect" in PEER_INNER_CHOICE_RULES
-    # Open-peer hard fork: matching catalog entry → send_peer, not silent read.
-    assert "matches the file the task is about" in PEER_INNER_CHOICE_RULES
-    assert "not delegate_read_document" in PEER_INNER_CHOICE_RULES
+    # Ask vs reply polarity: only [Peer work from:] selects reply; ask never send_peer_result.
+    assert "ASK vs REPLY" in PEER_INNER_CHOICE_RULES
+    assert "ASK PATH" in PEER_INNER_CHOICE_RULES
+    assert "REPLY PATH" in PEER_INNER_CHOICE_RULES
+    assert "does not make this the reply path" in PEER_INNER_CHOICE_RULES
+    assert "only that envelope does" in PEER_INNER_CHOICE_RULES
+    assert "NEVER delegate_read_document on that open peer" in PEER_INNER_CHOICE_RULES
+    assert "NEVER send_peer_result from the asker" in PEER_INNER_CHOICE_RULES
+    assert "stamps [Peer result" in PEER_INNER_CHOICE_RULES
+    assert "On the reply path only" in PEER_INNER_CHOICE_RULES
+    # Open-peer hard fork: matching catalog entry → send_peer_work, not silent read.
+    assert "about an Open peer file" in PEER_INNER_CHOICE_RULES
     assert "that sidebar is live" in PEER_INNER_CHOICE_RULES
     assert "duplicates work" in PEER_INNER_CHOICE_RULES
     assert "races the peer reply" in PEER_INNER_CHOICE_RULES
@@ -676,6 +686,10 @@ def test_prompts_outer_thin_inner_choice():
     assert "must change, compute, write" not in PEER_INNER_CHOICE_RULES
     assert "not a JSON array" in PEER_OUTER_DELEGATE_HINT
     assert "PEER SIDEBARS" not in PEER_INNER_CHOICE_RULES
+    # Tool descriptions keep the same ask/reply polarity.
+    assert "ASK PATH only" in SendPeerWork.description
+    assert "REPLY PATH only" in SendPeerResult.description
+    assert "merely mentions send_peer_result" in SendPeerResult.description
     # Idle-after-send: outer must Ready, not keep tooling in the same turn.
     assert "Stop tool use and Ready" in PEER_OUTER_DELEGATE_HINT
     assert "later user turn" in PEER_OUTER_DELEGATE_HINT

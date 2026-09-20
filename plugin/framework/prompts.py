@@ -660,36 +660,49 @@ def annotate_outer_peer_wait(payload: dict, *, peer_send_invoked: bool = False) 
     return out
 
 # document_research specialized only. Short DO+why; catalog is appended when peers exist.
-# Open-peer hard fork: a matching Open peers entry means send_peer_work, not
-# silent delegate_read_document. Soft "change/compute/write vs file fact" let the
-# inner agent reopen a live peer (wasted work, races the peer reply).
-# Ask polarity: inner agents asked the peer only to dump blank/current content so
-# they could fill it in another app. That skips the peer write path — the live
-# sidebar owns the write tools for that file. Message must ask that peer to
-# perform the edit/fill and include the values/facts to write.
-# Reply path: send_peer_result is a side effect. Outer already stuffed the HTML/result
-# into task, so the smol "answer from the task alone → finish" rule otherwise skips
-# the send and the peer sidebar never sees the reply.
+# Hard fork ASK vs REPLY by whether the task contains a [Peer work from: …] envelope.
+# Ask path (no envelope): matching Open peers → send_peer_work only, then finish.
+# Never delegate_read_document on that open peer; never send_peer_result from the asker.
+# Soft "change/compute/write vs file fact" let the inner reopen a live peer (wasted
+# work, races the peer reply). Ask polarity: do not request a content dump so you
+# can fill elsewhere — the live sidebar owns the write tools.
+# Reply path (envelope present): send_peer_result is a side effect. Outer already
+# stuffed the HTML/result into task, so the smol "answer from the task alone →
+# finish" rule otherwise skips the send and the peer sidebar never sees the reply.
+# Naming "send_peer_result" / "reply back" in an *ask* task does NOT flip polarity —
+# only a [Peer work from: …] envelope in the task does.
 PEER_INNER_CHOICE_RULES = (
-    "PEER vs READ: When an Open peers entry matches the file the task is about, "
-    "Do send_peer_work(document_url=<peer uid, URL, or unique name>, message=<task>), not delegate_read_document. "
-    "Why: that sidebar is live and can change the document, run analysis, and use that app's tools; "
-    "silent reopen only peeks, duplicates work, and races the peer reply.\n"
-    "Do delegate_read_document only when the file is not in Open peers (nearby on disk / no live sidebar). "
+    "ASK vs REPLY: The reply path is only when the task contains a [Peer work from: …] "
+    "envelope. Mentioning send_peer_result, reply back, or delivering a result in an ask "
+    "task does not make this the reply path — only that envelope does.\n"
+    "ASK PATH (task is about an Open peer file; no [Peer work from: …] in the task): "
+    "Do send_peer_work(document_url=<peer uid, URL, or unique name>, message=<task>), "
+    "then specialized_workflow_finished. "
+    "NEVER delegate_read_document on that open peer. "
+    "NEVER send_peer_result from the asker. "
+    "Why: that sidebar is live and will send_peer_result back; silent reopen only peeks, "
+    "duplicates work, and races the peer reply; send_peer_result here stamps [Peer result "
+    "from: …] onto the peer instead of waiting for their reply.\n"
+    "When sending to an Open peer about that peer's own document and the task needs a "
+    "change, fill, or write, Do ask that peer in message to perform the edit/fill and "
+    "include the values/facts to write. "
+    "Why: that live sidebar owns the write tools for that file; asking only for a dump of "
+    "blank/current content so you can fill it elsewhere skips the peer write path.\n"
+    "Do delegate_read_document only when the file is not in Open peers (nearby on disk / "
+    "no live sidebar). "
     "Why: there is no live sidebar to ask.\n"
-    "When sending to an Open peer about that peer's own document and the task needs a change, fill, or write, "
-    "Do ask that peer in message to perform the edit/fill and include the values/facts to write. "
-    "Why: that live sidebar owns the write tools for that file; asking only for a dump of blank/current content so you can fill it elsewhere skips the peer write path.\n"
-    "When the task is to reply to a [Peer work from: …] envelope "
-    "you MUST send_peer_result("
+    "REPLY PATH (task is to reply to a [Peer work from: …] envelope — outer stuffed "
+    "uid/url + HTML/result): you MUST send_peer_result("
     "document_url=<uid or url from the envelope>, message=<one HTML/result string>) "
     "before specialized_workflow_finished — that tool stamps [Peer result from: …]. "
-    "Why: putting the reply only in answer stays inside this loop — the peer sidebar never sees it.\n"
-    "HTML, table, or other result text in the task is the message argument to send_peer_result, not a final answer. "
+    "Why: putting the reply only in answer stays inside this loop — the peer sidebar "
+    "never sees it.\n"
+    "On the reply path only: HTML, table, or other result text in the task is the "
+    "message argument to send_peer_result, not a final answer. "
     "Why: the outer already did the local work; your job is deliver via the tool.\n"
     "Do send_peer_result on a peer-reply task even when you can answer from the task alone. "
     "Why: that rule is for silent research finishes; peer delivery is a tool side effect.\n"
-    "After ok/accepted you MUST call specialized_workflow_finished immediately. "
+    "After ok/accepted (ask or reply) you MUST call specialized_workflow_finished immediately. "
     "Why: the peer runs after this loop exits; waiting deadlocks the reply."
 )
 

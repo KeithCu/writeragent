@@ -244,7 +244,7 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     instructions = mock_agent_class.call_args.kwargs.get("instructions") or ""
     assert "send_peer_work" in instructions
     assert "send_peer_result" in instructions
-    assert "PEER vs READ" in instructions
+    assert "ASK vs REPLY" in instructions
     assert ctx.active_domain is None
 
 

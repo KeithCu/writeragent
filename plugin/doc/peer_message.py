@@ -47,8 +47,10 @@ _DRAW_SERVICE = "com.sun.star.drawing.DrawingDocument"
 _IMPRESS_SERVICE = "com.sun.star.presentation.PresentationDocument"
 
 _WORK_DESCRIPTION = (
-    "Send a new work request to another already-open Writer, Calc, Draw, "
-    "or Impress sidebar. Returns immediately {status: ok, accepted: true}. "
+    "ASK PATH only: send a new work request to another already-open Writer, Calc, Draw, "
+    "or Impress sidebar. Use when the task is about an Open peer and has no "
+    "[Peer work from: …] envelope. Do not call send_peer_result on this path — the peer "
+    "replies later. Returns immediately {status: ok, accepted: true}. "
     "After ok/accepted you MUST call specialized_workflow_finished "
     "immediately — the peer runs after this loop exits; waiting deadlocks the reply. "
     "document_url is the one target argument: a file URL, RuntimeUID, or a "
@@ -58,12 +60,14 @@ _WORK_DESCRIPTION = (
 )
 
 _RESULT_DESCRIPTION = (
-    "Deliver a result/reply to another already-open Writer, Calc, Draw, "
-    "or Impress sidebar. Returns immediately {status: ok, accepted: true}. "
+    "REPLY PATH only: deliver a result/reply when the task contains a "
+    "[Peer work from: …] envelope. Do not use this tool on an ask task that merely "
+    "mentions send_peer_result or reply back — only that envelope selects this path. "
+    "Returns immediately {status: ok, accepted: true}. "
     "After ok/accepted you MUST call specialized_workflow_finished "
     "immediately — the peer runs after this loop exits; waiting deadlocks the reply. "
     "document_url is the one target argument: a file URL, RuntimeUID, or a "
-    "display name that matches exactly one open peer (usually from the inbound "
+    "display name that matches exactly one open peer (copy uid/url from the inbound "
     "[Peer work from: …] envelope). Required on every call. "
     "Never put your own path, uid, or URL in message — the gateway inserts "
     "[Peer result from: name | uid=… | url=…]. Never invent the other app's write tools."
