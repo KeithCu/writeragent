@@ -612,10 +612,10 @@ PEER_OUTER_DELEGATE_HINT = (
     "After that inner result means a peer message was sent/accepted, or the answer says waiting for a peer reply: "
     f"{PEER_OUTER_IDLE_AFTER_SEND} "
     "A short chat line that the peer was asked is OK.\n"
-    "When this turn is a [Peer from: …] envelope: do the local work with your tools. "
-    "Do {delegate}(domain=\"document_research\") to send a peer reply only when the peer asked for work that needs an answer back "
-    "(one string: envelope uid or url, peer_ask_id, and the HTML or result — not a JSON array). "
-    "Why: only that inner agent can send the peer reply; do not narrate an answer-back only in this sidebar.\n"
+    "When this turn is a [Peer from: …] envelope that asks you to do work (read, compute, edit, list, summarize) "
+    "and includes peer_ask_id: do the local work with your tools, then you MUST Do {delegate}(domain=\"document_research\") "
+    "to send the peer reply (one string: envelope uid or url, peer_ask_id, and the HTML or result — not a JSON array). "
+    "Why: only that inner agent can deliver the peer reply; finishing with only a local sidebar answer never reaches the asking peer.\n"
     "If this envelope is already a data/result reply to our earlier ask (for example a result table or HTML payload to insert): "
     "apply or insert locally and stop. Do not delegate an ack specialize. "
     "Why: the peer did not ask for more work."
@@ -773,16 +773,30 @@ def format_peer_outer_delegate_hint(model) -> str:
 
 
 def get_peer_messaging_prompt_block(model, ctx) -> str:
-    """Thin outer pointer when a v1 peer is open. No send_peer_message on this loop."""
+    """Thin outer pointer when a v1 peer is open. No send_peer_message on this loop.
+
+    ``list_v1_peers`` touches UNO (RuntimeUID / desktop catalog). Chat refresh can
+    run off-main; marshal like ``get_peer_inner_choice_block`` so the hint is not
+    silently dropped when assert_main_thread fails.
+    """
     if ctx is None or model is None:
         return ""
-    try:
+
+    def _build() -> str:
         from plugin.doc.peer_message import list_v1_peers
 
         peers = list_v1_peers(ctx, model)
         if not peers:
             return ""
         return format_peer_outer_delegate_hint(model)
+
+    try:
+        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.thread_guard import on_main_thread
+
+        if on_main_thread():
+            return _build()
+        return execute_on_main_thread(_build)
     except Exception:
         return ""
 

@@ -659,8 +659,10 @@ def test_prompts_outer_thin_inner_choice():
     assert "Stop tool use and Ready" in PEER_OUTER_DELEGATE_HINT
     assert "later user turn" in PEER_OUTER_DELEGATE_HINT
     assert "document_research, python, or query" in PEER_OUTER_DELEGATE_HINT
-    # Conditional reply: data/result inbound is local work only.
-    assert "only when the peer asked for work that needs an answer back" in PEER_OUTER_DELEGATE_HINT
+    # Work envelopes must re-delegate a reply; data/result inbound is local only.
+    assert "you MUST Do {delegate}(domain=\"document_research\")" in PEER_OUTER_DELEGATE_HINT
+    assert "peer_ask_id" in PEER_OUTER_DELEGATE_HINT
+    assert "local sidebar answer never reaches" in PEER_OUTER_DELEGATE_HINT
     assert "Do not delegate an ack specialize" in PEER_OUTER_DELEGATE_HINT
     assert "result table or HTML payload" in PEER_OUTER_DELEGATE_HINT
     assert SendPeerMessage.parameters["properties"]["message"]["type"] == "string"
@@ -686,13 +688,14 @@ def test_prompts_outer_thin_inner_choice():
     assert "uid=u2" in inner
     assert PEER_INNER_CHOICE_RULES in inner
     assert "Stop tool use and Ready" in outer
-    assert "only when the peer asked for work that needs an answer back" in outer
+    assert "you MUST Do" in outer and "document_research" in outer
+    assert "local sidebar answer never reaches" in outer
     assert "Do not delegate an ack specialize" in outer
     assert "send_peer_message" not in outer
 
 
 def test_outer_hint_idle_after_send_and_conditional_reply():
-    """Outer hint encodes idle-after-send and reply-only-when-the-peer-asked."""
+    """Outer hint encodes idle-after-send and MUST-reply after work envelopes."""
     from plugin.framework.prompts import (
         PEER_OUTER_DELEGATE_HINT,
         PEER_OUTER_IDLE_AFTER_SEND,
