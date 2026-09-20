@@ -39,6 +39,51 @@ from plugin.framework import queue_executor
 log = logging.getLogger("writeragent.specialized")
 
 
+def _outer_turn_is_peer_work(ctx: Any) -> bool:
+    """True when this sidebar's current outer turn is a [Peer work from:…] envelope.
+
+    Nested specializes (ranges/sheets/…) otherwise look "done" to the outer and it
+    Ready-s without ``document_research`` → ``send_peer_result``. Probe the live
+    panel listener's ``_active_query_text`` and last user ``session.messages``
+    entry; RuntimeUID lookup is UNO so marshal to the main thread.
+    """
+    from plugin.framework.prompts import looks_like_peer_work_envelope
+
+    def _probe() -> bool:
+        from plugin.doc.live_panels import get_live_panel
+        from plugin.framework.uno_context import get_runtime_uid
+
+        doc = getattr(ctx, "doc", None)
+        if doc is None:
+            return False
+        uid = get_runtime_uid(doc) or ""
+        if not uid:
+            return False
+        panel = get_live_panel(uid)
+        if panel is None:
+            return False
+        listener = getattr(panel, "send_listener", None)
+        if listener is None:
+            return False
+        if looks_like_peer_work_envelope(getattr(listener, "_active_query_text", None)):
+            return True
+        session = getattr(listener, "session", None)
+        messages = getattr(session, "messages", None) if session is not None else None
+        if not messages:
+            return False
+        for msg in reversed(list(messages)):
+            if not isinstance(msg, dict) or msg.get("role") != "user":
+                continue
+            return looks_like_peer_work_envelope(msg.get("content"))
+        return False
+
+    try:
+        return bool(queue_executor.execute_on_main_thread(_probe))
+    except Exception as e:
+        log.warning("peer-work turn probe failed: %s", e)
+        return False
+
+
 def _field_from_tool_arguments(arguments: Any, field: str) -> Any:
     """Read *field* from tool arguments (dict or JSON string), or None."""
     if arguments is None:
@@ -235,6 +280,8 @@ class DelegateToSpecializedBase(ToolBase):
         ctx.active_domain = domain
         # When an inner peer send ran, the outer must Ready (not keep tooling).
         peer_send_invoked = False
+        # Only send_peer_result counts as peer delivery on a Peer-work receiving turn.
+        peer_result_send_invoked = False
         # Inner tool results that already carry web-research-style `instruction`
         # (create_sheet, etc.) so specialized finish can forward them to the outer.
         captured_tool_results: list[Any] = []
@@ -329,11 +376,13 @@ class DelegateToSpecializedBase(ToolBase):
             document_open_step_index = 0
 
             def tool_call_handler(step):
-                nonlocal document_open_step_index, peer_send_invoked, create_sheet_ran
+                nonlocal document_open_step_index, peer_send_invoked, peer_result_send_invoked, create_sheet_ran
                 if step.name == "create_sheet":
                     create_sheet_ran = True
                 if domain == "document_research" and step.name in ("send_peer_work", "send_peer_result"):
                     peer_send_invoked = True
+                if domain == "document_research" and step.name == "send_peer_result":
+                    peer_result_send_invoked = True
                 if domain == "document_research" and step.name == "delegate_read_document" and chat_append_callback:
                     from plugin.chatbot.web_research_chat import document_open_step_chat_text
 
@@ -353,17 +402,28 @@ class DelegateToSpecializedBase(ToolBase):
             payload = final_ans
         else:
             payload = {"status": "ok", "message": _(f"Specialized task ({domain}) completed."), "result": str(final_ans)}
-        if domain == "document_research":
-            from plugin.framework.prompts import annotate_outer_peer_wait
-
-            # dict() widens the specialize payload for annotate_outer_peer_wait.
-            return annotate_outer_peer_wait(dict(payload), peer_send_invoked=peer_send_invoked)
         # Outer never sees create_sheet's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
         if domain == "sheets" or create_sheet_ran or captured_tool_results:
-            return attach_sheets_create_completion_instruction(
+            payload = attach_sheets_create_completion_instruction(
                 dict(payload),
                 create_sheet_ran=create_sheet_ran,
                 tool_results=captured_tool_results,
             )
+        else:
+            payload = dict(payload)
+
+        # Peer-work receiving turn: nested specialize (or research without
+        # send_peer_result) is not delivery — stamp still-required before Ready.
+        # send_peer_work alone is not delivery on this path; only send_peer_result is.
+        if not peer_result_send_invoked and _outer_turn_is_peer_work(ctx):
+            from plugin.framework.prompts import annotate_outer_peer_delivery_pending
+
+            return annotate_outer_peer_delivery_pending(payload)
+
+        if domain == "document_research":
+            from plugin.framework.prompts import annotate_outer_peer_wait
+
+            # Idle-after-send for ask / accepted delivery sends.
+            return annotate_outer_peer_wait(payload, peer_send_invoked=peer_send_invoked)
         return payload

@@ -699,10 +699,12 @@ def test_prompts_outer_thin_inner_choice():
     assert "later user turn" in PEER_OUTER_DELEGATE_HINT
     assert "document_research, python, or query" in PEER_OUTER_DELEGATE_HINT
     # Work envelopes must re-delegate a reply; data/result inbound is local only.
-    assert "you MUST Do {delegate}(domain=\"document_research\")" in PEER_OUTER_DELEGATE_HINT
+    assert "you MUST still Do {delegate}(domain=\"document_research\")" in PEER_OUTER_DELEGATE_HINT
     assert "peer_ask_id" not in PEER_OUTER_DELEGATE_HINT
     assert "deliver via send_peer_result" in PEER_OUTER_DELEGATE_HINT
     assert "local sidebar answer never reaches" in PEER_OUTER_DELEGATE_HINT
+    assert "finishing those specializes is not delivery" in PEER_OUTER_DELEGATE_HINT
+    assert "ranges, sheets, charts" in PEER_OUTER_DELEGATE_HINT
     assert "Do not delegate an ack specialize" in PEER_OUTER_DELEGATE_HINT
     assert "not a new work request" in PEER_OUTER_DELEGATE_HINT
     assert SendPeerWork.parameters["properties"]["message"]["type"] == "string"
@@ -729,7 +731,7 @@ def test_prompts_outer_thin_inner_choice():
     assert "uid=u2" in inner
     assert PEER_INNER_CHOICE_RULES in inner
     assert "Stop tool use and Ready" in outer
-    assert "you MUST Do" in outer and "document_research" in outer
+    assert "you MUST still Do" in outer and "document_research" in outer
     assert "local sidebar answer never reaches" in outer
     assert "Do not delegate an ack specialize" in outer
     assert "[Peer work from:" in outer
@@ -787,6 +789,63 @@ def test_outer_hint_idle_after_send_and_conditional_reply():
     assert already["message"].count(PEER_OUTER_IDLE_AFTER_SEND) == 1
 
 
+def test_annotate_outer_peer_delivery_pending():
+    """Non-delivery specialize returns stamp still-required delivery for the outer."""
+    from plugin.framework.prompts import (
+        PEER_OUTER_DELIVERY_STILL_REQUIRED,
+        annotate_outer_peer_delivery_pending,
+        looks_like_peer_work_envelope,
+    )
+
+    assert "send_peer_result" in PEER_OUTER_DELIVERY_STILL_REQUIRED
+    assert "ranges/sheets/charts" in PEER_OUTER_DELIVERY_STILL_REQUIRED
+    assert looks_like_peer_work_envelope(
+        "[Peer work from: Memo.odt | uid=u1 | url=]\n\nSort A2:B5"
+    )
+    assert looks_like_peer_work_envelope("  [Peer work from: X | uid=1 | url=]")
+    assert not looks_like_peer_work_envelope("[Peer result from: X | uid=1 | url=]")
+    assert not looks_like_peer_work_envelope("Sort A2:B5 descending")
+
+    pending = annotate_outer_peer_delivery_pending(
+        {
+            "status": "ok",
+            "message": "Specialized task (ranges) completed.",
+            "result": "Range A2:B5 sorted descending",
+        }
+    )
+    assert PEER_OUTER_DELIVERY_STILL_REQUIRED in pending["message"]
+    assert PEER_OUTER_DELIVERY_STILL_REQUIRED in pending["result"]
+    assert pending["instruction"] == PEER_OUTER_DELIVERY_STILL_REQUIRED
+
+    with_inst = annotate_outer_peer_delivery_pending(
+        {
+            "status": "ok",
+            "message": "done",
+            "result": "ok",
+            "instruction": "Populate the new sheet.",
+        }
+    )
+    assert with_inst["instruction"].startswith("Populate the new sheet.")
+    assert PEER_OUTER_DELIVERY_STILL_REQUIRED in with_inst["instruction"]
+
+    err = annotate_outer_peer_delivery_pending(
+        {"status": "error", "message": "Range A2:B5 sorted descending"}
+    )
+    assert err["message"] == "Range A2:B5 sorted descending"
+    assert "instruction" not in err
+
+    already = annotate_outer_peer_delivery_pending(
+        {
+            "status": "ok",
+            "message": "done " + PEER_OUTER_DELIVERY_STILL_REQUIRED,
+            "result": "sorted",
+            "instruction": PEER_OUTER_DELIVERY_STILL_REQUIRED,
+        }
+    )
+    assert already["message"].count(PEER_OUTER_DELIVERY_STILL_REQUIRED) == 1
+    assert already["instruction"] == PEER_OUTER_DELIVERY_STILL_REQUIRED
+
+
 def test_summarize_peer_tool_on_wire():
     from plugin.doc.peer_message import log_peer_tool_on_wire, summarize_peer_tool_on_wire
 
@@ -833,3 +892,4 @@ def test_format_peer_envelope_work_vs_result():
     assert "send_peer_result" in PEER_WORK_DELIVERY_FOOTER
     assert "envelope header" in PEER_WORK_DELIVERY_FOOTER
     assert "never reaches the asking peer" in PEER_WORK_DELIVERY_FOOTER
+    assert "nested specialize done is not peer delivery" in PEER_WORK_DELIVERY_FOOTER

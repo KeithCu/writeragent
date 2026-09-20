@@ -612,8 +612,10 @@ PEER_OUTER_DELEGATE_HINT = (
     "After that inner result means a peer message was sent/accepted, or the answer says waiting for a peer reply: "
     f"{PEER_OUTER_IDLE_AFTER_SEND} "
     "A short chat line that the peer was asked is OK.\n"
-    "When this turn is a [Peer work from: …] envelope: do the local work with your tools, "
-    "then you MUST Do {delegate}(domain=\"document_research\") to deliver via send_peer_result "
+    "When this turn is a [Peer work from: …] envelope: do the local work with your tools "
+    "(nested domains such as ranges, sheets, charts, … are fine for that local work); "
+    "finishing those specializes is not delivery — you MUST still Do {delegate}(domain=\"document_research\") "
+    "to deliver via send_peer_result "
     "(one string: envelope uid or url, and the HTML or result — not a JSON array). "
     "Why: only that inner agent can deliver the peer result; finishing with only a local sidebar answer never reaches the asking peer.\n"
     "When this turn is a [Peer result from: …] envelope: apply or insert locally and stop. Do not delegate an ack specialize. "
@@ -638,6 +640,26 @@ def looks_like_peer_wait_outcome(text: str) -> bool:
     return any(marker in blob for marker in _PEER_WAIT_OUTCOME_MARKERS)
 
 
+# Outer must keep going after a nested specialize on a Peer-work receiving turn.
+# ranges/sheets/charts/… finishing (or document_research without send_peer_result)
+# is local work only — not peer delivery.
+PEER_OUTER_DELIVERY_STILL_REQUIRED = (
+    "Peer delivery still required: you MUST Do domain=\"document_research\" "
+    "to deliver via send_peer_result. "
+    "Why: finishing a nested specialize (ranges/sheets/charts/…) or research without "
+    "send_peer_result is not peer delivery; Ready here leaves the asking peer waiting."
+)
+
+PEER_WORK_ENVELOPE_PREFIX = "[Peer work from:"
+
+
+def looks_like_peer_work_envelope(text: str | None) -> bool:
+    """True when *text* is (or starts as) a [Peer work from:…] turn envelope."""
+    if not text:
+        return False
+    return str(text).lstrip().startswith(PEER_WORK_ENVELOPE_PREFIX)
+
+
 def annotate_outer_peer_wait(payload: dict, *, peer_send_invoked: bool = False) -> dict:
     """Append idle-after-send on an ok document_research payload when a peer was asked.
 
@@ -658,6 +680,35 @@ def annotate_outer_peer_wait(payload: dict, *, peer_send_invoked: bool = False) 
     if result:
         out["result"] = result + "\n" + PEER_OUTER_IDLE_AFTER_SEND
     return out
+
+
+def annotate_outer_peer_delivery_pending(payload: dict) -> dict:
+    """Stamp still-required peer delivery on an ok specialize return during Peer work.
+
+    Nested domains can finish successfully while the outer still owes
+    ``document_research`` → ``send_peer_result``. Sets ``instruction`` and appends
+    the same line on ``message`` / ``result`` so the outer cannot treat the hop as done.
+    """
+    if payload.get("status") != "ok":
+        return payload
+    blob = " ".join(
+        str(payload.get(key) or "") for key in ("message", "result", "answer", "instruction")
+    )
+    if PEER_OUTER_DELIVERY_STILL_REQUIRED in blob:
+        return payload
+    out = dict(payload)
+    message = str(out.get("message") or "")
+    out["message"] = (message + " " + PEER_OUTER_DELIVERY_STILL_REQUIRED).strip()
+    result = str(out.get("result") or "")
+    if result:
+        out["result"] = result + "\n" + PEER_OUTER_DELIVERY_STILL_REQUIRED
+    existing = out.get("instruction")
+    if isinstance(existing, str) and existing.strip():
+        out["instruction"] = (existing.rstrip() + " " + PEER_OUTER_DELIVERY_STILL_REQUIRED).strip()
+    else:
+        out["instruction"] = PEER_OUTER_DELIVERY_STILL_REQUIRED
+    return out
+
 
 # document_research specialized only. Short DO+why; catalog is appended when peers exist.
 # Hard fork ASK vs REPLY by whether the task contains a [Peer work from: …] envelope.
