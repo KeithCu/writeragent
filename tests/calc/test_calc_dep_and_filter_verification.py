@@ -175,7 +175,11 @@ def test_calc_addin_data_to_python_rectangular_invariant(data) -> None:
 
 
 def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
-    """cover-all 33797534946 leftover (~39m sheet_filter); code→name off, doable later."""
+    """cover-all 33797534946 leftover (~39m sheet_filter); code→name off, doable later.
+
+    cover-all 35546602462: name→code / connection / resolve stay on under a closed
+    FilterOperator2 dual-profile (UNDER_CROSSHAIR); code→name remains off.
+    """
     from pathlib import Path
 
     from tests.strip_bundle import skip_if_release_build
@@ -185,4 +189,7 @@ def test_filter_operator2_code_to_name_is_off_cover_all() -> None:
 
     fqns = cover_fqns_for_module(Path("plugin/calc/sheet_filter_criteria.py"))
     assert not any(f.endswith(".filter_operator2_code_to_name") for f in fqns)
+    assert any(f.endswith(".filter_operator2_name_to_code") for f in fqns)
+    assert any(f.endswith(".filter_connection_code") for f in fqns)
+    assert any(f.endswith(".resolve_filter_operator_code") for f in fqns)
 

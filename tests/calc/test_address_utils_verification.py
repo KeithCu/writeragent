@@ -134,3 +134,19 @@ def test_crosshair_address_utils_if_available() -> None:
     assert not errors, "CrossHair counterexamples found:\n" + "\n".join(errors)
     if result.returncode == 2:
         pytest.fail(f"CrossHair internal error (exit 2):\n{combined}")
+
+
+def test_format_address_post_avoids_regex() -> None:
+    """cover-all 35546602462: format_address ~27m with re.match post; keep post regex-free."""
+    import inspect
+
+    from plugin.calc.address_utils import format_address
+
+    src = inspect.getsource(format_address)
+    # deal.post is on the function; inspect.getsource may not include decorators — check module
+    mod_src = inspect.getsource(inspect.getmodule(format_address))
+    # The format_address deal.post block must not use re.match/re.fullmatch.
+    # Grep the decorator region above def format_address.
+    idx = mod_src.index("def format_address")
+    region = mod_src[max(0, idx - 500) : idx]
+    assert "re.match" not in region and "re.fullmatch" not in region

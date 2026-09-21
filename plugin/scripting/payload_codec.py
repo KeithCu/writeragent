@@ -38,6 +38,7 @@ from plugin.framework.deal_shim import (
     DEAL_MAX_SHAPE_RANK,
     DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
+    UNDER_CROSSHAIR,
     ascii_bounded,
     deal,
     inverse_ensure,
@@ -779,20 +780,31 @@ def describe_wire_value(obj: Any, *, sample: int = 3) -> str:
     return f"{type(obj).__name__}={repr(obj)[:120]}"
 
 
-def _deal_shape_ok(shape: object) -> bool:
-    """True iff *shape* is a rank-bounded tuple of Calc-sized dims.
-
-    Unbounded rank or dims let CrossHair deep multiply forever in ``cell_count``.
-    Dims follow ``DEAL_MAX_ROW_INDEX`` (CrossHair 20; pytest/debug full Calc rows),
-    not ``DEAL_MAX_SHAPE_DIM`` (256) — Gemini AFC hit PreContractError on (300, 1)
-    in ``should_use_binary_envelope`` after grid/wire-dict fixes.
-    """
+def _deal_shape_ok_pytest(shape: object) -> bool:
+    """Wide Calc-sized shape domain for pytest / production deal checks."""
     max_dim = DEAL_MAX_ROW_INDEX + 1
     return (
         isinstance(shape, tuple)
         and len(shape) <= DEAL_MAX_SHAPE_RANK
         and all(isinstance(d, int) and 0 <= d <= max_dim for d in shape)
     )
+
+
+def _deal_shape_ok_crosshair(shape: object) -> bool:
+    """Tiny shape domain for CrossHair.
+
+    cover-all 35546602462 spent ~29m on ``should_use_binary_envelope`` /
+    ``cell_count`` despite ``DEAL_MAX_ROW_INDEX=20``. Keep the FQNs on with a
+    2×{0..4} grid instead of off.
+    """
+    return (
+        isinstance(shape, tuple)
+        and len(shape) <= 2
+        and all(isinstance(d, int) and 0 <= d <= 4 for d in shape)
+    )
+
+
+_deal_shape_ok = _deal_shape_ok_crosshair if UNDER_CROSSHAIR else _deal_shape_ok_pytest
 
 
 @deal.pre(lambda shape: _deal_shape_ok(shape))

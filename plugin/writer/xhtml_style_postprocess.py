@@ -99,12 +99,16 @@ def extract_autostyle_parents_from_fodt(fodt):
 
 def _clean_decl_ordered(decl):
     """Cleaned declaration, original order preserved, no trailing ``;`` (for inlining)."""
+    # crosshair: off
+    # CSS decl tokenization (cover-all 35546602462: ~18m xhtml module). Doable later with DEAL_MAX_HTML_CHUNK dual-profile.
     parts = [p.strip() for p in decl.split(";") if p.strip()]
     return "; ".join(parts)
 
 
 def _normalize_decl(decl):
     """Order-independent fingerprint of a declaration set (for autostyle matching)."""
+    # crosshair: off
+    # CSS decl normalize/sort (cover-all 35546602462). Doable later with closed decl alphabet.
     parts = [p.strip() for p in decl.split(";") if p.strip()]
     return ";".join(sorted(parts))
 
@@ -152,6 +156,8 @@ _FODT_PARA_STYLE_RE = re.compile(
 
 def _fodt_override_css(style_block):
     """CSS-ish ``prop: value`` list for one flat-ODF automatic paragraph style's own attributes."""
+    # crosshair: off
+    # FODT style-block regex/string walk (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK.
     parts = []
     seen = set()
     for odf_attr, css_name in _FODT_OVERRIDE_ATTRS:
@@ -177,6 +183,8 @@ def extract_autostyle_overrides_from_fodt(fodt):
     automatic style in flat ODF lists only what was set on top of its parent, so what comes back
     is exactly the hand-set formatting — the thing the XHTML projection cannot express.
     """
+    # crosshair: off
+    # FODT override extraction over unbounded XML (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK.
     out = {}
     text = fodt if type(fodt) is str else ""
     for m in _FODT_PARA_STYLE_RE.finditer(text):
@@ -211,12 +219,16 @@ def parse_style_block(xhtml):
 
 def _strip_body(xhtml):
     """Return the inner HTML of ``<body>`` (or the input unchanged if there is no body)."""
+    # crosshair: off
+    # XHTML body slice (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK dual-profile.
     m = _BODY_RE.search(xhtml or "")
     return m.group(1).strip() if m else (xhtml or "")
 
 
 def _drop_trailing_empty_paragraphs(html):
     """Drop whitespace/``&nbsp;``-only ``<p>`` blocks at the very end (LO export ghost paras)."""
+    # crosshair: off
+    # HTML trailing-empty scan (cover-all 35546602462: top xhtml sink). Doable later with DEAL_MAX_HTML_CHUNK.
     while True:
         new = _TRAILING_EMPTY_P_RE.sub("", html)
         if new == html:
@@ -226,6 +238,8 @@ def _drop_trailing_empty_paragraphs(html):
 
 def _inject_attr(start_tag, attr):
     """Insert *attr* (e.g. ``' data-lo-style="X"'``) just before the closing ``>`` of a tag."""
+    # crosshair: off
+    # start-tag attribute inject (cover-all 35546602462). Doable later with closed tag alphabet.
     if start_tag.endswith("/>"):
         return start_tag[:-2].rstrip() + attr + "/>"
     if start_tag.endswith(">"):
@@ -234,6 +248,8 @@ def _inject_attr(start_tag, attr):
 
 
 def _attr_value(attrs, key):
+    # crosshair: off
+    # attr list scan (cover-all 35546602462). Doable later with closed attrs domain.
     for k, v in attrs:
         if k == key:
             return v or ""
@@ -252,6 +268,8 @@ class _SemanticTransformer(HTMLParser):
     """
 
     def __init__(self, raw_map, norm_map, autostyle_parents=None, autostyle_overrides=None):
+        # crosshair: off
+        # HTMLParser transformer state (cover-all 35546602462). Doable later with closed style maps.
         super().__init__(convert_charrefs=False)
         self._raw = raw_map
         self._autostyle_parents = autostyle_parents or {}
@@ -295,6 +313,8 @@ class _SemanticTransformer(HTMLParser):
         spans. Whole-paragraph Para* overrides do not round-trip (the write path cannot restore
         Para* when applying a named style).
         """
+        # crosshair: off
+        # paragraph class rewrite (cover-all 35546602462). Doable later with closed class alphabet.
         if _AUTOSTYLE_RE.match(suffix):
             # Authoritative: the flat-ODF parent of this autostyle (Pn -> named base).
             parent = self._autostyle_parents.get(suffix)
@@ -314,6 +334,8 @@ class _SemanticTransformer(HTMLParser):
         return token
 
     def _rewrite_block(self, raw, attrs):
+        # crosshair: off
+        # block tag rewrite (cover-all 35546602462). Doable later with closed tag alphabet.
         classes = _attr_value(attrs, "class")
         para_classes = _PARA_CLASS_RE.findall(classes)
         token = None
@@ -337,6 +359,8 @@ class _SemanticTransformer(HTMLParser):
         return raw
 
     def _rewrite_span(self, raw, attrs):
+        # crosshair: off
+        # span rewrite (cover-all 35546602462). Doable later with closed tag alphabet.
         classes = _attr_value(attrs, "class")
         names = classes.split()
         text_names = [c for c in names if c.startswith("text-")]
@@ -354,6 +378,8 @@ class _SemanticTransformer(HTMLParser):
         return _inject_attr(raw, ins) if ins else raw
 
     def handle_starttag(self, tag, attrs):
+        # crosshair: off
+        # HTMLParser starttag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         raw = self.get_starttag_text() or ("<%s>" % tag)
         t = tag.lower()
         if t == "table":
@@ -367,31 +393,47 @@ class _SemanticTransformer(HTMLParser):
             self._out.append(raw)
 
     def handle_startendtag(self, tag, attrs):
+        # crosshair: off
+        # HTMLParser startendtag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append(self.get_starttag_text() or ("<%s/>" % tag))
 
     def handle_endtag(self, tag):
+        # crosshair: off
+        # HTMLParser endtag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
 
     def handle_data(self, data):
+        # crosshair: off
+        # HTMLParser data (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append(data)
 
     def handle_entityref(self, name):
+        # crosshair: off
+        # HTMLParser entityref (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append("&%s;" % name)
 
     def handle_charref(self, name):
+        # crosshair: off
+        # HTMLParser charref (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append("&#%s;" % name)
 
     def handle_comment(self, data):
+        # crosshair: off
+        # HTMLParser comment (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append("<!--%s-->" % data)
 
     def result(self):
+        # crosshair: off
+        # HTMLParser result join (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK.
         return "".join(self._out)
 
 
 def _strip_class_names(start_tag, name_re):
     """Remove class names matching *name_re* from a start tag; drop the attr if it empties."""
+    # crosshair: off
+    # class= regex rewrite (cover-all 35546602462: top xhtml sink). Doable later with DEAL_MAX_HTML_CHUNK.
     def _sub(m):
         kept = [c for c in m.group(2).split() if not name_re.fullmatch(c)]
         return (" class=%s%s%s" % (m.group(1), " ".join(kept), m.group(1))) if kept else ""
@@ -411,7 +453,8 @@ def xhtml_to_semantic_html(full_xhtml, autostyle_parents=None, autostyle_overrid
     index. Recovers the base style **name** after StarWriter write→read when CSS fingerprint
     fails; does not recover whole-paragraph Para* overrides (v1 limitation — see plan doc).
     """
-    # crosshair: off  # HTMLParser over unbounded XHTML (cover-all 33418536119: xhtml_style_postprocess 1141s). Doable later with UNDER_CROSSHAIR dual-profile + DEAL_MAX_HTML_CHUNK (pytest fixtures exceed 512).
+    # crosshair: off
+    # HTMLParser over unbounded XHTML (cover-all 35546602462: ~18m module). Doable later with UNDER_CROSSHAIR dual-profile + DEAL_MAX_HTML_CHUNK (pytest fixtures exceed 512).
     raw_map, norm_map = parse_style_block(full_xhtml)
     body = _strip_body(full_xhtml)
     tr = _SemanticTransformer(raw_map, norm_map, autostyle_parents, autostyle_overrides)

@@ -224,7 +224,13 @@ def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]
 # Nested parse_address is skipped under CrossHair (import-time inverse_ensure
 # no-op); cheap @deal.post still runs so the function is analyzed.
 @deal.pre(lambda col, row: isinstance(col, int) and 0 <= col <= DEAL_MAX_COL_INDEX and isinstance(row, int) and 0 <= row <= DEAL_MAX_ROW_INDEX)
-@deal.post(lambda result: isinstance(result, str) and bool(re.match(r"^[A-Z]+\d+$", result)))
+@deal.post(
+    lambda result: isinstance(result, str)
+    and bool(result)
+    and result[0].isalpha()
+    and result.isascii()
+    and result[-1].isdigit()
+)
 @inverse_ensure(lambda col, row, result: parse_address(result) == (col, row))
 def format_address(col: int, row: int) -> str:
     """Create cell address from column and row indices.

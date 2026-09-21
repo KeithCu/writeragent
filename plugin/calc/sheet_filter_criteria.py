@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, ascii_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, deal
 from plugin.framework.errors import UnoObjectError
 
 _FILTER_OPERATOR2_CODE_NAMES: tuple[str, ...] = (
@@ -45,6 +45,34 @@ _NAME_TO_CODE: dict[str, int] = {name: idx for idx, name in enumerate(_FILTER_OP
 # Stable tuple of all FilterOperator2 names (for tool JSON schemas).
 FILTER_OPERATOR2_LABELS: tuple[str, ...] = _FILTER_OPERATOR2_CODE_NAMES
 
+# Dual-profile: Closed FilterOperator2 labels under CrossHair. Open ascii_bounded
+# DEAL_MAX_TOKEN still cost ~28m on name→code / connection / resolve (cover-all 35546602462).
+def _deal_filter_op_name_ok_pytest(name: object) -> bool:
+    return isinstance(name, str) and ascii_bounded(name, DEAL_MAX_TOKEN)
+
+
+def _deal_filter_op_name_ok_crosshair(name: object) -> bool:
+    return isinstance(name, str) and name in _FILTER_OPERATOR2_CODE_NAMES
+
+
+_deal_filter_op_name_ok = (
+    _deal_filter_op_name_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_op_name_ok_pytest
+)
+
+
+def _deal_filter_connection_ok_pytest(name: object) -> bool:
+    return name is None or ascii_bounded(name, DEAL_MAX_TOKEN)
+
+
+def _deal_filter_connection_ok_crosshair(name: object) -> bool:
+    return name is None or name in ("AND", "OR", "and", "or", "")
+
+
+_deal_filter_connection_ok = (
+    _deal_filter_connection_ok_crosshair if UNDER_CROSSHAIR else _deal_filter_connection_ok_pytest
+)
+
+
 
 @deal.pre(lambda code: isinstance(code, int) and -8 <= code < 32)
 def filter_operator2_code_to_name(code: int) -> str:
@@ -56,7 +84,7 @@ def filter_operator2_code_to_name(code: int) -> str:
     return str(int(code))
 
 
-@deal.pre(lambda name: isinstance(name, str) and ascii_bounded(name, DEAL_MAX_TOKEN))
+@deal.pre(lambda name: _deal_filter_op_name_ok(name))
 def filter_operator2_name_to_code(name: str) -> int | None:
     """Resolve case-insensitive operator name to code, or ``None`` if unknown."""
     key = name.strip().upper().replace("-", "_")
@@ -67,7 +95,7 @@ _FILTER_OP_NUMERIC_ONLY = frozenset({"TOP_VALUES", "TOP_PERCENT", "BOTTOM_VALUES
 _FILTER_OP_NO_VALUE = frozenset({"EMPTY", "NOT_EMPTY"})
 
 
-@deal.pre(lambda name: name is None or ascii_bounded(name, DEAL_MAX_TOKEN))
+@deal.pre(lambda name: _deal_filter_connection_ok(name))
 @deal.post(lambda result: result in (0, 1))
 @deal.raises(UnoObjectError)
 def filter_connection_code(name: str | None) -> int:
@@ -79,7 +107,7 @@ def filter_connection_code(name: str | None) -> int:
     raise UnoObjectError(f"Invalid filter connection: {name!r} (use AND or OR).")
 
 
-@deal.pre(lambda operator: ascii_bounded(operator, DEAL_MAX_TOKEN))
+@deal.pre(lambda operator: _deal_filter_op_name_ok(operator))
 @deal.post(lambda result: isinstance(result, int) and result >= 0)
 @deal.raises(UnoObjectError)
 def resolve_filter_operator_code(operator: str) -> int:

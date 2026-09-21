@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ExcelWorkbookModel
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_CMD_ARGS, DEAL_MAX_SOURCE, str_bounded, deal
 
 _ANCHOR_RE = re.compile(r"^(?:_xlfn\.)?ANCHORARRAY\((.+)\)$", re.IGNORECASE)
 _TABLE_ALL_RE = re.compile(r"^([A-Za-z_][\w.]*)\[#All\]$", re.IGNORECASE)
@@ -46,6 +46,7 @@ class ResolvedDep:
     note: str = ""
 
 
+@deal.pre(lambda model, anchor, sheet_hint="": str_bounded(anchor, DEAL_MAX_SOURCE) and str_bounded(sheet_hint, DEAL_MAX_SOURCE))
 def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "") -> str | None:
     """Find an array/spill snapshot for *anchor* (bare or Sheet!A1)."""
     cleaned = anchor.replace("$", "").strip()
@@ -69,6 +70,7 @@ def _lookup_anchor(model: ExcelWorkbookModel, anchor: str, sheet_hint: str = "")
     return None
 
 
+@deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
 def _has_anchorarray_shape(raw: str) -> bool:
     """True when *raw* can match ``_ANCHOR_RE`` (``ANCHORARRAY(...)`` / ``_xlfn.``).
 
@@ -83,6 +85,7 @@ def _has_anchorarray_shape(raw: str) -> bool:
     return "ANCHORARRAY(" in raw.upper()
 
 
+@deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
 def _has_table_all_shape(raw: str) -> bool:
     """True when *raw* can match ``_TABLE_ALL_RE`` (``Name[#All]``).
 
@@ -93,12 +96,14 @@ def _has_table_all_shape(raw: str) -> bool:
     return raw.upper().endswith("[#ALL]")
 
 
+@deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
 def _has_spill_shape(raw: str) -> bool:
     """True when *raw* can match ``_SPILL_RE`` (``A6#``, not ``[#All]``)."""
     spill = raw.replace("$", "")
     return len(spill) >= 2 and spill.endswith("#") and not spill.upper().endswith("[#ALL]")
 
 
+@deal.pre(lambda raw: str_bounded(raw, DEAL_MAX_SOURCE))
 def _has_range_shape(raw: str) -> bool:
     """True when *raw* can match ``_RANGE_RE`` (A1 / ``A:C`` / ``1:10`` / ``Sheet!…``).
 
@@ -176,5 +181,11 @@ def resolve_dep(dep: str, model: ExcelWorkbookModel, *, sheet_hint: str = "") ->
     return ResolvedDep(original=raw, a1="", kind="unresolved", note=f"unrecognized dep {raw!r}")
 
 
+@deal.pre(
+    lambda deps, model, sheet_hint="": isinstance(deps, list)
+    and len(deps) <= DEAL_MAX_CMD_ARGS
+    and all(str_bounded(d, DEAL_MAX_SOURCE) for d in deps)
+    and str_bounded(sheet_hint, DEAL_MAX_SOURCE)
+)
 def resolve_deps(deps: list[str], model: ExcelWorkbookModel, *, sheet_hint: str = "") -> list[ResolvedDep]:
     return [resolve_dep(d, model, sheet_hint=sheet_hint) for d in deps]

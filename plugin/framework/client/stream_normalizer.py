@@ -199,6 +199,8 @@ def extract_reasoning_replay_from_response(
     sync_message: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one consolidated reasoning block for the next API request. See docs/framework/streaming-and-threading.md §3.4."""
+    # crosshair: off
+    # Mapping[Any] orchestration over already-off merge/replay (cover-all 35546602462: ~3.5h module, this FQN ~4k examples). Doable later with a closed message/meta schema.
     if not PRESERVE_REASONING_IN_SESSION:
         return {}
     if streaming_text is not None:
@@ -218,6 +220,8 @@ def extract_reasoning_replay_from_response(
 
 def reasoning_replay_from_assistant_response(response: Mapping[str, Any] | None) -> dict[str, Any]:
     """Pick reasoning replay keys already merged onto an assistant API response dict."""
+    # crosshair: off
+    # Thin wrapper over extract_reasoning_replay_from_response (cover-all 35546602462: ~3k examples). Doable later with the same closed message schema.
     if not PRESERVE_REASONING_IN_SESSION or not response:
         return {}
     return extract_reasoning_replay_from_response(sync_message=response)
@@ -304,6 +308,8 @@ def _extract_thinking_from_delta(chunk_or_delta):  # pyright: ignore[reportUnuse
 
 def _normalize_message_content(raw):  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
     """Return a single string from API message content (string or list of parts)."""
+    # crosshair: off
+    # Unbounded str | list[dict[Any]] join (cover-all 35546602462: ~14k examples / largest stream_normalizer sink). Doable later with DEAL_MAX_SHAPE_DIM part list + short ASCII text domain.
     if raw is None:
         return None
     if isinstance(raw, str):
@@ -322,6 +328,8 @@ def _normalize_message_content(raw):  # pyright: ignore[reportUnusedFunction]  #
 
 def _normalize_delta_tool_calls_ok(delta: dict[str, Any]) -> bool:
     """Postcondition helper: Mistral/Azure null type/arguments repaired on dict tool_calls."""
+    # crosshair: off
+    # Nested tool_calls Any dicts as a cover entry (cover-all 35546602462: ~400 examples); _normalize_delta stays on and exercises the repair. Doable later with a closed tool_call schema.
     tool_calls = delta.get("tool_calls")
     if type(tool_calls) is not list:
         return True
@@ -386,6 +394,8 @@ class ThinkTagStreamSplitter:
 
     def feed(self, chunk: str) -> list[tuple[bool, str]]:
         """Process incoming text chunk and return list of (is_thinking, text_segment)."""
+        # crosshair: off
+        # find/prefix partial-tag loops over unbounded chunks (cover-all 35546602462: ~2.4k examples). Doable later with UNDER_CROSSHAIR dual-profile + DEAL_MAX_HTML_CHUNK.
         if not chunk:
             return []
 
