@@ -26,7 +26,7 @@ Citations are `sw/source/core/unocore/unotbl.cxx` on LibreOffice master.
 | `getRows().getCount()` | `SwXTableRows::getCount`. Number of top-level lines. The 5-row fixture stays `5`. |
 | `getCellNames()` | `lcl_InspectLines`. Every box with a name and `rowSpan > 0`, including lines nested inside a split cell. Covered cells are absent. Merging `A1:D1` on a 5×4 table drops `B1`/`C1`/`D1` and leaves `D2`: 20 − 3 = 17. |
 | `getCellByPosition(col, row)` | Not "the col-th box in that row". `lcl_CreateXCell` builds a name with `sw_GetCellName` and looks that box up. |
-| `GetCellPosition` | Writer names are base 52: `A–Z`, then `a–z`, then `AA…`. The comment on that function says the coordinate math is for tables where `IsTableComplex()` is false. |
+| `GetCellPosition` | Writer names are base 52: `A–Z`, then `a–z`, then `AA…`. Row is `o3tl::toInt32` from the first digit (stops at the first non-digit), so split-cell `A1.1.1` is the same band as `A1`. The comment on that function says the coordinate math is for tables where `IsTableComplex()` is false. |
 
 `plugin/draw/tables.py` `parse_a1` and `_col_letters` in the Writer module are spreadsheet letters (and `parse_a1` uppercases). They match Writer through column `Z` only. Past `Z`, Writer `a1` and spreadsheet `AA` are different cells. Do **not** parse Writer names with `parse_a1`. Do **not** use the Writer parser to rebuild a rectangle for the read path.
 
@@ -42,7 +42,7 @@ Host cells that contain a nested table keep using `_cell_matrix_text` (the cell'
 2. **2c** — Writer payload: always `cells` + `cell_names` from `getCellNames()` + `getCellByName` + `_cell_matrix_text`. **Stop returning `matrix` on Writer.** Keep `rows`, `cols`, `nesting`, `nested_in_cells`. Empty string = empty cell; missing key = not a cell.
 3. **3b** — Optional `cell=` on `table_get_cells` (one address). Reuse `_resolve_cell_name`. Shared helper for the "Its cells are: …" sample used by set/insert/get. Draw honors `cell=` via `parse_a1` (shared schema).
 4. **4a** — `table_list`: add `cell_count` (Writer: `len(getCellNames())` via the nesting pass; Draw: `rows*cols`). Description: if `cell_count != rows*cols`, not a rectangle — use get_cells/`cells`.
-5. **Same PR** — Fix `_hosted_in_band` to scan `getCellNames()` (not `range(cols)`). Private Writer base-52 name parser matching `SwXTextTable::GetCellPosition` (`A`, `Z`, `a`, `AA`). Do **not** use spreadsheet `parse_a1` for Writer names; do **not** use the parser to rebuild `matrix`. Fix `_copy_table` the same way (merged tables must not drop D2).
+5. **Same PR** — Fix `_hosted_in_band` to scan `getCellNames()` (not `range(cols)`). Writer base-52 name parser matching `SwXTextTable::GetCellPosition` (`A`, `Z`, `a`, `AA`; row via `toInt32` so `A1.1.1` is the `A1` band) lives in LibrePy-shipped [`html_export.py`](../../plugin/writer/html_export.py). Do **not** use spreadsheet `parse_a1` for Writer names; do **not** use the parser to rebuild `matrix`. Fix `_copy_table` the same way (merged tables must not drop D2).
 6. **Reject** — Do not rebuild a wide fake `matrix`. Covered cells would become `""` and look like empty cells.
 
 Draw/Impress path: keep rectangular `matrix` / `rows` / `cols` (plus `cell=` if shared).

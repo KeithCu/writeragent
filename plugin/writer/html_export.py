@@ -599,6 +599,86 @@ def _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell):
                     dest_text.insertString(dest_cursor, chunk, False)
 
 
+def _writer_cell_position(name):
+    """Parse a Writer cell name the way ``SwXTextTable::GetCellPosition`` does.
+
+    Writer letters are base 52 (A–Z, a–z, then AA…). Spreadsheet ``parse_a1``
+    uppercases and treats AA as column 26; do not use it here. This parser is
+    for the delete-guard / HTML-copy band only — not to rebuild a read matrix.
+
+    LibreOffice: ``sw/source/core/unocore/unotbl.cxx`` ``GetCellPosition``.
+    Row is ``o3tl::toInt32`` on the substring from the first digit — that
+    parse stops at the first non-digit, so split-cell ``A1.1.1`` is row 0
+    (same band as ``A1``). ``int()`` on the whole tail would raise.
+
+    Lives here because LibrePy ships ``html_export`` and not
+    ``specialized.tables``.
+    """
+    if not name:
+        return None
+    n_len = len(name)
+    n_row_pos = 0
+    while n_row_pos < n_len:
+        ch = name[n_row_pos]
+        if "0" <= ch <= "9":
+            break
+        n_row_pos += 1
+    if n_row_pos <= 0 or n_row_pos >= n_len:
+        return None
+    n_col_idx = 0
+    for i in range(n_row_pos):
+        n_col_idx *= 52
+        if i < n_row_pos - 1:
+            n_col_idx += 1
+        c_char = name[i]
+        if "A" <= c_char <= "Z":
+            n_col_idx += ord(c_char) - ord("A")
+        elif "a" <= c_char <= "z":
+            n_col_idx += 26 + ord(c_char) - ord("a")
+        else:
+            return None
+    n_digits_end = n_row_pos
+    while n_digits_end < n_len and "0" <= name[n_digits_end] <= "9":
+        n_digits_end += 1
+    if n_digits_end == n_row_pos:
+        return None
+    n_row = int(name[n_row_pos:n_digits_end]) - 1
+    if n_row < 0 or n_col_idx < 0:
+        return None
+    return n_col_idx, n_row
+
+
+def _writer_table_copy_layout(table):
+    """Dest initialize size and named cells so HTML copy does not drop D2.
+
+    Dest rows/cols are the max of ``getRows()``/``getColumns()`` and the Writer
+    name coordinates. Split-cell suffixes (``A1.1.1``) map to the parent box
+    and must not inflate dest size. The parser is not used to rebuild a
+    read-path matrix.
+    """
+    try:
+        rows = int(table.getRows().getCount())
+        cols = int(table.getColumns().getCount())
+    except Exception:
+        rows, cols = 0, 0
+    try:
+        names = list(table.getCellNames() or ())
+    except Exception:
+        names = []
+    max_row = max(rows - 1, 0)
+    max_col = max(cols - 1, 0)
+    for cell_name in names:
+        pos = _writer_cell_position(cell_name)
+        if pos is None:
+            continue
+        col_idx, row_idx = pos
+        if col_idx > max_col:
+            max_col = col_idx
+        if row_idx > max_row:
+            max_row = row_idx
+    return max_row + 1, max_col + 1, names
+
+
 def _copy_table(src_doc, src_table, dest_doc, dest_text=None):
     """Recreate *src_table* in *dest_text* (document body if omitted).
 
@@ -609,8 +689,6 @@ def _copy_table(src_doc, src_table, dest_doc, dest_text=None):
     first-row box count and can be 1) still copies D2. Dest is sized to the
     max Writer name coordinate so those names exist; merges are not recreated.
     """
-    from plugin.writer.specialized.tables import _writer_table_copy_layout
-
     try:
         dest_rows, dest_cols, names = _writer_table_copy_layout(src_table)
     except Exception:

@@ -21,8 +21,8 @@ from plugin.writer.specialized.tables import (
     _hosted_in_band,
     _unknown_cell_message,
     _writer_cell_position,
-    _writer_table_copy_layout,
 )
+from plugin.writer.html_export import _writer_table_copy_layout
 
 # 5×4 table after merge A1:D1: covered B1/C1/D1 drop; D2 remains (20 − 3 = 17).
 _MERGED_BANNER_NAMES = ["A1"] + [
@@ -582,6 +582,10 @@ def test_writer_cell_position_matches_get_cell_position():
     assert _writer_cell_position("a1") == (26, 0)
     assert _writer_cell_position("AA1") == (52, 0)
     assert _writer_cell_position("D2") == (3, 1)
+    assert _writer_cell_position("A10") == (0, 9)
+    # o3tl::toInt32 stops at the first non-digit: split cell A1.1.1 is row 0.
+    assert _writer_cell_position("A1.1.1") == (0, 0)
+    assert _writer_cell_position("D2.1") == (3, 1)
     assert parse_a1("AA1") == (26, 0)
     assert parse_a1("a1") == (0, 0)
     assert _writer_cell_position("") is None
@@ -599,6 +603,14 @@ def test_writer_table_copy_layout_keeps_d2():
     dest_rows, dest_cols, names = _writer_table_copy_layout(t)
     assert dest_rows == 5 and dest_cols == 4
     assert "D2" in names and "B1" not in names
+
+
+def test_writer_table_copy_layout_ignores_split_suffix_for_size():
+    """A1.1.1 is the same band as A1 — dest must not grow from the suffix."""
+    t = FakeTable(5, 1, cell_names=_MERGED_BANNER_NAMES + ["A1.1.1"])
+    dest_rows, dest_cols, names = _writer_table_copy_layout(t)
+    assert dest_rows == 5 and dest_cols == 4
+    assert "A1.1.1" in names
 
 
 def test_copy_table_copies_merged_d2_by_name():
@@ -668,6 +680,19 @@ def test_hosted_in_band_scans_named_cells_not_range_cols():
     assert _hosted_in_band(parent, "row", 0) == []
     assert _hosted_in_band(parent, "column", 3) == ["Child"]
     assert _hosted_in_band(parent, "column", 0) == []
+
+
+def test_hosted_in_band_sees_nest_in_split_cell_name():
+    """int() on A1.1.1 used to return None and skip the nest."""
+    parent = FakeParentTable(
+        2,
+        2,
+        cell_names=["A1", "A1.1.1", "B1", "A2", "B2"],
+        nested_by_cell={"A1.1.1": [FakeTextTableElement("Child")]},
+    )
+    assert _hosted_in_band(parent, "row", 0) == ["Child"]
+    assert _hosted_in_band(parent, "column", 0) == ["Child"]
+    assert _hosted_in_band(parent, "row", 1) == []
 
 
 def test_delete_last_column_guard():

@@ -10,6 +10,7 @@ Writer: named text tables (table_list / getCellByName). Draw: TableShape on a pa
 import logging
 from typing import Any
 
+from ..html_export import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase
 
 log = logging.getLogger("writeragent.writer.specialized.tables")
@@ -84,50 +85,6 @@ def _resolve_cell_name(table: Any, raw: str) -> str | None:
     if up in names:
         return up
     return None
-
-
-def _writer_cell_position(name: str) -> tuple[int, int] | None:
-    """Parse a Writer cell name the way ``SwXTextTable::GetCellPosition`` does.
-
-    Writer letters are base 52 (A–Z, a–z, then AA…). Spreadsheet ``parse_a1``
-    uppercases and treats AA as column 26; do not use it here. This parser is
-    for the delete-guard / HTML-copy band only — not to rebuild a read matrix.
-
-    LibreOffice: ``sw/source/core/unocore/unotbl.cxx`` ``GetCellPosition``.
-    That comment says the coordinate math is for tables where
-    ``IsTableComplex()`` is false; we still use it only to ask "is this name
-    on the row/column about to be deleted?"
-    """
-    if not name:
-        return None
-    n_len = len(name)
-    n_row_pos = 0
-    while n_row_pos < n_len:
-        ch = name[n_row_pos]
-        if "0" <= ch <= "9":
-            break
-        n_row_pos += 1
-    if n_row_pos <= 0 or n_row_pos >= n_len:
-        return None
-    n_col_idx = 0
-    for i in range(n_row_pos):
-        n_col_idx *= 52
-        if i < n_row_pos - 1:
-            n_col_idx += 1
-        c_char = name[i]
-        if "A" <= c_char <= "Z":
-            n_col_idx += ord(c_char) - ord("A")
-        elif "a" <= c_char <= "z":
-            n_col_idx += 26 + ord(c_char) - ord("a")
-        else:
-            return None
-    try:
-        n_row = int(name[n_row_pos:]) - 1
-    except ValueError:
-        return None
-    if n_row < 0 or n_col_idx < 0:
-        return None
-    return n_col_idx, n_row
 
 
 def _writer_named_cells(table: Any) -> list[str]:
@@ -547,7 +504,8 @@ class TableGetCells(ToolWriterTableBase):
     description = (
         "Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). "
         "Empty string is an empty cell; a missing name is not a cell. "
-        "rows and cols can be smaller than the real grid when cells are merged — follow cells. "
+        "Writer: rows and cols can be smaller than the real grid when cells are merged — follow cells. "
+        "Draw/Impress: read matrix; when cell is set, matrix is that one cell only. "
         "Optional cell reads one address (Writer via getCellNames, Draw via A1). "
         "Writer host cells that contain nested tables return only the host cell's own paragraphs; "
         "nested_in_cells names those cells. "

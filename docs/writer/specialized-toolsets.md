@@ -317,7 +317,7 @@ host cells that contain nested tables). `table_list` also reports `cell_count`
 (`len(getCellNames())`); if that is not `rows * cols`, the table is not a rectangle — read
 `table_get_cells` `cells`. Writer `table_get_cells` returns `cells` and `cell_names` (no
 `matrix`); empty string is an empty cell and a missing name is not a cell. Optional `cell=`
-reads one address. Host slots are the host cell's own paragraphs, not concatenated
+reads one address (Draw: `matrix` is that one cell). Host slots are the host cell's own paragraphs, not concatenated
 inner-table text. `table_set_cell` on a host cell rewrites those paragraph siblings and
 keeps the nested table (`setString` would destroy it). `manage_table_structure` delete
 refuses a host row/column (scans `getCellNames()`, not `range(cols)`). `table_insert` with
@@ -441,7 +441,8 @@ Create/delete of nested `TextTable`s is implemented (`table_insert` with `parent
 - **HTML export copies nested `TextTable`s.** `_copy_cell_xtext` in
   [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py) recreates an
   in-cell table via `_copy_table(..., dest_text=dest_cell)` and recurses. Copy walks
-  `getCellNames()` so a merged first row does not drop later cells such as D2. Images in
+  `getCellNames()` so a merged first row does not drop later cells such as D2 (layout
+  helper stays in this shipped file, not `specialized.tables`). Images in
   cells are still not copied there.
 - **`apply_document_content` refuses a host-cell wipe.** Search/replace and selection
   clear raise if the range lives in a cell that hosts a nested table. Use
