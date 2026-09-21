@@ -101,28 +101,6 @@ def _writer_named_cells(table: Any) -> list[str]:
     return list(names or ())
 
 
-def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:  # pyright: ignore[reportUnusedFunction]  # html_export._copy_table + unit tests
-    """Dest initialize size and named cells so HTML copy does not drop D2.
-
-    Dest rows/cols are the max of ``getRows()``/``getColumns()`` and the Writer
-    name coordinates. The parser is not used to rebuild a read-path matrix.
-    """
-    rows, cols = _dims(table)
-    names = _writer_named_cells(table)
-    max_row = max(rows - 1, 0)
-    max_col = max(cols - 1, 0)
-    for cell_name in names:
-        pos = _writer_cell_position(cell_name)
-        if pos is None:
-            continue
-        col_idx, row_idx = pos
-        if col_idx > max_col:
-            max_col = col_idx
-        if row_idx > max_row:
-            max_row = row_idx
-    return max_row + 1, max_col + 1, names
-
-
 def _cells_sample(names: list[str]) -> str:
     """Short listing for the shared 'Its cells are: …' error (set/insert/get)."""
     if not names:
