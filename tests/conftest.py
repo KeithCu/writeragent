@@ -4,6 +4,7 @@ import os
 os.environ.setdefault("WRITERAGENT_UNO_THREAD_GUARD", "0")
 
 import sys
+import time
 import types
 from unittest.mock import MagicMock, patch
 
@@ -337,6 +338,33 @@ def _repo_magic_mock_dir() -> str:
 
 
 _pytest_progress_done = 0
+_pytest_progress_last_nodeid = ""
+_pytest_progress_last_emit = 0.0
+_pytest_progress_stop = None
+_pytest_progress_thread = None
+
+# After 7800 the next multiple of 100 is 8000, but GHA collects ~7988 items.
+# PR #823 (35666812986) printed ``pytest: 7900`` / 99% then 50–80s of silence
+# and Make got SIGTERM — remaining tests were still running (dots flushed
+# after Terminated). Green master finishes that tail in ~17s; +27 table
+# tests stretched it past whatever cancelled the quiet log.
+_PYTEST_PROGRESS_TAIL_AFTER = 7800
+_PYTEST_PROGRESS_IDLE_SEC = 15.0
+
+
+def should_emit_pytest_progress_count(done: int, *, failed: bool = False) -> bool:
+    """When to print a ``pytest: N`` count heartbeat.
+
+    Every 100 keeps the log small. After ``_PYTEST_PROGRESS_TAIL_AFTER`` also
+    emit every 10 so the last 1% is not a silent gap.
+    """
+    if failed:
+        return True
+    if done <= 0:
+        return False
+    if done % 100 == 0:
+        return True
+    return done >= _PYTEST_PROGRESS_TAIL_AFTER and done % 10 == 0
 
 
 def _emit_make_pytest_progress(msg: str) -> None:
@@ -345,14 +373,57 @@ def _emit_make_pytest_progress(msg: str) -> None:
     Prefix a newline so the message is not glued onto a row of unwrapped dots
     when stdout and stderr are merged (Make ``2>&1``, some IDE captures).
     """
+    global _pytest_progress_last_emit
     sys.stderr.write("\n" + msg + "\n")
     sys.stderr.flush()
+    _pytest_progress_last_emit = time.monotonic()
 
 
 def _make_pytest_progress_enabled() -> bool:
     return os.environ.get("WRITERAGENT_PYTEST_PROGRESS") == "1" and not os.environ.get(
         "PYTEST_XDIST_WORKER"
     )
+
+
+def _idle_pytest_progress_loop() -> None:
+    """Re-announce the last count if the tail goes quiet (one slow leftover test)."""
+    stop = _pytest_progress_stop
+    if stop is None:
+        return
+    while not stop.wait(_PYTEST_PROGRESS_IDLE_SEC):
+        done = _pytest_progress_done
+        nodeid = _pytest_progress_last_nodeid
+        last = _pytest_progress_last_emit
+        if done and (time.monotonic() - last) >= _PYTEST_PROGRESS_IDLE_SEC:
+            _emit_make_pytest_progress(
+                f"pytest: {done} still-running last={nodeid or '-'}"
+            )
+
+
+def _start_idle_pytest_progress() -> None:
+    global _pytest_progress_stop, _pytest_progress_thread
+    import threading
+
+    _stop_idle_pytest_progress()
+    _pytest_progress_stop = threading.Event()
+    _pytest_progress_thread = threading.Thread(
+        target=_idle_pytest_progress_loop,
+        name="pytest-progress-idle",
+        daemon=True,
+    )
+    _pytest_progress_thread.start()
+
+
+def _stop_idle_pytest_progress() -> None:
+    global _pytest_progress_stop, _pytest_progress_thread
+    stop = _pytest_progress_stop
+    if stop is not None:
+        stop.set()
+    thread = _pytest_progress_thread
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=1.0)
+    _pytest_progress_stop = None
+    _pytest_progress_thread = None
 
 
 def pytest_configure(config):
@@ -366,6 +437,15 @@ def pytest_runtest_logstart(nodeid, location):
     from tests.ci_debug import log_ci_debug
 
     log_ci_debug(f"start {nodeid}")
+    global _pytest_progress_last_nodeid
+    if _make_pytest_progress_enabled():
+        _pytest_progress_last_nodeid = nodeid
+        # Name the leftover tests so a 50s tail after ``pytest: 7900`` is
+        # not an empty log (PR #823 cancelled runs).
+        if _pytest_progress_done >= _PYTEST_PROGRESS_TAIL_AFTER:
+            _emit_make_pytest_progress(
+                f"pytest: {_pytest_progress_done} running {nodeid}"
+            )
 
 
 def pytest_runtest_logfinish(nodeid, location):
@@ -386,9 +466,11 @@ def pytest_sessionstart(session):
     import shutil
 
     if _make_pytest_progress_enabled():
-        global _pytest_progress_done
+        global _pytest_progress_done, _pytest_progress_last_nodeid
         _pytest_progress_done = 0
+        _pytest_progress_last_nodeid = ""
         _emit_make_pytest_progress("pytest: starting (workers collecting…)")
+        _start_idle_pytest_progress()
     magic_mock_dir = _repo_magic_mock_dir()
     if os.path.isdir(magic_mock_dir):
         shutil.rmtree(magic_mock_dir, ignore_errors=True)
@@ -401,14 +483,20 @@ def pytest_collection_finish(session):
 
 def pytest_runtest_logreport(report):
     """Heartbeat while xdist runs: dots/percent live on one \\r line and never appear under Make."""
-    global _pytest_progress_done
+    global _pytest_progress_done, _pytest_progress_last_nodeid
     if not _make_pytest_progress_enabled():
         return
     if getattr(report, "when", None) != "call":
         return
     _pytest_progress_done += 1
-    if report.failed or _pytest_progress_done % 100 == 0:
-        suffix = f" FAIL {report.nodeid}" if report.failed else ""
+    _pytest_progress_last_nodeid = report.nodeid
+    if should_emit_pytest_progress_count(_pytest_progress_done, failed=bool(report.failed)):
+        if report.failed:
+            suffix = f" FAIL {report.nodeid}"
+        elif _pytest_progress_done % 100 == 0:
+            suffix = ""
+        else:
+            suffix = f" last={report.nodeid}"
         _emit_make_pytest_progress(f"pytest: {_pytest_progress_done}{suffix}")
 
 
@@ -437,6 +525,11 @@ def pytest_sessionfinish(session, exitstatus):
     _shutdown_harper_if_loaded()
     if _is_xdist_worker(session):
         return
+    if _make_pytest_progress_enabled():
+        _stop_idle_pytest_progress()
+        _emit_make_pytest_progress(
+            f"pytest: done {_pytest_progress_done} exit={exitstatus}"
+        )
     if os.path.isdir(_repo_magic_mock_dir()):
         session.exitstatus = 1
         reporter = session.config.pluginmanager.get_plugin("terminalreporter")
