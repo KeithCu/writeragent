@@ -6,11 +6,13 @@ from unittest.mock import MagicMock, patch
 from plugin.draw.tables import (
     delete_draw_table,
     fill_table_cells,
+    get_draw_cell,
     insert_draw_table,
+    list_draw_tables,
     parse_a1,
     _ensure_table_dims,
 )
-from plugin.writer.specialized.tables import TableDelete, TableInsert
+from plugin.writer.specialized.tables import TableDelete, TableGetCells, TableInsert
 
 
 class _Cell:
@@ -19,6 +21,9 @@ class _Cell:
 
     def getText(self):
         return self
+
+    def getString(self):
+        return self._s
 
     def setString(self, val):
         self._s = val
@@ -70,6 +75,36 @@ def test_fill_table_cells():
     assert n == 4
     assert table.cells[(0, 0)]._s == "a"
     assert table.cells[(1, 1)]._s == "d"
+
+
+def test_list_draw_tables_includes_cell_count():
+    with patch(
+        "plugin.draw.tables.iter_table_shapes",
+        return_value=[
+            {"name": "T", "rows": 2, "cols": 3, "page": 0, "index": 1, "shape": None, "model": None}
+        ],
+    ):
+        out = list_draw_tables(object())
+    assert out == [{"name": "T", "rows": 2, "cols": 3, "cell_count": 6, "page": 0, "index": 1}]
+
+
+def test_get_draw_cell_parse_a1():
+    table = _Table(2, 3)
+    table.getCellByPosition(1, 1)._s = "hello"
+    assert get_draw_cell({"model": table, "rows": 2, "cols": 3}, "B2") == "hello"
+
+
+def test_table_get_cells_draw_honors_cell():
+    ctx = MagicMock()
+    entry = {"name": "Fees", "page": 0, "index": 1, "rows": 2, "cols": 3, "model": object()}
+    with patch("plugin.writer.specialized.tables._is_draw_doc", return_value=True):
+        with patch("plugin.draw.tables.resolve_draw_table", return_value=entry):
+            with patch("plugin.draw.tables.get_draw_cell", return_value="hello") as get_one:
+                out = TableGetCells().execute(ctx, name="Fees", cell="B2")
+    assert out["status"] == "ok"
+    assert out["matrix"] == [["hello"]]
+    assert out["cell"] == "B2"
+    get_one.assert_called_once()
 
 
 def test_parse_a1_valid():

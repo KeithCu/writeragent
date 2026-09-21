@@ -1128,16 +1128,16 @@ class _TableProxy:
         """Delete a table by name."""
         return _rpc_call("table_delete", name=name, page=page, index=index)
 
-    def get_cells(self, *, name: str | None = None, page: int | None = None, index: int | None = None) -> dict:
-        """Return a table's cell text as a row-major matrix (matrix[row][col]) by position — not by cell name."""
-        return _rpc_call("table_get_cells", name=name, page=page, index=index)
+    def get_cells(self, *, name: str | None = None, cell: str | None = None, page: int | None = None, index: int | None = None) -> dict:
+        """Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position)."""
+        return _rpc_call("table_get_cells", name=name, cell=cell, page=page, index=index)
 
     def insert(self, rows: int, columns: int, *, data: list | None = None, parent: str | None = None, cell: str | None = None, page: int | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None) -> dict:
         """Insert a table."""
         return _rpc_call("table_insert", rows=rows, columns=columns, data=data, parent=parent, cell=cell, page=page, x=x, y=y, width=width, height=height)
 
     def list(self) -> dict:
-        """List tables with name and dimensions (rows x columns)."""
+        """List tables with name, rows, cols, and cell_count."""
         return _rpc_call("table_list")
 
     def manage_table_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> dict:

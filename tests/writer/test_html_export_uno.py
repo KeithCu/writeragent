@@ -88,13 +88,53 @@ def test_copy_xtext_keeps_nested_text_table_uno(ctx: Any, doc: Any) -> None:
         assert hosted, listed
         nested_name = next(iter(hosted.values()))[0]
         cells = TableGetCells().execute(tool_ctx, name=nested_name)
-        assert cells["matrix"][0][0] == "NEST_A"
-        assert cells["matrix"][0][1] == "NEST_B"
+        assert cells["cells"]["A1"] == "NEST_A"
+        assert cells["cells"]["B1"] == "NEST_B"
         parent_name = next(
             t["name"] for t in listed["tables"] if t.get("nested_in_cells")
         )
         parent_cells = TableGetCells().execute(tool_ctx, name=parent_name)
-        assert "EXPORT_CAPTION" in (parent_cells["matrix"][1][1] or "")
+        assert "EXPORT_CAPTION" in (parent_cells["cells"].get("B2") or "")
+    finally:
+        if temp_doc is not None:
+            try:
+                temp_doc.close(True)
+            except Exception:
+                pass
+
+
+@native_test
+@with_native_doc("writer")
+def test_copy_table_keeps_merged_banner_d2_uno(ctx: Any, doc: Any) -> None:
+    """HTML copy used range(cols); after A1:D1 merge that dropped D2."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    text = doc.getText()
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(5, 4)
+    text.insertTextContent(text.getEnd(), table, False)
+    table.setName("ExportMerged")
+    table.getCellByName("A1").setString("Title")
+    cursor = table.createCursorByCellName("A1")
+    cursor.gotoCellByName("D1", True)
+    cursor.mergeRange()
+    table.getCellByName("D2").setString("Telèfon responsable")
+
+    from plugin.writer.html_export import _copy_xtext_into_doc, _open_hidden_writer
+    from plugin.writer.specialized.tables import TableGetCells, TableList
+    from plugin.tests.testing_utils import TestingFactory
+
+    temp_doc = None
+    try:
+        temp_doc = _open_hidden_writer(ctx)
+        _copy_xtext_into_doc(doc, doc.getText(), temp_doc)
+        tool_ctx = TestingFactory.create_context(doc=temp_doc, ctx=ctx, env="native")
+        listed = TableList().execute(tool_ctx)
+        assert listed.get("status") == "ok", listed
+        assert listed["count"] >= 1, listed
+        dest_name = listed["tables"][0]["name"]
+        cells = TableGetCells().execute(tool_ctx, name=dest_name)
+        assert cells.get("status") == "ok", cells
+        assert cells["cells"].get("D2") == "Telèfon responsable", cells
     finally:
         if temp_doc is not None:
             try:

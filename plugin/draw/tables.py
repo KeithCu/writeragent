@@ -177,7 +177,21 @@ def resolve_draw_table(doc, *, name: str = "", page=None, index=None) -> dict[st
 
 
 def list_draw_tables(doc) -> list[dict[str, Any]]:
-    return [{k: t[k] for k in ("name", "rows", "cols", "page", "index")} for t in iter_table_shapes(doc)]
+    out: list[dict[str, Any]] = []
+    for t in iter_table_shapes(doc):
+        rows = int(t["rows"] or 0)
+        cols = int(t["cols"] or 0)
+        out.append(
+            {
+                "name": t["name"],
+                "rows": t["rows"],
+                "cols": t["cols"],
+                "cell_count": rows * cols,
+                "page": t["page"],
+                "index": t["index"],
+            }
+        )
+    return out
 
 
 def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
@@ -195,6 +209,21 @@ def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
                 row.append("")
         matrix.append(row)
     return matrix
+
+
+def get_draw_cell(entry: dict[str, Any], cell_raw: str) -> str:
+    """One Draw cell by spreadsheet A1 (``parse_a1``). Shared schema with Writer ``cell=``."""
+    model = entry.get("model")
+    if model is None:
+        raise ValueError("Table cell model is unavailable.")
+    parsed = parse_a1(cell_raw)
+    if parsed is None:
+        raise ValueError("Cell '%s' is not A1-style (e.g. B2)." % cell_raw)
+    col, row = parsed
+    nrows, ncols = _model_dims(model)
+    if col < 0 or row < 0 or col >= ncols or row >= nrows:
+        raise ValueError("Cell '%s' out of range (%s rows x %s cols)." % (cell_raw, nrows, ncols))
+    return _cell_string(model.getCellByPosition(col, row))
 
 
 def set_draw_cell(entry: dict[str, Any], cell_raw: str, text: str) -> tuple[str, str]:

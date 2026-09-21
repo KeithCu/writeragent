@@ -18,7 +18,16 @@ from plugin.writer.specialized.tables import (
     TableSetCell,
     _cell_name,
     _col_letters,
+    _hosted_in_band,
+    _unknown_cell_message,
+    _writer_cell_position,
+    _writer_table_copy_layout,
 )
+
+# 5×4 table after merge A1:D1: covered B1/C1/D1 drop; D2 remains (20 − 3 = 17).
+_MERGED_BANNER_NAMES = ["A1"] + [
+    "%s%d" % (col, row) for row in range(2, 6) for col in "ABCD"
+]
 
 
 class FakeBand:
@@ -40,12 +49,14 @@ class FakeBand:
 
 
 class FakeTable:
-    def __init__(self, rows, cols, cells=None, name="T", anchor_text=None):
+    def __init__(self, rows, cols, cells=None, name="T", anchor_text=None, cell_names=None):
         self._rows = FakeBand(rows)
         self._cols = FakeBand(cols)
         self._cells = cells or {}
         self._name = name
         self._anchor_text = anchor_text
+        # When set, do not invent a full rectangle — merged/covered names stay absent.
+        self._explicit_names = cell_names
 
     def getName(self):
         return self._name
@@ -66,12 +77,16 @@ class FakeTable:
         return self._cols
 
     def getCellNames(self):
+        if self._explicit_names is not None:
+            return list(self._explicit_names)
         return [
             "%s%d" % (chr(ord("A") + c), r + 1)
             for r in range(self._rows.n) for c in range(self._cols.n)
         ]
 
     def getCellByName(self, name):
+        if self._explicit_names is not None and name not in self._explicit_names:
+            raise RuntimeError("no cell %s" % name)
         return SimpleNamespace(
             getString=lambda: self._cells.get(name, ""),
             setString=lambda v: self._cells.__setitem__(name, v),
@@ -155,8 +170,8 @@ class FakeTextFrame:
 
 
 class FakeParentTable(FakeTable):
-    def __init__(self, rows, cols, cells=None, nested_by_cell=None, name="Parent"):
-        super().__init__(rows, cols, cells=cells, name=name)
+    def __init__(self, rows, cols, cells=None, nested_by_cell=None, name="Parent", cell_names=None):
+        super().__init__(rows, cols, cells=cells, name=name, cell_names=cell_names)
         self._nested_by_cell = nested_by_cell or {}
         self.cell_inserts = []
         self.cell_removes = []
@@ -273,14 +288,63 @@ def test_cell_name_math():
 def test_list_tables():
     res = TableList().execute(_ctx({"Table1": FakeTable(2, 3), "Fees": FakeTable(5, 2)}))
     assert res["status"] == "ok" and res["count"] == 2
-    by = {t["name"]: (t["rows"], t["cols"]) for t in res["tables"]}
-    assert by["Table1"] == (2, 3) and by["Fees"] == (5, 2)
+    by = {t["name"]: (t["rows"], t["cols"], t["cell_count"]) for t in res["tables"]}
+    assert by["Table1"] == (2, 3, 6) and by["Fees"] == (5, 2, 10)
 
 
-def test_get_table_cells_matrix():
+def test_list_tables_cell_count_for_merged_layout():
+    t = FakeTable(5, 1, cell_names=_MERGED_BANNER_NAMES)
+    res = TableList().execute(_ctx({"T": t}))
+    assert res["status"] == "ok"
+    assert res["tables"][0]["rows"] == 5
+    assert res["tables"][0]["cols"] == 1
+    assert res["tables"][0]["cell_count"] == 17
+    assert res["tables"][0]["cell_count"] != 5 * 1
+
+
+def test_get_table_cells_writer_name_map_no_matrix():
     t = FakeTable(2, 2, cells={"A1": "x", "B1": "y", "A2": "z", "B2": "w"})
     res = TableGetCells().execute(_ctx({"T": t}), name="T")
-    assert res["matrix"] == [["x", "y"], ["z", "w"]]
+    assert res["status"] == "ok"
+    assert "matrix" not in res
+    assert res["cells"] == {"A1": "x", "B1": "y", "A2": "z", "B2": "w"}
+    assert res["cell_names"] == ["A1", "B1", "A2", "B2"]
+
+
+def test_get_table_cells_merged_layout_has_d2_omits_b1_no_matrix():
+    t = FakeTable(
+        5,
+        1,
+        cells={"A1": "Title", "D2": "Telèfon responsable", "A2": ""},
+        cell_names=_MERGED_BANNER_NAMES,
+    )
+    res = TableGetCells().execute(_ctx({"T": t}), name="T")
+    assert res["status"] == "ok"
+    assert "matrix" not in res
+    assert res["rows"] == 5 and res["cols"] == 1
+    assert "D2" in res["cell_names"]
+    assert res["cells"]["D2"] == "Telèfon responsable"
+    assert res["cells"]["A2"] == ""
+    assert "B1" not in res["cells"]
+    assert "B1" not in res["cell_names"]
+
+
+def test_get_table_cells_optional_cell_one_address():
+    t = FakeTable(
+        5,
+        1,
+        cells={"A1": "Title", "D2": "Telèfon responsable"},
+        cell_names=_MERGED_BANNER_NAMES,
+    )
+    res = TableGetCells().execute(_ctx({"T": t}), name="T", cell="D2")
+    assert res["status"] == "ok"
+    assert res["cell"] == "D2"
+    assert res["cells"] == {"D2": "Telèfon responsable"}
+    assert res["cell_names"] == ["D2"]
+    assert "matrix" not in res
+    missing = TableGetCells().execute(_ctx({"T": t}), name="T", cell="B1")
+    assert missing["status"] == "error" and "Its cells are:" in missing["message"]
+    assert "D2" in missing["message"]
 
 
 def test_get_table_cells_reports_direct_nested_parent():
@@ -291,7 +355,8 @@ def test_get_table_cells_reports_direct_nested_parent():
         nested_by_cell={"B2": [FakeTextTableElement("Child")]},
     )
     res = TableGetCells().execute(_ctx({"Parent": parent, "Child": child}), name="Child")
-    assert res["matrix"] == [["nested-alpha"]]
+    assert res["cells"] == {"A1": "nested-alpha"}
+    assert "matrix" not in res
     assert res["nesting"] == {
         "is_nested": True,
         "parent_table": "Parent",
@@ -303,7 +368,8 @@ def test_get_table_cells_reports_direct_nested_parent():
 def test_get_table_cells_reports_top_level_table_as_not_nested():
     standalone = FakeTable(1, 1, cells={"A1": "standalone-alpha"})
     res = TableGetCells().execute(_ctx({"Standalone": standalone}), name="Standalone")
-    assert res["matrix"] == [["standalone-alpha"]]
+    assert res["cells"] == {"A1": "standalone-alpha"}
+    assert "matrix" not in res
     assert res["nesting"] == {
         "is_nested": False,
         "parent_table": None,
@@ -340,11 +406,12 @@ def test_get_table_cells_parent_reports_nested_in_cells():
     assert res["nesting"]["is_nested"] is False
     assert res["nested_in_cells"] == {"B2": ["Child"]}
     # Host slot is host paragraphs only — not the child's getString() dump.
-    assert res["matrix"][1][1] == ""
+    assert res["cells"]["B2"] == ""
+    assert "matrix" not in res
 
 
-def test_get_table_cells_host_matrix_is_paragraph_siblings_only():
-    """getString() on a host cell concatenates inner-table text; matrix must not."""
+def test_get_table_cells_host_text_is_paragraph_siblings_only():
+    """getString() on a host cell concatenates inner-table text; cells must not."""
     child = FakeTable(1, 1, cells={"A1": "INNER"})
     parent = FakeParentTable(
         2, 2,
@@ -353,8 +420,9 @@ def test_get_table_cells_host_matrix_is_paragraph_siblings_only():
     )
     res = TableGetCells().execute(_ctx({"Parent": parent, "Child": child}), name="Parent")
     assert res["status"] == "ok"
-    assert res["matrix"][1][1] == "CAPTION"
-    assert "INNER" not in res["matrix"][1][1]
+    assert res["cells"]["B2"] == "CAPTION"
+    assert "INNER" not in res["cells"]["B2"]
+    assert "matrix" not in res
 
 
 def test_get_table_cells_reports_table_inside_frame_portion_as_nested():
@@ -505,28 +573,101 @@ def test_set_table_cell_never_blind_uppercases_real_lowercase_names():
     assert t._cells["a1"] == "new" and t._cells["A1"] == "first"  # A1 untouched
 
 
-def test_get_table_cells_prefers_position_access():
-    """Position-based reads are naming-scheme-proof; the computed-name fallback only runs when
-    getCellByPosition is unavailable."""
-    t = FakeTable(1, 1, cells={"A1": "by-name"})
-    t.getCellByPosition = lambda c, r: SimpleNamespace(getString=lambda: "by-position")
-    res = TableGetCells().execute(_ctx({"T": t}), name="T")
-    assert res["matrix"] == [["by-position"]]
+def test_writer_cell_position_matches_get_cell_position():
+    """A, Z, a, AA — Writer base 52, not spreadsheet parse_a1."""
+    from plugin.draw.tables import parse_a1
+
+    assert _writer_cell_position("A1") == (0, 0)
+    assert _writer_cell_position("Z1") == (25, 0)
+    assert _writer_cell_position("a1") == (26, 0)
+    assert _writer_cell_position("AA1") == (52, 0)
+    assert _writer_cell_position("D2") == (3, 1)
+    assert parse_a1("AA1") == (26, 0)
+    assert parse_a1("a1") == (0, 0)
+    assert _writer_cell_position("") is None
+    assert _writer_cell_position("1A") is None
 
 
-def test_get_table_cells_covered_cell_blank():
-    """A merged/covered cell has no addressable name: both access paths fail -> ''."""
-    t = FakeTable(1, 2, cells={"A1": "x"})
-    real_get = t.getCellByName
+def test_unknown_cell_message_shared_sample():
+    names = ["A1", "A2", "B2", "C2", "D2", "A3", "B3", "C3", "D3"]
+    msg = _unknown_cell_message("B1", "T", names)
+    assert "Its cells are:" in msg and "A1" in msg and "D3" in msg
 
-    def get_by_name(name):
-        if name == "B1":
-            raise RuntimeError("covered cell")
-        return real_get(name)
 
-    t.getCellByName = get_by_name
-    res = TableGetCells().execute(_ctx({"T": t}), name="T")
-    assert res["matrix"] == [["x", ""]]
+def test_writer_table_copy_layout_keeps_d2():
+    t = FakeTable(5, 1, cell_names=_MERGED_BANNER_NAMES)
+    dest_rows, dest_cols, names = _writer_table_copy_layout(t)
+    assert dest_rows == 5 and dest_cols == 4
+    assert "D2" in names and "B1" not in names
+
+
+def test_copy_table_copies_merged_d2_by_name():
+    """HTML copy must walk getCellNames(); range(cols) on cols=1 used to drop D2."""
+    from plugin.writer.html_export import _copy_table
+
+    src = FakeTable(
+        5,
+        1,
+        cells={"A1": "Title", "D2": "Telèfon responsable"},
+        cell_names=_MERGED_BANNER_NAMES,
+    )
+    written = {}
+
+    class DestCell:
+        def __init__(self, name):
+            self._name = name
+
+        def setString(self, value):
+            written[self._name] = value
+
+        def createTextCursor(self):
+            return SimpleNamespace(gotoStart=lambda unused_expand: None)
+
+        def createEnumeration(self):
+            raise RuntimeError("no enum")
+
+        def getString(self):
+            return written.get(self._name, "")
+
+    class DestTable:
+        def initialize(self, rows, cols):
+            self.rows = rows
+            self.cols = cols
+
+        def getCellByName(self, name):
+            return DestCell(name)
+
+        def getCellByPosition(self, col, row):
+            raise AssertionError("position walk must not run when names exist")
+
+    dest_table = DestTable()
+
+    def no_controller():
+        raise RuntimeError("no controller")
+
+    dest_doc = SimpleNamespace(
+        createInstance=lambda unused_service: dest_table,
+        getText=lambda: FakeBodyText(),
+        getCurrentController=no_controller,
+    )
+    _copy_table(None, src, dest_doc)
+    assert dest_table.rows == 5 and dest_table.cols == 4
+    assert written.get("D2") == "Telèfon responsable"
+    assert "B1" not in written
+
+
+def test_hosted_in_band_scans_named_cells_not_range_cols():
+    """Old range(cols) on a cols=1 merged table would inspect A2 only and miss D2."""
+    parent = FakeParentTable(
+        5,
+        1,
+        cell_names=_MERGED_BANNER_NAMES,
+        nested_by_cell={"D2": [FakeTextTableElement("Child")]},
+    )
+    assert _hosted_in_band(parent, "row", 1) == ["Child"]
+    assert _hosted_in_band(parent, "row", 0) == []
+    assert _hosted_in_band(parent, "column", 3) == ["Child"]
+    assert _hosted_in_band(parent, "column", 0) == []
 
 
 def test_delete_last_column_guard():
@@ -549,6 +690,23 @@ def test_delete_row_refuses_nested_host():
     # The other row has no nested table — delete still works.
     ok = tool.execute(ctx, action="delete", axis="row", name="Parent", index=0)
     assert ok["status"] == "ok" and parent._rows.n == 1
+
+
+def test_delete_row_refuses_nested_host_in_merged_d2():
+    """cols=1 after A1:D1 merge; a nest in D2 must still refuse delete of that row."""
+    parent = FakeParentTable(
+        5,
+        1,
+        cell_names=_MERGED_BANNER_NAMES,
+        nested_by_cell={"D2": [FakeTextTableElement("Child")]},
+    )
+    child = FakeTable(1, 1)
+    ctx = _ctx({"Parent": parent, "Child": child})
+    res = ManageTableStructure().execute(
+        ctx, action="delete", axis="row", name="Parent", index=1
+    )
+    assert res["status"] == "error" and "Child" in res["message"]
+    assert parent._rows.n == 5
 
 
 def test_delete_row_refuses_nested_host_in_frame():
@@ -794,7 +952,8 @@ def test_table_tools_shortened_name_param():
     t = FakeTable(2, 2, cells={"A1": "val"})
     res_get = TableGetCells().execute(_ctx({"T": t}), name="T")
     assert res_get["status"] == "ok"
-    assert res_get["matrix"][0][0] == "val"
+    assert res_get["cells"]["A1"] == "val"
+    assert "matrix" not in res_get
 
     res_set = TableSetCell().execute(_ctx({"T": t}), name="T", cell="A1", text="new_val")
     assert res_set["status"] == "ok"

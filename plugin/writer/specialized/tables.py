@@ -52,9 +52,10 @@ def _dims(table: Any) -> tuple[int, int]:
 def _col_letters(col_idx: int) -> str:
     """0-based column index -> spreadsheet letters (0->A, 25->Z, 26->AA).
 
-    NOTE: Writer's OWN naming diverges past column Z (it continues with lowercase a..z, not AA),
-    so this is only used for the fallback read path and the <=26-column range hint. Reads prefer
-    getCellByPosition, and table_set_cell validates against the table's REAL getCellNames()."""
+    NOTE: Writer's OWN naming diverges past column Z (it continues with lowercase a..z, not AA).
+    Writer reads use getCellNames(); the delete-guard/HTML-copy parser is
+    ``_writer_cell_position``. Do not use these letters to rebuild a matrix.
+    """
     s = ""
     n = col_idx
     while True:
@@ -83,6 +84,103 @@ def _resolve_cell_name(table: Any, raw: str) -> str | None:
     if up in names:
         return up
     return None
+
+
+def _writer_cell_position(name: str) -> tuple[int, int] | None:
+    """Parse a Writer cell name the way ``SwXTextTable::GetCellPosition`` does.
+
+    Writer letters are base 52 (A–Z, a–z, then AA…). Spreadsheet ``parse_a1``
+    uppercases and treats AA as column 26; do not use it here. This parser is
+    for the delete-guard / HTML-copy band only — not to rebuild a read matrix.
+
+    LibreOffice: ``sw/source/core/unocore/unotbl.cxx`` ``GetCellPosition``.
+    That comment says the coordinate math is for tables where
+    ``IsTableComplex()`` is false; we still use it only to ask "is this name
+    on the row/column about to be deleted?"
+    """
+    if not name:
+        return None
+    n_len = len(name)
+    n_row_pos = 0
+    while n_row_pos < n_len:
+        ch = name[n_row_pos]
+        if "0" <= ch <= "9":
+            break
+        n_row_pos += 1
+    if n_row_pos <= 0 or n_row_pos >= n_len:
+        return None
+    n_col_idx = 0
+    for i in range(n_row_pos):
+        n_col_idx *= 52
+        if i < n_row_pos - 1:
+            n_col_idx += 1
+        c_char = name[i]
+        if "A" <= c_char <= "Z":
+            n_col_idx += ord(c_char) - ord("A")
+        elif "a" <= c_char <= "z":
+            n_col_idx += 26 + ord(c_char) - ord("a")
+        else:
+            return None
+    try:
+        n_row = int(name[n_row_pos:]) - 1
+    except ValueError:
+        return None
+    if n_row < 0 or n_col_idx < 0:
+        return None
+    return n_col_idx, n_row
+
+
+def _writer_named_cells(table: Any) -> list[str]:
+    """Address list from ``getCellNames()`` — not ``range(cols)`` from ``getColumns()``.
+
+    ``getColumns()`` is the first row's box count (``SwXTableColumns::getCount``;
+    the ``IsTableComplex`` guard above that return is commented out). After
+    merging A1:D1 on a 5×4 table it reports 1, so ``range(cols)`` skipped D2.
+    """
+    try:
+        names = table.getCellNames()
+    except Exception:
+        return []
+    return list(names or ())
+
+
+def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
+    """Dest initialize size and named cells so HTML copy does not drop D2.
+
+    Dest rows/cols are the max of ``getRows()``/``getColumns()`` and the Writer
+    name coordinates. The parser is not used to rebuild a read-path matrix.
+    """
+    rows, cols = _dims(table)
+    names = _writer_named_cells(table)
+    max_row = max(rows - 1, 0)
+    max_col = max(cols - 1, 0)
+    for cell_name in names:
+        pos = _writer_cell_position(cell_name)
+        if pos is None:
+            continue
+        col_idx, row_idx = pos
+        if col_idx > max_col:
+            max_col = col_idx
+        if row_idx > max_row:
+            max_row = row_idx
+    return max_row + 1, max_col + 1, names
+
+
+def _cells_sample(names: list[str]) -> str:
+    """Short listing for the shared 'Its cells are: …' error (set/insert/get)."""
+    if not names:
+        return "none"
+    if len(names) <= 8:
+        return ", ".join(names)
+    return "%s, …, %s" % (", ".join(names[:8]), names[-1])
+
+
+def _unknown_cell_message(cell_raw: str, table_name: str, names: list[str]) -> str:
+    return "Cell '%s' not in table '%s'. Its cells are: %s." % (
+        cell_raw,
+        table_name,
+        _cells_sample(names),
+    )
 
 
 def _service_named(obj: Any, name: str) -> bool:
@@ -288,15 +386,19 @@ def _not_nested() -> dict[str, Any]:
     return {"is_nested": False, "parent_table": None, "parent_cell": None}
 
 
-def _writer_nesting(doc: Any) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, list[str]]]]:
-    """One pass: child name -> nesting dict, parent name -> {cell: [child names]}.
+def _writer_nesting(
+    doc: Any,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, list[str]]], dict[str, int]]:
+    """One pass: child nesting, parent hosted-in-cells, and ``len(getCellNames())``.
 
     Direct parent only — a grandchild reports the mid table, not the outer.
+    ``cell_count`` is counted here so ``table_list`` does not walk names twice.
     """
     tables = _tables(doc)
     names = list(tables.getElementNames())
     child_nesting: dict[str, dict[str, Any]] = {}
     hosted: dict[str, dict[str, list[str]]] = {}
+    cell_counts: dict[str, int] = {}
 
     for parent_name in names:
         try:
@@ -304,6 +406,7 @@ def _writer_nesting(doc: Any) -> tuple[dict[str, dict[str, Any]], dict[str, dict
             cell_names = parent.getCellNames()
         except Exception:
             continue
+        cell_counts[parent_name] = len(cell_names)
         for cell_name in cell_names:
             try:
                 cell = parent.getCellByName(cell_name)
@@ -324,7 +427,7 @@ def _writer_nesting(doc: Any) -> tuple[dict[str, dict[str, Any]], dict[str, dict
 
     for name in names:
         child_nesting.setdefault(name, _not_nested())
-    return child_nesting, hosted
+    return child_nesting, hosted, cell_counts
 
 
 def _nesting_for(doc: Any, name: str) -> dict[str, Any]:
@@ -368,20 +471,26 @@ def _remove_writer_table(doc: Any, table: Any, name: str, nesting: dict[str, Any
 def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     """Nested table names hosted in the row/column about to be deleted.
 
-    Local to that band (getCellByPosition, then the computed A1 name).
+    Scan ``getCellNames()`` and keep names on that row or column. The old
+    ``range(cols)`` walk used ``getColumns()`` (first-row box count) and missed
+    D2 after an A1:D1 merge. Column index uses the Writer base-52 parser, not
+    spreadsheet ``parse_a1``.
     """
-    rows, cols = _dims(table)
     hosted: list[str] = []
-    coords = ((c, idx) for c in range(cols)) if axis_arg == "row" else ((idx, r) for r in range(rows))
-    for c, r in coords:
-        cell = None
-        try:
-            cell = table.getCellByPosition(c, r)
-        except Exception:
-            try:
-                cell = table.getCellByName(_cell_name(c, r))
-            except Exception:
+    for cell_name in _writer_named_cells(table):
+        pos = _writer_cell_position(cell_name)
+        if pos is None:
+            continue
+        col_idx, row_idx = pos
+        if axis_arg == "row":
+            if row_idx != idx:
                 continue
+        elif col_idx != idx:
+            continue
+        try:
+            cell = table.getCellByName(cell_name)
+        except Exception:
+            continue
         hosted.extend(_cell_hosted_table_names(cell))
     # Preserve first-seen order (a band can host more than one nested table).
     seen: list[str] = []
@@ -394,10 +503,12 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
 class TableList(ToolWriterTableBase):
     name = "table_list"
     description = (
-        "List tables with name and dimensions (rows x columns). Writer: text-table names; each "
-        "row includes nesting (direct parent table/cell) and nested_in_cells (host cells that "
+        "List tables with name, rows, cols, and cell_count. "
+        "Writer: if cell_count is not rows times cols the table is not a rectangle — use "
+        "table_get_cells cells. "
+        "Each row includes nesting (direct parent table/cell) and nested_in_cells (host cells that "
         "contain nested tables — table_set_cell keeps those tables; do not delete the host row/column). "
-        "Draw/Impress: also page and shape index."
+        "Draw/Impress: also page and shape index; cell_count is rows times cols."
     )
     is_mutation = False
     parameters = {"type": "object", "properties": {}, "required": []}
@@ -410,14 +521,18 @@ class TableList(ToolWriterTableBase):
                 out = list_draw_tables(ctx.doc)
                 return {"status": "ok", "count": len(out), "tables": out}
             tables = _tables(ctx.doc)
-            nesting_by_name, hosted = _writer_nesting(ctx.doc)
+            nesting_by_name, hosted, cell_counts = _writer_nesting(ctx.doc)
             out = []
             for name in tables.getElementNames():
                 rows, cols = _dims(tables.getByName(name))
+                cell_count = cell_counts.get(name)
+                if cell_count is None:
+                    cell_count = rows * cols
                 out.append({
                     "name": name,
                     "rows": rows,
                     "cols": cols,
+                    "cell_count": cell_count,
                     "nesting": nesting_by_name.get(name, _not_nested()),
                     "nested_in_cells": hosted.get(name, {}),
                 })
@@ -430,11 +545,12 @@ class TableList(ToolWriterTableBase):
 class TableGetCells(ToolWriterTableBase):
     name = "table_get_cells"
     description = (
-        "Return a table's cell text as a row-major matrix (matrix[row][col]) by position — not by "
-        "cell name. Writer host cells that contain nested tables return only the host cell's own "
-        "paragraphs (not concatenated inner-table text); nested_in_cells names those cells. "
-        "Use matrix indices to read values; for table_set_cell use Writer cell names from "
-        "table_set_cell error hints (columns A..Z then a..z past column 26, not spreadsheet AA). "
+        "Return Writer cell text as cells (name map) and Draw/Impress as matrix (row-major by position). "
+        "Empty string is an empty cell; a missing name is not a cell. "
+        "rows and cols can be smaller than the real grid when cells are merged — follow cells. "
+        "Optional cell reads one address (Writer via getCellNames, Draw via A1). "
+        "Writer host cells that contain nested tables return only the host cell's own paragraphs; "
+        "nested_in_cells names those cells. "
         "table_set_cell on a host cell updates that host text and leaves nested tables."
     )
     is_mutation = False
@@ -442,6 +558,10 @@ class TableGetCells(ToolWriterTableBase):
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Table name from table_list."},
+            "cell": {
+                "type": "string",
+                "description": "Optional. One A1-style address; return that cell only.",
+            },
             "page": {"type": "integer", "description": "Draw/Impress: 0-based page index."},
             "index": {"type": "integer", "description": "Draw/Impress: shape index on the page."},
         },
@@ -450,52 +570,63 @@ class TableGetCells(ToolWriterTableBase):
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         name = str(kwargs.get("name") or "").strip()
+        cell_raw = str(kwargs.get("cell") or "").strip()
         try:
             if _is_draw_doc(ctx.doc):
-                from plugin.draw.tables import get_draw_cells, resolve_draw_table
+                from plugin.draw.tables import get_draw_cell, get_draw_cells, resolve_draw_table
 
                 entry = resolve_draw_table(ctx.doc, name=name, page=kwargs.get("page"), index=kwargs.get("index"))
-                matrix = get_draw_cells(entry)
-                return {
+                payload = {
                     "status": "ok",
                     "table_name": entry.get("name") or name,
                     "page": entry.get("page"),
                     "index": entry.get("index"),
                     "rows": entry.get("rows"),
                     "cols": entry.get("cols"),
-                    "matrix": matrix,
                 }
+                if cell_raw:
+                    text = get_draw_cell(entry, cell_raw)
+                    payload["cell"] = cell_raw
+                    payload["matrix"] = [[text]]
+                else:
+                    payload["matrix"] = get_draw_cells(entry)
+                return payload
             if not name:
                 return self._tool_error("name is required.")
             table = _get_table(ctx.doc, name)
             rows, cols = _dims(table)
-            matrix = []
-            for r in range(rows):
-                row = []
-                for c in range(cols):
-                    # Prefer position-based access (naming-scheme-proof: Writer names columns
-                    # A..Z then lowercase a..z); fall back to the computed A1 name, then blank
-                    # (merged/covered cells have no addressable cell).
-                    val = ""
-                    try:
-                        val = _cell_matrix_text(table.getCellByPosition(c, r))
-                    except Exception:
-                        try:
-                            val = _cell_matrix_text(table.getCellByName(_cell_name(c, r)))
-                        except Exception:
-                            val = ""
-                    row.append(val)
-                matrix.append(row)
-            nesting_by_name, hosted = _writer_nesting(ctx.doc)
-            return {
+            # getColumns() is the first row's box count (SwXTableColumns::getCount),
+            # so range(cols) skipped D2 after A1:D1 merge. getCellNames() is the list.
+            cell_names = _writer_named_cells(table)
+            if cell_raw:
+                resolved = _resolve_cell_name(table, cell_raw)
+                if resolved is None:
+                    return self._tool_error(_unknown_cell_message(cell_raw, name, cell_names))
+                cell_names = [resolved]
+            cells: dict[str, str] = {}
+            for cell_name in cell_names:
+                try:
+                    cells[cell_name] = _cell_matrix_text(table.getCellByName(cell_name))
+                except Exception:
+                    continue
+            if cell_raw and (not cell_names or cell_names[0] not in cells):
+                return self._tool_error(
+                    "Could not read cell '%s' in table '%s'." % (cell_raw, name)
+                )
+            nesting_by_name, hosted = _writer_nesting(ctx.doc)[:2]
+            payload = {
                 "status": "ok",
                 "table_name": name,
                 "rows": rows,
                 "cols": cols,
-                "matrix": matrix,
+                "cell_names": list(cells.keys()),
+                "cells": cells,
                 "nesting": nesting_by_name.get(name, _not_nested()),
                 "nested_in_cells": hosted.get(name, {}),
             }
+            if cell_raw:
+                payload["cell"] = next(iter(cells))
+            return payload
         except ValueError as ve:
             return self._tool_error(str(ve))
         except Exception as e:
@@ -552,10 +683,9 @@ class TableSetCell(ToolWriterTableBase):
             table = _get_table(ctx.doc, name)
             cell_name = _resolve_cell_name(table, cell_raw)
             if cell_name is None:
-                names = list(table.getCellNames())
-                sample = ", ".join(names[:8]) + ((", …, %s" % names[-1]) if len(names) > 8 else "")
                 return self._tool_error(
-                    "Cell '%s' not in table '%s'. Its cells are: %s." % (cell_raw, name, sample))
+                    _unknown_cell_message(cell_raw, name, _writer_named_cells(table))
+                )
             cell = table.getCellByName(cell_name)
             # setString wipes nested TextTables. Rewrite host paragraphs instead.
             nested = _cell_hosted_table_names(cell)
@@ -768,10 +898,8 @@ class TableInsert(ToolWriterTableBase):
                 parent_table = _get_table(doc, parent)
                 host_cell_name = _resolve_cell_name(parent_table, cell_raw) or ""
                 if not host_cell_name:
-                    names = list(parent_table.getCellNames())
-                    sample = ", ".join(names[:8]) + ((", …, %s" % names[-1]) if len(names) > 8 else "")
                     return self._tool_error(
-                        "Cell '%s' not in table '%s'. Its cells are: %s." % (cell_raw, parent, sample)
+                        _unknown_cell_message(cell_raw, parent, _writer_named_cells(parent_table))
                     )
                 host = parent_table.getCellByName(host_cell_name)
                 # After existing cell text so setString-refuse still applies to the host.

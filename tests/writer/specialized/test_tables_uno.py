@@ -47,8 +47,9 @@ def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
 
     nested_res = TableGetCells().execute(tool_ctx, name="FixtureNested")
     assert nested_res.get("status") == "ok", nested_res
-    assert nested_res["matrix"][0][0] == "NESTED_ALPHA"
-    assert nested_res["matrix"][1][1] == "NESTED_OMEGA"
+    assert "matrix" not in nested_res
+    assert nested_res["cells"]["A1"] == "NESTED_ALPHA"
+    assert nested_res["cells"]["B2"] == "NESTED_OMEGA"
     assert nested_res["nesting"] == {
         "is_nested": True,
         "parent_table": "FixtureOuter",
@@ -58,7 +59,8 @@ def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
 
     standalone_res = TableGetCells().execute(tool_ctx, name="FixtureStandalone")
     assert standalone_res.get("status") == "ok", standalone_res
-    assert standalone_res["matrix"][0][0] == "STANDALONE_ALPHA"
+    assert standalone_res["cells"]["A1"] == "STANDALONE_ALPHA"
+    assert "matrix" not in standalone_res
     assert standalone_res["nesting"] == {
         "is_nested": False,
         "parent_table": None,
@@ -74,7 +76,8 @@ def test_table_get_cells_reports_nested_parent_relation_uno(ctx, doc):
     }
     assert outer_res["nested_in_cells"] == {"B2": ["FixtureNested"]}
     # Host slot is host paragraphs only — not NESTED_ALPHA concatenated in.
-    assert "NESTED_ALPHA" not in (outer_res["matrix"][1][1] or "")
+    assert "NESTED_ALPHA" not in (outer_res["cells"].get("B2") or "")
+    assert "matrix" not in outer_res
 
     listed = TableList().execute(tool_ctx)
     assert listed.get("status") == "ok", listed
@@ -125,7 +128,8 @@ def test_table_insert_parent_cell_nests_and_table_delete_removes_uno(ctx, doc):
     assert by[nested_name]["nesting"] == nested["nesting"]
     assert by["InsertOuter"]["nested_in_cells"] == {"B2": [nested_name]}
     cells = TableGetCells().execute(tool_ctx, name=nested_name)
-    assert cells["matrix"][0][0] == "N1" and cells["matrix"][1][1] == "N4"
+    assert cells["cells"]["A1"] == "N1" and cells["cells"]["B2"] == "N4"
+    assert "matrix" not in cells
 
     deleted = TableDelete().execute(tool_ctx, name=nested_name)
     assert deleted.get("status") == "ok", deleted
@@ -174,7 +178,8 @@ def test_table_set_cell_host_keeps_nested_table_uno(ctx, doc):
     assert doc.getTextTables().hasByName("HostNested")
     assert nested.getCellByName("A1").getString() == "INNER"
     cells = TableGetCells().execute(tool_ctx, name="HostOuter")
-    assert cells["matrix"][1][1] == "NEW_CAPTION"
+    assert cells["cells"]["B2"] == "NEW_CAPTION"
+    assert "matrix" not in cells
     assert cells["nested_in_cells"] == {"B2": ["HostNested"]}
 
 
@@ -217,3 +222,77 @@ def test_table_in_frame_not_in_cell_xtext_is_not_hosted_uno(ctx, doc):
     wipe = TableSetCell().execute(tool_ctx, name="FrameOuter", cell="B2", text="wipe")
     assert wipe.get("status") == "ok", wipe
     assert not doc.getTextTables().hasByName("FrameNested")
+
+
+def _merge_a1_d1(table):
+    """Merge the first row into one banner cell (discussion #821 fixture)."""
+    cursor = table.createCursorByCellName("A1")
+    cursor.gotoCellByName("D1", True)
+    cursor.mergeRange()
+
+
+@native_test
+@with_native_doc("writer")
+def test_table_get_cells_merged_banner_reports_d2_uno(ctx, doc):
+    """5×4 + merge A1:D1: getColumns() is 1, but D2 is a real cell (discussion #821)."""
+    text = doc.getText()
+    table = doc.createInstance("com.sun.star.text.TextTable")
+    table.initialize(5, 4)
+    text.insertTextContent(text.getEnd(), table, False)
+    table.setName("MergedBanner")
+    table.getCellByName("A1").setString("Title")
+    _merge_a1_d1(table)
+    table.getCellByName("D2").setString("Telèfon responsable")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    listed = TableList().execute(tool_ctx)
+    assert listed.get("status") == "ok", listed
+    by = {t["name"]: t for t in listed["tables"]}
+    entry = by["MergedBanner"]
+    # Hypothesis (verified): getColumns() is SwXTableColumns::getCount — first-row
+    # box count — so a merged banner reports cols=1 while getRows() stays 5.
+    assert entry["rows"] == 5
+    assert entry["cols"] == 1
+    assert entry["cell_count"] == 17
+
+    cells = TableGetCells().execute(tool_ctx, name="MergedBanner")
+    assert cells.get("status") == "ok", cells
+    assert cells["rows"] == 5 and cells["cols"] == 1
+    assert "matrix" not in cells
+    assert cells["cells"]["D2"] == "Telèfon responsable"
+    assert "B1" not in cells["cells"]
+    assert "B1" not in cells["cell_names"]
+    assert "D2" in cells["cell_names"]
+
+    one = TableGetCells().execute(tool_ctx, name="MergedBanner", cell="D2")
+    assert one.get("status") == "ok", one
+    assert one["cell"] == "D2"
+    assert one["cells"]["D2"] == "Telèfon responsable"
+    assert one["cell_names"] == ["D2"]
+    assert "matrix" not in one
+
+
+@native_test
+@with_native_doc("writer")
+def test_delete_row_refuses_nested_table_in_merged_d2_uno(ctx, doc):
+    """Nest in D2 after A1:D1 merge; delete that row must name the child."""
+    text = doc.getText()
+    outer = doc.createInstance("com.sun.star.text.TextTable")
+    outer.initialize(5, 4)
+    text.insertTextContent(text.getEnd(), outer, False)
+    outer.setName("MergedHost")
+    _merge_a1_d1(outer)
+    host = outer.getCellByName("D2")
+    nested = doc.createInstance("com.sun.star.text.TextTable")
+    nested.initialize(1, 1)
+    host.insertTextContent(host.getEnd(), nested, False)
+    nested.setName("MergedChild")
+    nested.getCellByName("A1").setString("INNER")
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    del_row = ManageTableStructure().execute(
+        tool_ctx, action="delete", axis="row", name="MergedHost", index=1
+    )
+    assert del_row.get("status") == "error" and "MergedChild" in del_row.get("message", ""), del_row
+    assert outer.getRows().getCount() == 5
+    assert doc.getTextTables().hasByName("MergedChild")

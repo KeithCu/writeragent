@@ -604,26 +604,41 @@ def _copy_table(src_doc, src_table, dest_doc, dest_text=None):
 
     *dest_text* is a cell when copying a nested TextTable; recursion through
     ``_copy_cell_xtext`` then copies inner cells (including further nests).
+
+    Copy by ``getCellNames()`` so a merged banner (``getColumns()`` is the
+    first-row box count and can be 1) still copies D2. Dest is sized to the
+    max Writer name coordinate so those names exist; merges are not recreated.
     """
+    from plugin.writer.specialized.tables import _writer_table_copy_layout
+
     try:
-        rows = int(src_table.getRows().getCount())
-        cols = int(src_table.getColumns().getCount())
+        dest_rows, dest_cols, names = _writer_table_copy_layout(src_table)
     except Exception:
         return
-    if rows < 1 or cols < 1:
+    if dest_rows < 1 or dest_cols < 1:
         return
     dest_table = dest_doc.createInstance("com.sun.star.text.TextTable")
-    dest_table.initialize(rows, cols)
+    dest_table.initialize(dest_rows, dest_cols)
     dest_xtext = dest_text if dest_text is not None else dest_doc.getText()
     dest_xtext.insertTextContent(dest_xtext.getEnd(), dest_table, False)
-    for row in range(rows):
-        for col in range(cols):
+    if names:
+        for cell_name in names:
             try:
-                src_cell = src_table.getCellByPosition(col, row)
-                dest_cell = dest_table.getCellByPosition(col, row)
+                src_cell = src_table.getCellByName(cell_name)
+                dest_cell = dest_table.getCellByName(cell_name)
             except Exception:
                 continue
             _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell)
+    else:
+        # No name list: last-resort position walk (same first-row bound as before).
+        for row in range(dest_rows):
+            for col in range(dest_cols):
+                try:
+                    src_cell = src_table.getCellByPosition(col, row)
+                    dest_cell = dest_table.getCellByPosition(col, row)
+                except Exception:
+                    continue
+                _copy_cell_xtext(src_doc, src_cell, dest_doc, dest_cell)
     _goto_doc_end(dest_doc)
 
 
