@@ -66,7 +66,7 @@ def _col_letters(col_idx: int) -> str:
     return s
 
 
-def _cell_name(col_idx: int, row_idx: int) -> str:
+def _cell_name(col_idx: int, row_idx: int) -> str:  # pyright: ignore[reportUnusedFunction]  # FakeTable + test_cell_name_math
     """0-based (col, row) -> A1-style name (col 0/row 0 -> 'A1'). See _col_letters caveat."""
     return "%s%d" % (_col_letters(col_idx), row_idx + 1)
 
@@ -144,7 +144,7 @@ def _writer_named_cells(table: Any) -> list[str]:
     return list(names or ())
 
 
-def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
+def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:  # pyright: ignore[reportUnusedFunction]  # html_export._copy_table + unit tests
     """Dest initialize size and named cells so HTML copy does not drop D2.
 
     Dest rows/cols are the max of ``getRows()``/``getColumns()`` and the Writer
