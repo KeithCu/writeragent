@@ -142,8 +142,7 @@ def test_format_address_post_avoids_regex() -> None:
 
     from plugin.calc.address_utils import format_address
 
-    src = inspect.getsource(format_address)
-    # deal.post is on the function; inspect.getsource may not include decorators — check module
+    # deal.post lives on the decorator stack; inspect the module region above the def.
     mod_src = inspect.getsource(inspect.getmodule(format_address))
     # The format_address deal.post block must not use re.match/re.fullmatch.
     # Grep the decorator region above def format_address.
