@@ -69,7 +69,8 @@ class GetDocumentContent(ToolBase):
     description = (
         "Get document (or selection/range) content. Result includes document_length. "
         "scope: full, selection, or range (requires start, end). "
-        "CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby>."
+        "CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> "
+        "and apply_document_content of that markup recreates live Ruby portions."
     )
     parameters = {
         "type": "object",

@@ -311,6 +311,7 @@ def test_find_text(ctx, doc):
 def test_content_has_markup_auto_detection():
     assert _content_has_markup("**bold**")
     assert _content_has_markup("<b>bold</b>")
+    assert _content_has_markup("<ruby>漢字<rt>かんじ</rt></ruby>")
     assert _content_has_markup("# Heading")
     assert _content_has_markup("| col1 | col2 |")
     assert not _content_has_markup("Jane Doe")

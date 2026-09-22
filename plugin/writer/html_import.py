@@ -8,6 +8,10 @@
 Public entries are re-exported from ``plugin.writer.format``.
 Header/footer apply uses ``replace_xtext_with_html`` (same StarWriter
 insert as the body path, pointed at a region ``XText``).
+
+CJK ruby: StarWriter concatenates ``<rt>`` into the body. ``extract_and_strip_ruby``
+drops the reading before import; ``_apply_ruby_spans`` sets ``RubyText`` on each
+base run. Not a text field — do not use ``TextField.Ruby``.
 """
 
 import html as html_mod
@@ -60,11 +64,139 @@ _MARKUP_PATTERNS = [
     "<body",
     "<!DOCTYPE",
     "<math",
+    "<ruby",
+    "<rt",
     # TeX (so plain ``\\( … \\)`` / ``$$`` is not misclassified as format-preserving)
     "$$",
     "\\(",
     "\\[",
 ]
+
+
+# StarWriter HTML import has no ruby rule: <ruby>漢字<rt>かんじ</rt></ruby> becomes
+# concatenated body text. Strip <rt> before import, then set RubyText on the base.
+_RUBY_BLOCK_RE = re.compile(r"<ruby\b([^>]*)>(.*?)</ruby>", re.IGNORECASE | re.DOTALL)
+_RT_RE = re.compile(r"<rt\b[^>]*>(.*?)</rt>", re.IGNORECASE | re.DOTALL)
+_RP_RE = re.compile(r"<rp\b[^>]*>.*?</rp>", re.IGNORECASE | re.DOTALL)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_GO_RIGHT_CHUNK = 8192
+
+
+def _visible_html_text(fragment):
+    """Tag-stripped, entity-unescaped text of an HTML fragment."""
+    if not fragment:
+        return ""
+    return html_mod.unescape(_HTML_TAG_RE.sub("", fragment))
+
+
+def extract_and_strip_ruby(html):
+    """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
+
+    Each span is ``(base, reading, is_above)`` in document order. StarWriter
+    concatenates ruby children, so the import must see base only; ``RubyText``
+    is painted afterwards via ``_apply_ruby_spans``.
+    """
+    if not html or not isinstance(html, str) or "<ruby" not in html.lower():
+        return html, []
+    spans = []
+
+    def _repl(match):
+        attrs = match.group(1) or ""
+        inner = match.group(2) or ""
+        rt_m = _RT_RE.search(inner)
+        reading = _visible_html_text(rt_m.group(1) if rt_m else "").strip()
+        base_html = _RP_RE.sub("", inner)
+        base_html = _RT_RE.sub("", base_html)
+        base = _visible_html_text(base_html)
+        is_above = "under" not in attrs.lower()
+        if base and reading:
+            spans.append((base, reading, is_above))
+        return base_html
+
+    return _RUBY_BLOCK_RE.sub(_repl, html), spans
+
+
+def _go_right(cursor, n, expand):
+    """Move or extend *cursor* right by *n* characters (UNO caps the count)."""
+    while n > 0:
+        step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
+        if not cursor.goRight(step, expand):
+            return False
+        n -= step
+    return True
+
+
+def _set_ruby_on_range(cursor, reading, is_above=True):
+    """Create live ruby on the selected base run (same as the UNO seed probe)."""
+    cursor.setPropertyValue("RubyText", reading)
+    try:
+        cursor.setPropertyValue("RubyIsAbove", bool(is_above))
+    except Exception:
+        pass
+    try:
+        cursor.setPropertyValue("RubyAdjust", 0)
+    except Exception:
+        pass
+
+
+def _prefix_char_count(text_obj, cursor):
+    """``getString()`` length from the start of *text_obj* to *cursor*.
+
+    Captured before import so we can apply ruby only to the inserted suffix.
+    A live ``cursor.getStart()`` drifts when ``insertDocumentFromURL`` moves it.
+    """
+    try:
+        prefix = text_obj.createTextCursor()
+        prefix.gotoStart(False)
+        prefix.gotoRange(cursor.getStart(), True)
+        return len(prefix.getString() or "")
+    except Exception:
+        return 0
+
+
+def _apply_ruby_spans(text_obj, spans, skip_chars=0):
+    """Set ``RubyText`` on each *spans* base, ignoring the first *skip_chars*.
+
+    After a StarWriter import the document has base characters only. Offsets
+    come from ``getString()`` then ``goRight`` — they agree on plain imported
+    body text (no fields/ruby yet).
+    """
+    if not spans or text_obj is None:
+        return
+    try:
+        origin = text_obj.getStart()
+        hay = text_obj.createTextCursorByRange(origin)
+        hay.gotoEnd(True)
+        haystack = hay.getString() or ""
+    except Exception:
+        log.debug("_apply_ruby_spans: could not read imported text", exc_info=True)
+        return
+    pos = skip_chars if skip_chars > 0 else 0
+    for item in spans:
+        base, reading, is_above = item[0], item[1], item[2] if len(item) > 2 else True
+        if not base or not reading:
+            continue
+        idx = haystack.find(base, pos)
+        if idx < 0:
+            log.debug("_apply_ruby_spans: base %r not found in imported text", base)
+            continue
+        try:
+            cur = text_obj.createTextCursorByRange(origin)
+            if idx and not _go_right(cur, idx, False):
+                continue
+            if not _go_right(cur, len(base), True):
+                continue
+            if cur.getString() != base:
+                log.debug(
+                    "_apply_ruby_spans: offset mismatch want %r got %r",
+                    base, cur.getString(),
+                )
+                pos = idx + len(base)
+                continue
+            _set_ruby_on_range(cur, reading, is_above)
+        except Exception:
+            log.debug("_apply_ruby_spans: failed for %r", base, exc_info=True)
+        pos = idx + len(base)
 
 
 _BLOCK_MARKUP_PATTERNS = [
@@ -310,7 +442,9 @@ def html_to_plain_text(html_string, ctx, config_svc=None):
     """
     if not html_string or not isinstance(html_string, str):
         return (html_string or "").strip()
-    prepared = _wrap_html_fragment(html_string.strip())
+    # Base only: StarWriter would concatenate <rt> into the search string.
+    stripped, _unused_ruby = extract_and_strip_ruby(html_string)
+    prepared = _wrap_html_fragment(stripped.strip())
     temp_doc = None
     try:
         desktop = get_desktop(ctx)
@@ -453,8 +587,11 @@ def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_sv
     # Strip data-lo-style so the StarWriter import sees clean markup (it drops unknown attributes
     # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
     clean, block_styles = _extract_block_lo_styles(unescaped_content)
+    # Strip <rt> so StarWriter does not concatenate reading into the body; paint RubyText after.
+    clean, ruby_spans = extract_and_strip_ruby(clean)
     styled = apply_styles and any(block_styles)
     text_obj = cursor.getText()
+    ruby_skip = _prefix_char_count(text_obj, cursor)
     # Index of the paragraph where the inserted block content begins (computed pre-import).
     # The first imported block MERGES into the paragraph that contains the cursor when the
     # cursor is not at a paragraph boundary (target=end/search/selection). So count paragraphs
@@ -479,6 +616,7 @@ def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_sv
         single = _ensure_html_linebreaks(expanded)
         if not styled:
             _insert_starwriter_html_at_cursor(model, cursor, single, config_svc=config_svc)
+            _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
             return
         # model=None: keep the cursor at the end of the inserted content.
         insert_html_fragment_at_cursor(cursor, single, wrap=False, config_svc=config_svc, model=None)
@@ -489,6 +627,7 @@ def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_sv
         except Exception:
             log.debug("data-lo-style application failed", exc_info=True)
         _cursor_goto_document_end(model, cursor)
+    _apply_ruby_spans(text_obj, ruby_spans, skip_chars=ruby_skip)
 
 
 
@@ -702,7 +841,9 @@ def replace_single_range_with_content(model, text_range, content, ctx, config_sv
         # extra body paragraph). model=None leaves the cursor at the end of the
         # INSERTED content (not the document end), so [anchor, cursor] bounds it.
         inline_html = prepared.replace("\\n", "\n").replace("\\t", "\t")
+        inline_html, ruby_spans = extract_and_strip_ruby(inline_html)
         insert_html_fragment_at_cursor(cursor, inline_html, wrap=False, config_svc=config_svc, model=None)
+        _apply_ruby_spans(text_obj, ruby_spans, skip_chars=_prefix_char_count(text_obj, anchor))
         # Re-apply the saved paragraph style (the HTML import can demote Heading -> body).
         # Skip it while Track Changes is recording: setString("") above leaves the old text in
         # place as a tracked DELETE, and re-applying a paragraph style across [anchor, cursor]
@@ -904,6 +1045,7 @@ def replace_xtext_with_html(text_obj, html, config_svc=None, model=None):
         raise ToolExecutionError("No text object to import into.")
     expanded = html if isinstance(html, str) else ("" if html is None else str(html))
     expanded = expanded.replace("\\n", "\n").replace("\\t", "\t")
+    expanded, ruby_spans = extract_and_strip_ruby(expanded)
     rewritten = rewrite_exported_field_spans(expanded)
     prepared = _ensure_html_linebreaks(rewritten)
     cursor = text_obj.createTextCursor()
@@ -914,6 +1056,7 @@ def replace_xtext_with_html(text_obj, html, config_svc=None, model=None):
     insert_html_fragment_at_cursor(
         cursor, prepared, wrap=False, config_svc=config_svc, model=None,
     )
+    _apply_ruby_spans(text_obj, ruby_spans)
     if model is not None:
         _restore_field_placeholders(model, text_obj)
 

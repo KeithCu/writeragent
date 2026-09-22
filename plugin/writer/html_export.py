@@ -10,7 +10,8 @@ Public entries: ``document_to_content`` and ``xtext_to_content``
 
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
-semantic post-process. Apply does not recreate portions (Phase 2).
+semantic post-process. Apply strips ``<rt>`` then sets ``RubyText`` on the
+base run (``html_import.extract_and_strip_ruby`` / ``_apply_ruby_spans``).
 """
 
 import logging
@@ -140,8 +141,8 @@ def inject_ruby_into_html(html, spans):
     base + reading (``漢字かんじです``). Range/portion-copy never paints ``RubyText``
     — that property lives on the empty Ruby *start* mark, not the Text run —
     so range export used to drop the reading. Both become
-    ``<ruby>漢字<rt>かんじ</rt></ruby>です``. Apply of that markup is Phase 2
-    (import still flattens).
+    ``<ruby>漢字<rt>かんじ</rt></ruby>です``. Apply recreates portions in
+    ``html_import`` (strip ``<rt>``, then ``RubyText`` on the base run).
 
     Replacements stay inside a single text node (or wrap the base node and
     delete a following reading node). Crossing a tag with a wrapper used to

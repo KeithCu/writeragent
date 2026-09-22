@@ -1,6 +1,4 @@
-# CJK ruby (furigana) on the Writer read path
-
-**Status:** Phase 1 **read** shipped. Phase 2 write (recreating Ruby portions on apply) is out of scope.
+# CJK ruby (furigana) read and write
 
 Ruby in Writer is **not** a text field. `fields_list` stays 0; `TextField.Ruby` is unregistered. The model is:
 
@@ -11,26 +9,29 @@ Ruby in Writer is **not** a text field. `fields_list` stays 0; `TextField.Ruby` 
 
 Surgical edit already treats Ruby as offset-unsafe (`edit_review.py`). Leave that path alone.
 
-## Why export used to lie
+## Read (`get_document_content`)
 
-| Path | What went wrong |
-|------|-----------------|
-| Full `get_document_content` | `XHTML Writer File` has no `text:ruby` rule. ODF children concatenate: `漢字` + `かんじ` → body text `漢字かんじです`. Flat ODF *does* keep `<text:ruby><text:ruby-base>…</text:ruby-base><text:ruby-text>…</text:ruby-text></text:ruby>`. |
-| Range / selection | Temp-doc copy paints `_COPIED_CHAR_PROPERTIES` from **visible** portions. Ruby marks are empty, so they are skipped; the Text run has `RubyText=None`. Reading disappeared. |
+| Path | What went wrong | Fix |
+|------|-----------------|-----|
+| Full | `XHTML Writer File` has no `text:ruby` rule. Children concatenate: `漢字かんじです`. FODT keeps `<text:ruby>`. | Walk source portions; rewrite to `<ruby>漢字<rt>かんじ</rt></ruby>`. Skip the walk when FODT has no `<text:ruby`. |
+| Range / selection | Temp-doc copy paints visible Text runs. Ruby marks are empty; `RubyText` on the Text run is `None`. Reading disappeared. | Same rewrite from source spans in the copied window. |
 
-Both are fixed on **read** by walking source Ruby/Text portions and rewriting the semantic HTML to:
+## Write (`apply_document_content`)
+
+StarWriter HTML import concatenates ruby children (`前漢字かんじ後`, no Ruby portions). Before import, `<ruby>…<rt>…</rt></ruby>` is reduced to the **base** only. After import, `RubyText` / `RubyIsAbove` are set on each base run (the same cursor properties used to seed tests).
 
 ```html
-<ruby>漢字<rt>かんじ</rt></ruby>です
+<p>前<ruby>漢字<rt>かんじ</rt></ruby>後</p>
 ```
 
-Full export skips the portion walk when the paired FODT sidecar has no `<text:ruby`. Range/selection always rewrite from the copied window (the temp FODT has no ruby).
+becomes body `前漢字後` with Ruby marks, and a later get emits `<ruby>/<rt>` again.
 
-## What is unchanged
+Format-preserving (plain-text) replace of the base does not drop existing ruby: `setString` is skipped when characters match, so the Ruby portions stay.
+
+## Unchanged / out of scope
 
 - **Search / `getString()`:** reading is not in the paragraph string. `search_in_document` matches `漢字`, not `かんじ`.
-- **Apply:** importing `<ruby>` still flattens. Do not claim a round-trip. Phase 2 would set `RubyText` on the base run (the same cursor property used to seed tests).
 - **`fields_insert(Ruby)`:** wrong model — do not add it.
-- **Specialized ruby tool:** not added.
+- **Specialized ruby tool:** not added. Write lives in `apply_document_content` / `html_import`.
 
-Code: [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py) (`iter_ruby_spans`, `inject_ruby_into_html`). Tests: [`tests/writer/test_html_export.py`](../../tests/writer/test_html_export.py), [`tests/writer/test_html_export_uno.py`](../../tests/writer/test_html_export_uno.py).
+Code: [`plugin/writer/html_export.py`](../../plugin/writer/html_export.py) (read), [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) (`extract_and_strip_ruby`, `_apply_ruby_spans`). Tests: [`tests/writer/test_html_export.py`](../../tests/writer/test_html_export.py), [`tests/writer/test_html_export_uno.py`](../../tests/writer/test_html_export_uno.py), [`tests/writer/test_html_import.py`](../../tests/writer/test_html_import.py), [`tests/writer/test_html_import_uno.py`](../../tests/writer/test_html_import_uno.py).
