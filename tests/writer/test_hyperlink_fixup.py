@@ -87,11 +87,13 @@ class _Pos:
 
 
 class _Slice:
-    def __init__(self, text, url="", name="", target=""):
+    def __init__(self, text, url="", name="", target="", color=None, underline=None):
         self.text = text
         self.url = url
         self.name = name
         self.target = target
+        self.color = color
+        self.underline = underline
 
 
 class _Enum:
@@ -111,8 +113,10 @@ class _Enum:
 class _Doc:
     """One paragraph of slices. compareRegion* uses the point index, matching collapsed positions."""
 
-    def __init__(self, slices):
+    def __init__(self, slices, stomp_look_on_url=False):
         self.slices = slices
+        # LibreOffice reapplies Internet-link defaults when HyperLinkURL is set.
+        self.stomp_look_on_url = stomp_look_on_url
 
     def text(self):
         return "".join(sl.text for sl in self.slices)
@@ -210,10 +214,17 @@ class _Cursor:
             if start < self.end and end > self.start:
                 if name == "HyperLinkURL":
                     sl.url = value
+                    if self.doc.stomp_look_on_url:
+                        sl.color = 128
+                        sl.underline = 1
                 elif name == "HyperLinkName":
                     sl.name = value
                 elif name == "HyperLinkTarget":
                     sl.target = value
+                elif name == "CharColor":
+                    sl.color = value
+                elif name == "CharUnderline":
+                    sl.underline = value
 
 
 class _Paragraph:
@@ -253,6 +264,14 @@ class _Portion:
             return self.sl.name
         if name == "HyperLinkTarget":
             return self.sl.target
+        if name == "CharColor":
+            if self.sl.color is None:
+                raise AttributeError(name)
+            return self.sl.color
+        if name == "CharUnderline":
+            if self.sl.underline is None:
+                raise AttributeError(name)
+            return self.sl.underline
         if name == "TextPortionType":
             return "Text"
         raise AttributeError(name)
@@ -413,6 +432,23 @@ def test_restore_does_not_paint_a_bookmark_across_an_overlapping_outline_link():
     restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Gamma Beta", None)
     assert left.url == "#1.Other|outline"
     assert right.url == _BOOKMARK
+
+
+def test_restore_puts_back_black_and_no_underline_after_url_write():
+    """HyperLinkURL assignment applies Internet-link chrome; colour / underline return."""
+    prefix = _Slice("2.3.4. ", _OUTLINE, color=0, underline=0)
+    title = _Slice("Old title", _OUTLINE, color=0, underline=0)
+    suffix = _Slice(".\t42", _OUTLINE, color=0, underline=0)
+    doc = _Doc([prefix, title, suffix], stomp_look_on_url=True)
+    snapshot = capture_outline_hyperlinks(_match(doc, 7, 16))
+    _replace_equal(title, "New title")
+    restore_outline_hyperlinks(_match(doc, 7, 7), snapshot, "New title", None)
+    assert prefix.url == "#1.New title|outline"
+    assert title.url == "#1.New title|outline"
+    assert suffix.url == "#1.New title|outline"
+    assert (prefix.color, prefix.underline) == (0, 0)
+    assert (title.color, title.underline) == (0, 0)
+    assert (suffix.color, suffix.underline) == (0, 0)
 
 
 def test_enum_has_more_is_false_for_magicmock():

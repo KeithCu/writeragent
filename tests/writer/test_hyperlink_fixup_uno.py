@@ -143,6 +143,79 @@ def _urls_over(rows, needle):
     return [row[1] for row in _overlapping(rows, needle)]
 
 
+def _append_linked_look(text, cursor, chunk, url, color, underline):
+    """Insert a hyperlink and then paint black / no-underline on top of it.
+
+    Setting HyperLinkURL first matches a customized TOC: the Internet-link
+    style is already there, then direct Char* hide the chrome.
+    """
+    _append_linked(text, cursor, chunk, url)
+    sel = text.createTextCursorByRange(cursor.getEnd())
+    if not sel.goLeft(len(chunk), True):
+        raise AssertionError("could not select inserted run %r" % chunk)
+    sel.setPropertyValue("CharColor", color)
+    sel.setPropertyValue("CharUnderline", underline)
+
+
+def _portion_looks(doc):
+    """(text, HyperLinkURL, CharColor, CharUnderline) for every visible portion."""
+    rows = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        try:
+            if hasattr(para, "supportsService") and not para.supportsService(
+                    "com.sun.star.text.Paragraph"):
+                continue
+            portions = para.createEnumeration()
+        except Exception:
+            continue
+        while portions.hasMoreElements():
+            portion = portions.nextElement()
+            try:
+                chunk = portion.getString() or ""
+            except Exception:
+                chunk = ""
+            if not chunk:
+                continue
+            url = _read_prop(portion, "HyperLinkURL")
+            try:
+                color = portion.getPropertyValue("CharColor")
+            except Exception:
+                color = None
+            try:
+                underline = portion.getPropertyValue("CharUnderline")
+            except Exception:
+                underline = None
+            rows.append((chunk, url, color, underline))
+    return rows
+
+
+@native_test
+@with_native_doc("writer")
+def test_outline_url_write_keeps_black_and_no_underline_uno(ctx, doc):
+    """A customized black / no-underline TOC line must not pick up link chrome.
+
+    Discussion #819: HyperLinkURL assignment reapplies navy + single underline
+    on new fragments. Numbering, title, punctuation/tab, and page stay black.
+    """
+    text, cursor = _clear(doc)
+    _append_linked_look(text, cursor, "2.3.4. Old title.\t42", _OUTLINE, 0, 0)
+    before = _portion_looks(doc)
+    assert before, before
+    assert all(color == 0 and underline == 0 for _chunk, _url, color, underline in before), before
+    res = _apply(doc, ctx, old_content="Old title", content=_LONG)
+    assert res.get("status") == "ok", res
+    assert res.get("hyperlink_url_after") == _OUTLINE_LONG, res
+    rows = _portion_looks(doc)
+    body = "".join(chunk for chunk, _url, _color, _underline in rows)
+    assert "2.3.4. " + _LONG in body, rows
+    assert "42" in body, rows
+    assert all(url == _OUTLINE_LONG for _chunk, url, _color, _underline in rows if url), rows
+    assert all(color == 0 for _chunk, _url, color, _underline in rows), rows
+    assert all(underline == 0 for _chunk, _url, _color, underline in rows), rows
+
+
 @native_test
 @with_native_doc("writer")
 def test_search_replace_rewrites_outline_url_and_keeps_bookmark_uno(ctx, doc):

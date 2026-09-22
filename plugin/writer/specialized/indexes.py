@@ -13,7 +13,9 @@ Bibliography v1 is an indexes overload, not ``domain=bibliography``. Cites are
 ``com.sun.star.text.textfield.Bibliography`` (a TextField), not index marks.
 The reference table is ``indexes_create(kind="bibliography")``. After cite
 changes, ``indexes_update_all`` refreshes that table. ``indexes_refresh_toc_entry``
-rewrites one TOC line in place and does not call ``update()``.
+rewrites one TOC line in place and does not call ``update()``. Outline
+``HyperLinkURL`` is updated through ``hyperlink_fixup``, which puts
+``CharColor`` / ``CharUnderline`` back after the URL write.
 """
 
 from typing import Any, cast

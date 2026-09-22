@@ -250,3 +250,105 @@ def test_refresh_toc_entry_keeps_color_page_and_body_uno(ctx, doc):
     assert alpha_url == "#1.Alpha renamed|outline", alpha_url
     assert beta_url == bookmark, beta_url
     assert bool(toc.getPropertyValue("IsProtected")) is protected
+
+
+def _paragraph_looks(para):
+    """(chunk, HyperLinkURL, CharColor, CharUnderline) for visible portions of *para*."""
+    rows = []
+    try:
+        portions = para.createEnumeration()
+    except Exception:
+        return rows
+    while portions.hasMoreElements():
+        portion = portions.nextElement()
+        try:
+            chunk = portion.getString() or ""
+        except Exception:
+            chunk = ""
+        if not chunk:
+            continue
+        try:
+            url = portion.getPropertyValue("HyperLinkURL") or ""
+        except Exception:
+            url = ""
+        try:
+            color = portion.getPropertyValue("CharColor")
+        except Exception:
+            color = None
+        try:
+            underline = portion.getPropertyValue("CharUnderline")
+        except Exception:
+            underline = None
+        rows.append((chunk, url, color, underline))
+    return rows
+
+
+@native_test
+@with_native_doc("writer")
+def test_refresh_toc_entry_keeps_black_and_no_underline_uno(ctx, doc):
+    """indexes_refresh_toc_entry must not apply Internet-link chrome to a black TOC line.
+
+    The title is replaced with a longer string so new fragments are created.
+    Numbering and the page number were black / not underlined before and stay that way.
+    """
+    text = doc.getText()
+    text.setString("")
+    _add_heading(text, "Alpha title", True)
+    _add_heading(text, "Beta title", False)
+    tctx = _tool_ctx(ctx, doc)
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+    toc = doc.getDocumentIndexes().getByIndex(0)
+    entries = _tab_paragraphs(doc)
+    assert len(entries) >= 2, [para.getString() for para in entries]
+    protected = bool(toc.getPropertyValue("IsProtected"))
+    if protected:
+        toc.IsProtected = False
+    alpha = next(para for para in entries if "Alpha title" in (para.getString() or ""))
+    beta = next(para for para in entries if "Beta title" in (para.getString() or ""))
+    outline = "#1.Alpha title|outline"
+    cur = text.createTextCursorByRange(alpha.getStart())
+    cur.gotoRange(alpha.getEnd(), True)
+    # URL first (Internet-link defaults), then the customized black / no-underline.
+    cur.setPropertyValue("HyperLinkURL", outline)
+    cur.setPropertyValue("CharColor", 0)
+    cur.setPropertyValue("CharUnderline", 0)
+    if protected:
+        toc.IsProtected = True
+    beta_before = beta.getString()
+    page = alpha.getString().split("\t", 1)[1]
+    before_looks = _paragraph_looks(alpha)
+    assert before_looks, before_looks
+    assert all(color == 0 and underline == 0 for _chunk, _url, color, underline in before_looks), (
+        before_looks)
+
+    renamed = "Alpha renamed much longer"
+    edited = IndexesRefreshTocEntry().execute(
+        tctx, old_content="Alpha title", content=renamed)
+    assert edited.get("status") == "ok", edited
+    assert edited.get("hyperlink_url_after") == "#1." + renamed + "|outline", edited
+    assert page.strip() in edited.get("text_after", ""), edited
+    body = doc.getText().getString()
+    assert renamed in body, body
+    assert "Alpha title" in body, body
+    assert page in body, body
+    assert beta.getString() == beta_before, (beta.getString(), beta_before)
+
+    entries = _tab_paragraphs(doc)
+    alpha_after = next(para for para in entries if renamed in (para.getString() or ""))
+    looks = _paragraph_looks(alpha_after)
+    assert looks, looks
+    joined = "".join(chunk for chunk, _url, _color, _underline in looks)
+    assert renamed in joined, looks
+    assert page.strip() in joined, looks
+    title_rows = [
+        row for row in looks
+        if renamed in row[0] or (row[0] and row[0] in renamed)
+    ]
+    assert title_rows, looks
+    for chunk, url, color, underline in looks:
+        assert color == 0, (chunk, color, looks)
+        assert underline == 0, (chunk, underline, looks)
+    assert any(url == "#1." + renamed + "|outline" for _chunk, url, _color, _underline in title_rows), (
+        looks)
+    assert bool(toc.getPropertyValue("IsProtected")) is protected
