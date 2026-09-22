@@ -550,11 +550,30 @@ class TestSettingsEnhancements(unittest.TestCase):
 
 
 class TestProviderButtonIcons(unittest.TestCase):
-    def test_provider_icon_filename_is_always_48(self):
+    def test_provider_icon_filename_picks_nearest_shipped_size(self):
         from plugin.chatbot.dialog_views import provider_icon_filename
 
-        self.assertEqual(provider_icon_filename("openrouter"), "openrouter_48.png")
-        self.assertEqual(provider_icon_filename("huggingface"), "huggingface_48.png")
+        # Explicit px= is the post-menu-map target (16 / 32 / 48).
+        self.assertEqual(provider_icon_filename("openrouter", px=16), "openrouter_16.png")
+        self.assertEqual(provider_icon_filename("huggingface", px=16), "huggingface_16.png")
+        self.assertEqual(provider_icon_filename("together", px=32), "together_32.png")
+        self.assertEqual(provider_icon_filename("nvidia", px=48), "nvidia_48.png")
+
+    def test_provider_icon_maps_menu_dpi_to_48_on_hidpi(self):
+        from plugin.chatbot.dialog_views import provider_icon_filename
+
+        with patch(
+            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=32
+        ):
+            self.assertEqual(provider_icon_filename("openrouter", ctx=MagicMock()), "openrouter_48.png")
+        with patch(
+            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=16
+        ):
+            self.assertEqual(provider_icon_filename("openrouter", ctx=MagicMock()), "openrouter_16.png")
+        with patch(
+            "plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", return_value=26
+        ):
+            self.assertEqual(provider_icon_filename("openrouter", ctx=MagicMock()), "openrouter_32.png")
 
     def test_apply_sets_image_url_from_extension_assets(self):
         from plugin.chatbot.dialog_views import apply_provider_button_icon
@@ -564,13 +583,15 @@ class TestProviderButtonIcons(unittest.TestCase):
         model = MagicMock()
         ctrl.getModel.return_value = model
 
-        with patch("plugin.chatbot.dialog_views.get_extension_url", return_value="file:///tmp/oxt"):
+        with patch("plugin.chatbot.dialog_views.get_extension_url", return_value="file:///tmp/oxt"), patch(
+            "plugin.chatbot.dialog_views.provider_icon_filename", return_value="openrouter_16.png"
+        ):
             apply_provider_button_icon(ctrl, ctx, "openrouter")
 
-        self.assertEqual(model.ImageURL, "file:///tmp/oxt/assets/openrouter_48.png")
+        self.assertEqual(model.ImageURL, "file:///tmp/oxt/assets/openrouter_16.png")
         self.assertEqual(model.ImagePosition, 1)
 
-    def test_apply_uses_48px_asset(self):
+    def test_apply_uses_dpi_selected_asset(self):
         from plugin.chatbot.dialog_views import apply_provider_button_icon
 
         ctx = MagicMock()
@@ -578,10 +599,13 @@ class TestProviderButtonIcons(unittest.TestCase):
         model = MagicMock()
         ctrl.getModel.return_value = model
 
-        with patch("plugin.chatbot.dialog_views.get_extension_url", return_value="file:///tmp/oxt"):
+        with patch("plugin.chatbot.dialog_views.get_extension_url", return_value="file:///tmp/oxt"), patch(
+            "plugin.chatbot.dialog_views.provider_icon_filename", return_value="nvidia_32.png"
+        ) as pick:
             apply_provider_button_icon(ctrl, ctx, "nvidia")
 
-        self.assertEqual(model.ImageURL, "file:///tmp/oxt/assets/nvidia_48.png")
+        pick.assert_called_once_with("nvidia", ctx=ctx)
+        self.assertEqual(model.ImageURL, "file:///tmp/oxt/assets/nvidia_32.png")
 
 
 class TestRecheckGrammarListener(unittest.TestCase):

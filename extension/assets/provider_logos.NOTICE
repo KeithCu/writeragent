@@ -1,24 +1,26 @@
-Provider button marks for Settings “Get API Key” buttons.
+Provider button marks for Settings "Get API Key" buttons.
 Trademarks of the respective companies; used only to link to their signup pages.
 
-Ship {stem}_48.png only. UnoControlButton does not scale graphics; Settings always
-sets ImageURL to the 48 px file (getPosSize is AppFont before execute, so a height
-threshold would keep the tiny icons on HiDPI).
+Ship {stem}_16.png, {stem}_32.png, and {stem}_48.png. UnoControlButton does not
+scale graphics to the button. Settings picks the size from VCL DPI via
+provider_icon_filename (1× → 16, mid → 32, HiDPI ~2× → 48). Do not use
+getPosSize height thresholds — AppFont before execute would keep tiny icons on
+HiDPI.
 
-huggingface_48.png
+huggingface_48.png (and _16/_32 downscales)
   Source: https://huggingface.co/datasets/huggingface/brand-assets/resolve/main/hf-logo.png
   Brand: https://huggingface.co/brand
 
-together_48.png
+together_48.png (and _16/_32 downscales)
   Source: Together AI official logo suite (PNG/Color+Black/TogetherAI_Logo_021026_Logo.png)
   Brand: https://www.together.ai/brand
 
-openrouter_48.png
+openrouter_48.png (and _16/_32 downscales)
   Source: https://openrouter.ai/apple-touch-icon.png (new OR mark, 2026 brand refresh)
 
-nvidia_48.png
+nvidia_48.png (and _16/_32 downscales)
   Source: https://www.nvidia.com/favicon.ico
   There is no NVIDIA NIM-specific mark; this is the NVIDIA eye. NIM is the product name.
 
-Regenerate: Pillow RGBA, trim transparent bbox, thumbnail 48×48 Lanczos, center on a
-transparent canvas. This NOTICE is excluded from the OXT (see should_exclude).
+Regenerate: from the 48×48 masters, Lanczos-scale to 16 and 32 (ffmpeg or Pillow).
+This NOTICE is excluded from the OXT (see should_exclude).

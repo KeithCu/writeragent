@@ -44,10 +44,10 @@
 
   <!-- Row 8: Get API Key buttons -->
   <dlg:text dlg:id="label_get_api_key" dlg:page="1" dlg:left="8" dlg:top="140" dlg:width="150" dlg:height="10" dlg:value="Get API Key:" dlg:align="left"/>
-  <dlg:button dlg:id="btn_openrouter" dlg:page="1" dlg:left="165" dlg:top="138" dlg:width="64" dlg:height="14" dlg:tabstop="true" dlg:value="OpenRouter"/>
-  <dlg:button dlg:id="btn_together" dlg:page="1" dlg:left="232" dlg:top="138" dlg:width="64" dlg:height="14" dlg:tabstop="true" dlg:value="Together AI"/>
-  <dlg:button dlg:id="btn_hf" dlg:page="1" dlg:left="299" dlg:top="138" dlg:width="64" dlg:height="14" dlg:tabstop="true" dlg:value="Hugging Face"/>
-  <dlg:button dlg:id="btn_nvidia" dlg:page="1" dlg:left="366" dlg:top="138" dlg:width="64" dlg:height="14" dlg:tabstop="true" dlg:value="NVIDIA NIM"/>
+  <dlg:button dlg:id="btn_openrouter" dlg:page="1" dlg:left="165" dlg:top="137" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="OpenRouter"/>
+  <dlg:button dlg:id="btn_together" dlg:page="1" dlg:left="233" dlg:top="137" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="Together AI"/>
+  <dlg:button dlg:id="btn_hf" dlg:page="1" dlg:left="301" dlg:top="137" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="Hugging Face"/>
+  <dlg:button dlg:id="btn_nvidia" dlg:page="1" dlg:left="369" dlg:top="137" dlg:width="67" dlg:height="16" dlg:tabstop="true" dlg:value="NVIDIA NIM"/>
 
   <!-- Row 9: Edit JSON button & Status Line -->
   <dlg:button dlg:id="btn_edit_config_json" dlg:page="1" dlg:left="8" dlg:top="156" dlg:width="125" dlg:height="14" dlg:tabstop="true" dlg:value="Edit config (JSON)…"/>

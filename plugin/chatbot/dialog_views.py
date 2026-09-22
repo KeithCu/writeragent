@@ -52,14 +52,42 @@ _PROVIDER_STARTER_ICONS = {
 _IMAGE_POSITION_LEFT_CENTER = 1
 
 
-def provider_icon_filename(stem):
-    """Asset basename under extension/assets/ (openrouter_48.png)."""
-    return "%s_48.png" % stem
+# Compact starter buttons: 16 on 1×; HiDPI keeps 48 (UnoControlButton does not
+# scale ImageURL). Mid scales use 32. Do not use dialog getPosSize — AppFont
+# before execute would pick tiny icons on HiDPI (see provider_logos.NOTICE).
+_PROVIDER_ICON_PX = (16, 32, 48)
+# menu_icon_dpi returns 16/26/32; map so ~2× still gets the 48 mark that looked good.
+_MENU_PX_TO_PROVIDER = {16: 16, 26: 32, 32: 48}
+
+
+def provider_icon_filename(stem, ctx=None, px=None):
+    """Asset basename under extension/assets/ (openrouter_16.png / _32 / _48).
+
+    Picks a shipped size from VCL DPI so 1× buttons are not clipped by a 48px
+    mark, while HiDPI keeps the large mark. Probe miss prefers HiDPI large.
+    """
+    import os
+
+    from plugin.framework.menu_icon_dpi import resolve_menu_icon_pixel_size
+    from plugin.framework.uno_context import menu_icon_filesystem_paths
+
+    if px is None:
+        menu_px = resolve_menu_icon_pixel_size(ctx)
+        px = _MENU_PX_TO_PROVIDER.get(int(menu_px), 48)
+    existing = []
+    for cand in _PROVIDER_ICON_PX:
+        name = "%s_%s.png" % (stem, cand)
+        if any(os.path.isfile(path) for path in menu_icon_filesystem_paths(name)):
+            existing.append(cand)
+    if not existing:
+        return "%s_48.png" % stem
+    best = min(existing, key=lambda a: (abs(a - int(px)), -a))
+    return "%s_%s.png" % (stem, best)
 
 
 def apply_provider_button_icon(ctrl, ctx, stem):
     """Load the mark onto a PushButton control model aligned with LeftCenter."""
-    filename = provider_icon_filename(stem)
+    filename = provider_icon_filename(stem, ctx=ctx)
     try:
         ext_url = get_extension_url(ctx)
         if not ext_url:

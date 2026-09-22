@@ -38,8 +38,10 @@ def test_jupyter_logo_dev_sources_excluded_from_oxt():
 def test_provider_logo_pngs_ship_notice_excluded():
     assert should_exclude("extension/assets/provider_logos.NOTICE") is True
     for stem in ("openrouter", "together", "huggingface", "nvidia"):
-        assert should_exclude("extension/assets/%s_48.png" % stem) is False
+        for px in (16, 32, 48):
+            assert should_exclude("extension/assets/%s_%s.png" % (stem, px)) is False
     assert remap_path("extension/assets/openrouter_48.png") == "assets/openrouter_48.png"
+    assert remap_path("extension/assets/openrouter_16.png") == "assets/openrouter_16.png"
 
 
 def test_sidebar_test_hooks_excluded_from_release_oxt():
