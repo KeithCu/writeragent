@@ -12,6 +12,7 @@ Public entries: ``document_to_content`` and ``xtext_to_content``
 import logging
 import re
 import time
+from html import escape as html_escape
 
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
@@ -30,6 +31,10 @@ _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/[^\"'\s);>]+;base64,[A-Za-z0-9+/=\s]+",
     re.IGNORECASE,
 )
+# The XHTML filter rewrites a fragment such as ``#2.3.4.Title.|outline`` into
+# an HTML-safe id. The raw HyperLinkURL is put back on each exported anchor,
+# in the order the source portions were copied.
+_ANCHOR_HREF_RE = re.compile(r'(<a\b[^>]*?\bhref=")([^"]*)(")', re.IGNORECASE)
 
 
 def strip_embedded_image_data(html: str) -> str:
@@ -102,10 +107,14 @@ def _autostyle_maps(doc, config_svc):
 # property": a blanket copy drags UNO structs and page/section properties along, which either fail
 # to set or change the temp document's layout. Char* is painted per text portion so a bold run
 # inside a sentence survives; Para* is set once per paragraph.
+# HyperLink* is not a Char* style. The temp copy is setString, which drops the
+# source portion's URL, so the XHTML filter would export the TOC line with no
+# href. Full-document export does not use this list; it filters the real model.
 _COPIED_CHAR_PROPERTIES = (
     "CharStyleName", "CharFontName", "CharHeight", "CharWeight", "CharPosture",
     "CharUnderline", "CharStrikeout", "CharColor", "CharBackColor", "CharCaseMap",
     "CharEscapement", "CharEscapementHeight",
+    "HyperLinkURL", "HyperLinkName", "HyperLinkTarget",
 )
 _COPIED_PARA_PROPERTIES = (
     "ParaLeftMargin", "ParaRightMargin", "ParaTopMargin", "ParaBottomMargin",
@@ -224,8 +233,139 @@ def _paint_direct_formatting(para, portions, temp_text, trim_start, trim_end, st
             continue
 
 
-def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc, *, include_images=False, walk_warnings=None):
-    """Export a character range to content via a hidden temp document."""
+def _hyperlink_urls(portions, trim_start, trim_end):
+    """One URL per hyperlink run inside the copied window, in order.
+
+    The XHTML filter emits one ``<a>`` per run, not per text portion, and it
+    rewrites the fragment. A bold split or a preserve-format replace leaves two
+    portions with the same URL and one anchor; writing every portion would put
+    the extra URL on the next anchor. A portion with no URL separates runs, so
+    two copies of the same URL with plain text between them stay two anchors.
+    """
+    urls = []
+    previous = None
+    offset = 0
+    for portion, chunk in portions:
+        chunk_start, chunk_end = offset, offset + len(chunk)
+        offset = chunk_end
+        if max(chunk_start, trim_start) >= min(chunk_end, trim_end):
+            continue
+        try:
+            url = str(portion.getPropertyValue("HyperLinkURL") or "")
+        except Exception:
+            url = ""
+        if not url:
+            previous = None
+            continue
+        if url == previous:
+            continue
+        urls.append(url)
+        previous = url
+    return urls
+
+
+def _restore_anchor_hrefs(content, urls):
+    """Write *urls* back onto exported anchors. The filter does not keep ``|outline``."""
+    if not content or not urls:
+        return content
+    index = 0
+
+    def _replace(match):
+        nonlocal index
+        if index >= len(urls):
+            return match.group(0)
+        url = html_escape(urls[index], quote=True)
+        index += 1
+        return match.group(1) + url + match.group(3)
+
+    return _ANCHOR_HREF_RE.sub(_replace, content)
+
+
+def _starts_before(text, left, right) -> bool:
+    """True when *left* is strictly before *right* (``compareRegionStarts`` == 1)."""
+    try:
+        return int(text.compareRegionStarts(left, right)) == 1
+    except Exception:
+        return False
+
+
+def _starts_at_or_after(text, left, right) -> bool:
+    """True when *left* is at or after *right*. A failed compare does not stop the walk."""
+    try:
+        return int(text.compareRegionStarts(left, right)) != 1
+    except Exception:
+        return False
+
+
+def _ends_after(text, left, right) -> bool:
+    """True when *left* ends strictly after *right* (``compareRegionEnds`` == -1)."""
+    try:
+        return int(text.compareRegionEnds(left, right)) == -1
+    except Exception:
+        return False
+
+
+def _element_overlaps(text, element, source) -> bool:
+    """True when *element* and *source* share a character."""
+    try:
+        return (
+            _starts_before(text, element.getStart(), source.getEnd())
+            and _ends_after(text, element.getEnd(), source.getStart())
+        )
+    except Exception:
+        return False
+
+
+def _selection_cursor(model):
+    """The current selection as a cursor in its own text, or None.
+
+    Scope ``selection`` used to turn this into character offsets and walk the
+    body from the start. Those offsets and the paragraph walk disagree across
+    an index section, so a TOC selection could export a later body paragraph.
+    """
+    from plugin.doc.text_helpers import _get_writer_selection_positions
+
+    found = _get_writer_selection_positions(model)
+    if not found:
+        return None
+    text, start, end = found
+    try:
+        cursor = text.createTextCursorByRange(start)
+        cursor.gotoRange(end, True)
+        return cursor
+    except Exception:
+        log.debug("_selection_cursor failed", exc_info=True)
+        return None
+
+
+def _trim_to_source(text, element, para_text, source):
+    """Visible-text window of *element* that lies inside *source*."""
+    try:
+        start_inside = _starts_before(text, element.getStart(), source.getStart())
+        end_inside = _ends_after(text, element.getEnd(), source.getEnd())
+    except Exception:
+        return 0, len(para_text)
+    if not start_inside and not end_inside:
+        return 0, len(para_text)
+    trim_start = 0
+    trim_end = len(para_text)
+    if start_inside:
+        cur = text.createTextCursorByRange(element.getStart())
+        cur.gotoRange(source.getStart(), True)
+        trim_start = len(get_string_without_tracked_deletions(cur))
+    if end_inside:
+        cur = text.createTextCursorByRange(element.getStart())
+        cur.gotoRange(source.getEnd(), True)
+        trim_end = len(get_string_without_tracked_deletions(cur))
+    return trim_start, trim_end
+
+
+def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc, *, include_images=False, walk_warnings=None, source_range=None):
+    """Export a character range, or *source_range* itself, via a hidden temp document.
+
+    *source_range* is the selection. It is copied from that cursor's text, not
+    re-found by character offset.
+    """
     temp_doc = None
     try:
         ctx.getServiceManager()
@@ -238,15 +378,25 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
         temp_text = temp_doc.getText()
         temp_cursor = temp_text.createTextCursor()
         style_cache = {}
-        text = model.getText()
+        text = source_range.getText() if source_range is not None else model.getText()
         enum = text.createEnumeration()
         first_para = True
         added_any = False
+        copied_urls = []
+        # One cursor walking forward. Selecting back to the document start for
+        # every paragraph copied a growing prefix (quadratic — the selection
+        # read that hung on a long file). The gap since the previous element
+        # is the same offset the old prefix measurement produced.
+        walker = text.createTextCursor()
+        walker.gotoStart(False)
+        running = 0
 
         while enum.hasMoreElements():
             el = enum.nextElement()
             if not hasattr(el, "getString"):
                 continue
+            if source_range is not None and _starts_at_or_after(text, el.getStart(), source_range.getEnd()):
+                break
             try:
                 style = el.getPropertyValue("ParaStyleName")
             except Exception:
@@ -257,23 +407,33 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
             portions = list(_visible_portions(el, truncated_out=walk_warnings))
             para_text = "".join(chunk for _unused, chunk in portions)
             style = style or ""
-            # Compute paragraph start offset
-            start_cursor = model.getText().createTextCursor()
-            start_cursor.gotoStart(False)
-            start_cursor.gotoRange(el.getStart(), True)
-            para_start = len(get_string_without_tracked_deletions(start_cursor))
-
-            para_end = para_start + len(para_text)
-
-            if para_end <= start or para_start >= end:
-                continue
-            # The window in the paragraph's own (tracked-deletions removed) coordinates. Kept even
-            # when nothing is trimmed: _paint_direct_formatting indexes portions with it.
-            trim_start, trim_end = 0, len(para_text)
-            if para_start < start or para_end > end:
-                trim_start = max(0, start - para_start)
-                trim_end = len(para_text) - max(0, para_end - end)
+            if source_range is not None:
+                if not _element_overlaps(text, el, source_range):
+                    continue
+                trim_start, trim_end = _trim_to_source(text, el, para_text, source_range)
                 para_text = para_text[trim_start:trim_end]
+            else:
+                gap = text.createTextCursorByRange(walker.getStart())
+                try:
+                    gap.gotoRange(el.getStart(), True)
+                    running += len(get_string_without_tracked_deletions(gap))
+                except Exception:
+                    log.debug("_range_to_content_via_temp_doc: paragraph offset gap skipped", exc_info=True)
+                try:
+                    walker.gotoRange(el.getStart(), False)
+                except Exception:
+                    log.debug("_range_to_content_via_temp_doc: offset walker skipped", exc_info=True)
+                para_start = running
+                para_end = para_start + len(para_text)
+                if para_end <= start or para_start >= end:
+                    continue
+                # The window in the paragraph's own (tracked-deletions removed) coordinates. Kept even
+                # when nothing is trimmed: _paint_direct_formatting indexes portions with it.
+                trim_start, trim_end = 0, len(para_text)
+                if para_start < start or para_end > end:
+                    trim_start = max(0, start - para_start)
+                    trim_end = len(para_text) - max(0, para_end - end)
+                    para_text = para_text[trim_start:trim_end]
 
             if first_para:
                 temp_cursor.gotoStart(False)
@@ -292,6 +452,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
                 temp_cursor.setString(para_text)
             _paint_direct_formatting(el, portions, temp_text, trim_start, trim_end,
                                       _source_style(model, style, style_cache))
+            copied_urls.extend(_hyperlink_urls(portions, trim_start, trim_end))
             added_any = True
 
         if not added_any:
@@ -310,6 +471,7 @@ def _range_to_content_via_temp_doc(model, ctx, start, end, max_chars, config_svc
                 with open(path, "r", encoding="utf-8", errors="replace") as f:
                     content = f.read()
             content = format_mod._strip_html_boilerplate(content)
+        content = _restore_anchor_hrefs(content, copied_urls)
         content = _apply_image_export_options(content, include_images=include_images)
         content = _inject_exported_math_tex(model, ctx, content)
         if max_chars and len(content) > max_chars:
@@ -370,13 +532,17 @@ def document_to_content(
         return content
 
     if scope == "selection":
-        # Import via format so LibrePy (which ships html_export but not document_helpers)
-        # selection path no longer names document_helpers in this file.
-        start, end = format_mod._selection_range_for_export(model)
+        # Copy the selection's own paragraphs. Character offsets from
+        # get_selection_range and this walk disagree across an index section,
+        # and measuring each paragraph from the document start hung on a long file.
+        source = _selection_cursor(model)
+        if source is None:
+            return _done("", "selection")
         return _done(
             _range_to_content_via_temp_doc(
-                model, ctx, start, end, max_chars, config_svc,
-                include_images=include_images, walk_warnings=walk_warnings),
+                model, ctx, 0, 0, max_chars, config_svc,
+                include_images=include_images, walk_warnings=walk_warnings,
+                source_range=source),
             "selection",
         )
 

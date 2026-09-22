@@ -12,7 +12,8 @@
 Bibliography v1 is an indexes overload, not ``domain=bibliography``. Cites are
 ``com.sun.star.text.textfield.Bibliography`` (a TextField), not index marks.
 The reference table is ``indexes_create(kind="bibliography")``. After cite
-changes, ``indexes_update_all`` refreshes that table.
+changes, ``indexes_update_all`` refreshes that table. ``indexes_refresh_toc_entry``
+rewrites one TOC line in place and does not call ``update()``.
 """
 
 from typing import Any, cast
@@ -307,7 +308,10 @@ class IndexesUpdateAll(ToolWriterIndexBase):
     intent = "navigate"
     description = (
         "Refresh all document indexes (TOC, alphabetical, bibliography table). "
-        "Call after inserting or editing bibliography cites so the reference list updates."
+        "Call after inserting or editing bibliography cites so the reference list updates. "
+        "A TOC refresh rebuilds every entry and drops customized direct formatting; "
+        "use indexes_refresh_toc_entry to change one outline entry in place. "
+        "Page numbers are not updated by that one-entry edit."
     )
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
@@ -325,6 +329,282 @@ class IndexesUpdateAll(ToolWriterIndexBase):
             name = idx.getName() if hasattr(idx, "getName") else "index_%d" % i
             refreshed.append(name)
         return {"status": "ok", "refreshed": refreshed, "count": count}
+
+
+def _contained(text, outer, inner) -> bool:
+    """True when *inner* lies entirely inside *outer*."""
+    try:
+        start_ok = int(text.compareRegionStarts(outer.getStart(), inner.getStart())) >= 0
+        end_ok = int(text.compareRegionEnds(inner.getEnd(), outer.getEnd())) != -1
+        return start_ok and end_ok
+    except Exception:
+        return False
+
+
+def _set_protected(idx, value: bool) -> None:
+    if hasattr(idx, "setPropertyValue"):
+        idx.setPropertyValue("IsProtected", value)
+        return
+    idx.IsProtected = value
+
+
+def _entry_before(found, content: str) -> tuple[str, str]:
+    """The entry paragraph, and that paragraph with this one match replaced.
+
+    ``found.getString()`` is only the matched substring. The entry is the
+    paragraph, so the page number and the rest of the line stay in the report.
+    """
+    try:
+        text = found.getText()
+        origin = text.createTextCursorByRange(found.getStart())
+        origin.gotoStartOfParagraph(False)
+        prefix = text.createTextCursorByRange(origin.getStart())
+        prefix.gotoRange(found.getStart(), True)
+        offset = len(prefix.getString() or "")
+        para = text.createTextCursorByRange(origin.getStart())
+        para.gotoEndOfParagraph(True)
+        entry = para.getString() or ""
+        matched = found.getString() or ""
+    except Exception:
+        return "", ""
+    end = offset + len(matched)
+    if entry[offset:end] != matched:
+        end = min(len(entry), end)
+    after = entry[:offset] + content + entry[end:]
+    return entry[:160], after[:160]
+
+
+def _paragraph_string(cursor) -> str:
+    """Visible text of the paragraph that contains *cursor*."""
+    if cursor is None:
+        return ""
+    try:
+        text = cursor.getText()
+        para = text.createTextCursorByRange(cursor.getStart())
+        para.gotoStartOfParagraph(False)
+        para.gotoEndOfParagraph(True)
+        return (para.getString() or "")[:160]
+    except Exception:
+        return ""
+
+
+class IndexesRefreshTocEntry(ToolWriterIndexBase):
+    name = "indexes_refresh_toc_entry"
+    intent = "edit"
+    description = (
+        "Replace one substring inside a single table-of-contents entry and, when that "
+        "text sits in one outline hyperlink (#…|outline), update that URL. "
+        "Does not call index update(), so other entries, tabs, page numbers, and direct "
+        "formatting stay. Page numbers are left as they are. "
+        "indexes_update_all is the full rebuild and drops customized TOC formatting. "
+        "Pass hyperlink_url to set the outline target, including when content equals "
+        "old_content. Bookmark targets are not rewritten."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "old_content": {"type": "string", "description": "Substring to find inside the TOC entry."},
+            "content": {"type": "string", "description": "Plain text to write in its place. May equal old_content when only hyperlink_url should change."},
+            "hyperlink_url": {"type": "string", "description": "Exact outline URL (#…|outline) when the match overlaps exactly one outline link. Omit to substitute old_content once outside the |outline suffix."},
+            "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
+            "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
+            "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry before) and text_after, plus the outline URL before and after when the match is one |outline link."},
+        },
+        "required": ["old_content", "content"],
+    }
+    is_mutation = True
+
+    def execute(self, ctx, **kwargs) -> dict[str, Any]:
+        doc = ctx.doc
+        old_content = kwargs.get("old_content")
+        content = kwargs.get("content")
+        if not isinstance(old_content, str) or not str(old_content).strip():
+            return self._tool_error("old_content must be a non-empty string.", code="INVALID_PARAM")
+        if not isinstance(content, str):
+            return self._tool_error("content must be plain text.", code="INVALID_PARAM")
+        from ..format import content_has_markup
+        if content_has_markup(content):
+            return self._tool_error(
+                "indexes_refresh_toc_entry takes plain text so the entry's formatting stays.",
+                code="INVALID_PARAM")
+        raw_url = kwargs.get("hyperlink_url")
+        override = None
+        if raw_url is not None:
+            if not isinstance(raw_url, str) or not raw_url.strip():
+                return self._tool_error("hyperlink_url must be a non-empty string.", code="INVALID_PARAM")
+            override = raw_url
+        occurrence = kwargs.get("occurrence")
+        if occurrence is not None and (isinstance(occurrence, bool) or not isinstance(occurrence, int) or occurrence < 0):
+            return self._tool_error("occurrence must be a non-negative integer.", code="INVALID_PARAM")
+        index = kwargs.get("index")
+        idx, index_error = self._resolve_toc(doc, index)
+        if index_error or idx is None:
+            return self._tool_error(
+                index_error or "Could not find the table of contents.", code="INVALID_PARAM")
+        try:
+            anchor = idx.getAnchor()
+        except Exception:
+            return self._tool_error("Could not read the table of contents.", code="TOOL_EXECUTION_ERROR")
+        found, find_error = self._toc_match(doc, anchor, str(old_content).strip(), occurrence)
+        if find_error:
+            return self._tool_error(find_error, code="NOT_FOUND")
+        preview, preview_error = self._preview(found, content, override)
+        if preview_error or preview is None:
+            return preview_error or self._tool_error(
+                "Could not preview the TOC entry.", code="TOOL_EXECUTION_ERROR")
+        if kwargs.get("dry_run"):
+            preview["status"] = "ok"
+            preview["dry_run"] = True
+            return preview
+        return self._write(ctx, doc, idx, found, content, override, preview)
+
+    def _resolve_toc(self, doc, index):
+        if not hasattr(doc, "getDocumentIndexes"):
+            return None, "Document does not support indexes."
+        indexes = doc.getDocumentIndexes()
+        count = indexes.getCount()
+        if index is None:
+            tocs = []
+            for i in range(count):
+                idx = indexes.getByIndex(i)
+                if index_kind_from_uno(idx) == "toc":
+                    tocs.append(idx)
+            if len(tocs) != 1:
+                return None, "index is required when the document does not have exactly one table of contents."
+            return tocs[0], None
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index >= count:
+            return None, "index must be a document index position from indexes_list."
+        idx = indexes.getByIndex(index)
+        if index_kind_from_uno(idx) != "toc":
+            return None, "index is not a table of contents."
+        return idx, None
+
+    def _toc_match(self, doc, anchor, old_content, occurrence):
+        from .. import search as search_mod
+
+        ranges = search_mod.find_all_ranges(doc, old_content) or []
+        text = anchor.getText()
+        inside = [found for found in ranges if _contained(text, anchor, found)]
+        pick = 0 if occurrence is None else occurrence
+        if not inside or pick >= len(inside):
+            if occurrence not in (None, 0):
+                return None, "occurrence is past the last table-of-contents match."
+            return None, "No table-of-contents entry contains that text."
+        return inside[pick], None
+
+    def _preview(self, found, content, override):
+        from ..hyperlink_fixup import (
+            capture_outline_hyperlinks,
+            empty_snapshot,
+            plan_outline_updates,
+            public_hyperlink_reports,
+        )
+
+        try:
+            snapshot = capture_outline_hyperlinks(found)
+        except Exception:
+            snapshot = empty_snapshot()
+        if override and len(snapshot.links) != 1:
+            return None, self._tool_error(
+                "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
+                code="INVALID_PARAM")
+        plans = plan_outline_updates(snapshot.links, snapshot.matched, content, override)
+        reports = public_hyperlink_reports(plans)
+        before, after = _entry_before(found, content)
+        preview: dict[str, Any] = {"text": before, "text_after": after}
+        if len(reports) == 1:
+            preview["hyperlink_url"] = reports[0]["hyperlink_url"]
+            preview["hyperlink_url_after"] = reports[0]["hyperlink_url_after"]
+            preview["hyperlink_updated"] = reports[0]["hyperlink_updated"]
+        elif reports:
+            preview["hyperlinks"] = reports
+        return preview, None
+
+    def _write(self, ctx, doc, idx, found, content, override, preview):
+        from ..edit_review import collapsed_anchor, next_agent_edit_undo_title
+        from ..format import replace_preserving_format
+        from ..hyperlink_fixup import (
+            capture_outline_hyperlinks,
+            empty_snapshot,
+            restore_outline_hyperlinks,
+        )
+
+        try:
+            was_protected = bool(idx.getPropertyValue("IsProtected"))
+        except Exception:
+            was_protected = bool(getattr(idx, "IsProtected", False))
+        try:
+            mgr = doc.getUndoManager()
+            if mgr is None or mgr.isLocked():
+                raise RuntimeError("undo manager is locked")
+            undo_title = next_agent_edit_undo_title()
+            mgr.enterUndoContext(undo_title)
+        except Exception:
+            return self._tool_error(
+                "Cannot edit the TOC entry atomically (no usable undo context).",
+                code="UNDO_UNAVAILABLE")
+        applied = False
+        error = None
+        try:
+            if was_protected:
+                _set_protected(idx, False)
+            try:
+                snapshot = capture_outline_hyperlinks(found)
+            except Exception:
+                snapshot = empty_snapshot()
+            if override and len(snapshot.links) != 1:
+                error = self._tool_error(
+                    "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
+                    code="INVALID_PARAM")
+            else:
+                point = collapsed_anchor(found)
+                replace_preserving_format(
+                    doc, found, content, ctx.ctx, in_undo_context=True, split_author=False)
+                lived = _paragraph_string(point)
+                if lived:
+                    preview["text_after"] = lived
+                if snapshot.links or snapshot.preserve_url:
+                    reports = restore_outline_hyperlinks(point, snapshot, content, override)
+                    if len(reports) == 1:
+                        preview["hyperlink_url"] = reports[0]["hyperlink_url"]
+                        preview["hyperlink_url_after"] = reports[0]["hyperlink_url_after"]
+                        preview["hyperlink_updated"] = reports[0]["hyperlink_updated"]
+                applied = True
+        except Exception as exc:
+            error = self._tool_error(
+                "TOC entry update failed; the change was rolled back (%s)." % exc,
+                code="HYPERLINK_UPDATE_FAILED")
+        finally:
+            if was_protected:
+                try:
+                    _set_protected(idx, True)
+                except Exception:
+                    applied = False
+                    if error is None:
+                        error = self._tool_error(
+                            "Could not restore table-of-contents protection; the edit was rolled back.")
+            left = False
+            try:
+                mgr.leaveUndoContext()
+                left = True
+            except Exception:
+                applied = False
+                if error is None:
+                    error = self._tool_error("Could not close the TOC edit undo context.")
+            if not applied and left:
+                try:
+                    titles = mgr.getAllUndoActionTitles()
+                    if titles and titles[0] == undo_title:
+                        mgr.undo()
+                except Exception:
+                    pass
+        if error is not None or not applied:
+            if error is not None:
+                return error
+            return self._tool_error("TOC entry update failed.")
+        preview["status"] = "ok"
+        preview["dry_run"] = False
+        return preview
 
 
 class IndexesList(ToolWriterIndexBase):

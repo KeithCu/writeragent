@@ -141,3 +141,173 @@ def test_copy_table_keeps_merged_banner_d2_uno(ctx: Any, doc: Any) -> None:
                 temp_doc.close(True)
             except Exception:
                 pass
+
+
+def _outline_paragraph(text, chunk, url):
+    """Insert *chunk* at the end of *text* and set its outline hyperlink."""
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+    text.insertString(cursor, chunk, False)
+    sel = text.createTextCursorByRange(cursor.getEnd())
+    if not sel.goLeft(len(chunk), True):
+        raise AssertionError("could not select inserted run %r" % chunk)
+    sel.setPropertyValue("HyperLinkURL", url)
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_export_returns_the_outline_entry_uno(ctx: Any, doc: Any) -> None:
+    """A selected outline TOC line must export that line, including its href.
+
+    Discussion #819: scope=selection hung and then returned an unrelated body
+    paragraph, with no href. The view cursor is checked first so a bad
+    controller selection is not blamed on the exporter. The outline line is
+    the second paragraph, so an offset walk that lands early would export the
+    body sentence instead.
+    """
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.framework.tool import ToolContext
+    from plugin.main import get_services
+    from plugin.writer.content import GetDocumentContent
+    from plugin.writer.html_export import _range_to_content_via_temp_doc
+
+    outline = "#2.3.4.TOC_ENTRY_TITLE.|outline"
+    body = "BODY_SENTENCE_UNIQUE"
+    toc = "2.3.4. TOC_ENTRY_TITLE\t42"
+    text = doc.getText()
+    text.setString("")
+    text.insertString(text.getEnd(), body, False)
+    text.insertControlCharacter(text.getEnd(), 0, False)
+    _outline_paragraph(text, toc, outline)
+
+    enum = text.createEnumeration()
+    enum.nextElement()
+    second = enum.nextElement()
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(second.getStart(), False)
+    vc.gotoRange(second.getEnd(), True)
+    selected = vc.getString() or ""
+    assert "TOC_ENTRY_TITLE" in selected, selected
+    assert body not in selected, selected
+
+    tool_ctx = ToolContext(doc, ctx, "writer", get_services(), "test")
+    result = GetDocumentContent().execute(tool_ctx, scope="selection", max_chars=5000)
+    assert result.get("status") == "ok", result
+    content = result.get("content") or ""
+    assert "TOC_ENTRY_TITLE" in content, content
+    assert body not in content, content
+    assert "|outline" in content or "%7Coutline" in content, content
+
+    # scope=range still uses offsets. The second paragraph starts after the
+    # body text plus the paragraph break.
+    start = len(body) + 1
+    ranged = _range_to_content_via_temp_doc(doc, ctx, start, start + len(toc), None, None)
+    assert "TOC_ENTRY_TITLE" in ranged, ranged
+    assert body not in ranged, ranged
+    assert "|outline" in ranged or "%7Coutline" in ranged, ranged
+
+
+def _hrefs(html: str) -> list[str]:
+    import re
+    return re.findall(r'href="([^"]*)"', html)
+
+
+@native_test
+@with_native_doc("writer")
+def test_split_outline_run_does_not_shift_the_next_href_uno(ctx: Any, doc: Any) -> None:
+    """A bold split is two portions and one anchor. The next link keeps its own URL.
+
+    Writing one URL per portion used to put the first target on the second anchor.
+    """
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.framework.tool import ToolContext
+    from plugin.main import get_services
+    from plugin.writer.content import GetDocumentContent
+
+    left = "#1.Left.|outline"
+    right = "#2.Right.|outline"
+    text = doc.getText()
+    text.setString("")
+    cursor = text.createTextCursor()
+    text.insertString(cursor, "LeftBOLD", False)
+    whole = text.createTextCursorByRange(cursor.getEnd())
+    assert whole.goLeft(len("LeftBOLD"), True)
+    whole.setPropertyValue("HyperLinkURL", left)
+    bold = text.createTextCursor()
+    bold.gotoStart(False)
+    assert bold.goRight(4, False)
+    assert bold.goRight(4, True)
+    bold.setPropertyValue("CharWeight", 150.0)
+    text.insertString(cursor, "Right", False)
+    right_sel = text.createTextCursorByRange(cursor.getEnd())
+    assert right_sel.goLeft(len("Right"), True)
+    right_sel.setPropertyValue("HyperLinkURL", right)
+
+    para = text.createTextCursor()
+    para.gotoStart(False)
+    para.gotoEndOfParagraph(True)
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(para.getStart(), False)
+    vc.gotoRange(para.getEnd(), True)
+    tool_ctx = ToolContext(doc, ctx, "writer", get_services(), "test")
+    result = GetDocumentContent().execute(tool_ctx, scope="selection", max_chars=5000)
+    assert result.get("status") == "ok", result
+    content = result.get("content") or ""
+    hrefs = _hrefs(content)
+    assert left in hrefs, content
+    assert right in hrefs, content
+    assert hrefs.index(left) < hrefs.index(right), hrefs
+
+
+@native_test
+@with_native_doc("writer")
+def test_content_index_selection_exports_the_entry_uno(ctx: Any, doc: Any) -> None:
+    """A selection inside a real content index exports that entry, not the body sentence."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.framework.tool import ToolContext
+    from plugin.main import get_services
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.content import GetDocumentContent
+    from plugin.writer.specialized.indexes import IndexesCreate
+
+    text = doc.getText()
+    text.setString("")
+    text.insertString(text.getEnd(), "TOC_ENTRY_TITLE", False)
+    heading = text.createTextCursor()
+    heading.gotoStart(False)
+    heading.gotoEndOfParagraph(True)
+    heading.setPropertyValue("ParaStyleName", "Heading 1")
+    text.insertControlCharacter(text.getEnd(), 0, False)
+    text.insertString(text.getEnd(), "BODY_SENTENCE_UNIQUE", False)
+    tctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    created = IndexesCreate().execute(tctx, kind="toc", title="Contents", target="beginning")
+    assert created.get("status") == "ok", created
+
+    entry = None
+    enum = text.createEnumeration()
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        try:
+            chunk = para.getString() or ""
+        except Exception:
+            continue
+        if "TOC_ENTRY_TITLE" in chunk and "\t" in chunk:
+            entry = para
+            break
+    assert entry is not None, text.getString()
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(entry.getStart(), False)
+    vc.gotoRange(entry.getEnd(), True)
+    selected = vc.getString() or ""
+    assert "TOC_ENTRY_TITLE" in selected, selected
+    assert "BODY_SENTENCE_UNIQUE" not in selected, selected
+    page = selected.split("\t", 1)[1].strip()
+    assert page, selected
+
+    tool_ctx = ToolContext(doc, ctx, "writer", get_services(), "test")
+    result = GetDocumentContent().execute(tool_ctx, scope="selection", max_chars=5000)
+    assert result.get("status") == "ok", result
+    content = result.get("content") or ""
+    assert "TOC_ENTRY_TITLE" in content, content
+    assert page in content, content
+    assert "BODY_SENTENCE_UNIQUE" not in content, content

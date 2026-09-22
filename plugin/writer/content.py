@@ -43,6 +43,13 @@ from plugin.writer.edit_review import (
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.framework.errors import safe_json_loads, ToolExecutionError
 from plugin.writer import search as search_mod
+from plugin.writer.hyperlink_fixup import (
+    capture_outline_hyperlinks,
+    empty_snapshot,
+    plan_outline_updates,
+    public_hyperlink_reports,
+    restore_outline_hyperlinks,
+)
 
 
 log = logging.getLogger("writeragent.writer")
@@ -215,6 +222,11 @@ class ApplyDocumentContent(ToolBase):
       **all** document content, you **must** use ``target='full_document'`` with ``content`` only;
       **never** pass the full body as ``old_content``. Search uses ``search.find_chained_range`` (LO
       regex + paragraph chaining). See ``tests/writer/test_content_search_uno.py``.
+      A match that sits in an outline hyperlink (``#…|outline``) also updates that
+      target when the matched text occurs once in the URL outside that suffix, or
+      when ``hyperlink_url`` is passed for that one link. ``content`` may equal
+      ``old_content`` when only the URL is stale. A repeated title is left
+      unchanged. Bookmark targets are not rewritten. See ``hyperlink_fixup``.
     """
 
     name = "apply_document_content"
@@ -227,7 +239,11 @@ class ApplyDocumentContent(ToolBase):
         "Use target='search' with old_content for find-and-replace of a specific substring only. "
         "Search occurrence is 0-based over replaceable body/table/frame matches only "
         "(not dry_run shape/comment rows); omit it for first-match; do not combine with all_matches=true. "
-        "dry_run tags those replaceable rows with occurrence so you can pass the index back."
+        "dry_run tags those replaceable rows with occurrence so you can pass the index back. "
+        "An outline hyperlink (#…|outline) covering a replaced match is updated when the "
+        "matched text occurs once in the target outside that suffix; pass hyperlink_url "
+        "to set a different target on that one link, including when content equals "
+        "old_content and only the URL is stale. Bookmark links are not rewritten."
     )
     parameters = {
         "type": "object",
@@ -241,6 +257,7 @@ class ApplyDocumentContent(ToolBase):
             "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing."},
             "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
             "case_sensitive": {"type": "boolean", "description": "For target='search': force case-sensitive (true) or case-insensitive (false) matching. Omit for the default lenient match."},
+            "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
         },
         "required": ["content"],
     }
@@ -261,6 +278,186 @@ class ApplyDocumentContent(ToolBase):
         if kwargs.get("all_matches", False):
             return None, "occurrence cannot be combined with all_matches=true."
         return raw, None
+
+    @staticmethod
+    def _parse_hyperlink_url(kwargs):
+        """Explicit outline-target override. None means use substitution when it applies."""
+        raw = kwargs.get("hyperlink_url")
+        if raw is None:
+            return None, None
+        if not isinstance(raw, str):
+            return None, "hyperlink_url must be a string."
+        if not raw.strip():
+            return None, None
+        if kwargs.get("all_matches", False):
+            return None, "hyperlink_url cannot be combined with all_matches=true."
+        return raw, None
+
+    def _replacement_plain(self, ctx, content):
+        """Visible text a search replace will insert, for outline-URL substitution."""
+        from . import format as format_support
+
+        if isinstance(content, list):
+            content = "\n".join(str(part) for part in content)
+        text = "" if content is None else str(content)
+        if format_support.content_has_markup(text):
+            return format_support.html_to_plain_text(text, ctx.ctx, ctx.services.get("config"))
+        return text.replace("\\n", "\n").replace("\\t", "\t")
+
+    def _outline_override_error(self):
+        return self._tool_error(
+            "hyperlink_url applies only when the match overlaps exactly one outline hyperlink (|outline).",
+            code="INVALID_PARAM")
+
+    @staticmethod
+    def _override_span_rejected(fields):
+        """True when an override is not aimed at exactly one outline link.
+
+        Zero links omit hyperlink_url. Two links also set hyperlinks, and previewing
+        the first of them would look like the override applies to that one alone.
+        """
+        many = fields.get("hyperlinks")
+        if many:
+            return len(many) != 1
+        return not fields.get("hyperlink_url")
+
+    def _outline_match_fields(self, found, plain_fn, override):
+        """dry_run fields for one match. Empty when the match has no outline link.
+
+        *plain_fn* is called only when a preview is actually needed, so a markup dry_run
+        that does not touch an outline link does not open a hidden document. An override
+        on a non-outline match is not previewed as a new link; the caller rejects it.
+        """
+        try:
+            snapshot = capture_outline_hyperlinks(found)
+        except Exception:
+            log.debug("apply_document_content: outline hyperlink preview failed", exc_info=True)
+            return {}
+        if not snapshot.links:
+            return {}
+        plain = plain_fn()
+        plans = plan_outline_updates(snapshot.links, snapshot.matched, plain, override)
+        reports = public_hyperlink_reports(plans)
+        if not reports:
+            return {}
+        fields = {
+            "hyperlink_url": reports[0]["hyperlink_url"],
+            "hyperlink_url_after": reports[0]["hyperlink_url_after"],
+            "hyperlink_updated": reports[0]["hyperlink_updated"],
+        }
+        if len(reports) > 1:
+            fields["hyperlinks"] = reports
+        return fields
+
+    def _attach_hyperlink_reports(self, resp, reports):
+        if not reports:
+            return resp
+        resp["hyperlinks"] = reports
+        if len(reports) == 1:
+            resp["hyperlink_url"] = reports[0]["hyperlink_url"]
+            resp["hyperlink_url_after"] = reports[0]["hyperlink_url_after"]
+            resp["hyperlink_updated"] = reports[0]["hyperlink_updated"]
+        return resp
+
+    def _outline_undo(self, doc, session, run):
+        """Run *run* inside one undo step so the text replace and the URL write are one Ctrl+Z.
+
+        The HTML path and a surgical review replace each close their own undo context
+        before returning. Without this outer step the URL write would be a second undo.
+        """
+        undo_title = next_agent_edit_undo_title()
+        try:
+            mgr = doc.getUndoManager()
+            if mgr is None or mgr.isLocked():
+                raise RuntimeError("undo manager is locked")
+            mgr.enterUndoContext(undo_title)
+        except Exception:
+            log.exception("apply_document_content: outline hyperlink undo context failed")
+            return None, self._tool_error(
+                "Cannot update the outline hyperlink atomically (no usable undo context); "
+                "refusing rather than risk a text change that leaves the link stale.",
+                code="UNDO_UNAVAILABLE")
+        changes_before = len(session.changes)
+        applied_ok = False
+        try:
+            reports = run()
+            applied_ok = True
+            return reports, None
+        except Exception as exc:
+            log.exception("apply_document_content: outline hyperlink update failed")
+            return None, self._tool_error(
+                "Outline hyperlink update failed; the text change was rolled back (%s)." % exc,
+                code="HYPERLINK_UPDATE_FAILED")
+        finally:
+            close_surgical_context(mgr, session, changes_before, applied_ok, undo_title)
+
+    def _replace_found(self, session, doc, found, *, use_preserve, raw_content, content,
+                       ctx, config_svc, track_reviewable, override, batch, plain_preview):
+        """Replace one search match and, when it sits in an outline link, fix that URL.
+
+        *batch* is the all_matches loop, which already holds the undo context. A single
+        match opens one when a URL write is needed. Returns ``(reports, error_or_None)``.
+        """
+        from . import format as format_support
+
+        anchor = collapsed_anchor(found)
+        try:
+            snapshot = capture_outline_hyperlinks(found)
+        except Exception:
+            log.exception("apply_document_content: outline hyperlink capture failed")
+            if override:
+                return None, self._tool_error(
+                    "Could not read the outline hyperlink on this match.",
+                    code="HYPERLINK_UPDATE_FAILED")
+            snapshot = empty_snapshot()
+        if override and len(snapshot.links) != 1:
+            # Before the text edit. One override on two outline links would stamp
+            # both with the same target. Zero links would paint a bookmark or plain text.
+            return None, self._outline_override_error()
+        # preserve_url: a bookmark target covering the match. A same-length setString
+        # keeps HyperLinkURL. HTML setString("") and a length-changing preserve-format
+        # replace can clear it on the new characters; put that target back unchanged.
+        needs_fix = bool(snapshot.links) or bool(snapshot.preserve_url)
+
+        def mutate():
+            original = found.getString()
+            if use_preserve:
+                record_preserve_replace(session, doc, found, raw_content, ctx.ctx, track_reviewable)
+            elif batch:
+                # The all_matches loop already entered an undo context. A second
+                # record_html_atomically would nest another and close it early.
+                session.record_mutation(
+                    lambda f=found: format_support.replace_single_range_with_content(
+                        doc, f, content, ctx.ctx, config_svc),
+                    original_preview=original, proposed_preview=plain_preview)
+            else:
+                record_html_atomically(
+                    session, doc,
+                    lambda: format_support.replace_single_range_with_content(
+                        doc, found, content, ctx.ctx, config_svc),
+                    track_reviewable, original_preview=original, proposed_preview=plain_preview)
+
+        def run():
+            mutate()
+            if not needs_fix:
+                return []
+            fallback = raw_content if use_preserve else self._replacement_plain(ctx, content)
+            return restore_outline_hyperlinks(anchor, snapshot, fallback, override)
+
+        def once():
+            # all_matches already entered the review session around the loop.
+            # A single match has to enter it here, outline link or not, or record
+            # mode would only track replaces that happen to sit in an outline URL.
+            if batch:
+                return run()
+            with session:
+                return run()
+
+        if needs_fix and not batch:
+            # Group the text replace and the URL write. The session stays around both
+            # so review recording still sees the mutation.
+            return self._outline_undo(doc, session, once)
+        return once(), None
 
     @staticmethod
     def _occurrence_oor_message(occurrence, count):
@@ -352,6 +549,20 @@ class ApplyDocumentContent(ToolBase):
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
             return self._tool_error(occurrence_error, code="INVALID_PARAM")
+        override, override_error = self._parse_hyperlink_url(kwargs)
+        if override_error:
+            return self._tool_error(override_error, code="INVALID_PARAM")
+        # Same position guard as execute. before/after insert beside the match and
+        # leave its outline URL alone, so a preview must not say the target will change.
+        position = str(kwargs.get("position") or "replace").strip().lower()
+        if position not in ("replace", "before", "after"):
+            return self._tool_error("position must be 'replace', 'before' or 'after'.")
+        if override and position != "replace":
+            return self._tool_error(
+                "hyperlink_url only applies to position='replace'.",
+                code="INVALID_PARAM")
+        rewrites_outline = position == "replace"
+        edit_idx = 0 if occurrence is None else occurrence
         from . import format as format_support
 
         old_stripped = str(old_content).strip()
@@ -381,6 +592,13 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
         label_cache = {}
         matches = []
+        plain_box: dict[str, str] = {}
+
+        def _plain():
+            if "value" not in plain_box:
+                plain_box["value"] = self._replacement_plain(ctx, kwargs.get("content"))
+            return plain_box["value"]
+
         # occurrence indexes replaceable body/table/frame ranges only — not the
         # mixed matches[] list, which also appends shape/comment previews.
         for idx, found in enumerate(ranges[:20]):
@@ -392,7 +610,16 @@ class ApplyDocumentContent(ToolBase):
                 snippet = found.getString()
             except Exception:
                 snippet = ""
-            matches.append({"occurrence": idx, "location": loc, "text": snippet[:160]})
+            row = {"occurrence": idx, "location": loc, "text": snippet[:160]}
+            if rewrites_outline:
+                # The override is one destination for the match execute would edit.
+                # Other rows show automatic substitution only.
+                row_override = override if idx == edit_idx else None
+                fields = self._outline_match_fields(found, _plain, row_override)
+                if row_override and self._override_span_rejected(fields):
+                    return self._outline_override_error()
+                row.update(fields)
+            matches.append(row)
         opts_cs = bool(case_opt) if case_opt is not None else False
         pattern = old_stripped if use_regex else s
         shape_hits = search_mod.sweep_draw_shape_preview_matches(ctx.doc, pattern, use_regex, opts_cs, limit=10000)
@@ -407,6 +634,13 @@ class ApplyDocumentContent(ToolBase):
                 replaceable_count=len(ranges),
                 matches=matches,
             )
+        # The preview loop only walks the first 20 matches. A later occurrence is
+        # still the one execute would edit, so the override has to be checked there too.
+        if (rewrites_outline and override and ranges and edit_idx < len(ranges)
+                and edit_idx >= 20):
+            later = self._outline_match_fields(ranges[edit_idx], _plain, override)
+            if self._override_span_rejected(later):
+                return self._outline_override_error()
         result: dict[str, object] = {
             "status": "ok",
             "dry_run": True,
@@ -430,10 +664,13 @@ class ApplyDocumentContent(ToolBase):
             except Exception:
                 selected_text = ""
             result["selected_occurrence"] = occurrence
-            result["selected_match"] = {
+            selected_match = {
                 "location": selected_location,
                 "text": selected_text[:160],
             }
+            if rewrites_outline:
+                selected_match.update(self._outline_match_fields(selected, _plain, override))
+            result["selected_match"] = selected_match
         return result
 
     def execute(self, ctx, **kwargs):
@@ -699,6 +936,13 @@ class ApplyDocumentContent(ToolBase):
         _use_opts = _regex_opt or _case_opt is not None
         _opts_pattern = old_stripped if _regex_opt else search_string
         _opts_cs = bool(_case_opt) if _case_opt is not None else False
+        override, override_error = self._parse_hyperlink_url(kwargs)
+        if override_error:
+            return self._tool_error(override_error, code="INVALID_PARAM"), session
+        if override and position != "replace":
+            return self._tool_error(
+                "hyperlink_url only applies to position='replace'.",
+                code="INVALID_PARAM"), session
 
         all_matches = kwargs.get("all_matches", False)
         if all_matches:
@@ -721,17 +965,21 @@ class ApplyDocumentContent(ToolBase):
             changes_before = len(session.changes)
             applied_ok = False
             count = 0
+            link_reports: list[dict] = []
             try:
                 with session:
                     for found in reversed(ranges):
-                        original = found.getString()
-                        if use_preserve:
-                            record_preserve_replace(session, doc, found, raw_content, ctx.ctx, track_reviewable)
-                        else:
-                            session.record_mutation(
-                                lambda f=found: format_support.replace_single_range_with_content(
-                                    doc, f, content, ctx.ctx, config_svc),
-                                original_preview=original, proposed_preview=_plain_preview(content))
+                        # batch=True: this loop already holds the undo context, so the
+                        # outline URL write stays in the same Ctrl+Z as the text.
+                        reports, link_err = self._replace_found(
+                            session, doc, found, use_preserve=use_preserve, raw_content=raw_content,
+                            content=content, ctx=ctx, config_svc=config_svc,
+                            track_reviewable=track_reviewable, override=override, batch=True,
+                            plain_preview=_plain_preview(content))
+                        if link_err:
+                            raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
+                        if reports:
+                            link_reports.extend(reports)
                         count += 1
                 applied_ok = True
             except Exception as e:
@@ -747,6 +995,7 @@ class ApplyDocumentContent(ToolBase):
             resp = search_mod.build_search_replace_response(count, use_preserve=use_preserve)
             if count > 1:
                 resp["message"] += " edited_context shows the first occurrence's neighborhood."
+            self._attach_hyperlink_reports(resp, link_reports)
             return attach_edited_context(resp, anchor), session
         if occurrence is not None:
             # Index the same replaceable list the edit path uses. Empty ranges fall
@@ -864,21 +1113,23 @@ class ApplyDocumentContent(ToolBase):
                 insert_resp["occurrence"] = occurrence
             return attach_edited_context(insert_resp, anchor), session
 
-        original = found.getString()
         # Anchor BEFORE the mutation: the found range's content is replaced (HTML path even
-        # deletes-then-imports), but a collapsed position at its start survives.
+        # deletes-then-imports). edited_context uses this collapsed start. A preserve-format
+        # replace's per-character setString pushes a cursor saved here forward, so the
+        # outline URL is painted from the paragraph start (_select_replacement), not from
+        # this anchor. Outline capture happens inside _replace_found, also before that delete.
         anchor = collapsed_anchor(found)
-        with session:
-            if use_preserve:
-                record_preserve_replace(session, doc, found, raw_content, ctx.ctx, track_reviewable)
-            else:
-                record_html_atomically(
-                    session, doc,
-                    lambda: format_support.replace_single_range_with_content(doc, found, content, ctx.ctx, config_svc),
-                    track_reviewable, original_preview=original, proposed_preview=_plain_preview(content))
+        reports, link_err = self._replace_found(
+            session, doc, found, use_preserve=use_preserve, raw_content=raw_content,
+            content=content, ctx=ctx, config_svc=config_svc,
+            track_reviewable=track_reviewable, override=override, batch=False,
+            plain_preview=_plain_preview(content))
+        if link_err:
+            return link_err, session
         resp = search_mod.build_search_replace_response(1, use_preserve=use_preserve)
         if occurrence is not None:
             resp["occurrence"] = occurrence
+        self._attach_hyperlink_reports(resp, reports or [])
         return attach_edited_context(resp, anchor), session
 
 

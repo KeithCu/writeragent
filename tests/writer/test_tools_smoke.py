@@ -102,6 +102,7 @@ class TestWriterToolsSmoke(unittest.TestCase):
             "indexes_list",
             "indexes_list_cites",
             "indexes_update_all",
+            "indexes_refresh_toc_entry",
         ):
             self.assertIn(name, names, f"expected indexes tool {name!r}")
         for name in (
