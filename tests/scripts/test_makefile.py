@@ -134,8 +134,10 @@ def test_makefile_compile_translations_uses_python_script() -> None:
     assert "command -v msgfmt" not in recipe
 
 
-def test_makefile_ci_debug_max_worker_restart_is_opt_in() -> None:
+def test_makefile_gha_and_ci_debug_disable_worker_restart() -> None:
+    """PR CI must pass --max-worker-restart=0 without requiring ci_debug (#823)."""
     text = MAKEFILE.read_text(encoding="utf-8")
+    assert "filter true 1,$(GITHUB_ACTIONS)" in text
     assert "ifeq ($(WRITERAGENT_CI_DEBUG),1)" in text
     assert "--max-worker-restart=0" in text
     unit_line = [ln for ln in text.splitlines() if ln.startswith("PYTEST_UNIT")][0]

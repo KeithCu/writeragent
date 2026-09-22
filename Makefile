@@ -740,15 +740,24 @@ PYTEST_XDIST :=
 else
 PYTEST_XDIST := -n $(PYTEST_WORKERS) --dist=loadgroup
 endif
-# Opt-in hang diagnostics (WRITERAGENT_CI_DEBUG=1). Off by default so PR CI stays
-# unchanged. --max-worker-restart=0 is the highest-value Windows knob: xdist
-# then prints the crashitem nodeid in the session summary instead of cloning
-# the dead worker (default restart budget is numprocesses*4). The clone must
+# --max-worker-restart=0 on every GitHub Actions pytest (PR CI included), not
+# only WRITERAGENT_CI_DEBUG=1. PR #823: pull_request tails died at ~7900 with
+# Make SIGTERM / "The operation was canceled" and no "replacing crashed worker"
+# line flushed; the same SHAs finished (including UNO) when ci_debug turned
+# this flag on. xdist then prints the crashitem nodeid instead of cloning the
+# dead worker (default restart budget is numprocesses*4). The clone must
 # re-collect ~6k items; the controller loop_once has a 2s poll and no deadline,
 # which is the 15-minute wedge after "replacing crashed worker gw3"
 # (33447705893). pytest-timeout did not fire — gw3 vanished at 261s with no
-# "Failed: Timeout" line.
+# "Failed: Timeout" line. Local `make pytest` still allows restarts.
+_PYTEST_NO_WORKER_RESTART :=
+ifneq ($(filter true 1,$(GITHUB_ACTIONS)),)
+_PYTEST_NO_WORKER_RESTART := 1
+endif
 ifeq ($(WRITERAGENT_CI_DEBUG),1)
+_PYTEST_NO_WORKER_RESTART := 1
+endif
+ifeq ($(_PYTEST_NO_WORKER_RESTART),1)
 PYTEST_CI_DEBUG_FLAGS := --max-worker-restart=0
 else
 PYTEST_CI_DEBUG_FLAGS :=
