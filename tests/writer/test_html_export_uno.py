@@ -311,3 +311,101 @@ def test_content_index_selection_exports_the_entry_uno(ctx: Any, doc: Any) -> No
     assert "TOC_ENTRY_TITLE" in content, content
     assert page in content, content
     assert "BODY_SENTENCE_UNIQUE" not in content, content
+
+
+def _seed_ruby_paragraph(doc: Any) -> None:
+    """漢字 + ruby かんじ + trailing です, via cursor properties (not a text field)."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    text.insertString(cur, "漢字です", False)
+    cur.gotoStart(False)
+    cur.goRight(2, True)
+    cur.setPropertyValue("RubyText", "かんじ")
+    cur.setPropertyValue("RubyIsAbove", True)
+
+
+def _assert_semantic_ruby(html: str) -> None:
+    """Base and reading stay distinct; reading is in <rt>, not glued body text."""
+    assert "漢字かんじです" not in html, html
+    assert "<ruby>" in html, html
+    assert "<rt>かんじ</rt>" in html, html
+    assert "漢字" in html, html
+    assert "です" in html, html
+
+
+@native_test
+@with_native_doc("writer")
+def test_full_get_document_content_emits_semantic_ruby_uno(ctx: Any, doc: Any) -> None:
+    """Full XHTML used to concatenate 漢字+かんじ; the agent must see <ruby>/<rt>."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.content import GetDocumentContent
+
+    _seed_ruby_paragraph(doc)
+    assert doc.getText().getString() == "漢字です"
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    result = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert result.get("status") == "ok", result
+    _assert_semantic_ruby(result.get("content") or "")
+
+
+@native_test
+@with_native_doc("writer")
+def test_range_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: Any) -> None:
+    """Range copy used to drop RubyText; reading must still appear in <rt>."""
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.content import GetDocumentContent
+
+    _seed_ruby_paragraph(doc)
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    full = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert full.get("status") == "ok", full
+    doc_len = int(full.get("document_length") or 0)
+    assert doc_len >= 4, full
+    result = GetDocumentContent().execute(
+        tool_ctx, scope="range", start=0, end=doc_len,
+    )
+    assert result.get("status") == "ok", result
+    _assert_semantic_ruby(result.get("content") or "")
+
+
+@native_test
+@with_native_doc("writer")
+def test_selection_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: Any) -> None:
+    skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
+    from plugin.framework.tool import ToolContext
+    from plugin.main import get_services
+    from plugin.writer.content import GetDocumentContent
+
+    _seed_ruby_paragraph(doc)
+    text = doc.getText()
+    vc = doc.getCurrentController().getViewCursor()
+    vc.gotoRange(text.getStart(), False)
+    vc.gotoRange(text.getEnd(), True)
+    tool_ctx = ToolContext(doc, ctx, "writer", get_services(), "test")
+    result = GetDocumentContent().execute(tool_ctx, scope="selection")
+    assert result.get("status") == "ok", result
+    _assert_semantic_ruby(result.get("content") or "")
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_sees_ruby_base_not_reading_uno(ctx: Any, doc: Any) -> None:
+    """Paragraph getString() / LO find are base-only; reading is not searchable text.
+
+    Unchanged in Phase 1: ruby is a portion mark, not a TextField, so
+    search_in_document still matches 漢字 and not かんじ.
+    """
+    _seed_ruby_paragraph(doc)
+    text = doc.getText()
+    assert text.getString() == "漢字です"
+    from plugin.writer.search import find_first_range
+
+    found_base = find_first_range(doc, "漢字")
+    assert found_base is not None
+    assert "漢字" in found_base.getString()
+    assert "かんじ" not in found_base.getString()
+    assert find_first_range(doc, "かんじ") is None

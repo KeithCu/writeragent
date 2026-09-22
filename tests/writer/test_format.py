@@ -326,7 +326,7 @@ def test_document_to_content_full_timing_path_with_mocks():
     xhtml = '<html><body><p class="paragraph-Text_20_body">hello</p></body></html>'
     with (
         patch.object(html_export, "_export_xhtml", return_value=xhtml) as export_xhtml,
-        patch.object(html_export, "_autostyle_maps", return_value=({}, {})) as autostyle,
+        patch.object(html_export, "_autostyle_maps", return_value=({}, {}, False)) as autostyle,
         patch.object(fmt.xhtml_post, "xhtml_to_semantic_html", return_value="<p>hello</p>") as post,
     ):
         out = fmt.document_to_content(object(), object(), None, scope="full")

@@ -278,6 +278,7 @@ These are intentional trade-offs in v1. Tests document the behavior ([`test_xhtm
 | **Unresolvable autostyle** (no FODT map, ambiguous fingerprint) | No `data-lo-style`; write treats as default body | Accept as Standard on rewrite | UNO `ParaStyleName` index as authoritative fallback |
 | **XHTML export failure** | Falls back to legacy StarWriter HTML (inline CSS, no tokens) | — | Log/monitor; same as pre-v1 read |
 | **Symmetric XHTML write** | Not supported (probe C: 0 body paragraphs on test LO) | Always StarWriter import + UNO style apply | Unlikely to revisit |
+| **CJK ruby (furigana)** | **Read** rewrites glued/dropped ruby to `<ruby>…<rt>…</rt></ruby>` ([ruby.md](ruby.md)). **Write** still flattens. | Do not apply `<ruby>` expecting live portions (Phase 2). Search still sees base only. | Recreate Ruby portions on apply |
 
 ---
 
