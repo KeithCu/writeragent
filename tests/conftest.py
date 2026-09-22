@@ -439,13 +439,10 @@ def pytest_runtest_logstart(nodeid, location):
     log_ci_debug(f"start {nodeid}")
     global _pytest_progress_last_nodeid
     if _make_pytest_progress_enabled():
+        # Remember the name for the 15s idle line. Do not print every start:
+        # after 7800 that was hundreds of parametrized word_diff_split lines
+        # in ~1s (35669866244) and the controller stalled on GHA log I/O.
         _pytest_progress_last_nodeid = nodeid
-        # Name the leftover tests so a 50s tail after ``pytest: 7900`` is
-        # not an empty log (PR #823 cancelled runs).
-        if _pytest_progress_done >= _PYTEST_PROGRESS_TAIL_AFTER:
-            _emit_make_pytest_progress(
-                f"pytest: {_pytest_progress_done} running {nodeid}"
-            )
 
 
 def pytest_runtest_logfinish(nodeid, location):
