@@ -57,7 +57,7 @@ def test_inject_ruby_wraps_styled_base_when_reading_was_dropped():
 def test_inject_ruby_keeps_inner_tags_on_base():
     html = '<p><span style="font-weight:bold">漢字</span>かんじです</p>'
     out = inject_ruby_into_html(html, [("漢字", "かんじ")])
-    assert "<ruby><span style=\"font-weight:bold\">漢字</span><rt>かんじ</rt></ruby>です" in out
+    assert '<span style="font-weight:bold"><ruby>漢字<rt>かんじ</rt></ruby></span>です' in out
     assert "漢字かんじ" not in out.replace("<rt>かんじ</rt>", "")
 
 

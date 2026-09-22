@@ -88,69 +88,45 @@ def _inside_ruby_element(html, index):
     return last_close < last_open
 
 
-def _find_html_text_span(html, needle, start=0):
-    """HTML offsets ``(s, e)`` covering *needle* as concatenated text, skipping tags.
+def _index_in_tag(html, index):
+    """True when *index* is inside ``<...>`` (attribute text is not body text)."""
+    last_lt = html.rfind("<", 0, index)
+    if last_lt < 0:
+        return False
+    last_gt = html.rfind(">", 0, index)
+    return last_gt < last_lt
 
-    Returns None when *needle* is missing. ``s`` is the first matching text
-    character; ``e`` is just after the last. Tags between characters are kept
-    inside ``html[s:e]`` so a bold base still maps back.
-    """
+
+def _find_contiguous(html, needle, start=0):
+    """Offsets of *needle* as a raw substring that is not inside a tag."""
     if not html or not needle:
         return None
-    text_i = 0
-    match_at = None
-    i = start
-    n = len(html)
-    needle_n = len(needle)
-    while i < n:
-        if html[i] == "<":
-            close = html.find(">", i)
-            i = n if close < 0 else close + 1
-            continue
-        if html[i] == needle[text_i]:
-            if text_i == 0:
-                match_at = i
-            text_i += 1
-            i += 1
-            if text_i == needle_n:
-                return match_at, i
-            continue
-        if text_i:
-            # Restart at the first matched char + 1 so "aa"+"ab" still finds "aab".
-            i = match_at + 1
-            text_i = 0
-            match_at = None
-            continue
-        i += 1
-    return None
+    idx = start
+    while True:
+        found = html.find(needle, idx)
+        if found < 0:
+            return None
+        if not _index_in_tag(html, found):
+            return found, found + len(needle)
+        idx = found + 1
 
 
-def _html_offset_after_n_text_chars(fragment, n_chars):
-    """Index in *fragment* just after *n_chars* visible (non-tag) characters.
-
-    Trailing end-tags after the last counted character are consumed so a
-    ``<span>漢</span>字`` base is not split in the middle of a span.
-    """
-    if n_chars <= 0:
-        return 0
-    count = 0
+def _only_tags_or_ws(fragment):
+    """True when *fragment* has no body text (tags and whitespace only)."""
     i = 0
-    length = len(fragment)
-    while i < length:
-        if fragment[i] == "<":
-            close = fragment.find(">", i)
-            i = length if close < 0 else close + 1
+    n = len(fragment)
+    while i < n:
+        ch = fragment[i]
+        if ch.isspace():
+            i += 1
             continue
-        count += 1
-        i += 1
-        if count >= n_chars:
-            while i < length and fragment.startswith("</", i):
-                close = fragment.find(">", i)
-                if close < 0:
-                    break
-                i = close + 1
-            return i
-    return length
+        if ch != "<":
+            return False
+        close = fragment.find(">", i)
+        if close < 0:
+            return False
+        i = close + 1
+    return True
 
 
 def _ruby_markup(base, reading):
@@ -166,6 +142,11 @@ def inject_ruby_into_html(html, spans):
     so range export used to drop the reading. Both become
     ``<ruby>漢字<rt>かんじ</rt></ruby>です``. Apply of that markup is Phase 2
     (import still flattens).
+
+    Replacements stay inside a single text node (or wrap the base node and
+    delete a following reading node). Crossing a tag with a wrapper used to
+    emit ``<span><ruby>…</span>…`` — browsers recover, but it is not HTML we
+    want the agent to copy.
     """
     if not html or not spans:
         return html
@@ -175,31 +156,31 @@ def inject_ruby_into_html(html, spans):
         base, reading = _ruby_parts(span)
         if not base or not reading:
             continue
-        found = _find_html_text_span(html, base + reading, pos)
-        if found is None:
-            found = _find_html_text_span(html, base, pos)
-            glued = False
-        else:
-            glued = True
-        if found is None:
-            continue
-        start, end = found
-        if _inside_ruby_element(html, start):
+        glued = _find_contiguous(html, base + reading, pos)
+        if glued is not None and not _inside_ruby_element(html, glued[0]):
+            start, end = glued
+            parts.append(html[pos:start])
+            parts.append(_ruby_markup(base, reading))
             pos = end
             continue
-        fragment = html[start:end]
-        plain = (base + reading) if glued else base
-        if fragment != plain and fragment != html_escape(plain):
-            if glued:
-                split = _html_offset_after_n_text_chars(fragment, len(base))
-                base_html = fragment[:split]
-            else:
-                base_html = fragment
-            replacement = "<ruby>%s<rt>%s</rt></ruby>" % (base_html, html_escape(reading))
-        else:
-            replacement = _ruby_markup(base, reading)
+        base_at = _find_contiguous(html, base, pos)
+        if base_at is None or _inside_ruby_element(html, base_at[0]):
+            continue
+        start, end = base_at
+        reading_at = _find_contiguous(html, reading, end)
+        if (
+            reading_at is not None
+            and _only_tags_or_ws(html[end:reading_at[0]])
+            and not _inside_ruby_element(html, reading_at[0])
+        ):
+            # Bold/span around the base: keep those tags, drop the glued reading.
+            parts.append(html[pos:start])
+            parts.append(_ruby_markup(base, reading))
+            parts.append(html[end:reading_at[0]])
+            pos = reading_at[1]
+            continue
         parts.append(html[pos:start])
-        parts.append(replacement)
+        parts.append(_ruby_markup(base, reading))
         pos = end
     parts.append(html[pos:])
     return "".join(parts)
