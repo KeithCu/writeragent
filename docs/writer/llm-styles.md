@@ -60,6 +60,7 @@ Full design notes: [html-style-model-plan.md](html-style-model-plan.md#v1-limita
 | Styling content you insert at `end` / `search` / `selection` | `data-lo-style` is **not** applied (would restyle text already in the document) | Use `target='full_document'` for styled rewrites, or `apply_style` on existing text |
 | Table cell paragraph styles | Not exposed in agent HTML | Use `apply_style` on the cell text |
 | Large documents | Every full read exports twice (XHTML + flat ODF) | Prefer `scope=range`, `get_document_tree`, and `search_in_document` before `scope=full` |
+| Generated list labels (`1.`, `•`) | XHTML keeps `Numbering_20_Symbols` / `Bullet_20_Symbols`; nested levels display as `1.` not `1.2.3`. `search_in_document("1.")` does not hit those labels | Search item **text**. List-only (not chapter numbering): [list-numbering.md](list-numbering.md) |
 
 **Post-v1:** a cached UNO paragraph-style index should remove the second full export on large docs and improve autostyle resolution. See the plan doc “Long-term” section.
 

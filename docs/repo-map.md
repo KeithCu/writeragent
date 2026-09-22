@@ -66,6 +66,7 @@ Start here by task.
 | Writer ↔ Calc ↔ Draw ↔ Impress `send_peer_work / send_peer_result` | [chat/peer-messaging.md](chat/peer-messaging.md) |
 | Writer specialized tool tiers | [writer/specialized-toolsets.md](writer/specialized-toolsets.md) |
 | Styles / LLM styling | [writer/llm-styles.md](writer/llm-styles.md) |
+| Writer list numbering (list-only) | [writer/list-numbering.md](writer/list-numbering.md) |
 | Writer API references | [writer/bookmarks-api-reference.md](writer/bookmarks-api-reference.md), [writer/footnotes-api-reference.md](writer/footnotes-api-reference.md), [writer/page-api-reference.md](writer/page-api-reference.md), [writer/tracking-api-reference.md](writer/tracking-api-reference.md) |
 | Reviewable agent edits (surgical redlines, toolbar) | [writer/reviewable-agent-edits.md](writer/reviewable-agent-edits.md) |
 | LO-DOM & Semantic Tree | [writer/lo-dom-semantic-tree.md](writer/lo-dom-semantic-tree.md) |
