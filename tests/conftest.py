@@ -339,17 +339,30 @@ def _repo_magic_mock_dir() -> str:
 
 _pytest_progress_done = 0
 _pytest_progress_last_nodeid = ""
+_pytest_progress_inflight: set[str] = set()
 _pytest_progress_last_emit = 0.0
 _pytest_progress_stop = None
 _pytest_progress_thread = None
 
 # After 7800 the next multiple of 100 is 8000, but GHA collects ~7988 items.
-# PR #823 (35666812986) printed ``pytest: 7900`` / 99% then 50–80s of silence
-# and Make got SIGTERM — remaining tests were still running (dots flushed
-# after Terminated). Green master finishes that tail in ~17s; +27 table
-# tests stretched it past whatever cancelled the quiet log.
+# PR #823 pull_request jobs were SIGTERM-cancelled after a quiet 7900s tail
+# (35666812986) or after a logstart flood stalled the controller (35669866244).
+# Same SHAs finish that tail in ~5s on workflow_dispatch (35668304406,
+# 35669812792). last= was the last reported nodeid, not a hung hypothesis
+# test — name leftover inflight tests on the idle line instead.
 _PYTEST_PROGRESS_TAIL_AFTER = 7800
 _PYTEST_PROGRESS_IDLE_SEC = 15.0
+_PYTEST_PROGRESS_IDLE_LEFTOVER_CAP = 6
+
+
+def format_idle_pytest_progress(done: int, last_nodeid: str, inflight: list[str]) -> str:
+    """Idle heartbeat. leftover= is started-not-finished; last= is last reported."""
+    if inflight:
+        shown = ",".join(inflight[:_PYTEST_PROGRESS_IDLE_LEFTOVER_CAP])
+        extra = len(inflight) - _PYTEST_PROGRESS_IDLE_LEFTOVER_CAP
+        more = f" +{extra}" if extra > 0 else ""
+        return f"pytest: {done} still-running leftover={shown}{more}"
+    return f"pytest: {done} still-running last={last_nodeid or '-'}"
 
 
 def should_emit_pytest_progress_count(done: int, *, failed: bool = False) -> bool:
@@ -395,8 +408,9 @@ def _idle_pytest_progress_loop() -> None:
         nodeid = _pytest_progress_last_nodeid
         last = _pytest_progress_last_emit
         if done and (time.monotonic() - last) >= _PYTEST_PROGRESS_IDLE_SEC:
+            leftover = sorted(_pytest_progress_inflight)
             _emit_make_pytest_progress(
-                f"pytest: {done} still-running last={nodeid or '-'}"
+                format_idle_pytest_progress(done, nodeid, leftover)
             )
 
 
@@ -443,12 +457,14 @@ def pytest_runtest_logstart(nodeid, location):
         # after 7800 that was hundreds of parametrized word_diff_split lines
         # in ~1s (35669866244) and the controller stalled on GHA log I/O.
         _pytest_progress_last_nodeid = nodeid
+        _pytest_progress_inflight.add(nodeid)
 
 
 def pytest_runtest_logfinish(nodeid, location):
     from tests.ci_debug import log_ci_debug
 
     log_ci_debug(f"end {nodeid}")
+    _pytest_progress_inflight.discard(nodeid)
 
 
 def pytest_sessionstart(session):
@@ -466,6 +482,7 @@ def pytest_sessionstart(session):
         global _pytest_progress_done, _pytest_progress_last_nodeid
         _pytest_progress_done = 0
         _pytest_progress_last_nodeid = ""
+        _pytest_progress_inflight.clear()
         _emit_make_pytest_progress("pytest: starting (workers collecting…)")
         _start_idle_pytest_progress()
     magic_mock_dir = _repo_magic_mock_dir()
