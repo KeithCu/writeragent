@@ -7,6 +7,8 @@ add_comment span/occurrence/author, insert_page_break anchored, regex/case in ap
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.tests.testing_utils import setup_uno_mocks
 setup_uno_mocks()
 
@@ -15,6 +17,8 @@ def _edit_ctx():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     # dry_run sweeps shapes/comments; bare MagicMock enumerations never terminate.
+    # Outline-hyperlink preview also walks portions; that stop is `_enum_has_more`
+    # (UNO True only), not this stub.
     ctx.doc.getDrawPage.return_value = []
     ctx.doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
     return ctx
@@ -22,6 +26,7 @@ def _edit_ctx():
 
 # ---- D1: dry_run ------------------------------------------------------------
 
+@pytest.mark.timeout(5)
 def test_dry_run_reports_matches_without_mutating():
     from plugin.writer.content import ApplyDocumentContent
 
@@ -46,6 +51,7 @@ def test_dry_run_requires_search_target():
     assert res["status"] == "error" and "search" in res["message"]
 
 
+@pytest.mark.timeout(5)
 def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
     """A preview that uses a different matcher than the commit is worse than none: with
     regex=true, dry_run must route through find_ranges_regex_case with the RAW pattern."""

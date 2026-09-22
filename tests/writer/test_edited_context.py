@@ -7,6 +7,7 @@
 The echo must be right or absent, never wrong: paragraph_window_text returns None whenever the
 paragraph walk fails, and attach_edited_context only adds the field when a snippet came back.
 No LibreOffice required — fakes implement the minimal XText/XParagraphCursor protocol."""
+import pytest
 from unittest.mock import MagicMock, patch
 
 from plugin.tests.testing_utils import setup_uno_mocks
@@ -142,7 +143,12 @@ def test_collapsed_anchor_is_best_effort():
     assert collapsed_anchor(Range()) is None
 
 
+@pytest.mark.timeout(5)
 def test_apply_document_content_edited_context_on_success():
+    """Search apply walks outline hyperlinks on the match. MagicMock.hasMoreElements()
+    is truthy, so `if not enum.hasMoreElements()` never stopped (PR #823 merge CI
+    leftover). `_enum_has_more` requires UNO True. Review mode is patched: this
+    file does not init config, and get_agent_edit_review_mode reads it first."""
     from plugin.writer import format as format_support
     from plugin.writer.content import ApplyDocumentContent
 
@@ -156,7 +162,9 @@ def test_apply_document_content_edited_context_on_success():
          patch("plugin.writer.content.collapsed_anchor", return_value=anchor), \
          patch("plugin.writer.content.attach_edited_context", side_effect=lambda r, a: {**r, "edited_context": "echo"}), \
          patch.object(format_support, "content_has_markup", return_value=False), \
-         patch("plugin.writer.content.record_preserve_replace"):
+         patch("plugin.writer.content.record_preserve_replace"), \
+         patch("plugin.writer.content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.content.review_recording_enabled", return_value=False):
         res = ApplyDocumentContent().execute(
             ctx, content="new", target="search", old_content="old")
     assert res["status"] == "ok" and res.get("edited_context") == "echo"

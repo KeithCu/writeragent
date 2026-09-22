@@ -12,6 +12,8 @@ run capture_outline_hyperlinks / restore_outline_hyperlinks. Substitution
 rules are tested on the pure planner as well.
 """
 
+import pytest
+
 from plugin.writer.hyperlink_fixup import (
     OutlineLink,
     capture_outline_hyperlinks,
@@ -413,6 +415,27 @@ def test_restore_does_not_paint_a_bookmark_across_an_overlapping_outline_link():
     assert right.url == _BOOKMARK
 
 
+def test_enum_has_more_is_false_for_magicmock():
+    """`if not enum.hasMoreElements()` never stops on MagicMock (truthy mock)."""
+    from unittest.mock import MagicMock
+
+    from plugin.writer.hyperlink_fixup import _enum_has_more
+
+    assert _enum_has_more(MagicMock()) is False
+
+    class _UnoTrue:
+        def hasMoreElements(self):
+            return True
+
+    class _UnoFalse:
+        def hasMoreElements(self):
+            return False
+
+    assert _enum_has_more(_UnoTrue()) is True
+    assert _enum_has_more(_UnoFalse()) is False
+
+
+@pytest.mark.timeout(5)
 def test_capture_outline_hyperlinks_magicmock_range_does_not_spin():
     """MagicMock.hasMoreElements() is truthy; the walker must stop (PR #823 merge CI)."""
     from unittest.mock import MagicMock

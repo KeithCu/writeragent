@@ -87,6 +87,8 @@ Draw factory-open `DisposedException` (victim often `test_duplicate_rename_move_
 
 `--max-worker-restart=0` is on every GitHub Actions `make pytest` (`GITHUB_ACTIONS=true`), not only `ci_debug`. PR #823 pull_request runs cancelled in the ~7900 tail with no flushed `replacing crashed worker` line; the same SHAs finished (including UNO) when `ci_debug` added this flag. xdist then prints the crashitem nodeid instead of replacing the worker and wedging on re-collection (Windows CI 33447705893: gw3 vanished at 261s with no `Failed: Timeout`; pytest-timeout did not fire). Opt-in hang diagnostics (`WRITERAGENT_CI_DEBUG=1`, or PR CI `workflow_dispatch` `ci_debug`) still add the per-worker `start`/`end` nodeid trail + faulthandler dump at 240s under `WRITERAGENT_CI_DEBUG_DIR`. `pytest_serial` sets `PYTEST_WORKERS=0`.
 
+PR #823 leftover heartbeats (`test_edited_context` / `test_small_fixes_r5` dry_run, ~80s then Make Terminated) were **not** an xdist deadlock and not a job timeout. `pull_request` checks out `refs/pull/N/merge` (PR + `master`). `workflow_dispatch` checks out the branch SHA. Master’s `hyperlink_fixup` portion walk used `if not enum.hasMoreElements()`; MagicMock returns a truthy mock, so three `ApplyDocumentContent` unit tests spun until GHA SIGTERM. `_enum_has_more` (`is True` only) is the product stop. Heartbeats / `--max-worker-restart=0` only named the leftovers.
+
 Profile hotspots without the LO native suite:
 
 ```bash
