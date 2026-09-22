@@ -236,12 +236,12 @@ def test_starter_buttons_share_row_and_include_nvidia(tmp_path: Path) -> None:
     btn_ids = ("btn_openrouter", "btn_together", "btn_hf", "btn_nvidia")
     prev_right = label_right
     for btn_id in btn_ids:
-        assert int(attrs[btn_id]["height"]) == 14
-        assert int(attrs[btn_id]["width"]) == 64
+        assert int(attrs[btn_id]["height"]) == 16
+        assert int(attrs[btn_id]["width"]) == 67
         btn_left = int(attrs[btn_id]["left"])
         assert btn_left >= prev_right
-        assert btn_left + 64 <= dlg_width
-        prev_right = btn_left + 64
+        assert btn_left + 67 <= dlg_width
+        prev_right = btn_left + 67
 
     # Icons are placed directly on the buttons, no separate dlg:img elements
     for img_id in ("img_openrouter", "img_together", "img_huggingface", "img_nvidia"):
