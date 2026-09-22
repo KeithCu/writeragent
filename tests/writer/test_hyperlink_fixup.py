@@ -205,6 +205,26 @@ class _Cursor:
             self.end = nxt
         return True
 
+    def getPropertyValue(self, name):
+        for sl in self.doc.slices:
+            start, end = self.doc.slice_bounds(sl)
+            if start < self.end and end > self.start:
+                if name == "HyperLinkURL":
+                    return sl.url
+                if name == "HyperLinkName":
+                    return sl.name
+                if name == "HyperLinkTarget":
+                    return sl.target
+                if name == "CharColor":
+                    if sl.color is None:
+                        raise AttributeError(name)
+                    return sl.color
+                if name == "CharUnderline":
+                    if sl.underline is None:
+                        raise AttributeError(name)
+                    return sl.underline
+        raise AttributeError(name)
+
     def createEnumeration(self):
         return _Enum([_Paragraph(self.doc)])
 

@@ -33,13 +33,16 @@ not only the replaced characters. A TOC link usually also covers the number,
 the tab, and the page number; painting just the title splits one link into two
 targets.
 
-Discussion #819 follow-up: ``setPropertyValue(HyperLinkURL)`` reapplies
-Internet-link defaults (navy + single underline) on the written range. The
-text replace keeps direct ``CharColor`` / ``CharUnderline``. Snapshot those
-after the text is in place and write them back after the URL so a customized
-black / no-underline TOC entry does not pick up link chrome. Numbering and
-the page number are restored from their own post-replace runs, not from the
-title.
+Discussion #819 follow-up: assigning ``HyperLinkURL`` on a *subrange* of an
+already-linked line (the title only) splits that portion and LibreOffice
+paints Internet-link defaults (navy + single underline) on the title and the
+leftover punctuation/tab. Numbering and the page number are usually their
+own portions, so a whole-portion URL write leaves them alone. A preserve-
+format replace keeps the old URL on the whole line; the pending pass already
+rewrites it. Skip the title-only paint when the replacement already has the
+new URL. When a paint is still needed (HTML dropped the URL), snapshot
+``CharColor`` / ``CharUnderline`` after the text replace and put them on the
+same cursor immediately after the assignment.
 """
 
 from __future__ import annotations
@@ -420,13 +423,29 @@ def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, lengt
     return cursor
 
 
-def _write_plan_on_cursor(cursor: Any, plan: dict[str, Any]) -> None:
+def _write_char_look(cursor: Any, props: dict[str, Any]) -> None:
+    """Put CharColor / CharUnderline on *cursor* (the same range that just got a URL).
+
+    A later cursor over the same characters does not stick after a splitting
+    HyperLinkURL write. The setup path (URL, then look on that cursor) does.
+    """
+    for name, value in props.items():
+        try:
+            cursor.setPropertyValue(name, value)
+        except Exception:
+            continue
+
+
+def _write_plan_on_cursor(cursor: Any, plan: dict[str, Any],
+                          look: dict[str, Any] | None = None) -> None:
     if plan["new_url"] is not None:
         _set_prop(cursor, _URL, plan["new_url"])
     if plan["new_name"] is not None:
         _set_prop(cursor, _NAME, plan["new_name"])
     if plan["new_target"] is not None:
         _set_prop(cursor, _TARGET, plan["new_target"])
+    if look:
+        _write_char_look(cursor, look)
 
 
 def _read_char_look(obj: Any) -> dict[str, Any]:
@@ -473,49 +492,33 @@ def _snapshot_char_look(text: Any, anchor: Any) -> list[tuple[int, int, dict[str
     return runs
 
 
-def _paint_char_look(text: Any, para_start: Any, start: int, end: int,
-                     props: dict[str, Any]) -> None:
-    if start >= end or not props:
-        return
-    try:
-        cursor = _cursor_at(text, para_start)
-    except Exception:
-        return
-    if start and not _step_right(cursor, start, False):
-        return
-    if not _step_right(cursor, end - start, True):
-        return
-    for name, value in props.items():
-        try:
-            cursor.setPropertyValue(name, value)
-        except Exception:
-            continue
-
-
-def _restore_char_look(text: Any, anchor: Any,
-                       runs: list[tuple[int, int, dict[str, Any]]]) -> None:
-    """Put snapshotted colour / underline back after HyperLinkURL was assigned."""
-    if not runs:
-        return
-    try:
-        cursor = _cursor_at(text, anchor.getStart())
-        cursor.gotoStartOfParagraph(False)
-        para_start = cursor.getStart()
-    except Exception:
-        log.debug("outline hyperlink: could not reselect paragraph to restore character formatting",
-                  exc_info=True)
-        return
-    for start, end, props in runs:
-        _paint_char_look(text, para_start, start, end, props)
+def _look_covering(runs: list[tuple[int, int, dict[str, Any]]],
+                   start: int, end: int) -> dict[str, Any]:
+    """Char* of the snapshotted run that covers *start*, else the first overlap."""
+    for lo, hi, props in runs:
+        if lo <= start < hi:
+            return props
+    for lo, hi, props in runs:
+        if lo < end and hi > start:
+            return props
+    return {}
 
 
 def _paint(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str,
-           plan: dict[str, Any], *, required: bool) -> bool:
+           plan: dict[str, Any], *, required: bool,
+           look: dict[str, Any] | None = None) -> bool:
     """Set *plan* on the replaced characters. Return False when the range cannot be selected.
 
     *required* raises: an outline update that cannot see the new text would leave
     the link stale. A bookmark put-back is best-effort so a selection failure does
     not roll back a text replace that did not ask to change the target.
+
+    Skip when those characters already have ``new_url``. A preserve-format
+    replace keeps HyperLinkURL on the whole TOC line; the pending pass already
+    rewrote that one portion. Writing the URL again on just the title is a
+    subrange assignment: LibreOffice splits the run and paints Internet-link
+    chrome on the title and the leftover punctuation/tab. CharColor set on a
+    later cursor does not undo that.
     """
     cursor = _select_replacement(text, anchor, snapshot, len(new_plain))
     if cursor is None:
@@ -524,7 +527,10 @@ def _paint(text: Any, anchor: Any, snapshot: OutlineSnapshot, new_plain: str,
                 "Could not select the replaced text to update its outline hyperlink.")
         log.debug("outline hyperlink: could not reselect the replaced text to restore its URL")
         return False
-    _write_plan_on_cursor(cursor, plan)
+    planned = plan.get("new_url")
+    if planned and _prop(cursor, _URL) == planned:
+        return True
+    _write_plan_on_cursor(cursor, plan, look)
     return True
 
 
@@ -556,73 +562,76 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
         raise RuntimeError(
             "Could not locate the replaced text to update its outline hyperlink: %s" % exc
         ) from exc
-    # What was wrong: assigning HyperLinkURL reapplies Internet_20_link defaults
-    # (navy + single underline) on every written fragment. How it happened: a
-    # customized TOC entry stores black / no-underline as direct Char* on top of
-    # that style; replace_preserving_format keeps those values, then the URL
-    # write drops them. Why this fixes it: snapshot the look now (text is
-    # already in place) and put each run back after the URL assignment.
-    look = _snapshot_char_look(text, anchor)
-    try:
-        if not writable:
-            # Put the same target back on the replaced characters only when they
-            # belonged to that one link. A same-length setString keeps HyperLinkURL.
-            # HTML setString("") and a length-changing preserve-format replace can
-            # clear it, which would unlink "New" and leave only " title". Painting
-            # links[0] or the bookmark across a match that also overlaps another
-            # link would give the neighbor the wrong target; those characters stay
-            # unlinked instead.
-            put_back = ""
-            if len(snapshot.links) == 1 and not snapshot.preserve_url:
-                put_back = snapshot.links[0].url
-            elif not snapshot.links and snapshot.preserve_url:
-                put_back = snapshot.preserve_url
-            if put_back and new_plain:
-                _paint(text, anchor, snapshot, new_plain, {
-                    "new_url": put_back,
-                    "new_name": None,
-                    "new_target": None,
-                }, required=False)
-            return public_hyperlink_reports(plans)
+    # What was wrong: writing HyperLinkURL on a *subrange* of an already-linked
+    # TOC line (the title only) splits that portion and LibreOffice paints
+    # Internet-link defaults (navy + single underline) on the new fragments.
+    # How it happened: replace_preserving_format keeps CharColor / CharUnderline
+    # and the old URL on the whole line; the pending pass already rewrites that
+    # URL; _paint then assigned the same URL again on just the title. Why this
+    # fixes it: skip that subrange write when the replacement already has the
+    # new URL, and when a paint is still needed (HTML dropped the URL) put the
+    # snapshotted look on the same cursor immediately after the assignment.
+    look_runs = _snapshot_char_look(text, anchor)
+    title_look = _look_covering(
+        look_runs, len(snapshot.prefix), len(snapshot.prefix) + len(new_plain))
 
-        by_url = {plan["url"]: plan for plan in writable if plan["url"]}
-
-        # Collect runs before writing. setPropertyValue can split a portion, which
-        # invalidates an enumeration that is still in progress.
-        pending = []
-        for portion in _iter_portions(text, anchor.getStart()):
-            current = _prop(portion, _URL)
-            plan = by_url.get(current)
-            if plan is None:
-                continue
-            try:
-                if _same_point(text, portion.getStart(), portion.getEnd()):
-                    continue
-                pending.append((portion.getStart(), portion.getEnd(), plan))
-            except Exception as exc:
-                raise RuntimeError(
-                    "Could not locate an outline hyperlink run to update: %s" % exc
-                ) from exc
-        for start, end, plan in pending:
-            cursor = _cursor_at(text, start)
-            cursor.gotoRange(end, True)
-            _write_plan_on_cursor(cursor, plan)
-
-        # len(writable) == 1 is not "one link": another outline URL may have been
-        # left unchanged, or a bookmark may overlap the match. Painting this target
-        # across the replacement would give those neighbors the wrong URL. The HTML
-        # path still needs the paint when the match was that single outline link,
-        # because setString("") drops HyperLinkURL on the new characters.
-        one_outline = len(snapshot.links) == 1 and not snapshot.preserve_url
-        paint = writable[0] if one_outline and len(writable) == 1 else None
-
-        # An empty replacement that deletes the whole link leaves no portion to paint.
-        # That delete succeeds: nothing with a stale URL remains. A non-empty
-        # replacement that cannot be reselected still raises inside _paint.
-        if paint is not None and new_plain:
-            _paint(text, anchor, snapshot, new_plain, paint, required=True)
-
-        log.debug("outline hyperlink updated: %s", public_hyperlink_reports(plans))
+    if not writable:
+        # Put the same target back on the replaced characters only when they
+        # belonged to that one link. A same-length setString keeps HyperLinkURL.
+        # HTML setString("") and a length-changing preserve-format replace can
+        # clear it, which would unlink "New" and leave only " title". Painting
+        # links[0] or the bookmark across a match that also overlaps another
+        # link would give the neighbor the wrong target; those characters stay
+        # unlinked instead.
+        put_back = ""
+        if len(snapshot.links) == 1 and not snapshot.preserve_url:
+            put_back = snapshot.links[0].url
+        elif not snapshot.links and snapshot.preserve_url:
+            put_back = snapshot.preserve_url
+        if put_back and new_plain:
+            _paint(text, anchor, snapshot, new_plain, {
+                "new_url": put_back,
+                "new_name": None,
+                "new_target": None,
+            }, required=False, look=title_look)
         return public_hyperlink_reports(plans)
-    finally:
-        _restore_char_look(text, anchor, look)
+
+    by_url = {plan["url"]: plan for plan in writable if plan["url"]}
+
+    # Collect runs before writing. setPropertyValue can split a portion, which
+    # invalidates an enumeration that is still in progress.
+    pending = []
+    for portion in _iter_portions(text, anchor.getStart()):
+        current = _prop(portion, _URL)
+        plan = by_url.get(current)
+        if plan is None:
+            continue
+        try:
+            if _same_point(text, portion.getStart(), portion.getEnd()):
+                continue
+            pending.append((portion.getStart(), portion.getEnd(), plan, _read_char_look(portion)))
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not locate an outline hyperlink run to update: %s" % exc
+            ) from exc
+    for start, end, plan, portion_look in pending:
+        cursor = _cursor_at(text, start)
+        cursor.gotoRange(end, True)
+        _write_plan_on_cursor(cursor, plan, portion_look)
+
+    # len(writable) == 1 is not "one link": another outline URL may have been
+    # left unchanged, or a bookmark may overlap the match. Painting this target
+    # across the replacement would give those neighbors the wrong URL. The HTML
+    # path still needs the paint when the match was that single outline link,
+    # because setString("") drops HyperLinkURL on the new characters.
+    one_outline = len(snapshot.links) == 1 and not snapshot.preserve_url
+    paint = writable[0] if one_outline and len(writable) == 1 else None
+
+    # An empty replacement that deletes the whole link leaves no portion to paint.
+    # That delete succeeds: nothing with a stale URL remains. A non-empty
+    # replacement that cannot be reselected still raises inside _paint.
+    if paint is not None and new_plain:
+        _paint(text, anchor, snapshot, new_plain, paint, required=True, look=title_look)
+
+    log.debug("outline hyperlink updated: %s", public_hyperlink_reports(plans))
+    return public_hyperlink_reports(plans)

@@ -14,8 +14,8 @@ Bibliography v1 is an indexes overload, not ``domain=bibliography``. Cites are
 The reference table is ``indexes_create(kind="bibliography")``. After cite
 changes, ``indexes_update_all`` refreshes that table. ``indexes_refresh_toc_entry``
 rewrites one TOC line in place and does not call ``update()``. Outline
-``HyperLinkURL`` is updated through ``hyperlink_fixup``, which puts
-``CharColor`` / ``CharUnderline`` back after the URL write.
+``HyperLinkURL`` is updated through ``hyperlink_fixup``, which skips a
+title-only URL rewrite when the whole-span write already set it.
 """
 
 from typing import Any, cast
