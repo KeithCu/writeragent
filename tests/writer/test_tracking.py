@@ -10,9 +10,6 @@ from plugin.writer.tracking import (
     TrackChangesList,
     TrackChangesShow,
     ManageTrackedChanges,
-    TrackChangesCommentInsert,
-    TrackChangesCommentList,
-    TrackChangesCommentDelete,
 )
 
 def _create_mock_ctx():
@@ -65,9 +62,35 @@ def test_track_changes_tools_support_calc_document_type():
     assert TrackChangesList.uno_services == list(expected)
 
 
-def test_track_changes_comment_tools_writer_only():
-    assert not isinstance(TrackChangesCommentInsert(), ToolCalcSpecialBase)
-    assert TrackChangesCommentInsert.uno_services == ["com.sun.star.text.TextDocument"]
+_REMOVED_TRACK_CHANGES_COMMENT_TOOLS = (
+    "track_changes_comment_insert",
+    "track_changes_comment_list",
+    "track_changes_comment_delete",
+)
+
+
+def test_track_changes_comment_tools_removed():
+    """Leftover annotation trio lived in tracking after comments domain landed; delete, do not alias."""
+    import plugin.writer.tracking as tracking
+
+    for cls_name in (
+        "TrackChangesCommentInsert",
+        "TrackChangesCommentList",
+        "TrackChangesCommentDelete",
+    ):
+        assert not hasattr(tracking, cls_name)
+
+    from plugin.scripting import writeragent_api
+
+    assert writeragent_api.DOMAIN_TOOLS["tracking"] == [
+        "manage_tracked_changes",
+        "track_changes_list",
+        "track_changes_show",
+        "track_changes_start",
+        "track_changes_stop",
+    ]
+    for name in _REMOVED_TRACK_CHANGES_COMMENT_TOOLS:
+        assert not hasattr(writeragent_api.tracking, name)
 
 
 def test_track_changes_start():
@@ -246,94 +269,6 @@ def test_manage_tracked_changes_invalid_action():
     res = ManageTrackedChanges().execute(ctx, action="squash")
     assert res["status"] == "error"
     dispatcher.executeDispatch.assert_not_called()
-
-# --- Comment Tests ---
-
-def test_comment_insert():
-    ctx, _, _, _ = _create_mock_ctx()
-    tool = TrackChangesCommentInsert()
-    
-    res = tool.execute(ctx, content="test comment", author="Jules")
-    assert res["status"] == "ok"
-    
-    # verify annotation creation and properties
-    ctx.doc.createInstance.assert_called_with("com.sun.star.text.textfield.Annotation")
-    anno_mock = ctx.doc.createInstance.return_value
-    
-    # Check that properties were set
-    calls = anno_mock.setPropertyValue.call_args_list
-    assert any(c[0][0] == "Content" and c[0][1] == "test comment" for c in calls)
-    assert any(c[0][0] == "Author" and c[0][1] == "Jules" for c in calls)
-    
-    # verify insertTextContent called
-    view_cursor_mock = ctx.doc.getCurrentController().getViewCursor.return_value
-    text_mock = view_cursor_mock.getText.return_value
-    text_mock.insertTextContent.assert_called_with(view_cursor_mock, anno_mock, True)
-
-
-def test_comment_insert_ok_when_uno_date_struct_missing():
-    # xdist: another test can leave com.sun.star.util without Date; insert must still succeed.
-    ctx, _, _, _ = _create_mock_ctx()
-    with patch("uno.createUnoStruct", side_effect=RuntimeError("no Date struct")):
-        res = TrackChangesCommentInsert().execute(ctx, content="test comment", author="Jules")
-    assert res["status"] == "ok"
-
-
-def test_comment_list():
-    ctx, _, _, _ = _create_mock_ctx()
-    tool = TrackChangesCommentList()
-    
-    # Mock comments
-    comment_mock = MagicMock()
-    comment_mock.supportsService.return_value = True
-    
-    def _get_comment_prop(prop):
-        if prop == "Date":
-            dt = MagicMock()
-            dt.Year = 2024
-            dt.Month = 2
-            dt.Day = 15
-            return dt
-        return {
-            "Author": "Test Author",
-            "Content": "Test Content",
-        }.get(prop)
-    comment_mock.getPropertyValue.side_effect = _get_comment_prop
-    
-    enum_mock = MagicMock()
-    enum_mock.hasMoreElements.side_effect = [True, False]
-    enum_mock.nextElement.return_value = comment_mock
-    
-    ctx.doc.getTextFields.return_value.createEnumeration.return_value = enum_mock
-    
-    res = tool.execute(ctx)
-    assert res["status"] == "ok"
-    assert res["count"] == 1
-    assert len(res["comments"]) == 1
-    
-    c = res["comments"][0]
-    assert c["index"] == 0
-    assert c["author"] == "Test Author"
-    assert c["content"] == "Test Content"
-    assert c["date"] == "2024-02-15"
-
-def test_comment_delete():
-    ctx, _, _, _ = _create_mock_ctx()
-    tool = TrackChangesCommentDelete()
-    
-    comment_mock = MagicMock()
-    comment_mock.supportsService.return_value = True
-    
-    enum_mock = MagicMock()
-    enum_mock.hasMoreElements.side_effect = [True, False]
-    enum_mock.nextElement.return_value = comment_mock
-    
-    ctx.doc.getTextFields.return_value.createEnumeration.return_value = enum_mock
-    
-    res = tool.execute(ctx, index=0)
-    assert res["status"] == "ok"
-    comment_mock.dispose.assert_called_once()
-
 
 # --- Agent-self-resolution guard (B3): the agent must never accept/reject its OWN edits --------
 

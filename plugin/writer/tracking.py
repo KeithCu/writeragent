@@ -21,15 +21,10 @@ track_changes_start, track_changes_stop, track_changes_list,
 manage_tracked_changes (accept/reject one or all), and track_changes_show.
 """
 
-import logging
-from plugin.framework.constants import now_aware
-
-from typing import Any, cast
+from typing import Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
 from .specialized_base import WriterAgentSpecialTracking
-
-log = logging.getLogger("writeragent.writer")
 
 _TRACK_CHANGES_UNO_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
@@ -350,124 +345,3 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
 
         except Exception as e:
             return self._tool_error(f"Failed to process change {index}: {e}")
-
-
-# --- Comments (Annotations) ---
-
-
-class TrackChangesCommentInsert(WriterAgentSpecialTracking):
-    """Insert a comment (Annotation) at the current selection."""
-
-    name = "track_changes_comment_insert"
-    description = "Insert a comment (annotation) at the current cursor selection."
-    parameters = {"type": "object", "properties": {"content": {"type": "string", "description": "The text content of the comment."}, "author": {"type": "string", "description": "The author's name for the comment (e.g., 'WriterAgent')."}}, "required": ["content", "author"]}
-    is_mutation = True
-
-    def execute(self, ctx, **kwargs):
-        content = kwargs.get("content")
-        author = kwargs.get("author", "WriterAgent")
-
-        if not content:
-            return self._tool_error("Comment content is required.")
-
-        try:
-            doc = ctx.doc
-            annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
-            annotation.setPropertyValue("Content", str(content))
-            annotation.setPropertyValue("Author", str(author))
-
-            # createUnoStruct, not ``from com.sun.star.util import Date``: under pytest-xdist
-            # another test can replace that module without Date and the whole insert failed.
-            try:
-                import uno
-
-                now = now_aware()
-                dt = cast("Any", uno.createUnoStruct("com.sun.star.util.Date"))
-                dt.Year = now.year
-                dt.Month = now.month
-                dt.Day = now.day
-                annotation.setPropertyValue("Date", dt)
-            except Exception:
-                log.debug("track_changes_comment_insert: Date not set", exc_info=True)
-
-            # Insert at current view cursor
-            view_cursor = doc.getCurrentController().getViewCursor()
-            text = view_cursor.getText()
-
-            text.insertTextContent(view_cursor, annotation, True)
-
-            return {"status": "ok", "message": "Comment inserted successfully."}
-        except Exception as e:
-            return self._tool_error(f"Failed to insert comment: {e}")
-
-
-class TrackChangesCommentList(WriterAgentSpecialTracking):
-    """List all comments (Annotations) in the document."""
-
-    name = "track_changes_comment_list"
-    description = "List all comments (annotations) currently in the document."
-    parameters = {"type": "object", "properties": {}, "required": []}
-
-    def execute(self, ctx, **kwargs):
-        try:
-            doc = ctx.doc
-            fields = doc.getTextFields()
-            enum = fields.createEnumeration()
-
-            comments = []
-            index = 0
-            while enum.hasMoreElements():
-                field = enum.nextElement()
-                if field.supportsService("com.sun.star.text.textfield.Annotation"):
-                    entry = {"index": index, "author": field.getPropertyValue("Author"), "content": field.getPropertyValue("Content")}
-                    try:
-                        dt = field.getPropertyValue("Date")
-                        entry["date"] = f"{dt.Year:04d}-{dt.Month:02d}-{dt.Day:02d}"
-                    except Exception:
-                        pass
-
-                    comments.append(entry)
-                    index += 1
-
-            return {"status": "ok", "comments": comments, "count": len(comments)}
-        except Exception as e:
-            return self._tool_error(f"Failed to list comments: {e}")
-
-
-class TrackChangesCommentDelete(WriterAgentSpecialTracking):
-    """Delete a specific comment by its index."""
-
-    name = "track_changes_comment_delete"
-    description = "Delete a specific comment (annotation) by its index (from track_changes_comment_list)."
-    parameters = {"type": "object", "properties": {"index": {"type": "integer", "description": "The zero-based index of the comment to delete."}}, "required": ["index"]}
-    is_mutation = True
-
-    def execute(self, ctx, **kwargs):
-        index = kwargs.get("index")
-        if index is None or not isinstance(index, int) or index < 0:
-            return self._tool_error("Valid integer index is required.")
-
-        try:
-            doc = ctx.doc
-            fields = doc.getTextFields()
-            enum = fields.createEnumeration()
-
-            current_idx = 0
-            target_field = None
-
-            while enum.hasMoreElements():
-                field = enum.nextElement()
-                if field.supportsService("com.sun.star.text.textfield.Annotation"):
-                    if current_idx == int(index):
-                        target_field = field
-                        break
-                    current_idx += 1
-
-            if not target_field:
-                return self._tool_error(f"No comment found at index {index}.")
-
-            target_field.dispose()
-
-            return {"status": "ok", "message": f"Comment at index {index} deleted successfully."}
-        except Exception as e:
-            return self._tool_error(f"Failed to delete comment: {e}")

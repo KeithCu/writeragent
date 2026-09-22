@@ -152,7 +152,12 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                   'image_list_nearby_files',
                   'image_replace',
                   'image_set_properties'],
-    'index': ['indexes_add_mark', 'indexes_create', 'indexes_list', 'indexes_list_cites', 'indexes_update_all'],
+    'index': [   'indexes_add_mark',
+                 'indexes_create',
+                 'indexes_list',
+                 'indexes_list_cites',
+                 'indexes_refresh_toc_entry',
+                 'indexes_update_all'],
     'mail_merge': [   'mail_merge_insert_field',
                       'mail_merge_list_fields',
                       'mail_merge_list_sources',
@@ -217,9 +222,6 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'table_set_cell'],
     'textframe': ['frame_get_info', 'frame_list', 'frame_set_properties'],
     'tracking': [   'manage_tracked_changes',
-                    'track_changes_comment_delete',
-                    'track_changes_comment_insert',
-                    'track_changes_comment_list',
                     'track_changes_list',
                     'track_changes_show',
                     'track_changes_start',
@@ -477,11 +479,11 @@ class _DocumentResearchProxy:
         return _rpc_call("search_nearby_files", query=query, k=k, near_slop=near_slop, file_subset=file_subset)
 
     def send_peer_result(self, document_url: str, message: str) -> dict:
-        """Deliver a result/reply to another already-open Writer, Calc, Draw, or Impress sidebar."""
+        """REPLY PATH only: deliver a result/reply when the task contains a [Peer work from: …] envelope."""
         return _rpc_call("send_peer_result", document_url=document_url, message=message)
 
     def send_peer_work(self, document_url: str, message: str) -> dict:
-        """Send a new work request to another already-open Writer, Calc, Draw, or Impress sidebar."""
+        """ASK PATH only: send a new work request to another already-open Writer, Calc, Draw, or Impress sidebar."""
         return _rpc_call("send_peer_work", document_url=document_url, message=message)
 
 document_research = _DocumentResearchProxy()
@@ -741,6 +743,10 @@ class _IndexProxy:
     def list_cites(self) -> dict:
         """List native bibliography cite fields (TextField.Bibliography)."""
         return _rpc_call("indexes_list_cites")
+
+    def refresh_toc_entry(self, old_content: str, content: str, *, hyperlink_url: str | None = None, index: int | None = None, occurrence: int | None = None, dry_run: bool | None = None) -> dict:
+        """Replace one substring inside a single table-of-contents entry and, when that text sits in one outline hyperlink (#…|outline), update that URL."""
+        return _rpc_call("indexes_refresh_toc_entry", old_content=old_content, content=content, hyperlink_url=hyperlink_url, index=index, occurrence=occurrence, dry_run=dry_run)
 
     def update_all(self) -> dict:
         """Refresh all document indexes (TOC, alphabetical, bibliography table)."""
@@ -1176,18 +1182,6 @@ class _TrackingProxy:
         """Accept or reject tracked changes."""
         return _rpc_call("manage_tracked_changes", action=action, index=index)
 
-    def track_changes_comment_delete(self, index: int) -> dict:
-        """Delete a specific comment (annotation) by its index (from track_changes_comment_list)."""
-        return _rpc_call("track_changes_comment_delete", index=index)
-
-    def track_changes_comment_insert(self, content: str, author: str) -> dict:
-        """Insert a comment (annotation) at the current cursor selection."""
-        return _rpc_call("track_changes_comment_insert", content=content, author=author)
-
-    def track_changes_comment_list(self) -> dict:
-        """List all comments (annotations) currently in the document."""
-        return _rpc_call("track_changes_comment_list")
-
     def track_changes_list(self) -> dict:
         """List all tracked changes (redlines) in the document, including type, author, date, text and location."""
         return _rpc_call("track_changes_list")
@@ -1224,9 +1218,9 @@ class _WriterProxy:
         """Add a comment/annotation."""
         return _rpc_call("add_comment", content=content, search=search, occurrence=occurrence, author=author, parent_name=parent_name)
 
-    def apply_document_content(self, content: list, *, target: str | None = None, old_content: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, position: str | None = None, dry_run: bool | None = None, regex: bool | None = None, case_sensitive: bool | None = None) -> dict:
+    def apply_document_content(self, content: list, *, target: str | None = None, old_content: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, position: str | None = None, dry_run: bool | None = None, regex: bool | None = None, case_sensitive: bool | None = None, hyperlink_url: str | None = None) -> dict:
         """Insert or replace content."""
-        return _rpc_call("apply_document_content", content=content, target=target, old_content=old_content, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive)
+        return _rpc_call("apply_document_content", content=content, target=target, old_content=old_content, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive, hyperlink_url=hyperlink_url)
 
     def apply_style(self, style: str, *, family: str | None = None, target: str | None = None, old_content: str | None = None, all_matches: bool | None = None, occurrence: int | None = None, clear_direct: str = 'style_props') -> dict:
         """Apply a style to a target."""

@@ -24,6 +24,7 @@ class TestWriterToolsSmoke(unittest.TestCase):
         writer_tools = {t.name for t in registry.get_tools(doc=doc)}
         # Core / navigation
         self.assertIn("get_document_tree", writer_tools)
+        self.assertIn("add_comment", writer_tools)
         self.assertNotIn("get_document_stats", writer_tools)
         self.assertNotIn("get_index_stats", writer_tools)
         # Content (paragraph batch tools disabled via ToolBaseDummy)
@@ -46,6 +47,9 @@ class TestWriterToolsSmoke(unittest.TestCase):
         self.assertNotIn("get_workflow_status", writer_tools)
         self.assertNotIn("set_workflow_status", writer_tools)
         self.assertNotIn("check_stop_conditions", writer_tools)
+        self.assertNotIn("track_changes_comment_insert", writer_tools)
+        self.assertNotIn("track_changes_comment_list", writer_tools)
+        self.assertNotIn("track_changes_comment_delete", writer_tools)
         # Specialized tools are not in the default chat tool list
         self.assertNotIn("nav_heading", writer_tools)
         self.assertNotIn("comment_workflow", writer_tools)
@@ -65,6 +69,31 @@ class TestWriterToolsSmoke(unittest.TestCase):
         ):
             self.assertIn(name, names, f"expected comments tool {name!r}")
         self.assertNotIn("comment_workflow", names)
+        for leftover in (
+            "track_changes_comment_insert",
+            "track_changes_comment_list",
+            "track_changes_comment_delete",
+        ):
+            self.assertNotIn(leftover, names)
+
+    def test_tracking_domain_is_redlines_only(self):
+        registry = get_tools()
+        doc = WriterDocStub()
+        names = {t.name for t in registry.get_tools(doc=doc, active_domain="tracking", exclude_tiers=())}
+        for name in (
+            "track_changes_start",
+            "track_changes_stop",
+            "track_changes_list",
+            "track_changes_show",
+            "manage_tracked_changes",
+        ):
+            self.assertIn(name, names, f"expected tracking tool {name!r}")
+        for leftover in (
+            "track_changes_comment_insert",
+            "track_changes_comment_list",
+            "track_changes_comment_delete",
+        ):
+            self.assertNotIn(leftover, names)
 
     def test_shapes_domain_domain_verb_names(self):
         registry = get_tools()
