@@ -411,3 +411,11 @@ def test_restore_does_not_paint_a_bookmark_across_an_overlapping_outline_link():
     restore_outline_hyperlinks(_match(doc, 0, 0), snapshot, "Gamma Beta", None)
     assert left.url == "#1.Other|outline"
     assert right.url == _BOOKMARK
+
+
+def test_capture_outline_hyperlinks_magicmock_range_does_not_spin():
+    """MagicMock.hasMoreElements() is truthy; the walker must stop (PR #823 merge CI)."""
+    from unittest.mock import MagicMock
+
+    snap = capture_outline_hyperlinks(MagicMock())
+    assert snap.links == []

@@ -242,6 +242,21 @@ def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
         return ""
 
 
+def _enum_has_more(enum: Any) -> bool:
+    """True only for a real UNO ``True``.
+
+    ``if not enum.hasMoreElements()`` is wrong on ``MagicMock``: the return is
+    another mock, which is truthy, so the loop never stops. PR #823 pull_request
+    CI merges this module onto unit tests that pass MagicMock ranges
+    (``test_edited_context``, ``test_small_fixes_r5``) and hung until GHA
+    SIGTERM. ``is True`` matches UNO bools and the ``_Enum`` fake.
+    """
+    try:
+        return enum.hasMoreElements() is True
+    except Exception:
+        return False
+
+
 def _iter_portions(text: Any, anchor_pos: Any):
     """Portions of the paragraph containing *anchor_pos*."""
     cursor = _cursor_at(text, anchor_pos)
@@ -253,7 +268,7 @@ def _iter_portions(text: Any, anchor_pos: Any):
         return
     while True:
         try:
-            if not para_enum.hasMoreElements():
+            if not _enum_has_more(para_enum):
                 break
             para = para_enum.nextElement()
         except Exception:
@@ -267,7 +282,7 @@ def _iter_portions(text: Any, anchor_pos: Any):
             continue
         while True:
             try:
-                if not portion_enum.hasMoreElements():
+                if not _enum_has_more(portion_enum):
                     break
                 yield portion_enum.nextElement()
             except Exception:
