@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import uno
 from com.sun.star.awt import XItemListener, XTextListener
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from com.sun.star.awt import ItemEvent, TextEvent
 
 from plugin.framework.errors import format_error_payload, UnoObjectError, ConfigValidationError
@@ -190,8 +190,8 @@ class SettingsDialog:
     def __init__(self, ctx: Any):
         self._ctx = ctx
         self._dlg = None
-        self._endpoint_listener = None
-        self._api_key_listener = None
+        self._endpoint_listener: Any = None
+        self._api_key_listener: Any = None
         self._scripting_venv_test_listener = None
         self._ppt_master_data_test_listener = None
         self._download_audio_listener = None
@@ -715,7 +715,7 @@ class PptMasterDataTestListener(BaseActionListener):
 
 
 class ApiKeyTextListener(BaseListener, XTextListener):
-    def __init__(self, endpoint_listener: EndpointCombinedListener):
+    def __init__(self, endpoint_listener: Any):
         self._el = endpoint_listener
     def textChanged(self, rEvent: TextEvent) -> None:
         self._el._schedule_debounced_models_fetch()
@@ -937,7 +937,7 @@ def setup_module_tabs(dlg: Any) -> None:
         # Map button ID to step index (starting from 3 for module tabs)
         # Core tabs: 1=Chat, 2=Image
         step = 3
-        for m in iter_settings_tab_modules(MODULES):
+        for m in iter_settings_tab_modules(cast("list[dict[str, Any]]", MODULES)):
             m_name = str(m.get("name", ""))
             prefix = m_name.replace(".", "_")
             btn_id = f"btn_tab_{prefix}"
@@ -961,7 +961,7 @@ class DownloadAudioListener(BaseActionListener):
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.scripting.audio_recorder_service import run_audio_download
 
-        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None] | None) -> tuple[bool, str]:
+        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
             ok = run_audio_download(on_display, on_status)
             return ok, ""
 

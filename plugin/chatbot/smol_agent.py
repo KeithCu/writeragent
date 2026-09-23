@@ -143,8 +143,8 @@ class WriterAgentSmolModel(Model):
         self,
         llm_client: LlmClient,
         max_tokens: int = 1024,
-        status_callback: Callable[[str], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Any = None,
+        stop_checker: Any = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)

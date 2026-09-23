@@ -14,8 +14,10 @@ import hashlib
 import json
 import threading
 import time
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.deal_shim import deal
 from plugin.writer.locale.linguistic_index import _ISO_TO_SNOWBALL

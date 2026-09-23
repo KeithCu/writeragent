@@ -27,9 +27,11 @@ import datetime
 import json
 import logging
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.client.model_fetcher import cached_v1_context_tokens, query_ollama_runtime_num_ctx
 from plugin.framework.config import get_config_bool_safe
@@ -709,7 +711,7 @@ def is_context_overflow_error(text: str | None) -> bool:
     return False
 
 
-def should_retry_overflow(attempts: int, compact_reason: str, tokens_before: int | None = None, tokens_after: int | None = None) -> bool:
+def should_retry_overflow(attempts: int, compact_reason: str | None, tokens_before: int | None = None, tokens_after: int | None = None) -> bool:
     """Cap retries and skip when compact did not shrink enough.
 
     5% gate from Hermes ``TurnOverflow.compress_scored_by_tokens``

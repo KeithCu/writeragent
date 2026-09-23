@@ -28,7 +28,7 @@ from plugin.framework.config import (
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
 from plugin.framework.event_bus import global_event_bus
 
-from typing import Any
+from typing import Any, cast
 
 import logging
 
@@ -97,7 +97,8 @@ def _get_module_field_specs(ctx: Any) -> list[dict[str, Any]]:
         from plugin._manifest import MODULES
         from plugin.chatbot.settings_fields import build_module_field_specs
 
-        for m in MODULES:
+        for raw in MODULES:
+            m = cast("dict[str, Any]", raw)
             m_name = str(m.get("name", ""))
             if m_name in ("main", "ai"):
                 continue

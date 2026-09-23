@@ -214,7 +214,7 @@ class ToolCallingMixin:
             return
 
         # Callback for updating active domain in the session
-        def set_active_domain(domain: str | None, python_tool_domain: str | None = None) -> None:
+        def set_active_domain(domain: Any, python_tool_domain: Any = None) -> None:
             if hasattr(self, "session") and self.session:
                 self.session.active_specialized_domain = domain
                 self.session.python_tool_domain = python_tool_domain

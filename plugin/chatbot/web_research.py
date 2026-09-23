@@ -520,6 +520,7 @@ class WebResearchTool(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         query = kwargs.get("query")
         history_text = kwargs.get("history_text")
+        cache_fields: dict[str, Any] = {}
 
         query_str = str(query or "")
         from plugin.chatbot.web_research_cache import resolve_research_locale
@@ -671,7 +672,7 @@ class WebResearchTool(ToolBase):
             else:
                 final_ans = _run_web_agent(ctx, query_str, history_text, agent_params)
 
-            cache_fields: dict[str, Any] = {}
+            cache_fields = {}
             if isinstance(final_ans, dict) and "status" in final_ans:
                 if final_ans.get("status") == "ok":
                     final_ans.setdefault("instruction", instruction)

@@ -55,7 +55,6 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, cast
 import unohelper
 from plugin.framework.uno_listeners import BaseActionListener
@@ -63,6 +62,7 @@ from plugin.framework.worker_pool import run_in_background
 from com.sun.star.awt import XActionListener
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from com.sun.star.awt import ActionEvent
     from com.sun.star.datatransfer import DataFlavor
     from com.sun.star.lang import EventObject
@@ -75,7 +75,7 @@ log = logging.getLogger("writeragent.dialogs")
 # ── Simple message box ──────────────────────────────────────────────
 
 
-def msgbox(ctx: Any, title: str, message: str, *, box_type: int = 1) -> None:
+def msgbox(ctx: Any, title: Any, message: Any, *, box_type: int = 1) -> None:
     """Show a message box.
 
     Args:
@@ -576,7 +576,7 @@ def status_dialog(ctx: Any, title: str, build_status_fn: Callable[[], str], copy
                 copy_btn.getModel().Enabled = bool(copy_url_fn() if copy_url_fn else False)
                 
                 class _CopyListener(BaseActionListener):
-                    def __init__(self, dialog: Any, context: Any, url_fn: Callable[[], str]):
+                    def __init__(self, dialog: Any, context: Any, url_fn: Any):
                         self._dlg = dialog
                         self._ctx = context
                         self._url_fn = url_fn
@@ -762,7 +762,7 @@ def translate_dialog(dlg: Any) -> None:
                     log.debug("translate_dialog ElementNames id=%s: %s", nm, e)
 
 
-def load_module_dialog(module_name: str, dialog_name: str) -> Any:
+def load_module_dialog(module_name: Any, dialog_name: str) -> Any:
     """Load an XDL dialog from a module's directory.
 
     Returns an XDialog ready for execute()/dispose().
