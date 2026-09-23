@@ -89,7 +89,7 @@ def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DEL
     return prior
 
 
-def end(ctx: Any, prior) -> None:
+def end(ctx: Any, prior: tuple[str, str] | None) -> None:
     """Disarm split authoring and restore the prior office author."""
     _state.ctx = None
     _state.insert = None

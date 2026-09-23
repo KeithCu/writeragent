@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from plugin.writer import search as search_mod
 from .format import content_has_markup, html_to_plain_text
 
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
+
 log = logging.getLogger("writeragent.writer")
 
 
-def resolve_target_cursor(ctx, target, old_content):
+def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any):
     """
     Resolves the `target` ("beginning", "end", "selection", "search")
     and returns a valid TextCursor pointing to the desired location.

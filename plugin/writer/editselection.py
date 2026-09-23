@@ -16,6 +16,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Writer (Extend/Edit Selection)."""
 
+from typing import Any
+
 from plugin.framework.config import get_config_int, get_config_str, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model
 from plugin.chatbot.config_ui_helpers import update_lru_history
@@ -28,7 +30,7 @@ from plugin.writer.edit_review import WriterStreamedAppendSession, WriterStreame
 from plugin.writer.edit_review import review_recording_enabled
 
 
-def do_extend_selection(ctx, model, input_box_fn):
+def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
     selection = model.CurrentController.getSelection()
     text_range = selection.getByIndex(0)
     original_text = get_string_without_tracked_deletions(text_range)
@@ -54,7 +56,7 @@ def do_extend_selection(ctx, model, input_box_fn):
         track_reviewable=review_recording_enabled(ctx),
     )
 
-    def apply_chunk(chunk_text, is_thinking=False):
+    def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
         if not is_thinking:
             session.append_chunk(chunk_text)
 
@@ -63,14 +65,14 @@ def do_extend_selection(ctx, model, input_box_fn):
         if warning:
             msgbox(ctx, title, warning)
 
-    def on_error(e):
+    def on_error(e: BaseException) -> None:
         session.abort_and_restore()
         msgbox(ctx, title, _(format_error_message(e)))
 
     stream_completion(ctx, client, prompt, system_prompt, max_tokens, apply_chunk, on_done, on_error)
 
 
-def do_edit_selection(ctx, model, input_box_fn):
+def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
     selection = model.CurrentController.getSelection()
     text_range = selection.getByIndex(0)
     original_text = get_string_without_tracked_deletions(text_range)
@@ -94,7 +96,7 @@ def do_edit_selection(ctx, model, input_box_fn):
         track_reviewable=review_recording_enabled(ctx),
     )
 
-    def apply_chunk(chunk_text, is_thinking=False):
+    def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
         if not is_thinking:
             session.append_chunk(chunk_text)
 
@@ -103,7 +105,7 @@ def do_edit_selection(ctx, model, input_box_fn):
         if warning:
             msgbox(ctx, title, warning)
 
-    def on_error(e):
+    def on_error(e: BaseException) -> None:
         session.abort_and_restore()
         msgbox(ctx, title, _(format_error_message(e)))
 

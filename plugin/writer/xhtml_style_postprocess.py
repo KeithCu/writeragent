@@ -25,9 +25,12 @@
 #
 # Post-v1: cached UNO ParaStyleName index to drop dual export and improve resolution.
 # No UNO / no model access in this module — string pipeline only.
+from __future__ import annotations
+
 import html as _html
 import re
 from html.parser import HTMLParser
+from typing import Any
 
 # Block tags that carry a paragraph style (read) and that produce exactly one paragraph on
 # import (write, where each consumes one positional data-lo-style slot). NOTE: <div> is
@@ -49,7 +52,7 @@ from plugin.framework.deal_shim import deal
 
 
 @deal.post(lambda result: isinstance(result, str))
-def decode_lo_css_class_suffix(suffix):
+def decode_lo_css_class_suffix(suffix: str):
     """Reverse ODF URL-style encoding in a CSS class suffix (``Heading_20_1`` -> ``Heading 1``)."""
     # re.sub on unbounded suffix hangs deep check.
     # crosshair: off
@@ -60,7 +63,7 @@ def decode_lo_css_class_suffix(suffix):
 
 
 @deal.post(lambda result: isinstance(result, str) and " " not in result)
-def compact_lo_style_name(uno_name):
+def compact_lo_style_name(uno_name: str):
     """Agent-facing token: drop spaces (``Heading 1`` -> ``Heading1``)."""
     # crosshair: off
     if type(uno_name) is not str:
@@ -72,7 +75,7 @@ _FODT_STYLE_RE = re.compile(r"<style:style\b([^>]*?)/?>", re.IGNORECASE)
 
 
 @deal.post(lambda result: isinstance(result, dict))
-def extract_autostyle_parents_from_fodt(fodt):
+def extract_autostyle_parents_from_fodt(fodt: str):
     """Map automatic paragraph style name (``P1``, ``P2``, ...) -> its parent named style, from a
     flat ODF (.fodt) export. The XHTML export flattens this parent away, so an autostyle's CSS
     often matches no named rule (the common case after a StarWriter HTML import); the flat ODF
@@ -97,7 +100,7 @@ def extract_autostyle_parents_from_fodt(fodt):
     return out
 
 
-def _clean_decl_ordered(decl):
+def _clean_decl_ordered(decl: str):
     """Cleaned declaration, original order preserved, no trailing ``;`` (for inlining)."""
     # crosshair: off
     # CSS decl tokenization (cover-all 35546602462: ~18m xhtml module). Doable later with DEAL_MAX_HTML_CHUNK dual-profile.
@@ -105,7 +108,7 @@ def _clean_decl_ordered(decl):
     return "; ".join(parts)
 
 
-def _normalize_decl(decl):
+def _normalize_decl(decl: str):
     """Order-independent fingerprint of a declaration set (for autostyle matching)."""
     # crosshair: off
     # CSS decl normalize/sort (cover-all 35546602462). Doable later with closed decl alphabet.
@@ -154,7 +157,7 @@ _FODT_PARA_STYLE_RE = re.compile(
     re.IGNORECASE | re.DOTALL)
 
 
-def _fodt_override_css(style_block):
+def _fodt_override_css(style_block: str):
     """CSS-ish ``prop: value`` list for one flat-ODF automatic paragraph style's own attributes."""
     # crosshair: off
     # FODT style-block regex/string walk (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK.
@@ -176,7 +179,7 @@ def _fodt_override_css(style_block):
     return "; ".join(parts)
 
 
-def extract_autostyle_overrides_from_fodt(fodt):
+def extract_autostyle_overrides_from_fodt(fodt: str):
     """Map automatic paragraph style name (``P1``, ...) -> its DIRECT overrides as CSS text.
 
     Companion to :func:`extract_autostyle_parents_from_fodt`, parsed from the same export. An
@@ -199,7 +202,7 @@ def extract_autostyle_overrides_from_fodt(fodt):
 
 
 @deal.post(lambda result: isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], dict) and isinstance(result[1], dict))
-def parse_style_block(xhtml):
+def parse_style_block(xhtml: str):
     """Return ``(raw_map, norm_map)`` for every class rule in the ``<style>`` block(s).
 
     ``raw_map[class] = "decl; decl"`` (order preserved) is used to inline char overrides;
@@ -217,7 +220,7 @@ def parse_style_block(xhtml):
     return raw_map, norm_map
 
 
-def _strip_body(xhtml):
+def _strip_body(xhtml: str):
     """Return the inner HTML of ``<body>`` (or the input unchanged if there is no body)."""
     # crosshair: off
     # XHTML body slice (cover-all 35546602462). Doable later with DEAL_MAX_HTML_CHUNK dual-profile.
@@ -225,7 +228,7 @@ def _strip_body(xhtml):
     return m.group(1).strip() if m else (xhtml or "")
 
 
-def _drop_trailing_empty_paragraphs(html):
+def _drop_trailing_empty_paragraphs(html: str):
     """Drop whitespace/``&nbsp;``-only ``<p>`` blocks at the very end (LO export ghost paras)."""
     # crosshair: off
     # HTML trailing-empty scan (cover-all 35546602462: top xhtml sink). Doable later with DEAL_MAX_HTML_CHUNK.
@@ -236,7 +239,7 @@ def _drop_trailing_empty_paragraphs(html):
         html = new
 
 
-def _inject_attr(start_tag, attr):
+def _inject_attr(start_tag: str, attr: str):
     """Insert *attr* (e.g. ``' data-lo-style="X"'``) just before the closing ``>`` of a tag."""
     # crosshair: off
     # start-tag attribute inject (cover-all 35546602462). Doable later with closed tag alphabet.
@@ -247,7 +250,7 @@ def _inject_attr(start_tag, attr):
     return start_tag + attr
 
 
-def _attr_value(attrs, key):
+def _attr_value(attrs: list[tuple[str, str | None]], key: str):
     # crosshair: off
     # attr list scan (cover-all 35546602462). Doable later with closed attrs domain.
     for k, v in attrs:
@@ -267,7 +270,7 @@ class _SemanticTransformer(HTMLParser):
     attributes we change are rewritten with string ops.
     """
 
-    def __init__(self, raw_map, norm_map, autostyle_parents=None, autostyle_overrides=None):
+    def __init__(self, raw_map: dict[str, str], norm_map: dict[str, str], autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None):
         # crosshair: off
         # HTMLParser transformer state (cover-all 35546602462). Doable later with closed style maps.
         super().__init__(convert_charrefs=False)
@@ -275,11 +278,11 @@ class _SemanticTransformer(HTMLParser):
         self._autostyle_parents = autostyle_parents or {}
         self._autostyle_overrides = autostyle_overrides or {}
         # Map a named paragraph rule's fingerprint -> list of its compact tokens.
-        self._named_fingerprint = {}
+        self._named_fingerprint: dict[str, list[str]] = {}
         # Map a compact token -> set of distinct UNO names that compact to it. When more than
         # one named style produces the same token (e.g. "Heading 1" and a literal "Heading1"),
         # the token is AMBIGUOUS and must not be emitted — see _colliding_tokens below.
-        token_names = {}
+        token_names: dict[str, set[str]] = {}
         for cls, norm in norm_map.items():
             if not cls.startswith("paragraph-"):
                 continue
@@ -296,9 +299,9 @@ class _SemanticTransformer(HTMLParser):
         self._colliding_tokens = {t for t, names in token_names.items() if len(names) > 1}
         self._norm = norm_map
         self._table_depth = 0
-        self._out = []
+        self._out: list[str] = []
 
-    def _paragraph_token(self, suffix):
+    def _paragraph_token(self, suffix: str):
         """Compact ``data-lo-style`` token for a ``paragraph-<suffix>`` class, or ``None``.
 
         For autostyles (``paragraph-Pn``) the flat-ODF parent map (when supplied) is
@@ -333,7 +336,7 @@ class _SemanticTransformer(HTMLParser):
             return None  # ambiguous compact token -> omit (Issue 2)
         return token
 
-    def _rewrite_block(self, raw, attrs):
+    def _rewrite_block(self, raw: str, attrs: list[tuple[str, str | None]]):
         # crosshair: off
         # block tag rewrite (cover-all 35546602462). Doable later with closed tag alphabet.
         classes = _attr_value(attrs, "class")
@@ -358,7 +361,7 @@ class _SemanticTransformer(HTMLParser):
             raw = _inject_attr(raw, ' data-lo-para="%s"' % _html.escape(para_css, quote=True))
         return raw
 
-    def _rewrite_span(self, raw, attrs):
+    def _rewrite_span(self, raw: str, attrs: list[tuple[str, str | None]]):
         # crosshair: off
         # span rewrite (cover-all 35546602462). Doable later with closed tag alphabet.
         classes = _attr_value(attrs, "class")
@@ -377,7 +380,7 @@ class _SemanticTransformer(HTMLParser):
             ins += ' class="%s"' % " ".join(remaining)
         return _inject_attr(raw, ins) if ins else raw
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
         # crosshair: off
         # HTMLParser starttag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         raw = self.get_starttag_text() or ("<%s>" % tag)
@@ -392,34 +395,34 @@ class _SemanticTransformer(HTMLParser):
         else:
             self._out.append(raw)
 
-    def handle_startendtag(self, tag, attrs):
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]):
         # crosshair: off
         # HTMLParser startendtag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append(self.get_starttag_text() or ("<%s/>" % tag))
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str):
         # crosshair: off
         # HTMLParser endtag (cover-all 35546602462). Engine-hostile over symbolic HTML.
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
 
-    def handle_data(self, data):
+    def handle_data(self, data: str):
         # crosshair: off
         # HTMLParser data (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append(data)
 
-    def handle_entityref(self, name):
+    def handle_entityref(self, name: str):
         # crosshair: off
         # HTMLParser entityref (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append("&%s;" % name)
 
-    def handle_charref(self, name):
+    def handle_charref(self, name: str):
         # crosshair: off
         # HTMLParser charref (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append("&#%s;" % name)
 
-    def handle_comment(self, data):
+    def handle_comment(self, data: str):
         # crosshair: off
         # HTMLParser comment (cover-all 35546602462). Engine-hostile over symbolic HTML.
         self._out.append("<!--%s-->" % data)
@@ -430,18 +433,18 @@ class _SemanticTransformer(HTMLParser):
         return "".join(self._out)
 
 
-def _strip_class_names(start_tag, name_re):
+def _strip_class_names(start_tag: str, name_re: re.Pattern[str]):
     """Remove class names matching *name_re* from a start tag; drop the attr if it empties."""
     # crosshair: off
     # class= regex rewrite (cover-all 35546602462: top xhtml sink). Doable later with DEAL_MAX_HTML_CHUNK.
-    def _sub(m):
+    def _sub(m: Any):
         kept = [c for c in m.group(2).split() if not name_re.fullmatch(c)]
         return (" class=%s%s%s" % (m.group(1), " ".join(kept), m.group(1))) if kept else ""
 
     return re.sub(r'\s+class=(["\'])(.*?)\1', _sub, start_tag)
 
 
-def xhtml_to_semantic_html(full_xhtml, autostyle_parents=None, autostyle_overrides=None):
+def xhtml_to_semantic_html(full_xhtml: str, autostyle_parents: dict[str, str] | None = None, autostyle_overrides: dict[str, str] | None = None):
     """Convert raw LO ``XHTML Writer File`` output to the agent-facing semantic HTML.
 
     Single entry point: parse the ``<style>`` block, extract the body, inline char overrides,

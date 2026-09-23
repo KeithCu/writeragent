@@ -8,6 +8,8 @@ marshalled via execute_on_main_thread; resolve/navigate handlers and document ev
 main thread).
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 
@@ -39,10 +41,10 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
     WriterAgent handlers. Cheap: while the toolbar is hidden (normal typing) it does nothing; it
     only recounts when the toolbar is actually showing (i.e. during a review)."""
 
-    def __init__(self, uid):
+    def __init__(self, uid: str | None) -> None:
         self._uid = uid  # so disposing() can drop the registry entry without re-reading the model
 
-    def modified(self, aEvent) -> None:  # noqa: N802, N803 -- UNO signature
+    def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
             model = aEvent.Source
             lm = _layout_manager(model)
@@ -51,7 +53,7 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
         except Exception:
             log.debug("review_toolbar: modify handler failed", exc_info=True)
 
-    def disposing(self, Source) -> None:  # noqa: N802, N803 -- UNO signature
+    def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         # The document we're attached to is being disposed. Drop our registry entry HERE too -- not
         # only via the OnUnload doc event -- so a crash / force-close, or a failed event-listener
         # install, can't leak the entry and block a later document that reuses this RuntimeUID.

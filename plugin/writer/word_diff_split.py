@@ -69,6 +69,7 @@ Two trivial fast-paths: identical strings -> surgical mode with zero sub-edits;
 """
 
 import difflib
+from typing import Any
 
 __all__ = [
     "Token",
@@ -91,7 +92,7 @@ class Token:
 
     __slots__ = ("text", "start", "end", "is_word")
 
-    def __init__(self, text, start, end, is_word):
+    def __init__(self, text: str, start: int, end: int, is_word: bool):
         self.text = text
         self.start = start
         self.end = end
@@ -102,7 +103,7 @@ class Token:
         kind = "W" if self.is_word else "S"
         return "Token(%s %r @%d:%d)" % (kind, self.text, self.start, self.end)
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any):
         # crosshair: off  # fieldwise == on free Token (cover-all 33337516899: 154k lines, 6.6k examples). Same combinatoric dunder class as calc_range. Doable later with a tiny Token domain.
         return (
             isinstance(other, Token)
@@ -131,7 +132,7 @@ class SubEdit:
 
     __slots__ = ("op", "old_start", "old_end", "old_text", "new_text")
 
-    def __init__(self, op, old_start, old_end, old_text, new_text):
+    def __init__(self, op: str, old_start: int, old_end: int, old_text: str, new_text: str):
         self.op = op
         self.old_start = old_start
         self.old_end = old_end
@@ -144,7 +145,7 @@ class SubEdit:
             self.op, self.old_start, self.old_end, self.old_text, self.new_text,
         )
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any):
         # crosshair: off  # fieldwise == on free SubEdit (cover-all 33337516899: 281k lines, 12k examples). Doable later with a tiny SubEdit domain.
         return (
             isinstance(other, SubEdit)
@@ -172,7 +173,7 @@ class SplitResult:
 
     __slots__ = ("mode", "fraction_changed", "sub_edits")
 
-    def __init__(self, mode, fraction_changed, sub_edits):
+    def __init__(self, mode: str, fraction_changed: float, sub_edits: list[SubEdit]):
         self.mode = mode
         self.fraction_changed = fraction_changed
         self.sub_edits = sub_edits
@@ -198,7 +199,7 @@ from plugin.framework.deal_shim import DEAL_MAX_SOURCE, str_bounded, deal
 
 
 @deal.post(lambda result: isinstance(result, list))
-def tokenize(s):
+def tokenize(s: str):
     """Split *s* into alternating word/separator :class:`Token` runs.
 
     Concatenating ``t.text`` for the returned tokens reproduces *s* exactly, and each
@@ -220,7 +221,7 @@ def tokenize(s):
     return tokens
 
 
-def _word_tokens(tokens):
+def _word_tokens(tokens: list[Token]):
     """Return only the word tokens (those that take part in the diff)."""
     return [t for t in tokens if t.is_word]
 
@@ -230,7 +231,7 @@ def _word_tokens(tokens):
     and (not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE))
 )
 @deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
-def split_change(old, new, threshold=0.6):
+def split_change(old: str, new: str, threshold: float = 0.6):
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.
 
     Args:
@@ -306,7 +307,7 @@ def split_change(old, new, threshold=0.6):
     return SplitResult("surgical", fraction, sub_edits)
 
 
-def _build_surgical_edits(old, new, old_words, new_words, opcodes):
+def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words: list[Token], opcodes: list[Any]):
     """Build surgical :class:`SubEdit`s that reconstruct *new* from *old* EXACTLY.
 
     ANCHOR MODEL (provably lossless). The matched ("equal") words are byte-identical on
@@ -345,7 +346,7 @@ def _build_surgical_edits(old, new, old_words, new_words, opcodes):
 
     # Build cut boundaries. A "segment" is the char span between one anchor's end (or
     # string start) and the next anchor's start (or string end), on each side.
-    sub_edits = []
+    sub_edits: list[SubEdit] = []
 
     prev_old = 0          # char offset in old where the current segment begins
     prev_new = 0          # char offset in new where the current segment begins
@@ -365,7 +366,7 @@ def _build_surgical_edits(old, new, old_words, new_words, opcodes):
     return sub_edits
 
 
-def _emit_segment(out, old, new, old_lo, old_hi, new_lo, new_hi):
+def _emit_segment(out: list[SubEdit], old: str, new: str, old_lo: int, old_hi: int, new_lo: int, new_hi: int):
     """Append a (possibly trimmed) :class:`SubEdit` for one segment, if it changed."""
     # crosshair: off  # isspace-trim loops on free strings (cover-all 33337516899: 12.7k lines). Same class as tokenize (already off). Doable later with a tiny string domain.
     old_seg = old[old_lo:old_hi]
@@ -403,7 +404,7 @@ def _emit_segment(out, old, new, old_lo, old_hi, new_lo, new_hi):
     out.append(SubEdit(op, old_lo, old_hi, old_seg, new_seg))
 
 
-def apply_sub_edits(old, sub_edits):
+def apply_sub_edits(old: str, sub_edits: list[SubEdit]):
     """Apply *sub_edits* (from a :class:`SplitResult`) to *old*, returning the result.
 
     The sub-edits are assumed non-overlapping and sorted by ``old_start`` (which is how
