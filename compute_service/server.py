@@ -735,7 +735,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     _dual_is_shut_down: threading.Event
     _dual_shutdown_request: bool
     executor: ThreadPoolExecutor
-    socket: socket.socket
     address_family: int
     # Match TCPServer: tuple[str,int] is invariant vs the AF_INET/AF_INET6 union.
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
@@ -798,7 +797,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         if not self.sockets:
             raise OSError(f"Could not bind to any address for {host}:{port}")
 
-        self.socket = self.sockets[0]
+        self.socket: socket.socket = self.sockets[0]
         self.address_family = self.socket.family
         actual_port = self.socket.getsockname()[1]
         self.server_address = (host, actual_port)
