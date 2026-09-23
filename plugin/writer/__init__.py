@@ -17,6 +17,7 @@
 """Writer module — tools for Writer document manipulation."""
 
 import sys
+from typing import Any
 
 from plugin.framework.module_base import ModuleBase
 
@@ -36,7 +37,7 @@ if "crosshair" not in sys.modules:
 class WriterModule(ModuleBase):
     """Registers Writer tools for outline, content, comments, styles, etc."""
 
-    def initialize(self, services):
+    def initialize(self, services: Any) -> None:
         self.services = services
 
         # Same load order as module import (needed when CrossHair skipped the eager block).

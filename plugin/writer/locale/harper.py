@@ -57,7 +57,7 @@ def _lsp_request(req_id: int, method: str, params: dict | None) -> dict:
     return {"jsonrpc": _JSONRPC, "id": req_id, "method": method, "params": params}
 
 
-def _lsp_response(req_id: int, result) -> dict:
+def _lsp_response(req_id: int, result: Any) -> dict:
     return {"jsonrpc": _JSONRPC, "id": req_id, "result": result}
 
 

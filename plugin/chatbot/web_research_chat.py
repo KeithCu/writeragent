@@ -13,7 +13,7 @@ from typing import Any, Mapping
 from plugin.framework.html_stripper import strip_html_tags
 
 
-def _message_text(content) -> str:
+def _message_text(content: Any) -> str:
     """Normalize user/assistant message content to plain text."""
     if content is None:
         return ""
@@ -26,7 +26,7 @@ def _message_text(content) -> str:
     return strip_html_tags(str(content))
 
 
-def format_sub_agent_conversation_history(session, *, current_query=None) -> str:
+def format_sub_agent_conversation_history(session: Any, *, current_query: str | None = None) -> str:
     """Build CONVERSATION HISTORY text for web-research / librarian sub-agents from ChatSession."""
     messages = getattr(session, "messages", None) or []
     parts: list[str] = []

@@ -16,10 +16,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Specialized Writer toolset infrastructure and delegation."""
 
+from __future__ import annotations
+
 import logging
-from typing import ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableBase
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
@@ -294,7 +299,7 @@ class SpecializedWorkflowFinished(ToolBase):
     tier = "specialized_control"
     is_final_answer_tool = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         # Allow the main LLM loop to exit specialized mode
         if not USE_SUB_AGENT:
             callback = getattr(ctx, "set_active_domain_callback", None)

@@ -19,12 +19,17 @@
 Page styles, margins, headers/footers, columns, and page breaks.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import make_tool_error
 from plugin.framework.uno_context import uno_same
 from .format import record_walk_cap
 from .specialized_base import ToolWriterPageBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 # region name -> (is_on property, text property)
 #
@@ -61,7 +66,7 @@ def _empty_scan() -> dict[str, Any]:
     return {"fields": [], "images": [], "paragraph_count": 0}
 
 
-def _region_has_table(text_obj) -> bool:
+def _region_has_table(text_obj: Any) -> bool:
     """True when the region's enumeration includes a text table (letterhead grid)."""
     try:
         enum = text_obj.createEnumeration()
@@ -83,7 +88,7 @@ def _region_has_table(text_obj) -> bool:
     return False
 
 
-def _region_holds_content(doc, text_obj) -> bool:
+def _region_holds_content(doc: Any, text_obj: Any | None) -> bool:
     """True if the header/footer XText still holds text, fields, images, or tables.
 
     F5: disabling the region (``HeaderIsOn`` / ``FooterIsOn`` = false) *clears*
@@ -108,7 +113,7 @@ def _region_holds_content(doc, text_obj) -> bool:
     return _region_has_table(text_obj)
 
 
-def _region_mirrors_shared(style, region: str) -> bool:
+def _region_mirrors_shared(style: Any, region: str) -> bool:
     """True when a first/left variant is only a view of the shared region.
 
     ``FirstIsShared=True`` means HeaderTextFirst / FooterTextFirst mirror
@@ -131,7 +136,7 @@ def _region_mirrors_shared(style, region: str) -> bool:
         return False
 
 
-def _disable_blocked_by_content(doc, style, kwargs: dict[str, Any]) -> str | None:
+def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) -> str | None:
     """Error text if ``header_is_on=false`` / ``footer_is_on=false`` would wipe content.
 
     F5: turning the region off *clears* its content (not "LO keeps HeaderText").
@@ -174,7 +179,7 @@ def _disable_blocked_by_content(doc, style, kwargs: dict[str, Any]) -> str | Non
     return None
 
 
-def _scan_region_content(doc, text_obj) -> dict[str, Any]:
+def _scan_region_content(doc: Any, text_obj: Any) -> dict[str, Any]:
     """Report fields and anchored images in a header/footer as get-side extras.
 
     HTML ``content`` already carries structure; these lists are machine-readable so a
@@ -251,7 +256,7 @@ def _height_props(region: str) -> tuple[str, str, str]:
     return (prefix + "IsDynamicHeight", prefix + "DynamicSpacing", prefix + "Height")
 
 
-def set_header_footer_auto_height(style, region: str, enabled: bool) -> None:
+def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> None:
     """Let the region grow with its content (or pin it to a fixed height).
 
     Without this, a header keeps its fixed height and taller content —
@@ -265,7 +270,7 @@ def set_header_footer_auto_height(style, region: str, enabled: bool) -> None:
         pass  # not offered by every page style
 
 
-def resolve_page_style(doc, style_name: str = "Standard"):
+def resolve_page_style(doc: Any, style_name: str = "Standard"):
     """Return ``(style_object, resolved_name)`` for a Writer page style."""
     styles = doc.getStyleFamilies().getByName("PageStyles")
     if not styles.hasByName(style_name):
@@ -274,7 +279,7 @@ def resolve_page_style(doc, style_name: str = "Standard"):
     return styles.getByName(style_name), style_name
 
 
-def get_page_style_properties(doc, style_name: str = "Standard") -> dict[str, Any]:
+def get_page_style_properties(doc: Any, style_name: str = "Standard") -> dict[str, Any]:
     """Read dimensions, margins, and header/footer state of a Writer page style.
 
     Shared by ``page_get_style_properties`` and ``style_get_info(family=PageStyles)``.
@@ -346,7 +351,7 @@ class PageGetStyleProperties(ToolWriterPageBase):
     description = "Get dimensions, margins, and header/footer states of a page style."
     parameters = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         return get_page_style_properties(ctx.doc, kwargs.get("style", "Standard"))
 
 
@@ -414,7 +419,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "Standard")
         doc = ctx.doc
 
@@ -559,7 +564,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         "required": ["region"],
     }
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from .html_export import xtext_to_content
 
         style_name = kwargs.get("style", "Standard")
@@ -668,7 +673,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         from .html_import import replace_xtext_with_html
 
         style_name = kwargs.get("style", "Standard")
@@ -730,7 +735,7 @@ class PageGetColumns(ToolWriterPageBase):
     description = "Get the column layout for a page style."
     parameters = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "Standard")
         doc = ctx.doc
 
@@ -781,7 +786,7 @@ class PageSetColumns(ToolWriterPageBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "Standard")
         column_count = kwargs.get("column_count")
         spacing_mm = kwargs.get("spacing_mm", 0)
@@ -848,7 +853,7 @@ class PageInsertBreak(ToolWriterPageBase):
     }, "required": []}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         doc = ctx.doc
         before_text = kwargs.get("before_text")
         after_text = kwargs.get("after_text")

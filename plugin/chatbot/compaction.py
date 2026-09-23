@@ -28,6 +28,10 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from plugin.framework.client.model_fetcher import cached_v1_context_tokens, query_ollama_runtime_num_ctx
 from plugin.framework.config import get_config_bool_safe
@@ -186,7 +190,7 @@ class CompactResult:
     tokens_after: int | None = None
 
 
-def gen_reserve(window):
+def gen_reserve(window: int) -> int:
     """Generation tokens the compacted view must leave free.
 
     Independent of ``chat_max_tokens`` (which would zero a 4k remainder).
@@ -198,7 +202,7 @@ def gen_reserve(window):
     return min(512, max(256, window // 16))
 
 
-def compaction_ratio(window):
+def compaction_ratio(window: int) -> float:
     """Window-tiered trigger.
 
     Algorithm from Hermes ``ContextCompressor._effective_threshold_percent``
@@ -213,7 +217,7 @@ def compaction_ratio(window):
     return COMPACTION_RATIO_DEFAULT
 
 
-def estimate_tokens_rough(text):
+def estimate_tokens_rough(text: Any) -> int:
     """CJK=1 + UTF-8 bytes/4. Near-copy of Hermes ``estimate_tokens_rough``.
 
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/model_metadata.py#L1966-L1983
@@ -228,7 +232,7 @@ def estimate_tokens_rough(text):
     return dense + ((len(stripped.encode("utf-8", "replace")) + 3) // 4)
 
 
-def flatten_content(content):
+def flatten_content(content: Any) -> tuple[str, int, int]:
     """Return (text, image_count, audio_count). Never str() a content list."""
     if content is None:
         return "", 0, 0
@@ -251,7 +255,7 @@ def flatten_content(content):
     return " ".join(texts), n_img, n_aud
 
 
-def estimate_message_tokens(msg):
+def estimate_message_tokens(msg: dict[str, Any]) -> int:
     text, n_img, n_aud = flatten_content(msg.get("content"))
     tokens = estimate_tokens_rough(text)
     for tc in msg.get("tool_calls") or []:
@@ -263,18 +267,18 @@ def estimate_message_tokens(msg):
     return max(1, tokens)
 
 
-def estimate_tokens(messages):
+def estimate_tokens(messages: list[dict[str, Any]]) -> int:
     return sum(estimate_message_tokens(m) for m in messages)
 
 
-def tool_schema_tokens(tools):
+def tool_schema_tokens(tools: Any) -> int:
     if not tools:
         return 0
     blob = json.dumps(tools, ensure_ascii=False, separators=(",", ":"))
     return estimate_tokens_rough(blob)
 
 
-def prompt_tokens(messages, tools):
+def prompt_tokens(messages: list[dict[str, Any]], tools: Any) -> int:
     """Messages plus tool schemas.
 
     Same idea as Hermes ``estimate_request_tokens_rough``
@@ -286,29 +290,29 @@ def prompt_tokens(messages, tools):
     return estimate_tokens(messages) + tool_schema_tokens(tools)
 
 
-def _summary_budget(window):
+def _summary_budget(window: int) -> int:
     """Token allowance for the summary pair, summarizer max_tokens, and char cap."""
     return min(1024, max(256, window // 8))
 
 
-def summary_char_cap(window):
+def summary_char_cap(window: int) -> int:
     return min(MAX_SUMMARY_CHARS, _summary_budget(window) * CHARS_PER_TOKEN)
 
 
-def cap_summary(summary, max_chars):
+def cap_summary(summary: str, max_chars: int) -> str:
     if len(summary) <= max_chars:
         return summary
     keep = max(0, max_chars - len(_SUMMARY_TRUNCATION_MARKER))
     return summary[:keep] + _SUMMARY_TRUNCATION_MARKER
 
 
-def should_compact(tokens, window, enabled=True):
+def should_compact(tokens: int, window: int | None, enabled: bool = True) -> bool:
     if not enabled or window is None or window <= 0:
         return False
     return tokens >= int(window * compaction_ratio(window))
 
 
-def keep_recent_tokens(window, system_tokens, tool_tokens, force=False):
+def keep_recent_tokens(window: int, system_tokens: int, tool_tokens: int, force: bool = False) -> int | None:
     reserve = gen_reserve(window)
     remainder = window - system_tokens - tool_tokens - _summary_budget(window) - reserve
     if remainder < MIN_TAIL_TOKENS:
@@ -321,7 +325,7 @@ def keep_recent_tokens(window, system_tokens, tool_tokens, force=False):
     return clamped
 
 
-def resolve_context_window(client, model_id=None):
+def resolve_context_window(client: Any, model_id: str | None = None) -> int | None:
     """Ollama: live ``num_ctx`` only. Else cached /v1/models, then catalog. None → skip compact."""
     model_id = str(model_id or (client.config or {}).get("model") or "").strip() or None
     if not model_id:
@@ -378,11 +382,11 @@ def resolve_context_window(client, model_id=None):
     return None
 
 
-def _is_cut_point(msg):
+def _is_cut_point(msg: dict[str, Any]) -> bool:
     return msg.get("role") in ("user", "assistant")  # not "tool", not "system"
 
 
-def find_cut_index(messages, keep_tokens, start_index=1):
+def find_cut_index(messages: list[dict[str, Any]], keep_tokens: int, start_index: int = 1) -> int | None:
     """First index of a verbatim tail whose token sum is <= keep_tokens.
 
     Ceiling walk (not OpenClaw's floor). Newest-first accumulate is the
@@ -422,7 +426,7 @@ def find_cut_index(messages, keep_tokens, start_index=1):
     return cut_index
 
 
-def _is_real_user(msg):
+def _is_real_user(msg: dict[str, Any]) -> bool:
     """Non-empty user text. Simpler analog of Hermes ``_is_actionable_user_turn``.
 
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L3660-L3670
@@ -434,7 +438,7 @@ def _is_real_user(msg):
     # Dummy compaction ack is view-only and never appears in session.messages.
 
 
-def ensure_last_user_in_tail(messages, cut, start_index, keep_tokens):
+def ensure_last_user_in_tail(messages: list[dict[str, Any]], cut: int, start_index: int, keep_tokens: int) -> int | None:
     """Pull cut back so the last real user is in the tail (Hermes #10896).
 
     Algorithm from Hermes ``_ensure_last_user_message_in_tail``
@@ -458,7 +462,7 @@ def ensure_last_user_in_tail(messages, cut, start_index, keep_tokens):
     return new_cut
 
 
-def _tool_name_for(messages, idx):
+def _tool_name_for(messages: list[dict[str, Any]], idx: int) -> str:
     """Best-effort name from the preceding assistant tool_calls matching tool_call_id."""
     call_id = messages[idx].get("tool_call_id")
     for j in range(idx - 1, -1, -1):
@@ -474,7 +478,7 @@ def _tool_name_for(messages, idx):
     return "tool"
 
 
-def newest_assistant_tool_span(messages, start_index):
+def newest_assistant_tool_span(messages: list[dict[str, Any]], start_index: int) -> tuple[int, int] | None:
     """(asst_idx, end_idx exclusive) of the newest assistant+tool_calls group.
 
     Skips a trailing user so the last user stays in the tail. None if there
@@ -494,7 +498,7 @@ def newest_assistant_tool_span(messages, start_index):
     return i, end
 
 
-def pressure_stub_newest_tool_group(messages, keep_tokens, start_index=1):
+def pressure_stub_newest_tool_group(messages: list[dict[str, Any]], keep_tokens: int, start_index: int = 1) -> tuple[list[dict[str, Any]], tuple[Any, ...]]:
     """Copy messages; stub newest-group role=tool bodies > PRUNE_MIN_CHARS.
 
     Algorithm from Hermes ``_pressure_demote_tail``
@@ -544,7 +548,7 @@ def pressure_stub_newest_tool_group(messages, keep_tokens, start_index=1):
     return work, tuple(stubbed)
 
 
-def _format_tool_calls(msg):
+def _format_tool_calls(msg: dict[str, Any]) -> str:
     parts = []
     budget = MAX_TOOL_CALL_ARGS_CHARS
     for tc in msg.get("tool_calls") or []:
@@ -560,7 +564,7 @@ def _format_tool_calls(msg):
     return " ".join(parts)
 
 
-def _strip_document_span(text):
+def _strip_document_span(text: str) -> str:
     if DOCUMENT_MARKERS[0] not in text:
         return text
     start = text.find(DOCUMENT_MARKERS[0])
@@ -570,7 +574,7 @@ def _strip_document_span(text):
     return text[:start].strip()
 
 
-def serialize_for_summary(messages):
+def serialize_for_summary(messages: list[dict[str, Any]]) -> str:
     """ROLE: text lines. Stub role=tool bodies > PRUNE_MIN_CHARS. Session unchanged.
 
     Prune idea from Hermes ``_PRUNE_MIN_CHARS`` / old-tool stub
@@ -597,14 +601,14 @@ def serialize_for_summary(messages):
     return "\n".join(lines)
 
 
-def summary_pair(summary):
+def summary_pair(summary: str) -> list[dict[str, Any]]:
     return [
         {"role": "user", "content": "[CONVERSATION SUMMARY]\n" + summary + "\n[END SUMMARY]"},
         {"role": "assistant", "content": "Acknowledged. I will continue from the summary above."},
     ]
 
 
-def sanitize_tool_pairs(messages):
+def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Drop orphan role=tool; strip dangling tool_calls (keep assistant text if any).
 
     Also drops tool_calls with empty/missing ``function.name`` (and their matching
@@ -657,7 +661,7 @@ def sanitize_tool_pairs(messages):
     return out
 
 
-def _apply_tail_stubs(messages, first_kept_index, stubbed_ids):
+def _apply_tail_stubs(messages: list[dict[str, Any]], first_kept_index: int, stubbed_ids: Any) -> list[dict[str, Any]]:
     if not stubbed_ids:
         return list(messages[first_kept_index:])
     ids = set(stubbed_ids)
@@ -674,7 +678,7 @@ def _apply_tail_stubs(messages, first_kept_index, stubbed_ids):
     return tail
 
 
-def messages_for_llm(session, tools=None):
+def messages_for_llm(session: Any, tools: Any = None) -> list[dict[str, Any]]:
     """Live messages[0] + summary pair + tail (view stubs). Does not mutate session."""
     del tools  # accepted so callers share the prompt_tokens signature
     messages = getattr(session, "messages", None) or []
@@ -688,12 +692,12 @@ def messages_for_llm(session, tools=None):
     return sanitize_tool_pairs(view)
 
 
-def is_process_death_error(text):
+def is_process_death_error(text: str | None) -> bool:
     lower = (text or "").lower()
     return any(m in lower for m in _PROCESS_DEATH_MARKERS)
 
 
-def is_context_overflow_error(text):
+def is_context_overflow_error(text: str | None) -> bool:
     """Prompt-too-large only. Process death and 429/TPM are NOT overflow."""
     if is_process_death_error(text):
         return False
@@ -707,7 +711,7 @@ def is_context_overflow_error(text):
     return False
 
 
-def should_retry_overflow(attempts, compact_reason, tokens_before=None, tokens_after=None):
+def should_retry_overflow(attempts: int, compact_reason: str | None, tokens_before: int | None = None, tokens_after: int | None = None) -> bool:
     """Cap retries and skip when compact did not shrink enough.
 
     5% gate from Hermes ``TurnOverflow.compress_scored_by_tokens``
@@ -764,7 +768,7 @@ def _temporal_anchoring_rule():
     )
 
 
-def _choose_cut(messages, keep, prev_kept):
+def _choose_cut(messages: list[dict[str, Any]], keep: int, prev_kept: int) -> tuple[list[dict[str, Any]], int | None, tuple[Any, ...]]:
     """Ceiling walk, optional tail-pressure stub, then last-user snap.
 
     Returns ``(work, new_cut, stubbed_ids)`` or ``(work, None, stubbed_ids)``.
@@ -794,17 +798,17 @@ def _choose_cut(messages, keep, prev_kept):
 
 
 def compact_session(
-    session,
-    client,
+    session: Any,
+    client: Any,
     *,
-    window,
-    tools=None,
-    max_tokens=None,
-    stop_checker=None,
-    force=False,
-    status_callback=None,
-    enabled=None,
-):
+    window: int | None,
+    tools: Any = None,
+    max_tokens: int | None = None,
+    stop_checker: Callable[[], bool] | None = None,
+    force: bool = False,
+    status_callback: Callable[[str], None] | None = None,
+    enabled: bool | None = None,
+) -> CompactResult:
     """May call LlmClient (blocking). Must run off the UI thread.
 
     Must already be inside ``llm_request_lane``; must not take the lane itself.

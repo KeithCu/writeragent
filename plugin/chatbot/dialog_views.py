@@ -14,12 +14,18 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from __future__ import annotations
+
 import logging
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import uno
 from com.sun.star.awt import XItemListener, XTextListener
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from com.sun.star.awt import ItemEvent, TextEvent
 
 from plugin.framework.errors import format_error_payload, UnoObjectError, ConfigValidationError
 from plugin.framework.uno_context import get_desktop, get_extension_url, menu_icon_asset_url
@@ -60,7 +66,7 @@ _PROVIDER_ICON_PX = (16, 32, 48)
 _MENU_PX_TO_PROVIDER = {16: 16, 26: 32, 32: 48}
 
 
-def provider_icon_filename(stem, ctx=None, px=None):
+def provider_icon_filename(stem: str, ctx: Any = None, px: int | None = None) -> str:
     """Asset basename under extension/assets/ (openrouter_16.png / _32 / _48).
 
     Picks a shipped size from VCL DPI so 1× buttons are not clipped by a 48px
@@ -85,7 +91,7 @@ def provider_icon_filename(stem, ctx=None, px=None):
     return "%s_%s.png" % (stem, best)
 
 
-def apply_provider_button_icon(ctrl, ctx, stem):
+def apply_provider_button_icon(ctrl: Any, ctx: Any, stem: str) -> None:
     """Load the mark onto a PushButton control model aligned with LeftCenter."""
     filename = provider_icon_filename(stem, ctx=ctx)
     try:
@@ -102,14 +108,14 @@ def apply_provider_button_icon(ctrl, ctx, stem):
         log.debug("Provider button icon %s failed", filename, exc_info=True)
 
 
-def _load_selection_token_controls(extend_ctrl, edit_extra_ctrl) -> None:
+def _load_selection_token_controls(extend_ctrl: Any, edit_extra_ctrl: Any) -> None:
     if extend_ctrl:
         set_control_text(extend_ctrl, str(get_config_int("extend_selection_max_tokens")))
     if edit_extra_ctrl:
         set_control_text(edit_extra_ctrl, str(get_config_int("edit_selection_max_new_tokens")))
 
 
-def _save_selection_token_controls(extend_ctrl, edit_extra_ctrl) -> None:
+def _save_selection_token_controls(extend_ctrl: Any, edit_extra_ctrl: Any) -> None:
     if extend_ctrl:
         set_config("extend_selection_max_tokens", get_control_text(extend_ctrl))
     if edit_extra_ctrl:
@@ -118,7 +124,7 @@ def _save_selection_token_controls(extend_ctrl, edit_extra_ctrl) -> None:
 
 # ── Generic Helpers ──────────────────────────────────────────────────
 
-def input_box(ctx, message, title="", default="", x=None, y=None):
+def input_box(ctx: Any, message: str, title: str = "", default: str = "", x: Any = None, y: Any = None) -> tuple[str, str]:
     """Shows input dialog (EditInputDialog.xdl). Returns (result_text, extra_prompt) if OK, else ("", "")."""
     init_logging(ctx)
     log.debug("input_box: opening Edit Input dialog")
@@ -181,11 +187,11 @@ def input_box(ctx, message, title="", default="", x=None, y=None):
 class SettingsDialog:
     """Manages the lifecycle of the WriterAgent Settings dialog."""
 
-    def __init__(self, ctx):
+    def __init__(self, ctx: Any):
         self._ctx = ctx
         self._dlg = None
-        self._endpoint_listener = None
-        self._api_key_listener = None
+        self._endpoint_listener: Any = None
+        self._api_key_listener: Any = None
         self._scripting_venv_test_listener = None
         self._ppt_master_data_test_listener = None
         self._download_audio_listener = None
@@ -335,13 +341,13 @@ class SettingsDialog:
         except Exception:
             pass
 
-    def _api_key_from_field_specs(self, field_specs):
+    def _api_key_from_field_specs(self, field_specs: list[dict[str, Any]]) -> str:
         for field in field_specs:
             if field.get("name") == "api_key":
                 return str(field.get("value") or "")
         return ""
 
-    def _populate_fields(self, field_specs, current_endpoint):
+    def _populate_fields(self, field_specs: list[dict[str, Any]], current_endpoint: str) -> None:
         assert self._dlg is not None
         from plugin.chatbot.config_ui_helpers import (
             populate_combobox_with_lru, populate_image_model_selector, populate_endpoint_selector
@@ -382,7 +388,7 @@ class SettingsDialog:
         # Populate non-persisted client config snippet
         sync_mcp_config_snippet(self._dlg)
 
-    def _schedule_initial_models_fetch(self, endpoint):
+    def _schedule_initial_models_fetch(self, endpoint: str) -> None:
         """OpenRouter/Together skip inline fetch; load full catalog when a saved key exists."""
         from plugin.framework.config import get_api_key_for_endpoint
         from plugin.framework.client.provider_detection import get_provider_from_endpoint
@@ -397,7 +403,7 @@ class SettingsDialog:
             return
         listener._schedule_debounced_models_fetch()
 
-    def _populate_generic_field(self, ctrl, field):
+    def _populate_generic_field(self, ctrl: Any, field: dict[str, Any]) -> None:
         if is_checkbox_control(ctrl):
             set_checkbox_state(ctrl, 1 if as_bool(field["value"]) else 0)
         elif hasattr(ctrl, "setText"):
@@ -407,7 +413,7 @@ class SettingsDialog:
         else:
             set_control_text(ctrl, field["value"])
 
-    def _set_ctrl_options(self, ctrl, field):
+    def _set_ctrl_options(self, ctrl: Any, field: dict[str, Any]) -> None:
         try:
             opts = field["options"]
             labels = tuple(o.get("label", o.get("value", "")) for o in opts if isinstance(o, dict))
@@ -417,7 +423,7 @@ class SettingsDialog:
         except Exception:
             log.exception("Failed to set options for %s", field.get("name"))
 
-    def _setup_endpoint_listener(self, ctrl):
+    def _setup_endpoint_listener(self, ctrl: Any) -> None:
         if hasattr(ctrl, "addItemListener"):
             self._endpoint_listener = EndpointCombinedListener(self._dlg, self._ctx, ctrl)
             ctrl.addItemListener(self._endpoint_listener)
@@ -440,7 +446,7 @@ class SettingsDialog:
                 if ctrl:
                     set_control_enabled(ctrl, False)
 
-    def _extract_results(self, field_specs):
+    def _extract_results(self, field_specs: list[dict[str, Any]]) -> dict[str, Any]:
         assert self._dlg is not None
         result = {}
         for field in field_specs:
@@ -552,7 +558,7 @@ class SettingsDialog:
             self._dlg.dispose()
 
 
-def settings_box(ctx, **kwargs):
+def settings_box(ctx: Any, **kwargs: Any) -> Any:
     """Entry point for settings dialog."""
     return SettingsDialog(ctx).show()
 
@@ -572,9 +578,9 @@ def open_system_url(ctx: Any, url_str: str) -> None:
 
 
 class EditConfigListener(BaseActionListener):
-    def __init__(self, ctx):
+    def __init__(self, ctx: Any):
         self._ctx = ctx
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from .external_editor import open_writeragent_json_in_editor
         open_writeragent_json_in_editor(self._ctx)
 
@@ -616,11 +622,11 @@ class ProviderStarterListener(BaseActionListener):
 
 
 class GetApiKeyListener(BaseActionListener):
-    def __init__(self, ctx, dlg):
+    def __init__(self, ctx: Any, dlg: Any):
         self._ctx = ctx
         self._dlg = dlg
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text, get_signup_url_for_endpoint
 
         endpoint_ctrl = get_optional(self._dlg, "endpoint")
@@ -632,11 +638,11 @@ class GetApiKeyListener(BaseActionListener):
 
 
 class TestConnectionListener(BaseActionListener):
-    def __init__(self, ctx, dlg):
+    def __init__(self, ctx: Any, dlg: Any):
         self._ctx = ctx
         self._dlg = dlg
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.config_ui_helpers import endpoint_from_selector_text
         from plugin.chatbot.quick_setup import check_endpoint_connection
         from plugin.framework.worker_pool import run_in_background
@@ -670,7 +676,7 @@ class TestConnectionListener(BaseActionListener):
         run_in_background(_worker, name="settings-test-conn")
 
 
-def _dialog_parent_for_child(ctx, parent_dlg):  # pyright: ignore[reportUnusedFunction]  # settings peer parent helper; used by tests
+def _dialog_parent_for_child(ctx: Any, parent_dlg: Any) -> Any:  # pyright: ignore[reportUnusedFunction]  # settings peer parent helper; used by tests
     """Resolve a parent window for a child modal opened above an executing dialog."""
     if parent_dlg is not None:
         try:
@@ -692,31 +698,31 @@ def _dialog_parent_for_child(ctx, parent_dlg):  # pyright: ignore[reportUnusedFu
 class PptMasterDataTestListener(BaseActionListener):
     """Settings → Python: verify ppt-master skill tree at the path in the text field (saved or not)."""
 
-    def __init__(self, ctx, dlg):
+    def __init__(self, ctx: Any, dlg: Any):
         self._ctx = ctx
         self._dlg = dlg
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.ppt_master.paths import probe_data_path_with_progress
 
         path_ctrl = get_optional(self._dlg, "scripting__ppt_master_data_path")
         raw = get_control_text(path_ctrl) if path_ctrl else ""
 
-        def probe(on_display, on_status):
+        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None] | None) -> Any:
             return probe_data_path_with_progress(raw, on_display, on_status=on_status)
 
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(probe)
 
 
 class ApiKeyTextListener(BaseListener, XTextListener):
-    def __init__(self, endpoint_listener):
+    def __init__(self, endpoint_listener: Any):
         self._el = endpoint_listener
-    def textChanged(self, rEvent):
+    def textChanged(self, rEvent: TextEvent) -> None:
         self._el._schedule_debounced_models_fetch()
 
 
 class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
-    def __init__(self, dialog, context, combo_ctrl):
+    def __init__(self, dialog: Any, context: Any, combo_ctrl: Any):
         from plugin.framework.queue_executor import post_to_main_thread
         from plugin.framework.worker_pool import run_in_background
         from plugin.framework.config import get_api_key_for_endpoint
@@ -753,7 +759,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         resolved_init = self.endpoint_from_selector_text(self._ctrl.getText())
         self._update_key_link_state(resolved_init)
 
-    def _update_key_link_state(self, resolved):
+    def _update_key_link_state(self, resolved: str) -> None:
         from plugin.chatbot.config_ui_helpers import get_signup_url_for_endpoint
         url = get_signup_url_for_endpoint(resolved)
         btn_key = get_optional(self._dlg, "btn_get_api_key")
@@ -767,7 +773,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         ak_ctrl = get_optional(self._dlg, "api_key")
         return str(get_control_text(ak_ctrl)) if ak_ctrl else ""
 
-    def _combo_current_for_provider(self, ctrl, *, same_provider, fallback=""):
+    def _combo_current_for_provider(self, ctrl: Any, *, same_provider: bool, fallback: str = "") -> str:
         """Return combobox current only when the saved provider still matches.
 
         After a provider switch the field still holds the previous provider's
@@ -781,7 +787,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         current = self._sanitize_model_combobox_value(str(ctrl.getText() or ""))
         return current or fallback
 
-    def _apply_dropdowns(self, resolved, models=None, skip_fetch=False):
+    def _apply_dropdowns(self, resolved: str, models: Any = None, skip_fetch: bool = False) -> None:
         api_key_ov = self._live_api_key()
         skip_remote = bool(skip_fetch)
         resolved_provider = self.get_provider_from_endpoint(resolved)
@@ -862,7 +868,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if ak_ctrl:
             set_control_text(ak_ctrl, self.get_api_key_for_endpoint(resolved))
 
-    def _bg_fetch(self, gen, resolved):
+    def _bg_fetch(self, gen: int, resolved: str) -> None:
         if self._closed or gen != self._debounce_gen: return
 
         ak_ctrl = get_optional(self._dlg, "api_key")
@@ -887,16 +893,16 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         self._timer.daemon = True
         self._timer.start()
 
-    def _run_fetch(self, gen):
+    def _run_fetch(self, gen: int) -> None:
         resolved = self.endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self.run_in_background(lambda: self._bg_fetch(gen, resolved), name="settings-fetch")
 
-    def textChanged(self, rEvent):
+    def textChanged(self, rEvent: TextEvent) -> None:
         self._sync_api_key()
         self._schedule_debounced_models_fetch()
 
-    def itemStateChanged(self, rEvent):
+    def itemStateChanged(self, rEvent: ItemEvent) -> None:
         idx = getattr(rEvent, "Selected", -1)
         if idx < 0: return
         item = self._ctrl.getItem(idx)
@@ -922,7 +928,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
 
 # ── Helper for module tabs ───────────────────────────────────────────
 
-def setup_module_tabs(dlg):
+def setup_module_tabs(dlg: Any) -> None:
     """Register action listeners for module-specific tabs in the Settings dialog."""
     try:
         from plugin._manifest import MODULES
@@ -931,7 +937,7 @@ def setup_module_tabs(dlg):
         # Map button ID to step index (starting from 3 for module tabs)
         # Core tabs: 1=Chat, 2=Image
         step = 3
-        for m in iter_settings_tab_modules(MODULES):
+        for m in iter_settings_tab_modules(cast("list[dict[str, Any]]", MODULES)):
             m_name = str(m.get("name", ""))
             prefix = m_name.replace(".", "_")
             btn_id = f"btn_tab_{prefix}"
@@ -948,14 +954,14 @@ def setup_module_tabs(dlg):
 class DownloadAudioListener(BaseActionListener):
     """Settings → Python: download audio binaries and pure Python dependencies from GitHub."""
 
-    def __init__(self, ctx, dlg):
+    def __init__(self, ctx: Any, dlg: Any):
         self._ctx = ctx
         self._dlg = dlg
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.scripting.audio_recorder_service import run_audio_download
 
-        def probe(on_display, on_status):
+        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
             ok = run_audio_download(on_display, on_status)
             return ok, ""
 

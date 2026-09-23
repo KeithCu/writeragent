@@ -21,6 +21,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import uuid
+from typing import Any
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import find_paragraph_for_range, get_paragraph_ranges
@@ -40,7 +41,7 @@ _SAVE_HOOK_DEPTH = 0
 class _PendingStrip:
     __slots__ = ("names", "was_modified", "doc")
 
-    def __init__(self, names, was_modified, doc):
+    def __init__(self, names: dict[int, str], was_modified: bool, doc: Any) -> None:
         self.names = dict(names)
         self.was_modified = bool(was_modified)
         self.doc = doc
@@ -70,7 +71,7 @@ class _BookmarkSaveListener(BaseDocumentEventListener):
         self._svc = svc
         self._doc_key = doc_key
 
-    def on_document_event(self, Event) -> None:
+    def on_document_event(self, Event: Any) -> None:
         try:
             name = getattr(Event, "EventName", "") or ""
         except Exception:
@@ -90,7 +91,7 @@ class _BookmarkSaveListener(BaseDocumentEventListener):
         elif name == "OnUnload":
             self._svc._teardown_save_listener(self._doc_key, source)
 
-    def on_disposing(self, Source) -> None:
+    def on_disposing(self, Source: Any) -> None:
         self._svc._teardown_save_listener(self._doc_key, Source)
 
 
@@ -99,13 +100,13 @@ class BookmarkService(ServiceBase):
 
     name = "writer_bookmarks"
 
-    def __init__(self, services=None):
+    def __init__(self, services: Any = None) -> None:
         # Optional so unit/UNO tests can still call BookmarkService().
         # ServiceRegistry passes the registry; document is used for
         # ignore_cache_invalidation() and doc_key().
         self._doc_svc = getattr(services, "document", None) if services is not None else None
 
-    def _doc_key(self, doc):
+    def _doc_key(self, doc: Any):
         if self._doc_svc is not None:
             return self._doc_svc.doc_key(doc)
         from plugin.doc.document_helpers import _compute_doc_key
@@ -118,7 +119,7 @@ class BookmarkService(ServiceBase):
         return contextlib.nullcontext()
 
     @contextlib.contextmanager
-    def _untracked(self, doc):
+    def _untracked(self, doc: Any):
         """Lock undo, ignore cache invalidation, restore isModified.
 
         insertTextContent / removeTextContent mark the document modified and
@@ -155,9 +156,9 @@ class BookmarkService(ServiceBase):
             except Exception:
                 log.debug("BookmarkService: setModified(%s) failed", was, exc_info=True)
 
-    def get_mcp_bookmark_map(self, doc):
+    def get_mcp_bookmark_map(self, doc: Any):
         """Return {para_index: bookmark_name} for all _mcp_ bookmarks."""
-        result = {}
+        result: dict[int, str] = {}
         try:
             if not hasattr(doc, "getBookmarks"):
                 return result
@@ -180,7 +181,7 @@ class BookmarkService(ServiceBase):
 
         return result
 
-    def ensure_heading_bookmarks(self, doc):
+    def ensure_heading_bookmarks(self, doc: Any):
         """Ensure every heading has an _mcp_ bookmark. Returns map."""
         if _SAVE_HOOK_DEPTH == 0:
             self._restore_abandoned(doc)
@@ -219,7 +220,7 @@ class BookmarkService(ServiceBase):
         self._ensure_save_listener(doc)
         return bookmark_map
 
-    def find_nearest_heading_bookmark(self, para_index, bookmark_map):
+    def find_nearest_heading_bookmark(self, para_index: int, bookmark_map: Any):
         """Find nearest heading bookmark at or before para_index."""
         best_idx = -1
         for idx in bookmark_map:
@@ -229,7 +230,7 @@ class BookmarkService(ServiceBase):
             return {"bookmark": bookmark_map[best_idx], "heading_para_index": best_idx}
         return None
 
-    def _remove_mcp_bookmarks(self, doc):
+    def _remove_mcp_bookmarks(self, doc: Any):
         """Remove all ``_mcp_*`` bookmarks. No undo/modified/cache handling."""
         removed = 0
         if not hasattr(doc, "getBookmarks"):
@@ -247,7 +248,7 @@ class BookmarkService(ServiceBase):
                     pass
         return removed
 
-    def cleanup_mcp_bookmarks(self, doc):
+    def cleanup_mcp_bookmarks(self, doc: Any):
         """Remove all _mcp_* bookmarks from the document."""
         removed = 0
         try:
@@ -257,7 +258,7 @@ class BookmarkService(ServiceBase):
             log.exception("Failed to cleanup bookmarks")
         return removed
 
-    def _insert_named_bookmark(self, doc, text, name, start_range):
+    def _insert_named_bookmark(self, doc: Any, text: Any, name: str, start_range: Any):
         """Insert a point bookmark. Skip and log on name collision."""
         try:
             if hasattr(doc, "getBookmarks") and doc.getBookmarks().hasByName(name):
@@ -275,7 +276,7 @@ class BookmarkService(ServiceBase):
             log.exception("Failed to insert heading bookmark %s", name)
             return False
 
-    def _pending_key(self, doc):
+    def _pending_key(self, doc: Any):
         if doc is None:
             return None
         key = self._doc_key(doc)
@@ -288,13 +289,13 @@ class BookmarkService(ServiceBase):
                 return stored_key
         return None
 
-    def _restore_abandoned(self, doc):
+    def _restore_abandoned(self, doc: Any) -> None:
         """LibreOffice has no OnSaveFailed; Done never firing leaves locators missing."""
         if self._pending_key(doc) is None:
             return
         self.restore_after_save(doc, saved=False)
 
-    def strip_for_save(self, doc):
+    def strip_for_save(self, doc: Any) -> None:
         """Remove ``_mcp_`` bookmarks just before the file is written."""
         if doc is None:
             return
@@ -315,7 +316,7 @@ class BookmarkService(ServiceBase):
         with self._untracked(doc):
             self._remove_mcp_bookmarks(doc)
 
-    def restore_after_save(self, doc, saved):
+    def restore_after_save(self, doc: Any, saved: bool) -> None:
         """Re-insert remembered names. ``saved=True`` keeps a successful Save clean."""
         key = self._pending_key(doc)
         if key is None:
@@ -336,7 +337,7 @@ class BookmarkService(ServiceBase):
         except Exception:
             log.debug("BookmarkService: post-restore setModified failed", exc_info=True)
 
-    def _reinsert_named(self, doc, names):
+    def _reinsert_named(self, doc: Any, names: dict[int, str]) -> None:
         if not names:
             return
         text = doc.getText()
@@ -353,7 +354,7 @@ class BookmarkService(ServiceBase):
                 continue
             self._insert_named_bookmark(doc, text, name, start_range)
 
-    def _ensure_save_listener(self, doc):
+    def _ensure_save_listener(self, doc: Any) -> None:
         if not hasattr(doc, "addDocumentEventListener"):
             return
         key = self._doc_key(doc)
@@ -367,7 +368,7 @@ class BookmarkService(ServiceBase):
             return
         _SAVE_LISTENERS[key] = listener
 
-    def _teardown_save_listener(self, key, source=None):
+    def _teardown_save_listener(self, key: str, source: Any = None) -> None:
         _PENDING_STRIPS.pop(key, None)
         listener = _SAVE_LISTENERS.pop(key, None)
         if listener is None or source is None:
@@ -387,7 +388,7 @@ class BookmarkList(ToolWriterBookmarkBase):
     description = "List all bookmarks in the document with their anchor text preview. Includes both user bookmarks and _mcp_ heading bookmarks."
     parameters = {"type": "object", "properties": {}, "required": []}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         if not hasattr(doc, "getBookmarks"):
             return {"status": "ok", "bookmarks": [], "count": 0}
@@ -410,7 +411,7 @@ class BookmarkCleanup(ToolWriterBookmarkBase):
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         bm_svc = ctx.services.writer_bookmarks
         removed = bm_svc.cleanup_mcp_bookmarks(ctx.doc)
         return {"status": "ok", "removed": removed}
@@ -422,7 +423,7 @@ class BookmarkCreate(ToolWriterBookmarkBase):
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The unique name for the new bookmark."}}, "required": ["name"]}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         name = kwargs.get("name")
         if not name:
@@ -467,7 +468,7 @@ class BookmarkDelete(ToolWriterBookmarkBase):
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark to delete."}}, "required": ["name"]}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         name = kwargs.get("name")
         if not name:
@@ -498,7 +499,7 @@ class BookmarkRename(ToolWriterBookmarkBase):
     parameters = {"type": "object", "properties": {"old_name": {"type": "string", "description": "The current name of the bookmark."}, "new_name": {"type": "string", "description": "The new name for the bookmark."}}, "required": ["old_name", "new_name"]}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         old_name = kwargs.get("old_name")
         new_name = kwargs.get("new_name")
@@ -530,7 +531,7 @@ class BookmarkGet(ToolWriterBookmarkBase):
     description = "Get details about a specific bookmark, including the text it spans."
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "The name of the bookmark."}}, "required": ["name"]}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         name = kwargs.get("name")
         if not name:
@@ -563,7 +564,7 @@ class BookmarkResolve(ToolWriterBookmarkBase):
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Bookmark name (e.g. _mcp_a1b2c3d4)."}}, "required": ["name"]}
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         bookmark_name = kwargs.get("name", "")
         if not bookmark_name:
             return self._tool_error("name is required.")

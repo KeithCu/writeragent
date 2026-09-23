@@ -51,13 +51,21 @@ XDL dialog loading (used by ModuleBase helpers)::
     dlg.dispose()
 """
 
+from __future__ import annotations
+
 import logging
 import os
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 import unohelper
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.worker_pool import run_in_background
 from com.sun.star.awt import XActionListener
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from com.sun.star.awt import ActionEvent
+    from com.sun.star.datatransfer import DataFlavor
+    from com.sun.star.lang import EventObject
 from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url
 from plugin.framework.i18n import _
 
@@ -67,7 +75,7 @@ log = logging.getLogger("writeragent.dialogs")
 # ── Simple message box ──────────────────────────────────────────────
 
 
-def msgbox(ctx, title, message, *, box_type=1):
+def msgbox(ctx: Any, title: Any, message: Any, *, box_type: int = 1) -> None:
     """Show a message box.
 
     Args:
@@ -105,7 +113,7 @@ def msgbox(ctx, title, message, *, box_type=1):
         log.exception("MSGBOX fallback - %s: %s", title, message)
 
 
-def show_approval_dialog(ctx, description, tool_name="", parent_frame=None):
+def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent_frame: Any = None) -> bool:
     """Show HITL approval dialog: description + Approve (Yes) / Reject (No). Runs on main thread.
     Returns True if user chose Approve, False if Reject or on error.
 
@@ -143,7 +151,7 @@ def show_approval_dialog(ctx, description, tool_name="", parent_frame=None):
         return False
 
 
-def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | None:
+def show_web_search_query_edit_dialog(ctx: Any, parent_frame: Any, initial_text: str) -> str | None:
     """Modal multiline edit for a web-search query before DuckDuckGo runs.
 
     ``parent_frame`` is typically the sidebar ``XFrame`` so the dialog parents correctly.
@@ -166,7 +174,7 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | 
         _outcome: list[str | None] | None = None
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 try:
                     ec = dlg.getControl("QueryEdit")
@@ -176,16 +184,16 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | 
                 _outcome = [t]
                 dlg.endDialog(1)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 _outcome = [None]
                 dlg.endDialog(0)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         btn_ok = dlg.getControl("BtnOK")
@@ -205,7 +213,7 @@ def show_web_search_query_edit_dialog(ctx, parent_frame, initial_text) -> str | 
         return None
 
 
-def show_text_input_dialog(ctx, message: str, title: str = "", default: str = "") -> str | None:
+def show_text_input_dialog(ctx: Any, message: str, title: str = "", default: str = "") -> str | None:
     """Modal single-line text input (no LLM / prompt controls).
 
     Used for short names (e.g. Save Script As). Returns stripped text on OK, ``None`` on Cancel.
@@ -232,7 +240,7 @@ def show_text_input_dialog(ctx, message: str, title: str = "", default: str = ""
         _outcome: list[str | None] | None = None
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 try:
                     ec = dlg.getControl("TextEdit")
@@ -242,16 +250,16 @@ def show_text_input_dialog(ctx, message: str, title: str = "", default: str = ""
                 _outcome = [t]
                 dlg.endDialog(1)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 _outcome = [None]
                 dlg.endDialog(0)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         btn_ok = dlg.getControl("BtnOK")
@@ -292,7 +300,7 @@ def show_new_script_dialog(
 # ── Clipboard ────────────────────────────────────────────────────────
 
 
-def copy_to_clipboard(ctx, text):
+def copy_to_clipboard(ctx: Any, text: str) -> bool:
     """Copy text to system clipboard via LO API. Returns True on success."""
     if not ctx:
         return False
@@ -305,10 +313,10 @@ def copy_to_clipboard(ctx, text):
         clip = smgr.createInstanceWithContext("com.sun.star.datatransfer.clipboard.SystemClipboard", ctx)
 
         class _TextTransferable(unohelper.Base, XTransferable):
-            def __init__(self, txt):
+            def __init__(self, txt: str):
                 self._text = txt
 
-            def getTransferData(self, aFlavor):
+            def getTransferData(self, aFlavor: DataFlavor) -> Any:
                 return self._text
 
             def getTransferDataFlavors(self):
@@ -318,7 +326,7 @@ def copy_to_clipboard(ctx, text):
                 f.DataType = uno.getTypeByName("string")
                 return (f,)
 
-            def isDataFlavorSupported(self, aFlavor):
+            def isDataFlavorSupported(self, aFlavor: DataFlavor) -> bool:
                 return "text/plain" in aFlavor.MimeType
 
         clip.setContents(_TextTransferable(text), None)
@@ -332,7 +340,7 @@ def copy_to_clipboard(ctx, text):
 # ── Dialog control helpers ──────────────────────────────────────────
 
 
-def add_dialog_button(dlg_model, name, label, x, y, width, height, push_button_type=None, enabled=True):
+def add_dialog_button(dlg_model: Any, name: str, label: str, x: int, y: int, width: int, height: int, push_button_type: int | None = None, enabled: bool = True) -> Any:
     """Add a button to a dialog model."""
     btn = dlg_model.createInstance("com.sun.star.awt.UnoControlButtonModel")
     btn.Name = name
@@ -348,7 +356,7 @@ def add_dialog_button(dlg_model, name, label, x, y, width, height, push_button_t
     return btn
 
 
-def add_dialog_label(dlg_model, name, label, x, y, width, height, multiline=True):
+def add_dialog_label(dlg_model: Any, name: str, label: str, x: int, y: int, width: int, height: int, multiline: bool = True) -> Any:
     """Add a fixed text label to a dialog model."""
     lbl = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedTextModel")
     lbl.Name = name
@@ -362,7 +370,7 @@ def add_dialog_label(dlg_model, name, label, x, y, width, height, multiline=True
     return lbl
 
 
-def add_dialog_edit(dlg_model, name, text, x, y, width, height, readonly=False):
+def add_dialog_edit(dlg_model: Any, name: str, text: str, x: int, y: int, width: int, height: int, readonly: bool = False) -> Any:
     """Add an edit (text field) control to a dialog model."""
     edit = dlg_model.createInstance("com.sun.star.awt.UnoControlEditModel")
     edit.Name = name
@@ -376,7 +384,7 @@ def add_dialog_edit(dlg_model, name, text, x, y, width, height, readonly=False):
     return edit
 
 
-def add_dialog_hyperlink(dlg_model, name, label, url, x, y, width, height):
+def add_dialog_hyperlink(dlg_model: Any, name: str, label: str, url: str, x: int, y: int, width: int, height: int) -> Any:
     """Add a clickable hyperlink to a dialog model."""
     link = dlg_model.createInstance("com.sun.star.awt.UnoControlFixedHyperlinkModel")
     link.Name = name
@@ -394,7 +402,7 @@ def add_dialog_hyperlink(dlg_model, name, label, url, x, y, width, height):
 # ── Message box with Copy button ─────────────────────────────────────
 
 
-def msgbox_with_copy(ctx, title, message, copy_text):
+def msgbox_with_copy(ctx: Any, title: str, message: str, copy_text: str) -> None:
     """Show a dialog with a message and a Copy button."""
     if not ctx:
         log.info("MSGBOX_COPY (no ctx) - %s: %s", title, message)
@@ -413,12 +421,12 @@ def msgbox_with_copy(ctx, title, message, copy_text):
             msg_ctrl.getModel().Label = _(message)
 
         class _CopyListener(BaseActionListener):
-            def __init__(self, dialog, context, text):
+            def __init__(self, dialog: Any, context: Any, text: str):
                 self._dlg = dialog
                 self._ctx = context
                 self._text = text
 
-            def on_action_performed(self, rEvent):
+            def on_action_performed(self, rEvent: Any) -> None:
                 if copy_to_clipboard(self._ctx, self._text):
                     try:
                         self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
@@ -430,9 +438,9 @@ def msgbox_with_copy(ctx, title, message, copy_text):
             copy_btn.addActionListener(_CopyListener(dlg, ctx, copy_text))
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 dlg.endDialog(1)
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         ok_btn = dlg.getControl("OKBtn")
@@ -446,7 +454,7 @@ def msgbox_with_copy(ctx, title, message, copy_text):
         msgbox(ctx, title, message)
 
 
-def msgbox_with_report(ctx, title, message, *, reportable=False, report_title="", report_extra="", box_type=3):
+def msgbox_with_report(ctx: Any, title: str, message: str, *, reportable: bool = False, report_title: str = "", report_extra: str = "", box_type: int = 3) -> None:
     """Show a message box; when ``reportable``, offer Copy URL and Report bug buttons."""
     if not reportable:
         msgbox(ctx, title, message, box_type=box_type)
@@ -479,12 +487,12 @@ def msgbox_with_report(ctx, title, message, *, reportable=False, report_title=""
             msg_ctrl.getModel().Label = _(message)
 
         class _CopyListener(BaseActionListener):
-            def __init__(self, dialog, context, text):
+            def __init__(self, dialog: Any, context: Any, text: str):
                 self._dlg = dialog
                 self._ctx = context
                 self._text = text
 
-            def on_action_performed(self, rEvent):
+            def on_action_performed(self, rEvent: Any) -> None:
                 if copy_to_clipboard(self._ctx, self._text):
                     try:
                         self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
@@ -497,12 +505,12 @@ def msgbox_with_report(ctx, title, message, *, reportable=False, report_title=""
             copy_btn.addActionListener(_CopyListener(dlg, ctx, report_url))
 
         class _ReportListener(BaseActionListener):
-            def __init__(self, context, dlg_title, dlg_extra):
+            def __init__(self, context: Any, dlg_title: str, dlg_extra: str):
                 self._ctx = context
                 self._title = dlg_title
                 self._extra = dlg_extra
 
-            def on_action_performed(self, rEvent):
+            def on_action_performed(self, rEvent: Any) -> None:
                 open_bug_report_in_browser(self._ctx, title=self._title, extra_body=self._extra)
 
         report_btn = dlg.getControl("ReportBtn")
@@ -511,10 +519,10 @@ def msgbox_with_report(ctx, title, message, *, reportable=False, report_title=""
             report_btn.addActionListener(_ReportListener(ctx, issue_title, extra))
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 dlg.endDialog(1)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         ok_btn = dlg.getControl("OKBtn")
@@ -531,7 +539,7 @@ def msgbox_with_report(ctx, title, message, *, reportable=False, report_title=""
 # ── Status dialog with live updates ──────────────────────────────────
 
 
-def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
+def status_dialog(ctx: Any, title: str, build_status_fn: Callable[[], str], copy_url_fn: Callable[[], str] | None = None) -> None:
     """Show a status dialog that updates live via a background thread.
 
     Args:
@@ -568,12 +576,12 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
                 copy_btn.getModel().Enabled = bool(copy_url_fn() if copy_url_fn else False)
                 
                 class _CopyListener(BaseActionListener):
-                    def __init__(self, dialog, context, url_fn):
+                    def __init__(self, dialog: Any, context: Any, url_fn: Any):
                         self._dlg = dialog
                         self._ctx = context
                         self._url_fn = url_fn
 
-                    def on_action_performed(self, rEvent):
+                    def on_action_performed(self, rEvent: Any) -> None:
                         url = self._url_fn()
                         if url and copy_to_clipboard(self._ctx, url):
                             try:
@@ -586,9 +594,9 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
                 copy_btn.getModel().Visible = False
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 dlg.endDialog(1)
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         ok_btn = dlg.getControl("OKBtn")
@@ -622,7 +630,7 @@ def status_dialog(ctx, title, build_status_fn, copy_url_fn=None):
 # ── XDL dialog loading ──────────────────────────────────────────────
 
 
-def _xcc(ctrl):
+def _xcc(ctrl: Any) -> Any:
     """Return ``XControlContainer`` for ``ctrl``, or None.
 
     LibreOffice pyuno expects ``obj.queryInterface(iface)``. The ``uno`` module
@@ -639,7 +647,7 @@ def _xcc(ctrl):
         return None
 
 
-def _uno_impl_to_control_type(impl_name):
+def _uno_impl_to_control_type(impl_name: str) -> str:
     """Map ``stardiv.Toolkit.UnoButtonControl``-style names to ``control_types`` keys.
 
     VCL uses ``Uno`` + ``FixedText``/``Button``/… + ``Control``, not ``UnoControl``
@@ -653,7 +661,7 @@ def _uno_impl_to_control_type(impl_name):
     return seg
 
 
-def _dialog_model_element_names(dlg):
+def _dialog_model_element_names(dlg: Any) -> tuple[str, ...]:
     """Return control name strings from the dialog model (``ElementNames``), or ``()``."""
     try:
         dm = dlg.getModel()
@@ -667,7 +675,7 @@ def _dialog_model_element_names(dlg):
     return ()
 
 
-def translate_dialog(dlg):
+def translate_dialog(dlg: Any) -> None:
     """Translate all controls in a dialog at runtime.
 
     Walks the full control tree. XDL dialogs typically wrap fields in a
@@ -687,7 +695,7 @@ def translate_dialog(dlg):
     except Exception:
         root_child_count = 0
 
-    def translate_one(ctrl):
+    def translate_one(ctrl: Any) -> None:
         try:
             impl_name = ctrl.getImplementationName()
             short_type = _uno_impl_to_control_type(impl_name)
@@ -754,7 +762,7 @@ def translate_dialog(dlg):
                     log.debug("translate_dialog ElementNames id=%s: %s", nm, e)
 
 
-def load_module_dialog(module_name, dialog_name):
+def load_module_dialog(module_name: Any, dialog_name: str) -> Any:
     """Load an XDL dialog from a module's directory.
 
     Returns an XDialog ready for execute()/dispose().
@@ -767,7 +775,7 @@ def load_module_dialog(module_name, dialog_name):
     return dlg
 
 
-def load_framework_dialog(dialog_name):
+def load_framework_dialog(dialog_name: str) -> Any:
     """Load an XDL dialog from the framework's directory.
 
     Returns an XDialog ready for execute()/dispose().
@@ -957,13 +965,13 @@ def load_writeragent_dialog_detail(dialog_name: str, ctx: Any | None = None) -> 
     return None, combined
 
 
-def load_writeragent_dialog(dialog_name, ctx=None):
+def load_writeragent_dialog(dialog_name: str, ctx: Any = None) -> Any:
     """Load an XDL dialog from the Dialogs/ directory."""
     dlg, _detail = load_writeragent_dialog_detail(dialog_name, ctx=ctx)
     return dlg
 
 
-def _load_xdl(relative_path):
+def _load_xdl(relative_path: str) -> Any:
     """Load an XDL file from the extension bundle via DialogProvider (+ DP2 fallback)."""
 
     ctx = get_ctx()
@@ -980,7 +988,7 @@ def _load_xdl(relative_path):
     return dlg
 
 
-def get_optional(root_window, name):
+def get_optional(root_window: Any, name: str) -> Any:
     """Return control by name or None if missing. Use for optional XDL controls.
 
     Useful for backward-compatible dialogs where controls may not exist in all versions.
@@ -998,7 +1006,7 @@ def get_optional(root_window, name):
         return None
 
 
-def is_checkbox_control(ctrl):
+def is_checkbox_control(ctrl: Any) -> bool:
     """Return True if the control is a checkbox (UnoControlCheckBox or has State/setState).
 
     Handles LibreOffice checkbox quirks: checks service type, control methods, and model properties.
@@ -1017,7 +1025,7 @@ def is_checkbox_control(ctrl):
     return False
 
 
-def set_control_enabled(ctrl, enabled):
+def set_control_enabled(ctrl: Any, enabled: bool) -> None:
     """Safely set the enabled state of a control or its model.
     Logs instead of crashing if the capability is missing."""
     if not ctrl:
@@ -1031,7 +1039,7 @@ def set_control_enabled(ctrl, enabled):
         log.debug("set_control_enabled exception: %s", e)
 
 
-def set_control_visible(ctrl, visible):
+def set_control_visible(ctrl: Any, visible: bool) -> None:
     """Safely set the visibility state of a control or its model.
     Logs instead of crashing if the capability is missing."""
     if not ctrl:
@@ -1045,7 +1053,7 @@ def set_control_visible(ctrl, visible):
         log.debug("set_control_visible exception: %s", e)
 
 
-def get_control_text(ctrl, default=""):
+def get_control_text(ctrl: Any, default: str = "") -> str:
     """Safely get the text of a control.
     Returns default if missing or on error."""
     if not ctrl:
@@ -1060,7 +1068,7 @@ def get_control_text(ctrl, default=""):
     return default
 
 
-def set_control_text(ctrl, text):
+def set_control_text(ctrl: Any, text: str) -> None:
     """Safely set the text of a control.
     Logs instead of crashing if the capability is missing.
 
@@ -1082,7 +1090,7 @@ def set_control_text(ctrl, text):
         log.debug("set_control_text exception: %s", e)
 
 
-def get_checkbox_state(ctrl):
+def get_checkbox_state(ctrl: Any) -> int:
     """Return checkbox state 0 or 1. Prefer control getState(), else model.State.
 
     Handles both control-level getState() and model-level State property.
@@ -1099,7 +1107,7 @@ def get_checkbox_state(ctrl):
     return 0
 
 
-def set_checkbox_state(ctrl, value):
+def set_checkbox_state(ctrl: Any, value: int) -> None:
     """Set checkbox state to 0 or 1. Prefer control setState(), else model.State.
 
     Handles both control-level setState() and model-level State property.
@@ -1124,10 +1132,10 @@ class TabListener(BaseActionListener):
     property controls which page is visible.
     """
 
-    def __init__(self, dialog, page):
+    def __init__(self, dialog: Any, page: int):
         self._dlg = dialog
         self._page = page
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         """Switch to the specified page when button is clicked."""
         self._dlg.getModel().Step = self._page

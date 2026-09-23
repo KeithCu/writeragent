@@ -318,7 +318,7 @@ class IndexesUpdateAll(ToolWriterIndexBase):
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         if not hasattr(doc, "getDocumentIndexes"):
             return self._tool_error("Document does not support indexes")
@@ -333,7 +333,7 @@ class IndexesUpdateAll(ToolWriterIndexBase):
         return {"status": "ok", "refreshed": refreshed, "count": count}
 
 
-def _contained(text, outer, inner) -> bool:
+def _contained(text: Any, outer: Any, inner: Any) -> bool:
     """True when *inner* lies entirely inside *outer*."""
     try:
         start_ok = int(text.compareRegionStarts(outer.getStart(), inner.getStart())) >= 0
@@ -343,14 +343,14 @@ def _contained(text, outer, inner) -> bool:
         return False
 
 
-def _set_protected(idx, value: bool) -> None:
+def _set_protected(idx: Any, value: bool) -> None:
     if hasattr(idx, "setPropertyValue"):
         idx.setPropertyValue("IsProtected", value)
         return
     idx.IsProtected = value
 
 
-def _entry_before(found, content: str) -> tuple[str, str]:
+def _entry_before(found: Any, content: str) -> tuple[str, str]:
     """The entry paragraph, and that paragraph with this one match replaced.
 
     ``found.getString()`` is only the matched substring. The entry is the
@@ -376,7 +376,7 @@ def _entry_before(found, content: str) -> tuple[str, str]:
     return entry[:160], after[:160]
 
 
-def _paragraph_string(cursor) -> str:
+def _paragraph_string(cursor: Any) -> str:
     """Visible text of the paragraph that contains *cursor*."""
     if cursor is None:
         return ""
@@ -416,7 +416,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs) -> dict[str, Any]:
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         old_content = kwargs.get("old_content")
         content = kwargs.get("content")
@@ -460,7 +460,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return preview
         return self._write(ctx, doc, idx, found, content, override, preview)
 
-    def _resolve_toc(self, doc, index):
+    def _resolve_toc(self, doc: Any, index: Any):
         if not hasattr(doc, "getDocumentIndexes"):
             return None, "Document does not support indexes."
         indexes = doc.getDocumentIndexes()
@@ -481,7 +481,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return None, "index is not a table of contents."
         return idx, None
 
-    def _toc_match(self, doc, anchor, old_content, occurrence):
+    def _toc_match(self, doc: Any, anchor: Any, old_content: str, occurrence: Any):
         from .. import search as search_mod
 
         ranges = search_mod.find_all_ranges(doc, old_content) or []
@@ -494,7 +494,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return None, "No table-of-contents entry contains that text."
         return inside[pick], None
 
-    def _preview(self, found, content, override):
+    def _preview(self, found: Any, content: str, override: Any):
         from ..hyperlink_fixup import (
             capture_outline_hyperlinks,
             empty_snapshot,
@@ -522,7 +522,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             preview["hyperlinks"] = reports
         return preview, None
 
-    def _write(self, ctx, doc, idx, found, content, override, preview):
+    def _write(self, ctx: Any, doc: Any, idx: Any, found: Any, content: str, override: Any, preview: Any):
         from ..edit_review import collapsed_anchor, next_agent_edit_undo_title
         from ..format import replace_preserving_format
         from ..hyperlink_fixup import (
@@ -620,7 +620,7 @@ class IndexesList(ToolWriterIndexBase):
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = False
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         if not hasattr(doc, "getDocumentIndexes"):
             return self._tool_error("Document does not support indexes")
@@ -651,7 +651,7 @@ class IndexesListCites(ToolWriterIndexBase):
     parameters = {"type": "object", "properties": {}, "required": []}
     is_mutation = False
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields")
@@ -660,8 +660,8 @@ class IndexesListCites(ToolWriterIndexBase):
 
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
-        cites = []
-        hf_labels = {}
+        cites: list[Any] = []
+        hf_labels: dict[str, Any] = {}
         scanned = 0
         while enum.hasMoreElements():
             field = enum.nextElement()
@@ -719,7 +719,7 @@ class IndexesCreate(ToolWriterIndexBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         index_kind = kwargs.get("kind", "toc")
         title = kwargs.get("title")
@@ -807,7 +807,7 @@ class IndexesAddMark(ToolWriterIndexBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         unused_reserved = [key for key in _IGNORED_CITE_KWARGS if kwargs.get(key) not in (None, "")]
         doc = ctx.doc
         mark_text = kwargs.get("text")
@@ -860,7 +860,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         except Exception as e:
             return self._tool_error(f"Failed to add index mark: {str(e)}")
 
-    def _insert_bibliography_cite(self, doc, cursor, kwargs, unused_reserved):
+    def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any, unused_reserved: Any):
         pairs = collect_bibliography_field_pairs(kwargs)
         identifier = ""
         for name, value in pairs:

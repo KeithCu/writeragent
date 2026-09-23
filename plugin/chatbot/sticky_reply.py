@@ -16,10 +16,13 @@ a dict the panel already understands (``switch_mode`` / ``finished``).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.config_schema import as_bool
 from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 
 @dataclass(frozen=True)
@@ -128,7 +131,7 @@ class StickyReplyToUserTool(ToolBase):
     def is_async(self) -> bool:
         return False
 
-    def execute(self, ctx, **kwargs: Any) -> Any:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> Any:
         del ctx
         answer = kwargs.get("answer")
         if answer is None:

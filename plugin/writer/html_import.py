@@ -14,10 +14,13 @@ drops the reading before import; ``_apply_ruby_spans`` sets ``RubyText`` on each
 base run. Not a text field — do not use ``TextField.Ruby``.
 """
 
+from __future__ import annotations
+
 import html as html_mod
 import logging
 import re
 from html.parser import HTMLParser
+from typing import Any
 
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError
@@ -82,14 +85,14 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _GO_RIGHT_CHUNK = 8192
 
 
-def _visible_html_text(fragment):
+def _visible_html_text(fragment: str):
     """Tag-stripped, entity-unescaped text of an HTML fragment."""
     if not fragment:
         return ""
     return html_mod.unescape(_HTML_TAG_RE.sub("", fragment))
 
 
-def extract_and_strip_ruby(html):
+def extract_and_strip_ruby(html: str):
     """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
 
     Each span is ``(base, reading, is_above)`` in document order. StarWriter
@@ -100,7 +103,7 @@ def extract_and_strip_ruby(html):
         return html, []
     spans = []
 
-    def _repl(match):
+    def _repl(match: re.Match[str]):
         attrs = match.group(1) or ""
         inner = match.group(2) or ""
         rt_m = _RT_RE.search(inner)
@@ -116,7 +119,7 @@ def extract_and_strip_ruby(html):
     return _RUBY_BLOCK_RE.sub(_repl, html), spans
 
 
-def _go_right(cursor, n, expand):
+def _go_right(cursor: Any, n: int, expand: bool):
     """Move or extend *cursor* right by *n* characters (UNO caps the count)."""
     while n > 0:
         step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
@@ -126,7 +129,7 @@ def _go_right(cursor, n, expand):
     return True
 
 
-def _set_ruby_on_range(cursor, reading, is_above=True):
+def _set_ruby_on_range(cursor: Any, reading: str, is_above: bool = True) -> None:
     """Create live ruby on the selected base run (same as the UNO seed probe)."""
     cursor.setPropertyValue("RubyText", reading)
     try:
@@ -139,7 +142,7 @@ def _set_ruby_on_range(cursor, reading, is_above=True):
         pass
 
 
-def _prefix_char_count(text_obj, cursor):
+def _prefix_char_count(text_obj: Any, cursor: Any):
     """``getString()`` length from the start of *text_obj* to *cursor*.
 
     Captured before import so we can apply ruby only to the inserted suffix.
@@ -154,7 +157,7 @@ def _prefix_char_count(text_obj, cursor):
         return 0
 
 
-def _apply_ruby_spans(text_obj, spans, skip_chars=0):
+def _apply_ruby_spans(text_obj: Any, spans: list[Any], skip_chars: int = 0) -> None:
     """Set ``RubyText`` on each *spans* base, ignoring the first *skip_chars*.
 
     After a StarWriter import the document has base characters only. Offsets
@@ -206,7 +209,7 @@ _BLOCK_MARKUP_PATTERNS = [
 ]
 
 
-def _strip_data_lo_style(start_tag):
+def _strip_data_lo_style(start_tag: str):
     """Remove any data-lo-style attribute from a single start-tag string."""
     start_tag = re.sub(r'\s+data-lo-style="[^"]*"', "", start_tag)
     return re.sub(r"\s+data-lo-style='[^']*'", "", start_tag)
@@ -224,7 +227,7 @@ class _BlockLoStyleExtractor(HTMLParser):
         self.styles = []
         self._out = []
 
-    def _emit(self, raw, attrs, is_block):
+    def _emit(self, raw: str, attrs: list[tuple[str, str | None]], is_block: bool) -> None:
         if is_block and self._table_depth == 0:
             val = None
             for k, v in attrs:
@@ -238,7 +241,7 @@ class _BlockLoStyleExtractor(HTMLParser):
             # rather than silently stripped without being applied.
             self._out.append(raw)
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
         raw = self.get_starttag_text() or ("<%s>" % tag)
         if tag.lower() == "table":
             self._table_depth += 1
@@ -248,25 +251,25 @@ class _BlockLoStyleExtractor(HTMLParser):
         # positional style slot — keeps read and write symmetric on <div>.
         self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS)
 
-    def handle_startendtag(self, tag, attrs):
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]):
         raw = self.get_starttag_text() or ("<%s/>" % tag)
         self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS)
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str):
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
 
-    def handle_data(self, data):
+    def handle_data(self, data: str):
         self._out.append(data)
 
-    def handle_entityref(self, name):
+    def handle_entityref(self, name: str):
         self._out.append("&%s;" % name)
 
-    def handle_charref(self, name):
+    def handle_charref(self, name: str):
         self._out.append("&#%s;" % name)
 
-    def handle_comment(self, data):
+    def handle_comment(self, data: str):
         self._out.append("<!--%s-->" % data)
 
     def result(self):
@@ -274,7 +277,7 @@ class _BlockLoStyleExtractor(HTMLParser):
 
 
 
-def _extract_block_lo_styles(html):
+def _extract_block_lo_styles(html: str):
     """Return ``(clean_html, [data_lo_style_or_None per top-level block])``.
 
     Short-circuits (returns the html unchanged, no styles) when there is no data-lo-style,
@@ -288,7 +291,7 @@ def _extract_block_lo_styles(html):
 
 
 
-def _count_preceding_paras(text_obj, target):
+def _count_preceding_paras(text_obj: Any, target: Any):
     """Number of paragraphs in *text_obj* whose start is before *target* (insertion point).
 
     Computed BEFORE the import so we know where the inserted block paragraphs begin (a saved
@@ -318,7 +321,7 @@ def _count_preceding_paras(text_obj, target):
 
 
 
-def _resolve_paragraph_style_token(model, fam, token):
+def _resolve_paragraph_style_token(model: Any, fam: Any, token: str):
     """Resolve an agent-facing compact ``data-lo-style`` token to a real UNO ParaStyleName.
 
     A candidate is any paragraph style whose name equals the token (covers space-free names
@@ -350,7 +353,7 @@ def _resolve_paragraph_style_token(model, fam, token):
 
 
 
-def _apply_block_lo_styles(model, text_obj, start_idx, styles):
+def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: list[str | None]) -> None:
     """Apply each block's data-lo-style to the inserted paragraphs (positionally), starting at
     paragraph index *start_idx*. Reuses apply_paragraph_style_preserving_direct_char so the
     named style is applied first and the import's inline char overrides survive on top.
@@ -361,7 +364,7 @@ def _apply_block_lo_styles(model, text_obj, start_idx, styles):
     except Exception:
         fam = None
     # Collect the target paragraphs (from start_idx, at most len(styles)) before mutating.
-    paras = []
+    paras: list[Any] = []
     try:
         e = text_obj.createEnumeration()
     except Exception:
@@ -392,7 +395,7 @@ def _apply_block_lo_styles(model, text_obj, start_idx, styles):
 
 
 
-def _wrap_html_fragment(html_content, extra_css=None):
+def _wrap_html_fragment(html_content: str, extra_css: str | None = None):
     """Wrap an HTML fragment in a full document structure for LO's filter."""
     if not html_content or not isinstance(html_content, str):
         return html_content
@@ -407,7 +410,7 @@ def _wrap_html_fragment(html_content, extra_css=None):
 
 
 
-def _ensure_html_linebreaks(content):
+def _ensure_html_linebreaks(content: str):
     """Convert newlines to ``<br>``/``<p>`` when content is plain text
     and the active format is HTML, so LO's filter preserves them.
     """
@@ -435,7 +438,7 @@ def _ensure_html_linebreaks(content):
 
 
 
-def html_to_plain_text(html_string, ctx, config_svc=None):
+def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None):
     """Convert HTML to plain text by loading it into LibreOffice and reading
     the text out. Use this instead of regex stripping so entities, nested
     tags, and whitespace are handled correctly.
@@ -474,7 +477,7 @@ def html_to_plain_text(html_string, ctx, config_svc=None):
 
 
 
-def _cursor_goto_document_end(model, cursor) -> None:
+def _cursor_goto_document_end(model: Any, cursor: Any) -> None:
     """Move *cursor* to the end of the document body (``model.getText()``)."""
     end_c = model.getText().createTextCursor()
     end_c.gotoEnd(False)
@@ -483,13 +486,13 @@ def _cursor_goto_document_end(model, cursor) -> None:
 
 
 def insert_html_fragment_at_cursor(
-    cursor,
+    cursor: Any,
     html_fragment: str,
     *,
     extra_css: str | None = None,
     wrap: bool = True,
-    config_svc=None,
-    model=None,
+    config_svc: Any = None,
+    model: Any = None,
 ) -> None:
     """Import a fragment via the StarWriter HTML filter at *cursor*.
 
@@ -521,7 +524,7 @@ def insert_html_fragment_at_cursor(
 
 
 
-def _insert_starwriter_html_at_cursor(model, cursor, prepared_html, config_svc=None):
+def _insert_starwriter_html_at_cursor(model: Any, cursor: Any, prepared_html: str, config_svc: Any = None) -> None:
     """Import one HTML fragment through the StarWriter HTML filter at *cursor*."""
     insert_html_fragment_at_cursor(
         cursor, prepared_html, wrap=False, config_svc=config_svc, model=model
@@ -529,7 +532,9 @@ def _insert_starwriter_html_at_cursor(model, cursor, prepared_html, config_svc=N
 
 
 
-def _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, unescaped: str, config_svc=None):
+def _insert_mixed_html_and_math_at_cursor(
+    model: Any, ctx: Any, cursor: Any, unescaped: str, config_svc: Any = None
+) -> None:
     """Insert alternating HTML (via filter) and math (MathML or TeX) as formula objects."""
     _segs = segment_html_with_mixed_math(unescaped)
     if log.isEnabledFor(logging.DEBUG) and html_fragment_contains_mixed_math(unescaped):
@@ -574,7 +579,14 @@ def _insert_mixed_html_and_math_at_cursor(model, ctx, cursor, unescaped: str, co
 
 
 
-def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=None, apply_styles=True):
+def _insert_mixed_or_plain_html(
+    model: Any,
+    ctx: Any,
+    cursor: Any,
+    unescaped_content: str,
+    config_svc: Any = None,
+    apply_styles: bool = True,
+) -> None:
     """HTML import (optional MathML + TeX layer).
 
     data-lo-style paragraph styling is applied via UNO after the import only when *apply_styles*
@@ -631,14 +643,21 @@ def _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_sv
 
 
 
-def insert_html_at_cursor(model, ctx, cursor, unescaped_content, config_svc=None, apply_styles=True):
+def insert_html_at_cursor(
+    model: Any,
+    ctx: Any,
+    cursor: Any,
+    unescaped_content: str,
+    config_svc: Any = None,
+    apply_styles: bool = True,
+) -> None:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
     _insert_mixed_or_plain_html(model, ctx, cursor, unescaped_content, config_svc=config_svc, apply_styles=apply_styles)
 
 
 
 
-def _uno_service_true(obj, service: str) -> bool:
+def _uno_service_true(obj: Any, service: str) -> bool:
     """``supportsService`` may return True/1; ignore MagicMock without a side_effect."""
     try:
         val = obj.supportsService(service)
@@ -654,7 +673,7 @@ def _uno_service_true(obj, service: str) -> bool:
     return bool(val)
 
 
-def _selection_is_draw_shape(obj) -> bool:
+def _selection_is_draw_shape(obj: Any) -> bool:
     """True when the controller selection is a Draw/Writer shape, not a text range.
 
     After ``create_shape`` / ``shape.upsert``, Writer selects the new shape so the
@@ -678,7 +697,7 @@ def _selection_is_draw_shape(obj) -> bool:
     return False
 
 
-def insert_content_at_position(model, ctx, content, position, config_svc=None):
+def insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
@@ -761,7 +780,7 @@ def insert_content_at_position(model, ctx, content, position, config_svc=None):
 
 
 
-def replace_full_document(model, ctx, content, config_svc=None):
+def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
     """Clear the document and insert *content*."""
     content = html_mod.unescape(content)
 
@@ -776,7 +795,7 @@ def replace_full_document(model, ctx, content, config_svc=None):
 
 
 
-def _is_recording_changes(model):
+def _is_recording_changes(model: Any):
     """True if *model* is currently recording Track Changes (redlines).
 
     Agent edits made while recording must land as a clean tracked Delete + Insert so the
@@ -792,7 +811,9 @@ def _is_recording_changes(model):
 
 
 
-def replace_single_range_with_content(model, text_range, content, ctx, config_svc=None):
+def replace_single_range_with_content(
+    model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None
+) -> None:
     """Replace the given text range with rendered *content* (HTML path).
 
     FOLLOW-UP: cursor uses ``text_range.getText()`` but HTML import still calls
@@ -934,18 +955,18 @@ _FIELD_TITLE_TO_SERVICE = {
 }
 
 
-def rewrite_exported_field_spans(html):
+def rewrite_exported_field_spans(html: str):
     """Replace XHTML field spans with placeholders the HTML import will keep."""
     if not html or "title=" not in html:
         return html
 
-    def _repl(match):
+    def _repl(match: re.Match[str]):
         return _FIELD_PLACEHOLDER_FMT % match.group(1).lower()
 
     return _FIELD_SPAN_RE.sub(_repl, html)
 
 
-def _insert_restored_field(model, text_range, title):
+def _insert_restored_field(model: Any, text_range: Any, title: str):
     service = _FIELD_TITLE_TO_SERVICE.get(title)
     if not service:
         return False
@@ -996,7 +1017,7 @@ def _insert_restored_field(model, text_range, title):
         return False
 
 
-def _restore_field_placeholders(model, text_obj=None):
+def _restore_field_placeholders(model: Any, text_obj: Any = None):
     """Turn ``[[WA-FIELD:…]]`` tokens back into UNO fields.
 
     Uses document ``findFirst`` (same reach as body search: headers included).
@@ -1032,7 +1053,7 @@ def _restore_field_placeholders(model, text_obj=None):
     return restored
 
 
-def replace_xtext_with_html(text_obj, html, config_svc=None, model=None):
+def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
     """Clear *text_obj* and import *html* via the shared StarWriter path.
 
     Field spans from ``document_to_content`` / ``xtext_to_content`` are
@@ -1061,7 +1082,7 @@ def replace_xtext_with_html(text_obj, html, config_svc=None, model=None):
         _restore_field_placeholders(model, text_obj)
 
 
-def content_has_markup(content):
+def content_has_markup(content: str):
     """Return ``True`` if *content* appears to contain Markdown or HTML."""
     if not content or not isinstance(content, str):
         return False
@@ -1070,7 +1091,7 @@ def content_has_markup(content):
 
 
 
-def _content_has_block_markup(content):
+def _content_has_block_markup(content: str):
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
     if not content or not isinstance(content, str):
         return False
@@ -1079,8 +1100,14 @@ def _content_has_block_markup(content):
 
 
 
-def replace_preserving_format(model, target_range, new_text, ctx=None,
-                              in_undo_context=False, split_author=True):
+def replace_preserving_format(
+    model: Any,
+    target_range: Any,
+    new_text: str,
+    ctx: Any = None,
+    in_undo_context: bool = False,
+    split_author: bool = True,
+) -> None:
     """Replace text in *target_range* with *new_text* character by
     character, preserving per-character formatting (bold, italic,
     font, color, etc.).

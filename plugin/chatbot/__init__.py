@@ -20,6 +20,7 @@ Also hosts shared LibreOffice UNO UI helpers (`dialogs`, `listeners`, `dialog_vi
 """
 
 import logging
+from typing import Any
 
 from plugin.framework.module_base import ModuleBase
 
@@ -29,7 +30,7 @@ log = logging.getLogger("writeragent.chatbot")
 class ChatbotModule(ModuleBase):
     """Registers the chatbot sidebar and its tool adapter."""
 
-    def initialize(self, services):
+    def initialize(self, services: Any) -> None:
         self._services = services
 
         from . import web_research
@@ -57,7 +58,7 @@ class ChatbotModule(ModuleBase):
 
     # ── Action dispatch ──────────────────────────────────────────────
 
-    def on_action(self, action):
+    def on_action(self, action: str) -> None:
         if action == "extend_selection":
             from plugin.chatbot.selection import action_extend_selection
 

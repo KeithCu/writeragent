@@ -282,7 +282,7 @@ class AudioRecorder:
                         silence_config.silence_stop_ms,
                     )
 
-                    def callback(indata, frames, time_info, status):
+                    def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
                         if status:
                             print(status, file=sys.stderr)
                         if self.state.status != "recording" or not self.wav_file:

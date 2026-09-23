@@ -36,7 +36,7 @@ import ssl
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.thread_guard import on_main_thread
 
-def _run_on_main(fn, *args, timeout=60.0, **kwargs):
+def _run_on_main(fn: typing.Any, *args: typing.Any, timeout: float = 60.0, **kwargs: typing.Any):
     if on_main_thread():
         return fn(*args, **kwargs)
     return execute_on_main_thread(fn, *args, timeout=timeout, **kwargs)
@@ -282,7 +282,7 @@ class ImageList(ToolWriterImageBase):
     parameters = {"type": "object", "properties": {}, "required": []}
 
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         doc = ctx.doc
         doc_type = visual_helpers.get_visual_doc_type(doc)
         is_calc = doc_type == "calc"
@@ -359,7 +359,7 @@ class ImageList(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _get_graphic_object(ctx, doc, image_name):
+def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str):
     return visual_helpers.get_graphic_object_by_name(doc, image_name)
 
 
@@ -372,7 +372,7 @@ class ImageGetInfo(ToolWriterImageBase):
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image (from image_list)."}}, "required": ["name"]}
 
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_name = kwargs.get("name", "")
 
         graphic = _get_graphic_object(ctx, ctx.doc, image_name)
@@ -486,7 +486,7 @@ _HORI_ORIENT_FALLBACK = {"left": 3, "center": 2, "right": 1}
 _VERT_ORIENT_FALLBACK = {"top": 1, "center": 2, "bottom": 3}
 
 
-def _resolve_orient(value, axis):
+def _resolve_orient(value: typing.Any, axis: str):
     """Map a friendly position to a UNO orientation constant. *axis* is 'hori' or 'vert'.
 
     Accepts a name ('left'/'center'/'right' for hori; 'top'/'center'/'bottom' for vert; 'centre' ok)
@@ -516,11 +516,11 @@ def _resolve_orient(value, axis):
         return fallback[name], None
 
 
-def _resolve_crop_edges(kwargs, current) -> tuple[int, int, int, int]:
+def _resolve_crop_edges(kwargs: typing.Any, current: typing.Any) -> tuple[int, int, int, int]:
     """Return (top, bottom, left, right) in 1/100 mm for the GraphicCrop struct. Each crop_*_mm
     given (in mm) overrides that edge; edges not passed keep their current value. `current` is the
     existing crop as a 4-tuple (top, bottom, left, right) in 1/100 mm. Pure — unit-testable."""
-    def _edge(key, cur) -> int:
+    def _edge(key: str, cur: typing.Any) -> int:
         mm = kwargs.get(key)
         return int(round(mm * 100)) if mm is not None else int(cur)
 
@@ -559,7 +559,7 @@ class ImageSetProperties(ToolWriterImageBase):
 
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_name = kwargs.get("name", "")
         if not image_name:
             return self._tool_error("image_name is required.", code="MISSING_PARAMETER", parameter="image_name")
@@ -662,7 +662,7 @@ class ImageDownload(ToolWriterImageBase):
     }
 
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         url = kwargs.get("url", "")
 
         verify_ssl = kwargs.get("verify_ssl", False)
@@ -731,7 +731,7 @@ class ImageInsert(ToolWriterImageBase):
 
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_path = kwargs.get("path", "")
 
         width_mm = kwargs.get("width_mm", 80)
@@ -827,7 +827,7 @@ class ImageDelete(ToolWriterImageBase):
 
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_name = kwargs.get("name", "")
 
         graphic = _get_graphic_object(ctx, ctx.doc, image_name)
@@ -870,7 +870,7 @@ class ImageReplace(ToolWriterImageBase):
 
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
         image_name = kwargs.get("name", "")
         new_image_path = kwargs.get("path", "")
 
@@ -902,7 +902,7 @@ class ImageReplace(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _download_image_to_cache(url, verify_ssl=False, force=False):
+def _download_image_to_cache(url: str, verify_ssl: bool = False, force: bool = False):
     """Download an image URL to the local cache directory.
 
     Returns the local file path. Uses a URL-based hash for caching.

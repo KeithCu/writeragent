@@ -7,10 +7,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import unohelper
 from com.sun.star.awt import XActionListener, XTopWindowListener
+
+if TYPE_CHECKING:
+    from com.sun.star.awt import ActionEvent
+    from com.sun.star.lang import EventObject
 
 from plugin.chatbot.dialogs import (
     TabListener,
@@ -165,28 +169,28 @@ class ModuleConfigDialog:
         owner = self
 
         class _TopWindowListener(unohelper.Base, XTopWindowListener):
-            def windowClosing(self, e):
+            def windowClosing(self, e: EventObject) -> None:
                 owner.close()
 
-            def windowClosed(self, e):
+            def windowClosed(self, e: EventObject) -> None:
                 pass
 
-            def windowOpened(self, e):
+            def windowOpened(self, e: EventObject) -> None:
                 pass
 
-            def windowMinimized(self, e):
+            def windowMinimized(self, e: EventObject) -> None:
                 pass
 
-            def windowNormalized(self, e):
+            def windowNormalized(self, e: EventObject) -> None:
                 pass
 
-            def windowActivated(self, e):
+            def windowActivated(self, e: EventObject) -> None:
                 pass
 
-            def windowDeactivated(self, e):
+            def windowDeactivated(self, e: EventObject) -> None:
                 pass
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         self._top_listener = _TopWindowListener()
@@ -205,24 +209,24 @@ class ModuleConfigDialog:
         owner = self
 
         class _ApplyListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 owner._apply(close=False)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 owner._apply(close=True)
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         class _CloseListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 owner.close()
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         apply_btn = get_optional(self._dlg, "btn_apply")

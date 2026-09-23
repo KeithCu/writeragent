@@ -14,9 +14,12 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+from __future__ import annotations
+
 import logging
 import json
 import os
+from typing import Any
 
 try:
     import sqlite3
@@ -46,7 +49,7 @@ def _get_db_path():
 
 
 # LangChain-compatible JSON conversion
-def message_to_dict(role, content, tool_calls=None):
+def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str, Any]:
     # Don't persist MBs of base64 audio to history db.
     if isinstance(content, list):
         text_parts = []
@@ -71,7 +74,7 @@ def message_to_dict(role, content, tool_calls=None):
 # Native SQLite3 Implementation
 # ---------------------------------------------------------------------------
 class SQLite3History:
-    def __init__(self, session_id, db_path):
+    def __init__(self, session_id: str, db_path: str):
         self.session_id = session_id
         self.db_path = db_path
         self._init_db()
@@ -89,7 +92,7 @@ class SQLite3History:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON message_store(session_id)")
             conn.commit()
 
-    def add_message(self, role, content, tool_calls=None):
+    def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         assert sqlite3 is not None
         msg_dict = message_to_dict(role, content, tool_calls)
         with sqlite3.connect(self.db_path) as conn:
@@ -116,7 +119,7 @@ class SQLite3History:
 # JSON Implementation (Fallback)
 # ---------------------------------------------------------------------------
 class JSONHistory:
-    def __init__(self, session_id, db_path):
+    def __init__(self, session_id: str, db_path: str):
         self.session_id = session_id
         # Use a directory based on the db_path filename (e.g. writeragent_history.json.d/)
         self.history_dir = db_path + ".d"
@@ -129,7 +132,7 @@ class JSONHistory:
 
         self.file_path = os.path.join(self.history_dir, f"{session_id}.json")
 
-    def add_message(self, role, content, tool_calls=None):
+    def add_message(self, role: str, content: Any, tool_calls: Any = None) -> None:
         msg_dict = message_to_dict(role, content, tool_calls)
         messages = self.get_messages()
         messages.append(msg_dict)
@@ -163,7 +166,7 @@ class JSONHistory:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-def get_chat_history(session_id, db_path=None):
+def get_chat_history(session_id: str, db_path: str | None = None) -> SQLite3History | JSONHistory:
     if not db_path:
         db_path = _get_db_path()
 

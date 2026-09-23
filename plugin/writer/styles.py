@@ -16,12 +16,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Writer style inspection tools."""
 
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     import uno
     from com.sun.star.beans import PropertyValue, NamedValue
+    from plugin.framework.tool import ToolContext
 else:
     try:
         import uno
@@ -126,7 +129,7 @@ _PARA_ADJUST_FROM_ENUM = {
 }
 
 
-def _get_bool_prop(obj, prop_name, default=False):
+def _get_bool_prop(obj: Any, prop_name: str, default: bool = False):
     """Safely get a boolean property from a UNO object."""
     try:
         return bool(obj.getPropertyValue(prop_name))
@@ -134,7 +137,7 @@ def _get_bool_prop(obj, prop_name, default=False):
         return default
 
 
-def _close_style_names(wanted, names):
+def _close_style_names(wanted: str, names: list[str]):
     """Best hint first: exact case-insensitive, then prefix, then substring.
 
     Shortest name wins on prefix/substring ('body text' → 'Body Text', not
@@ -147,7 +150,7 @@ def _close_style_names(wanted, names):
     return exact or prefix or contains
 
 
-def _missing_style_error(tool, style_name, family, style_family, *, label="Style"):
+def _missing_style_error(tool: Any, style_name: str, family: str, style_family: Any, *, label: str = "Style"):
     """Not-found error with a Did-you-mean hint and a short sample of names."""
     try:
         names = [str(n) for n in style_family.getElementNames()]
@@ -163,7 +166,7 @@ def _missing_style_error(tool, style_name, family, style_family, *, label="Style
         "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample))
 
 
-def _para_adjust_to_uno(value):
+def _para_adjust_to_uno(value: Any):
     """Schema word → UNO integer. Integers are refused (the old 0/1/2/3 trap)."""
     if isinstance(value, str):
         key = value.strip().lower()
@@ -175,7 +178,7 @@ def _para_adjust_to_uno(value):
     )
 
 
-def _para_adjust_from_uno(raw):
+def _para_adjust_from_uno(raw: Any | None):
     """UNO ParaAdjust (int or enum) → schema word, or None if unknown."""
     if raw is None:
         return None
@@ -187,21 +190,21 @@ def _para_adjust_from_uno(raw):
     return None
 
 
-def _get_style_prop(style, prop_name):
+def _get_style_prop(style: Any, prop_name: str):
     try:
         return style.getPropertyValue(prop_name)
     except Exception:
         return None
 
 
-def _schema_prop_value(prop_name, raw):
+def _schema_prop_value(prop_name: str, raw: Any):
     """Read-back form that matches the write schema (ParaAdjust as a word)."""
     if prop_name == "ParaAdjust":
         return _para_adjust_from_uno(raw)
     return raw
 
 
-def _normalize_property_updates(property_updates):
+def _normalize_property_updates(property_updates: Any):
     """Copy updates and translate ParaAdjust. Returns (dict, error_message)."""
     if not isinstance(property_updates, dict):
         return {}, None
@@ -215,7 +218,7 @@ def _normalize_property_updates(property_updates):
     return updates, None
 
 
-def _installed_font_names(ctx):
+def _installed_font_names(ctx: ToolContext):
     """Casefolded names LibreOffice can use, or None if the list is unavailable."""
     try:
         from plugin.framework.uno_context import get_toolkit
@@ -232,7 +235,7 @@ def _installed_font_names(ctx):
         return None
 
 
-def _font_not_installed_warning(ctx, font_name):
+def _font_not_installed_warning(ctx: ToolContext, font_name: Any):
     """Warn when CharFontName was stored but LO will substitute. None if unknown."""
     wanted = str(font_name or "").strip()
     if not wanted:
@@ -253,7 +256,7 @@ class StyleList(ToolWriterStyleBase):
     description = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
     parameters = {"type": "object", "properties": {"family": {"type": "string", "enum": _STYLE_FAMILIES, "description": ("Style family. Default: ParagraphStyles. Use PageStyles to find the page-style name the page tools need.")}}, "required": []}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         family = kwargs.get("family")
         doc = ctx.doc
 
@@ -366,7 +369,7 @@ class StyleGetInfo(ToolWriterStyleBase):
     )
     parameters = {"type": "object", "properties": {"style": {"type": "string", "description": "Name of the style to inspect."}, "family": {"type": "string", "description": "Style family. Default: ParagraphStyles. PageStyles returns the same page-style payload as page_get_style_properties."}}, "required": ["style"]}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = kwargs.get("style", "")
         family = kwargs.get("family", "ParagraphStyles")
 
@@ -455,7 +458,7 @@ class ApplyStyle(FrameworkToolBase):
     # Maps family to the UNO property that holds the style name.
     _PROPERTY_MAP = {"ParagraphStyles": "ParaStyleName", "CharacterStyles": "CharStyleName"}
 
-    def _apply_one(self, ctx, family, uno_prop, uno_value, cursor, clear_direct="style_props"):
+    def _apply_one(self, ctx: ToolContext, family: str, uno_prop: str, uno_value: str, cursor: Any, clear_direct: str = "style_props"):
         """Apply the style to one cursor. Returns the direct-formatting report (or None)."""
         if family == "ParagraphStyles":
             return apply_paragraph_style_preserving_direct_char(ctx.doc, cursor, uno_value, clear_direct)
@@ -463,7 +466,7 @@ class ApplyStyle(FrameworkToolBase):
         return None
 
     @staticmethod
-    def _merge_reports(reports):
+    def _merge_reports(reports: list[Any]):
         """Fold per-range reports into the fields echoed on the tool result."""
         out: dict[str, Any] = {}
         for rep in reports:
@@ -485,7 +488,7 @@ class ApplyStyle(FrameworkToolBase):
         return out
 
     @staticmethod
-    def _resolve_clear_direct(family, raw):
+    def _resolve_clear_direct(family: str, raw: Any):
         """Paragraph styles default to style_props so the house font shows without a retry.
 
         Character styles ignore the flag (it is not implemented for them); omitted there is none.
@@ -494,7 +497,7 @@ class ApplyStyle(FrameworkToolBase):
             return "style_props" if family == "ParagraphStyles" else "none"
         return str(raw).strip()
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = str(kwargs.get("style") or "").strip()
         if not style_name:
             return self._tool_error("style is required.")
@@ -647,7 +650,7 @@ class StyleUpdate(ToolWriterStyleBase):
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = str(kwargs.get("style") or "").strip()
         if not style_name:
             return self._tool_error("style is required.")
@@ -797,7 +800,7 @@ class StyleCreate(ToolWriterStyleBase):
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         style_name = str(kwargs.get("style") or "").strip()
         if not style_name:
             return self._tool_error("style is required.")
@@ -924,7 +927,7 @@ class StyleImport(ToolWriterStyleBase):
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any):
         file_path = kwargs.get("path")
         if not file_path:
             return self._tool_error("path is required.")

@@ -49,7 +49,7 @@ COMPLETION TOOLS:
 - write_document_section: write content for a section to the document.
 - writing_research_web: search the public web for context or information."""
 
-def get_writing_sub_agent_instructions(ctx=None) -> str:
+def get_writing_sub_agent_instructions(ctx: Any | None = None) -> str:
     """Full system instructions for the writing plan smol sub-agent."""
     parts = [
         WRITING_SUB_AGENT_INSTRUCTIONS,
