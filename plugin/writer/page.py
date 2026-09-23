@@ -270,7 +270,7 @@ def set_header_footer_auto_height(style: Any, region: str, enabled: bool) -> Non
         pass  # not offered by every page style
 
 
-def resolve_page_style(doc: Any, style_name: str = "Standard"):
+def resolve_page_style(doc: Any, style_name: str = "Standard") -> tuple[Any, str]:
     """Return ``(style_object, resolved_name)`` for a Writer page style."""
     styles = doc.getStyleFamilies().getByName("PageStyles")
     if not styles.hasByName(style_name):
@@ -351,7 +351,7 @@ class PageGetStyleProperties(ToolWriterPageBase):
     description: str = "Get dimensions, margins, and header/footer states of a page style."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style (e.g., 'Standard' or 'Default Style'). Defaults to 'Standard'."}}, "required": []}
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         return get_page_style_properties(ctx.doc, kwargs.get("style", "Standard"))
 
 
@@ -419,7 +419,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs.get("style", "Standard")
         doc = ctx.doc
 
@@ -564,7 +564,7 @@ class PageGetHeaderFooterText(ToolWriterPageBase):
         "required": ["region"],
     }
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from .html_export import xtext_to_content
 
         style_name = kwargs.get("style", "Standard")
@@ -673,7 +673,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from .html_import import replace_xtext_with_html
 
         style_name = kwargs.get("style", "Standard")
@@ -735,7 +735,7 @@ class PageGetColumns(ToolWriterPageBase):
     description: str = "Get the column layout for a page style."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"style": {"type": "string", "description": "The name of the page style. Defaults to 'Standard'."}}, "required": []}
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs.get("style", "Standard")
         doc = ctx.doc
 
@@ -786,7 +786,7 @@ class PageSetColumns(ToolWriterPageBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs.get("style", "Standard")
         column_count = kwargs.get("column_count")
         spacing_mm = kwargs.get("spacing_mm", 0)
@@ -853,7 +853,7 @@ class PageInsertBreak(ToolWriterPageBase):
     }, "required": []}
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         before_text = kwargs.get("before_text")
         after_text = kwargs.get("after_text")

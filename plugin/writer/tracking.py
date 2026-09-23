@@ -59,7 +59,7 @@ class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  #
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         try:
             ctx.doc.setPropertyValue("RecordChanges", True)
             return {"status": "ok", "message": "Started recording changes."}
@@ -76,7 +76,7 @@ class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         try:
             ctx.doc.setPropertyValue("RecordChanges", False)
             return {"status": "ok", "message": "Stopped recording changes."}
@@ -98,7 +98,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
     @staticmethod
-    def _agent_review_mode(uno_ctx: Any):
+    def _agent_review_mode(uno_ctx: Any) -> Any | None:
         """Best-effort agent review mode, so 'recording: false' is never read as 'my edits are
         not being tracked' while record/wait mode is active."""
         try:
@@ -108,7 +108,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         except Exception:
             return None
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         recording = False
         try:
@@ -202,7 +202,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"show": {"type": "boolean", "description": "True to show changes, False to hide them."}}, "required": ["show"]}
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         show = kwargs.get("show")
         if show is None:
             return self._tool_error("Missing required parameter: show")
@@ -251,7 +251,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         action = kwargs.get("action")
         if action not in ("accept", "reject", "accept_all", "reject_all"):
             return self._tool_error(
@@ -264,7 +264,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             return self._tool_error("Valid integer index is required for action='%s'." % action)
         return self._execute_single(ctx, int(index), is_accept=(action == "accept"))
 
-    def _execute_all(self, ctx: ToolContext, is_accept: bool):
+    def _execute_all(self, ctx: ToolContext, is_accept: bool) -> dict[str, Any]:
         # Guard: never let the agent bulk-resolve its OWN (wa-review) edits -- those are the human's
         # to review. Allowed when no agent changes are pending (see agent_self_resolution_block_reason).
         from plugin.writer.inline_review import agent_self_resolution_block_reason
@@ -283,7 +283,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             verb = "accept" if is_accept else "reject"
             return self._tool_error(f"Failed to {verb} all changes: {e}")
 
-    def _execute_single(self, ctx: ToolContext, index: int, is_accept: bool):
+    def _execute_single(self, ctx: ToolContext, index: int, is_accept: bool) -> dict[str, Any]:
         if not hasattr(ctx.doc, "getRedlines"):
             return self._tool_error("Document does not expose redlines API.")
 

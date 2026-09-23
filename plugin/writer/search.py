@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import re as re_mod
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Iterator, Literal, overload
 
 from plugin.doc.text_helpers import clone_text_range, get_string_without_tracked_deletions, normalize_linebreaks
 from plugin.framework.tool import ToolBase, ToolBaseDummy
@@ -60,12 +60,12 @@ HORIZONTAL_SPACE_CLASS = r"[ \t" + "".join("\\u%04x" % cp for cp in _SPACE_CODEP
 _HORIZONTAL_SPACE_RE = HORIZONTAL_SPACE_CLASS + "+"
 
 
-def find_next_after_match(doc: Any, found: Any, sd: Any):
+def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
     """Resume LO search after *found* — use getEnd() so the next hit starts after the match."""
     return doc.findNext(found.getEnd(), sd)
 
 
-def validate_regex_pattern(pattern: str):
+def validate_regex_pattern(pattern: str) -> str | None:
     """Return an error message when *pattern* is not valid Python regex, else None."""
     try:
         re_mod.compile(pattern)
@@ -74,7 +74,7 @@ def validate_regex_pattern(pattern: str):
     return None
 
 
-def invalid_regex_tool_message(rex_msg: str):
+def invalid_regex_tool_message(rex_msg: str) -> str:
     """Standard INVALID_REGEX message for tools."""
     return (
         "0 matches, and the pattern does not parse as a regular expression "
@@ -82,7 +82,7 @@ def invalid_regex_tool_message(rex_msg: str):
     )
 
 
-def normalize_search_string_for_find(s: str):
+def normalize_search_string_for_find(s: str) -> str:
     """Collapse horizontal whitespace (incl. NBSP); preserve newlines for literal find."""
     return re_mod.sub(_HORIZONTAL_SPACE_RE, " ", s).strip()
 
@@ -142,7 +142,7 @@ def build_search_not_found_response(
     }
 
 
-def find_text_ranges(model: Any, ctx: Any, search: str, start: int = 0, limit: int | None = None, case_sensitive: bool = True):
+def find_text_ranges(model: Any, ctx: Any, search: str, start: int = 0, limit: int | None = None, case_sensitive: bool = True) -> list[dict[str, Any]]:
     """Find occurrences of *search*, returning a list of
     ``{"start": int, "end": int, "text": str}`` dicts.
 
@@ -186,7 +186,7 @@ def find_text_ranges(model: Any, ctx: Any, search: str, start: int = 0, limit: i
         return []
 
 
-def _search_try_strings(search_string: str):
+def _search_try_strings(search_string: str) -> Iterator[str]:
     """Literal search string, then newline-collapsed variant (HTML wrap artifact)."""
     s = search_string or ""
     collapsed = re_mod.sub(r" +", " ", s.replace("\n", " ")).strip()
@@ -195,18 +195,18 @@ def _search_try_strings(search_string: str):
             yield candidate
 
 
-def escape_for_lo_regex(s: str):
+def escape_for_lo_regex(s: str) -> str:
     """Escape regular expression characters and match any horizontal space sequence."""
     s = (s or "").translate(SPACE_NORMALIZE_MAP)
     escaped = re_mod.sub(r'([\\^$.|?*+()\[\]{}])', r'\\\1', s)
     return re_mod.sub(r' +', lambda m: HORIZONTAL_SPACE_CLASS + '+', escaped)
 
 
-def _compare_normalize(s: str):
+def _compare_normalize(s: str) -> str:
     return normalize_linebreaks(s).translate(SPACE_NORMALIZE_MAP).strip().lower()
 
 
-def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, tail: bool = False):
+def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, tail: bool = False) -> tuple[bool, int | None]:
     """Compare a paragraph to a search part; return (ok, offset_len).
 
     *head*: part must match the start of the paragraph; offset_len is goRight length.
@@ -228,7 +228,7 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
-def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False):
+def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False) -> Any:
     """LO regex findFirst/findNext for one candidate string."""
     sd = doc.createSearchDescriptor()
     sd.SearchRegularExpression = True
@@ -385,7 +385,7 @@ def find_all_ranges(doc: Any, search_string: str) -> list[Any]:
     return find_chained_range(doc, search_string, all_matches=True)
 
 
-def _safe_name(obj: Any):
+def _safe_name(obj: Any) -> str:
     if obj is None:
         return ""
     try:
@@ -397,7 +397,7 @@ def _safe_name(obj: Any):
             return ""
 
 
-def _prop(obj: Any, name: str):
+def _prop(obj: Any, name: str) -> Any:
     if obj is None:
         return None
     try:
@@ -406,7 +406,7 @@ def _prop(obj: Any, name: str):
         return getattr(obj, name, None)
 
 
-def _cell_name(cur: Any, text: Any):
+def _cell_name(cur: Any, text: Any) -> str:
     # CellName should be a str in real UNO; if tests/mocks return non-str truthy values,
     # consider guarding with isinstance(v, str) and v.
     for obj in (text, cur, _prop(cur, "Cell")):
@@ -416,7 +416,7 @@ def _cell_name(cur: Any, text: Any):
     return _safe_name(_prop(cur, "Cell"))
 
 
-def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, str] | None = None):
+def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, str] | None = None) -> str | None:
     try:
         if getattr(text_obj, "ImplementationName", "") != "SwXHeadFootText":
             return None
@@ -461,7 +461,7 @@ def _header_footer_label(text_obj: Any, doc: Any = None, label_cache: dict[int, 
     return result
 
 
-def describe_match_location(found: Any, doc: Any = None, label_cache: dict[int, str] | None = None):
+def describe_match_location(found: Any, doc: Any = None, label_cache: dict[int, str] | None = None) -> str:
     try:
         text = found.getText()
         cur = text.createTextCursorByRange(found.getStart())
@@ -490,7 +490,7 @@ def describe_match_location(found: Any, doc: Any = None, label_cache: dict[int, 
     return "body"
 
 
-def enclosing_paragraph_text(found: Any):
+def enclosing_paragraph_text(found: Any) -> str:
     try:
         text = found.getText()
         cur = text.createTextCursorByRange(found.getStart())
@@ -504,7 +504,7 @@ def enclosing_paragraph_text(found: Any):
             return ""
 
 
-def iter_draw_shapes(container: Any):
+def iter_draw_shapes(container: Any) -> Iterator[Any]:
     try:
         n = int(container.getCount())
     except Exception:
@@ -524,7 +524,7 @@ def iter_draw_shapes(container: Any):
             yield shape
 
 
-def shape_is_as_character(shape: Any):
+def shape_is_as_character(shape: Any) -> bool:
     try:
         from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
         return shape.getPropertyValue("AnchorType") == AS_CHARACTER
@@ -532,14 +532,14 @@ def shape_is_as_character(shape: Any):
         return False
 
 
-def shape_is_text_box(shape: Any):
+def shape_is_text_box(shape: Any) -> bool:
     try:
         return bool(shape.getPropertyValue("TextBox"))
     except Exception:
         return False
 
 
-def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensitive: bool):
+def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensitive: bool) -> list[str]:
     if not shape_text or not pattern:
         return []
     if use_regex:
@@ -559,7 +559,7 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
     return hits
 
 
-def comment_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool):
+def comment_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool) -> Iterator[tuple[Any, str, str]]:
     try:
         fields = doc.getTextFields().createEnumeration()
     except Exception:
@@ -590,7 +590,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
 def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: Literal[True]) -> list[Any]: ...
 
 
-def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool):
+def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, all_matches: bool) -> Any:
     if use_regex:
         err = validate_regex_pattern(pattern)
         if err:
@@ -609,7 +609,7 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
     return out
 
 
-def drawing_shape_object_containing(doc: Any, search_string: str, *, use_regex: bool = False, case_sensitive: bool = False):
+def drawing_shape_object_containing(doc: Any, search_string: str, *, use_regex: bool = False, case_sensitive: bool = False) -> Any | None:
     pattern = (search_string or "").strip()
     if not pattern:
         return None
@@ -631,7 +631,7 @@ def drawing_shape_object_containing(doc: Any, search_string: str, *, use_regex: 
     return None
 
 
-def drawing_shape_containing(doc: Any, search_string: str, *, use_regex: bool = False, case_sensitive: bool = False):
+def drawing_shape_containing(doc: Any, search_string: str, *, use_regex: bool = False, case_sensitive: bool = False) -> str | None:
     shape = drawing_shape_object_containing(
         doc, search_string, use_regex=use_regex, case_sensitive=case_sensitive)
     if shape is None:
@@ -639,7 +639,7 @@ def drawing_shape_containing(doc: Any, search_string: str, *, use_regex: bool = 
     return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
 
 
-def all_start_indices(haystack: str, needle: str):
+def all_start_indices(haystack: str, needle: str) -> list[int]:
     """Non-overlapping start indices of *needle* in *haystack*."""
     out: list[int] = []
     if not needle:
@@ -651,7 +651,7 @@ def all_start_indices(haystack: str, needle: str):
     return out
 
 
-def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20):
+def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20) -> list[dict[str, Any]]:
     """Edit-reachable draw-layer hits for dry_run (same skip rules as search sweep)."""
     matches: list[dict[str, str]] = []
     if not hasattr(doc, "getDrawPage"):
@@ -682,7 +682,7 @@ def sweep_draw_shape_preview_matches(doc: Any, pattern: str, use_regex: bool, ca
     return matches
 
 
-def sweep_comment_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20):
+def sweep_comment_preview_matches(doc: Any, pattern: str, use_regex: bool, case_sensitive: bool, limit: int = 20) -> list[dict[str, Any]]:
     matches = []
     for hit, author, content in comment_matches(doc, pattern, use_regex, case_sensitive):
         matches.append({
@@ -731,7 +731,7 @@ class SearchInDocument(ToolBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     tier: str = "core"
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
         pattern = kwargs.get("pattern", "")
         if not pattern:
@@ -863,7 +863,7 @@ class AdvancedSearch(ToolBaseDummy):
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         idx_svc = ctx.services.writer_index
         around_page = kwargs.get("around_page")
         page_radius = kwargs.get("page_radius", 1)
@@ -898,7 +898,7 @@ class AdvancedSearch(ToolBaseDummy):
 _page_map_cache: dict[str | int, dict[int, int]] = {}
 
 
-def _build_page_map(doc: Any):
+def _build_page_map(doc: Any) -> dict[Any, Any]:
     doc_url = doc.getURL() or id(doc)
     if doc_url in _page_map_cache:
         return _page_map_cache[doc_url]
@@ -944,7 +944,7 @@ class GetIndexStats(ToolBaseDummy):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         idx_svc = ctx.services.writer_index
         result = idx_svc.get_index_stats(ctx.doc)
         return {"status": "ok", **result}

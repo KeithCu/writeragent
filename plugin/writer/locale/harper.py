@@ -106,7 +106,7 @@ def _emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, messag
 
 
 class HarperLSClient:
-    def __init__(self, binary_path: str, user_config_dir: str = "", bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None):
+    def __init__(self, binary_path: str, user_config_dir: str = "", bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> None:
         self.binary_path = binary_path
         self.user_config_dir = user_config_dir
         self._bcp47 = bcp47

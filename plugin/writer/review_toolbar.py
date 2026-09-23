@@ -27,7 +27,7 @@ _modify_listeners: dict[str, Any] = {}  # RuntimeUID -> _ReviewModifyListener (r
 _docked_uids: set[str] = set()    # RuntimeUIDs whose toolbar has already been docked once (don't re-dock)
 
 
-def _runtime_uid(model: Any):
+def _runtime_uid(model: Any) -> str | None:
     """The document's RuntimeUID, or None if it can't be read."""
     from plugin.framework.uno_context import get_runtime_uid
 
@@ -94,7 +94,7 @@ def _unregister_modify_listener(model: Any) -> None:
             log.debug("review_toolbar: modify listener removal failed", exc_info=True)
 
 
-def _layout_manager(model: Any):
+def _layout_manager(model: Any) -> Any | None:
     try:
         controller = model.getCurrentController()
         if controller is None:

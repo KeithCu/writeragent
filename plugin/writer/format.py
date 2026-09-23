@@ -24,7 +24,7 @@ import os
 import re
 import sys
 import tempfile
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 import uno
 from plugin.doc.text_helpers import get_string_without_tracked_deletions as _get_str  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -38,14 +38,14 @@ from . import xhtml_style_postprocess as xhtml_post  # noqa: F401  # pyright: ig
 log = logging.getLogger("writeragent.writer")
 
 
-def _selection_range_for_export(model: Any):  # pyright: ignore[reportUnusedFunction]
+def _selection_range_for_export(model: Any) -> tuple[int, int]:  # pyright: ignore[reportUnusedFunction]
     """Resolve selection range for export (lazy import so html_export never names text_helpers directly or document_helpers)."""
     from plugin.doc.text_helpers import get_selection_range
 
     return get_selection_range(model)
 
 
-def _deletion_author():  # pyright: ignore[reportUnusedFunction]
+def _deletion_author() -> Any:  # pyright: ignore[reportUnusedFunction]
     """WriterAgent split-author coloring; no-op when ``review_authors`` is omitted (LibrePy)."""
     try:
         from .review_authors import deletion_author
@@ -55,7 +55,7 @@ def _deletion_author():  # pyright: ignore[reportUnusedFunction]
         return contextlib.nullcontext()
 
 
-def _resolve_style_name(model: Any, style_name: str):  # pyright: ignore[reportUnusedFunction]
+def _resolve_style_name(model: Any, style_name: str) -> str:  # pyright: ignore[reportUnusedFunction]
     """Resolve a style name case-insensitively against document ParagraphStyles."""
     try:
         families = model.getStyleFamilies()
@@ -108,7 +108,7 @@ def _resolve_temp_dir() -> str:
 TEMP_DIR = _resolve_temp_dir()
 
 
-def _get_format_props(config_svc: Any = None):
+def _get_format_props(config_svc: Any = None) -> tuple[str, str]:
     """Return ``(filter_name, file_extension)`` for HTML format."""
     return HTML_FILTER, HTML_EXTENSION
 
@@ -118,7 +118,7 @@ def _get_format_props(config_svc: Any = None):
 # ---------------------------------------------------------------------------
 
 
-def create_property_value(name: str, value: Any):
+def create_property_value(name: str, value: Any) -> Any:
     """Create a ``com.sun.star.beans.PropertyValue``."""
     p = cast("Any", uno.createUnoStruct("com.sun.star.beans.PropertyValue"))
     p.Name = name
@@ -127,7 +127,7 @@ def create_property_value(name: str, value: Any):
 
 
 @contextlib.contextmanager
-def _with_temp_buffer(content: Any = None, config_svc: Any = None, ext: str | None = None):  # pyright: ignore[reportUnusedFunction]
+def _with_temp_buffer(content: Any = None, config_svc: Any = None, ext: str | None = None) -> Iterator[tuple[str, str]]:  # pyright: ignore[reportUnusedFunction]
     """Context manager that yields ``(path, file_url)`` for a temp file
     with the correct format extension.
 
@@ -159,7 +159,7 @@ def _with_temp_buffer(content: Any = None, config_svc: Any = None, ext: str | No
 # ---------------------------------------------------------------------------
 
 
-def _strip_html_boilerplate(html_string: str):  # pyright: ignore[reportUnusedFunction]
+def _strip_html_boilerplate(html_string: str) -> str:  # pyright: ignore[reportUnusedFunction]
     """Extract content between ``<body>`` tags if present."""
     if not html_string or not isinstance(html_string, str):
         return html_string
@@ -250,7 +250,7 @@ _CAPTURE_PARA_LIMIT = 200000
 _CAPTURE_PORTION_LIMIT = 50000
 
 
-def enum_hit_walk_cap(seen: int, limit: int, enum: Any):
+def enum_hit_walk_cap(seen: int, limit: int, enum: Any) -> bool:
     """True when a walk stopped because of *limit*, not because *enum* was exhausted."""
     if seen < limit or enum is None:
         return False
@@ -260,7 +260,7 @@ def enum_hit_walk_cap(seen: int, limit: int, enum: Any):
         return False
 
 
-def walk_cap_warning(kind: str, seen: int, limit: int):
+def walk_cap_warning(kind: str, seen: int, limit: int) -> str:
     """Agent-facing note when a text walk stopped at a hard cap.
 
     The walk still returns what it collected; anything after the cap was not read, so
@@ -274,7 +274,7 @@ def walk_cap_warning(kind: str, seen: int, limit: int):
     )
 
 
-def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str] | None = None):
+def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str] | None = None) -> bool:
     """Log (and optionally collect) a walk-cap warning. Returns True when the cap was hit."""
     if not enum_hit_walk_cap(seen, limit, enum):
         return False
@@ -285,7 +285,7 @@ def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str]
     return True
 
 
-def _reset_properties_to_default(cursor: Any, names: Any):
+def _reset_properties_to_default(cursor: Any, names: Any) -> list[str]:
     """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style.
 
     This is Format > Clear Direct Formatting, narrowed to the names the caller asks for. It is the
@@ -313,7 +313,7 @@ def _reset_properties_to_default(cursor: Any, names: Any):
     return cleared
 
 
-def _summarize_char_overrides(overrides: Any):
+def _summarize_char_overrides(overrides: Any) -> dict[str, Any]:
     """Flat, JSON-safe {prop: value} of the captured direct Char* overrides (first portion wins)."""
     summary = {}
     for _pc, props in overrides:
@@ -325,7 +325,7 @@ def _summarize_char_overrides(overrides: Any):
     return summary
 
 
-def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_name: str, clear_direct: str = "none"):
+def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_name: str, clear_direct: str = "none") -> dict[str, Any]:
     """Set *cursor*'s ParaStyleName to *style_name*, deciding what happens to direct formatting.
 
     Setting ParaStyleName to a DIFFERENT style resets hand-set Char* properties to that style's
@@ -354,7 +354,7 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
 
     walk_notes: list[str] = []
 
-    def _expand_to_full_paragraphs(cur: Any):
+    def _expand_to_full_paragraphs(cur: Any) -> Any | None:
         try:
             text = cur.getText()
             start = text.createTextCursorByRange(cur.getStart())
@@ -367,7 +367,7 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
         except Exception:
             return None
 
-    def _capture_direct_char_overrides(capture_cursor: Any):
+    def _capture_direct_char_overrides(capture_cursor: Any) -> list[dict[str, Any]]:
         overrides: list[Any] = []
         try:
             para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
@@ -492,7 +492,7 @@ def apply_paragraph_style_preserving_direct_char(doc: Any, cursor: Any, style_na
 # ---------------------------------------------------------------------------
 
 
-def find_text_ranges(model: Any, ctx: Any, search: str, start: int = 0, limit: int | None = None, case_sensitive: bool = True):
+def find_text_ranges(model: Any, ctx: Any, search: str, start: int = 0, limit: int | None = None, case_sensitive: bool = True) -> list[dict[str, Any]]:
     from .search import find_text_ranges as impl
     return impl(model, ctx, search, start=start, limit=limit, case_sensitive=case_sensitive)
 
@@ -542,87 +542,87 @@ def _apply_image_export_options(content: str, *, include_images: bool) -> str:  
     return impl(content, include_images=include_images)
 
 
-def document_to_content(model: Any, ctx: Any, services: Any, max_chars: int | None = None, scope: str = "full", range_start: int | None = None, range_end: int | None = None, *, include_images: bool = False, walk_warnings: list[str] | None = None):
+def document_to_content(model: Any, ctx: Any, services: Any, max_chars: int | None = None, scope: str = "full", range_start: int | None = None, range_end: int | None = None, *, include_images: bool = False, walk_warnings: list[str] | None = None) -> str:
     from .html_export import document_to_content as impl
     return impl(model, ctx, services, max_chars, scope, range_start, range_end, include_images=include_images, walk_warnings=walk_warnings)
 
 
-def xtext_to_content(text_obj: Any, model: Any, ctx: Any, services: Any = None, *, include_images: bool = True, max_chars: int | None = None):
+def xtext_to_content(text_obj: Any, model: Any, ctx: Any, services: Any = None, *, include_images: bool = True, max_chars: int | None = None) -> str:
     from .html_export import xtext_to_content as impl
     return impl(text_obj, model, ctx, services, include_images=include_images, max_chars=max_chars)
 
 
-def _ensure_html_linebreaks(content: str):  # pyright: ignore[reportUnusedFunction]
+def _ensure_html_linebreaks(content: str) -> str:  # pyright: ignore[reportUnusedFunction]
     from .html_import import _ensure_html_linebreaks as impl
     return impl(content)
 
 
-def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None):
+def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> str:
     from .html_import import html_to_plain_text as impl
     return impl(html_string, ctx, config_svc)
 
 
-def insert_html_fragment_at_cursor(cursor: Any, html_fragment: str, *, extra_css: str | None = None, wrap: bool = True, config_svc: Any = None, model: Any = None):
+def insert_html_fragment_at_cursor(cursor: Any, html_fragment: str, *, extra_css: str | None = None, wrap: bool = True, config_svc: Any = None, model: Any = None) -> None:
     from .html_import import insert_html_fragment_at_cursor as impl
     return impl(cursor, html_fragment, extra_css=extra_css, wrap=wrap, config_svc=config_svc, model=model)
 
 
-def _insert_starwriter_html_at_cursor(model: Any, cursor: Any, prepared_html: str, config_svc: Any = None):  # pyright: ignore[reportUnusedFunction]
+def _insert_starwriter_html_at_cursor(model: Any, cursor: Any, prepared_html: str, config_svc: Any = None) -> None:  # pyright: ignore[reportUnusedFunction]
     from .html_import import _insert_starwriter_html_at_cursor as impl
     return impl(model, cursor, prepared_html, config_svc)
 
 
-def _insert_mixed_html_and_math_at_cursor(model: Any, ctx: Any, cursor: Any, unescaped: str, config_svc: Any = None):  # pyright: ignore[reportUnusedFunction]
+def _insert_mixed_html_and_math_at_cursor(model: Any, ctx: Any, cursor: Any, unescaped: str, config_svc: Any = None) -> None:  # pyright: ignore[reportUnusedFunction]
     from .html_import import _insert_mixed_html_and_math_at_cursor as impl
     return impl(model, ctx, cursor, unescaped, config_svc)
 
 
-def _insert_mixed_or_plain_html(model: Any, ctx: Any, cursor: Any, unescaped_content: str, config_svc: Any = None, apply_styles: bool = True):  # pyright: ignore[reportUnusedFunction]
+def _insert_mixed_or_plain_html(model: Any, ctx: Any, cursor: Any, unescaped_content: str, config_svc: Any = None, apply_styles: bool = True) -> None:  # pyright: ignore[reportUnusedFunction]
     from .html_import import _insert_mixed_or_plain_html as impl
     return impl(model, ctx, cursor, unescaped_content, config_svc, apply_styles)
 
 
-def insert_html_at_cursor(model: Any, ctx: Any, cursor: Any, unescaped_content: str, config_svc: Any = None, apply_styles: bool = True):
+def insert_html_at_cursor(model: Any, ctx: Any, cursor: Any, unescaped_content: str, config_svc: Any = None, apply_styles: bool = True) -> None:
     from .html_import import insert_html_at_cursor as impl
     return impl(model, ctx, cursor, unescaped_content, config_svc, apply_styles)
 
 
-def insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None):
+def insert_content_at_position(model: Any, ctx: Any, content: str, position: str, config_svc: Any = None) -> None:
     from .html_import import insert_content_at_position as impl
     return impl(model, ctx, content, position, config_svc)
 
 
-def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None):
+def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = None) -> None:
     from .html_import import replace_full_document as impl
     return impl(model, ctx, content, config_svc)
 
 
-def replace_single_range_with_content(model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None):
+def replace_single_range_with_content(model: Any, text_range: Any, content: str, ctx: Any, config_svc: Any = None) -> None:
     from .html_import import replace_single_range_with_content as impl
     return impl(model, text_range, content, ctx, config_svc)
 
 
-def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None):
+def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, model: Any = None) -> None:
     from .html_import import replace_xtext_with_html as impl
     return impl(text_obj, html, config_svc, model)
 
 
-def rewrite_exported_field_spans(html: str):
+def rewrite_exported_field_spans(html: str) -> str:
     from .html_import import rewrite_exported_field_spans as impl
     return impl(html)
 
 
-def content_has_markup(content: str):
+def content_has_markup(content: str) -> bool:
     from .html_import import content_has_markup as impl
     return impl(content)
 
 
-def _content_has_block_markup(content: str):  # pyright: ignore[reportUnusedFunction]
+def _content_has_block_markup(content: str) -> bool:  # pyright: ignore[reportUnusedFunction]
     from .html_import import _content_has_block_markup as impl
     return impl(content)
 
 
-def replace_preserving_format(model: Any, target_range: Any, new_text: str, ctx: Any = None, in_undo_context: bool = False, split_author: bool = True):
+def replace_preserving_format(model: Any, target_range: Any, new_text: str, ctx: Any = None, in_undo_context: bool = False, split_author: bool = True) -> None:
     from .html_import import replace_preserving_format as impl
     return impl(model, target_range, new_text, ctx, in_undo_context, split_author)
 

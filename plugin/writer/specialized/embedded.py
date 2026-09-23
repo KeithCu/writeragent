@@ -29,7 +29,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         target = kwargs.get("target", "selection")
         old_content = kwargs.get("old_content")
 
@@ -50,5 +50,5 @@ class EmbeddedEdit(ToolWriterEmbeddedBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Object name or anchor hint when available."}}, "required": []}
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return self._tool_error("embedded_edit is not implemented yet. Double-click the object in Writer.")

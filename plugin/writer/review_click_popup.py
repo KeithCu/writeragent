@@ -93,10 +93,10 @@ def _make_handler(model: Any) -> Any:
                 super().__init__()
                 self._model = model
 
-            def mousePressed(self, e: Any):  # noqa: N802 -- UNO API
+            def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO API
                 return False  # never consume
 
-            def mouseReleased(self, e: Any):  # noqa: N802 -- UNO API
+            def mouseReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO API
                 try:
                     if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:  # plain left click
                         source = e.Source
@@ -110,7 +110,7 @@ def _make_handler(model: Any) -> Any:
                     log.debug("review_click_popup: mouseReleased failed", exc_info=True)
                 return False  # never consume
 
-            def disposing(self, Source: Any):  # noqa: N802, N803 -- UNO API
+            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO API
                 pass
 
         _handler_cls = _ClickReviewHandler

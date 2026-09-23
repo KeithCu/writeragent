@@ -332,7 +332,7 @@ def agent_changes(model: Any) -> list[dict[str, Any]]:
     return list(grouped.values())
 
 
-def _change_bounds(model: Any, token: str):
+def _change_bounds(model: Any, token: str) -> tuple[Any | None, Any | None]:
     """Bounding (start, end) text ranges spanning ALL redlines of one change, or (None, None).
 
     Builds the union with ``cursor.gotoRange(..., expand=True)`` rather than ``compareRegionStarts``:

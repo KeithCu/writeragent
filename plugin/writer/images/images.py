@@ -37,7 +37,7 @@ import ssl
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.thread_guard import on_main_thread
 
-def _run_on_main(fn: typing.Any, *args: typing.Any, timeout: float = 60.0, **kwargs: typing.Any):
+def _run_on_main(fn: typing.Any, *args: typing.Any, timeout: float = 60.0, **kwargs: typing.Any) -> Any:
     if on_main_thread():
         return fn(*args, **kwargs)
     return execute_on_main_thread(fn, *args, timeout=timeout, **kwargs)
@@ -144,7 +144,7 @@ class ImageGenerate(ToolWriterImageBase):
         # (omitted + selected graphic → img2img; omitted + no selection → create).
         if explicit_edit or source_image is None:
 
-            def _read_selection_for_edit():
+            def _read_selection_for_edit() -> tuple[str, tuple[str, int, int] | None]:
                 b64 = get_selected_image_base64(ctx.doc, ctx.ctx)
                 if not b64:
                     return ("no_selection", None)
@@ -208,7 +208,7 @@ class ImageGenerate(ToolWriterImageBase):
 
         img_path = paths[0]
 
-        def _insert_or_replace():
+        def _insert_or_replace() -> str:
             if is_edit:
                 replaced = replace_image_in_place(ctx.ctx, ctx.doc, img_path, width, height, title=prompt, description="Edited by %s" % provider, add_to_gallery=add_to_gallery, add_frame=add_frame)
                 if not replaced:
@@ -283,7 +283,7 @@ class ImageList(ToolWriterImageBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         doc = ctx.doc
         doc_type = visual_helpers.get_visual_doc_type(doc)
         is_calc = doc_type == "calc"
@@ -360,7 +360,7 @@ class ImageList(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str):
+def _get_graphic_object(ctx: typing.Any, doc: typing.Any, image_name: str) -> Any | None:
     return visual_helpers.get_graphic_object_by_name(doc, image_name)
 
 
@@ -373,7 +373,7 @@ class ImageGetInfo(ToolWriterImageBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the image (from image_list)."}}, "required": ["name"]}
 
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
 
         graphic = _get_graphic_object(ctx, ctx.doc, image_name)
@@ -487,7 +487,7 @@ _HORI_ORIENT_FALLBACK = {"left": 3, "center": 2, "right": 1}
 _VERT_ORIENT_FALLBACK = {"top": 1, "center": 2, "bottom": 3}
 
 
-def _resolve_orient(value: typing.Any, axis: str):
+def _resolve_orient(value: typing.Any, axis: str) -> tuple[Any | None, str | None]:
     """Map a friendly position to a UNO orientation constant. *axis* is 'hori' or 'vert'.
 
     Accepts a name ('left'/'center'/'right' for hori; 'top'/'center'/'bottom' for vert; 'centre' ok)
@@ -560,7 +560,7 @@ class ImageSetProperties(ToolWriterImageBase):
 
     is_mutation: bool | None = True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
         if not image_name:
             return self._tool_error("image_name is required.", code="MISSING_PARAMETER", parameter="image_name")
@@ -663,7 +663,7 @@ class ImageDownload(ToolWriterImageBase):
     }
 
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         url = kwargs.get("url", "")
 
         verify_ssl = kwargs.get("verify_ssl", False)
@@ -732,7 +732,7 @@ class ImageInsert(ToolWriterImageBase):
 
     is_mutation: bool | None = True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_path = kwargs.get("path", "")
 
         width_mm = kwargs.get("width_mm", 80)
@@ -828,7 +828,7 @@ class ImageDelete(ToolWriterImageBase):
 
     is_mutation: bool | None = True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
 
         graphic = _get_graphic_object(ctx, ctx.doc, image_name)
@@ -871,7 +871,7 @@ class ImageReplace(ToolWriterImageBase):
 
     is_mutation: bool | None = True
 
-    def execute(self, ctx: typing.Any, **kwargs: typing.Any):
+    def execute(self, ctx: typing.Any, **kwargs: typing.Any) -> dict[str, Any]:
         image_name = kwargs.get("name", "")
         new_image_path = kwargs.get("path", "")
 
@@ -903,7 +903,7 @@ class ImageReplace(ToolWriterImageBase):
 # ------------------------------------------------------------------
 
 
-def _download_image_to_cache(url: str, verify_ssl: bool = False, force: bool = False):
+def _download_image_to_cache(url: str, verify_ssl: bool = False, force: bool = False) -> str:
     """Download an image URL to the local cache directory.
 
     Returns the local file path. Uses a URL-based hash for caching.

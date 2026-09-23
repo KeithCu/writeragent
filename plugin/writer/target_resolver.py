@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("writeragent.writer")
 
 
-def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any):
+def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> Any:
     """
     Resolves the `target` ("beginning", "end", "selection", "search")
     and returns a valid TextCursor pointing to the desired location.

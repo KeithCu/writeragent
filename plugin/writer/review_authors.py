@@ -22,7 +22,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
-from typing import Any
+from typing import Any, Iterator
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def _set_office_author(ctx: Any, given: str) -> bool:
         return False
 
 
-def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DELETE_AUTHOR):
+def begin(ctx: Any, insert_author: str = INSERT_AUTHOR, delete_author: str = DELETE_AUTHOR) -> tuple[str, str]:
     """Capture the prior office author, set the INSERT author as the default, and arm
     ``deletion_author()`` on this thread. Returns the prior ``(given, sn)`` for ``end()``, or None.
 
@@ -106,7 +106,7 @@ def end(ctx: Any, prior: tuple[str, str] | None) -> None:
 
 
 @contextlib.contextmanager
-def deletion_author():
+def deletion_author() -> Iterator[None]:
     """Author the tracked deletion inside this block as the DELETE author, then restore the
     INSERT author. A no-op unless ``begin()`` armed split authoring on this thread."""
     ctx = getattr(_state, "ctx", None)

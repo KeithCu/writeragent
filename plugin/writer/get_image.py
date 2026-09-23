@@ -31,19 +31,19 @@ _DRAW_DOCUMENT = "com.sun.star.drawing.DrawingDocument"
 _IMPRESS_DOCUMENT = "com.sun.star.presentation.PresentationDocument"
 
 
-def _supports_service(doc: Any, service: str):
+def _supports_service(doc: Any, service: str) -> bool:
     try:
         return bool(doc.supportsService(service))
     except Exception:
         return False
 
 
-def _is_draw_family(doc: Any):
+def _is_draw_family(doc: Any) -> bool:
     """True for Draw or Impress. Check PresentationDocument first: Impress also supports DrawingDocument."""
     return _supports_service(doc, _IMPRESS_DOCUMENT) or _supports_service(doc, _DRAW_DOCUMENT)
 
 
-def _read_png_or_reason(tmp_path: str, page: int):
+def _read_png_or_reason(tmp_path: str, page: int) -> tuple[bytes | None, str | None]:
     with open(tmp_path, "rb") as f:
         png = f.read()
     if not png or png[:8] != _PNG_MAGIC:
@@ -51,7 +51,7 @@ def _read_png_or_reason(tmp_path: str, page: int):
     return png, None
 
 
-def _render_writer_page_png(doc: Any, page: int):
+def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | None]:
     """Render 0-based *page* of a Writer doc to PNG bytes, or (None, reason).
 
     *page* is model-facing (first page = 0). jumpToPage is 1-based, so the only conversion is
@@ -122,7 +122,7 @@ def _render_writer_page_png(doc: Any, page: int):
                 pass
 
 
-def _render_draw_page_png(ctx: Any, doc: Any, page: int):
+def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
     """Render 0-based *page* of a Draw/Impress doc to PNG bytes, or (None, reason).
 
     *page* is already the ``getByIndex`` index (first slide = 0). No ±1 here — that used to
@@ -181,7 +181,7 @@ def _render_draw_page_png(ctx: Any, doc: Any, page: int):
                 pass
 
 
-def _render_page_png(ctx: Any, doc: Any, page: int):
+def _render_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
     """Render 0-based *page* of Writer, Draw, or Impress to PNG bytes, or (None, reason)."""
     if _is_draw_family(doc):
         return _render_draw_page_png(ctx, doc, page)
@@ -211,7 +211,7 @@ class GetImage(ToolBase):
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
     uno_services: list[str] | None = [_TEXT_DOCUMENT, _DRAW_DOCUMENT, _IMPRESS_DOCUMENT]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         name = kwargs.get("image")
         want_selection = bool(kwargs.get("selection"))

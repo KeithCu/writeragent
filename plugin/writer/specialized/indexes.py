@@ -318,7 +318,7 @@ class IndexesUpdateAll(ToolWriterIndexBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         if not hasattr(doc, "getDocumentIndexes"):
             return self._tool_error("Document does not support indexes")
@@ -460,7 +460,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return preview
         return self._write(ctx, doc, idx, found, content, override, preview)
 
-    def _resolve_toc(self, doc: Any, index: Any):
+    def _resolve_toc(self, doc: Any, index: Any) -> tuple[Any | None, str | None]:
         if not hasattr(doc, "getDocumentIndexes"):
             return None, "Document does not support indexes."
         indexes = doc.getDocumentIndexes()
@@ -481,7 +481,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return None, "index is not a table of contents."
         return idx, None
 
-    def _toc_match(self, doc: Any, anchor: Any, old_content: str, occurrence: Any):
+    def _toc_match(self, doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple[Any | None, str | None]:
         from .. import search as search_mod
 
         ranges = search_mod.find_all_ranges(doc, old_content) or []
@@ -494,7 +494,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return None, "No table-of-contents entry contains that text."
         return inside[pick], None
 
-    def _preview(self, found: Any, content: str, override: Any):
+    def _preview(self, found: Any, content: str, override: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         from ..hyperlink_fixup import (
             capture_outline_hyperlinks,
             empty_snapshot,
@@ -522,7 +522,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             preview["hyperlinks"] = reports
         return preview, None
 
-    def _write(self, ctx: Any, doc: Any, idx: Any, found: Any, content: str, override: Any, preview: Any):
+    def _write(self, ctx: Any, doc: Any, idx: Any, found: Any, content: str, override: Any, preview: Any) -> dict[str, Any]:
         from ..edit_review import collapsed_anchor, next_agent_edit_undo_title
         from ..format import replace_preserving_format
         from ..hyperlink_fixup import (
@@ -620,7 +620,7 @@ class IndexesList(ToolWriterIndexBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = False
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         if not hasattr(doc, "getDocumentIndexes"):
             return self._tool_error("Document does not support indexes")
@@ -651,7 +651,7 @@ class IndexesListCites(ToolWriterIndexBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = False
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields")
@@ -719,7 +719,7 @@ class IndexesCreate(ToolWriterIndexBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         index_kind = kwargs.get("kind", "toc")
         title = kwargs.get("title")
@@ -807,7 +807,7 @@ class IndexesAddMark(ToolWriterIndexBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         unused_reserved = [key for key in _IGNORED_CITE_KWARGS if kwargs.get(key) not in (None, "")]
         doc = ctx.doc
         mark_text = kwargs.get("text")
@@ -860,7 +860,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         except Exception as e:
             return self._tool_error(f"Failed to add index mark: {str(e)}")
 
-    def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any, unused_reserved: Any):
+    def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any, unused_reserved: Any) -> dict[str, Any]:
         pairs = collect_bibliography_field_pairs(kwargs)
         identifier = ""
         for name, value in pairs:

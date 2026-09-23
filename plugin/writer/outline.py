@@ -64,7 +64,7 @@ class GetDocumentTree(ToolBase):
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         tree_svc = ctx.services.writer_tree
         strategy = kwargs.get("strategy", "first_lines")
         result = tree_svc.get_document_tree(ctx.doc, content_strategy=strategy, depth=kwargs.get("depth", 1))
@@ -86,7 +86,7 @@ def _count_headings(nodes: Any) -> int:
     return count
 
 
-def collect_document_stats(doc: Any, doc_svc: Any):
+def collect_document_stats(doc: Any, doc_svc: Any) -> dict[str, Any]:
     """Character/word/paragraph/page/heading counts for a Writer document."""
     from plugin.doc.text_helpers import build_heading_tree
 

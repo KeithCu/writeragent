@@ -66,7 +66,7 @@ class GroupShapes(DrawGroupShapes, ToolWriterShapeBase):
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
 
-def replace_text_in_shape(shape: Any, old: str, new: str):
+def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:
     """Replace the first occurrence of *old* with *new* inside a drawing shape's own text,
     preserving the formatting of the surrounding text via a text cursor. Returns True on success.
 

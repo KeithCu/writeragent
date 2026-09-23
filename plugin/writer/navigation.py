@@ -41,7 +41,7 @@ class NavHeading(ToolWriterStructuralBase):
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         prox_svc = ctx.services.writer_proximity
         try:
             result = prox_svc.navigate_heading(ctx.doc, kwargs["locator"], kwargs["direction"])
@@ -67,7 +67,7 @@ class NavSurroundings(ToolWriterStructuralBase):
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         prox_svc = ctx.services.writer_proximity
         try:
             result = prox_svc.get_surroundings(ctx.doc, kwargs["locator"], radius=kwargs.get("radius", 10), include=kwargs.get("include"))
@@ -93,7 +93,7 @@ class NavHeadingChildren(ToolWriterStructuralBase):
     }
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         tree_svc = ctx.services.writer_tree
         para_index = kwargs.get("para_index")
         bookmark = kwargs.get("bookmark")

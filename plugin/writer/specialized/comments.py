@@ -37,7 +37,7 @@ class CommentList(ToolWriterCommentBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         author_filter = kwargs.get("author_filter")
         doc = ctx.doc
         doc_svc = ctx.services.document
@@ -90,7 +90,7 @@ class AddComment(ToolBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         content = kwargs.get("content", "")
         parent_name = (kwargs.get("parent_name") or "").strip()
         author = (kwargs.get("author") or "WriterAgent").strip() or "WriterAgent"
@@ -181,7 +181,7 @@ class AddComment(ToolBase):
             "name": _name_of_new_annotation(doc, annotation, names_before),
         }
 
-    def _insert_reply(self, doc: Any, parent: Any, parent_name: str, content: str, author: str):
+    def _insert_reply(self, doc: Any, parent: Any, parent_name: str, content: str, author: str) -> dict[str, Any]:
         """Insert a threaded reply at the parent's anchor. Does not set Resolved."""
         reply = doc.createInstance("com.sun.star.text.textfield.Annotation")
         reply.setPropertyValue("ParentName", parent_name)
@@ -227,7 +227,7 @@ class CommentDelete(ToolWriterCommentBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         comment_name = kwargs.get("name")
         author = kwargs.get("author")
 
@@ -288,7 +288,7 @@ class CommentResolve(ToolWriterCommentBase):
     uno_services: list[str] | None = ["com.sun.star.text.TextDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         comment_name = kwargs.get("name", "")
         resolution = kwargs.get("resolution", "")
         author = kwargs.get("author", "AI")
@@ -342,7 +342,7 @@ _ANNOTATION_PROPERTIES = (
 )
 
 
-def _comment_scan_tasks(ctx: Any, kwargs: Any):
+def _comment_scan_tasks(ctx: Any, kwargs: Any) -> dict[str, Any]:
     unresolved_only = kwargs.get("unresolved_only", True)
     prefix_filter = kwargs.get("prefix_filter", None)
     doc = ctx.doc
@@ -382,7 +382,7 @@ def _comment_scan_tasks(ctx: Any, kwargs: Any):
     return {"status": "ok", "tasks": tasks, "count": len(tasks)}
 
 
-def _comment_workflow_get(ctx: Any):
+def _comment_workflow_get(ctx: Any) -> dict[str, Any]:
     doc = ctx.doc
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
@@ -409,7 +409,7 @@ def _comment_workflow_get(ctx: Any):
     return {"status": "ok", "workflow": None}
 
 
-def _comment_workflow_set(ctx: Any, kwargs: Any):
+def _comment_workflow_set(ctx: Any, kwargs: Any) -> dict[str, Any]:
     content = kwargs.get("content", "")
     doc = ctx.doc
     doc_text = doc.getText()
@@ -440,7 +440,7 @@ def _comment_workflow_set(ctx: Any, kwargs: Any):
     return {"status": "ok", "message": "Workflow status updated."}
 
 
-def _comment_check_stop(ctx: Any):
+def _comment_check_stop(ctx: Any) -> dict[str, Any]:
     doc = ctx.doc
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
@@ -482,7 +482,7 @@ class CommentScanTasks(ToolWriterCommentBase):
     }
     uno_services: list[str] | None = _COMMENT_UNO
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _comment_scan_tasks(ctx, kwargs)
 
 
@@ -493,7 +493,7 @@ class CommentWorkflowGet(ToolWriterCommentBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = _COMMENT_UNO
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _comment_workflow_get(ctx)
 
 
@@ -511,7 +511,7 @@ class CommentWorkflowSet(ToolWriterCommentBase):
     uno_services: list[str] | None = _COMMENT_UNO
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _comment_workflow_set(ctx, kwargs)
 
 
@@ -522,7 +522,7 @@ class CommentCheckStop(ToolWriterCommentBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     uno_services: list[str] | None = _COMMENT_UNO
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _comment_check_stop(ctx)
 
 
@@ -531,7 +531,7 @@ class CommentCheckStop(ToolWriterCommentBase):
 # ------------------------------------------------------------------
 
 
-def _find_annotation_by_name(doc: Any, comment_name: str):
+def _find_annotation_by_name(doc: Any, comment_name: str) -> Any | None:
     """Return the Annotation field whose Name matches *comment_name*, or None."""
     try:
         enum = doc.getTextFields().createEnumeration()
@@ -554,7 +554,7 @@ def _find_annotation_by_name(doc: Any, comment_name: str):
     return None
 
 
-def _annotation_name(field: Any):
+def _annotation_name(field: Any) -> str:
     """LibreOffice-assigned Name after insert (empty if the property is unreadable)."""
     try:
         return field.getPropertyValue("Name") or ""
@@ -562,7 +562,7 @@ def _annotation_name(field: Any):
         return ""
 
 
-def _annotation_field_names(doc: Any):
+def _annotation_field_names(doc: Any) -> set[str]:
     """Name of each Annotation on *doc* (empty string when Name is unreadable)."""
     names: list[str] = []
     try:
@@ -588,7 +588,7 @@ def _annotation_field_names(doc: Any):
     return names
 
 
-def _ensure_annotation_name(field: Any, doc: Any):
+def _ensure_annotation_name(field: Any, doc: Any) -> str:
     """Return *field*'s Name, assigning a unique one if Writer left it empty."""
     name = _annotation_name(field)
     if name:
@@ -607,7 +607,7 @@ def _ensure_annotation_name(field: Any, doc: Any):
     return _annotation_name(field) or candidate
 
 
-def _name_of_new_annotation(doc: Any, field: Any, names_before: Any):
+def _name_of_new_annotation(doc: Any, field: Any, names_before: Any) -> str:
     """Name on *field*, or the new Name that appeared on *doc* after insert.
 
     Point-insert replies (CommentResolve shape) often leave Name empty on the
@@ -647,7 +647,7 @@ def _set_annotation_date(annotation: Any) -> None:
         pass
 
 
-def _read_annotation(field: Any, para_ranges: Any, text_obj: Any, doc_svc: Any):
+def _read_annotation(field: Any, para_ranges: Any, text_obj: Any, doc_svc: Any) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
     entry = {}
     for prop, key, default in _ANNOTATION_PROPERTIES:

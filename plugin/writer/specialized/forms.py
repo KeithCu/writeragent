@@ -37,7 +37,7 @@ from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.thread_guard import on_main_thread
 
-def _run_on_main(fn: Any, *args: Any, **kwargs: Any):
+def _run_on_main(fn: Any, *args: Any, **kwargs: Any) -> Any:
     if on_main_thread():
         return fn(*args, **kwargs)
     return execute_on_main_thread(fn, *args, **kwargs)
@@ -57,7 +57,7 @@ _CONTROL_TYPE_MAP = {
 }
 
 
-def _get_readable_type(model: Any):
+def _get_readable_type(model: Any) -> str:
     """Maps a UNO model back to a human-friendly type string."""
     for type_str, service in _CONTROL_TYPE_MAP.items():
         if model.supportsService(service):
@@ -71,11 +71,11 @@ _is_draw_doc = is_draw
 _get_form_draw_page = get_active_draw_page
 
 
-def _no_form_draw_page_payload():
+def _no_form_draw_page_payload() -> dict[str, Any]:
     return format_error_payload(ToolExecutionError("No draw page available for form operations."))
 
 
-def _resolve_form_page(doc: Any, page: Any = None):
+def _resolve_form_page(doc: Any, page: Any = None) -> Any:
     """Active draw page, or a Draw/Impress page index when *page* is set.
 
     Writer/Calc ignore *page* (Writer has one canvas; Calc uses the active sheet).
@@ -90,7 +90,7 @@ def _resolve_form_page(doc: Any, page: Any = None):
     return _get_form_draw_page(doc)
 
 
-def _control_value_fields(model: Any):
+def _control_value_fields(model: Any) -> dict[str, Any]:
     """Current value/state for list/edit so Draw widgets are visible without guessing."""
     info = {}
     if hasattr(model, "Label"):
@@ -112,7 +112,7 @@ def _control_value_fields(model: Any):
     return info
 
 
-def _find_control_shape(dp: Any, index: Any = None, name: Any = None):
+def _find_control_shape(dp: Any, index: Any = None, name: Any = None) -> tuple[Any, Any, dict[str, Any] | None]:
     """Resolve a ControlShape by draw-page index or control/shape Name.
 
     Index is the draw-page shape index from form_list_controls (not a
@@ -152,7 +152,7 @@ def _find_control_shape(dp: Any, index: Any = None, name: Any = None):
     return None, None, format_error_payload(ToolExecutionError(f"Several form controls named '{wanted}'; pass index as well."))
 
 
-def _apply_control_state(model: Any, state_value: Any):
+def _apply_control_state(model: Any, state_value: Any) -> dict[str, Any] | None:
     if not hasattr(model, "State"):
         return format_error_payload(ToolExecutionError("This control has no State (not a checkbox/radio)."))
     coerced = coerce_control_state(state_value)
@@ -227,10 +227,10 @@ class FormCreateControl(ToolWriterFormBase):
         "required": ["control", "name"],
     }
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx: Any, **kwargs: Any):
+    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         control_type = str(kwargs.get("control", "text"))
         name = kwargs.get("name", "Field")
@@ -338,7 +338,7 @@ class FormCreate(ToolWriterFormBase):
         "required": ["fields"],
     }
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         fields = kwargs.get("fields", [])
         results = []
         creator = FormCreateControl()
@@ -374,7 +374,7 @@ class FormGenerate(ToolWriterFormBase):
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"description": {"type": "string", "description": "Description of the form to generate (e.g. 'Medical intake form')."}}, "required": ["description"]}
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.config import get_api_config
         from plugin.framework.client.llm_client import LlmClient
 
@@ -411,7 +411,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             log.exception("Error in form_generate")
             return format_error_payload(ToolExecutionError(f"Form generation failed: {str(e)}"))
 
-    def _process_form_content(self, ctx: Any, content: str):
+    def _process_form_content(self, ctx: Any, content: str) -> dict[str, Any]:
         # We'll split the content by {FIELD:...} tags and insert parts
         parts = re.split(r"(\{FIELD:[^\}]+\})", content)
 
@@ -458,7 +458,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         cursor = clone_text_range(vc)
         insert_html_fragment_at_cursor(cursor, text, wrap=False)
 
-    def _parse_field_tag(self, tag: str):
+    def _parse_field_tag(self, tag: str) -> dict[str, str]:
         # Naive parser for {FIELD:control='...', ...}
         pairs = re.findall(r"(\w+)[:=]['\"]([^'\"]*)['\"]", tag)
         params = dict(pairs)
@@ -486,10 +486,10 @@ class FormListControls(ToolWriterFormBase):
         "required": [],
     }
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx: Any, **kwargs: Any):
+    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         dp = _resolve_form_page(doc, kwargs.get("page"))
         if dp is None:
@@ -551,10 +551,10 @@ class FormEditControl(ToolWriterFormBase):
         "required": [],
     }
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx: Any, **kwargs: Any):
+    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         dp = _resolve_form_page(doc, kwargs.get("page"))
         if dp is None:
@@ -615,10 +615,10 @@ class FormDeleteControl(ToolWriterFormBase):
         "required": [],
     }
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx: Any, **kwargs: Any):
+    def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         dp = _resolve_form_page(doc, kwargs.get("page"))
         if dp is None:

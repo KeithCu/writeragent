@@ -85,14 +85,14 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _GO_RIGHT_CHUNK = 8192
 
 
-def _visible_html_text(fragment: str):
+def _visible_html_text(fragment: str) -> str:
     """Tag-stripped, entity-unescaped text of an HTML fragment."""
     if not fragment:
         return ""
     return html_mod.unescape(_HTML_TAG_RE.sub("", fragment))
 
 
-def extract_and_strip_ruby(html: str):
+def extract_and_strip_ruby(html: str) -> tuple[str, list[tuple[str, str]]]:
     """Replace ``<ruby>`` with its base and return ``(clean_html, spans)``.
 
     Each span is ``(base, reading, is_above)`` in document order. StarWriter
@@ -103,7 +103,7 @@ def extract_and_strip_ruby(html: str):
         return html, []
     spans = []
 
-    def _repl(match: re.Match[str]):
+    def _repl(match: re.Match[str]) -> str:
         attrs = match.group(1) or ""
         inner = match.group(2) or ""
         rt_m = _RT_RE.search(inner)
@@ -119,7 +119,7 @@ def extract_and_strip_ruby(html: str):
     return _RUBY_BLOCK_RE.sub(_repl, html), spans
 
 
-def _go_right(cursor: Any, n: int, expand: bool):
+def _go_right(cursor: Any, n: int, expand: bool) -> bool:
     """Move or extend *cursor* right by *n* characters (UNO caps the count)."""
     while n > 0:
         step = n if n < _GO_RIGHT_CHUNK else _GO_RIGHT_CHUNK
@@ -142,7 +142,7 @@ def _set_ruby_on_range(cursor: Any, reading: str, is_above: bool = True) -> None
         pass
 
 
-def _prefix_char_count(text_obj: Any, cursor: Any):
+def _prefix_char_count(text_obj: Any, cursor: Any) -> int:
     """``getString()`` length from the start of *text_obj* to *cursor*.
 
     Captured before import so we can apply ruby only to the inserted suffix.
@@ -209,7 +209,7 @@ _BLOCK_MARKUP_PATTERNS = [
 ]
 
 
-def _strip_data_lo_style(start_tag: str):
+def _strip_data_lo_style(start_tag: str) -> str:
     """Remove any data-lo-style attribute from a single start-tag string."""
     start_tag = re.sub(r'\s+data-lo-style="[^"]*"', "", start_tag)
     return re.sub(r"\s+data-lo-style='[^']*'", "", start_tag)
@@ -221,7 +221,7 @@ class _BlockLoStyleExtractor(HTMLParser):
     from the HTML, so the StarWriter import sees clean markup and we apply the named styles
     ourselves afterwards. Content inside <table> is left to the import (avoids order desync)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
         self._table_depth = 0
         self.styles = []
@@ -241,7 +241,7 @@ class _BlockLoStyleExtractor(HTMLParser):
             # rather than silently stripped without being applied.
             self._out.append(raw)
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s>" % tag)
         if tag.lower() == "table":
             self._table_depth += 1
@@ -251,33 +251,33 @@ class _BlockLoStyleExtractor(HTMLParser):
         # positional style slot — keeps read and write symmetric on <div>.
         self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS)
 
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]):
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         raw = self.get_starttag_text() or ("<%s/>" % tag)
         self._emit(raw, attrs, tag.lower() in xhtml_post.BLOCK_TAGS)
 
-    def handle_endtag(self, tag: str):
+    def handle_endtag(self, tag: str) -> None:
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
         self._out.append("</%s>" % tag)
 
-    def handle_data(self, data: str):
+    def handle_data(self, data: str) -> None:
         self._out.append(data)
 
-    def handle_entityref(self, name: str):
+    def handle_entityref(self, name: str) -> None:
         self._out.append("&%s;" % name)
 
-    def handle_charref(self, name: str):
+    def handle_charref(self, name: str) -> None:
         self._out.append("&#%s;" % name)
 
-    def handle_comment(self, data: str):
+    def handle_comment(self, data: str) -> None:
         self._out.append("<!--%s-->" % data)
 
-    def result(self):
+    def result(self) -> tuple[str, list[tuple[str, str]]]:
         return "".join(self._out), self.styles
 
 
 
-def _extract_block_lo_styles(html: str):
+def _extract_block_lo_styles(html: str) -> tuple[str, list[tuple[str, str]]]:
     """Return ``(clean_html, [data_lo_style_or_None per top-level block])``.
 
     Short-circuits (returns the html unchanged, no styles) when there is no data-lo-style,
@@ -291,7 +291,7 @@ def _extract_block_lo_styles(html: str):
 
 
 
-def _count_preceding_paras(text_obj: Any, target: Any):
+def _count_preceding_paras(text_obj: Any, target: Any) -> int:
     """Number of paragraphs in *text_obj* whose start is before *target* (insertion point).
 
     Computed BEFORE the import so we know where the inserted block paragraphs begin (a saved
@@ -321,7 +321,7 @@ def _count_preceding_paras(text_obj: Any, target: Any):
 
 
 
-def _resolve_paragraph_style_token(model: Any, fam: Any, token: str):
+def _resolve_paragraph_style_token(model: Any, fam: Any, token: str) -> str:
     """Resolve an agent-facing compact ``data-lo-style`` token to a real UNO ParaStyleName.
 
     A candidate is any paragraph style whose name equals the token (covers space-free names
@@ -395,7 +395,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
 
 
 
-def _wrap_html_fragment(html_content: str, extra_css: str | None = None):
+def _wrap_html_fragment(html_content: str, extra_css: str | None = None) -> str:
     """Wrap an HTML fragment in a full document structure for LO's filter."""
     if not html_content or not isinstance(html_content, str):
         return html_content
@@ -410,7 +410,7 @@ def _wrap_html_fragment(html_content: str, extra_css: str | None = None):
 
 
 
-def _ensure_html_linebreaks(content: str):
+def _ensure_html_linebreaks(content: str) -> str:
     """Convert newlines to ``<br>``/``<p>`` when content is plain text
     and the active format is HTML, so LO's filter preserves them.
     """
@@ -438,7 +438,7 @@ def _ensure_html_linebreaks(content: str):
 
 
 
-def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None):
+def html_to_plain_text(html_string: str, ctx: Any, config_svc: Any = None) -> str:
     """Convert HTML to plain text by loading it into LibreOffice and reading
     the text out. Use this instead of regex stripping so entities, nested
     tags, and whitespace are handled correctly.
@@ -714,7 +714,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
         # Prefer a real text selection (table/frame-aware). Draw shape selections (post
         # shape.upsert) and empty selections fall back to the view text cursor, then
         # document end — RPS Universal Sample must not require the user to select text.
-        def _doc_end_cursor():
+        def _doc_end_cursor() -> Any:
             c = text.createTextCursor()
             c.gotoEnd(False)
             return c
@@ -795,7 +795,7 @@ def replace_full_document(model: Any, ctx: Any, content: str, config_svc: Any = 
 
 
 
-def _is_recording_changes(model: Any):
+def _is_recording_changes(model: Any) -> bool:
     """True if *model* is currently recording Track Changes (redlines).
 
     Agent edits made while recording must land as a clean tracked Delete + Insert so the
@@ -955,18 +955,18 @@ _FIELD_TITLE_TO_SERVICE = {
 }
 
 
-def rewrite_exported_field_spans(html: str):
+def rewrite_exported_field_spans(html: str) -> str:
     """Replace XHTML field spans with placeholders the HTML import will keep."""
     if not html or "title=" not in html:
         return html
 
-    def _repl(match: re.Match[str]):
+    def _repl(match: re.Match[str]) -> str:
         return _FIELD_PLACEHOLDER_FMT % match.group(1).lower()
 
     return _FIELD_SPAN_RE.sub(_repl, html)
 
 
-def _insert_restored_field(model: Any, text_range: Any, title: str):
+def _insert_restored_field(model: Any, text_range: Any, title: str) -> bool:
     service = _FIELD_TITLE_TO_SERVICE.get(title)
     if not service:
         return False
@@ -1017,7 +1017,7 @@ def _insert_restored_field(model: Any, text_range: Any, title: str):
         return False
 
 
-def _restore_field_placeholders(model: Any, text_obj: Any = None):
+def _restore_field_placeholders(model: Any, text_obj: Any = None) -> int:
     """Turn ``[[WA-FIELD:…]]`` tokens back into UNO fields.
 
     Uses document ``findFirst`` (same reach as body search: headers included).
@@ -1082,7 +1082,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, config_svc: Any = None, mo
         _restore_field_placeholders(model, text_obj)
 
 
-def content_has_markup(content: str):
+def content_has_markup(content: str) -> bool:
     """Return ``True`` if *content* appears to contain Markdown or HTML."""
     if not content or not isinstance(content, str):
         return False
@@ -1091,7 +1091,7 @@ def content_has_markup(content: str):
 
 
 
-def _content_has_block_markup(content: str):
+def _content_has_block_markup(content: str) -> bool:
     """Return ``True`` if *content* contains block-level HTML (paragraph-defining)."""
     if not content or not isinstance(content, str):
         return False

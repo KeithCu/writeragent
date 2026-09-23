@@ -22,7 +22,7 @@ class FieldsUpdateAll(ToolWriterFieldBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields.")
@@ -44,7 +44,7 @@ class FieldsList(ToolWriterFieldBase):
     description: str = "List all text fields in the document. Returns their types and text content, allowing you to identify and inspect fields like page numbers or dates."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
             return self._tool_error("Document does not support text fields.")
@@ -124,7 +124,7 @@ class FieldsDelete(ToolWriterFieldBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"ids": {"type": "array", "items": {"type": "integer"}, "description": "A list of 1-based IDs representing the text fields to delete."}}, "required": ["ids"]}
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         ids = kwargs.get("ids")
         doc = ctx.doc
         if not hasattr(doc, "getTextFields"):
@@ -198,7 +198,7 @@ class FieldsInsert(ToolWriterFieldBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         field_type = kwargs.get("field")
         properties = kwargs.get("properties")
         doc = ctx.doc

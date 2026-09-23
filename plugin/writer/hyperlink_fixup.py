@@ -48,7 +48,7 @@ same cursor immediately after the assignment.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Iterator
 
 log = logging.getLogger("writeragent.writer.hyperlink")
 
@@ -272,7 +272,7 @@ def _enum_has_more(enum: Any) -> bool:
         return False
 
 
-def _iter_portions(text: Any, anchor_pos: Any):
+def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
     """Portions of the paragraph containing *anchor_pos*."""
     cursor = _cursor_at(text, anchor_pos)
     cursor.gotoStartOfParagraph(False)
@@ -400,7 +400,7 @@ def _step_right(cursor: Any, count: int, expand: bool) -> bool:
     return True
 
 
-def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, length: int):
+def _select_replacement(text: Any, anchor: Any, snapshot: OutlineSnapshot, length: int) -> Any | None:
     """Cursor covering the replaced characters, measured from the paragraph start.
 
     A cursor saved at the match start does not stay there: replace_preserving_format

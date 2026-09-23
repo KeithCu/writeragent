@@ -36,7 +36,7 @@ TRIM_IMAGES_IN_LOG = True
 
 
 class ImageProvider:
-    def generate(self, prompt: str, **kwargs: Any):
+    def generate(self, prompt: str, **kwargs: Any) -> tuple[list[str], str]:
         raise NotImplementedError()
 
 
@@ -48,19 +48,19 @@ class EndpointImageProvider(ImageProvider):
         self.model = api_config.get("model", "google/gemini-3.1-flash-lite-preview")
         self.ctx = ctx
 
-    def _save_b64(self, b64_data: str):
+    def _save_b64(self, b64_data: str) -> list[str]:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
             tmp.write(base64.b64decode(b64_data))
             return [tmp.name]
 
-    def _save_url(self, url: str, suffix: str = ".webp"):
+    def _save_url(self, url: str, suffix: str = ".webp") -> list[str]:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             # Same Settings budget as image_completion — downloading the
             # generated file can take as long as the provider POST.
             tmp.write(sync_request(url, parse_json=False, timeout=get_config_int("request_timeout")))
             return [tmp.name]
 
-    def generate(self, prompt: str, width: int = DEFAULT_IMAGE_BASE_SIZE, height: int = DEFAULT_IMAGE_BASE_SIZE, model: str | None = None, steps: int | None = None, **kwargs: Any):
+    def generate(self, prompt: str, width: int = DEFAULT_IMAGE_BASE_SIZE, height: int = DEFAULT_IMAGE_BASE_SIZE, model: str | None = None, steps: int | None = None, **kwargs: Any) -> tuple[list[str], str]:
         """Request image via the configured endpoint (modalities=['image'] where supported)."""
         override = kwargs.pop("image_model", None)
         if isinstance(override, str) and override.strip():
@@ -190,7 +190,7 @@ class ImageService:
         self.config = config
         self.providers: dict[str, Any] = {}
 
-    def get_provider(self, name: str | None = None):
+    def get_provider(self, name: str | None = None) -> Any | None:
         if name and name not in ("endpoint", "openrouter"):
             return None
         from plugin.framework.config import get_api_config
@@ -201,7 +201,7 @@ class ImageService:
         api_config["model"] = (cfg.get("image_model") or "").strip() or get_image_model()
         return EndpointImageProvider(api_config, self.ctx)
 
-    def generate_image(self, prompt: str, provider_name: str | None = None, status_callback: Any = None, **kwargs: Any):
+    def generate_image(self, prompt: str, provider_name: str | None = None, status_callback: Any = None, **kwargs: Any) -> tuple[list[str], str]:
         provider = self.get_provider(provider_name or "endpoint")
         if not provider:
             raise ValueError(f"Unknown provider: {provider_name}")

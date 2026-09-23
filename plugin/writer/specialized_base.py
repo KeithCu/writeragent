@@ -303,7 +303,7 @@ class SpecializedWorkflowFinished(ToolBase):
     tier: str = "specialized_control"
     is_final_answer_tool: bool = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Allow the main LLM loop to exit specialized mode
         if not USE_SUB_AGENT:
             callback = getattr(ctx, "set_active_domain_callback", None)

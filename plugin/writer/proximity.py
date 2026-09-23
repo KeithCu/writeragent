@@ -40,7 +40,7 @@ class ProximityService(ServiceBase):
 
     name: str | None = "writer_proximity"
 
-    def __init__(self, services: Any):
+    def __init__(self, services: Any) -> None:
         self._doc_svc = services.document
         self._tree_svc = services.writer_tree
         self._bm_svc = services.writer_bookmarks
@@ -48,7 +48,7 @@ class ProximityService(ServiceBase):
         self._flat_cache: dict[Any, list[Any]] = {}  # doc_key -> [flat entries]
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
 
-    def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any):
+    def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any) -> None:
         # key= first: close/unload emits the stored key without a live model.
         if key is not None:
             self._flat_cache.pop(key, None)
@@ -61,7 +61,7 @@ class ProximityService(ServiceBase):
     # Flattened tree (ordered heading list with parent pointers)
     # ==================================================================
 
-    def _flatten_tree(self, root: dict[str, Any], doc: Any):
+    def _flatten_tree(self, root: dict[str, Any], doc: Any) -> list[Any]:
         key = self._doc_svc.doc_key(doc)
         if is_cacheable_doc_key(key) and key in self._flat_cache:
             return self._flat_cache[key]
@@ -72,7 +72,7 @@ class ProximityService(ServiceBase):
             self._flat_cache[key] = flat
         return flat
 
-    def _flatten_recurse(self, children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]):
+    def _flatten_recurse(self, children: list[Any], parent_entry: dict[str, Any] | None, flat: list[Any]) -> None:
         for child in children:
             entry = {"node": child, "parent": parent_entry}
             flat.append(entry)
@@ -83,7 +83,7 @@ class ProximityService(ServiceBase):
     # Heading context (binary search)
     # ==================================================================
 
-    def _find_heading_context(self, flat: list[Any], para_index: int):
+    def _find_heading_context(self, flat: list[Any], para_index: int) -> tuple[int | None, dict[str, Any]]:
         if not flat:
             return None, {"was_heading": False}
 
@@ -99,7 +99,7 @@ class ProximityService(ServiceBase):
 
         return pos, {"was_heading": was_heading, "heading_node": node, "heading_text": node.get("text", ""), "heading_level": node.get("level", 0)}
 
-    def _get_heading_chain(self, flat: list[Any], ctx_idx: int | None, bookmark_map: dict[Any, Any]):
+    def _get_heading_chain(self, flat: list[Any], ctx_idx: int | None, bookmark_map: dict[Any, Any]) -> list[dict[str, Any]]:
         chain = []
         entry = flat[ctx_idx] if ctx_idx is not None else None
         while entry is not None:
@@ -109,14 +109,14 @@ class ProximityService(ServiceBase):
         chain.reverse()
         return chain
 
-    def _build_heading_result(self, node: dict[str, Any], bookmark_map: dict[Any, Any]):
+    def _build_heading_result(self, node: dict[str, Any], bookmark_map: dict[Any, Any]) -> dict[str, Any]:
         return {"level": node["level"], "text": node["text"], "para_index": node["para_index"], "bookmark": bookmark_map.get(node["para_index"]), "body_paragraphs": node.get("body_paragraphs", 0), "children_count": len(node.get("children", []))}
 
     # ==================================================================
     # navigate_heading
     # ==================================================================
 
-    def navigate_heading(self, doc: Any, locator: str, direction: str):
+    def navigate_heading(self, doc: Any, locator: str, direction: str) -> dict[str, Any]:
         """Navigate from locator to a related heading."""
         resolved = self._doc_svc.resolve_locator(doc, locator)
         para_index = resolved.get("para_index")
@@ -210,7 +210,7 @@ class ProximityService(ServiceBase):
 
         return {"heading": self._build_heading_result(target_entry["node"], bookmark_map), "from": from_info, "direction": direction}
 
-    def _find_sibling(self, flat: list[Any], ctx_idx: int, offset: int):
+    def _find_sibling(self, flat: list[Any], ctx_idx: int, offset: int) -> Any | None:
         entry = flat[ctx_idx]
         parent = entry["parent"]
         if parent is None:
@@ -240,7 +240,7 @@ class ProximityService(ServiceBase):
     # get_surroundings
     # ==================================================================
 
-    def get_surroundings(self, doc: Any, locator: str, radius: int = 10, include: list[str] | None = None):
+    def get_surroundings(self, doc: Any, locator: str, radius: int = 10, include: list[str] | None = None) -> dict[str, Any]:
         """Discover objects within radius paragraphs of locator."""
         resolved = self._doc_svc.resolve_locator(doc, locator)
         center_idx = resolved.get("para_index")

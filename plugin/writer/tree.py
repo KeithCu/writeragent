@@ -55,7 +55,7 @@ class TreeService(ServiceBase):
 
     name: str | None = "writer_tree"
 
-    def __init__(self, services: Any):
+    def __init__(self, services: Any) -> None:
         self._doc_svc = services.document
         self._bm_svc = services.writer_bookmarks
         events = services.events
@@ -63,7 +63,7 @@ class TreeService(ServiceBase):
         self._tree_fp: dict[Any, Any] = {}  # doc_key -> CharacterCount at cache time
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
 
-    def _drop_tree_cache(self, key: Any | None = None):
+    def _drop_tree_cache(self, key: Any | None = None) -> None:
         if key is None:
             self._tree_cache.clear()
             self._tree_fp.clear()
@@ -71,7 +71,7 @@ class TreeService(ServiceBase):
         self._tree_cache.pop(key, None)
         self._tree_fp.pop(key, None)
 
-    def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any):
+    def _on_cache_invalidated(self, doc: Any | None = None, key: Any | None = None, **_kw: Any) -> None:
         # Prefer the stored key so close/unload can pop without calling
         # doc_key() on a disposed model. key= must be checked before
         # doc is None (emit(key=...) leaves doc defaulted to None).
@@ -84,7 +84,7 @@ class TreeService(ServiceBase):
 
     # ── Tree building ──────────────────────────────────────────────
 
-    def build_heading_tree(self, doc: Any):
+    def build_heading_tree(self, doc: Any) -> dict[str, Any]:
         """Build heading tree from paragraph enumeration. Single pass.
 
         Returns root node dict:
@@ -136,14 +136,14 @@ class TreeService(ServiceBase):
             self._tree_fp[key] = fingerprint
         return root
 
-    def _count_all_children(self, node: dict[str, Any]):
+    def _count_all_children(self, node: dict[str, Any]) -> int:
         count = len(node.get("children", []))
         for child in node.get("children", []):
             if "children" in child:
                 count += self._count_all_children(child)
         return count + node.get("body_paragraphs", 0)
 
-    def _find_node_by_para_index(self, node: dict[str, Any], para_index: int):
+    def _find_node_by_para_index(self, node: dict[str, Any], para_index: int) -> dict[str, Any] | None:
         if node.get("para_index") == para_index:
             return node
         for child in node.get("children", []):
@@ -154,7 +154,7 @@ class TreeService(ServiceBase):
 
     # ── Content strategies ─────────────────────────────────────────
 
-    def _get_body_preview(self, doc: Any, heading_para_index: int, max_chars: int = 100):
+    def _get_body_preview(self, doc: Any, heading_para_index: int, max_chars: int = 100) -> str:
         text = doc.getText()
         enum = text.createEnumeration()
         idx = 0
@@ -190,7 +190,7 @@ class TreeService(ServiceBase):
             full_preview = full_preview[:max_chars] + "..."
         return full_preview
 
-    def _get_full_body_text(self, doc: Any, heading_para_index: int):
+    def _get_full_body_text(self, doc: Any, heading_para_index: int) -> str:
         text = doc.getText()
         enum = text.createEnumeration()
         idx = 0
@@ -217,7 +217,7 @@ class TreeService(ServiceBase):
 
         return "\n".join(parts)
 
-    def _apply_content_strategy(self, node: dict[str, Any], doc: Any, strategy: str, max_chars: int = 100):
+    def _apply_content_strategy(self, node: dict[str, Any], doc: Any, strategy: str, max_chars: int = 100) -> None:
         para_idx = node.get("para_index", -1)
         if strategy in ("none", "heading_only"):
             pass
@@ -226,7 +226,7 @@ class TreeService(ServiceBase):
         elif strategy == "full":
             node["body_text"] = self._get_full_body_text(doc, para_idx)
 
-    def _serialize_tree_node(self, child: dict[str, Any], doc: Any, content_strategy: str, depth: int, current_depth: int = 1, bookmark_map: dict[Any, Any] | None = None):
+    def _serialize_tree_node(self, child: dict[str, Any], doc: Any, content_strategy: str, depth: int, current_depth: int = 1, bookmark_map: dict[Any, Any] | None = None) -> dict[str, Any]:
         node = {"type": "heading", "level": child["level"], "text": child["text"], "para_index": child["para_index"], "bookmark": (bookmark_map or {}).get(child["para_index"]), "children_count": self._count_all_children(child), "body_paragraphs": child["body_paragraphs"]}
         self._apply_content_strategy(node, doc, content_strategy)
         if depth == 0 or current_depth < depth:
@@ -236,7 +236,7 @@ class TreeService(ServiceBase):
 
     # ── Public tree API ────────────────────────────────────────────
 
-    def get_document_tree(self, doc: Any, content_strategy: str = "first_lines", depth: int = 1):
+    def get_document_tree(self, doc: Any, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
         """Get serialized document tree with content strategies."""
         tree = self.build_heading_tree(doc)
         bookmark_map = self._bm_svc.ensure_heading_bookmarks(doc)
@@ -260,7 +260,7 @@ class TreeService(ServiceBase):
 
         return {"status": "ok", "content_strategy": content_strategy, "depth": depth, "children": children, "body_before_first_heading": tree["body_paragraphs"], "total_paragraphs": total, "page_count": page_count}
 
-    def get_heading_children(self, doc: Any, heading_para_index: int | None = None, heading_bookmark: str | None = None, locator: str | None = None, content_strategy: str = "first_lines", depth: int = 1):
+    def get_heading_children(self, doc: Any, heading_para_index: int | None = None, heading_bookmark: str | None = None, locator: str | None = None, content_strategy: str = "first_lines", depth: int = 1) -> dict[str, Any]:
         """Get children of a heading (body paragraphs + sub-headings)."""
         if locator is not None and heading_para_index is None:
             resolved = self._doc_svc.resolve_locator(doc, locator)
@@ -328,7 +328,7 @@ class TreeService(ServiceBase):
 
     # ── Locator resolution (called by document.resolve_locator) ────
 
-    def resolve_writer_locator(self, doc: Any, loc_type: str, loc_value: Any):
+    def resolve_writer_locator(self, doc: Any, loc_type: str, loc_value: Any) -> dict[str, Any]:
         """Resolve Writer-specific locators to {para_index: N}."""
         if loc_type == "bookmark":
             return self._resolve_bookmark_locator(doc, loc_value)
@@ -392,7 +392,7 @@ class TreeService(ServiceBase):
 
         raise ToolExecutionError("Unknown Writer locator type: '%s'" % loc_type)
 
-    def _resolve_bookmark_locator(self, doc: Any, bookmark_name: str):
+    def _resolve_bookmark_locator(self, doc: Any, bookmark_name: str) -> dict[str, Any]:
         if not hasattr(doc, "getBookmarks"):
             raise ToolExecutionError("Document doesn't support bookmarks")
         bookmarks = doc.getBookmarks()
@@ -411,7 +411,7 @@ class TreeService(ServiceBase):
         para_idx = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj)
         return {"para_index": para_idx}
 
-    def _find_heading_by_text(self, doc: Any, search_text: str):
+    def _find_heading_by_text(self, doc: Any, search_text: str) -> dict[str, Any] | None:
         """Find heading by text (case-insensitive, fuzzy)."""
         tree = self.build_heading_tree(doc)
         bookmark_map = self._bm_svc.get_mcp_bookmark_map(doc)
@@ -451,7 +451,7 @@ class TreeService(ServiceBase):
 
         return None
 
-    def _flatten_headings(self, node: dict[str, Any]):
+    def _flatten_headings(self, node: dict[str, Any]) -> list[dict[str, Any]]:
         result = []
         for child in node.get("children", []):
             result.append({"text": child["text"], "para_index": child["para_index"], "level": child["level"]})

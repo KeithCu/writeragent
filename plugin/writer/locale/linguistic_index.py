@@ -82,12 +82,12 @@ _OR_RE = re.compile(r"\bOR\b", re.IGNORECASE)
 _MIN_TOKEN_LEN = 2
 
 
-def _deaccent(text: str):
+def _deaccent(text: str) -> str:
     nfkd = unicodedata.normalize("NFKD", text)
     return "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
 
 
-def _raw_tokens(text: str):
+def _raw_tokens(text: str) -> list[str]:
     cleaned = _PUNCT_RE.sub(" ", _deaccent(text.lower()))
     return [t for t in cleaned.split() if len(t) >= _MIN_TOKEN_LEN]
 
@@ -98,14 +98,14 @@ def _raw_tokens(text: str):
 class _DocIndex:
     __slots__ = ("terms", "para_texts", "para_count", "build_ms", "language")
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.terms: dict[str, set[int]] = {}
         self.para_texts = {}  # int -> str
         self.para_count = 0
         self.build_ms = 0.0
         self.language = "english"
 
-    def query_and(self, stem_groups: list[list[str]]):
+    def query_and(self, stem_groups: list[list[str]]) -> set[int]:
         if not stem_groups:
             return set()
         sets: list[set[int]] = []
@@ -126,7 +126,7 @@ class _DocIndex:
                 return result
         return result
 
-    def query_or(self, stems: list[str]):
+    def query_or(self, stems: list[str]) -> set[int]:
         result = set()
         for stem in stems:
             ps = self.terms.get(stem)
@@ -134,7 +134,7 @@ class _DocIndex:
                 result |= ps
         return result
 
-    def query_not(self, include: set[int], exclude_stems: list[str]):
+    def query_not(self, include: set[int], exclude_stems: list[str]) -> set[int]:
         result = include.copy()
         for stem in exclude_stems:
             ps = self.terms.get(stem)
@@ -142,7 +142,7 @@ class _DocIndex:
                 result -= ps
         return result
 
-    def query_near(self, stems_a: list[str], stems_b: list[str], distance: int):
+    def query_near(self, stems_a: list[str], stems_b: list[str], distance: int) -> set[int]:
         set_a = set()
         for s in stems_a:
             ps = self.terms.get(s)
@@ -195,7 +195,7 @@ class IndexService(ServiceBase):
 
     # ── Stemmer management ────────────────────────────────────────
 
-    def _get_stemmer(self, lang: str):
+    def _get_stemmer(self, lang: str) -> Any:
         cached = self._stemmers.get(lang)
         if cached is not None:
             return cached
@@ -211,7 +211,7 @@ class IndexService(ServiceBase):
                 return self._get_stemmer("english")
             return None
 
-    def _detect_language(self, doc: Any):
+    def _detect_language(self, doc: Any) -> str:
         try:
             text = doc.getText()
             enum = text.createEnumeration()
@@ -226,12 +226,12 @@ class IndexService(ServiceBase):
             log.debug("Language detection failed: %s", e)
         return "english"
 
-    def _stem(self, stemmer: Any, tokens: list[str], stop_words: Any):
+    def _stem(self, stemmer: Any, tokens: list[str], stop_words: Any) -> list[str]:
         return [stemmer.stemWord(t) for t in tokens if t not in stop_words]
 
     # ── Index build ───────────────────────────────────────────────
 
-    def _get_index(self, doc: Any):
+    def _get_index(self, doc: Any) -> tuple[Any, bool]:
         """Get or build the inverted index. Returns (index, was_cached)."""
         key = self._doc_svc.doc_key(doc)
         if is_cacheable_doc_key(key):
@@ -279,7 +279,7 @@ class IndexService(ServiceBase):
 
     # ── Query parsing ─────────────────────────────────────────────
 
-    def _stem_query_tokens(self, text: str, stemmer: Any, stop_words: Any):
+    def _stem_query_tokens(self, text: str, stemmer: Any, stop_words: Any) -> tuple[list[str], list[str]]:
         raw = _raw_tokens(text)
         stems = []
         dropped = []
@@ -290,7 +290,7 @@ class IndexService(ServiceBase):
                 stems.append(stemmer.stemWord(t) if stemmer else t)
         return stems, dropped
 
-    def _parse_query(self, query: str, stemmer: Any, stop_words: Any):
+    def _parse_query(self, query: str, stemmer: Any, stop_words: Any) -> dict[str, Any]:
         result: dict[str, Any] = {"and_stems": [], "or_stems": [], "not_stems": [], "near": [], "dropped_stops": [], "mode": "and", "error": None}
 
         not_split = _NOT_RE.split(query)
@@ -343,7 +343,7 @@ class IndexService(ServiceBase):
 
     # ── Query Execution & Formatting ──────────────────────────────
 
-    def _execute_query(self, idx: Any, mode: str, near: Any, or_stems: Any, and_stems: Any, not_stems: Any):
+    def _execute_query(self, idx: Any, mode: str, near: Any, or_stems: Any, and_stems: Any, not_stems: Any) -> set[int]:
         if mode == "near" and near:
             left, right, dist = near[0]
             hits = idx.query_near(left, right, dist)
@@ -359,7 +359,7 @@ class IndexService(ServiceBase):
 
         return hits
 
-    def _build_result_entry(self, idx: Any, para_i: int, context_paragraphs: int, all_positive: Any, bookmark_map: Any):
+    def _build_result_entry(self, idx: Any, para_i: int, context_paragraphs: int, all_positive: Any, bookmark_map: Any) -> dict[str, Any]:
         ctx_lo = max(0, para_i - context_paragraphs)
         ctx_hi = min(idx.para_count, para_i + context_paragraphs + 1)
         context = [{"index": j, "text": idx.para_texts.get(j, "")} for j in range(ctx_lo, ctx_hi)]
@@ -376,7 +376,7 @@ class IndexService(ServiceBase):
 
     # ── Public API ────────────────────────────────────────────────
 
-    def search_boolean(self, doc: Any, query: str, max_results: int = 20, context_paragraphs: int = 1):
+    def search_boolean(self, doc: Any, query: str, max_results: int = 20, context_paragraphs: int = 1) -> dict[str, Any]:
         """Boolean full-text search with Snowball stemming."""
         idx, was_cached = self._get_index(doc)
 
@@ -418,7 +418,7 @@ class IndexService(ServiceBase):
             resp["dropped_stops"] = parsed["dropped_stops"]
         return resp
 
-    def get_index_stats(self, doc: Any):
+    def get_index_stats(self, doc: Any) -> dict[str, Any]:
         """Index statistics + top 20 most frequent stems."""
         idx, was_cached = self._get_index(doc)
 

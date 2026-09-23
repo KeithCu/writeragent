@@ -8,7 +8,7 @@ Writer: named text tables (table_list / getCellByName). Draw: TableShape on a pa
 (page + shape index, or shape.Name). Cell text is PLAIN (not tracked changes).
 """
 import logging
-from typing import Any
+from typing import Any, Iterator
 
 from ..html_export import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase
@@ -155,7 +155,7 @@ def _container_xtext(obj: Any) -> Any | None:
     return inner
 
 
-def _iter_direct_children(xtext: Any):
+def _iter_direct_children(xtext: Any) -> Iterator[Any]:
     """Yield each element of *xtext*'s XEnumeration (one level, no recurse)."""
     try:
         enum = xtext.createEnumeration()
@@ -170,7 +170,7 @@ def _iter_direct_children(xtext: Any):
             return
 
 
-def _iter_text_frames_in_para(para: Any):
+def _iter_text_frames_in_para(para: Any) -> Iterator[Any]:
     """As-character TextFrames in *para* (portion property ``TextFrame``).
 
     Probed: a frame in a cell is not an XEnumeration sibling — the cell enum
@@ -195,7 +195,7 @@ def _iter_text_frames_in_para(para: Any):
             yield frame
 
 
-def _walk_xtext_siblings(xtext: Any, *, into_containers: bool = True):
+def _walk_xtext_siblings(xtext: Any, *, into_containers: bool = True) -> Iterator[tuple[str, Any]]:
     """Yield ``('table', obj)`` or ``('para', obj)`` from *xtext*.
 
     When *into_containers* is true (cell / body), follow TextFrame /

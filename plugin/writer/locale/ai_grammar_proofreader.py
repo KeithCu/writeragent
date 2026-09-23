@@ -88,7 +88,7 @@ from plugin.writer.locale.grammar_work_queue import (
 )
 
 
-def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any):
+def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any) -> Any:
     """Run *fn* on the LO UI thread (XProofreader hooks run on linguistic workers)."""
     from plugin.framework.queue_executor import execute_on_main_thread
     from plugin.framework.thread_guard import on_main_thread
@@ -415,7 +415,7 @@ def _errors_to_uno_tuple(norms: Sequence[NormalizedProofError]) -> tuple[Any, ..
 class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo, XServiceName, XServiceDisplayName, XSupportedLocales, XLinguServiceEventBroadcaster):  # pyright: ignore[reportGeneralTypeIssues] — multiple UNO interface bases  # pyrefly: ignore[invalid-inheritance]
     """Grammar checker registered under Linguistic / GrammarCheckers (cf. Lightproof)."""
 
-    def __init__(self, ctx: Any, *args: Any):
+    def __init__(self, ctx: Any, *args: Any) -> None:
         # LibreOffice's Linguistic manager instantiates proofreaders with
         # compatibility arguments before querying XSupportedLocales.
         del args

@@ -60,7 +60,7 @@ def do_extend_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         if not is_thinking:
             session.append_chunk(chunk_text)
 
-    def on_done():
+    def on_done() -> None:
         warning = session.finish()
         if warning:
             msgbox(ctx, title, warning)
@@ -100,7 +100,7 @@ def do_edit_selection(ctx: Any, model: Any, input_box_fn: Any) -> None:
         if not is_thinking:
             session.append_chunk(chunk_text)
 
-    def on_done():
+    def on_done() -> None:
         warning = session.finish()
         if warning:
             msgbox(ctx, title, warning)

@@ -35,7 +35,7 @@ class FrameList(ToolWriterTextFramesBase):
     description: str = "List all text frames in the document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         text_frames = self.get_collection(doc, "getTextFrames", "Document does not support text frames.")
         if isinstance(text_frames, dict):
@@ -81,7 +81,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
     description: str = "Get detailed info about a text frame."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the text frame (from frame_list)."}}, "required": ["name"]}
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         frame_name = kwargs.get("name", "")
         if not frame_name:
             return self._tool_error("name is required.")
@@ -175,7 +175,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
     }
     is_mutation: bool | None = True
 
-    def execute(self, ctx: Any, **kwargs: Any):
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         frame_name = kwargs.get("name", "")
         if not frame_name:
             return self._tool_error("name is required.")

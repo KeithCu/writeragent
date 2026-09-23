@@ -40,7 +40,7 @@ _WRITER_GRAPHIC_SERVICE = visual_helpers.WRITER_GRAPHIC_SERVICE
 _DRAW_GRAPHIC_SERVICE = visual_helpers.DRAW_GRAPHIC_SERVICE
 
 
-def get_type_doc(doc: Any):
+def get_type_doc(doc: Any) -> str:
     return visual_helpers.get_visual_doc_type(doc)
 
 
@@ -79,7 +79,7 @@ def _safe_try_method(obj: Any, method_name: str, *args: Any) -> bool:
     return visual_helpers.safe_try_method(obj, method_name, *args)
 
 
-def _apply_graphic_properties(graphic: Any, *, width: int, height: int, title: str, description: str, anchor_type: Any = AS_CHARACTER, inside: str = "writer"):
+def _apply_graphic_properties(graphic: Any, *, width: int, height: int, title: str, description: str, anchor_type: Any = AS_CHARACTER, inside: str = "writer") -> None:
     # Never use hasattr(graphic, "PropName") — PyUNO raises UnknownPropertyException.
     if inside in ("writer", "web"):
         _safe_set_property(graphic, "AnchorType", anchor_type)
@@ -96,7 +96,7 @@ def _apply_graphic_properties(graphic: Any, *, width: int, height: int, title: s
         _safe_set_property(graphic, "Description", description)
 
 
-def _selection_graphic_object(model: Any):
+def _selection_graphic_object(model: Any) -> Any | None:
     return visual_helpers.selected_graphic_object(model)
 
 
@@ -122,7 +122,7 @@ def _graphic_from_provider(ctx: Any, file_url: str) -> Any | None:
         return None
 
 
-def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str):
+def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str) -> Any | None:
     """
     Insert a linked image via .uno:InsertGraphic (LO 6.1+).
     Setting GraphicURL directly embeds bytes; AsLink keeps the ODT small.
@@ -143,7 +143,7 @@ def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str):
         return None
 
 
-def _create_embedded_graphic(model: Any, inside: str, file_url: str, ctx: Any | None = None):
+def _create_embedded_graphic(model: Any, inside: str, file_url: str, ctx: Any | None = None) -> Any:
     if inside in ("writer", "web"):
         graphic = model.createInstance(_WRITER_GRAPHIC_SERVICE)
     else:
@@ -158,7 +158,7 @@ def _create_embedded_graphic(model: Any, inside: str, file_url: str, ctx: Any | 
     raise RuntimeError("Could not assign GraphicURL or Graphic to embedded graphic")
 
 
-def insert_image(ctx: Any, model: Any, img_path: str, width_px: int, height_px: int, title: str = "", description: str = "", add_to_gallery: bool = True, add_frame: bool = False, page_index: int | None = None, x_mm: int | float | None = None, y_mm: int | float | None = None):
+def insert_image(ctx: Any, model: Any, img_path: str, width_px: int, height_px: int, title: str = "", description: str = "", add_to_gallery: bool = True, add_frame: bool = False, page_index: int | None = None, x_mm: int | float | None = None, y_mm: int | float | None = None) -> None:
     """
     Inserts an image into the document.
     width_px, height_px: Source/generate pixels, not on-page millimetres.
@@ -186,7 +186,7 @@ def insert_image(ctx: Any, model: Any, img_path: str, width_px: int, height_px: 
         add_image_to_gallery(ctx, img_path, f"{title}\n\n{description}")
 
 
-def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int | float = 80, height_mm: int | float = 80, title: str = "", description: str = "", text_cursor: Any = None, page_index: int | None = None, x_mm: int | float | None = None, y_mm: int | float | None = None):
+def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int | float = 80, height_mm: int | float = 80, title: str = "", description: str = "", text_cursor: Any = None, page_index: int | None = None, x_mm: int | float | None = None, y_mm: int | float | None = None) -> Any:
     """
     Insert at an optional Writer text cursor, or current view cursor / draw page.
     width_mm, height_mm: display size in millimetres.
@@ -232,7 +232,7 @@ def insert_image_into_header_footer(
     title: str = "",
     description: str = "",
     ctx: Any | None = None,
-):
+) -> dict[str, Any]:
     """Insert an image into a Writer page header or footer.
 
     Anchors ``AS_CHARACTER`` so the image contributes to line height. A
@@ -293,7 +293,7 @@ def _place_view_cursor_at_text_range(model: Any, text_cursor: Any) -> None:
         log.debug("_place_view_cursor_at_text_range: %s", e)
 
 
-def _cursor_for_writer_view(vc: Any):
+def _cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
     """Collapsed model cursor at the view cursor, on the host XText.
 
     Why getStart() first: ``clone_text_range(ViewCursor)`` calls
@@ -325,7 +325,7 @@ def _insert_embedded_at_writer_cursor(
     text_cursor: Any = None,
     text_container: Any = None,
     ctx: Any | None = None,
-):
+) -> Any:
     doc_text = text_container if text_container is not None else model.getText()
     file_url = _file_url_for_path(img_path)
     image = _create_embedded_graphic(model, "writer", file_url, ctx=ctx)
@@ -416,7 +416,7 @@ def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, 
         frame_text.insertString(frame_cursor, "\n" + title, False)
 
 
-def _draw_page_for_insert(model: Any, inside: str, page_index: int | None = None):
+def _draw_page_for_insert(model: Any, inside: str, page_index: int | None = None) -> Any:
     if inside in ("draw", "impress") and page_index is not None:
         pages = model.getDrawPages()
         count = pages.getCount()
@@ -429,7 +429,7 @@ def _draw_page_for_insert(model: Any, inside: str, page_index: int | None = None
     return draw_page
 
 
-def _position_on_draw_page(draw_page: Any, width: int, height: int, x_mm: int | float | None, y_mm: int | float | None):
+def _position_on_draw_page(draw_page: Any, width: int, height: int, x_mm: int | float | None, y_mm: int | float | None) -> Any:
     if x_mm is not None or y_mm is not None:
         x = int(x_mm * 100) if x_mm is not None else 0
         y = int(y_mm * 100) if y_mm is not None else 0
@@ -458,7 +458,7 @@ def _insert_image_to_drawpage(ctx: Any, model: Any, inside: str, img_path: str, 
         image.setPosition(_position_on_draw_page(draw_page, width, height, x_mm, y_mm))
 
 
-def replace_graphic_source(ctx: Any, model: Any, graphic: Any, img_path: str, width_units: Any = None, height_units: Any = None, title: str | None = None, description: str | None = None):
+def replace_graphic_source(ctx: Any, model: Any, graphic: Any, img_path: str, width_units: Any = None, height_units: Any = None, title: str | None = None, description: str | None = None) -> bool:
     """
     Replace an existing graphic's image source (by name), preserving object when possible.
     User paths are re-linked; temp/cache paths update GraphicURL (embed).
@@ -565,7 +565,7 @@ def replace_graphic_source(ctx: Any, model: Any, graphic: Any, img_path: str, wi
                 _safe_try_method(graphic, "setSize", sz)
         return True
 
-def _get_selected_graphic_object(model: Any):
+def _get_selected_graphic_object(model: Any) -> tuple[Any | None, str | None]:
     """
     If the current selection is a single graphic, return (content, doc_type).
     Writer: content is XTextContent (GraphicObject); Calc/Draw: content is XShape (GraphicObjectShape).
@@ -577,7 +577,7 @@ def _get_selected_graphic_object(model: Any):
     return obj, get_type_doc(model)
 
 
-def replace_image_in_place(ctx: Any, model: Any, img_path: str, width_px: int, height_px: int, title: str = "", description: str = "", add_to_gallery: bool = True, add_frame: bool = False):
+def replace_image_in_place(ctx: Any, model: Any, img_path: str, width_px: int, height_px: int, title: str = "", description: str = "", add_to_gallery: bool = True, add_frame: bool = False) -> bool:
     """
     If the current selection is a single graphic, replace it with the new image and return True.
     Otherwise return False (caller should fall back to insert_image).
@@ -598,7 +598,7 @@ def replace_image_in_place(ctx: Any, model: Any, img_path: str, width_px: int, h
         return False
 
 
-def get_selected_image_dimensions_px(model: Any):
+def get_selected_image_dimensions_px(model: Any) -> tuple[int | None, int | None]:
     """
     Returns (width_px, height_px) of the currently selected graphic, or (None, None) if none.
     Uses 96 DPI: 1/100 mm -> px conversion (size * 96 / 2540).
@@ -663,7 +663,7 @@ def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:
         return None
 
 
-def get_selected_image_base64(model: Any, ctx: Any = None):
+def get_selected_image_base64(model: Any, ctx: Any = None) -> str | None:
     """
     Returns the base64 encoded data of the currently selected image.
     Works for GraphicObject (Writer) or GraphicObjectShape (Calc/Draw).
@@ -688,7 +688,7 @@ def get_selected_image_base64(model: Any, ctx: Any = None):
 
 
 
-def add_image_to_gallery(ctx: Any, img_path: str, title: str):
+def add_image_to_gallery(ctx: Any, img_path: str, title: str) -> None:
     try:
         psettings = ctx.getValueByName("/singletons/com.sun.star.util.thePathSettings")
         gallery_dir = Path(uno.fileUrlToSystemPath(psettings.Storage_writable)) / GALLERY_IMAGE_DIR
