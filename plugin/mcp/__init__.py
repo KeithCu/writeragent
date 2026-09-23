@@ -59,6 +59,16 @@ class McpModule(ModuleBase):
     This module starts the server in start_background() (phase 2b).
     """
 
+    # Declared here so mypy can type the second-bootstrap reuse path
+    # (prim._tunnel / prim._mcp_protocol) after initialize() gained annotations.
+    _registry: Any
+    _server: Any
+    _tunnel: TunnelManager | None
+    _services: Any
+    _mcp_protocol: Any
+    _mcp_routes_registered: bool
+    _srv_lock: threading.Lock
+
     def initialize(self, services: Any) -> None:
         global _primary_http_module, _shared_registry, _shared_http_server, _shared_tunnel
 

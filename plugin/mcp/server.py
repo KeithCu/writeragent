@@ -229,8 +229,8 @@ class HttpServer:
         self.use_ssl = use_ssl
         self.ssl_cert = ssl_cert
         self.ssl_key = ssl_key
-        self._server = None
-        self._thread = None
+        self._server: Any = None
+        self._thread: Any = None
         self._running = False
 
     def start(self) -> None:

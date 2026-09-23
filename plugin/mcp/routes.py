@@ -52,7 +52,7 @@ class HttpRouteRegistry:
     """
 
     def __init__(self) -> None:
-        self._routes = {}  # (method, path) -> Route
+        self._routes: dict[tuple[str, str], Route] = {}  # (method, path) -> Route
 
     def add(self, method: str, path: str, handler: Callable[..., Any], raw: bool = False, main_thread: bool = False) -> None:
         """Register a route handler.
