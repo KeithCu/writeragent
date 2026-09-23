@@ -10,10 +10,14 @@ except by the user's own Ctrl+Z — the agent had no rollback at all. The undo s
 with the user's manual edits, so the descriptions steer the model to undo only its own last
 action and to tell the user."""
 
-from plugin.framework.tool import ToolBase
+from __future__ import annotations
+
+from typing import Any
+
+from plugin.framework.tool import ToolBase, ToolContext
 
 
-def _get_undo_manager(doc):
+def _get_undo_manager(doc: Any) -> Any:
     """Return the UndoManager for any document type."""
     if hasattr(doc, "getUndoManager"):
         return doc.getUndoManager()
@@ -34,7 +38,7 @@ class Undo(ToolBase):
     uno_services = None
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         steps = kwargs.get("steps", 1)
         try:
             um = _get_undo_manager(ctx.doc)
@@ -62,7 +66,7 @@ class Redo(ToolBase):
     uno_services = None
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         steps = kwargs.get("steps", 1)
         try:
             um = _get_undo_manager(ctx.doc)

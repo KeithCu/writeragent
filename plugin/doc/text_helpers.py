@@ -15,7 +15,7 @@ load ``document_helpers`` → chat context / ``DocumentService``.
 from __future__ import annotations
 
 import logging
-from typing import TypedDict
+from typing import Any, TypedDict
 
 import uno
 
@@ -47,7 +47,7 @@ def normalize_linebreaks(text: str | None) -> str:
 _GO_RIGHT_CHUNK = 8192
 
 
-def _writer_char_count(model) -> int:
+def _writer_char_count(model: Any) -> int:
     """Writer document character count; prefers O(1) CharacterCount over full getString()."""
     try:
         check_disposed(model, "Document Model")
@@ -67,7 +67,7 @@ def _writer_char_count(model) -> int:
         return 0
 
 
-def _char_offset_of_position(model, target_start, doc_len: int) -> int:
+def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int:
     """Character offset of a UNO text position from document start (no prefix getString())."""
     if doc_len <= 0:
         return 0
@@ -106,7 +106,7 @@ def _char_offset_of_position(model, target_start, doc_len: int) -> int:
         return 0
 
 
-def _get_writer_selection_positions(model):
+def _get_writer_selection_positions(model: Any) -> tuple[Any, Any, Any] | None:
     """Return (text, sel_start_pos, sel_end_pos) or None when selection unavailable."""
     try:
         check_disposed(model, "Document Model")
@@ -129,7 +129,7 @@ def _get_writer_selection_positions(model):
 
 
 @main_thread_only
-def get_selection_range(model):
+def get_selection_range(model: Any) -> tuple[int, int]:
     """Return (start_offset, end_offset) character positions into the document.
     Cursor (no selection) = same start and end. Returns (0, 0) on error or no text range."""
     try:
@@ -157,7 +157,7 @@ class HeadingTreeNode(TypedDict):
     body_paragraphs: int
 
 
-def _portion_type(portion) -> str | None:
+def _portion_type(portion: Any) -> str | None:
     try:
         return portion.getPropertyValue("TextPortionType")
     except Exception:
@@ -167,7 +167,7 @@ def _portion_type(portion) -> str | None:
             return None
 
 
-def _range_is_paragraph(text_range) -> bool:
+def _range_is_paragraph(text_range: Any) -> bool:
     """True when *text_range* is a paragraph: children are portions, not paragraphs.
 
     ``createEnumeration()`` on a document or multi-para cursor yields paragraphs.
@@ -189,11 +189,11 @@ def _range_is_paragraph(text_range) -> bool:
 
 
 def _visible_portions(
-    para,
+    para: Any,
     *,
     abort_on_portion_error: bool = False,
     limit: int | None = None,
-    truncated_out=None,
+    truncated_out: list[int] | None = None,
 ):
     """Yield ``(portion, text)`` for visible text, skipping tracked deletions.
 
@@ -249,7 +249,7 @@ def _visible_portions(
             yield portion, chunk
 
 
-def _paragraph_visible_text(para) -> str:
+def _paragraph_visible_text(para: Any) -> str:
     """Visible text of one paragraph via ``_visible_portions``.
 
     Falls back to ``getString()`` only when the portion enum cannot be opened
@@ -270,7 +270,7 @@ def _paragraph_visible_text(para) -> str:
 
 
 @main_thread_only
-def get_string_without_tracked_deletions(text_range) -> str:
+def get_string_without_tracked_deletions(text_range: Any) -> str:
     """Return *text_range* text while skipping tracked deletions when possible.
 
     A paragraph (``com.sun.star.text.Paragraph``, or first child has
@@ -321,7 +321,7 @@ def normalize_file_url(url: str) -> str:
 
 
 @main_thread_only
-def get_document_path(model):
+def get_document_path(model: Any) -> str | None:
     """Return the local filesystem path for the document, or None if not a file URL (e.g. untitled)."""
     try:
         url = model.getURL()
@@ -338,7 +338,7 @@ def get_document_path(model):
 
 
 @main_thread_only
-def build_heading_tree(model) -> HeadingTreeNode:
+def build_heading_tree(model: Any) -> HeadingTreeNode:
     """Build a hierarchical heading tree. Single pass enumeration."""
     try:
         check_disposed(model, "Document Model")
@@ -381,7 +381,7 @@ def build_heading_tree(model) -> HeadingTreeNode:
 
 
 @main_thread_only
-def collect_tracked_changes(text_range, max_per_change: int = 300, max_changes: int = 100):
+def collect_tracked_changes(text_range: Any, max_per_change: int = 300, max_changes: int = 100) -> list[dict[str, str]]:
     """Walk text portions and collect tracked insertions/deletions WITH their text, so a reader can
     see what is pending and that it awaits the user's review (rather than the default read, which
     hides deletions and gives no hint that changes are pending).
@@ -389,7 +389,7 @@ def collect_tracked_changes(text_range, max_per_change: int = 300, max_changes: 
     Returns a list of ``{"type": "insertion"|"deletion", "text": str}`` in document order. Best-effort:
     returns ``[]`` on any failure. Mirrors get_string_without_tracked_deletions' portion walk, but also
     toggles on Insert redlines and buffers the text of each change instead of dropping deletions."""
-    out: list[dict] = []
+    out: list[dict[str, str]] = []
     if hasattr(text_range, "_mock_return_value") or type(text_range).__name__ in ("Mock", "MagicMock"):
         return out
     try:
@@ -404,7 +404,7 @@ def collect_tracked_changes(text_range, max_per_change: int = 300, max_changes: 
     del_buf: list[str] = []
     ins_buf: list[str] = []
 
-    def _flush(buf, kind):
+    def _flush(buf: list[str], kind: str) -> None:
         if buf and len(out) < max_changes:
             out.append({"type": kind, "text": "".join(buf)[:max_per_change]})
         buf.clear()
@@ -459,7 +459,7 @@ def collect_tracked_changes(text_range, max_per_change: int = 300, max_changes: 
 
 
 @main_thread_only
-def get_selection_text(model):
+def get_selection_text(model: Any) -> str | None:
     """Return the selected text or None if selection is empty/unavailable/fails. Handles Writer, Calc, Draw."""
     try:
         check_disposed(model, "Document Model")
@@ -507,7 +507,7 @@ def get_selection_text(model):
 
 
 @main_thread_only
-def get_document_end(model, max_chars=4000):
+def get_document_end(model: Any, max_chars: int = 4000) -> str:
     """Get the last max_chars of the document."""
     try:
         check_disposed(model, "Document Model")
@@ -524,7 +524,7 @@ def get_document_end(model, max_chars=4000):
         return ""
 
 
-def _read_writer_text_slice(model, start_offset: int, length: int) -> str:  # pyright: ignore[reportUnusedFunction]
+def _read_writer_text_slice(model: Any, start_offset: int, length: int) -> str:  # pyright: ignore[reportUnusedFunction]
     """Read up to *length* characters from *start_offset* without loading the full document.
 
     Used by ``document_helpers.get_document_context_for_chat`` (Writer excerpts).
@@ -540,7 +540,7 @@ def _read_writer_text_slice(model, start_offset: int, length: int) -> str:  # py
 
 
 @main_thread_only
-def get_full_writer_text(model, max_chars):
+def get_full_writer_text(model: Any, max_chars: int) -> str:
     """Prefix of Writer body text, truncated. Hides tracked deletions."""
     doc_len = _writer_char_count(model)
     take = min(doc_len, max_chars)
@@ -550,7 +550,13 @@ def get_full_writer_text(model, max_chars):
     return excerpt
 
 
-def _writer_excerpt_overlaps_selection(model, excerpt_start: int, excerpt_end: int, sel_start_pos, sel_end_pos) -> bool:
+def _writer_excerpt_overlaps_selection(
+    model: Any,
+    excerpt_start: int,
+    excerpt_end: int,
+    sel_start_pos: Any,
+    sel_end_pos: Any,
+) -> bool:
     """True when selection UNO range overlaps [excerpt_start, excerpt_end) character window."""
     exc_cursor = get_text_cursor_at_range(model, excerpt_start, excerpt_end)
     if exc_cursor is None:
@@ -565,7 +571,12 @@ def _writer_excerpt_overlaps_selection(model, excerpt_start: int, excerpt_end: i
     return True
 
 
-def _writer_selection_overlaps_windows(model, windows: list[tuple[int, int]], sel_start_pos, sel_end_pos) -> bool:  # pyright: ignore[reportUnusedFunction]
+def _writer_selection_overlaps_windows(
+    model: Any,
+    windows: list[tuple[int, int]],
+    sel_start_pos: Any,
+    sel_end_pos: Any,
+) -> bool:  # pyright: ignore[reportUnusedFunction]
     for win_start, win_end in windows:
         if _writer_excerpt_overlaps_selection(model, win_start, win_end, sel_start_pos, sel_end_pos):
             return True
@@ -573,7 +584,7 @@ def _writer_selection_overlaps_windows(model, windows: list[tuple[int, int]], se
 
 
 @main_thread_only
-def get_document_length(model):
+def get_document_length(model: Any) -> int:
     """Return total character length of the document. Returns 0 on error."""
     try:
         check_disposed(model, "Document Model")
@@ -590,7 +601,7 @@ def get_document_length(model):
         return 0
 
 
-def clone_text_range(text_range):
+def clone_text_range(text_range: Any) -> Any:
     """Clone *text_range* via its own XText (nested table/frame safe).
 
     ``doc.getText().createTextCursorByRange(range)`` raises UNO
@@ -602,7 +613,7 @@ def clone_text_range(text_range):
 
 
 @main_thread_only
-def get_text_cursor_at_range(model, start_offset, end_offset):
+def get_text_cursor_at_range(model: Any, start_offset: int, end_offset: int) -> Any:
     """Return a text cursor that selects the character range [start_offset, end_offset).
     The cursor is positioned at start and expanded to end so caller can setString('') and insert.
     goRight is used in chunks because UNO's goRight takes short (max 32767).

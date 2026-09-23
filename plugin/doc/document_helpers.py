@@ -26,6 +26,8 @@ edits live in ``plugin.writer.edit_review``. Calc chat context lives in
 re-export of ``get_calc_context_for_chat`` would pull ``SheetAnalyzer`` at
 import time and break LibrePy.
 """
+from __future__ import annotations
+
 import logging
 import weakref
 from contextlib import contextmanager
@@ -83,7 +85,7 @@ except Exception:
 
 
 @main_thread_only
-def get_full_document_text(model, max_chars=CHAT_DOCUMENT_CONTEXT_MAX_CHARS):
+def get_full_document_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS) -> str:
     """Dispatch full-text / summary by document type.
 
     Writer slices live in ``text_helpers``. Draw/Impress summaries live on
@@ -113,7 +115,7 @@ def get_full_document_text(model, max_chars=CHAT_DOCUMENT_CONTEXT_MAX_CHARS):
         return ""
 
 
-def _writer_has_math_ole(model) -> bool:
+def _writer_has_math_ole(model: Any) -> bool:
     """True when the Writer doc has at least one LibreOffice Math embedded object."""
     try:
         from plugin.writer.math.math_mml_convert import MATH_CLSID
@@ -133,7 +135,7 @@ def _writer_has_math_ole(model) -> bool:
     return False
 
 
-def _with_math_ole_chat_hint(model, body: str) -> str:
+def _with_math_ole_chat_hint(model: Any, body: str) -> str:
     """Plain-text excerpts skip Math OLE; point the model at get_document_content."""
     if not _writer_has_math_ole(model):
         return body
@@ -146,7 +148,13 @@ def _with_math_ole_chat_hint(model, body: str) -> str:
 
 
 @main_thread_only
-def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True, ctx=None):
+def get_document_context_for_chat(
+    model: Any,
+    max_context: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS,
+    include_end: bool = True,
+    include_selection: bool = True,
+    ctx: Any | None = None,
+) -> str:
     """Build a single context string for chat. Handles Writer, Calc and Draw.
     ctx: component context (required for Calc and Draw documents)."""
     try:
@@ -231,7 +239,15 @@ def get_document_context_for_chat(model, max_context=CHAT_DOCUMENT_CONTEXT_MAX_C
         return "[Document content unavailable]"
 
 
-def _inject_markers_into_excerpt(excerpt_text, excerpt_start, excerpt_end, sel_start, sel_end, prefix, suffix):
+def _inject_markers_into_excerpt(
+    excerpt_text: str,
+    excerpt_start: int,
+    excerpt_end: int,
+    sel_start: int,
+    sel_end: int,
+    prefix: str,
+    suffix: str,
+) -> str:
     # ...
     """Inject [SELECTION_START] and [SELECTION_END] at character positions relative to excerpt.
     excerpt_start/excerpt_end are the document character range this excerpt covers.
@@ -250,7 +266,7 @@ def _inject_markers_into_excerpt(excerpt_text, excerpt_start, excerpt_end, sel_s
     return out
 
 
-def resolve_locator(model, locator: str):
+def resolve_locator(model: Any, locator: str) -> dict[str, int]:
     """Resolve a locator string to a paragraph index or other document position.
 
     Broader than bookmarks: ``paragraph:``, ``heading:``, and ``bookmark:``. Left
@@ -297,7 +313,7 @@ def is_cacheable_doc_key(key: str) -> bool:
     return bool(key) and key != UNKNOWN_DOC_KEY
 
 
-def _compute_doc_key(doc) -> str:
+def _compute_doc_key(doc: Any) -> str:
     """uid:<RuntimeUID> then url:<normalized>; never id(doc)."""
     if doc is None:
         return UNKNOWN_DOC_KEY
@@ -314,7 +330,7 @@ def _compute_doc_key(doc) -> str:
     return UNKNOWN_DOC_KEY
 
 
-def _emit_cache_invalidated(*, doc=None, key=None) -> None:
+def _emit_cache_invalidated(*, doc: Any | None = None, key: str | None = None) -> None:
     from plugin.framework.event_bus import get_event_bus
 
     payload: dict[str, Any] = {}
@@ -336,7 +352,7 @@ class _CacheListenerPair:
             self._model_ref = None
             self._model = model
 
-    def model(self):
+    def model(self) -> Any:
         if self._model_ref is not None:
             return self._model_ref()
         return getattr(self, "_model", None)
@@ -353,7 +369,7 @@ class _CacheModifyListener:
     def __init__(self, key: str) -> None:
         self._doc_key_val = key
 
-    def modified(self, aEvent) -> None:  # noqa: N802, N803 -- UNO signature
+    def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
             if _IGNORE_DEPTH > 0:
                 return
@@ -362,7 +378,7 @@ class _CacheModifyListener:
         except Exception:
             log.debug("cache invalidate modify handler failed", exc_info=True)
 
-    def disposing(self, Source) -> None:  # noqa: N802, N803 -- UNO signature
+    def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
         _teardown_cache_listener(self._doc_key_val, owner_modify=self)
 
 
@@ -382,7 +398,7 @@ class _CacheUnloadListener:
         _teardown_cache_listener(self._doc_key_val, owner_unload=self)
 
 
-def _teardown_cache_listener(key: str, owner_modify=None, owner_unload=None) -> None:
+def _teardown_cache_listener(key: str, owner_modify: Any | None = None, owner_unload: Any | None = None) -> None:
     pair = _CACHE_LISTENERS.get(key)
     if pair is None:
         return
@@ -411,7 +427,7 @@ def _teardown_cache_listener(key: str, owner_modify=None, owner_unload=None) -> 
         log.debug("cache unload listener removal failed", exc_info=True)
 
 
-def _uno_listener(logic_cls, iface: Any, key: str) -> Any:
+def _uno_listener(logic_cls: Any, iface: Any, key: str) -> Any:
     """Attach-time UNO subclass so module import stays soffice-free."""
     if not _HAVE_UNO_LISTENERS:
         return logic_cls(key)
@@ -420,7 +436,7 @@ def _uno_listener(logic_cls, iface: Any, key: str) -> Any:
     return cls(key)
 
 
-def _ensure_cache_listener(doc, key: str) -> None:
+def _ensure_cache_listener(doc: Any, key: str) -> None:
     if key in _CACHE_LISTENERS:
         return
     can_modify = hasattr(doc, "addModifyListener")
@@ -453,17 +469,17 @@ def _ensure_cache_listener(doc, key: str) -> None:
 class DocumentService(ServiceBase):
     name = "document"
 
-    def initialize(self, ctx):
+    def initialize(self, ctx: Any) -> None:
         pass
 
-    def get_active_document(self):
+    def get_active_document(self) -> Any:
         return get_active_document()
 
-    def resolve_document_by_url(self, url):
+    def resolve_document_by_url(self, url: str) -> Any:
         """Resolve (doc, doc_type) by document URL; (None, None) if not found. Main-thread only."""
         return _resolve_document_by_url(get_ctx(), url)
 
-    def detect_doc_type(self, doc):
+    def detect_doc_type(self, doc: Any) -> str:
         doc_type = _doc_type.get_document_type(doc)
         if doc_type == _doc_type.DocumentType.CALC:
             return "calc"
@@ -471,25 +487,31 @@ class DocumentService(ServiceBase):
             return "draw"
         return "writer"
 
-    def is_writer(self, doc):
+    def is_writer(self, doc: Any) -> bool:
         return _doc_type.is_writer(doc)
 
-    def is_calc(self, doc):
+    def is_calc(self, doc: Any) -> bool:
         return _doc_type.is_calc(doc)
 
-    def is_draw(self, doc):
+    def is_draw(self, doc: Any) -> bool:
         return _doc_type.is_draw(doc)
 
-    def get_full_text(self, doc, max_chars=8000):
+    def get_full_text(self, doc: Any, max_chars: int = 8000) -> str:
         return get_full_document_text(doc, max_chars)
 
-    def get_document_length(self, doc):
+    def get_document_length(self, doc: Any) -> int:
         return _text_helpers.get_document_length(doc)
 
-    def get_document_context_for_chat(self, doc, max_context=CHAT_DOCUMENT_CONTEXT_MAX_CHARS, include_end=True, include_selection=True):
+    def get_document_context_for_chat(
+        self,
+        doc: Any,
+        max_context: int = CHAT_DOCUMENT_CONTEXT_MAX_CHARS,
+        include_end: bool = True,
+        include_selection: bool = True,
+    ) -> str:
         return get_document_context_for_chat(doc, max_context, include_end, include_selection, get_ctx())
 
-    def get_page_for_paragraph(self, model, para_index):
+    def get_page_for_paragraph(self, model: Any, para_index: int) -> Any:
         """Return page number for a paragraph by index.
 
         Uses lockControllers + cursor save/restore to prevent visible viewport jumping.
@@ -517,7 +539,7 @@ class DocumentService(ServiceBase):
             logging.getLogger(__name__).exception("get_page_for_paragraph error")
             return 1
 
-    def get_page_count(self, model):
+    def get_page_count(self, model: Any) -> Any:
         """Return page count of a Writer document."""
         try:
             check_disposed(model, "Document Model")
@@ -537,7 +559,7 @@ class DocumentService(ServiceBase):
             logging.getLogger(__name__).exception("get_page_count error")
             return 0
 
-    def doc_key(self, doc):
+    def doc_key(self, doc: Any) -> str:
         """Stable cache key for one open document.
 
         PyUNO hands out a new Python wrapper on almost every lookup of the same
@@ -568,27 +590,27 @@ class DocumentService(ServiceBase):
         finally:
             _IGNORE_DEPTH -= 1
 
-    def get_paragraph_ranges(self, doc):
+    def get_paragraph_ranges(self, doc: Any) -> list[Any]:
         """Return list of top-level paragraph elements."""
         return _get_paragraph_ranges(doc)
 
-    def find_paragraph_for_range(self, anchor, para_ranges, text_obj=None):
+    def find_paragraph_for_range(self, anchor: Any, para_ranges: list[Any], text_obj: Any | None = None) -> int:
         """Return the 0-based paragraph index that contains anchor."""
         return _find_paragraph_for_range(anchor, para_ranges, text_obj)
 
-    def resolve_locator(self, doc, locator):
+    def resolve_locator(self, doc: Any, locator: str) -> dict[str, int]:
         """Resolve a locator string to a paragraph index or other document position."""
         return resolve_locator(doc, locator)
 
-    def yield_to_gui(self):
+    def yield_to_gui(self) -> None:
         """Yield to the UI event loop (no-op here)."""
         pass
 
-    def annotate_pages(self, children, doc):
+    def annotate_pages(self, children: Any, doc: Any) -> None:
         """Annotate tree children with page numbers (no-op here)."""
         pass
 
-    def find_paragraph_element(self, doc, para_index):
+    def find_paragraph_element(self, doc: Any, para_index: int) -> tuple[Any, None]:
         """Return (paragraph_element, None) for the given index, or (None, None) if out of range."""
         ranges = _get_paragraph_ranges(doc)
         if 0 <= para_index < len(ranges):

@@ -16,10 +16,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Shared base class for gateway tools that delegate to specialized toolsets."""
 
+from __future__ import annotations
+
 import logging
 from typing import Any, cast, Type, ClassVar
 
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.constants import USE_SUB_AGENT
 from plugin.framework.prompts import (
     CALC_HIDDEN_SPECIALIZED_DOMAINS,
@@ -118,7 +120,7 @@ class DelegateToSpecializedBase(ToolBase):
     is_mutation = True
     long_running = True
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         domains = []
         # Find all domains by scanning subclasses of the specialized base
@@ -147,7 +149,7 @@ class DelegateToSpecializedBase(ToolBase):
             "required": ["domain", "task"],
         }
 
-    def is_async(self):
+    def is_async(self) -> bool:
         """Run in a background thread so the main-thread queue/drain loop isn't blocked."""
         return True
 
@@ -156,13 +158,13 @@ class DelegateToSpecializedBase(ToolBase):
     # the same doc). The gateway itself is is_mutation=True for the mutating domains.
     _READ_ONLY_DOMAINS = frozenset({"document_research", "web_research", "vision"})
 
-    def requires_document_lock(self, arguments=None):
+    def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = _field_from_tool_arguments(arguments, "domain")
         if domain in self._READ_ONLY_DOMAINS:
             return False
         return super().requires_document_lock(arguments)
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         domain = kwargs.get("domain")
         python_tool_domain = kwargs.get("python_tool_domain")
         task = kwargs.get("task")
@@ -375,7 +377,7 @@ class DelegateToSpecializedBase(ToolBase):
 
             document_open_step_index = 0
 
-            def tool_call_handler(step):
+            def tool_call_handler(step: Any) -> None:
                 nonlocal document_open_step_index, peer_send_invoked, peer_result_send_invoked, create_sheet_ran
                 if step.name == "create_sheet":
                     create_sheet_ran = True

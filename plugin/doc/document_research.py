@@ -109,7 +109,7 @@ def guess_doc_type_from_path(path: str) -> DocTypeGuess:
     return _EXTENSION_DOC_TYPE.get(ext, "unknown")
 
 
-def get_document_research_workflow_hint(ctx=None, doc=None) -> str:
+def get_document_research_workflow_hint(ctx: Any | None = None, doc: Any | None = None) -> str:
     """Outer document_research sub-agent workflow text.
 
     The peer-choice suffix calls ``list_v1_peers`` (RuntimeUID / desktop).
@@ -150,7 +150,7 @@ def get_document_research_workflow_hint(ctx=None, doc=None) -> str:
     return hint
 
 
-def filter_document_research_discovery_tools(tools: list[ToolBase], ctx) -> list[ToolBase]:
+def filter_document_research_discovery_tools(tools: list[ToolBase], ctx: Any) -> list[ToolBase]:
     """Hide cross-file search tools that do not apply to the current folder_search_mode; list/delegate always kept."""
     from plugin.framework.constants import folder_search_enabled
 

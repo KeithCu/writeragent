@@ -5,7 +5,11 @@
 
 """Print tool for all document types via XPrintable."""
 
-from plugin.framework.tool import ToolBaseDummy
+from __future__ import annotations
+
+from typing import Any
+
+from plugin.framework.tool import ToolBaseDummy, ToolContext
 
 
 class PrintDocument(ToolBaseDummy):
@@ -26,7 +30,7 @@ class PrintDocument(ToolBaseDummy):
     uno_services = None  # all document types
     is_mutation = False
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from com.sun.star.beans import PropertyValue
 
         doc = ctx.doc

@@ -93,7 +93,7 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
     )
     executor = SmolAgentExecutor(inner_ctx)
 
-    def tool_call_handler(step):
+    def tool_call_handler(step: Any) -> None:
         cb = parent_ctx.append_thinking_callback
         if cb:
             cb(f"Document research read tool: {step.name}\n")

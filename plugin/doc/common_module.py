@@ -9,13 +9,17 @@ Not shipped in LibrePy. ``plugin/doc/__init__.py`` re-exports ``CommonModule``
 when this file is present so ``load_modules`` still finds it on ``plugin.doc``.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from plugin.framework.module_base import ModuleBase
 
 
 class CommonModule(ModuleBase):
     """Provides generic document tools (info, save, export)."""
 
-    def initialize(self, services):
+    def initialize(self, services: Any) -> None:
         self.services = services
 
         from . import (

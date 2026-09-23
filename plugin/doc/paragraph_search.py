@@ -75,7 +75,7 @@ def search_paragraph_texts(
     return matches, total_count
 
 
-def get_paragraph_ranges(model):
+def get_paragraph_ranges(model: Any) -> list[Any]:
     """Return list of top-level paragraph elements."""
     text = model.getText()
     enum = text.createEnumeration()
@@ -85,7 +85,7 @@ def get_paragraph_ranges(model):
     return ranges
 
 
-def find_paragraph_for_range(match_range, para_ranges, text_obj=None):
+def find_paragraph_for_range(match_range: Any, para_ranges: list[Any], text_obj: Any | None = None) -> int:
     """Return the 0-based paragraph index that contains match_range."""
     try:
         if text_obj is None:

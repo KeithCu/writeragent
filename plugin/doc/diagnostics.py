@@ -5,9 +5,12 @@
 
 """Document diagnostics tools: health checks, protection."""
 
-import logging
+from __future__ import annotations
 
-from plugin.framework.tool import ToolBaseDummy
+import logging
+from typing import Any
+
+from plugin.framework.tool import ToolBaseDummy, ToolContext
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ class DocumentHealthCheck(ToolBaseDummy):
     parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.text.TextDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         doc_svc = ctx.services.document
         para_ranges = doc_svc.get_paragraph_ranges(doc)
@@ -146,7 +149,7 @@ class SetDocumentProtection(ToolBaseDummy):
     uno_services = ["com.sun.star.text.TextDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         enabled = kwargs["enabled"]
         password = kwargs.get("password")
         doc = ctx.doc
