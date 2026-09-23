@@ -116,6 +116,8 @@ def _make_interceptor(model: Any) -> Any:
         from com.sun.star.ui import XContextMenuInterceptor
 
         class _ChangeContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # type: ignore[misc, valid-type]
+            _model: Any
+
             def __init__(self, model: Any) -> None:
                 super().__init__()
                 self._model = model

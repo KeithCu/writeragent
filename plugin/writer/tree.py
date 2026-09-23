@@ -55,6 +55,9 @@ class TreeService(ServiceBase):
 
     name: str | None = "writer_tree"
 
+    _doc_svc: Any
+    _bm_svc: Any
+
     def __init__(self, services: Any) -> None:
         self._doc_svc = services.document
         self._bm_svc = services.writer_bookmarks

@@ -81,6 +81,8 @@ except ImportError:
     pass
 
 class GrammarRegistry:
+    lock: threading.RLock
+
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.doc_persistence_instances: dict[str, "DocumentPersistence"] = {}
@@ -184,6 +186,8 @@ def get_document_model_for_id(ctx: Any, doc_id: str) -> Any | None:
 # XDocumentEventListener extends com.sun.star.lang.XEventListener, so a single
 # class handles both document events (incl. OnUnload) and broadcaster disposal.
 class _GrammarDocumentEventListener(BaseDocumentEventListener):
+    _outer: DocumentPersistence
+
     def __init__(self, outer: DocumentPersistence) -> None:
         super().__init__()
         self._outer = outer
@@ -204,6 +208,11 @@ class _GrammarDocumentEventListener(BaseDocumentEventListener):
 
 class DocumentPersistence:
     """In-memory grammar sentence persistence backing the unified sentence cache with ODT udprops on save."""
+
+    ctx: Any
+    _lock: threading.Lock
+    _doc_id: str
+    _teardown_done: bool
 
     def __init__(self, ctx: Any, doc_id: str, *, model: Any = None) -> None:
         self.ctx = ctx

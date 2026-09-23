@@ -40,6 +40,10 @@ class ProximityService(ServiceBase):
 
     name: str | None = "writer_proximity"
 
+    _doc_svc: Any
+    _tree_svc: Any
+    _bm_svc: Any
+
     def __init__(self, services: Any) -> None:
         self._doc_svc = services.document
         self._tree_svc = services.writer_tree

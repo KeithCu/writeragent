@@ -92,6 +92,11 @@ def _harper_locale_tuple() -> tuple[Any, ...]:
 class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[reportGeneralTypeIssues]
     """Same proofreading pipeline; branded for the LibreHarper extension."""
 
+    _checker_identity: str
+    _provider: str
+    _implementation_name: str
+    _locales: tuple[Any, ...]
+
     def __init__(self, ctx: Any, *args: Any) -> None:
         # Pin package id before base init and update check: WriterAgent may also be installed, and
         # resolve_package_extension_id prefers the first known id with a location.

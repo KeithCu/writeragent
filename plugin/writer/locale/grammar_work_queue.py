@@ -205,6 +205,10 @@ class GrammarWorkQueue:
     keep the logic testable without wrapping the state.
     """
 
+    _lock: threading.Lock
+    _worker_count: int
+    _status_inflight: int
+
     def __init__(self) -> None:
         self._q: queue.Queue[GrammarWorkItem | None] = queue.Queue()
         self._lock = threading.Lock()

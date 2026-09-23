@@ -48,7 +48,7 @@ same cursor immediately after the assignment.
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterator
+from typing import Any, ClassVar, Iterator
 
 log = logging.getLogger("writeragent.writer.hyperlink")
 
@@ -65,7 +65,10 @@ _CHAR_LOOK = ("CharColor", "CharUnderline")
 class OutlineLink:
     """One distinct outline hyperlink overlapping a search match."""
 
-    __slots__ = ("url", "name", "target")
+    url: str
+    name: str
+    target: str
+    __slots__: ClassVar[tuple[str, ...]] = ("url", "name", "target")
 
     def __init__(self, url: str, name: str, target: str) -> None:
         self.url = url
@@ -81,7 +84,13 @@ class OutlineSnapshot:
     from whatever text actually landed.
     """
 
-    __slots__ = ("links", "prefix", "suffix", "matched", "single_paragraph", "preserve_url")
+    links: list[OutlineLink]
+    prefix: str
+    suffix: str
+    matched: str
+    single_paragraph: bool
+    preserve_url: str
+    __slots__: ClassVar[tuple[str, ...]] = ("links", "prefix", "suffix", "matched", "single_paragraph", "preserve_url")
 
     def __init__(self, links: list[OutlineLink], prefix: str, suffix: str,
                  matched: str, single_paragraph: bool, preserve_url: str = "") -> None:

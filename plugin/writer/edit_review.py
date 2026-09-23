@@ -239,6 +239,13 @@ def _string_skipping_redline(text_range: Any, skip_type: str) -> str:
 class ChangeRecord:
     """One reviewable change: its token, anchor, and the two expected end states."""
 
+    token: str
+    bookmark: str
+    accepted_text: str
+    rejected_text: str
+    original_preview: str
+    proposed_preview: str
+
     def __init__(self, token: str, bookmark: str, accepted_text: str, rejected_text: str,
                  original_preview: str, proposed_preview: str) -> None:
         self.token = token
@@ -251,6 +258,14 @@ class ChangeRecord:
 
 class EditReviewSession:
     """Record agent edits as tagged tracked changes and report per-change outcomes."""
+
+    doc: Any
+    ctx: Any
+    enabled: bool
+    session_id: str
+    _active: bool
+    _was_recording: bool
+    _cleaned: bool
 
     def __init__(self, doc: Any, ctx: Any, enabled: bool) -> None:
         self.doc = doc
@@ -1021,6 +1036,11 @@ class WriterCompoundUndo:
     ``close`` multiple times.
     """
 
+    _log: logging.Logger
+    _title: str
+    _undo_manager: Any | None
+    _open: bool
+
     def __init__(self, doc: Any, title: str) -> None:
         self._log = logging.getLogger(__name__)
         self._title = title
@@ -1079,6 +1099,14 @@ class WriterStreamedRewriteSession:
     """Manage a streamed Writer edit that collapses to one tracked change."""
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Edit selection"
+
+    doc: Any
+    text_range: Any
+    original_text: str
+    generated_text: str
+    was_recording: bool
+    track_reviewable: bool
+    _compound_undo: WriterCompoundUndo
 
     def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False) -> None:
         self.doc = doc
@@ -1228,6 +1256,14 @@ class WriterStreamedAppendSession:
     """
 
     _UNDO_CONTEXT_TITLE: ClassVar[str] = "WriterAgent: Extend selection"
+
+    doc: Any
+    text_range: Any
+    original_text: str
+    appended_text: str
+    track_reviewable: bool
+    _compound_undo: WriterCompoundUndo
+    was_recording: bool
 
     def __init__(self, doc: Any, text_range: Any, original_text: str, track_reviewable: bool = False) -> None:
         self.doc = doc

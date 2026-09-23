@@ -23,7 +23,7 @@ Language detected from UNO CharLocale. Stemming via bundled snowballstemmer.
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, ClassVar
 import unicodedata
 
 from plugin.framework.errors import ToolExecutionError
@@ -96,7 +96,10 @@ def _raw_tokens(text: str) -> list[str]:
 
 
 class _DocIndex:
-    __slots__ = ("terms", "para_texts", "para_count", "build_ms", "language")
+    para_count: int
+    build_ms: float
+    language: str
+    __slots__: ClassVar[tuple[str, ...]] = ("terms", "para_texts", "para_count", "build_ms", "language")
 
     def __init__(self) -> None:
         self.terms: dict[str, set[int]] = {}
@@ -174,6 +177,10 @@ class IndexService(ServiceBase):
     """Per-document inverted index with Snowball stemming."""
 
     name: str | None = "writer_index"
+
+    _doc_svc: Any
+    _tree_svc: Any
+    _bm_svc: Any
 
     def __init__(self, services: Any) -> None:
         self._doc_svc = services.document

@@ -41,6 +41,8 @@ class _ReviewModifyListener(unohelper.Base, XModifyListener):
     WriterAgent handlers. Cheap: while the toolbar is hidden (normal typing) it does nothing; it
     only recounts when the toolbar is actually showing (i.e. during a review)."""
 
+    _uid: str | None
+
     def __init__(self, uid: str | None) -> None:
         self._uid = uid  # so disposing() can drop the registry entry without re-reading the model
 
