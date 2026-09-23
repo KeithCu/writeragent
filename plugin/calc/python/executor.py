@@ -24,11 +24,17 @@
 Each tool call uses a fresh executor instance so variables do not leak across invocations.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor, InterpreterError
-from plugin.framework.tool import ToolBaseDummy, ToolContext
+from plugin.framework.tool import ToolBaseDummy
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
+
 from plugin.framework.errors import WriterAgentException
 from plugin.scripting.import_policy import format_inprocess_import_policy_for_prompt
 from plugin.scripting.sandbox import CALC_AUTHORIZED_IMPORTS

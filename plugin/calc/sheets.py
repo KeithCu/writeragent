@@ -21,12 +21,18 @@ Each tool is a ToolBase subclass that instantiates CalcBridge and the
 appropriate helper class per call using ``ctx.doc``.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.framework.prompts import get_sheets_create_completion_instruction
-from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
+
 from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
 from plugin.calc.analyzer import SheetAnalyzer

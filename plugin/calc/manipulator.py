@@ -252,7 +252,7 @@ class CellManipulator:
             obj.setPropertyValue("CharHeight", font_size)
 
         if h_align is not None:
-            align_map = {"left": LEFT, "center": CENTER, "right": RIGHT, "justify": BLOCK, "standard": STANDARD}
+            align_map: dict[str, Any] = {"left": LEFT, "center": CENTER, "right": RIGHT, "justify": BLOCK, "standard": STANDARD}
             if h_align.lower() in align_map:
                 obj.setPropertyValue("HoriJustify", align_map[h_align.lower()])
 

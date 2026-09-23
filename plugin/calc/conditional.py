@@ -20,13 +20,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import UnoObjectError
 from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 
@@ -127,7 +129,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
 
             formats = cell_range.getPropertyValue("ConditionalFormat")
             if formats is None or formats.getCount() == 0:
-                rules = []
+                rules: list[dict[str, Any]] = []
             else:
                 rules = []
                 for i in range(formats.getCount()):

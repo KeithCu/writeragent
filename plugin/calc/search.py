@@ -5,13 +5,17 @@
 
 """Calc search tools: search_in_spreadsheet, replace_in_spreadsheet."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSearchBase
 from plugin.calc.calc_utils import resolve_sheet
 from plugin.calc.spreadsheet_search import search_spreadsheet_cells
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 

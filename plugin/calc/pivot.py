@@ -28,14 +28,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
 from plugin.calc.address_utils import parse_address, parse_range_string
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 

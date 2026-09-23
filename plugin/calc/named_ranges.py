@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import (
     index_to_column,
@@ -28,7 +28,9 @@ from plugin.calc.address_utils import (
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.errors import UnoObjectError, suppress_disposed
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 

@@ -25,7 +25,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 import uno
 
 from plugin.calc.base import ToolCalcSheetBase
@@ -37,7 +37,9 @@ from plugin.calc.sheet_filter_criteria import (
     parse_sheet_filter_criterion,
 )
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 

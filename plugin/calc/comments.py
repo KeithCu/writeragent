@@ -8,12 +8,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcCommentBase
 from plugin.calc.address_utils import format_address, parse_address, split_sheet_prefix
 from plugin.calc.calc_utils import resolve_sheet
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 

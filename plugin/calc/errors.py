@@ -21,15 +21,19 @@ Each tool is a ToolBase subclass that instantiates CalcBridge,
 CellInspector, and ErrorDetector per call using ``ctx.doc``.
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcErrorBase
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
 from plugin.calc.error_detector import ErrorDetector
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 

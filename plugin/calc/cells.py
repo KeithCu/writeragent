@@ -23,12 +23,18 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 
 
 # crosshair: off
+from __future__ import annotations
+
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.tool import ToolBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
+
 from plugin.calc.address_utils import index_to_column, parse_range_string, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase

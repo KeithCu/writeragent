@@ -15,7 +15,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-from typing import Any, Literal
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
 
 """Calc chart management tools: list, info, create, edit, delete.
 Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
@@ -24,7 +26,11 @@ Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties
 import logging
 
 from plugin.doc.visual_helpers import parse_color_to_uno_int as _parse_color
-from plugin.framework.tool import ToolBaseDummy, ToolContext
+from plugin.framework.tool import ToolBaseDummy
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
+
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
