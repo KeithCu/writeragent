@@ -364,7 +364,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start_idx: int, styles: li
     except Exception:
         fam = None
     # Collect the target paragraphs (from start_idx, at most len(styles)) before mutating.
-    paras = []
+    paras: list[Any] = []
     try:
         e = text_obj.createEnumeration()
     except Exception:

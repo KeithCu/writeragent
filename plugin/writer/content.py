@@ -604,7 +604,7 @@ class ApplyDocumentContent(ToolBase):
         except Exception as e:
             log.exception("apply_document_content dry_run search failed")
             return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
-        label_cache = {}
+        label_cache: dict[int, str] = {}
         matches = []
         plain_box: dict[str, str] = {}
 
@@ -706,7 +706,7 @@ class ApplyDocumentContent(ToolBase):
             # The session is registered in session_box the instant _execute_edit creates it (via
             # session_sink), so its anchor bookmarks are released in `finally` even if the edit
             # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
-            session_box = []
+            session_box: list[Any] = []
 
             def _do_edit():
                 return self._execute_edit(ctx, session_sink=session_box, **kwargs)

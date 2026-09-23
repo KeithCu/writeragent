@@ -256,7 +256,7 @@ def find_lo_regex_ranges(doc: Any, candidate: str, all_matches: bool = False):
     return ranges
 
 
-def find_chained_range(doc: Any, search_string: str, all_matches: bool = False):
+def find_chained_range(doc: Any, search_string: str, all_matches: bool = False) -> Any:
     """Find search_string via LO regex (literal + newline-collapsed retry) then paragraph chaining.
 
     doc.findFirst covers body, table cells, and text frames. Chaining handles real paragraph
@@ -375,12 +375,12 @@ def find_chained_range(doc: Any, search_string: str, all_matches: bool = False):
     return matched_ranges if all_matches else None
 
 
-def find_first_range(doc: Any, search_string: str):
+def find_first_range(doc: Any, search_string: str) -> Any:
     """First match: LO native search with chaining fallback."""
     return find_chained_range(doc, search_string, all_matches=False)
 
 
-def find_all_ranges(doc: Any, search_string: str):
+def find_all_ranges(doc: Any, search_string: str) -> list[Any]:
     """All occurrences as TextRanges in document order (NBSP-aware native search with chaining)."""
     return find_chained_range(doc, search_string, all_matches=True)
 

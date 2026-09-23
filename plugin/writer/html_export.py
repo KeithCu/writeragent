@@ -232,7 +232,7 @@ def _iter_ruby_spans_in_paragraph(para: Any):
     in_delete = False
     in_ruby = False
     reading = ""
-    base_parts = []
+    base_parts: list[str] = []
     base_start = 0
     offset = 0
     while portion_enum.hasMoreElements() is True:
@@ -665,7 +665,7 @@ def _range_to_content_via_temp_doc(
 
         temp_text = temp_doc.getText()
         temp_cursor = temp_text.createTextCursor()
-        style_cache = {}
+        style_cache: dict[str, Any] = {}
         text = source_range.getText() if source_range is not None else model.getText()
         enum = text.createEnumeration()
         first_para = True
