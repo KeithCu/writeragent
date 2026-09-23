@@ -56,7 +56,8 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         },
         "required": [],
     }
-    uno_services: list | None = _VISION_DOCS
+    # ToolBase is list | None; ToolCalcSpecialBase still infers list from a bare assign.
+    uno_services: list = _VISION_DOCS
     long_running: bool = True
 
     def is_async(self) -> bool:
