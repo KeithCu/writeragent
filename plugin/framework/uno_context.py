@@ -40,10 +40,11 @@ import os
 import sys
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Generator, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     import threading
+    from collections.abc import Generator
 
     from com.sun.star.awt import FocusEvent, MouseEvent
     from com.sun.star.lang import EventObject

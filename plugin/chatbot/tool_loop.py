@@ -810,7 +810,11 @@ class ToolCallingMixin:
             from plugin.main import get_tools as _get_tools_registry
 
             registry = _get_tools_registry()
-            async_tools = frozenset([tool.name for tool in registry.get_tools(filter_doc_type=False, exclude_tiers=()) if getattr(tool, "is_async", lambda: False)()])
+            async_tools = frozenset(
+                tool.name
+                for tool in registry.get_tools(filter_doc_type=False, exclude_tiers=())
+                if tool.name is not None and getattr(tool, "is_async", lambda: False)()
+            )
         except Exception as e:
             log.debug("Failed to get async tools list, falling back to defaults: %s", e)
             async_tools = frozenset({"web_research", "image_generate"})

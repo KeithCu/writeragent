@@ -658,11 +658,11 @@ def _collect_icon_commands() -> dict[str, tuple[str, str]]:
     except ImportError:
         return {}
 
-    result = {}
+    result: dict[str, tuple[str, str]] = {}
     import typing
 
-    for m in MODULES:
-        mod_name = m["name"]
+    for m in cast("list[dict[str, Any]]", MODULES):
+        mod_name = str(m["name"])
         action_icons = typing.cast("typing.Dict[str, str]", m.get("action_icons", {}))
         for action_name, default_icon in action_icons.items():
             cmd_url = "%s%s.%s" % (_DISPATCH_PROTOCOL, mod_name, action_name)
@@ -714,7 +714,7 @@ def _update_menu_icons_impl() -> None:
             return
 
         # Group by (module, prefix) to avoid loading the same graphic twice
-        key_cmds = {}  # (mod_name, prefix) -> [cmd_urls]
+        key_cmds: dict[tuple[str, str], list[str]] = {}  # (mod_name, prefix) -> [cmd_urls]
         for cmd_url, (mod_name, prefix) in icon_cmds.items():
             key_cmds.setdefault((mod_name, prefix), []).append(cmd_url)
 

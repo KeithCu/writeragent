@@ -183,7 +183,8 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         with suppress_disposed("constrain panel", logger=log):
             parent_rect = self.xParentWindow.getPosSize()
             target_h = parent_rect.Height if parent_rect.Height > 0 else 400
-            self.m_panelRootWindow.setPosSize(0, 0, 220, target_h, 15)
+            if self.m_panelRootWindow is not None:
+                self.m_panelRootWindow.setPosSize(0, 0, 220, target_h, 15)
         return self.m_panelRootWindow
 
     def disposing(self, Source: Any = None) -> None:

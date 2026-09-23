@@ -32,7 +32,10 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.framework.queue_executor import QueueExecutor
@@ -662,7 +665,7 @@ class MCPProtocolHandler:
             broaden = mode == "direct_flat" and doc is None and not document_url
             doc_filter = {"filter_doc_type": False} if broaden else {}
             doc_type = None
-            uno_services = frozenset()
+            uno_services: frozenset[str] = frozenset()
             if doc is not None:
                 doc_type = self.services.document.detect_doc_type(doc)
                 from plugin.doc.doc_type import uno_services_for_document

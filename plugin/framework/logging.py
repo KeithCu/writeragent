@@ -291,8 +291,7 @@ def _install_global_exception_hooks() -> None:
             except Exception:
                 pass
             try:
-                if _original_threading_excepthook:
-                    _original_threading_excepthook(args)
+                _original_threading_excepthook(args)
             except Exception:
                 pass
 

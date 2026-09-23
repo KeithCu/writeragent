@@ -8,8 +8,10 @@ from __future__ import annotations
 import copy
 import logging
 import re
-from collections.abc import Iterator
-from typing import Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, Mapping, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
 
