@@ -21,6 +21,7 @@ nelson-mcp/plugin/writer/tools/frames.py
 """
 
 import logging
+from typing import Any
 
 from ..specialized_base import ToolWriterTextFramesBase
 
@@ -34,7 +35,7 @@ class FrameList(ToolWriterTextFramesBase):
     description = "List all text frames in the document."
     parameters = {"type": "object", "properties": {}, "required": []}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         text_frames = self.get_collection(doc, "getTextFrames", "Document does not support text frames.")
         if isinstance(text_frames, dict):
@@ -80,7 +81,7 @@ class FrameGetInfo(ToolWriterTextFramesBase):
     description = "Get detailed info about a text frame."
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the text frame (from frame_list)."}}, "required": ["name"]}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         frame_name = kwargs.get("name", "")
         if not frame_name:
             return self._tool_error("name is required.")
@@ -174,7 +175,7 @@ class FrameSetProperties(ToolWriterTextFramesBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         frame_name = kwargs.get("name", "")
         if not frame_name:
             return self._tool_error("name is required.")

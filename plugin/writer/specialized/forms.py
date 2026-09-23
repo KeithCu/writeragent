@@ -24,6 +24,7 @@ to labels) use get_draw_tree + fill_draw_fields / shape_upsert instead.
 
 import logging
 import re
+from typing import Any
 from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
@@ -36,7 +37,7 @@ from plugin.framework.errors import format_error_payload, ToolExecutionError
 from plugin.framework.queue_executor import execute_on_main_thread
 from plugin.framework.thread_guard import on_main_thread
 
-def _run_on_main(fn, *args, **kwargs):
+def _run_on_main(fn: Any, *args: Any, **kwargs: Any):
     if on_main_thread():
         return fn(*args, **kwargs)
     return execute_on_main_thread(fn, *args, **kwargs)
@@ -56,7 +57,7 @@ _CONTROL_TYPE_MAP = {
 }
 
 
-def _get_readable_type(model):
+def _get_readable_type(model: Any):
     """Maps a UNO model back to a human-friendly type string."""
     for type_str, service in _CONTROL_TYPE_MAP.items():
         if model.supportsService(service):
@@ -74,7 +75,7 @@ def _no_form_draw_page_payload():
     return format_error_payload(ToolExecutionError("No draw page available for form operations."))
 
 
-def _resolve_form_page(doc, page=None):
+def _resolve_form_page(doc: Any, page: Any = None):
     """Active draw page, or a Draw/Impress page index when *page* is set.
 
     Writer/Calc ignore *page* (Writer has one canvas; Calc uses the active sheet).
@@ -89,7 +90,7 @@ def _resolve_form_page(doc, page=None):
     return _get_form_draw_page(doc)
 
 
-def _control_value_fields(model):
+def _control_value_fields(model: Any):
     """Current value/state for list/edit so Draw widgets are visible without guessing."""
     info = {}
     if hasattr(model, "Label"):
@@ -111,7 +112,7 @@ def _control_value_fields(model):
     return info
 
 
-def _find_control_shape(dp, index=None, name=None):
+def _find_control_shape(dp: Any, index: Any = None, name: Any = None):
     """Resolve a ControlShape by draw-page index or control/shape Name.
 
     Index is the draw-page shape index from form_list_controls (not a
@@ -151,7 +152,7 @@ def _find_control_shape(dp, index=None, name=None):
     return None, None, format_error_payload(ToolExecutionError(f"Several form controls named '{wanted}'; pass index as well."))
 
 
-def _apply_control_state(model, state_value):
+def _apply_control_state(model: Any, state_value: Any):
     if not hasattr(model, "State"):
         return format_error_payload(ToolExecutionError("This control has no State (not a checkbox/radio)."))
     coerced = coerce_control_state(state_value)
@@ -161,7 +162,7 @@ def _apply_control_state(model, state_value):
     return None
 
 
-def _next_stacked_position_on_draw_page(dp, default_width: int, default_height: int) -> Point:
+def _next_stacked_position_on_draw_page(dp: Any, default_width: int, default_height: int) -> Point:
     """Place new controls below existing shapes on a draw page (1/100 mm)."""
     margin_x = 5000
     gap = 400
@@ -177,7 +178,7 @@ def _next_stacked_position_on_draw_page(dp, default_width: int, default_height: 
     return Point(margin_x, max_bottom + gap)
 
 
-def _append_text_to_calc_active_area(doc, text: str) -> None:
+def _append_text_to_calc_active_area(doc: Any, text: str) -> None:
     controller = doc.getCurrentController()
     sheet = controller.ActiveSheet
     selection = controller.getSelection()
@@ -226,10 +227,10 @@ class FormCreateControl(ToolWriterFormBase):
         "required": ["control", "name"],
     }
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx, **kwargs):
+    def _execute_main(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         control_type = str(kwargs.get("control", "text"))
         name = kwargs.get("name", "Field")
@@ -337,7 +338,7 @@ class FormCreate(ToolWriterFormBase):
         "required": ["fields"],
     }
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         fields = kwargs.get("fields", [])
         results = []
         creator = FormCreateControl()
@@ -349,7 +350,7 @@ class FormCreate(ToolWriterFormBase):
 
         return {"status": "ok", "message": f"Processed {len(fields)} form fields", "results": results}
 
-    def _insert_space(self, ctx):
+    def _insert_space(self, ctx: Any) -> None:
         doc = ctx.doc
         if _is_spreadsheet_doc(doc):
             _append_text_to_calc_active_area(doc, " ")
@@ -373,7 +374,7 @@ class FormGenerate(ToolWriterFormBase):
     )
     parameters = {"type": "object", "properties": {"description": {"type": "string", "description": "Description of the form to generate (e.g. 'Medical intake form')."}}, "required": ["description"]}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         from plugin.framework.config import get_api_config
         from plugin.framework.client.llm_client import LlmClient
 
@@ -410,7 +411,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             log.exception("Error in form_generate")
             return format_error_payload(ToolExecutionError(f"Form generation failed: {str(e)}"))
 
-    def _process_form_content(self, ctx, content):
+    def _process_form_content(self, ctx: Any, content: str):
         # We'll split the content by {FIELD:...} tags and insert parts
         parts = re.split(r"(\{FIELD:[^\}]+\})", content)
 
@@ -429,7 +430,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
 
         return {"status": "ok", "message": "Form generation completed and inserted."}
 
-    def _insert_text(self, ctx, text):
+    def _insert_text(self, ctx: Any, text: str) -> None:
         doc = ctx.doc
         if _is_spreadsheet_doc(doc):
             plain = _plain_text_for_calc_html_fragment(text)
@@ -457,7 +458,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         cursor = clone_text_range(vc)
         insert_html_fragment_at_cursor(cursor, text, wrap=False)
 
-    def _parse_field_tag(self, tag):
+    def _parse_field_tag(self, tag: str):
         # Naive parser for {FIELD:control='...', ...}
         pairs = re.findall(r"(\w+)[:=]['\"]([^'\"]*)['\"]", tag)
         params = dict(pairs)
@@ -485,10 +486,10 @@ class FormListControls(ToolWriterFormBase):
         "required": [],
     }
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx, **kwargs):
+    def _execute_main(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         dp = _resolve_form_page(doc, kwargs.get("page"))
         if dp is None:
@@ -550,10 +551,10 @@ class FormEditControl(ToolWriterFormBase):
         "required": [],
     }
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx, **kwargs):
+    def _execute_main(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         dp = _resolve_form_page(doc, kwargs.get("page"))
         if dp is None:
@@ -614,10 +615,10 @@ class FormDeleteControl(ToolWriterFormBase):
         "required": [],
     }
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: Any, **kwargs: Any):
         return _run_on_main(self._execute_main, ctx, **kwargs)
 
-    def _execute_main(self, ctx, **kwargs):
+    def _execute_main(self, ctx: Any, **kwargs: Any):
         doc = ctx.doc
         dp = _resolve_form_page(doc, kwargs.get("page"))
         if dp is None:

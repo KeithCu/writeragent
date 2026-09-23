@@ -88,7 +88,7 @@ from plugin.writer.locale.grammar_work_queue import (
 )
 
 
-def _run_on_main_thread(fn, *args, **kwargs):
+def _run_on_main_thread(fn: Any, *args: Any, **kwargs: Any):
     """Run *fn* on the LO UI thread (XProofreader hooks run on linguistic workers)."""
     from plugin.framework.queue_executor import execute_on_main_thread
     from plugin.framework.thread_guard import on_main_thread
