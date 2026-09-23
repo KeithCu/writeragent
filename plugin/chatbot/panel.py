@@ -69,7 +69,7 @@ class ChatSession:
 
     tool_streamed_texts: dict[str, list[str]]
 
-    def __init__(self, system_prompt=None, session_id=None):
+    def __init__(self, system_prompt: str | None = None, session_id: str | None = None) -> None:
         self.session_id = session_id
         self.db = None
         self.messages = []
@@ -97,7 +97,7 @@ class ChatSession:
             if self.db:
                 self.db.add_message("system", self.messages[0]["content"])
 
-    def set_system_context(self, base_prompt, doc_text=""):
+    def set_system_context(self, base_prompt: str, doc_text: str = "") -> None:
         """Update the system prompt and document context, combining them into the first message."""
         self.base_system_prompt = base_prompt
         self.document_context = doc_text
@@ -111,7 +111,7 @@ class ChatSession:
         else:
             self.messages[0]["content"] = content
 
-    def refresh_document_context(self, model, ctx):
+    def refresh_document_context(self, model: Any, ctx: Any) -> None:
         """Reload the Chat system prompt and ``[DOCUMENT CONTENT]`` from the live document.
 
         Why this lives on ChatSession, not panel_factory: the factory only wires
@@ -131,12 +131,12 @@ class ChatSession:
         )
         self.set_system_context(base_prompt, doc_text)
 
-    def add_user_message(self, content):
+    def add_user_message(self, content: str) -> None:
         self.messages.append({"role": "user", "content": content})
         if self.db:
             self.db.add_message("user", content)
 
-    def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None):
+    def add_assistant_message(self, content: Any = None, tool_calls: Any = None, reasoning_replay: Any = None) -> None:
         msg = {"role": "assistant"}
         if content:
             msg["content"] = content
@@ -151,7 +151,7 @@ class ChatSession:
             # Only persist the text content to history; tool calls are ephemeral.
             self.db.add_message("assistant", content)
 
-    def add_tool_result(self, tool_call_id, content):
+    def add_tool_result(self, tool_call_id: str, content: Any) -> None:
         self.messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
         # Note: We do NOT persist tool results to history_db.
         # This keeps the persistent history clean of tool formatting requirements.
@@ -197,11 +197,11 @@ def _uno_model_probe_for_log(model: Any, *, cached_doc_type: str | None = None) 
 
 
 class QueryTextListener(BaseTextListener):
-    def __init__(self, send_listener):
+    def __init__(self, send_listener: Any) -> None:
         # We now keep a reference to the main SendButtonListener which holds the state
         self.send_listener = send_listener
 
-    def on_text_changed(self, rEvent):
+    def on_text_changed(self, rEvent: Any) -> None:
         log.info("[SLASH-OV] query_text entered")
         model = getattr(rEvent.Source, "Model", None)
         if not model:
@@ -259,10 +259,10 @@ _DOC_CHAT_ENTER_SENDS = "doc.chat_enter_key_sends_message"
 class QueryKeyListener(BaseKeyListener):
     """Enter in the query field triggers Send when enabled in Settings (Shift+Enter inserts a newline)."""
 
-    def __init__(self, send_listener):
+    def __init__(self, send_listener: Any) -> None:
         self.send_listener = send_listener
 
-    def on_key_pressed(self, e):
+    def on_key_pressed(self, e: Any) -> None:
         # Popup Enter must not also Send. Consume only when handle_key is True
         # (MagicMock hosts in unit tests return a mock, which is not True).
         popup = getattr(self.send_listener, "slash_popup", None)
@@ -315,8 +315,24 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
     clear_listener: Any
 
     def __init__(
-        self, ctx, frame, send_control, stop_control, query_control, response_control, image_model_selector, model_selector, status_control, session, chat_mode_selector=None, aspect_ratio_selector=None, base_size_input=None, sidebar_include_brainstorming=True, ensure_path_fn=None, clear_control=None
-    ):
+        self,
+        ctx: Any,
+        frame: Any,
+        send_control: Any,
+        stop_control: Any,
+        query_control: Any,
+        response_control: Any,
+        image_model_selector: Any,
+        model_selector: Any,
+        status_control: Any,
+        session: Any,
+        chat_mode_selector: Any = None,
+        aspect_ratio_selector: Any = None,
+        base_size_input: Any = None,
+        sidebar_include_brainstorming: bool = True,
+        ensure_path_fn: Any = None,
+        clear_control: Any = None,
+    ) -> None:
         self.ctx = ctx
         self.frame = frame
         self.send_control = send_control
@@ -407,7 +423,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception:
             log.exception("SendButtonListener event subscribe error")
 
-    def set_rich_text_widget(self, widget):
+    def set_rich_text_widget(self, widget: Any) -> None:
         """Enable RichTextControl sidebar rendering via hidden-doc formatted copy."""
         self.rich_text_widget = widget
         log.info("[RICH-CONTROL] SendButtonListener.set_rich_text_widget called")
@@ -466,7 +482,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             return
         self.sidebar_state = dataclasses.replace(self.sidebar_state, audio=self.audio_recorder.state)
 
-    def set_session(self, session):
+    def set_session(self, session: Any) -> None:
         """Update the active session (e.g. when switching between Document and Research chat)."""
         self.session = session
         self.client = None  # Force client recreation if needed, though they usually share same config
@@ -606,7 +622,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         log.debug("_open_web_search_change_dialog: applying edited query len=%d", len(text))
         self._finish_inline_web_approval(True, query_override=text)
 
-    def _finish_inline_web_approval(self, approved, query_override=None):
+    def _finish_inline_web_approval(self, approved: bool, query_override: str | None = None) -> None:
         ev = getattr(self, "_approval_event", None)
         if ev is None:
             return
@@ -643,7 +659,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception:
             log.exception("_finish_inline_web_approval threading event error")
 
-    def _set_status(self, text):
+    def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
         Uses setText() (XTextComponent) to write directly to the control/peer,
         bypassing model→view notifications which can desync after document edits."""
@@ -653,7 +669,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             else:
                 log.debug("_set_status: NO CONTROL for '%s'" % text)
 
-    def _on_grammar_status(self, **data):
+    def _on_grammar_status(self, **data: Any) -> None:
         """Show native grammar proofreader progress in the sidebar status field."""
         if self._send_busy or self._approval_event is not None:
             return
@@ -694,13 +710,13 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         """
         return True
 
-    def _run_rich_ui(self, fn, *args, **kwargs):
+    def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any):
         """Run rich-control UI work inline on the main thread; post from workers."""
         if threading.current_thread() is threading.main_thread():
             return fn(*args, **kwargs)
         self.queue_executor.post(fn, *args, **kwargs)
 
-    def _append_response(self, text, is_thinking=False, role="assistant"):
+    def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None:
         """Append text to the response area (RichTextControl or plain multiline field)."""
         with suppress_disposed("_append_response", logger=log):
             widget = getattr(self, "rich_text_widget", None)
@@ -765,7 +781,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
                 if should_scroll:
                     self._scroll_response_to_bottom()
 
-    def _on_mcp_request(self, tool="", args=None, method=None, **kwargs):
+    def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
         try:
             from plugin.framework.logging import format_tool_call_for_display
@@ -775,7 +791,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         except Exception:
             log.exception("_on_mcp_request error")
 
-    def _on_mcp_result(self, tool="", result_snippet="", **kwargs):
+    def _on_mcp_result(self, tool: str = "", result_snippet: str = "", **kwargs: Any) -> None:
         """Handle MCP result events from the bus (background thread)."""
 
         def _update_ui():
@@ -820,10 +836,10 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         log.error("SendButtonListener: no compatible document model for chat (%s)", "; ".join(detail_parts))
         return None
 
-    def set_fixed_send_width(self, width_px):
+    def set_fixed_send_width(self, width_px: int) -> None:
         self._fixed_send_width = width_px
 
-    def _set_button_states(self, send_enabled, stop_enabled):
+    def _set_button_states(self, send_enabled: bool, stop_enabled: bool) -> None:
         """Set Send/Stop enabled flags (per-control try/except so one UNO failure cannot strand the other)."""
         if self.send_control and self.send_control.getModel():
             with suppress_disposed("set send_control enabled state", logger=log):
@@ -832,7 +848,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             with suppress_disposed("set stop_control enabled state", logger=log):
                 self.stop_control.getModel().Enabled = bool(stop_enabled)
 
-    def dispatch(self, event):
+    def dispatch(self, event: Any) -> None:
         """Dispatch an event to the state machine, compute new state, and apply effects."""
         tr = sidebar_next_state(self.sidebar_state, SidebarEvent(kind=SidebarEventKind.SEND, payload=event))
         self.sidebar_state = tr.state
@@ -866,7 +882,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         if self.sidebar_state.send.is_recording:
             self._set_status(_("Recording audio… (%d ms silence)") % silence_ms)
 
-    def _interpret_effect(self, effect):
+    def _interpret_effect(self, effect: Any) -> None:
         """Interpret a state machine effect and apply side-effects."""
         from plugin.framework.i18n import _
 
@@ -949,7 +965,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
             case _:
                 log.debug("SendButtonListener: unhandled effect type %s", type(effect).__name__)
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.i18n import _
 
         if getattr(self, "_approval_event", None) is not None and self.send_control and self.send_control.getModel():
@@ -1002,7 +1018,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
             kick_pending_peer_starts()
 
-    def _get_doc_type_str(self, model):
+    def _get_doc_type_str(self, model: Any):
         from plugin.doc.doc_type import doc_type_title_for_label
 
         return doc_type_title_for_label(getattr(self, "cached_doc_type", None))
@@ -1304,7 +1320,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
 
         self.sidebar_state = dataclasses.replace(self.sidebar_state, tool_loop=value)
 
-    def disposing(self, Source):
+    def disposing(self, Source: Any) -> None:
         # UNO can deliver this re-entrantly inside processEventsToIdle while
         # run_stream_drain_loop is still on the stack. Cancel the send scope
         # (same object already captured by resolve_stop_checker) so the drain
@@ -1346,7 +1362,7 @@ def notify_stop_mouse_entered() -> None:
     note_user_left_query()
 
 
-def notify_stop_mouse_pressed(send_listener) -> None:
+def notify_stop_mouse_pressed(send_listener: Any) -> None:
     """Stop mousePressed: drop query restore and cancel if a send is in flight.
 
     Bug: stream SelectAll called ``query.setFocus()`` every chunk. That aborts
@@ -1369,7 +1385,7 @@ def notify_stop_mouse_pressed(send_listener) -> None:
     send_listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
 
 
-def attach_stop_mouse_listener(stop_control, send_listener) -> None:
+def attach_stop_mouse_listener(stop_control: Any, send_listener: Any) -> None:
     """Deliver Stop during stream even when ActionEvent is swallowed."""
     if stop_control is None or not hasattr(stop_control, "addMouseListener"):
         return
@@ -1380,19 +1396,19 @@ def attach_stop_mouse_listener(stop_control, send_listener) -> None:
         return
 
     class _StopMouse(unohelper.Base, XMouseListener):  # type: ignore[misc]
-        def disposing(self, Source):  # noqa: N802, N803 -- UNO signature
+        def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
             return
 
-        def mousePressed(self, e):  # noqa: N802 -- UNO signature
+        def mousePressed(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_stop_mouse_pressed(send_listener)
 
-        def mouseReleased(self, e):  # noqa: N802 -- UNO signature
+        def mouseReleased(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             return
 
-        def mouseEntered(self, e):  # noqa: N802 -- UNO signature
+        def mouseEntered(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             notify_stop_mouse_entered()
 
-        def mouseExited(self, e):  # noqa: N802 -- UNO signature
+        def mouseExited(self, e: Any) -> None:  # noqa: N802 -- UNO signature
             return
 
     try:
@@ -1404,10 +1420,10 @@ def attach_stop_mouse_listener(stop_control, send_listener) -> None:
 class StopButtonListener(BaseActionListener):
     """Listener for the Stop button - sets a flag in SendButtonListener to halt loops."""
 
-    def __init__(self, send_listener):
+    def __init__(self, send_listener: Any) -> None:
         self.send_listener = send_listener
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             from plugin.framework.i18n import _
 
@@ -1430,7 +1446,7 @@ class StopButtonListener(BaseActionListener):
 class ClearButtonListener(BaseActionListener):
     """Listener for the Clear button - resets conversation history."""
 
-    def __init__(self, session, response_control, status_control, greeting="", send_listener=None):
+    def __init__(self, session: Any, response_control: Any, status_control: Any, greeting: str = "", send_listener: Any = None) -> None:
         self.send_listener = send_listener
         self.session = session
         # NOTE: When enabling the experimental planning/todo tool, consider
@@ -1443,13 +1459,13 @@ class ClearButtonListener(BaseActionListener):
         self.status_control = status_control
         self.greeting = greeting
 
-    def set_session(self, session, greeting=None):
+    def set_session(self, session: Any, greeting: str | None = None) -> None:
         """Update the active session and optionally the greeting used for clear."""
         self.session = session
         if greeting is not None:
             self.greeting = greeting
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         if self.send_listener and getattr(self.send_listener, "_approval_event", None) is not None:
             self.send_listener._finish_inline_web_approval(False)
             return
@@ -1481,10 +1497,10 @@ class ClearButtonListener(BaseActionListener):
 class SettingsButtonListener(BaseActionListener):
     """Listener for the Settings button in the Chat sidebar."""
 
-    def __init__(self, ctx=None):
+    def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler, open_dialog_safely
 
         handler = get_action_handler("main.settings")
@@ -1499,10 +1515,10 @@ class SettingsButtonListener(BaseActionListener):
 class PythonButtonListener(BaseActionListener):
     """Listener for the Run Python Script button in the Chat sidebar."""
 
-    def __init__(self, ctx=None):
+    def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler
 
         handler = get_action_handler("scripting.run_python_dialog")
@@ -1513,10 +1529,10 @@ class PythonButtonListener(BaseActionListener):
 class LatexButtonListener(BaseActionListener):
     """Listener for the Insert LaTeX Math button in the Chat sidebar."""
 
-    def __init__(self, ctx=None):
+    def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler
 
         handler = get_action_handler("writer.insert_latex_dialog")
@@ -1527,10 +1543,10 @@ class LatexButtonListener(BaseActionListener):
 class SearchButtonListener(BaseActionListener):
     """Listener for the Search Nearby Files button in the Chat sidebar."""
 
-    def __init__(self, ctx=None):
+    def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler
 
         handler = get_action_handler("embeddings.search_dialog")
@@ -1541,10 +1557,10 @@ class SearchButtonListener(BaseActionListener):
 class PythonCellButtonListener(BaseActionListener):
     """Listener for the Edit Python in Cell button in the Calc Chat sidebar."""
 
-    def __init__(self, ctx=None):
+    def __init__(self, ctx: Any = None) -> None:
         self.ctx = ctx
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.framework.main_shared import get_action_handler
 
         handler = get_action_handler("scripting.edit_python_cell")
@@ -1555,11 +1571,11 @@ class PythonCellButtonListener(BaseActionListener):
 class HamburgerButtonListener(BaseActionListener):
     """Listener for the Hamburger menu button in the Chat sidebar."""
 
-    def __init__(self, ctx=None, frame=None):
+    def __init__(self, ctx: Any = None, frame: Any = None) -> None:
         self.ctx = ctx
         self._frame = frame
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.hamburger_menu import show_hamburger_menu
 
         button_ctrl = getattr(rEvent, "Source", None)

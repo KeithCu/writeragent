@@ -52,7 +52,7 @@ TEMP_RICH_CONTROL_EDITABLE = True
 _RICH_SCROLL_SEQ = 0
 
 
-def log_rich_scroll(phase: str, *, control=None, reason: str | None = None, **extra) -> None:
+def log_rich_scroll(phase: str, *, control: Any = None, reason: str | None = None, **extra: Any) -> None:
     """Structured log for RichTextControl viewport scroll diagnostics."""
     if not RICH_SCROLL_VERBOSE_DEBUG:
         return
@@ -72,7 +72,7 @@ def log_rich_scroll(phase: str, *, control=None, reason: str | None = None, **ex
     log.debug(" ".join(parts))
 
 
-def log_rich_control_context(ctx, phase: str, **extra) -> None:
+def log_rich_control_context(ctx: Any, phase: str, **extra: Any) -> None:
     """Structured INFO log for RichTextControl lifecycle (includes one-time DE/env snapshot)."""
     global _ENV_SNAPSHOT_LOGGED
     parts = [f"[RICH-CONTROL] phase={phase}"]
@@ -105,7 +105,7 @@ class RichTextChatWidget:
     focus-preservation, text copying from hidden Writer, and caret reveal.
     """
 
-    def __init__(self, ctx, control, style_window=None):
+    def __init__(self, ctx: Any, control: Any, style_window: Any = None) -> None:
         self.ctx = ctx
         self.control = control
         self.style_window = style_window
@@ -136,7 +136,7 @@ class RichTextChatWidget:
         text: str,
         role: str = "assistant",
         auto_scroll: bool = True,
-        on_after_insert=None,
+        on_after_insert: Any = None,
     ) -> None:
         """Append formatted HTML message via the hidden Writer paste pipeline."""
         from plugin.chatbot.rich_text_paste import append_rich_text_via_clipboard
@@ -153,7 +153,7 @@ class RichTextChatWidget:
 
     def append_rich_messages_batch(
         self,
-        items,
+        items: Any,
         batch_chars: int = HISTORY_RENDER_BATCH_CHARS,
     ) -> None:
         """Append a list of history messages in batches to minimize UI repaint iterations."""
@@ -171,7 +171,7 @@ class RichTextChatWidget:
         """Apply the standard chat sidebar margins, fonts, and colors to the control."""
         _apply_rich_control_style_defaults(self.control, style_window=self.style_window)
 
-    def rerender_last_assistant_if_html(self, session, stream_start_len: int | None) -> None:
+    def rerender_last_assistant_if_html(self, session: Any, stream_start_len: int | None) -> None:
         """Replace the streamed assistant tail with formatted text (HTML or plain)."""
         final_msg = None
         for msg in reversed(session.messages):
@@ -189,7 +189,7 @@ class RichTextChatWidget:
         # Insert at the cut. Scroll is SelectAll in Hidden mode, not reveal_caret.
         self.append_rich_message(content, role="assistant")
 
-    def append_user_message(self, text: str, on_after_insert=None) -> None:
+    def append_user_message(self, text: str, on_after_insert: Any = None) -> None:
         """Append a formatted user message and optionally record control length after insert."""
         self.append_rich_message(text, role="user", on_after_insert=on_after_insert)
 
@@ -206,7 +206,7 @@ class RichTextChatWidget:
         if greeting:
             self.append_rich_message(greeting, role="assistant")
 
-    def render_session_history(self, session, greeting: str = "") -> None:
+    def render_session_history(self, session: Any, greeting: str = "") -> None:
         """Reload session messages into the control (batched formatted paste)."""
         from plugin.chatbot.rich_text_paste import session_history_items
 
@@ -214,7 +214,7 @@ class RichTextChatWidget:
         self.append_rich_messages_batch(session_history_items(session, greeting))
 
 
-def _is_automatic_char_color(color) -> bool:
+def _is_automatic_char_color(color: Any) -> bool:
     """True for LO automatic / unset character colors (COL_AUTO)."""
     if color is None:
         return True
@@ -228,7 +228,7 @@ def _rich_inner_width(pw: int, inset: int) -> int:
     return max(20, pw - 2 * inset)
 
 
-def _content_bounds_for_rich_control(root_window, placeholder_ctrl, placeholder_rect=None):
+def _content_bounds_for_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None):
     """Return (x, y, width, height) for the rich control inside the response area."""
     inset = RICH_CONTROL_EDGE_INSET
 
@@ -246,7 +246,7 @@ def _content_bounds_for_rich_control(root_window, placeholder_ctrl, placeholder_
     )
 
 
-def _apply_rich_control_geometry(rich_control, bx, by, bw, bh, *, update_dialog_model=False) -> bool:
+def _apply_rich_control_geometry(rich_control: Any, bx: int, by: int, bw: int, bh: int, *, update_dialog_model: bool = False) -> bool:
     """Apply bounds to a sidebar RichTextControl view (and optionally its dialog model).
 
     Dialog-embedded controls accept PositionX/Y/Width/Height only at insert time; after
@@ -281,7 +281,7 @@ def _apply_rich_control_geometry(rich_control, bx, by, bw, bh, *, update_dialog_
     return changed
 
 
-def _rich_control_needs_bounds(rich_control, bx, by, bw, bh, tolerance=2) -> bool:
+def _rich_control_needs_bounds(rich_control: Any, bx: int, by: int, bw: int, bh: int, tolerance: int = 2) -> bool:
     try:
         cur = rich_control.getPosSize()
         return (
@@ -294,7 +294,7 @@ def _rich_control_needs_bounds(rich_control, bx, by, bw, bh, tolerance=2) -> boo
         return True
 
 
-def _reinsert_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect=None):
+def _reinsert_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None):
     """Remove and recreate dialog-embedded RichTextControl at new bounds (insert-time sizing only)."""
     try:
         dlg_model = root_window.getModel()
@@ -308,7 +308,7 @@ def _reinsert_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeh
     return _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect)
 
 
-def sync_rich_control_bounds(rich_control, root_window, placeholder_ctrl, placeholder_rect=None, control_out=None) -> bool:
+def sync_rich_control_bounds(rich_control: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None, control_out: Any = None) -> bool:
     """Position the rich control over the response area without exceeding the button row width.
 
     When ``control_out`` is a one-element list, it may be replaced after dialog reinsert.
@@ -390,7 +390,7 @@ def sync_rich_control_bounds(rich_control, root_window, placeholder_ctrl, placeh
         return False
 
 
-def refresh_rich_control_peer_layout(ctx, rich_control) -> None:
+def refresh_rich_control_peer_layout(ctx: Any, rich_control: Any) -> None:
     """Ask VCL to apply bounds already set on the peer (GTK may paint ~2 lines until focus)."""
     if rich_control is None:
         return
@@ -412,12 +412,12 @@ def refresh_rich_control_peer_layout(ctx, rich_control) -> None:
         log.debug("refresh_rich_control_peer_layout invalidate: %s", e)
 
 
-def _apply_sidebar_para_margins(cursor) -> None:
+def _apply_sidebar_para_margins(cursor: Any) -> None:
     """Keep chat text off the RichTextControl edges (EditEngine has no CSS padding)."""
     apply_rich_control_para_margins(cursor)
 
 
-def _apply_rich_control_style_defaults_on_model(model, style_window=None) -> None:
+def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = None) -> None:
     """Set default character properties on the form TextField model (before peer creation).
 
     Do not set model TextColor/CharColor here — control-level text color homogenizes every
@@ -462,7 +462,7 @@ def _apply_rich_control_style_defaults_on_model(model, style_window=None) -> Non
         log.debug("_apply_rich_control_style_defaults_on_model FontDescriptor failed: %s", e)
 
 
-def _apply_rich_control_style_defaults(control, style_window=None):
+def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -> None:
     """Set sidebar chat typography on the RichText control at creation (before any content)."""
     model = control.getModel() if control is not None else None
     if model is None:
@@ -507,7 +507,7 @@ def skip_legacy_assistant_stream_chunk(text: str) -> bool:
     return not strip_legacy_ai_label(stripped).strip() and stripped.upper().startswith("AI:")
 
 
-def _set_model_property(model, name, value) -> bool:
+def _set_model_property(model: Any, name: str, value: Any) -> bool:
     """Set a control model property (attribute or XPropertySet).
 
     Form ``TextField`` models reject many awt edit properties (``BackgroundColor``, etc.);
@@ -527,7 +527,7 @@ def _set_model_property(model, name, value) -> bool:
     return False
 
 
-def _apply_control_surface_colors(control, bg_color) -> None:
+def _apply_control_surface_colors(control: Any, bg_color: int) -> None:
     """Theme background on the VCL control (form model often has no BackgroundColor).
 
     Do not set TextColor here — control-level text color homogenizes CharColor runs.
@@ -552,7 +552,7 @@ def _apply_control_surface_colors(control, bg_color) -> None:
         log.debug("_apply_control_surface_colors model failed: %s", e)
 
 
-def _log_scrollish_props(label, obj) -> None:
+def _log_scrollish_props(label: str, obj: Any) -> None:
     if obj is None:
         return
     try:
@@ -582,7 +582,7 @@ def _uno_bool_false() -> bool:
         return False
 
 
-def _disable_rich_hscroll(control) -> None:
+def _disable_rich_hscroll(control: Any) -> None:
     """Clear WB_HSCROLL on the VCL window so ensureScrollbars disposes m_pHScroll.
 
     Model HScroll=False is not enough after createPeer: getWinBits already ran.
@@ -626,7 +626,7 @@ def _disable_rich_hscroll(control) -> None:
         log.debug("_disable_rich_hscroll peer: %s", e)
 
 
-def _create_rich_control_peer(smgr, ctx, toolkit, field_model, parent_window):
+def _create_rich_control_peer(smgr: Any, ctx: Any, toolkit: Any, field_model: Any, parent_window: Any):
     """Create a VCL peer for a form RichText TextField model."""
     parent_peer = None
     if hasattr(parent_window, "getPeer"):
@@ -680,7 +680,7 @@ def _create_rich_control_peer(smgr, ctx, toolkit, field_model, parent_window):
     return None
 
 
-def _try_dialog_embedded_rich_control(root_window, placeholder_ctrl, placeholder_rect=None):
+def _try_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None):
     """Insert field model via UnoControlDialogModel.createInstance (has PositionX)."""
     try:
         dlg_model = root_window.getModel()
@@ -741,7 +741,7 @@ class RichTextControlListener(BaseWindowListener):
     Resize is handled by ``_PanelResizeListener`` (``last_response_rect`` + ``sync_rich_control_bounds``).
     """
 
-    def __init__(self, ctx, root_window, placeholder_ctrl, on_ready_callback, placeholder_rect_fn=None):
+    def __init__(self, ctx: Any, root_window: Any, placeholder_ctrl: Any, on_ready_callback: Any, placeholder_rect_fn: Any = None) -> None:
         self.ctx = ctx
         self.root_window = root_window
         self.placeholder_ctrl = placeholder_ctrl
@@ -776,7 +776,7 @@ class RichTextControlListener(BaseWindowListener):
         except Exception as e:
             log.debug("RichTextControlListener._sync_bounds refresh: %s", e)
 
-    def disposing(self, Source):
+    def disposing(self, Source: Any) -> None:
         log_rich_control_context(self.ctx, "disposing", initialized=self.initialized, had_control=bool(self.rich_control))
         self._disposed = True
         self.rich_control = None
@@ -808,7 +808,7 @@ class RichTextControlListener(BaseWindowListener):
         if peer:
             self._begin_deferred_init()
 
-    def on_window_shown(self, rEvent):
+    def on_window_shown(self, rEvent: Any) -> None:
         """Fallback init when the sidebar deck fires ``windowShown``.
 
         KDE commonly reaches init here; GNOME often does not emit this event for the chat
@@ -909,7 +909,7 @@ class RichTextControlListener(BaseWindowListener):
             log.exception("RichTextControlListener deferred init failed")
 
 
-def create_sidebar_rich_text_control(ctx, root_window, placeholder_ctrl, placeholder_rect=None):
+def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctrl: Any, placeholder_rect: Any = None):
     """Create a form RichText TextField peer positioned over the response placeholder."""
     try:
         smgr = ctx.getServiceManager()
@@ -986,7 +986,7 @@ def create_sidebar_rich_text_control(ctx, root_window, placeholder_ctrl, placeho
         return None
 
 
-def _apply_char_color_to_cursor_range(model, start, end, char_color) -> None:
+def _apply_char_color_to_cursor_range(model: Any, start: Any, end: Any, char_color: Any) -> None:
     if char_color is None or _is_automatic_char_color(char_color):
         return
     try:
@@ -998,7 +998,7 @@ def _apply_char_color_to_cursor_range(model, start, end, char_color) -> None:
         log.debug("_apply_char_color_to_cursor_range failed: %s", e)
 
 
-def _apply_char_emphasis_to_cursor_range(model, start, end, *, bold=None, underline=None) -> None:
+def _apply_char_emphasis_to_cursor_range(model: Any, start: Any, end: Any, *, bold: bool | None = None, underline: bool | None = None) -> None:
     if start is None or end is None or (bold is None and underline is None):
         return
     try:
@@ -1018,7 +1018,7 @@ def _apply_char_emphasis_to_cursor_range(model, start, end, *, bold=None, underl
 
 
 def _insert_string_at_rich_cursor(
-    model, cursor, text, char_color=None, *, bold=None, underline=None
+    model: Any, cursor: Any, text: str, char_color: Any = None, *, bold: bool | None = None, underline: bool | None = None
 ) -> None:
     """Insert *text* at *cursor* on a form RichText model.
 
@@ -1147,7 +1147,7 @@ def _scroll_rich_to_tail(control: Any, ctx: Any = None) -> None:
         _IN_SCROLL_TO_TAIL = False
 
 
-def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=None):
+def append_text_chunk(control: Any, text: str, auto_scroll: bool = True, style_window: Any = None, ctx: Any = None) -> None:
     """Append plain text during assistant streaming with theme assistant color."""
     if not control or not text:
         return
@@ -1178,7 +1178,7 @@ def append_text_chunk(control, text, auto_scroll=True, style_window=None, ctx=No
         log.exception("append_text_chunk (rich control) failed")
 
 
-def clear_control(control):
+def clear_control(control: Any) -> None:
     """Clear all text from the rich control."""
     if not control:
         return
@@ -1193,7 +1193,7 @@ def clear_control(control):
         log.exception("clear_control failed")
 
 
-def get_control_text_length(control) -> int:
+def get_control_text_length(control: Any) -> int:
     try:
         model = control.getModel()
         if model is None:
@@ -1203,7 +1203,7 @@ def get_control_text_length(control) -> int:
         return 0
 
 
-def truncate_control_from(control, start_len: int | None):
+def truncate_control_from(control: Any, start_len: int | None) -> None:
     """Remove trailing plain text from *start_len* onward without resetting earlier formatting.
 
     Assigning ``model.Text`` would flatten the whole control to unformatted plain text
@@ -1236,7 +1236,7 @@ def truncate_control_from(control, start_len: int | None):
         log.exception("truncate_control_from failed")
 
 
-def _temporarily_allow_focus(control):
+def _temporarily_allow_focus(control: Any):
     """ReadOnly form TextFields often ignore setFocus; lift it for GetFocus/ShowCursor."""
     model = None
     was_readonly = None
@@ -1252,7 +1252,7 @@ def _temporarily_allow_focus(control):
     return model, was_readonly
 
 
-def reveal_rich_control_caret(control, ctx=None, reason: str = "unspecified", *, _already_focus_preserved: bool = False) -> None:
+def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unspecified", *, _already_focus_preserved: bool = False) -> None:
     """Focus the control so EditView ShowCursor can run, then restore the query field.
 
     Does not insert dummy text. A second UNO insert at the end is the same path

@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import sys
 
+from typing import Any
+
 from plugin.framework.config import init_config, _config_path
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
@@ -73,7 +75,7 @@ def _popen_detached(argv: list[str]) -> None:
     subprocess.Popen(argv, close_fds=True, **kwargs)  # noqa: S603 — argv from resolve_editor_argv only
 
 
-def open_writeragent_json_in_editor(ctx) -> None:
+def open_writeragent_json_in_editor(ctx: Any) -> None:
     """Open ``writeragent.json`` in an external editor (best-effort by OS)."""
     try:
         init_config(ctx)

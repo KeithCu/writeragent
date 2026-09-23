@@ -1,6 +1,7 @@
 import logging
 
 from dataclasses import dataclass
+from typing import Any
 
 from plugin.framework.uno_listeners import BaseWindowListener
 
@@ -139,7 +140,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     runtime anchors the bottom band and stretches the transcript to fill the column.
     """
 
-    def __init__(self, controls):
+    def __init__(self, controls: dict[str, Any]) -> None:
         self._c = controls
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
         self._in_relayout = False
@@ -153,7 +154,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     def last_response_rect(self):
         return self._last_response_rect
 
-    def disposing(self, Source):
+    def disposing(self, Source: Any) -> None:
         if self._root_window and hasattr(self._root_window, "removeWindowListener"):
             try:
                 self._root_window.removeWindowListener(self)
@@ -161,7 +162,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
                 pass
         self._root_window = None
 
-    def relayout_now(self, win):
+    def relayout_now(self, win: Any) -> None:
         if not win:
             return
         # Do not wait for deck negotiation. Keith create-time: root=320 with
@@ -177,7 +178,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         finally:
             self._in_relayout = False
 
-    def on_window_resized(self, rEvent):
+    def on_window_resized(self, rEvent: Any) -> None:
         r = rEvent.Source.getPosSize()
         log.info("[LAYOUT] source=windowResized root=%dx%d", r.Width, r.Height)
         # Do not setPosSize the dialog here. windowResized can beat
@@ -190,7 +191,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         if viewport_w > 0:
             self._viewport_w = int(viewport_w)
 
-    def _capture_snapshot(self, win):
+    def _capture_snapshot(self, win: Any) -> None:
         r = win.getPosSize()
         if r.Width <= 0 or r.Height <= 0:
             return
@@ -214,7 +215,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
             len(snapshot),
         )
 
-    def _apply_rect(self, ctrl, rect: ControlRect) -> None:
+    def _apply_rect(self, ctrl: Any, rect: ControlRect) -> None:
         cur = ctrl.getPosSize()
         if (
             cur.X != rect.x
@@ -224,7 +225,7 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         ):
             ctrl.setPosSize(rect.x, rect.y, rect.width, rect.height, 15)
 
-    def _relayout(self, win):
+    def _relayout(self, win: Any) -> None:
         r = win.getPosSize()
         w, h = int(r.Width), int(r.Height)
         if w <= 0 or h <= 0:

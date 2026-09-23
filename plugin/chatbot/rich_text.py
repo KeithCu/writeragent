@@ -15,6 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Shared rich-text formatting for the RichTextControl sidebar (hidden Writer HTML import)."""
 
+from __future__ import annotations
+
 import logging
 import re
 from typing import Any, cast
@@ -54,7 +56,7 @@ CHAT_FONT_WEIGHT = 100.0
 CHAT_PARA_SIDE_MARGIN = 250
 
 
-def apply_chat_char_props(target, *, bg_color=None) -> None:
+def apply_chat_char_props(target: Any, *, bg_color: int | None = None) -> None:
     """Apply sidebar chat Liberation Sans 10pt Char* props to a cursor, portion, or style object."""
     for name, val in (
         ("CharFontName", CHAT_FONT_NAME),
@@ -75,7 +77,7 @@ def apply_chat_char_props(target, *, bg_color=None) -> None:
             pass
 
 
-def apply_rich_control_para_margins(cursor) -> None:
+def apply_rich_control_para_margins(cursor: Any) -> None:
     """Keep chat text off the RichTextControl edges (EditEngine has no CSS padding)."""
     for name, val in (
         ("ParaLeftMargin", CHAT_PARA_SIDE_MARGIN),
@@ -88,7 +90,7 @@ def apply_rich_control_para_margins(cursor) -> None:
             pass
 
 
-def configure_hidden_writer_for_chat(doc) -> None:
+def configure_hidden_writer_for_chat(doc: Any) -> None:
     """Apply sidebar chat defaults on a hidden Writer doc (font, zero margins, no spellcheck)."""
     try:
         import uno
@@ -139,7 +141,7 @@ class ChatTheme:
         self.assistant_color = assistant_color
 
     @classmethod
-    def resolve(cls, doc=None, style_window=None) -> "ChatTheme":
+    def resolve(cls, doc: Any = None, style_window: Any = None) -> "ChatTheme":
         """Factory method to resolve colors from style_window or document frame."""
         bg_color, user_color, assistant_color = get_theme_colors(doc, style_window=style_window)
         return cls(bg_color, user_color, assistant_color)
@@ -148,19 +150,19 @@ class ChatTheme:
 class HiddenDocHTMLImporter:
     """Encapsulates importing HTML into a document and tightening indents on lists."""
 
-    def __init__(self, doc):
+    def __init__(self, doc: Any) -> None:
         self.doc = doc
 
-    def insert_html_at_cursor(self, cursor, html_fragment: str) -> None:
+    def insert_html_at_cursor(self, cursor: Any, html_fragment: str) -> None:
         """Import an HTML fragment into self.doc at *cursor* using Writer's HTML filter."""
         _insert_html_at_cursor(self.doc, cursor, html_fragment)
 
-    def tighten_list_indent(self, body_range) -> None:
+    def tighten_list_indent(self, body_range: Any) -> None:
         """Tighten indentation on list paragraphs within *body_range*."""
         _tighten_list_indent(body_range)
 
 
-def _tighten_list_indent(body_range):
+def _tighten_list_indent(body_range: Any) -> None:
     """Tighten indentation on list paragraphs within *body_range*.
 
     The HTML filter imports <ul>/<ol> as indented paragraphs using ParaLeftMargin
@@ -224,14 +226,14 @@ def _tighten_list_indent(body_range):
     log.debug("_tighten_list_indent: scanned %d paragraphs, tightened %d", para_count, tightened)
 
 
-def _insert_html_at_cursor(doc, cursor, html_fragment):
+def _insert_html_at_cursor(doc: Any, cursor: Any, html_fragment: str) -> None:
     """Import an HTML fragment into *doc* at *cursor* using Writer's HTML filter."""
     from plugin.writer.html_import import insert_html_fragment_at_cursor
 
     insert_html_fragment_at_cursor(cursor, html_fragment, extra_css=_SIDEBAR_LIST_CSS)
 
 
-def append_rich_text(doc, text, role="assistant", style_window=None):
+def append_rich_text(doc: Any, text: str, role: str = "assistant", style_window: Any = None) -> None:
     """Append a complete message to a Writer document (hidden doc for RichTextControl copy).
 
     Inserts a bold, colored role prefix (``You:`` / ``Assistant:``) then
@@ -302,7 +304,7 @@ def append_rich_text(doc, text, role="assistant", style_window=None):
         log.exception("Error in append_rich_text: %s", e)
 
 
-def finalize_sidebar_assistant_response(listener, *, allow_rerender: bool = True) -> None:
+def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool = True) -> None:
     """Re-import the last assistant message as HTML when rich sidebar is active.
 
     Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``

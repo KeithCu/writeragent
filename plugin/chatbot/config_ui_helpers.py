@@ -95,7 +95,7 @@ def _filter_models_for_provider(models: list[str], provider: str | None) -> list
     return [mid for mid in models if not _is_incompatible_model_for_provider(mid, provider)]
 
 
-def _effective_api_key(ctx, endpoint: str, api_key_override: str | None) -> str:
+def _effective_api_key(ctx: Any, endpoint: str, api_key_override: str | None) -> str:
     if api_key_override is not None:
         return str(api_key_override).strip()
     return str(get_api_key_for_endpoint(endpoint) or "").strip()
@@ -166,7 +166,7 @@ def _resolve_display_model_for_combobox(
 _PLAIN_LRU_KEYS: frozenset[str] = frozenset({"prompt_lru", "image_base_size_lru"})
 
 
-def _populate_plain_combobox_with_lru(ctx, ctrl, current_val, lru_key, endpoint) -> str:
+def _populate_plain_combobox_with_lru(ctx: Any, ctrl: Any, current_val: Any, lru_key: str, endpoint: str) -> str:
     """Populate combobox from LRU only; no model fetch or text_model fallback."""
     scoped_key = f"{lru_key}@{endpoint}" if endpoint else lru_key
     lru = get_config(scoped_key)
@@ -209,11 +209,11 @@ def _merge_provider_default_models(to_show: list[str], provider: str, req_cap: s
 
 
 def populate_combobox_with_lru(
-    ctx,
-    ctrl,
-    current_val,
-    lru_key,
-    endpoint,
+    ctx: Any,
+    ctrl: Any,
+    current_val: Any,
+    lru_key: str,
+    endpoint: str,
     *,
     remote_models: list[str] | None = None,
     skip_remote_fetch: bool = False,
@@ -334,7 +334,7 @@ def populate_combobox_with_lru(
         ctrl.setText("")
     return display_val if display_val else ""
 
-def update_lru_history(val, lru_key, endpoint, max_items=None):
+def update_lru_history(val: Any, lru_key: str, endpoint: str, max_items: int | None = None) -> None:
     """Helper to update an LRU list in config. Scoped to endpoint."""
     if max_items is None:
         from plugin.framework.config import LRU_MAX_ITEMS
@@ -361,7 +361,7 @@ def update_lru_history(val, lru_key, endpoint, max_items=None):
     set_config(scoped_key, new_lru)
 
 
-def sync_sidebar_text_model(ctx, ctrl) -> str | None:
+def sync_sidebar_text_model(ctx: Any, ctrl: Any) -> str | None:
     """Persist sidebar chat model combobox text to text_model and model_lru.
 
     Dropdown picks fire ItemListener; paste/typing only change ComboBox text.
@@ -380,7 +380,7 @@ def sync_sidebar_text_model(ctx, ctrl) -> str | None:
     return txt
 
 
-def endpoint_from_selector_text(text):
+def endpoint_from_selector_text(text: Any) -> str:
     """Resolve combobox text to endpoint URL. If text is a preset label, return its URL; else return normalized text."""
     if not text or not isinstance(text, str):
         return ""
@@ -390,7 +390,7 @@ def endpoint_from_selector_text(text):
             return normalize_endpoint_url(url)
     return normalize_endpoint_url(t)
 
-def endpoint_to_selector_display(current_url):
+def endpoint_to_selector_display(current_url: Any) -> str:
     """Return string to show in endpoint combobox: preset label if URL matches a preset, else the URL."""
     url = normalize_endpoint_url(current_url or "")
     if not url:
@@ -400,7 +400,7 @@ def endpoint_to_selector_display(current_url):
             return label
     return url
 
-def populate_endpoint_selector(ctx, ctrl, current_endpoint):
+def populate_endpoint_selector(ctx: Any, ctrl: Any, current_endpoint: Any) -> None:
     """Populate endpoint combobox: preset labels first, then endpoint_lru URLs. Combobox text = URL (visible and editable)."""
     if not ctrl:
         return
@@ -430,7 +430,7 @@ def populate_endpoint_selector(ctx, ctrl, current_endpoint):
     if current_url:
         ctrl.setText(current_url)
 
-def get_endpoint_options(services):
+def get_endpoint_options(services: Any):
     """Options provider for AI endpoint combobox in Tools → Options."""
     options = []
     presets = ENDPOINT_PRESETS
@@ -450,7 +450,7 @@ def get_endpoint_options(services):
         options.append({"value": u, "label": u})
     return options
 
-def get_text_model_options(services):
+def get_text_model_options(services: Any):
     """Options provider for the simple text model combobox in Tools → Options."""
     endpoint = get_current_endpoint()
     scoped_key = f"model_lru@{endpoint}" if endpoint else "model_lru"
@@ -465,7 +465,7 @@ def get_text_model_options(services):
         options.append({"value": mid_str, "label": mid_str})
     return options
 
-def get_image_model_options(services):
+def get_image_model_options(services: Any):
     """Options provider for the simple image model combobox in Tools → Options."""
     endpoint = get_current_endpoint()
     scoped_key = f"image_model_lru@{endpoint}" if endpoint else "image_model_lru"
@@ -481,9 +481,9 @@ def get_image_model_options(services):
     return options
 
 def populate_image_model_selector(
-    ctx,
-    ctrl,
-    override_endpoint=None,
+    ctx: Any,
+    ctrl: Any,
+    override_endpoint: str | None = None,
     *,
     remote_models: list[str] | None = None,
     skip_remote_fetch: bool = False,

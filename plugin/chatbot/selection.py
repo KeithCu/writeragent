@@ -45,7 +45,7 @@ ErrorFn = Callable[[Exception], None]
 PrepareTaskFn = Callable[[StreamCompletionTask], tuple[ApplyChunkFn, ErrorFn]]
 
 
-def create_validated_client(ctx, title: str):
+def create_validated_client(ctx: Any, title: str):
     """Return an LLM client for selection actions, or show the config error."""
     api_config = get_api_config()
     ok, err_msg = validate_api_config(api_config)
@@ -55,7 +55,7 @@ def create_validated_client(ctx, title: str):
     return LlmClient(api_config, ctx)
 
 
-def prompt_for_edit_instructions(ctx, input_box_fn, title: str):
+def prompt_for_edit_instructions(ctx: Any, input_box_fn: Any, title: str):
     """Show the edit dialog and persist shared prompt history when supplied."""
     try:
         user_input, extra_instructions = input_box_fn(ctx, _("Please enter edit instructions!"), _("Input"), "")
@@ -71,7 +71,7 @@ def prompt_for_edit_instructions(ctx, input_box_fn, title: str):
     return user_input, extra_instructions
 
 
-def stream_completion(ctx, client, prompt: str, system_prompt: str, max_tokens: int, apply_chunk_fn: ApplyChunkFn, on_done_fn: Callable[[], None], on_error_fn: ErrorFn) -> None:
+def stream_completion(ctx: Any, client: LlmClient, prompt: str, system_prompt: str, max_tokens: int, apply_chunk_fn: ApplyChunkFn, on_done_fn: Callable[[], None], on_error_fn: ErrorFn) -> None:
     """Start a simple completion stream and route startup failures like stream errors."""
     try:
         run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn)
@@ -79,7 +79,7 @@ def stream_completion(ctx, client, prompt: str, system_prompt: str, max_tokens: 
         on_error_fn(e)
 
 
-def stream_completion_tasks(ctx, client, tasks: list[StreamCompletionTask], prepare_task_fn: PrepareTaskFn) -> None:
+def stream_completion_tasks(ctx: Any, client: LlmClient, tasks: list[StreamCompletionTask], prepare_task_fn: PrepareTaskFn) -> None:
     """Run simple completion streams sequentially, advancing from each done callback."""
     task_index = [0]
 
@@ -94,7 +94,7 @@ def stream_completion_tasks(ctx, client, tasks: list[StreamCompletionTask], prep
     run_next_task()
 
 
-def do_selection_action_for_document(ctx, model, input_box_fn, is_edit: bool) -> None:
+def do_selection_action_for_document(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) -> None:
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
     if doc_type == DocumentType.WRITER:
@@ -118,7 +118,7 @@ def do_selection_action_for_document(ctx, model, input_box_fn, is_edit: bool) ->
     msgbox(ctx, "WriterAgent", _("{0} selection not supported for this document type").format(action))
 
 
-def _action_selection(services, is_edit: bool) -> None:
+def _action_selection(services: Any, is_edit: bool) -> None:
     """Resolve the active document, then use the canonical selection action."""
 
     ctx = get_ctx()
@@ -131,11 +131,11 @@ def _action_selection(services, is_edit: bool) -> None:
     do_selection_action_for_document(ctx, doc, input_box, is_edit)
 
 
-def action_extend_selection(services):
+def action_extend_selection(services: Any) -> None:
     """Get document selection -> stream AI completion -> append to text."""
     _action_selection(services, is_edit=False)
 
 
-def action_edit_selection(services):
+def action_edit_selection(services: Any) -> None:
     """Get selection -> input instructions -> stream AI -> replace text."""
     _action_selection(services, is_edit=True)
