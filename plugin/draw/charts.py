@@ -34,4 +34,4 @@ _ALL_CHART_DOCS = [
 
 
 class ManageCharts(CalcManageCharts, ToolDrawChartBase):  # type: ignore[misc]
-    uno_services: list | None = _ALL_CHART_DOCS
+    uno_services: list = _ALL_CHART_DOCS

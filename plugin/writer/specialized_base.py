@@ -207,8 +207,8 @@ class ToolWriterFormBase(ToolWriterSpecialBase, ToolCalcSpecialBase, ToolDrawFor
     # Same key on both ToolWriterSpecialBase / ToolCalcSpecialBase; explicit ClassVar for checkers.
     specialized_domain: ClassVar[str | None] = "forms"
     specialized_domain_description: ClassVar[str | None] = "Create and manage form templates and UI controls."
-    # Calc/Draw parents infer str/list from unannotated assignments; keep ToolBase types.
-    intent: str | None = "edit"  # type: ignore[assignment]
+    # Calc parent still has a bare uno_services assign (inferred list[str]).
+    intent: str | None = "edit"
     uno_services: list | None = ["com.sun.star.text.TextDocument"]  # type: ignore[assignment]
 
 
