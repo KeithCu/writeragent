@@ -140,9 +140,9 @@ class PythonPanelElement(unohelper.Base, XUIElement):
         self.ResourceURL = resource_url
         self.Frame = frame
         self.Type = TOOLPANEL
-        self.toolpanel = None
+        self.toolpanel: Any = None
         self.m_panelRootWindow = None
-        self.controller = None
+        self.controller: Any = None
 
     def getRealInterface(self) -> XInterface:  # pyright: ignore[reportIncompatibleMethodOverride]
         if not self.toolpanel:
