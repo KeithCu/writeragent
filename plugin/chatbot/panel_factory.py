@@ -335,7 +335,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     ResourceURL: Any
     Frame: Any
     Type: Any
-    toolpanel: Any
+    toolpanel: ChatToolPanel | None
     m_panelRootWindow: Any
     rich_text_widget: Any
     _in_refresh_controls: bool
@@ -351,7 +351,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         self.ResourceURL = resource_url
         self.Frame = frame
         self.Type = TOOLPANEL
-        self.toolpanel: ChatToolPanel | None = None
+        self.toolpanel = None
         self.m_panelRootWindow = None
         self.session: Any = None  # Created in _wireControls
         self.rich_text_widget = None
