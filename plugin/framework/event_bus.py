@@ -217,7 +217,7 @@ class EventBusService(ServiceBase, EventBus):
     pub/sub). Modules access it as ``services.events``.
     """
 
-    name = "events"
+    name: str | None = "events"
 
     def __init__(self):
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)

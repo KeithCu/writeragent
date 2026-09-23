@@ -85,7 +85,7 @@ _implementation: Callable[..., Any] = _uno_service_implementation_decorator()
 
 @_implementation("org.extension.writeragent.ConfigService")
 class ConfigService(ServiceBase):
-    name = "config"
+    name: str | None = "config"
 
     # Declared so mypy can type initialize/set_events/get after those methods
     # gained annotations (same adjacent-field pattern as plugin/mcp).

@@ -332,7 +332,7 @@ class ToolContext:
     send_cancellation: Any | None
     uno_services_supported: frozenset[str]
 
-    __slots__ = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation", "uno_services_supported")
+    __slots__: ClassVar[tuple[str, ...]] = ("doc", "ctx", "doc_type", "services", "caller", "active_page_index", "status_callback", "append_thinking_callback", "stop_checker", "approval_callback", "chat_append_callback", "set_active_domain_callback", "active_domain", "python_tool_domain", "read_only_target", "send_cancellation", "uno_services_supported")
 
     def __init__(self, doc: Any, ctx: Any, doc_type: str, services: Any, caller: str = "", active_page_index: int | None = None, status_callback: Any = None, append_thinking_callback: Any = None, stop_checker: Any = None, approval_callback: Any = None, chat_append_callback: Any = None, set_active_domain_callback: Any = None, active_domain: str | None = None, python_tool_domain: str | None = None, read_only_target: bool = False, send_cancellation: Any = None, uno_services_supported: Any = None) -> None:
         # crosshair: off

@@ -42,7 +42,7 @@ import threading
 import uuid
 from collections import deque
 from concurrent.futures import CancelledError, Future, TimeoutError as FuturesTimeoutError
-from typing import Optional, Callable, Any, IO
+from typing import Optional, Callable, Any, ClassVar, IO
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
 from plugin.framework.errors import WorkerPoolError
@@ -82,7 +82,7 @@ class BackgroundHandle:
     ``join`` never re-raises worker exceptions (those are logged / ``error_callback``).
     """
 
-    __slots__ = ("_future", "_thread")
+    __slots__: ClassVar[tuple[str, ...]] = ("_future", "_thread")
 
     def __init__(self, *, future: Future[Any] | None = None, thread: threading.Thread | None = None) -> None:
         self._future = future
@@ -280,7 +280,7 @@ class StderrTail:
     blocks on stdin/stdout. Keeps a diagnostic tail for crash messages.
     """
 
-    __slots__ = ("_lock", "_chunks", "_chars", "_max_chars", "_thread")
+    __slots__: ClassVar[tuple[str, ...]] = ("_lock", "_chunks", "_chars", "_max_chars", "_thread")
 
     def __init__(self, max_chars: int = _DEFAULT_STDERR_TAIL_CHARS) -> None:
         self._lock = threading.Lock()

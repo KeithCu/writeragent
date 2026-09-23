@@ -36,12 +36,15 @@ import json
 import logging
 import socketserver
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from plugin.framework.url_utils import get_url_path, get_url_query_dict
 from plugin.framework.errors import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.mcp.cors import reject_forbidden_origin, send_cors_headers
 from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_route
+
+if TYPE_CHECKING:
+    from plugin.mcp.routes import HttpRouteRegistry
 
 log = logging.getLogger("writeragent.framework.http_server")
 
@@ -130,13 +133,13 @@ def format_mcp_start_failure(host: str, port: int | str, exc: BaseException) -> 
 class _ThreadedHTTPServer(socketserver.ThreadingMixIn, HTTPServer):
     """HTTP server that handles each request in its own thread."""
 
-    daemon_threads = True
+    daemon_threads: bool = True
 
 
 class GenericRequestHandler(BaseHTTPRequestHandler):
     """HTTP request handler that dispatches to registered routes."""
 
-    route_registry = None  # HttpRouteRegistry, set by HttpServer.start()
+    route_registry: HttpRouteRegistry | None = None  # set by HttpServer.start()
 
     def do_GET(self) -> None:
         self._dispatch("GET")

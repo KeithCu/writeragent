@@ -224,7 +224,7 @@ class McpPortTextListener(BaseListener, XTextListener):
 class TestTunnelListener(BaseActionListener):
     """Settings → MCP: test public tunnel connectivity / provider availability."""
 
-    __test__ = False
+    __test__: bool = False
 
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx

@@ -32,7 +32,7 @@ import threading
 import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Callable, cast, TYPE_CHECKING
+from typing import Any, Callable, ClassVar, cast, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -89,7 +89,7 @@ class SendCancelled(Exception):
 class SendCancellation:
     """Per-send cancellation: flag, registered HTTP clients, and optional hooks."""
 
-    __slots__ = ("_cancelled", "_lock", "_hooks", "_executors")
+    __slots__: ClassVar[tuple[str, ...]] = ("_cancelled", "_lock", "_hooks", "_executors")
 
     def __init__(self) -> None:
         self._cancelled = threading.Event()
@@ -277,7 +277,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
 
 
 class _WorkItem:
-    __slots__ = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception", "cancelled", "_claimed")
+    __slots__: ClassVar[tuple[str, ...]] = ("id", "fn", "args", "kwargs", "blocking", "event", "result", "exception", "cancelled", "_claimed")
 
     def __init__(self, item_id: str, fn: Any, args: Any, kwargs: Any, blocking: bool = True) -> None:
         self.id = item_id
