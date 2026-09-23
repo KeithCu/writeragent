@@ -6,20 +6,26 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
+from urllib.error import HTTPError, URLError
 
 import pytest
 
 from scripts.generate_ci_status import (
+    GITHUB_GET_ATTEMPTS,
     StatusRow,
     SuiteSpec,
     collect_status,
+    github_get,
+    github_retry_delay,
     is_expired,
     job_matches,
     main,
     parse_cached_rows,
+    parse_retry_after_seconds,
     render_html,
     render_json,
     render_svg,
@@ -720,3 +726,135 @@ def test_workflow_restores_and_saves_cache() -> None:
     assert "actions/cache/restore" in text
     assert "actions/cache/save" in text
     assert "--cache .cache/ci-status/status.json" in text
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def __enter__(self) -> _FakeHTTPResponse:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+
+def _http_error(
+    url: str,
+    code: int,
+    body: bytes = b'{"message": "Server Error"}',
+    headers: dict[str, str] | None = None,
+) -> HTTPError:
+    return HTTPError(url, code, "Server Error", headers or {}, BytesIO(body))
+
+
+def test_parse_retry_after_seconds() -> None:
+    assert parse_retry_after_seconds(None) is None
+    assert parse_retry_after_seconds("") is None
+    assert parse_retry_after_seconds("Wed, 21 Oct 2015 07:28:00 GMT") is None
+    assert parse_retry_after_seconds("-1") is None
+    assert parse_retry_after_seconds("7") == 7.0
+    assert parse_retry_after_seconds("120") == 30.0
+
+
+def test_github_retry_delay_exponential_and_retry_after() -> None:
+    assert github_retry_delay(502, {}, 1) == 2.0
+    assert github_retry_delay(503, {}, 2) == 4.0
+    assert github_retry_delay(504, {}, 3) == 8.0
+    assert github_retry_delay(429, {"Retry-After": "7"}, 1) == 7.0
+    assert github_retry_delay(429, {"Retry-After": "not-a-number"}, 1) == 2.0
+    assert github_retry_delay(429, {}, 1) == 2.0
+
+
+def test_github_get_retries_transient_502_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://api.github.com/repos/KeithCu/writeragent/actions/runs/35406653422/jobs?per_page=100"
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    def fake_urlopen(request: object, timeout: int = 30) -> _FakeHTTPResponse:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _http_error(url, 502)
+        return _FakeHTTPResponse(b'{"jobs": []}')
+
+    monkeypatch.setattr("scripts.generate_ci_status.urllib.request.urlopen", fake_urlopen)
+    result = github_get(url, "", sleep=sleeps.append)
+    assert result == {"jobs": []}
+    assert calls["n"] == 2
+    assert sleeps == [2.0]
+
+
+def test_github_get_fails_fast_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://api.github.com/repos/KeithCu/writeragent/actions/runs/1/jobs"
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    def fake_urlopen(request: object, timeout: int = 30) -> _FakeHTTPResponse:
+        calls["n"] += 1
+        raise _http_error(url, 404, b'{"message": "Not Found"}')
+
+    monkeypatch.setattr("scripts.generate_ci_status.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError, match="GitHub API 404"):
+        github_get(url, "", sleep=sleeps.append)
+    assert calls["n"] == 1
+    assert sleeps == []
+
+
+def test_github_get_respects_retry_after_on_429(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://api.github.com/repos/KeithCu/writeragent/actions/workflows/pr-ci.yml/runs"
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    def fake_urlopen(request: object, timeout: int = 30) -> _FakeHTTPResponse:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _http_error(
+                url,
+                429,
+                b'{"message": "API rate limit exceeded"}',
+                {"Retry-After": "5"},
+            )
+        return _FakeHTTPResponse(b'{"workflow_runs": []}')
+
+    monkeypatch.setattr("scripts.generate_ci_status.urllib.request.urlopen", fake_urlopen)
+    result = github_get(url, "", sleep=sleeps.append)
+    assert result == {"workflow_runs": []}
+    assert calls["n"] == 2
+    assert sleeps == [5.0]
+
+
+def test_github_get_exhausts_retries_on_persistent_502(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://api.github.com/repos/KeithCu/writeragent/actions/runs/35406653422/jobs"
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    def fake_urlopen(request: object, timeout: int = 30) -> _FakeHTTPResponse:
+        calls["n"] += 1
+        raise _http_error(url, 502)
+
+    monkeypatch.setattr("scripts.generate_ci_status.urllib.request.urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError, match="GitHub API 502"):
+        github_get(url, "", sleep=sleeps.append)
+    assert calls["n"] == GITHUB_GET_ATTEMPTS
+    assert sleeps == [2.0, 4.0, 8.0]
+
+
+def test_github_get_retries_urlerror_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://api.github.com/repos/KeithCu/writeragent/actions/runs/1/jobs"
+    calls = {"n": 0}
+    sleeps: list[float] = []
+
+    def fake_urlopen(request: object, timeout: int = 30) -> _FakeHTTPResponse:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise URLError("temporarily unavailable")
+        return _FakeHTTPResponse(b'{"jobs": []}')
+
+    monkeypatch.setattr("scripts.generate_ci_status.urllib.request.urlopen", fake_urlopen)
+    result = github_get(url, "", sleep=sleeps.append)
+    assert result == {"jobs": []}
+    assert calls["n"] == 2
+    assert sleeps == [2.0]

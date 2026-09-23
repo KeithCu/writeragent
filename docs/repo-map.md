@@ -51,7 +51,7 @@ Start here by task.
 | Mock LLM (dev) | Fake OpenAI `/v1/chat/completions` for sidebar soak: HTML/scroll, research, Stop, empty replies, reasoning, delegate, parallel tools, HTTP fail/hang (`make mock-llm`, port 18766) | [`scripts/mock_llm_server.py`](../scripts/mock_llm_server.py) — [chat/rich-text-control-sidebar.md](chat/rich-text-control-sidebar.md#mock-llm-for-sidebar-soak) |
 | Extension packaging | OXT resources; register new components in manifest | [`extension/`](../extension/) (`Dialogs/`, `idl/`, `metadata/`), [`extension/META-INF/manifest.xml`](../extension/META-INF/manifest.xml) |
 | Build / tooling | Make targets, package metadata, Python pin, LibrePy file list | [`Makefile`](../Makefile), [`pyproject.toml`](../pyproject.toml), [`.python-version`](../.python-version), [`scripts/librepy_bundle_paths.py`](../scripts/librepy_bundle_paths.py) |
-| CI status (Pages) | Actions API → `index.html` + `status.svg` + `status.json` for README / Pages (60-day test retention & cached hints) | [`scripts/generate_ci_status.py`](../scripts/generate_ci_status.py), [`.github/workflows/ci-status-pages.yml`](../.github/workflows/ci-status-pages.yml) |
+| CI status (Pages) | Actions API → `index.html` + `status.svg` + `status.json` for README / Pages (60-day test retention & cached hints; `github_get` retries 429/502/503/504) | [`scripts/generate_ci_status.py`](../scripts/generate_ci_status.py), [`.github/workflows/ci-status-pages.yml`](../.github/workflows/ci-status-pages.yml) |
 
 ## Deep dives (link index)
 

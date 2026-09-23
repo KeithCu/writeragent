@@ -10,7 +10,9 @@ Used by ``.github/workflows/ci-status-pages.yml`` to publish
 https://keithcu.github.io/writeragent/ (``index.html`` + ``status.svg``).
 Auth is ``GITHUB_TOKEN`` only (optional for this public repo). The token
 is never written into HTML or SVG. The SVG is a drawn table (not a
-screenshot) so the repo README can embed it as an image.
+screenshot) so the repo README can embed it as an image. ``github_get``
+retries transient GitHub API 429/502/503/504 and transport errors so a
+one-off gateway flake does not fail Status Pages.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import html
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -36,6 +39,15 @@ RUNS_PER_PAGE = 100
 MAX_RUN_PAGES = 50
 DEFAULT_MAX_AGE_DAYS = 60
 OS_LABELS = ("ubuntu-latest", "macos-latest", "windows-latest")
+
+# Status Pages failed master on a single GitHub 502 ("Server Error") while
+# listing run jobs. github_get used to raise on the first HTTPError, so a
+# gateway flake reded the branch even though product CI was fine. Retry
+# only these statuses (plus URLError/timeout); 401/403/404 stay fail-fast.
+TRANSIENT_HTTP_STATUSES = frozenset({429, 502, 503, 504})
+GITHUB_GET_ATTEMPTS = 4
+GITHUB_GET_BACKOFF_SEC = 2.0
+GITHUB_GET_MAX_SLEEP_SEC = 30.0
 
 # Each row is the newest job whose name contains every needle. CrossHair
 # jobs are ``CrossHair (check-all, ubuntu-latest)`` / ``cover-all`` (see
@@ -166,7 +178,47 @@ def job_conclusion(job: JsonDict) -> str:
     return "unknown"
 
 
-def github_get(url: str, token: str) -> JsonDict:
+def parse_retry_after_seconds(value: str | None) -> float | None:
+    """Parse ``Retry-After`` as delta-seconds. Invalid or missing -> None.
+
+    GitHub sends integer seconds on 429. HTTP-date values are ignored so
+    this stays stdlib-simple; those fall back to exponential backoff.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        return None
+    if seconds < 0:
+        return None
+    return min(seconds, GITHUB_GET_MAX_SLEEP_SEC)
+
+
+def github_retry_delay(
+    status: int | None,
+    headers: Any,
+    attempt: int,
+) -> float:
+    """Sleep before the next ``github_get`` attempt (1-based failed attempt)."""
+    if status == 429 and headers is not None:
+        getter = getattr(headers, "get", None)
+        raw_retry_after = getter("Retry-After") if callable(getter) else None
+        retry_after = parse_retry_after_seconds(
+            raw_retry_after if isinstance(raw_retry_after, str) else None
+        )
+        if retry_after is not None:
+            return retry_after
+    exponent = max(attempt, 1) - 1
+    return min(GITHUB_GET_BACKOFF_SEC * (2 ** exponent), GITHUB_GET_MAX_SLEEP_SEC)
+
+
+def github_get(
+    url: str,
+    token: str,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+) -> JsonDict:
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": USER_AGENT,
@@ -175,16 +227,40 @@ def github_get(url: str, token: str) -> JsonDict:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=30) as resp:
-            raw = resp.read()
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub API {exc.code} for {url}: {body[:300]}") from exc
-    parsed: Any = json.loads(raw.decode("utf-8"))
-    if not isinstance(parsed, dict):
-        raise RuntimeError(f"GitHub API returned a non-object for {url}")
-    return parsed
+    for attempt in range(1, GITHUB_GET_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as resp:
+                raw = resp.read()
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            error = RuntimeError(f"GitHub API {exc.code} for {url}: {body[:300]}")
+            if exc.code not in TRANSIENT_HTTP_STATUSES or attempt >= GITHUB_GET_ATTEMPTS:
+                raise error from exc
+            delay = github_retry_delay(exc.code, exc.headers, attempt)
+            print(
+                f"Retrying GitHub API {exc.code} for {url} in {delay:g}s "
+                f"(attempt {attempt}/{GITHUB_GET_ATTEMPTS})",
+                file=sys.stderr,
+            )
+            sleep(delay)
+            continue
+        except (urllib.error.URLError, TimeoutError) as exc:
+            error = RuntimeError(f"GitHub API request failed for {url}: {exc}")
+            if attempt >= GITHUB_GET_ATTEMPTS:
+                raise error from exc
+            delay = github_retry_delay(None, None, attempt)
+            print(
+                f"Retrying GitHub API request for {url} in {delay:g}s "
+                f"(attempt {attempt}/{GITHUB_GET_ATTEMPTS}): {exc}",
+                file=sys.stderr,
+            )
+            sleep(delay)
+            continue
+        parsed: Any = json.loads(raw.decode("utf-8"))
+        if not isinstance(parsed, dict):
+            raise RuntimeError(f"GitHub API returned a non-object for {url}")
+        return parsed
+    raise RuntimeError(f"GitHub API request failed for {url}")
 
 
 def make_fetcher(token: str) -> Fetcher:
