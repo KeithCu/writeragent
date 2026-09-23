@@ -72,7 +72,7 @@ COMPLETION TOOLS:
 - reply_to_user with brainstorming_finished=true: END the session after the spec is saved and the user has reviewed it in the document.
 - save_design_spec: the ONLY way to write to the document (never call apply_document_content)."""
 
-def get_brainstorming_sub_agent_instructions(ctx=None) -> str:
+def get_brainstorming_sub_agent_instructions(ctx: Any | None = None) -> str:
     """Full system instructions for the brainstorming smol sub-agent."""
     parts = [
         BRAINSTORMING_SUB_AGENT_INSTRUCTIONS,

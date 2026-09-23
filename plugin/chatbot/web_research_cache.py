@@ -14,6 +14,7 @@ import hashlib
 import json
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from plugin.framework.deal_shim import deal
@@ -92,7 +93,7 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
     return None
 
 
-def _resolve_on_main(fn):
+def _resolve_on_main(fn: Callable[[], Any]) -> Any:
     """Run UNO work on the main thread (web_research runs on an async worker)."""
     from plugin.framework.thread_guard import on_main_thread
     from plugin.framework.queue_executor import execute_on_main_thread
@@ -298,7 +299,7 @@ def store_research_cache_embeddings(
     if not HAS_SQLITE:
         return
 
-    def do_store(conn):
+    def do_store(conn: Any) -> None:
         now = time.time()
         payload = []
         for raw_key, text, vector in rows:
@@ -341,7 +342,7 @@ def _research_cache_embedding_rows(
         return []
     cutoff = time.time() - (max_age_days * 86400)
 
-    def do_list(conn):
+    def do_list(conn: Any) -> Any:
         return conn.execute(
             "SELECT e.key, e.embedding_text, e.text_hash, e.dim, e.vector_json "
             "FROM web_cache_embeddings e "
@@ -382,7 +383,7 @@ def _research_cache_missing_embedding_rows(
         return []
     cutoff = time.time() - (max_age_days * 86400)
 
-    def do_list(conn):
+    def do_list(conn: Any) -> Any:
         return conn.execute(
             "SELECT w.key, e.embedding_text, e.text_hash "
             "FROM web_cache w "

@@ -38,7 +38,7 @@ COMPLETION:
 - ppt_master_finished: end when the deck is done or the user switches back to Chat mode. Set exported=true if export_presentation_project succeeded."""
 
 
-def get_ppt_master_sub_agent_instructions(ctx=None) -> str:
+def get_ppt_master_sub_agent_instructions(ctx: Any | None = None) -> str:
     """Full system instructions for the PPT-Master smol sub-agent (Impress/Draw sidebar)."""
     parts = [
         PPT_MASTER_SUB_AGENT_INSTRUCTIONS,

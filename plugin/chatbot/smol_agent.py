@@ -139,7 +139,14 @@ class WriterAgentSmolModel(Model):
     requests to WriterAgent's `LlmClient` (`core.api`).
     """
 
-    def __init__(self, llm_client, max_tokens=1024, status_callback=None, stop_checker=None, **kwargs):
+    def __init__(
+        self,
+        llm_client: LlmClient,
+        max_tokens: int = 1024,
+        status_callback: Callable[[str], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+        **kwargs: Any,
+    ):
         super().__init__(**kwargs)
         self.api = llm_client
         self.max_tokens = max_tokens
@@ -147,7 +154,14 @@ class WriterAgentSmolModel(Model):
         self._status_callback = status_callback
         self._stop_checker = stop_checker
 
-    def generate(self, messages, stop_sequences=None, response_format=None, tools_to_call_from=None, **kwargs):
+    def generate(
+        self,
+        messages: list[ChatMessage],
+        stop_sequences: list[str] | None = None,
+        response_format: dict[str, str] | None = None,
+        tools_to_call_from: list[SmolTool] | None = None,
+        **kwargs: Any,
+    ) -> ChatMessage:
         completion_kwargs = self._prepare_completion_kwargs(messages=cast("list[ChatMessage | dict[str, Any]]", messages), stop_sequences=stop_sequences, tools_to_call_from=tools_to_call_from, **kwargs)
 
         msg_dicts = completion_kwargs.get("messages", [])
@@ -186,7 +200,7 @@ class WriterAgentSmolModel(Model):
 class SmolAgentExecutor:
     """Executes a smolagent and streams its progress to the document chat UI."""
 
-    def __init__(self, ctx):
+    def __init__(self, ctx: ToolContext):
         """Initialize the executor with the tool context.
 
         Args:
@@ -204,7 +218,7 @@ class SmolAgentExecutor:
                 interrupt()
             raise ToolExecutionError("Task stopped by user.", code="USER_STOPPED")
 
-    def run(self, agent, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, action_step_handler: Callable[[ActionStep], Any] | None = None) -> Any:
+    def run(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, action_step_handler: Callable[[ActionStep], Any] | None = None) -> Any:
         """Run the agent and stream its steps.
 
         Args:
@@ -273,7 +287,7 @@ class SmolAgentExecutor:
 
         return final_ans
 
-    def execute_safe(self, agent, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, action_step_handler: Callable[[ActionStep], Any] | None = None, stop_message: str = "Stopped by user.", error_prefix: str = "Task failed") -> Any:
+    def execute_safe(self, agent: Any, task: str, tool_call_handler: Callable[[ToolCall], Any] | None = None, action_step_handler: Callable[[ActionStep], Any] | None = None, stop_message: str = "Stopped by user.", error_prefix: str = "Task failed") -> Any:
         """Execute the agent safely, catching errors and formatting them for the UI.
 
         Args:

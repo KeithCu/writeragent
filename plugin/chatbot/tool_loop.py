@@ -12,6 +12,8 @@ Document edits and widget updates stay on the drain / main thread, not
 on the LLM worker.
 """
 
+from __future__ import annotations
+
 import logging
 import inspect
 import dataclasses
@@ -212,7 +214,7 @@ class ToolCallingMixin:
             return
 
         # Callback for updating active domain in the session
-        def set_active_domain(domain, python_tool_domain=None):
+        def set_active_domain(domain: str | None, python_tool_domain: str | None = None) -> None:
             if hasattr(self, "session") and self.session:
                 self.session.active_specialized_domain = domain
                 self.session.python_tool_domain = python_tool_domain
@@ -464,7 +466,7 @@ class ToolCallingMixin:
                     real_q.put((StreamQueueKind.STOPPED,))
                     return
                 # Status via queue only — never self._set_status from this worker (UNO).
-                def status_cb(t):
+                def status_cb(t: str) -> None:
                     real_q.put((StreamQueueKind.STATUS, t))
                 with llm_request_lane():
                     # Compact + stream share one lane hold. compaction.py must
@@ -542,7 +544,7 @@ class ToolCallingMixin:
                         batched.flush()
                     real_q.put((StreamQueueKind.STOPPED,))
                     return
-                def status_cb(t):
+                def status_cb(t: str) -> None:
                     real_q.put((StreamQueueKind.STATUS, t))
                 with llm_request_lane():
                     # Same compact-then-view path as _spawn_llm_worker. Final

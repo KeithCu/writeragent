@@ -28,6 +28,8 @@ from plugin.framework.config import (
 from plugin.framework.client.model_fetcher import get_image_model, get_text_model, set_image_model, set_text_model
 from plugin.framework.event_bus import global_event_bus
 
+from typing import Any
+
 import logging
 
 log = logging.getLogger(__name__)
@@ -43,7 +45,7 @@ IMAGE_ASPECT_RATIO_LABELS: tuple[str, ...] = (
 )
 
 
-def get_settings_field_specs(ctx):
+def get_settings_field_specs(ctx: Any) -> list[dict[str, Any]]:
     """Return field specs for Settings dialog (single source for dialog and apply keys)."""
     log.debug("get_settings_field_specs entry")
     current_endpoint = get_current_endpoint()
@@ -56,7 +58,7 @@ def get_settings_field_specs(ctx):
     return field_specs
 
 
-def _get_core_field_specs(ctx, current_endpoint):
+def _get_core_field_specs(ctx: Any, current_endpoint: str) -> list[dict[str, Any]]:
     return [
         {"name": "endpoint", "value": get_config_str("endpoint")},
         {"name": "request_timeout", "value": str(get_config_int("request_timeout")), "type": "int"},
@@ -72,7 +74,7 @@ def _get_core_field_specs(ctx, current_endpoint):
     ]
 
 
-def _get_image_field_specs(ctx):
+def _get_image_field_specs(ctx: Any) -> list[dict[str, Any]]:
     return [
         {"name": "image_model", "value": str(get_image_model())},
         {"name": "image_base_size", "value": str(get_config_int("image_base_size")), "type": "int"},
@@ -89,7 +91,7 @@ def _get_image_field_specs(ctx):
     ]
 
 
-def _get_module_field_specs(ctx):
+def _get_module_field_specs(ctx: Any) -> list[dict[str, Any]]:
     field_specs = []
     try:
         from plugin._manifest import MODULES
@@ -110,7 +112,7 @@ def _get_module_field_specs(ctx):
     return field_specs
 
 
-def apply_settings_result(ctx, result):
+def apply_settings_result(ctx: Any, result: dict[str, Any]) -> None:
     """Apply settings dialog result to config. Shared by Writer and Calc."""
     from plugin.chatbot.config_ui_helpers import update_lru_history
 
@@ -148,7 +150,7 @@ def apply_settings_result(ctx, result):
     global_event_bus.emit("config:changed", ctx=ctx)
 
 
-def _update_lru_for_key(ctx, key, val, current_endpoint):
+def _update_lru_for_key(ctx: Any, key: str, val: Any, current_endpoint: str) -> None:
     from plugin.chatbot.config_ui_helpers import update_lru_history
     
     if not val:

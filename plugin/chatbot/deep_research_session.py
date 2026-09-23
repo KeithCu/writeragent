@@ -38,7 +38,7 @@ TOOLS:
 - apply_document_content: the ONLY way to write research into the document.
 - reply_to_user: short chat confirmation when the turn is complete."""
 
-def get_deep_research_sub_agent_instructions(ctx=None) -> str:
+def get_deep_research_sub_agent_instructions(ctx: Any | None = None) -> str:
     """Full system instructions for the Deep Research smol sub-agent (sidebar)."""
     parts = [
         DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS,
