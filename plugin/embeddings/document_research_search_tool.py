@@ -23,18 +23,18 @@ _MAX_SEARCH_K = 20
 class SearchEmbeddings(ToolBase):
     """Semantic search over indexed paragraphs in the active document folder."""
 
-    name = "search_embeddings"
-    description = (
+    name: str | None = "search_embeddings"
+    description: str = (
         "Search the active folder's semantic index for passages related to your query. "
         "Returns ranked doc_url, score, snippet (passage preview), and optional para_index hint. "
         "Use before delegate_read_document when you need cross-file discovery by meaning or topic."
     )
-    tier = "specialized"
+    tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = "document_research"
     specialized_cross_cutting: ClassVar[bool] = True
-    is_mutation = False
-    long_running = True
-    parameters = {
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Natural-language or keyword query."},

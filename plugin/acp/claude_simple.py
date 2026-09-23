@@ -17,7 +17,7 @@
 """Claude agent backend using the shared ACPBackend base class."""
 
 import logging
-from typing import Dict
+from typing import ClassVar, Dict
 
 from plugin.acp.acp_backend import ACPBackend
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 class ClaudeBackend(ACPBackend):
     """ACP-based Claude backend."""
 
-    backend_id = "claude"
+    backend_id: ClassVar[str] = "claude"
 
     def get_binary_name(self) -> str:
         """Return the binary name to search for."""

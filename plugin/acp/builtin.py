@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Built-in backend: no-op. Sidebar uses the existing in-process LlmClient path."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.errors import format_error_payload
@@ -24,8 +24,8 @@ from plugin.acp.base import AgentBackend
 
 
 class BuiltinBackend(AgentBackend):
-    backend_id = "builtin"
-    display_name = "Built-in"
+    backend_id: ClassVar[str] = "builtin"
+    display_name: ClassVar[str] = "Built-in"
 
     def __init__(self, ctx: Any | None = None):
         pass

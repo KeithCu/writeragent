@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """OpenCode agent backend using the shared ACPBackend base class."""
 
-from typing import Tuple
+from typing import ClassVar, Tuple
 
 from plugin.acp.acp_backend import ACPBackend
 
@@ -24,7 +24,7 @@ from plugin.acp.acp_backend import ACPBackend
 class OpenCodeBackend(ACPBackend):
     """ACP-based OpenCode backend (``opencode acp``)."""
 
-    backend_id = "opencode"
+    backend_id: ClassVar[str] = "opencode"
     default_extra_args: Tuple[str, ...] = ("acp",)
 
     def get_binary_name(self) -> str:

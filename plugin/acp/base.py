@@ -16,7 +16,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Abstract base for agent backends. All adapters push events into a queue.Queue."""
 
-from typing import Any
+from typing import Any, ClassVar
 
 
 class AgentBackend:
@@ -28,8 +28,8 @@ class AgentBackend:
     (e.g. ``CHUNK``, ``STATUS``, ``STREAM_DONE``, ``TOOL_CALL``, ``TOOL_RESULT``, ``ERROR``, …).
     """
 
-    backend_id = "builtin"
-    display_name = "Built-in"
+    backend_id: ClassVar[str] = "builtin"
+    display_name: ClassVar[str] = "Built-in"
 
     def is_available(self, ctx: Any) -> bool:
         """Return True if this backend can be used (e.g. CLI installed, config valid)."""

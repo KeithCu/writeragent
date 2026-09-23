@@ -27,15 +27,15 @@ _VISION_DOCS = [
 class ExtractStructureFromImage(ToolCalcVisionBase):
     """Run trusted extract_structure OCR on an embedded graphic via the user venv."""
 
-    name = "extract_structure_from_image"
+    name: str | None = "extract_structure_from_image"
     specialized_cross_cutting: ClassVar[bool] = True
-    description = (
+    description: str = (
         "Extract text and structure (layout, tables, etc.) from embedded document image(s). "
         "Leave image_name empty to use the currently selected graphic, or a Writer selection that "
         "contains multiple images (intervening text is ignored). "
         "By default inserts a high-quality representation after each graphic (Writer) or below the Calc anchor."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "image_name": {
@@ -56,8 +56,8 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         },
         "required": [],
     }
-    uno_services = _VISION_DOCS
-    long_running = True
+    uno_services: list | None = _VISION_DOCS
+    long_running: bool = True
 
     def is_async(self) -> bool:
         return True

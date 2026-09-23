@@ -21,18 +21,18 @@ _DEFAULT_NEAR_SLOP = 10
 class SearchNearbyFiles(ToolBase):
     """Hybrid keyword + semantic search over indexed paragraphs in the active document folder."""
 
-    name = "search_nearby_files"
-    description = (
+    name: str | None = "search_nearby_files"
+    description: str = (
         "Search the active folder index (keyword BM25/NEAR + semantic embeddings, fused ranking). "
         "Returns ranked doc_url, score, snippet, and optional para_index hint. "
         "Use for cross-file discovery when filenames are unknown."
     )
-    tier = "specialized"
+    tier: str = "specialized"
     specialized_domain: ClassVar[str | None] = "document_research"
     specialized_cross_cutting: ClassVar[bool] = True
-    is_mutation = False
-    long_running = True
-    parameters = {
+    is_mutation: bool | None = False
+    long_running: bool = True
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Natural-language or keyword query."},

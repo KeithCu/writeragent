@@ -17,7 +17,7 @@
 """Grok Build agent backend using the shared ACPBackend base class."""
 
 import os
-from typing import Tuple
+from typing import ClassVar, Tuple
 
 from plugin.acp.acp_backend import ACPBackend
 
@@ -25,7 +25,7 @@ from plugin.acp.acp_backend import ACPBackend
 class GrokBackend(ACPBackend):
     """ACP-based xAI Grok Build backend. Official CLI: ``grok --no-auto-update agent stdio``."""
 
-    backend_id = "grok"
+    backend_id: ClassVar[str] = "grok"
     default_extra_args: Tuple[str, ...] = ("--no-auto-update", "agent", "stdio")
 
     def get_binary_name(self) -> str:
