@@ -255,7 +255,8 @@ reportUnsafeMultipleInheritance = false
 reportMissingSuperCall = false
 
 # Disable stylistic / noisy rules
-reportUnannotatedClassAttribute = false
+# Instance attrs mopped in #864–#867; Enum members stay exempt. Do not silence with @final.
+reportUnannotatedClassAttribute = true
 reportUnknownLambdaType = false
 reportPrivateUsage = false
 reportUnusedParameter = false

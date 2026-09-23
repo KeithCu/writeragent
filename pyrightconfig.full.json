@@ -33,7 +33,7 @@
   "reportCallInDefaultInitializer": false,
   "reportUnsafeMultipleInheritance": false,
   "reportMissingSuperCall": false,
-  "reportUnannotatedClassAttribute": false,
+  "reportUnannotatedClassAttribute": true,
   "reportUnknownLambdaType": false,
   "reportPrivateUsage": false,
   "reportUnusedParameter": false,
