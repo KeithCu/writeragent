@@ -460,7 +460,9 @@ class SettingsDialog:
 
     def _extract_results(self, field_specs: list[dict[str, Any]]) -> dict[str, Any]:
         assert self._dlg is not None
-        result = {}
+        # Mixed checkbox bools and text strings; without this mypy infers dict[str, str]
+        # from the empty-control "" default once SettingsDialog has class-body annotations.
+        result: dict[str, Any] = {}
         for field in field_specs:
             name = field["name"]
             ctrl = self._dlg.getControl(name)
