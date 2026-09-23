@@ -19,12 +19,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException
-from plugin.framework.tool import ToolContext
 from .base import ToolDrawShapeBase
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger(__name__)
 

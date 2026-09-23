@@ -5,11 +5,15 @@
 
 """Impress speaker notes tools."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSpeakerNotesBase
 from plugin.draw.bridge import DrawBridge
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 
 class GetSpeakerNotes(ToolDrawSpeakerNotesBase):

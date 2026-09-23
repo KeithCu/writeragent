@@ -22,7 +22,7 @@ PDF/AcroForm widgets are out of scope.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawShapeBase
 from plugin.draw.tree import (
@@ -31,7 +31,11 @@ from plugin.draw.tree import (
     find_shape_on_page,
     is_control_shape_type,
 )
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
+
+
 def _flatten_tree(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for node in nodes:

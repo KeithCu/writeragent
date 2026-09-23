@@ -5,12 +5,16 @@
 
 """Impress slide transition and layout tools."""
 
+from __future__ import annotations
+
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
 from plugin.draw.bridge import DrawBridge
-from plugin.framework.tool import ToolContext
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("nelson.draw")
 
