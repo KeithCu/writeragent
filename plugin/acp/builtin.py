@@ -16,6 +16,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Built-in backend: no-op. Sidebar uses the existing in-process LlmClient path."""
 
+from typing import Any
+
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.errors import format_error_payload
 from plugin.acp.base import AgentBackend
@@ -25,9 +27,9 @@ class BuiltinBackend(AgentBackend):
     backend_id = "builtin"
     display_name = "Built-in"
 
-    def __init__(self, ctx=None):
+    def __init__(self, ctx: Any | None = None):
         pass
 
-    def send(self, queue, user_message, document_context, document_url, system_prompt=None, mcp_url=None, selection_text=None, stop_checker=None, **kwargs):
+    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any):
         # Should not be called; sidebar branches away when backend is builtin.
         queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError("Built-in backend should not receive send()"))))

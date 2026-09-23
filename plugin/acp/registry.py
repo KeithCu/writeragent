@@ -16,6 +16,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Registry of agent backends. Backend ids: builtin, hermes, claude, vibe, grok, opencode."""
 
+from typing import Any
+
 from plugin.acp.builtin import BuiltinBackend
 from plugin.acp.hermes_simple import HermesBackend
 from plugin.acp.claude_simple import ClaudeBackend
@@ -38,7 +40,7 @@ def list_backend_ids():
     return list(AGENT_BACKEND_REGISTRY.keys())
 
 
-def normalize_backend_id(backend_id):
+def normalize_backend_id(backend_id: Any):
     """Normalize backward-compatible or translated backend IDs to internal IDs."""
     if not backend_id:
         return "builtin"
@@ -53,7 +55,7 @@ def normalize_backend_id(backend_id):
     return "builtin"
 
 
-def get_backend(backend_id, ctx=None):
+def get_backend(backend_id: Any, ctx: Any | None = None):
     """Return an adapter instance for the given backend id, or None."""
     backend_id = normalize_backend_id(backend_id)
     entry = AGENT_BACKEND_REGISTRY.get(backend_id)

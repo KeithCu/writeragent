@@ -25,7 +25,7 @@ import os
 import shutil
 import threading
 import time
-from typing import Optional, Dict, List, Tuple
+from typing import Any, Optional, Dict, List, Tuple
 
 from plugin.acp.base import AgentBackend
 from plugin.acp.acp_connection import ACPConnection
@@ -58,7 +58,7 @@ class ACPBackend(AgentBackend):
 
     default_extra_args: Tuple[str, ...] = ()
 
-    def __init__(self, ctx=None):
+    def __init__(self, ctx: Any | None = None):
         self._ctx = ctx
         self._conn = None
         self._session_id = None
@@ -132,7 +132,7 @@ class ACPBackend(AgentBackend):
         """Return environment variables to pass to subprocess."""
         return {}
 
-    def is_available(self, ctx):
+    def is_available(self, ctx: Any):
         """Check if binary is installed."""
         self._load_config()
         if self._binary_path and os.path.isfile(self._binary_path):
@@ -180,7 +180,7 @@ class ACPBackend(AgentBackend):
             self._conn = None
             raise
 
-    def _ensure_session(self, mcp_url=None, document_url=None):
+    def _ensure_session(self, mcp_url: str | None = None, document_url: str | None = None):
         """Create a new ACP session if needed."""
         if self._session_id:
             return
@@ -227,7 +227,7 @@ class ACPBackend(AgentBackend):
 
         return prompt_blocks
 
-    def _handle_acp_update(self, update, queue):
+    def _handle_acp_update(self, update: Any, queue: Any):
         """Queue CHUNK / TOOL_CALL / TOOL_RESULT from session or agent update content.
 
         Session and agent notifications use the same shapes: ``content`` is either
@@ -254,7 +254,7 @@ class ACPBackend(AgentBackend):
             elif item_type == "tool_result":
                 queue.put((StreamQueueKind.TOOL_RESULT, item))
 
-    def send(self, queue, user_message, document_context, document_url, system_prompt=None, mcp_url=None, selection_text=None, stop_checker=None, **kwargs):
+    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, selection_text: str | None = None, stop_checker: Any = None, **kwargs: Any):
         """Send a message via ACP stdio."""
         self._stop_requested = False
         self._prompt_done.clear()
@@ -279,7 +279,7 @@ class ACPBackend(AgentBackend):
         prompt_blocks = self._build_prompt_blocks(user_message=user_message, document_context=document_context, system_prompt=system_prompt, selection_text=selection_text, document_url=document_url)
 
         # Set up notification handler for streaming updates
-        def on_notification(method, params, msg_id=None):
+        def on_notification(method: str, params: Any, msg_id: Any = None):
             if self._stop_requested:
                 return
             if method == "session/request_permission":
@@ -336,7 +336,7 @@ class ACPBackend(AgentBackend):
                 pass
         self._prompt_done.set()
 
-    def submit_approval(self, request_id, approved):
+    def submit_approval(self, request_id: Any, approved: bool):
         """Submit HITL approval response back to ACP process."""
         if not self._conn or not self._conn.is_alive:
             log.warning("Cannot submit approval, ACP connection is dead")

@@ -26,7 +26,7 @@ import logging
 import os
 import subprocess
 import threading
-from typing import cast
+from typing import Any, cast
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.framework.worker_pool import get_subprocess_creationflags, run_in_background, start_stderr_drain
@@ -42,7 +42,7 @@ _ACP_PROTOCOL_VERSION = 1
 class ACPConnection:
     """Manages a JSON-RPC stdio connection to an ACP subprocess."""
 
-    def __init__(self, cmd_line, env=None, cwd=None):
+    def __init__(self, cmd_line: list[str], env: dict[str, str] | None = None, cwd: str | None = None):
         self._cmd_line = cmd_line
         self._env = env
         self._cwd = cwd
@@ -114,7 +114,7 @@ class ACPConnection:
             self._request_id += 1
             return self._request_id
 
-    def send_request(self, method, params=None, timeout=120):
+    def send_request(self, method: str, params: Any = None, timeout: int = 120):
         """Send a JSON-RPC request and wait for the response."""
         if not self.is_alive:
             raise ToolExecutionError("ACP process is not running")
@@ -154,7 +154,7 @@ class ACPConnection:
 
         return resp.get("result") if resp else None
 
-    def send_notification(self, method, params=None):
+    def send_notification(self, method: str, params: Any = None):
         """Send a JSON-RPC notification (no response expected)."""
         if not self.is_alive:
             return
@@ -167,7 +167,7 @@ class ACPConnection:
         except Exception:
             pass
 
-    def send_response(self, msg_id, result=None, error=None):
+    def send_response(self, msg_id: Any, result: Any = None, error: Any = None):
         """Send a JSON-RPC response to a request from the agent."""
         if not self.is_alive:
             return
@@ -185,7 +185,7 @@ class ACPConnection:
         except Exception:
             log.exception("Failed to send response")
 
-    def set_notification_callback(self, callback):
+    def set_notification_callback(self, callback: Any):
         """Set a callback(method, params, msg_id) for incoming notifications."""
         self._notify_callback = callback
 

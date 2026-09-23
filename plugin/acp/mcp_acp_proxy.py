@@ -23,7 +23,7 @@ to WriterAgent's MCP server by acting as an ACP-to-MCP protocol bridge.
 import logging
 import threading
 import requests
-from typing import Optional, Dict, List
+from typing import Any, Optional, Dict, List
 
 from plugin.acp.base import AgentBackend
 
@@ -40,7 +40,7 @@ class MCPACPProxy(AgentBackend):
     backend_id = "mcp_acp"
     display_name = "WriterAgent MCP (ACP)"
 
-    def __init__(self, ctx=None):
+    def __init__(self, ctx: Any | None = None):
         self._ctx = ctx
         self._mcp_url = ""
         self._session_id = None
