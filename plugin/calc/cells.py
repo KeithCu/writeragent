@@ -294,8 +294,8 @@ def _values_length_mismatch_message(range_name: str, n_vals: int, n_cells: int, 
 class ReadCellRange(ToolBase):
     """Read values from one or more cell ranges."""
 
-    name = "read_cell_range"
-    description = (
+    name: str | None = "read_cell_range"
+    description: str = (
         "Reads values from the specified cell range(s). Inspection only — keep ranges small "
         "(headers or a few dozen cells). A large dump overloads chat context; oversized reads "
         "return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); "
@@ -306,7 +306,7 @@ class ReadCellRange(ToolBase):
         "Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with "
         "type/format_category duration. Supports lists for non-contiguous areas."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "range": {
@@ -321,9 +321,9 @@ class ReadCellRange(ToolBase):
         },
         "required": ["range"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    tier = "core"
-    is_mutation = False
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    tier: str = "core"
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -370,8 +370,8 @@ class ReadCellRange(ToolBase):
 class WriteCellRange(ToolBase):
     """Write formulas or values to a cell range."""
 
-    name = "write_formula_range"
-    description = (
+    name: str | None = "write_formula_range"
+    description: str = (
         "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; "
         "JSON array must match range size exactly (one value per cell); or multiline CSV from a start "
         "cell. Use an empty string or empty array to clear contents. Supports lists for non-contiguous "
@@ -396,7 +396,7 @@ class WriteCellRange(ToolBase):
         "values. Dest is the top-left (or a matching range whose start is used); the copied size is "
         "the source extent. Relative formula refs adjust for the dest offset; $ stay."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "range": {
@@ -453,9 +453,9 @@ class WriteCellRange(ToolBase):
         },
         "required": ["range"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    tier = "core"
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    tier: str = "core"
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.writer.edit_review import WriterCompoundUndo
@@ -551,16 +551,16 @@ class WriteCellRange(ToolBase):
 class InsertCellHtml(ToolBase):
     """Insert HTML as rich text into a single cell (active sheet)."""
 
-    name = "insert_cell_html"
-    intent = "edit"
-    description = (
+    name: str | None = "insert_cell_html"
+    intent: str | None = "edit"
+    description: str = (
         "Parses HTML with the same filter as Writer and pastes rich text into one cell on the "
         "active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded "
         "objects. Clears existing cell text. Use set_style for table-wide borders."
     )
-    parameters = {"type": "object", "properties": {"cell": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell", "html"]}
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = True
+    parameters: dict | None = {"type": "object", "properties": {"cell": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell", "html"]}
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.calc.address_utils import parse_address
@@ -590,10 +590,10 @@ class InsertCellHtml(ToolBase):
 class SetCellStyle(ToolBase):
     """Apply style and formatting to cells or ranges."""
 
-    name = "set_style"
-    intent = "edit"
-    description = "Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas."
-    parameters = {
+    name: str | None = "set_style"
+    intent: str | None = "edit"
+    description: str = "Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": ('Target cell(s) or range(s) (e.g. ["A1:D10"] or ["A1", "B2"]).')},
@@ -609,11 +609,11 @@ class SetCellStyle(ToolBase):
         },
         "required": ["range"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
     # Kept for scripting API / in-process callers; omitted from LLM schema so models cannot
     # casually rewrite NumberFormat via set_style (see docs/calc/date-time-handling.md S26).
-    scripting_only_parameters = frozenset({"number_format"})
+    scripting_only_parameters: frozenset[str] = frozenset({"number_format"})
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -739,12 +739,12 @@ class SetCellStyle(ToolBase):
 class MergeCells(ToolBase):
     """Merge a cell range."""
 
-    name = "merge_cells"
-    intent = "edit"
-    description = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
-    parameters = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}}, "required": ["range"]}
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = True
+    name: str | None = "merge_cells"
+    intent: str | None = "edit"
+    description: str = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
+    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}}, "required": ["range"]}
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -769,12 +769,12 @@ class MergeCells(ToolBase):
 class SortRange(ToolCalcRangeBase):
     """Sort a range by a column."""
 
-    name = "sort_range"
-    intent = "edit"
+    name: str | None = "sort_range"
+    intent: str | None = "edit"
     # Action-time key/direction and "use this tool, don't rewrite the
     # block" live here. Do not restack another SORT Don't/Do into
     # CALC_CORE (flash merges adjacent identical shapes).
-    description = (
+    description: str = (
         "Stable one-column sort of the specified range(s) by values in one column. "
         "Multi-key sorts are multiple calls (two stable one-column passes). "
         "Do call sort_range to reorder rows (not rewrite the block with "
@@ -785,7 +785,7 @@ class SortRange(ToolCalcRangeBase):
         "sort as values. "
         "Supports lists for non-contiguous areas."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).')},
@@ -813,8 +813,8 @@ class SortRange(ToolCalcRangeBase):
         },
         "required": ["range", "has_header"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -841,10 +841,10 @@ class SortRange(ToolCalcRangeBase):
 class DeleteStructure(ToolBase):
     """Delete rows or columns."""
 
-    name = "delete_structure"
-    intent = "edit"
-    description = "Deletes rows or columns. Use for structural changes; prefer ranges for data operations."
-    parameters = {
+    name: str | None = "delete_structure"
+    intent: str | None = "edit"
+    description: str = "Deletes rows or columns. Use for structural changes; prefer ranges for data operations."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to delete."},
@@ -853,8 +853,8 @@ class DeleteStructure(ToolBase):
         },
         "required": ["structure_type", "start"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)

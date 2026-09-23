@@ -101,13 +101,13 @@ class PythonExecutor:
 class ExecutePythonScript(ToolBaseDummy):
     """Executes Python in LibreOffice's sandbox (no numpy); fresh environment every call."""
 
-    name = "execute_python_script"
-    intent = "analyze"
-    description = (
+    name: str | None = "execute_python_script"
+    intent: str | None = "analyze"
+    description: str = (
         format_inprocess_import_policy_for_prompt()
         + " The value of the last expression is returned. Each call starts with a clean environment."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "code": {"type": "string", "description": "The Python code to execute."},
@@ -116,8 +116,8 @@ class ExecutePythonScript(ToolBaseDummy):
         },
         "required": ["code"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         code = kwargs.get("code", "")

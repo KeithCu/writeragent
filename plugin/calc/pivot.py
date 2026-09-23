@@ -142,9 +142,9 @@ def _find_pivot_table_document_wide(doc: Any, pivot_name: str):
 class CreatePivotTable(ToolCalcPivotBase):
     """Create a DataPilot (pivot) table from a rectangular source range."""
 
-    name = "create_pivot_table"
-    description = "Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via create_sheet first)."
-    parameters = {
+    name: str | None = "create_pivot_table"
+    description: str = "Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via create_sheet first)."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "name": {"type": "string", "description": "Unique name for this pivot table in the document."},
@@ -159,7 +159,7 @@ class CreatePivotTable(ToolCalcPivotBase):
         },
         "required": ["name", "source_range", "destination_cell", "data_fields"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -239,10 +239,10 @@ class CreatePivotTable(ToolCalcPivotBase):
 class RefreshPivotTable(ToolCalcPivotBase):
     """Refresh a DataPilot table from its current source range."""
 
-    name = "refresh_pivot_table"
-    description = "Reload pivot table data from the source range. If sheet is omitted, searches all sheets for name."
-    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the pivot table."}, "sheet": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."}}, "required": ["name"]}
-    is_mutation = True
+    name: str | None = "refresh_pivot_table"
+    description: str = "Reload pivot table data from the source range. If sheet is omitted, searches all sheets for name."
+    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the pivot table."}, "sheet": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."}}, "required": ["name"]}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -283,10 +283,10 @@ class RefreshPivotTable(ToolCalcPivotBase):
 class ListPivotTables(ToolCalcPivotBase):
     """List DataPilot tables and their output locations."""
 
-    name = "list_pivot_tables"
-    description = "List pivot tables in the spreadsheet, optionally limited to one sheet."
-    parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "If set, only list pivot tables on this sheet."}}, "required": []}
-    is_mutation = False
+    name: str | None = "list_pivot_tables"
+    description: str = "List pivot tables in the spreadsheet, optionally limited to one sheet."
+    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "If set, only list pivot tables on this sheet."}}, "required": []}
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)

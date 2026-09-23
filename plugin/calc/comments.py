@@ -76,10 +76,10 @@ def _annotation_text(sheet: Any, col: int, row: int):
 class ListCellComments(ToolCalcCommentBase):
     """List all cell comments/annotations in a sheet."""
 
-    name = "list_cell_comments"
-    intent = "review"
-    description = "List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text."
-    parameters = {
+    name: str | None = "list_cell_comments"
+    intent: str | None = "review"
+    description: str = "List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "sheet": {
@@ -120,10 +120,10 @@ class ListCellComments(ToolCalcCommentBase):
 class AddCellComment(ToolCalcCommentBase):
     """Add a comment to a cell."""
 
-    name = "add_cell_comment"
-    intent = "review"
-    description = "Add a comment (annotation) to a specific cell in a Calc sheet."
-    parameters = {
+    name: str | None = "add_cell_comment"
+    intent: str | None = "review"
+    description: str = "Add a comment (annotation) to a specific cell in a Calc sheet."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "cell": {
@@ -138,7 +138,7 @@ class AddCellComment(ToolCalcCommentBase):
         },
         "required": ["cell", "text"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         cell_ref = kwargs.get("cell", "")
@@ -178,10 +178,10 @@ class AddCellComment(ToolCalcCommentBase):
 class DeleteCellComment(ToolCalcCommentBase):
     """Delete a comment from a cell."""
 
-    name = "delete_cell_comment"
-    intent = "review"
-    description = "Delete the comment (annotation) from a specific cell."
-    parameters = {
+    name: str | None = "delete_cell_comment"
+    intent: str | None = "review"
+    description: str = "Delete the comment (annotation) from a specific cell."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "cell": {
@@ -195,7 +195,7 @@ class DeleteCellComment(ToolCalcCommentBase):
         },
         "required": ["cell"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         cell_ref = kwargs.get("cell", "")

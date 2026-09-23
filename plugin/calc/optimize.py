@@ -24,15 +24,15 @@ _OPTIMIZE_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
 class OptimizeDataTool(ToolBaseDummy):
     """Run trusted optimization helpers on sheet data via the venv worker."""
 
-    name = "optimize_data"
-    description = (
+    name: str | None = "optimize_data"
+    description: str = (
         "Run a trusted optimization helper on spreadsheet data. "
         f"Helpers: {_OPTIMIZE_DATA_HELPERS}. "
         "Use data_range (A1 address string, e.g. 'Sheet1.A1:D1000') for bulk data. "
         "The host extracts and shapes the data before it reaches the optimization code. "
         "This tool is intended for the analysis/optimization domain; pass range addresses only."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "helper": {"type": "string", "description": "Optimization helper name (e.g. optimize_portfolio, linear_programming)."},
@@ -44,7 +44,7 @@ class OptimizeDataTool(ToolBaseDummy):
         },
         "required": ["helper"],
     }
-    long_running = True
+    long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict | None:
         import copy

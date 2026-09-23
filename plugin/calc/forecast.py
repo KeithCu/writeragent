@@ -24,15 +24,15 @@ _FORECAST_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
 class ForecastDataTool(ToolBaseDummy):
     """Run trusted forecasting helpers on sheet data via the venv worker."""
 
-    name = "forecast_data"
-    description = (
+    name: str | None = "forecast_data"
+    description: str = (
         "Run a trusted time-series forecasting helper on spreadsheet data. "
         f"Helpers: {_FORECAST_DATA_HELPERS}. "
         "Use data_range (A1 address string, e.g. 'Sheet1.A1:D1000') for bulk data. "
         "The host extracts and shapes the data before it reaches the forecasting code. "
         "This tool is intended for the analysis domain; pass range addresses only."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "helper": {"type": "string", "description": "Forecast helper name (e.g. forecast_time_series, decompose_time_series)."},
@@ -45,7 +45,7 @@ class ForecastDataTool(ToolBaseDummy):
         },
         "required": ["helper"],
     }
-    long_running = True
+    long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict | None:
         import copy

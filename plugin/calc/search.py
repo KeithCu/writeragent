@@ -24,9 +24,9 @@ log = logging.getLogger("writeragent.calc")
 class SearchInSpreadsheet(ToolCalcSearchBase):
     """Search for text in the spreadsheet."""
 
-    name = "search_in_spreadsheet"
-    description = "Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values."
-    parameters = {
+    name: str | None = "search_in_spreadsheet"
+    description: str = "Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
@@ -38,7 +38,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         },
         "required": ["pattern"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         pattern = kwargs.get("pattern", "")
@@ -66,9 +66,9 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
 class ReplaceInSpreadsheet(ToolCalcSearchBase):
     """Find and replace in the spreadsheet."""
 
-    name = "replace_in_spreadsheet"
-    description = "Find and replace text or values in a Calc spreadsheet. Returns count of replacements made."
-    parameters = {
+    name: str | None = "replace_in_spreadsheet"
+    description: str = "Find and replace text or values in a Calc spreadsheet. Returns count of replacements made."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "search": {"type": "string", "description": "Text or regex pattern to find."},
@@ -80,8 +80,8 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
         },
         "required": ["search", "replace"],
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         search = kwargs.get("search", "")

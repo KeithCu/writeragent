@@ -143,12 +143,12 @@ def _venv_tool_description(doc_type: str | None) -> str:
 class RunVenvPythonScript(ToolCalcPythonBase):
     """Registered once; visible in Writer/Calc/Draw specialized ``domain=python`` via ``specialized_cross_cutting``."""
 
-    name = "run_venv_python_script"
+    name: str | None = "run_venv_python_script"
     specialized_cross_cutting: ClassVar[bool] = True
-    description = _DESCRIPTION_CALC
-    parameters = _PARAMETERS_CALC
-    uno_services = list(_ALL_VENV_DOCS)
-    long_running = True
+    description: str = _DESCRIPTION_CALC
+    parameters: dict | None = _PARAMETERS_CALC
+    uno_services: list | None = list(_ALL_VENV_DOCS)
+    long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict | None:
         if doc_type == "calc":

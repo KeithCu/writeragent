@@ -22,15 +22,15 @@ _SYMBOLIC_HELPERS = ", ".join(sorted(HELPER_NAMES))
 class SymbolicMathTool(ToolCalcPythonBase):
     """Run trusted SymPy symbolic helpers (solve, simplify, integrate, differentiate)."""
 
-    name = "symbolic_math"
+    name: str | None = "symbolic_math"
     specialized_cross_cutting: ClassVar[bool] = True
-    description = (
+    description: str = (
         "Run a trusted SymPy symbolic math helper. "
         f"Helpers: {_SYMBOLIC_HELPERS}. "
         "On Writer, the result inserts as a Math object when LaTeX conversion succeeds. "
         "On Calc, results write to the active sheet."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "helper": {
@@ -43,7 +43,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
         },
         "required": ["helper"],
     }
-    long_running = True
+    long_running: bool = True
 
     def is_async(self) -> bool:
         return True

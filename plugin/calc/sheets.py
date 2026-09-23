@@ -43,10 +43,10 @@ log = logging.getLogger("writeragent.calc")
 class ListSheets(ToolCalcSheetBase):
     """List all sheet names in the workbook."""
 
-    name = "list_sheets"
-    description = "Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."
-    parameters = {"type": "object", "properties": {}}
-    is_mutation = False
+    name: str | None = "list_sheets"
+    description: str = "Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."
+    parameters: dict | None = {"type": "object", "properties": {}}
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -64,11 +64,11 @@ class ListSheets(ToolCalcSheetBase):
 class SwitchSheet(ToolCalcSheetBase):
     """Switch to a specified sheet."""
 
-    name = "switch_sheet"
-    intent = "edit"
-    description = "Switches to the specified sheet (makes it active)."
-    parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to switch to"}}, "required": ["sheet"]}
-    is_mutation = True
+    name: str | None = "switch_sheet"
+    intent: str | None = "edit"
+    description: str = "Switches to the specified sheet (makes it active)."
+    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to switch to"}}, "required": ["sheet"]}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -93,14 +93,14 @@ class SwitchSheet(ToolCalcSheetBase):
 class CreateSheet(ToolCalcSheetBase):
     """Create a new sheet."""
 
-    name = "create_sheet"
-    intent = "edit"
-    description = (
+    name: str | None = "create_sheet"
+    intent: str | None = "edit"
+    description: str = (
         "Creates a new empty sheet (tab exists; no cells copied). "
         "create_sheet is not Sample/deliverable populate — after create, "
         "write_formula_range with source to copy a block onto the new sheet."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "sheet": {
@@ -117,7 +117,7 @@ class CreateSheet(ToolCalcSheetBase):
         },
         "required": ["sheet"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -148,11 +148,11 @@ class CreateSheet(ToolCalcSheetBase):
 class RenameSheet(ToolCalcSheetBase):
     """Rename an existing sheet."""
 
-    name = "rename_sheet"
-    intent = "edit"
-    description = "Renames an existing sheet."
-    parameters = {"type": "object", "properties": {"old_name": {"type": "string", "description": "Current name of the sheet"}, "new_name": {"type": "string", "description": "New name for the sheet"}}, "required": ["old_name", "new_name"]}
-    is_mutation = True
+    name: str | None = "rename_sheet"
+    intent: str | None = "edit"
+    description: str = "Renames an existing sheet."
+    parameters: dict | None = {"type": "object", "properties": {"old_name": {"type": "string", "description": "Current name of the sheet"}, "new_name": {"type": "string", "description": "New name for the sheet"}}, "required": ["old_name", "new_name"]}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -178,11 +178,11 @@ class RenameSheet(ToolCalcSheetBase):
 class DeleteSheet(ToolCalcSheetBase):
     """Delete an existing sheet."""
 
-    name = "delete_sheet"
-    intent = "edit"
-    description = "Deletes an existing sheet by name."
-    parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to delete"}}, "required": ["sheet"]}
-    is_mutation = True
+    name: str | None = "delete_sheet"
+    intent: str | None = "edit"
+    description: str = "Deletes an existing sheet by name."
+    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to delete"}}, "required": ["sheet"]}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -206,11 +206,11 @@ class DeleteSheet(ToolCalcSheetBase):
 class ProtectSheet(ToolCalcSheetBase):
     """Protect or unprotect a sheet."""
 
-    name = "protect_sheet"
-    intent = "edit"
-    description = "Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked."
-    parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
-    is_mutation = True
+    name: str | None = "protect_sheet"
+    intent: str | None = "edit"
+    description: str = "Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked."
+    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -244,12 +244,12 @@ class ProtectSheet(ToolCalcSheetBase):
 class GetSheetSummary(ToolBase):
     """Return a summary of a sheet."""
 
-    name = "get_sheet_summary"
-    tier = "core"
-    description = "Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes."
-    parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}}, "required": []}
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = False
+    name: str | None = "get_sheet_summary"
+    tier: str = "core"
+    description: str = "Returns a comprehensive summary of the active or specified sheet: used area, column headers, charts, merged cells, annotations, and shapes."
+    parameters: dict | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}}, "required": []}
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)

@@ -39,8 +39,8 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
     is the same sheet used-range identity; the dict key is the SQL table name.
     """
 
-    name = "query_folder_sql"
-    description = (
+    name: str | None = "query_folder_sql"
+    description: str = (
         "Run read-only SQL (via DuckDB) against folder files and/or live Calc ranges (Phase C multi-table). "
         "Prefer stable table identity: tables={name: {sheet: \"Sales_Analytics\"}} (sheet used range) "
         "or {named_range: \"SalesData\"} (Calc named/database range). "
@@ -53,7 +53,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
         "Results cap at 200 rows (MAX_TABLE_ROWS): truncated=true plus warning/flags/message "
         "when the result is incomplete. COPY/EXPORT/ATTACH/INSTALL/LOAD and path escapes fail with READONLY_VIOLATION."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "sql": {
@@ -111,7 +111,7 @@ class QueryFolderSqlTool(ToolCalcAnalysisBase):
         },
         "required": ["sql"],
     }
-    long_running = True
+    long_running: bool = True
 
     def is_async(self) -> bool:
         return True

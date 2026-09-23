@@ -90,9 +90,9 @@ def _get_cell_address(doc: Any, address_str: str) -> CellAddress:
 class GoalSeekTool(ToolBaseDummy):
     """Find the value of a variable cell that results in a target formula value."""
 
-    name = "calc_goal_seek"
-    description = "Finds the value for a variable cell that makes a formula cell reach a target value."
-    parameters = {
+    name: str | None = "calc_goal_seek"
+    description: str = "Finds the value for a variable cell that makes a formula cell reach a target value."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "formula_cell": {"type": "string", "description": "Address of the formula cell (e.g. 'Sheet1.B1')."},
@@ -102,7 +102,7 @@ class GoalSeekTool(ToolBaseDummy):
         },
         "required": ["formula_cell", "variable_cell", "target_value"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if not UNO_AVAILABLE:
@@ -148,9 +148,9 @@ class GoalSeekTool(ToolBaseDummy):
 class SolverTool(ToolBaseDummy):
     """Solve an optimization problem with multiple variables and constraints."""
 
-    name = "calc_solver"
-    description = "Solves an optimization problem to maximize, minimize, or reach a value for an objective cell by changing multiple variable cells subject to constraints."
-    parameters = {
+    name: str | None = "calc_solver"
+    description: str = "Solves an optimization problem to maximize, minimize, or reach a value for an objective cell by changing multiple variable cells subject to constraints."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "objective_cell": {"type": "string", "description": "Cell address of the objective function (e.g. 'Sheet1.C1')."},
@@ -173,7 +173,7 @@ class SolverTool(ToolBaseDummy):
         },
         "required": ["objective_cell", "variables"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if not UNO_AVAILABLE:
@@ -327,15 +327,15 @@ _ANALYZE_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
 class AnalyzeDataTool(ToolBaseDummy):
     """Run trusted numpy/pandas analysis helpers on sheet data via the venv worker."""
 
-    name = "analyze_data"
-    description = (
+    name: str | None = "analyze_data"
+    description: str = (
         "Run a trusted numpy/pandas analysis helper on spreadsheet data. "
         f"Helpers: {_ANALYZE_DATA_HELPERS}. "
         "Use data_range (A1 address string, e.g. 'Sheet1.A1:D1000') for bulk data. "
         "The host extracts and shapes the data (via split_grid) before it reaches the analysis code. "
         "This tool is intended for the analysis specialized domain; pass range addresses only."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "helper": {"type": "string", "description": "Analysis helper name (e.g. describe_data, run_regression)."},
@@ -351,7 +351,7 @@ class AnalyzeDataTool(ToolBaseDummy):
         },
         "required": ["helper"],
     }
-    long_running = True
+    long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict | None:
         """JSON schema presented for analyze_data.

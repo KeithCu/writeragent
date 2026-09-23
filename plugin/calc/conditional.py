@@ -107,10 +107,10 @@ def _ensure_table_conditional_format(ctx: Any, cell_range: Any) -> Any:
 class ListConditionalFormats(ToolCalcConditionalBase):
     """List conditional formatting rules on a cell range."""
 
-    name = "list_conditional_formats"
-    intent = "navigate"
-    description = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
-    parameters = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"]). If omitted, scans used area."}}, "required": []}
+    name: str | None = "list_conditional_formats"
+    intent: str | None = "navigate"
+    description: str = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
+    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"]). If omitted, scans used area."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -145,9 +145,9 @@ class ListConditionalFormats(ToolCalcConditionalBase):
 class AddConditionalFormat(ToolCalcConditionalBase):
     """Add a conditional formatting rule to a cell range."""
 
-    name = "add_conditional_format"
-    intent = "edit"
-    description = (
+    name: str | None = "add_conditional_format"
+    intent: str | None = "edit"
+    description: str = (
         "Add a conditional formatting rule to a Calc cell range. "
         "Applies a cell style when the condition is met. "
         "Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, "
@@ -156,7 +156,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         "formula1 may be omitted or empty for those. "
         "Use formula2 for BETWEEN and NOT_BETWEEN."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "range": {"type": "array", "items": {"type": "string"}, "description": "Cell range to apply the rule to (e.g. [\"A1:D10\"])."},
@@ -167,7 +167,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
         },
         "required": ["range", "operator", "style"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
@@ -287,11 +287,11 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 class RemoveConditionalFormats(ToolCalcConditionalBase):
     """Remove or clear conditional formatting rules from a cell range."""
 
-    name = "remove_conditional_formats"
-    intent = "edit"
-    description = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
-    parameters = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"])."}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}}, "required": ["range"]}
-    is_mutation = True
+    name: str | None = "remove_conditional_formats"
+    intent: str | None = "edit"
+    description: str = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
+    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Cell range (e.g. [\"A1:D10\"])."}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}}, "required": ["range"]}
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)

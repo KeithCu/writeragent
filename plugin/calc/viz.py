@@ -22,13 +22,13 @@ _VIZ_HELPERS = ", ".join(sorted(HELPER_NAMES))
 class PlotDataTool(ToolBaseDummy):
     """Run trusted matplotlib/seaborn plot helpers on spreadsheet data."""
 
-    name = "plot_data"
-    description = (
+    name: str | None = "plot_data"
+    description: str = (
         "Run a trusted visualization helper on spreadsheet data. "
         f"Helpers: {_VIZ_HELPERS}. "
         "Use data_range (A1 address string). On Calc, the chart inserts on the active sheet automatically."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "helper": {"type": "string", "description": "Viz helper name (e.g. plot_data, quick_plot, correlation_heatmap)."},
@@ -39,7 +39,7 @@ class PlotDataTool(ToolBaseDummy):
         },
         "required": ["helper"],
     }
-    long_running = True
+    long_running: bool = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict | None:
         import copy

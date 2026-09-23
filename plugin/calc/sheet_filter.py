@@ -142,10 +142,10 @@ _CRITERION_ITEM_SCHEMA: dict[str, Any] = {
 class ApplySheetFilter(ToolCalcSheetBase):
     """Apply a standard sheet filter (AutoFilter-style) on a cell range."""
 
-    name = "apply_sheet_filter"
-    intent = "edit"
-    description = "Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first."
-    parameters = {
+    name: str | None = "apply_sheet_filter"
+    intent: str | None = "edit"
+    description: str = "Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first."
+    parameters: dict | None = {
         "type": "object",
         "description": "See criteria for AND/OR chaining.",
         "properties": {
@@ -155,7 +155,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
         },
         "required": ["range", "criteria"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
@@ -192,15 +192,15 @@ class ApplySheetFilter(ToolCalcSheetBase):
 class ClearSheetFilter(ToolCalcSheetBase):
     """Remove the standard filter from a range (show all rows again)."""
 
-    name = "clear_sheet_filter"
-    intent = "edit"
-    description = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheets')."
-    parameters = {
+    name: str | None = "clear_sheet_filter"
+    intent: str | None = "edit"
+    description: str = "Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheets')."
+    parameters: dict | None = {
         "type": "object",
         "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same data range used when applying the filter (e.g. [\"A1:D20\"])."}, "has_header": {"type": "boolean", "description": "Should match apply_sheet_filter (default true)."}},
         "required": ["range"],
     }
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = kwargs["range"][0]
@@ -231,10 +231,10 @@ class ClearSheetFilter(ToolCalcSheetBase):
 class GetSheetFilter(ToolCalcSheetBase):
     """Read back current filter criteria for a range (round-trip debugging)."""
 
-    name = "get_sheet_filter"
-    intent = "navigate"
-    description = "Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets')."
-    parameters = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same range as apply_sheet_filter."}}, "required": ["range"]}
+    name: str | None = "get_sheet_filter"
+    intent: str | None = "navigate"
+    description: str = "Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets')."
+    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same range as apply_sheet_filter."}}, "required": ["range"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = kwargs["range"][0]

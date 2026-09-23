@@ -513,11 +513,11 @@ def _resolve_chart(doc: Any, chart_name: str):
 class ListCharts(ToolBaseDummy):
     """List charts; Dummy backend for ``ManageCharts`` action=list."""
 
-    name = "list_charts"
-    intent = "navigate"
-    description = "List all charts in the current context (active sheet, document, or slide) with name, title, and type."
-    parameters = {"type": "object", "properties": {}, "required": []}
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    name: str | None = "list_charts"
+    intent: str | None = "navigate"
+    description: str = "List all charts in the current context (active sheet, document, or slide) with name, title, and type."
+    parameters: dict | None = {"type": "object", "properties": {}, "required": []}
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -581,11 +581,11 @@ class ListCharts(ToolBaseDummy):
 class GetChartInfo(ToolBaseDummy):
     """Chart details; Dummy backend for ``ManageCharts`` action=get_info."""
 
-    name = "get_chart_info"
-    intent = "navigate"
-    description = "Get detailed info about a chart: type, title, ranges (if Calc), axis titles, and legend properties."
-    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name (from list_charts)."}}, "required": ["name"]}
-    uno_services = ListCharts.uno_services
+    name: str | None = "get_chart_info"
+    intent: str | None = "navigate"
+    description: str = "Get detailed info about a chart: type, title, ranges (if Calc), axis titles, and legend properties."
+    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name (from list_charts)."}}, "required": ["name"]}
+    uno_services: list | None = ListCharts.uno_services
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -643,10 +643,10 @@ class GetChartInfo(ToolBaseDummy):
 class UpsertChart(ToolBaseDummy):
     """Create/edit chart; Dummy backend for ``ManageCharts`` action=create|edit."""
 
-    name = "upsert_chart"
-    intent = "edit"
-    description = "Creates a new chart or modifies an existing chart on a sheet, document, or slide."
-    parameters = {
+    name: str | None = "upsert_chart"
+    intent: str | None = "edit"
+    description: str = "Creates a new chart or modifies an existing chart on a sheet, document, or slide."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "action": {
@@ -662,8 +662,8 @@ class UpsertChart(ToolBaseDummy):
         },
         "required": ["action"],
     }
-    uno_services = ListCharts.uno_services
-    is_mutation = True
+    uno_services: list | None = ListCharts.uno_services
+    is_mutation: bool | None = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict | None:
         import copy
@@ -1032,12 +1032,12 @@ class UpsertChart(ToolBaseDummy):
 class DeleteChart(ToolBaseDummy):
     """Delete chart; Dummy backend for ``ManageCharts`` action=delete."""
 
-    name = "delete_chart"
-    intent = "edit"
-    description = "Delete a chart by name."
-    parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name to delete."}}, "required": ["name"]}
-    uno_services = ListCharts.uno_services
-    is_mutation = True
+    name: str | None = "delete_chart"
+    intent: str | None = "edit"
+    description: str = "Delete a chart by name."
+    parameters: dict | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name to delete."}}, "required": ["name"]}
+    uno_services: list | None = ListCharts.uno_services
+    is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -1095,10 +1095,10 @@ class ManageCharts(ToolCalcChartBase):
     - Sub-agent: richer ``required_core_tools`` or a domain preamble when the consolidated schema grows.
     """
 
-    name = "manage_charts"
-    intent = "edit"
-    description = "Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide)."
-    parameters = {
+    name: str | None = "manage_charts"
+    intent: str | None = "edit"
+    description: str = "Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide)."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "action": {
@@ -1193,13 +1193,13 @@ class ManageCharts(ToolCalcChartBase):
         },
         "required": ["action"]
     }
-    uno_services = [
+    uno_services: list | None = [
         "com.sun.star.sheet.SpreadsheetDocument",
         "com.sun.star.text.TextDocument",
         "com.sun.star.drawing.DrawingDocument",
         "com.sun.star.presentation.PresentationDocument"
     ]
-    is_mutation = True
+    is_mutation: bool | None = True
 
     def get_parameters(self, doc_type: str | None = None) -> dict | None:
         import copy

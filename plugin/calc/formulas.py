@@ -59,13 +59,13 @@ log = logging.getLogger("writeragent.calc")
 class ListCalcFunctions(ToolBase):
     """Retrieve available spreadsheet functions inside LibreOffice Calc."""
 
-    name = "list_calc_functions"
-    description = (
+    name: str | None = "list_calc_functions"
+    description: str = (
         "Lists available Calc spreadsheet functions. "
         "Use the 'filter' parameter to perform a case-insensitive search for a partial substring "
         "anywhere in function names or descriptions to avoid context window bloat."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "filter": {
@@ -75,9 +75,9 @@ class ListCalcFunctions(ToolBase):
         },
         "required": []
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    tier = "core"
-    is_mutation = False
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    tier: str = "core"
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         filter_str = kwargs.get("filter", "").strip().upper()
@@ -132,9 +132,9 @@ class ListCalcFunctions(ToolBase):
 class EvaluateFormula(ToolCalcErrorBase):
     """Pre-evaluate a spreadsheet formula on a temporary worksheet copy without side effects."""
 
-    name = "evaluate_formula"
-    description = "Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets."
-    parameters = {
+    name: str | None = "evaluate_formula"
+    description: str = "Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets."
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "formula": {
@@ -148,9 +148,9 @@ class EvaluateFormula(ToolCalcErrorBase):
         },
         "required": ["formula"]
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    tier = "specialized"
-    is_mutation = False
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    tier: str = "specialized"
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         formula_string = kwargs.get("formula", "").strip()

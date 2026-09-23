@@ -41,12 +41,12 @@ log = logging.getLogger("writeragent.calc")
 class DetectErrors(ToolCalcErrorBase):
     """Detect and explain formula errors in a range."""
 
-    name = "detect_and_explain_errors"
-    intent = "edit"
-    description = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas."
-    parameters = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}}, "required": []}
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    is_mutation = False
+    name: str | None = "detect_and_explain_errors"
+    intent: str | None = "edit"
+    description: str = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas."
+    parameters: dict | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}}, "required": []}
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)

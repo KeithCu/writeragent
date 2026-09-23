@@ -20,12 +20,12 @@ log = logging.getLogger("writeragent.calc.import_tool")
 class ConvertSpreadsheetToPython(ToolBaseDummy):
     """Convert spreadsheet formulas to =PY() Python cells."""
 
-    name = "convert_spreadsheet_to_python"
-    description = (
+    name: str | None = "convert_spreadsheet_to_python"
+    description: str = (
         "Converts legacy Calc spreadsheet formulas to `=PY()` Python formulas "
         "retaining cell constant values and number formats."
     )
-    parameters = {
+    parameters: dict | None = {
         "type": "object",
         "properties": {
             "scope": {
@@ -48,9 +48,9 @@ class ConvertSpreadsheetToPython(ToolBaseDummy):
             },
         },
     }
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    tier = "core"
-    is_mutation = True
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    tier: str = "core"
+    is_mutation: bool | None = True
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc

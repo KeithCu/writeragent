@@ -17,8 +17,10 @@
 """Gateway tool to delegate tasks to specialized Calc toolsets."""
 
 import logging
+from typing import ClassVar, Type
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
+from plugin.framework.tool import ToolBase
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 
@@ -32,13 +34,13 @@ class DelegateToSpecializedCalc(DelegateToSpecializedBase):
     to focus on the user's specific request, preventing context pollution.
     """
 
-    name = "delegate_to_specialized_calc_toolset"
-    description = (
+    name: str | None = "delegate_to_specialized_calc_toolset"
+    description: str = (
         f"Delegates a specialized Calc task. document_research {DELEGATION_USER_FILE_DATA_HINT}; "
         f"web_research {DELEGATION_PUBLIC_WEB_HINT}. "
         "Also: images, shapes, vision (extract text and structure from images when configured), pivot, sheets, forms, tracking, etc."
     )
 
-    uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
-    _special_base_class = ToolCalcSpecialBase
-    _agent_label = "Calc"
+    uno_services: list | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    _special_base_class: ClassVar[Type[ToolBase]] = ToolCalcSpecialBase
+    _agent_label: ClassVar[str] = "Calc"
