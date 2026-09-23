@@ -160,7 +160,7 @@ def test_range_schema_becomes_range_name_python_param():
 
 
 def test_schema_to_signature_parameterizes_object_and_array():
-    """Bare dict/list would trip reportMissingTypeArgument; keep that rule off."""
+    """Bare dict/list would trip reportMissingTypeArgument; generated proxies stay parameterized."""
     tool = MockTool(
         "test_tool",
         "desc",

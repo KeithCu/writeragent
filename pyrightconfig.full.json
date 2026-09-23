@@ -20,7 +20,7 @@
   "reportUnknownMemberType": false,
   "reportUnknownVariableType": false,
   "reportUnknownParameterType": false,
-  "reportMissingParameterType": false,
+  "reportMissingParameterType": true,
   "reportUnknownArgumentType": false,
   "reportConstantRedefinition": false,
   "reportImplicitAbstractClass": false,
@@ -43,5 +43,5 @@
   "reportImportCycles": false,
   "reportImplicitStringConcatenation": false,
   "reportUnnecessaryTypeIgnoreComment": false,
-  "reportMissingTypeArgument": false
+  "reportMissingTypeArgument": true
 }

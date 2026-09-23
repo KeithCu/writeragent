@@ -231,7 +231,7 @@ reportExplicitAny = false
 reportUnknownMemberType = false
 reportUnknownVariableType = false
 reportUnknownParameterType = false
-reportMissingParameterType = false
+reportMissingParameterType = true
 reportUnknownArgumentType = false
 # UNO try/except fallback: NAME = cast(Any, n) after ImportError (see docs/framework/type-checking.md)
 reportConstantRedefinition = false
@@ -267,8 +267,8 @@ reportImportCycles = false
 reportImplicitStringConcatenation = false
 # Cross-checker # type: ignore[...] comments for ty/mypy
 reportUnnecessaryTypeIgnoreComment = false
-# TODO: consider enabling reportMissingTypeArgument in the future to enforce generic type parameters (dict[str, Any], list[str])
-reportMissingTypeArgument = false
+# Bare Queue/Field/array leftovers mopped; keep generics parameterized (dict[str, Any], list[str]).
+reportMissingTypeArgument = true
 
 [tool.coverage.run]
 source = ["plugin/framework"]
