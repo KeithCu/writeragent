@@ -28,7 +28,7 @@ import logging
 from typing import Any
 
 from plugin.contrib.smolagents.local_python_executor import LocalPythonExecutor, InterpreterError
-from plugin.framework.tool import ToolBaseDummy
+from plugin.framework.tool import ToolBaseDummy, ToolContext
 from plugin.framework.errors import WriterAgentException
 from plugin.scripting.import_policy import format_inprocess_import_policy_for_prompt
 from plugin.scripting.sandbox import CALC_AUTHORIZED_IMPORTS
@@ -113,7 +113,7 @@ class ExecutePythonScript(ToolBaseDummy):
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         code = kwargs.get("code", "")
         data_range = kwargs.get("data_range")
         target_range = kwargs.get("target_range")

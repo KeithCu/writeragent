@@ -79,7 +79,7 @@ def _get_interceptor() -> Any:
     from com.sun.star.ui.ContextMenuInterceptorAction import IGNORED, CONTINUE_MODIFIED
 
     class _CalcCellContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # type: ignore[misc, valid-type]
-        def notifyContextMenuExecute(self, aEvent):  # noqa: N802 — UNO API
+        def notifyContextMenuExecute(self, aEvent: Any):  # noqa: N802 — UNO API
             try:
                 if not _is_calc_spreadsheet(aEvent.SourceWindow):
                     return IGNORED

@@ -23,6 +23,7 @@ plugin framework.
 """
 
 import logging
+from typing import Any
 
 from plugin.calc.address_utils import (
     column_to_index,
@@ -45,7 +46,7 @@ def is_agent_visible_sheet(name: str) -> bool:
     return bool(name) and not str(name).startswith("_")
 
 
-def filter_agent_sheet_names(names) -> list[str]:
+def filter_agent_sheet_names(names: Any) -> list[str]:
     """Drop leading-``_`` names from an agent-facing sheet enumeration."""
     return [n for n in names if is_agent_visible_sheet(n)]
 
@@ -53,7 +54,7 @@ def filter_agent_sheet_names(names) -> list[str]:
 class CalcBridge:
     """Bridge between the plugin layer and the UNO Calc document."""
 
-    def __init__(self, doc):
+    def __init__(self, doc: Any) -> None:
         self.doc = doc
 
     def get_active_document(self):
@@ -83,7 +84,7 @@ class CalcBridge:
             raise RuntimeError("No active sheet found.")
         return sheet
 
-    def get_sheet(self, name):
+    def get_sheet(self, name: str):
         """Return a sheet by name.
 
         Raises:
@@ -114,7 +115,7 @@ class CalcBridge:
         sheet = self.get_sheet(name) if name else self.get_active_sheet()
         return sheet, address
 
-    def get_cell(self, sheet, col: int, row: int):
+    def get_cell(self, sheet: Any, col: int, row: int):
         """Return the cell object at *col*, *row* on *sheet*."""
         return sheet.getCellByPosition(col, row)
 
@@ -124,7 +125,7 @@ class CalcBridge:
         col, row = parse_address(address)
         return self.get_cell(sheet, col, row)
 
-    def get_cell_range(self, sheet, range_str: str):
+    def get_cell_range(self, sheet: Any, range_str: str):
         """Return a cell range object from a range string like ``A1:D10``.
 
         A sheet prefix on *range_str* wins over the *sheet* argument, so a
@@ -205,7 +206,7 @@ class CalcBridge:
         return parse_range_string(range_str)
 
     @staticmethod
-    def _range_to_str(range_addr):
+    def _range_to_str(range_addr: Any) -> str:
         """Convert a CellRangeAddress to a string."""
         return "%s%d:%s%d" % (
             index_to_column(range_addr.StartColumn),

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.models import (
@@ -23,7 +25,7 @@ from plugin.contrib.calc_formula_parser import FunctionNode, parse_formula
 from plugin.calc.spreadsheet_import.preprocess import normalize_lo_formula_for_parse
 
 
-def _has_function_node(node) -> bool:
+def _has_function_node(node: Any) -> bool:
     return any(isinstance(n, FunctionNode) for n in node)
 
 

@@ -37,6 +37,7 @@ from plugin.calc.sheet_filter_criteria import (
     parse_sheet_filter_criterion,
 )
 from plugin.framework.errors import ToolExecutionError, UnoObjectError
+from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 
@@ -154,7 +155,7 @@ class ApplySheetFilter(ToolCalcSheetBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
         range_name = kwargs["range"][0]
         criteria = kwargs["criteria"]
@@ -199,7 +200,7 @@ class ClearSheetFilter(ToolCalcSheetBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = kwargs["range"][0]
         has_header = bool(kwargs.get("has_header", True))
 
@@ -233,7 +234,7 @@ class GetSheetFilter(ToolCalcSheetBase):
     description = "Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets')."
     parameters = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": "Same range as apply_sheet_filter."}}, "required": ["range"]}
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         range_name = kwargs["range"][0]
 
         try:

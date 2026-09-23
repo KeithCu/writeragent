@@ -23,6 +23,7 @@ Ported from core/calc_inspector.py for the plugin framework.
 import datetime
 import logging
 import re
+from typing import Any
 
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.datetime_wire import is_elapsed_format_string, iso_duration_from_serial
@@ -47,7 +48,7 @@ _NUMBER_FORMAT_DATE = 2
 _NUMBER_FORMAT_TIME = 4
 
 
-def _format_category_from_type(format_type) -> str | None:
+def _format_category_from_type(format_type: Any) -> str | None:
     """Map a UNO NumberFormat.Type to the date/time category exposed to tools."""
     try:
         base_type = int(format_type) & ~_NUMBER_FORMAT_DEFINED
@@ -62,7 +63,7 @@ def _format_category_from_type(format_type) -> str | None:
     return None
 
 
-def _iso8601_from_serial(value: float, category: str, null_date) -> str:
+def _iso8601_from_serial(value: float, category: str, null_date: Any) -> str:
     """Convert a Calc day serial to ISO 8601 using the document's configured epoch."""
     base = datetime.datetime(int(null_date.Year), int(null_date.Month), int(null_date.Day))
     # Round to whole seconds so IEEE float noise does not leak as microseconds.
@@ -83,7 +84,7 @@ def _iso8601_from_serial(value: float, category: str, null_date) -> str:
 class CellInspector:
     """Examines cell contents and properties."""
 
-    def __init__(self, bridge):
+    def __init__(self, bridge: Any) -> None:
         """
         Args:
             bridge: CalcBridge instance.
@@ -93,7 +94,7 @@ class CellInspector:
     # ── Internal helpers ───────────────────────────────────────────────
 
     @staticmethod
-    def _cell_type_name(cell_type) -> str:
+    def _cell_type_name(cell_type: Any) -> str:
         """Return a human-readable name for a UNO cell content type."""
         if cell_type == EMPTY:
             return "empty"
@@ -106,14 +107,14 @@ class CellInspector:
         return "unknown"
 
     @staticmethod
-    def _safe_prop(cell, name, default=None):
+    def _safe_prop(cell: Any, name: str, default: Any = None):
         try:
             return cell.getPropertyValue(name)
         except Exception:
             log.debug("_safe_prop read failed for %s", name, exc_info=True)
             return default
 
-    def _format_meta(self, format_key, formats, cache: dict[int, tuple[str | None, str | None]]) -> tuple[str | None, str | None]:
+    def _format_meta(self, format_key: Any, formats: Any, cache: dict[int, tuple[str | None, str | None]]) -> tuple[str | None, str | None]:
         """Resolve one number-format key to (category, FormatString), caching across groups.
 
         Elapsed formats report Type TIME but use bracketed units (``[HH]``, …).
@@ -134,7 +135,7 @@ class CellInspector:
             cache[key] = (category, str(format_code) if format_code is not None else None)
         return cache[key]
 
-    def _enrich_cell_format(self, info: dict, cell) -> None:
+    def _enrich_cell_format(self, info: dict, cell: Any) -> None:
         """Rewrite LLM-facing date/time/duration cells to ISO in ``value``.
 
         Only used when ``include_format_info=True`` (tool path). Internal
@@ -158,7 +159,7 @@ class CellInspector:
         if format_code:
             info["format_code"] = format_code
 
-    def _range_format_rows(self, cell_range, formula_array) -> tuple[dict[int, list[tuple[int, int, str, str | None]]], object | None]:
+    def _range_format_rows(self, cell_range: Any, formula_array: Any) -> tuple[dict[int, list[tuple[int, int, str, str | None]]], object | None]:
         """Return date/time column spans by row, or an empty map for the common fast path.
 
         Each span is ``(start_col, end_col, category, format_code)``.

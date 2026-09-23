@@ -126,7 +126,7 @@ def ingest_from_arrays(
     return attach_graph_to_model(model)
 
 
-def _used_range_address(sheet) -> Any:
+def _used_range_address(sheet: Any) -> Any:
     """Return ``RangeAddress`` for the sheet used area (same pattern as SheetAnalyzer)."""
     cursor = sheet.createCursor()
     cursor.gotoStartOfUsedArea(False)
@@ -134,7 +134,7 @@ def _used_range_address(sheet) -> Any:
     return cursor.getRangeAddress()
 
 
-def ingest_sheet(sheet, *, range_addr: Any | None = None) -> SheetModel:
+def ingest_sheet(sheet: Any, *, range_addr: Any | None = None) -> SheetModel:
     """Ingest an open Calc sheet via bulk ``getDataArray`` / ``getFormulaArray``."""
     addr = range_addr if range_addr is not None else _used_range_address(sheet)
     sheet_name = sheet.getName() if hasattr(sheet, "getName") else ""
@@ -157,6 +157,6 @@ def ingest_sheet(sheet, *, range_addr: Any | None = None) -> SheetModel:
     )
 
 
-def used_range_string_from_address(addr) -> str:
+def used_range_string_from_address(addr: Any) -> str:
     """Format a UNO ``RangeAddress`` as an A1 range string."""
     return _format_used_range(addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow)

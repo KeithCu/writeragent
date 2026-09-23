@@ -78,7 +78,7 @@ def _should_reject_solver_for_headless(engine_name: str | None, solver: Any) -> 
     return _impl_name_is_java_nlp_headless_unsafe(_solver_impl_name(solver))
 
 
-def _get_cell_address(doc, address_str: str) -> CellAddress:
+def _get_cell_address(doc: Any, address_str: str) -> CellAddress:
     """Convert a cell address string (e.g. 'A1' or 'Sheet1.A1') to a CellAddress struct."""
     if not UNO_AVAILABLE:
         raise RuntimeError("UNO not available")
@@ -104,7 +104,7 @@ class GoalSeekTool(ToolBaseDummy):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if not UNO_AVAILABLE:
             return self._tool_error("UNO not available")
 
@@ -175,7 +175,7 @@ class SolverTool(ToolBaseDummy):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if not UNO_AVAILABLE:
             return self._tool_error("UNO not available")
 

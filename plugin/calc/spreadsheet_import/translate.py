@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -51,7 +51,7 @@ def _canonical_range(addr: str) -> str:
     return str(addr).replace("$", "").upper()
 
 
-def _walk_ranges(node, state: _CodegenState) -> None:
+def _walk_ranges(node: Any, state: _CodegenState) -> None:
     if isinstance(node, RangeNode):
         state.add_range(node.address)
     elif isinstance(node, OperatorNode):
@@ -84,7 +84,7 @@ def _emit_operand(node: OperandNode) -> str:
         return repr(text)
 
 
-def _emit_expr(node, state: _CodegenState, cell_addr: str | None = None) -> str:
+def _emit_expr(node: Any, state: _CodegenState, cell_addr: str | None = None) -> str:
     if isinstance(node, RangeNode):
         return state.ref_expr(node.address)
     if isinstance(node, OperandNode):

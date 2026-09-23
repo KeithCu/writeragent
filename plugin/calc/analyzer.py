@@ -20,7 +20,10 @@
 Ported from core/calc_sheet_analyzer.py for the plugin framework.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 from plugin.framework.errors import ToolExecutionError, UnoObjectError, check_disposed, safe_call
 from plugin.framework.thread_guard import main_thread_only
@@ -32,14 +35,14 @@ log = logging.getLogger("writeragent.calc")
 class SheetAnalyzer:
     """Analyses the structure and data of a worksheet."""
 
-    def __init__(self, bridge):
+    def __init__(self, bridge: Any) -> None:
         """
         Args:
             bridge: CalcBridge instance.
         """
         self.bridge = bridge
 
-    def get_sheet_summary(self, sheet_name=None) -> dict:
+    def get_sheet_summary(self, sheet_name: str | None = None) -> dict:
         """Return a general summary of the active or specified sheet.
 
         Args:
@@ -125,7 +128,7 @@ class SheetAnalyzer:
 
 
 @main_thread_only
-def get_calc_context_for_chat(model, max_context=8000, ctx=None):
+def get_calc_context_for_chat(model: Any, max_context: int = 8000, ctx: Any = None) -> str:
     """Get context summary for a Calc spreadsheet."""
     if ctx is None:
         raise ValueError("ctx is required for get_calc_context_for_chat")
@@ -182,7 +185,7 @@ def get_calc_context_for_chat(model, max_context=8000, ctx=None):
         return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
 
 
-def get_full_calc_text(model, max_chars=8000):
+def get_full_calc_text(model: Any, max_chars: int = 8000) -> str:
     """Short active-sheet summary for ``get_full_document_text`` (not the chat excerpt).
 
     Kept next to ``get_calc_context_for_chat`` so ``document_helpers`` can lazy-import

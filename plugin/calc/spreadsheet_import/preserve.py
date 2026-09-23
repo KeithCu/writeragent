@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from plugin.calc.address_utils import format_address, parse_address, parse_range_string
 from plugin.calc.spreadsheet_import.extract import extract_py_cells
 from plugin.calc.spreadsheet_import.ingest import ingest_sheet
@@ -18,7 +20,7 @@ from plugin.calc.spreadsheet_import.models import (
 )
 
 
-def _safe_number_format(cell) -> int | None:
+def _safe_number_format(cell: Any) -> int | None:
     try:
         value = cell.getPropertyValue("NumberFormat")
         return int(value) if value is not None else None
@@ -26,7 +28,7 @@ def _safe_number_format(cell) -> int | None:
         return None
 
 
-def enrich_number_formats(sheet, model: SheetModel, *, enrich_all: bool = False) -> SheetModel:
+def enrich_number_formats(sheet: Any, model: SheetModel, *, enrich_all: bool = False) -> SheetModel:
     """Fill ``number_format`` on ingested cells (constants only by default)."""
     for addr, record in model.cells.items():
         if not enrich_all and record.type != "constant":
@@ -70,7 +72,7 @@ def build_output_model(model: SheetModel) -> OutputSheetModel:
     )
 
 
-def apply_output_to_sheet(target_sheet, output: OutputSheetModel) -> None:
+def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
     """Write *output* onto *target_sheet* (bulk array write + number formats)."""
     (start_col, start_row), (end_col, end_row) = parse_range_string(output.used_range)
 
@@ -129,8 +131,8 @@ def apply_output_to_sheet(target_sheet, output: OutputSheetModel) -> None:
 
 
 def preserve_sheet_to_new_sheet(
-    doc,
-    source_sheet,
+    doc: Any,
+    source_sheet: Any,
     *,
     target_name: str = "PythonImport",
 ) -> OutputSheetModel:

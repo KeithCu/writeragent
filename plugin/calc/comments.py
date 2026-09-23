@@ -5,11 +5,15 @@
 
 """Calc cell annotation (comment) tools."""
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 from plugin.calc.base import ToolCalcCommentBase
 from plugin.calc.address_utils import format_address, parse_address, split_sheet_prefix
 from plugin.calc.calc_utils import resolve_sheet
+from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 
@@ -24,7 +28,7 @@ def _parse_cell_ref(cell_ref: str) -> tuple[int, int]:
 
 
 
-def _split_cell_sheet(cell_ref, sheet_name):
+def _split_cell_sheet(cell_ref: str, sheet_name: str | None):
     """Let a sheet-qualified cell reference pick the sheet."""
     prefix, address = split_sheet_prefix(cell_ref)
     if prefix is not None and sheet_name and prefix != sheet_name:
@@ -35,7 +39,7 @@ def _split_cell_sheet(cell_ref, sheet_name):
     return address, (prefix or sheet_name)
 
 
-def _annotation_text(sheet, col, row):
+def _annotation_text(sheet: Any, col: int, row: int):
     """Read a cell note's text, working around lazy captions on .xlsx.
 
     A workbook loaded from .xlsx has no caption object for its notes until
@@ -84,7 +88,7 @@ class ListCellComments(ToolCalcCommentBase):
         "required": [],
     }
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         sheet = resolve_sheet(doc, kwargs.get("sheet"))
         annotations = sheet.getAnnotations()
@@ -134,7 +138,7 @@ class AddCellComment(ToolCalcCommentBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         cell_ref = kwargs.get("cell", "")
         text = kwargs.get("text", "")
         if not cell_ref or not text:
@@ -191,7 +195,7 @@ class DeleteCellComment(ToolCalcCommentBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         cell_ref = kwargs.get("cell", "")
         if not cell_ref:
             return self._tool_error("cell is required.")

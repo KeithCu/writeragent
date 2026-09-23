@@ -22,6 +22,7 @@ Ported from core/calc_error_detector.py for the plugin framework.
 
 import logging
 import re
+from typing import Any
 
 from plugin.calc.address_utils import parse_address
 from plugin.framework.errors import ToolExecutionError
@@ -88,7 +89,7 @@ def get_calc_error_name(error_code: int) -> str:
 class ErrorDetector:
     """Detects and explains formula errors in the worksheet."""
 
-    def __init__(self, bridge, inspector, ctx=None):
+    def __init__(self, bridge: Any, inspector: Any, ctx: Any = None) -> None:
         """
         Args:
             bridge: CalcBridge instance.
@@ -100,7 +101,7 @@ class ErrorDetector:
         self.ctx = ctx
 
     @staticmethod
-    def get_error_type(cell) -> dict:
+    def get_error_type(cell: Any) -> dict:
         """Determine the error type of a cell.
 
         Args:

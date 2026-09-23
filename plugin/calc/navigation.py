@@ -50,16 +50,16 @@ class CellLinkSpanRegistry:
 
     _spans: dict[int, list[tuple[int, int, str]]] = field(default_factory=dict)
 
-    def clear(self, control) -> None:
+    def clear(self, control: Any) -> None:
         if control is not None:
             self._spans.pop(id(control), None)
 
-    def add(self, control, start: int, end: int, address: str) -> None:
+    def add(self, control: Any, start: int, end: int, address: str) -> None:
         if control is None or start >= end or not address:
             return
         self._spans.setdefault(id(control), []).append((start, end, address))
 
-    def lookup(self, control, index: int) -> str | None:
+    def lookup(self, control: Any, index: int) -> str | None:
         if control is None or index < 0:
             return None
         for start, end, addr in self._spans.get(id(control), []):
@@ -119,7 +119,7 @@ def render_calc_cell_refs(text: str) -> str:
     return _CELL_LINK_HTML_RE.sub(_rewrite_href, text)
 
 
-def portion_cell_href(portion) -> str | None:
+def portion_cell_href(portion: Any) -> str | None:
     """Read a ``cell://`` or ``writeragent-cell://`` URL from a Writer text portion, if any."""
     if portion is None:
         return None
@@ -139,7 +139,7 @@ def portion_cell_href(portion) -> str | None:
     return None
 
 
-def portion_looks_like_cell_link(portion, text: str) -> bool:
+def portion_looks_like_cell_link(portion: Any, text: str) -> bool:
     """True when *text* is a cell address and the portion is underlined like a hyperlink."""
     if not text or normalize_cell_address(text.strip()) is None:
         return False
@@ -150,15 +150,15 @@ def portion_looks_like_cell_link(portion, text: str) -> bool:
         return False
 
 
-def register_cell_link_span(control, start: int, end: int, address: str) -> None:
+def register_cell_link_span(control: Any, start: int, end: int, address: str) -> None:
     cell_link_registry.add(control, start, end, address)
 
 
-def clear_cell_link_spans(control) -> None:
+def clear_cell_link_spans(control: Any) -> None:
     cell_link_registry.clear(control)
 
 
-def resolve_sheet_and_cell(doc, address: str) -> tuple[Any, int, int] | None:
+def resolve_sheet_and_cell(doc: Any, address: str) -> tuple[Any, int, int] | None:
     """Resolve *address* to ``(sheet, col, row)`` for the open Calc document."""
     target = normalize_cell_address(address)
     if not target or doc is None:
@@ -167,7 +167,7 @@ def resolve_sheet_and_cell(doc, address: str) -> tuple[Any, int, int] | None:
 
 
 
-def navigate_to_cell(doc, _ctx, address: str) -> bool:
+def navigate_to_cell(doc: Any, _ctx: Any, address: str) -> bool:
     """Select *address* in the Calc document (PyUNO select, not sidebar dispatch)."""
     resolved = resolve_sheet_and_cell(doc, address)
     if not resolved:
@@ -212,7 +212,7 @@ def cell_ref_at_index(text: str, index: int) -> str | None:
     return None
 
 
-def lookup_cell_ref_at_index(control, index: int) -> str | None:
+def lookup_cell_ref_at_index(control: Any, index: int) -> str | None:
     """Resolve a cell address at *index* using the span registry, then plain text."""
     addr = cell_link_registry.lookup(control, index)
     if addr:
@@ -225,7 +225,7 @@ def lookup_cell_ref_at_index(control, index: int) -> str | None:
     return cell_ref_at_index(text, index)
 
 
-def _accessible_text(control) -> Any | None:
+def _accessible_text(control: Any) -> Any | None:
     try:
         ctx = control.getAccessibleContext()
         if ctx is None:
@@ -247,7 +247,7 @@ def _accessible_text(control) -> Any | None:
     return None
 
 
-def _char_index_at_point(control, x: int, y: int) -> int | None:
+def _char_index_at_point(control: Any, x: int, y: int) -> int | None:
     axtext = _accessible_text(control)
     if axtext is None:
         return None
@@ -262,7 +262,7 @@ def _char_index_at_point(control, x: int, y: int) -> int | None:
     return None
 
 
-def _click_text_index(control, x: int, y: int) -> int | None:
+def _click_text_index(control: Any, x: int, y: int) -> int | None:
     """Character index under the mouse, preferring the control caret after click."""
     model = control.getModel() if control is not None and hasattr(control, "getModel") else None
     if model is not None:
@@ -276,7 +276,7 @@ def _click_text_index(control, x: int, y: int) -> int | None:
     return _char_index_at_point(control, x, y)
 
 
-def attach_calc_cell_link_listener(ctx, control, get_calc_doc: Callable[[], Any | None]) -> None:
+def attach_calc_cell_link_listener(ctx: Any, control: Any, get_calc_doc: Callable[[], Any | None]) -> None:
     """Attach a mouse listener on *control* for ``cell://`` navigation."""
     if control is None or ctx is None:
         return
@@ -293,13 +293,13 @@ def attach_calc_cell_link_listener(ctx, control, get_calc_doc: Callable[[], Any 
     _MB_LEFT = 1  # com.sun.star.awt.MouseButton.LEFT
 
     class _CalcCellLinkMouseListener(unohelper.Base, XMouseListener):  # type: ignore[misc]
-        def disposing(self, Source) -> None:
+        def disposing(self, Source: Any) -> None:
             _CELL_LINK_LISTENERS.pop(ctrl_id, None)
 
-        def mousePressed(self, e) -> None:
+        def mousePressed(self, e: Any) -> None:
             pass
 
-        def mouseReleased(self, e) -> None:
+        def mouseReleased(self, e: Any) -> None:
             try:
                 if getattr(e, "Buttons", 0) != _MB_LEFT or getattr(e, "ClickCount", 0) != 1:
                     return
@@ -318,10 +318,10 @@ def attach_calc_cell_link_listener(ctx, control, get_calc_doc: Callable[[], Any 
             except Exception:
                 log.exception("cell link click handler failed")
 
-        def mouseEntered(self, e) -> None:
+        def mouseEntered(self, e: Any) -> None:
             pass
 
-        def mouseExited(self, e) -> None:
+        def mouseExited(self, e: Any) -> None:
             pass
 
     listener = _CalcCellLinkMouseListener()

@@ -24,14 +24,14 @@ Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties
 import logging
 
 from plugin.doc.visual_helpers import parse_color_to_uno_int as _parse_color
-from plugin.framework.tool import ToolBaseDummy
+from plugin.framework.tool import ToolBaseDummy, ToolContext
 from plugin.calc.address_utils import split_sheet_prefix
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 import uno
 
 
-def supportsService(obj, service_name: str) -> bool:
+def supportsService(obj: Any, service_name: str) -> bool:
     """Helper to check if a UNO object supports a service."""
     if obj is None or not hasattr(obj, "supportsService"):
         return False
@@ -163,7 +163,7 @@ CHART_SERVICE_MAP = {
 }
 
 
-def _axis_title_shape_string(shape, value: str | None) -> str | None:
+def _axis_title_shape_string(shape: Any, value: str | None) -> str | None:
     """Read or write axis title text on a diagram title shape (ChartAxis*Supplier)."""
     if shape is None:
         return None
@@ -176,7 +176,7 @@ def _axis_title_shape_string(shape, value: str | None) -> str | None:
     return None
 
 
-def _process_events(ctx=None):
+def _process_events(ctx: Any = None) -> None:
     """Give LO a moment to process UI events and update object names/states."""
     import os
     if os.environ.get("WRITERAGENT_TESTING") == "1":
@@ -238,7 +238,7 @@ CHART_PROPERTIES = {
 }
 
 
-def _apply_chart_styling(chart_doc, **kwargs):
+def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> None:
     """Apply enhanced styling properties to a chart document."""
     log.info("Applying chart styling with kwargs: %s", {k: v for k, v in kwargs.items() if k not in ["data_range"]})
     diagram = chart_doc.getDiagram()
@@ -379,7 +379,7 @@ def _apply_chart_styling(chart_doc, **kwargs):
         _apply_chart_data_arrays(chart_doc, headers, rows)
 
 
-def _apply_chart_data_arrays(chart_doc, headers, rows):
+def _apply_chart_data_arrays(chart_doc: Any, headers: Any, rows: Any) -> None:
     """Set chart data programmatically via XChartDataArray for Writer/Draw."""
     if not headers or not rows:
         return
@@ -442,7 +442,7 @@ def _format_chart_exception_msg(e: Exception) -> str:
     return f"{type(e).__name__}"
 
 
-def _get_all_calc_chart_names(doc) -> set[str]:
+def _get_all_calc_chart_names(doc: Any) -> set[str]:
     """Return a set of all chart names existing across all sheets in a Calc document."""
     names: set[str] = set()
     try:
@@ -455,7 +455,7 @@ def _get_all_calc_chart_names(doc) -> set[str]:
 
 
 
-def _find_calc_chart_and_sheet(doc, chart_name: str):
+def _find_calc_chart_and_sheet(doc: Any, chart_name: str):
     """Find a chart object and its parent sheet across all sheets in a Calc document.
 
     Note: Chart names in Calc are document-wide objects (e.g. Chart_0, Chart_1).
@@ -474,7 +474,7 @@ def _find_calc_chart_and_sheet(doc, chart_name: str):
     return None, None
 
 
-def _resolve_chart(doc, chart_name):
+def _resolve_chart(doc: Any, chart_name: str):
     """Resolve a chart object by name across Calc, Writer, or Draw."""
     if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
         chart_obj, _ = _find_calc_chart_and_sheet(doc, chart_name)
@@ -513,7 +513,7 @@ class ListCharts(ToolBaseDummy):
     parameters = {"type": "object", "properties": {}, "required": []}
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument", "com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         result = []
 
@@ -558,7 +558,7 @@ class ListCharts(ToolBaseDummy):
 
         return {"status": "ok", "charts": result, "count": len(result)}
 
-    def _get_summary(self, chart_obj, name, sheet_name=None):
+    def _get_summary(self, chart_obj: Any, name: str, sheet_name: str | None = None):
         entry = {"name": name}
         if sheet_name:
             entry["sheet_name"] = sheet_name
@@ -581,7 +581,7 @@ class GetChartInfo(ToolBaseDummy):
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Chart name (from list_charts)."}}, "required": ["name"]}
     uno_services = ListCharts.uno_services
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         chart_name = kwargs["name"]
         chart_obj = _resolve_chart(doc, chart_name)
@@ -669,7 +669,7 @@ class UpsertChart(ToolBaseDummy):
         _strip_chart_schema_for_doc_type(properties, doc_type)
         return params
 
-    def validate(self, *, doc_type: str | None = None, **kwargs) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
         # ToolBaseDummy has no schema validate; mirror ToolBase.validate here.
         schema = self.get_parameters(doc_type) or {}
         required = schema.get("required", [])
@@ -695,7 +695,7 @@ class UpsertChart(ToolBaseDummy):
                 return False, "Parameter 'name' is required when action is 'edit'"
         return True, None
 
-    def execute(self, ctx, **kwargs) -> dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         action = kwargs.get("action")
         doc = ctx.doc
         is_calc = supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument")
@@ -755,7 +755,7 @@ class UpsertChart(ToolBaseDummy):
 
         return self._tool_error(f"Unsupported action: '{action}'")
 
-    def _create_calc_chart(self, ctx, rect, service, **kwargs):
+    def _create_calc_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any):
         bridge = CalcBridge(ctx.doc)
         data_range = kwargs.get("data_range")
         if not data_range:
@@ -813,7 +813,7 @@ class UpsertChart(ToolBaseDummy):
         #_process_events() causes a hang in tests
         return {"status": "ok", "message": f"Chart '{name}' created on sheet '{sheet.getName()}'.", "name": name, "sheet": sheet.getName()}
 
-    def _create_writer_chart(self, ctx, rect, service, **kwargs):
+    def _create_writer_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any):
         """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text).
         Using a retry loop and event pumping to ensure the embedded model is initialized.
         """
@@ -987,7 +987,7 @@ class UpsertChart(ToolBaseDummy):
         _process_events()
         return {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
 
-    def _create_draw_chart(self, ctx, rect, service, **kwargs):
+    def _create_draw_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any):
         doc = ctx.doc
         controller = doc.getCurrentController()
         page = None
@@ -1033,7 +1033,7 @@ class DeleteChart(ToolBaseDummy):
     uno_services = ListCharts.uno_services
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         chart_name = kwargs["name"]
 
@@ -1205,13 +1205,13 @@ class ManageCharts(ToolCalcChartBase):
         _strip_chart_schema_for_doc_type(properties, doc_type)
         return params
 
-    def validate(self, *, doc_type: str | None = None, **kwargs) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
         ok, err = super().validate(doc_type=doc_type, **kwargs)
         if not ok:
             return False, err or "invalid parameters"
         return UpsertChart().validate(doc_type=doc_type, **kwargs)
 
-    def execute(self, ctx, **kwargs) -> dict[str, Any]:
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         action = kwargs.get("action")
         if not action:
             return self._tool_error("Action parameter is required.", code="MISSING_PARAMETER")

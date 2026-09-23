@@ -21,6 +21,8 @@ Ported from core/calc_manipulator.py for the plugin framework.
 UNO imports are deferred to method bodies.
 """
 
+from __future__ import annotations
+
 import csv
 import io
 import logging
@@ -207,7 +209,7 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False):
 class CellManipulator:
     """Manages data writing and style application to cells."""
 
-    def __init__(self, bridge):
+    def __init__(self, bridge: Any) -> None:
         """
         Args:
             bridge: CalcBridge instance.
@@ -227,7 +229,7 @@ class CellManipulator:
         return get_calc_error_name(error_code)
 
 
-    def _apply_style_properties(self, obj, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color):
+    def _apply_style_properties(self, obj: Any, bold: bool | None, italic: bool | None, bg_color: int | None, font_color: int | None, font_size: float | None, h_align: str | None, v_align: str | None, wrap_text: bool | None, border_color: int | None) -> None:
         """Apply common style properties to a cell or range object."""
         if bold is not None:
             FW = sys.modules.get("com.sun.star.awt.FontWeight", None)
@@ -265,7 +267,7 @@ class CellManipulator:
         if border_color is not None:
             self._apply_borders(obj, border_color)
 
-    def _apply_borders(self, obj, color: int):
+    def _apply_borders(self, obj: Any, color: int):
         """Apply borders to a cell or range object."""
 
         line = BorderLine()
@@ -279,7 +281,7 @@ class CellManipulator:
 
     # ── Write operations ───────────────────────────────────────────────
 
-    def safe_get_cell_value(self, sheet, cell_address):
+    def safe_get_cell_value(self, sheet: Any, cell_address: str):
         """Safely get cell value with comprehensive error handling."""
         try:
             # Validate sheet
@@ -388,12 +390,12 @@ class CellManipulator:
             log.exception("Style application failed for %s", address_or_range)
             raise CalcError(str(e)) from e
 
-    def _set_range_style(self, range_str, bold=None, italic=None, bg_color=None, font_color=None, font_size=None, h_align=None, v_align=None, wrap_text=None, border_color=None):
+    def _set_range_style(self, range_str: str, bold: bool | None = None, italic: bool | None = None, bg_color: int | None = None, font_color: int | None = None, font_size: float | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: int | None = None):
         cell_range = self.bridge.resolve_range_or_address(range_str)
         self._apply_style_properties(cell_range, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
 
     @staticmethod
-    def _resolve_document_locale(doc):
+    def _resolve_document_locale(doc: Any):
         """Return document CharLocale, or en-US when Language is empty/unusable (M2)."""
         import uno
 
@@ -407,7 +409,7 @@ class CellManipulator:
         return uno.createUnoStruct("com.sun.star.lang.Locale", Language="en", Country="US", Variant="")
 
     @staticmethod
-    def _apply_number_format_key(target, format_key: int) -> None:
+    def _apply_number_format_key(target: Any, format_key: int) -> None:
         """Set NumberFormat from an integer registry key (detected keys, not format strings)."""
         target.setPropertyValue("NumberFormat", int(format_key))
 
@@ -506,7 +508,7 @@ class CellManipulator:
             log.exception("Sort failed for %s", range_str)
             raise CalcError(str(e)) from e
 
-    def _make_number_formatter(self, doc):
+    def _make_number_formatter(self, doc: Any):
         """Attach a NumberFormatter to *doc* once per write invocation.
 
         Chat tools pass a Layer-A guarded document. ``attachNumberFormatsSupplier``
@@ -522,7 +524,7 @@ class CellManipulator:
         formatter.attachNumberFormatsSupplier(_unwrap_uno(doc))
         return formatter
 
-    def _resolve_elapsed_format_key(self, formats, locale) -> int:
+    def _resolve_elapsed_format_key(self, formats: Any, locale: Any) -> int:
         """Built-in ``[HH]:MM:SS`` key (formatindex 43), with queryKey/addNew fallback."""
         try:
             return int(formats.getFormatIndex(43, locale))
@@ -533,7 +535,7 @@ class CellManipulator:
             key = formats.addNew("[HH]:MM:SS", locale)
         return int(key)
 
-    def _classify_write_cell(self, value, formatter, std_key, *, elapsed_format_key: int | None = None):
+    def _classify_write_cell(self, value: Any, formatter: Any, std_key: Any, *, elapsed_format_key: int | None = None):
         """Classify one write input into data/formula/meta for the ISO write path.
 
         Returns ``(data_value, formula_or_empty, meta)`` where *meta* keys are:
@@ -609,8 +611,8 @@ class CellManipulator:
 
     def _find_column_temporal_templates(
         self,
-        sheet,
-        formats,
+        sheet: Any,
+        formats: Any,
         columns_needing_templates: dict[int, str],
         scan_start_row: int,
         category_cache: dict[int, str | None],
@@ -664,7 +666,7 @@ class CellManipulator:
                     break
         return column_templates
 
-    def _apply_temporal_format_runs(self, sheet, start, decisions):
+    def _apply_temporal_format_runs(self, sheet: Any, start: tuple[int, int], decisions: Any):
         """Apply detected NumberFormat keys as coalesced 2D rectangles (S8/S25).
 
         Resolves empty-cell bridging per row, finds horizontal apply runs, then
@@ -680,7 +682,7 @@ class CellManipulator:
             applied += (r1 - r0 + 1) * (c1 - c0 + 1)
         return applied
 
-    def write_formula_range(self, range_str: str, formula_or_values, array=None):
+    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None):
         """Write formula(s) or value(s) to a cell range.
 
         ISO date/time strings matching the wire gate become Calc serials with
@@ -939,7 +941,7 @@ class CellManipulator:
             log.exception("Range formula write failed for %s", range_str)
             raise CalcError(msg) from e
 
-    def _measure_array(self, sheet, formula: str, *, avoid_col: int) -> tuple[int, int]:
+    def _measure_array(self, sheet: Any, formula: str, *, avoid_col: int) -> tuple[int, int]:
         """``(rows, columns)`` of *formula*'s result, measured by LibreOffice.
 
         ``=ROWS(expr)`` and ``=COLUMNS(expr)`` are entered as array formulas
@@ -977,7 +979,7 @@ class CellManipulator:
         return sizes[0], sizes[1]
 
     @staticmethod
-    def _array_block(sheet, col: int, row: int):
+    def _array_block(sheet: Any, col: int, row: int):
         """Range address of the array formula covering (*col*, *row*), or None."""
         try:
             cursor = sheet.createCursorByRange(
@@ -994,7 +996,7 @@ class CellManipulator:
         except Exception:
             return None
 
-    def _write_array_formula(self, sheet, formula: str, start: tuple[int, int], end: tuple[int, int]) -> dict[str, Any]:
+    def _write_array_formula(self, sheet: Any, formula: str, start: tuple[int, int], end: tuple[int, int]) -> dict[str, Any]:
         """Enter *formula* as an array formula so its whole result shows.
 
         From a single cell, the result range is sized from the result and
@@ -1159,7 +1161,7 @@ class CellManipulator:
             log.exception("Column deletion failed")
             raise CalcError(str(e)) from e
 
-    def delete_structure(self, structure_type: str, start, count: int = 1):
+    def delete_structure(self, structure_type: str, start: Any, count: int = 1):
         """Delete rows or columns.
 
         Args:

@@ -28,7 +28,7 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool import ToolBase
+from plugin.framework.tool import ToolBase, ToolContext
 from plugin.calc.address_utils import index_to_column, parse_range_string, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
@@ -66,7 +66,7 @@ log = logging.getLogger("writeragent.calc")
 
 
 @deal.post(lambda result: result is None or (isinstance(result, int) and 0 <= result <= 0xFFFFFF))
-def _parse_color(color_str):
+def _parse_color(color_str: Any):
     """Convert a hex colour string or named colour to an RGB integer.
 
     String-only wrapper around :func:`parse_color_to_uno_int` so Calc ``set_style``
@@ -90,7 +90,7 @@ def _format_sheet_address(range_name: str, local_addr: str) -> str:
     return f"{name}{sep}{local_addr}"
 
 
-def _preview_if_large(bridge, range_name: str) -> dict[str, Any] | None:
+def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
     """Return clip metadata when the range is too big for a full chat dump, else None."""
     try:
         cell_range = bridge.resolve_range_or_address(range_name)
@@ -180,7 +180,7 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
     return out
 
 
-def _try_column_distinct_peek(bridge, range_name: str, preview: dict[str, Any]) -> list[dict[str, Any]] | None:
+def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, Any]) -> list[dict[str, Any]] | None:
     """Scan a clipped window of the oversized range via getDataArray. Fail-soft."""
     try:
         start_col = int(preview["start_column"])
@@ -319,7 +319,7 @@ class ReadCellRange(ToolBase):
     tier = "core"
     is_mutation = False
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
         rn = kwargs.get("range") or []
@@ -335,7 +335,7 @@ class ReadCellRange(ToolBase):
             return {"status": "ok", "result": [item["result"][0] for item in results]}
         return {"status": "ok", "result": results}
 
-    def _read_one(self, bridge, inspector, range_name: str) -> dict:
+    def _read_one(self, bridge: Any, inspector: Any, range_name: str) -> dict:
         """Read one range; preview-only when the full grid would swamp chat context."""
         preview = _preview_if_large(bridge, range_name)
         if preview is None:
@@ -451,7 +451,7 @@ class WriteCellRange(ToolBase):
     tier = "core"
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.writer.edit_review import WriterCompoundUndo
 
         bridge = CalcBridge(ctx.doc)
@@ -556,7 +556,7 @@ class InsertCellHtml(ToolBase):
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.calc.address_utils import parse_address
         from plugin.calc.rich_html import insert_cell_html_rich
 
@@ -609,7 +609,7 @@ class SetCellStyle(ToolBase):
     # casually rewrite NumberFormat via set_style (see docs/calc/date-time-handling.md S26).
     scripting_only_parameters = frozenset({"number_format"})
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         rn = kwargs.get("range") or []
@@ -740,7 +740,7 @@ class MergeCells(ToolBase):
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         rn = kwargs.get("range") or []
@@ -810,7 +810,7 @@ class SortRange(ToolCalcRangeBase):
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         rn = kwargs.get("range") or []
@@ -850,7 +850,7 @@ class DeleteStructure(ToolBase):
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         manipulator = CellManipulator(bridge)
         structure_type = kwargs["structure_type"]

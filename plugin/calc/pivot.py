@@ -35,12 +35,13 @@ from plugin.calc.address_utils import parse_address, parse_range_string
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
+from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 
 
 
-def _sheet_index_by_name(doc, name: str) -> int:
+def _sheet_index_by_name(doc: Any, name: str) -> int:
     sheets = doc.getSheets()
     for i in range(sheets.getCount()):
         if sheets.getByIndex(i).getName() == name:
@@ -48,14 +49,14 @@ def _sheet_index_by_name(doc, name: str) -> int:
     raise UnoObjectError(f"No sheet named '{name}'.")
 
 
-def _get_dp_tables(sheet) -> Any:
+def _get_dp_tables(sheet: Any) -> Any:
     sup = _query_interface(sheet, "com.sun.star.sheet.XDataPilotTablesSupplier")
     if sup is None:
         raise ToolExecutionError("Sheet does not support DataPilot tables.")
     return sup.getDataPilotTables()
 
 
-def _field_name_map(desc) -> dict[str, Any]:
+def _field_name_map(desc: Any) -> dict[str, Any]:
     out: dict[str, Any] = {}
     fields = desc.getDataPilotFields()
     for i in range(fields.getCount()):
@@ -67,7 +68,7 @@ def _field_name_map(desc) -> dict[str, Any]:
     return out
 
 
-def _set_field_orientations(desc, row_fields: list[str], column_fields: list[str], data_fields: list[str], page_fields: list[str]) -> None:
+def _set_field_orientations(desc: Any, row_fields: list[str], column_fields: list[str], data_fields: list[str], page_fields: list[str]) -> None:
     from com.sun.star.sheet.DataPilotFieldOrientation import COLUMN, DATA, HIDDEN, PAGE, ROW
 
     names = row_fields + column_fields + data_fields + page_fields
@@ -122,7 +123,7 @@ def _cell_address(sheet_idx: int, cell_str: str) -> Any:
     return a
 
 
-def _find_pivot_table_document_wide(doc, pivot_name: str):
+def _find_pivot_table_document_wide(doc: Any, pivot_name: str):
     """Find a pivot table object and its containing sheet across all sheets in a Calc document."""
     try:
         sheets = doc.getSheets()
@@ -158,7 +159,7 @@ class CreatePivotTable(ToolCalcPivotBase):
     }
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         doc = bridge.get_active_document()
         sheets_coll = doc.getSheets()
@@ -241,7 +242,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
     parameters = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the pivot table."}, "sheet": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."}}, "required": ["name"]}
     is_mutation = True
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         doc = bridge.get_active_document()
         name = (kwargs.get("name") or "").strip()
@@ -285,7 +286,7 @@ class ListPivotTables(ToolCalcPivotBase):
     parameters = {"type": "object", "properties": {"sheet": {"type": "string", "description": "If set, only list pivot tables on this sheet."}}, "required": []}
     is_mutation = False
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         doc = bridge.get_active_document()
         only_sheet = kwargs.get("sheet")

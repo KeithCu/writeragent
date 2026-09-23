@@ -17,6 +17,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Calc (Extend/Edit Selection)."""
 
+from typing import Any
+
 from plugin.framework.config import get_config_int, get_config_str
 from plugin.framework.errors import format_error_message
 from plugin.chatbot.dialogs import msgbox
@@ -34,7 +36,7 @@ def _build_calc_edit_prompt(original: str, instructions: str) -> str:
     )
 
 
-def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
+def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) -> None:
     sheet = model.CurrentController.ActiveSheet
     selection = model.CurrentController.Selection
 
@@ -94,12 +96,12 @@ def do_calc_extend_edit(ctx, model, input_box_fn, is_edit):
         elif original is not None:
             cell.setString("")
 
-        def apply_chunk(chunk_text, is_thinking=False):
+        def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
                 accumulated_text[0] += chunk_text
                 cell.setString(accumulated_text[0])
 
-        def on_error(e):
+        def on_error(e: BaseException) -> None:
             if original is not None:
                 cell.setString(original)
             msgbox(ctx, title, format_error_message(e))

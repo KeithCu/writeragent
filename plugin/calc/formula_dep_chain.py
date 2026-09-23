@@ -21,7 +21,7 @@ log = logging.getLogger("writeragent.calc")
 _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
 
 
-def _cell_snapshot(sheet, col: int, row: int) -> dict[str, Any]:
+def _cell_snapshot(sheet: Any, col: int, row: int) -> dict[str, Any]:
     cell = sheet.getCellByPosition(col, row)
     from com.sun.star.table import CellContentType
 
@@ -49,7 +49,7 @@ def _cell_snapshot(sheet, col: int, row: int) -> dict[str, Any]:
     return snapshot
 
 
-def _precedents_via_formula_query(sheet, col: int, row: int) -> dict[str, Any]:
+def _precedents_via_formula_query(sheet: Any, col: int, row: int) -> dict[str, Any]:
     """Build a lightweight precedent list when ``FormulaDepChain`` UNO is unavailable."""
     try:
         from com.sun.star.sheet import XFormulaQuery
@@ -75,7 +75,7 @@ def _precedents_via_formula_query(sheet, col: int, row: int) -> dict[str, Any]:
     return {"source": "formula_query", "precedents": precedents}
 
 
-def fetch_formula_dep_chain(doc, ctx, address: str) -> dict[str, Any] | None:
+def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] | None:
     """Return dependency JSON for *address* using LO command values or ``XFormulaQuery``."""
     if doc is None:
         return None

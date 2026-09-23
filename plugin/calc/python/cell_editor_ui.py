@@ -19,10 +19,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener, XTopWindowListener
+
+if TYPE_CHECKING:
+    from com.sun.star.awt import ActionEvent, ItemEvent, TextEvent
+    from com.sun.star.lang import EventObject
 
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
@@ -304,28 +308,28 @@ class NativePythonCellEditorDialog:
             owner = self
 
             class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e):
+                def windowClosing(self, e: Any) -> None:
                     owner.close(toolkit_teardown=True)
 
-                def windowClosed(self, e):
+                def windowClosed(self, e: Any) -> None:
                     pass
 
-                def windowOpened(self, e):
+                def windowOpened(self, e: Any) -> None:
                     pass
 
-                def windowMinimized(self, e):
+                def windowMinimized(self, e: Any) -> None:
                     pass
 
-                def windowNormalized(self, e):
+                def windowNormalized(self, e: Any) -> None:
                     pass
 
-                def windowActivated(self, e):
+                def windowActivated(self, e: Any) -> None:
                     pass
 
-                def windowDeactivated(self, e):
+                def windowDeactivated(self, e: Any) -> None:
                     pass
 
-                def disposing(self, Source):
+                def disposing(self, Source: EventObject) -> None:
                     pass
 
             self._top_listener = _TopWindowListener()
@@ -344,37 +348,37 @@ class NativePythonCellEditorDialog:
         owner = self
 
         class _SaveListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 try:
                     owner._save()
                 except Exception:
                     log.exception("Native Python cell editor Save failed")
                     owner._set_status(_("Error"))
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 log.debug("native cell editor: BtnCancel")
                 owner.close()
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         class _PlainListener(unohelper.Base, XItemListener):
-            def itemStateChanged(self, rEvent):
+            def itemStateChanged(self, rEvent: ItemEvent) -> None:
                 owner._sync_data_enabled()
                 owner._mark_dirty()
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         class _DirtyTextListener(unohelper.Base, XTextListener):
-            def textChanged(self, rEvent):
+            def textChanged(self, rEvent: TextEvent) -> None:
                 owner._mark_dirty()
 
-            def disposing(self, Source):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         dlg.getControl("BtnSave").addActionListener(_SaveListener())

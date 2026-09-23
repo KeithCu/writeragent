@@ -22,12 +22,14 @@ CellInspector, and ErrorDetector per call using ``ctx.doc``.
 """
 
 import logging
+from typing import Any
 
 from plugin.calc.base import ToolCalcErrorBase
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
 from plugin.calc.error_detector import ErrorDetector
+from plugin.framework.tool import ToolContext
 
 log = logging.getLogger("writeragent.calc")
 
@@ -42,7 +44,7 @@ class DetectErrors(ToolCalcErrorBase):
     uno_services = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation = False
 
-    def execute(self, ctx, **kwargs):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
         error_detector = ErrorDetector(bridge, inspector, ctx=ctx.ctx)
