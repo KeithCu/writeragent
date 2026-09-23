@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from plugin.chatbot.send_handlers import _agent_backend_label
-from plugin.agent_backend.opencode_simple import OpenCodeBackend
+from plugin.acp.opencode_simple import OpenCodeBackend
 
 
 class TestOpenCodeBinaryDiscovery(unittest.TestCase):

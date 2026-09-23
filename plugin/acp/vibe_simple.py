@@ -14,44 +14,48 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Claude agent backend using the shared ACPBackend base class."""
+"""Mistral Vibe agent backend using the shared ACPBackend base class."""
 
 import logging
 from typing import Dict
 
-from plugin.agent_backend.acp_backend import ACPBackend
+from plugin.acp.acp_backend import ACPBackend
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 
 log = logging.getLogger(__name__)
 
 
-class ClaudeBackend(ACPBackend):
-    """ACP-based Claude backend."""
+class VibeBackend(ACPBackend):
+    """ACP-based Mistral Vibe backend.
 
-    backend_id = "claude"
+    ``contentBlocks`` on the prompt result is drained by base ``send()`` —
+    the same block types as session/agent updates.
+    """
+
+    backend_id = "vibe"
 
     def get_binary_name(self) -> str:
         """Return the binary name to search for."""
-        return "claude-code-acp-rs"
+        return "vibe-acp"
 
     def get_display_name(self) -> str:
         """Return display name for UI."""
-        return "Claude Code (ACP)"
+        return "Mistral Vibe (ACP)"
 
     def get_agent_name(self) -> str:
         """Return ACP agent name."""
-        return "claude"
+        return "vibe"
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""
         env = {}
         try:
-            # Forward API key to Claude if available
+            # Forward API key to Vibe if available
             endpoint = str(get_current_endpoint() or "")
             key = get_api_key_for_endpoint(endpoint)
             if key:
-                env["ANTHROPIC_API_KEY"] = key
-                log.info("Using ANTHROPIC_API_KEY from general settings")
+                env["MISTRAL_API_KEY"] = key
+                log.info("Using MISTRAL_API_KEY from general settings")
         except Exception:
             pass
         return env

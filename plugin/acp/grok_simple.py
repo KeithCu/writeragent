@@ -19,7 +19,7 @@
 import os
 from typing import Tuple
 
-from plugin.agent_backend.acp_backend import ACPBackend
+from plugin.acp.acp_backend import ACPBackend
 
 
 class GrokBackend(ACPBackend):

@@ -11,8 +11,8 @@ import queue
 import unittest
 from unittest.mock import MagicMock, patch
 
-from plugin.agent_backend.acp_backend import ACPBackend
-from plugin.agent_backend.vibe_simple import VibeBackend
+from plugin.acp.acp_backend import ACPBackend
+from plugin.acp.vibe_simple import VibeBackend
 from plugin.framework.async_stream import StreamQueueKind
 
 
@@ -50,14 +50,14 @@ class TestVibeIsAvailable(unittest.TestCase):
 class TestVibeEnvVars(unittest.TestCase):
     """Forward MISTRAL_API_KEY from general settings when present."""
 
-    @patch("plugin.agent_backend.vibe_simple.get_api_key_for_endpoint", return_value="sk-test")
-    @patch("plugin.agent_backend.vibe_simple.get_current_endpoint", return_value="https://api.mistral.ai")
+    @patch("plugin.acp.vibe_simple.get_api_key_for_endpoint", return_value="sk-test")
+    @patch("plugin.acp.vibe_simple.get_current_endpoint", return_value="https://api.mistral.ai")
     def test_forwards_mistral_api_key(self, mock_endpoint, mock_key):
         env = VibeBackend().get_env_vars()
         self.assertEqual(env, {"MISTRAL_API_KEY": "sk-test"})
 
-    @patch("plugin.agent_backend.vibe_simple.get_api_key_for_endpoint", return_value="")
-    @patch("plugin.agent_backend.vibe_simple.get_current_endpoint", return_value="")
+    @patch("plugin.acp.vibe_simple.get_api_key_for_endpoint", return_value="")
+    @patch("plugin.acp.vibe_simple.get_current_endpoint", return_value="")
     def test_empty_when_no_key(self, mock_endpoint, mock_key):
         self.assertEqual(VibeBackend().get_env_vars(), {})
 

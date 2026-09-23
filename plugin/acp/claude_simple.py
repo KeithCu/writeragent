@@ -14,46 +14,44 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Hermes agent backend using the shared ACPBackend base class."""
+"""Claude agent backend using the shared ACPBackend base class."""
 
 import logging
-from typing import Dict, Tuple
+from typing import Dict
 
-from plugin.agent_backend.acp_backend import ACPBackend
+from plugin.acp.acp_backend import ACPBackend
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 
 log = logging.getLogger(__name__)
 
 
-class HermesBackend(ACPBackend):
-    """ACP-based Hermes backend. Official CLI: ``hermes acp``."""
+class ClaudeBackend(ACPBackend):
+    """ACP-based Claude backend."""
 
-    backend_id = "hermes"
-    default_extra_args: Tuple[str, ...] = ("acp",)
+    backend_id = "claude"
 
     def get_binary_name(self) -> str:
-        """Primary executable for PATH lookup (``hermes acp`` is the supported install)."""
-        return "hermes"
+        """Return the binary name to search for."""
+        return "claude-code-acp-rs"
 
     def get_display_name(self) -> str:
         """Return display name for UI."""
-        return "Hermes"
+        return "Claude Code (ACP)"
 
     def get_agent_name(self) -> str:
         """Return ACP agent name."""
-        return "hermes"
+        return "claude"
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""
         env = {}
         try:
-            # Forward API key to Hermes if available
+            # Forward API key to Claude if available
             endpoint = str(get_current_endpoint() or "")
             key = get_api_key_for_endpoint(endpoint)
             if key:
-                env["OPENROUTER_API_KEY"] = key
-                env["OPENAI_API_KEY"] = key
-                log.info("Using OPENROUTER_API_KEY from general settings")
+                env["ANTHROPIC_API_KEY"] = key
+                log.info("Using ANTHROPIC_API_KEY from general settings")
         except Exception:
             pass
         return env

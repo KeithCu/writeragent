@@ -224,7 +224,7 @@ rules:
         - "**/plugin/tests/**"
         - "**/plugin/framework/worker_pool.py"
         - "**/plugin/scripting/venv_worker.py"
-        - "**/plugin/agent_backend/acp_connection.py"
+        - "**/plugin/acp/acp_connection.py"
         - "**/plugin/scripting/audio_recorder_service.py"
         - "**/plugin/scripting/editor_host.py"
         - "**/plugin/writer/locale/harper.py"

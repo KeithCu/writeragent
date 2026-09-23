@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from plugin.chatbot.send_handlers import _agent_backend_label
-from plugin.agent_backend.grok_simple import GrokBackend
+from plugin.acp.grok_simple import GrokBackend
 
 
 class TestGrokBinaryDiscovery(unittest.TestCase):

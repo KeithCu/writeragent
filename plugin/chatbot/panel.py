@@ -1170,7 +1170,7 @@ class SendButtonListener(SendHandlersMixin, ToolCallingMixin, BaseActionListener
         # Agent backend (Aider, Hermes): use external agent instead of built-in LLM
         try:
             from plugin.framework.config import get_config
-            from plugin.agent_backend.registry import normalize_backend_id
+            from plugin.acp.registry import normalize_backend_id
 
             agent_backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
             if agent_backend_id and agent_backend_id != "builtin":

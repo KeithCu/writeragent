@@ -443,12 +443,12 @@ Per the implementation plan and the final status after the May 2025-25 change, t
      ```
    - Special attention areas called out in the plan:
      - All paths in `plugin/chatbot/send_handlers.py` (direct web research, librarian mode, image generation results, approval flows, etc.).
-     - `plugin/agent_backend/acp_backend.py` and any other ACP / Hermes / CLI agent backends that emit display text.
+     - `plugin/acp/acp_backend.py` and any other ACP / Hermes / CLI agent backends that emit display text.
      - Any "last tiny terminator" or `last_streamed` accumulation patterns (the final `FINAL_DONE` payload must be preceded by a flush of the last real content batch).
      - The rich-text-specific "1 character" + `_tighten_list_indent` path inside `append_rich_text` / `append_text_chunk` (see `rich_text.py`).
 
 2. **ACP backend and other non-LLM-stream producers**
-   - The ACP (Actor Context Protocol) path in `agent_backend/` can produce `CHUNK` / `THINKING` (and tool-related display items) on its own reader thread.
+   - The ACP (Actor Context Protocol) path in `plugin/acp/` can produce `CHUNK` / `THINKING` (and tool-related display items) on its own reader thread.
    - These were left untouched in the initial rollout. They need the same wrapper + flush-before-boundary treatment (or an equivalent local batcher) if we want consistent 250 ms smoothing for Hermes-style agents.
 
 3. **Explicit rerender / clear flush coordination (panel.py)**

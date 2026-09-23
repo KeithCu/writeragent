@@ -14,48 +14,46 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Mistral Vibe agent backend using the shared ACPBackend base class."""
+"""Hermes agent backend using the shared ACPBackend base class."""
 
 import logging
-from typing import Dict
+from typing import Dict, Tuple
 
-from plugin.agent_backend.acp_backend import ACPBackend
+from plugin.acp.acp_backend import ACPBackend
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 
 log = logging.getLogger(__name__)
 
 
-class VibeBackend(ACPBackend):
-    """ACP-based Mistral Vibe backend.
+class HermesBackend(ACPBackend):
+    """ACP-based Hermes backend. Official CLI: ``hermes acp``."""
 
-    ``contentBlocks`` on the prompt result is drained by base ``send()`` —
-    the same block types as session/agent updates.
-    """
-
-    backend_id = "vibe"
+    backend_id = "hermes"
+    default_extra_args: Tuple[str, ...] = ("acp",)
 
     def get_binary_name(self) -> str:
-        """Return the binary name to search for."""
-        return "vibe-acp"
+        """Primary executable for PATH lookup (``hermes acp`` is the supported install)."""
+        return "hermes"
 
     def get_display_name(self) -> str:
         """Return display name for UI."""
-        return "Mistral Vibe (ACP)"
+        return "Hermes"
 
     def get_agent_name(self) -> str:
         """Return ACP agent name."""
-        return "vibe"
+        return "hermes"
 
     def get_env_vars(self) -> Dict[str, str]:
         """Return environment variables to pass to subprocess."""
         env = {}
         try:
-            # Forward API key to Vibe if available
+            # Forward API key to Hermes if available
             endpoint = str(get_current_endpoint() or "")
             key = get_api_key_for_endpoint(endpoint)
             if key:
-                env["MISTRAL_API_KEY"] = key
-                log.info("Using MISTRAL_API_KEY from general settings")
+                env["OPENROUTER_API_KEY"] = key
+                env["OPENAI_API_KEY"] = key
+                log.info("Using OPENROUTER_API_KEY from general settings")
         except Exception:
             pass
         return env

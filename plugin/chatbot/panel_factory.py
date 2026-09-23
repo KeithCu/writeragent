@@ -571,7 +571,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
     def _update_backend_indicator(self, root_window=None):
         """Set backend indicator label from config (visible when external backend enabled) and gray out controls."""
         try:
-            from plugin.agent_backend.registry import AGENT_BACKEND_REGISTRY, normalize_backend_id
+            from plugin.acp.registry import AGENT_BACKEND_REGISTRY, normalize_backend_id
 
             root = root_window or (getattr(self, "m_panelRootWindow", None))
             if not root or not hasattr(root, "getControl"):

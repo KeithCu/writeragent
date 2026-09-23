@@ -173,7 +173,7 @@ Roughly **40+** files were edited; groupings below match the original tracking n
 
 **Entry / backends**
 
-- [`plugin/main.py`](../../plugin/main.py), [`plugin/agent_backend/builtin.py`](../../plugin/agent_backend/builtin.py)
+- [`plugin/main.py`](../../plugin/main.py), [`plugin/acp/builtin.py`](../../plugin/acp/builtin.py)
 
 **Calc**
 

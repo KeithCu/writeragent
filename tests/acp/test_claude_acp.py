@@ -10,7 +10,7 @@
 import unittest
 from unittest.mock import patch
 
-from plugin.agent_backend.claude_simple import (
+from plugin.acp.claude_simple import (
     ClaudeBackend,
 )
 

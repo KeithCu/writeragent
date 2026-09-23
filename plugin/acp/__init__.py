@@ -14,27 +14,9 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""OpenCode agent backend using the shared ACPBackend base class."""
+"""Pluggable agent backends for Chat with Document (Aider, Hermes)."""
 
-from typing import Tuple
+from plugin.acp.registry import AGENT_BACKEND_REGISTRY, list_backend_ids, get_backend
+from plugin.acp.base import AgentBackend
 
-from plugin.agent_backend.acp_backend import ACPBackend
-
-
-class OpenCodeBackend(ACPBackend):
-    """ACP-based OpenCode backend (``opencode acp``)."""
-
-    backend_id = "opencode"
-    default_extra_args: Tuple[str, ...] = ("acp",)
-
-    def get_binary_name(self) -> str:
-        """Primary executable for PATH lookup (``opencode acp`` is the supported install)."""
-        return "opencode"
-
-    def get_display_name(self) -> str:
-        """Return display name for UI."""
-        return "OpenCode (ACP)"
-
-    def get_agent_name(self) -> str:
-        """Return ACP agent name."""
-        return "opencode"
+__all__ = ["AGENT_BACKEND_REGISTRY", "list_backend_ids", "get_backend", "AgentBackend"]

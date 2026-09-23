@@ -25,7 +25,7 @@ import threading
 import requests
 from typing import Optional, Dict, List
 
-from plugin.agent_backend.base import AgentBackend
+from plugin.acp.base import AgentBackend
 
 log = logging.getLogger(__name__)
 

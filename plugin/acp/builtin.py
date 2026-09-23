@@ -18,7 +18,7 @@
 
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.errors import format_error_payload
-from plugin.agent_backend.base import AgentBackend
+from plugin.acp.base import AgentBackend
 
 
 class BuiltinBackend(AgentBackend):

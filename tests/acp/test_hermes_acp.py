@@ -18,9 +18,9 @@ from plugin.framework.worker_pool import run_in_background
 from plugin.chatbot.send_handlers import _agent_backend_label
 
 from plugin.framework.async_stream import StreamQueueKind
-from plugin.agent_backend.acp_connection import ACPConnection
-from plugin.agent_backend.builtin import BuiltinBackend
-from plugin.agent_backend.hermes_simple import HermesBackend
+from plugin.acp.acp_connection import ACPConnection
+from plugin.acp.builtin import BuiltinBackend
+from plugin.acp.hermes_simple import HermesBackend
 
 
 class TestHermesBinaryDiscovery(unittest.TestCase):

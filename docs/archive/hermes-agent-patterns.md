@@ -226,7 +226,7 @@ flowchart TB
 
 WriterAgent already mirrors several Hermes concepts:
 
-- **ACP backend** — Chat with Document can use `hermes acp` (or other ACP agents) instead of built-in `LlmClient` ([`acp_backend.py`](../plugin/agent_backend/acp_backend.py), [`hermes_simple.py`](../plugin/agent_backend/hermes_simple.py)).
+- **ACP backend** — Chat with Document can use `hermes acp` (or other ACP agents) instead of built-in `LlmClient` ([`acp_backend.py`](../plugin/acp/acp_backend.py), [`hermes_simple.py`](../plugin/acp/hermes_simple.py)).
 - **Todo / planning** — Adaptation of Hermes `todo_tool.py` ([`todo.py`](../plugin/chatbot/todo.py), [`todo_store.py`](../plugin/contrib/todo_store.py)).
 - **Parsers & robustness** — Hermes-format `<tool_call>` parser, `safe_json_loads` repair.
 - **Bidirectional bridges** — User skills in `~/.hermes/skills/` (`writeragent-extension-layers`, `libreoffice-mcp`) document architecture and call WriterAgent via MCP.

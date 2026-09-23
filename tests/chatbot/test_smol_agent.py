@@ -828,7 +828,7 @@ def _patch_do_send(listener, *, sidebar_mode: str):
         patch("plugin.chatbot.dialogs.get_control_text", return_value="Hello"),
         patch("plugin.chatbot.dialogs.set_control_text"),
         patch("plugin.framework.config.get_config", return_value=None),
-        patch("plugin.agent_backend.registry.normalize_backend_id", return_value="builtin"),
+        patch("plugin.acp.registry.normalize_backend_id", return_value="builtin"),
         patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"),
         patch(
             "plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags",

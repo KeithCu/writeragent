@@ -12,11 +12,11 @@ import queue
 import unittest
 from unittest.mock import patch
 
-from plugin.agent_backend.acp_backend import ACPBackend
-from plugin.agent_backend.claude_simple import ClaudeBackend
-from plugin.agent_backend.grok_simple import GrokBackend
-from plugin.agent_backend.hermes_simple import HermesBackend
-from plugin.agent_backend.opencode_simple import OpenCodeBackend
+from plugin.acp.acp_backend import ACPBackend
+from plugin.acp.claude_simple import ClaudeBackend
+from plugin.acp.grok_simple import GrokBackend
+from plugin.acp.hermes_simple import HermesBackend
+from plugin.acp.opencode_simple import OpenCodeBackend
 from plugin.framework.async_stream import StreamQueueKind
 
 

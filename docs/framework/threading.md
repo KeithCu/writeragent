@@ -64,7 +64,7 @@ flowchart TB
 
 **Related docs:** [MCP protocol — Concurrency](../mcp-protocol.md#concurrency-and-parallel-toolscall) (integrator-facing); [ROADMAP](../ROADMAP.md) §14 (specialized tool MCP exposure).
 
-### 3. Agent Backends and ACP stdio (`plugin/agent_backend/`)
+### 3. Agent Backends and ACP stdio (`plugin/acp/`)
 
 External agent binaries (Hermes, Claude, Grok, OpenCode, …) speak the Agent Communication Protocol over stdio JSON-RPC. Stdio I/O lives in one place; the `*_simple.py` / `builtin.py` / `registry.py` modules are backends, not extra reader threads.
 
@@ -143,7 +143,7 @@ CPython `ThreadPoolExecutor` workers are **non-daemon** from 3.9 on and would bl
 | Site | Name |
 |---|---|
 | `plugin/mcp/server.py` | `http-server` |
-| `plugin/agent_backend/acp_connection.py` | `acp-reader` |
+| `plugin/acp/acp_connection.py` | `acp-reader` |
 | `plugin/scripting/editor_host.py` | `editor-pipe-reader`, `editor-stderr-drain` |
 | `plugin/scripting/audio_recorder_service.py` | `audio-rec-stdout-monitor` |
 | `start_stderr_drain` / `AsyncProcess` | `stderr-drain`, `asyncproc-*` |

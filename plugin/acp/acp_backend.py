@@ -27,8 +27,8 @@ import threading
 import time
 from typing import Optional, Dict, List, Tuple
 
-from plugin.agent_backend.base import AgentBackend
-from plugin.agent_backend.acp_connection import ACPConnection
+from plugin.acp.base import AgentBackend
+from plugin.acp.acp_connection import ACPConnection
 from plugin.framework.async_stream import StreamQueueKind
 from plugin.framework.errors import format_error_payload
 

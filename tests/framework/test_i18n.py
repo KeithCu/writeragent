@@ -213,7 +213,7 @@ class TestI18n(unittest.TestCase):
         self.assertEqual(out.get("orphan.key"), "keep-me")
 
     def test_backend_translation_normalization(self):
-        from plugin.agent_backend.registry import normalize_backend_id, get_backend
+        from plugin.acp.registry import normalize_backend_id, get_backend
 
         self.assertEqual(normalize_backend_id("builtin"), "builtin")
         self.assertEqual(normalize_backend_id("hermes"), "hermes")
