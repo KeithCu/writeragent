@@ -427,7 +427,7 @@ def get_endpoint_presets():
 # --- Model capability and audio support ---
 
 
-def get_model_capability(model_id: str, endpoint: str):
+def get_model_capability(model_id: Any, endpoint: Any):
     """Check the model catalog for capabilities bitmask."""
     provider = get_provider_from_endpoint(endpoint)
     model_id = str(model_id or "").strip()
@@ -446,7 +446,7 @@ def get_model_capability(model_id: str, endpoint: str):
     return ModelCapability.NONE
 
 
-def has_native_audio(model_id: str, endpoint: str):
+def has_native_audio(model_id: Any, endpoint: Any):
     """True if the model accepts input_audio on POST /v1/chat/completions.
 
     This is not the same as "can transcribe": STT-only models (Voxtral, Whisper)
@@ -481,7 +481,7 @@ def has_native_audio(model_id: str, endpoint: str):
     return None  # Unknown, allow trying native audio
 
 
-def set_native_audio_support(model_id: str, endpoint: str, supported: bool) -> None:
+def set_native_audio_support(model_id: Any, endpoint: Any, supported: bool) -> None:
     """Save the audio support status for a model+endpoint pair."""
     model_id = str(model_id).lower()
     endpoint = normalize_endpoint_url(endpoint)
@@ -584,7 +584,7 @@ def set_image_model(val: Any, update_lru: bool = True) -> None:
         update_lru_history(val_str, "image_model_lru", get_current_endpoint())
 
 
-def has_native_vision(model_id: str, endpoint: str) -> bool:
+def has_native_vision(model_id: Any, endpoint: Any) -> bool:
     """Check if the model supports native multimodal vision input.
 
     Priority order:
@@ -647,7 +647,7 @@ def has_native_vision(model_id: str, endpoint: str) -> bool:
     return False
 
 
-def set_native_vision_support(model_id: str, endpoint: str, supported: bool) -> None:
+def set_native_vision_support(model_id: Any, endpoint: Any, supported: bool) -> None:
     """Save the vision support status for a model+endpoint pair to config."""
     model_id_str = str(model_id).strip().lower()
     endpoint_str = normalize_endpoint_url(endpoint or "")
@@ -804,7 +804,7 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
     return None
 
 
-def is_image_only_model(endpoint: str, model_id: str) -> bool:
+def is_image_only_model(endpoint: Any, model_id: Any) -> bool:
     """Check if the model outputs image but not text (dedicated image generator)."""
     if not endpoint or not model_id:
         return False

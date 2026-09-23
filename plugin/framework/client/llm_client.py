@@ -46,7 +46,7 @@ import json
 import logging
 import re
 import urllib.parse
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from .base_provider_shim import BaseProviderShim
@@ -335,8 +335,8 @@ class LlmClient:
         *,
         retries_left: int,
         emitted_any: bool,
-        stop_checker: Callable[[], bool] | None,
-        status_callback: Callable[[str], None] | None = None,
+        stop_checker: Any,
+        status_callback: Any = None,
         attempt: int = 1,
     ) -> str | None:
         """On non-200: jittered 429/503 retry while attempts remain; else HTTP_ERROR.
@@ -461,8 +461,8 @@ class LlmClient:
         body: Any,
         headers: dict[str, str],
         *,
-        stop_checker: Callable[[], bool] | None = None,
-        status_callback: Callable[[str], None] | None = None,
+        stop_checker: Any = None,
+        status_callback: Any = None,
     ) -> Any:
         """Send through the transport while honoring tests/debuggers that override ``_get_connection`` on the instance."""
         if self._stopped:
@@ -749,10 +749,10 @@ class LlmClient:
         prompt: str,
         system_prompt: str,
         max_tokens: int,
-        append_callback: Callable[[str], None],
-        append_thinking_callback: Callable[[str], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
-        status_callback: Callable[[str], None] | None = None,
+        append_callback: Any,
+        append_thinking_callback: Any = None,
+        stop_checker: Any = None,
+        status_callback: Any = None,
     ) -> None:
         """Stream a chat completions response via callbacks."""
         method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
@@ -767,12 +767,12 @@ class LlmClient:
         path: str,
         body: Any,
         headers: dict[str, str],
-        on_content: Callable[[str], None] | None,
-        on_thinking: Callable[[str], None] | None = None,
-        on_delta: Callable[[Any], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
+        on_content: Any,
+        on_thinking: Any = None,
+        on_delta: Any = None,
+        stop_checker: Any = None,
         _retry: bool = True,
-        status_callback: Callable[[str], None] | None = None,
+        status_callback: Any = None,
     ) -> Any:
         """Common low-level streaming engine."""
         init_logging(self.ctx)
@@ -828,7 +828,7 @@ class LlmClient:
                     # Use a flag to stop logical processing but keep reading to exhaust the stream
                     content_finished = False
                     # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
-                    last_contents = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
+                    last_contents: collections.deque[str] = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
                     think_tag_splitter = ThinkTagStreamSplitter()
                     requested_model = _request_model_from_body(body)
                     used_model = None
@@ -1030,10 +1030,10 @@ class LlmClient:
         path: str,
         body: Any,
         headers: dict[str, str],
-        append_callback: Callable[[str], None],
-        append_thinking_callback: Callable[[str], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
-        status_callback: Callable[[str], None] | None = None,
+        append_callback: Any,
+        append_thinking_callback: Any = None,
+        stop_checker: Any = None,
+        status_callback: Any = None,
     ) -> None:
         """Streaming request for chat completions, using persistent connection."""
         init_logging(self.ctx)
@@ -1046,10 +1046,10 @@ class LlmClient:
         self,
         messages: list[Any],
         max_tokens: int,
-        append_callback: Callable[[str], None],
-        append_thinking_callback: Callable[[str], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
-        status_callback: Callable[[str], None] | None = None,
+        append_callback: Any,
+        append_thinking_callback: Any = None,
+        stop_checker: Any = None,
+        status_callback: Any = None,
         *,
         prepend_dev_build_system_prefix: bool = True,
     ) -> None:
@@ -1071,10 +1071,10 @@ class LlmClient:
         messages: list[Any],
         max_tokens: int = 512,
         tools: Any = None,
-        append_callback: Callable[[str], None] | None = None,
-        append_thinking_callback: Callable[[str], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
-        status_callback: Callable[[str], None] | None = None,
+        append_callback: Any = None,
+        append_thinking_callback: Any = None,
+        stop_checker: Any = None,
+        status_callback: Any = None,
         body_override: Any = None,
         model: str | None = None,
         stream: bool = False,
