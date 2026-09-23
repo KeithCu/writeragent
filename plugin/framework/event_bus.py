@@ -138,7 +138,7 @@ class EventBus:
             return False
         return stored_self is other_self and getattr(stored, "__func__", None) is getattr(callback, "__func__", None)
 
-    def _active_events(self) -> set:
+    def _active_events(self) -> set[str]:
         # crosshair: off  # threading.local() is engine-hostile (cover-all 33093268817: exit 1, 0 contract errors)
         active = getattr(self._dispatching, "events", None)
         if active is None:

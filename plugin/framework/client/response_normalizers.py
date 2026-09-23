@@ -215,7 +215,7 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
         target_dict["content"] = new_content
 
 
-def prepend_dev_build_system_prefix_to_messages(messages: list) -> None:
+def prepend_dev_build_system_prefix_to_messages(messages: list[dict[str, Any]]) -> None:
     """If this is a non-release bundle, prepend a dev-oriented line to the first system message."""
     if not should_prepend_dev_llm_system_prefix():
         return

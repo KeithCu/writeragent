@@ -10,6 +10,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 _SCRIPT_TIMEOUT_SEC = 600
 
@@ -35,7 +36,7 @@ def resolve_project_file(project_path: str | Path, relative: str) -> Path | None
     return resolve_under_root(project, relative)
 
 
-def run_script(data_root: Path, script_relative: str, args: list[str] | None = None) -> dict:
+def run_script(data_root: Path, script_relative: str, args: list[str] | None = None) -> dict[str, Any]:
     """Run an upstream script under data_root/scripts/ using the current venv python."""
     rel = str(script_relative or "").strip().replace("\\", "/").lstrip("/")
     if not rel.startswith("scripts/"):

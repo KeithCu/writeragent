@@ -226,12 +226,12 @@ def _strip_config_comment_header(text: str) -> str:
     return "".join(lines[i:])
 
 
-def parse_config_json_text(text: str) -> dict | None:
+def parse_config_json_text(text: str) -> dict[str, Any] | None:
     """Parse writeragent.json text, ignoring the optional ``//`` schema header."""
     return _try_parse_config_dict(text)
 
 
-def _try_parse_config_dict(text: str) -> dict | None:
+def _try_parse_config_dict(text: str) -> dict[str, Any] | None:
     try:
         data = json.loads(_strip_config_comment_header(text))
     except json.JSONDecodeError:
@@ -241,7 +241,7 @@ def _try_parse_config_dict(text: str) -> dict | None:
     return data
 
 
-def _try_repair_config_dict(text: str) -> dict | None:
+def _try_repair_config_dict(text: str) -> dict[str, Any] | None:
     """Config-safe JSON repair: json strict=False and json_repair only (no literal_eval / LaTeX rewrite)."""
     stripped = _strip_config_comment_header(text)
     try:
@@ -262,7 +262,7 @@ def _try_repair_config_dict(text: str) -> dict | None:
     return None
 
 
-def _write_config_file(config_file_path: str, data: dict) -> None:
+def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
     """Write config via temp file + ``os.replace`` so a crash cannot truncate the live file."""
     body = json.dumps(data, indent=4)
     if not body.endswith("\n"):
@@ -295,7 +295,7 @@ def _load_config_dict(
     *,
     allow_repair: bool = False,
     persist_repair: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Load writeragent.json as a dict. Optionally backup, repair, and persist small JSON typos."""
     if not config_file_path or not os.path.exists(config_file_path):
         return {}

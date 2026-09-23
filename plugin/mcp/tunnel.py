@@ -263,7 +263,7 @@ def _tailscale_reset() -> None:
 
 
 # label used in status toasts; version_args / install_url for binary check.
-PROVIDERS: dict[str, dict] = {
+PROVIDERS: dict[str, dict[str, Any]] = {
     "cloudflare": {
         "label": "Cloudflare",
         "version_args": ["cloudflared", "--version"],

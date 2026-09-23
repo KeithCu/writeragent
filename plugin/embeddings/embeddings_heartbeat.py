@@ -5,6 +5,8 @@
 """Shared rebuild/index heartbeat line formatting for Search dialog UI."""
 from __future__ import annotations
 
+from typing import Any
+
 
 def format_index_heartbeat_line(
     filename: str,
@@ -19,7 +21,7 @@ def format_index_heartbeat_line(
     return f"{filename}: {int(paragraphs)} {para_label}, {int(chunks)} {chunk_label}, {elapsed_sec:.2f}s"
 
 
-def heartbeat_counts_from_payload(payload: dict) -> tuple[int, int]:
+def heartbeat_counts_from_payload(payload: dict[str, Any]) -> tuple[int, int]:
     """Return (paragraphs, chunks) from a maintain heartbeat payload."""
     paragraphs = int(payload.get("paragraphs") or 0)
     chunks = int(payload.get("upserted") or payload.get("chunks") or paragraphs)

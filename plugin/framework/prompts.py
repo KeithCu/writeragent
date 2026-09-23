@@ -86,14 +86,14 @@ def get_sheets_create_completion_instruction() -> str:
     return SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 
 
-def _reports_empty_sheet_create(payload: dict) -> bool:
+def _reports_empty_sheet_create(payload: dict[str, Any]) -> bool:
     """True when a specialized finish/result already says a new empty tab exists."""
     blob = " ".join(str(payload.get(key) or "") for key in ("message", "result", "answer"))
     lower = blob.lower()
     return "no cells copied" in lower or "new sheet named" in lower
 
 
-def first_instruction_from_tool_results(results: list | tuple | None) -> str | None:
+def first_instruction_from_tool_results(results: list[Any] | tuple[Any, ...] | None) -> str | None:
     """First non-empty ``instruction`` string from inner specialized tool results."""
     if not results:
         return None
@@ -106,11 +106,11 @@ def first_instruction_from_tool_results(results: list | tuple | None) -> str | N
 
 
 def attach_sheets_create_completion_instruction(
-    payload: dict,
+    payload: dict[str, Any],
     *,
     create_sheet_ran: bool = False,
-    tool_results: list | tuple | None = None,
-) -> dict:
+    tool_results: list[Any] | tuple[Any, ...] | None = None,
+) -> dict[str, Any]:
     """Attach create≠populate ``instruction`` on the payload the outer reads.
 
     Same field as web research (`instruction`). Use after a sheets specialized hop
@@ -662,7 +662,7 @@ def looks_like_peer_work_envelope(text: str | None) -> bool:
     return str(text).lstrip().startswith(PEER_WORK_ENVELOPE_PREFIX)
 
 
-def annotate_outer_peer_wait(payload: dict, *, peer_send_invoked: bool = False) -> dict:
+def annotate_outer_peer_wait(payload: dict[str, Any], *, peer_send_invoked: bool = False) -> dict[str, Any]:
     """Append idle-after-send on an ok document_research payload when a peer was asked.
 
     The outer model otherwise treats “Message sent to the peer…” as unfinished work
@@ -684,7 +684,7 @@ def annotate_outer_peer_wait(payload: dict, *, peer_send_invoked: bool = False) 
     return out
 
 
-def annotate_outer_peer_delivery_pending(payload: dict) -> dict:
+def annotate_outer_peer_delivery_pending(payload: dict[str, Any]) -> dict[str, Any]:
     """Stamp still-required peer delivery on an ok specialize return during Peer work.
 
     Nested domains can finish successfully while the outer still owes

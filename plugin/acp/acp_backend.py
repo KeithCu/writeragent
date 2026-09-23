@@ -201,7 +201,7 @@ class ACPBackend(AgentBackend):
             log.exception("ACP session creation failed")
             raise
 
-    def _build_prompt_blocks(self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, selection_text: Optional[str] = None, document_url: Optional[str] = None) -> List[Dict]:
+    def _build_prompt_blocks(self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, selection_text: Optional[str] = None, document_url: Optional[str] = None) -> list[dict[str, Any]]:
         """Build ACP prompt content blocks."""
         prompt_blocks = []
         is_slash_command = user_message.strip().startswith("/")

@@ -111,7 +111,7 @@ class _PreparedMcpCall:
     doc: object
     doc_key: str
     needs_gate: bool
-    echo: dict | None
+    echo: dict[str, Any] | None
 
 
 def _attach_precomputed_echo(result: Any, echo: dict[str, Any] | None) -> None:

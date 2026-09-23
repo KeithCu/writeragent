@@ -23,7 +23,7 @@ to WriterAgent's MCP server by acting as an ACP-to-MCP protocol bridge.
 import logging
 import threading
 import requests
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar, List, Optional
 
 from plugin.acp.base import AgentBackend
 
@@ -46,7 +46,7 @@ class MCPACPProxy(AgentBackend):
         self._session_id: str | None = None
         self._stop_requested = False
         self._prompt_done = threading.Event()
-        self._tools_cache: List[Dict] | None = None
+        self._tools_cache: list[dict[str, Any]] | None = None
         self._last_tools_fetch: float = 0.0
         self._tools_cache_ttl = 300  # 5 minutes
         self._load_config()
@@ -66,7 +66,7 @@ class MCPACPProxy(AgentBackend):
             # MCP binds localhost only; mcp.host / mcp.use_ssl are not in module.yaml.
             self._mcp_url = mcp_endpoint_url("localhost", get_config_int_safe("mcp.mcp_port"), False)
 
-    def _call_mcp(self, method: str, params: Optional[Dict] = None, document_url: Optional[str] = None) -> Dict:
+    def _call_mcp(self, method: str, params: dict[str, Any] | None = None, document_url: Optional[str] = None) -> dict[str, Any]:
         """Call MCP JSON-RPC method."""
         payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
 
@@ -83,7 +83,7 @@ class MCPACPProxy(AgentBackend):
             log.exception("MCP call failed")
             return {"error": {"code": -32000, "message": str(e)}}
 
-    def _get_tools(self) -> List[Dict]:
+    def _get_tools(self) -> list[dict[str, Any]]:
         """Get cached tool list from MCP server."""
         import time
 
@@ -94,7 +94,7 @@ class MCPACPProxy(AgentBackend):
 
         result = self._call_mcp("tools/list")
         if "result" in result and "tools" in result["result"]:
-            tools: List[Dict] = result["result"]["tools"]
+            tools: list[dict[str, Any]] = result["result"]["tools"]
             self._tools_cache = tools
             self._last_tools_fetch = current_time
             return tools
@@ -102,7 +102,7 @@ class MCPACPProxy(AgentBackend):
         log.error(f"Failed to fetch tools: {result}")
         return []
 
-    def initialize(self) -> Dict:
+    def initialize(self) -> dict[str, Any]:
         """ACP initialize handshake."""
         log.info("ACP initialize called")
 
@@ -122,7 +122,7 @@ class MCPACPProxy(AgentBackend):
 
         return self._session_id
 
-    def prompt(self, session_id: str, content_blocks: List[Dict]) -> Dict:
+    def prompt(self, session_id: str, content_blocks: list[dict[str, Any]]) -> dict[str, Any]:
         """ACP prompt call - execute tools or process messages."""
         log.info(f"ACP prompt: session_id={session_id}, blocks={len(content_blocks)}")
 
@@ -188,6 +188,6 @@ class MCPACPProxy(AgentBackend):
         """This backend supports streaming responses."""
         return False
 
-    def get_tool_list(self) -> List[Dict]:
+    def get_tool_list(self) -> list[dict[str, Any]]:
         """Get list of available tools."""
         return self._get_tools()

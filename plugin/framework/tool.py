@@ -49,7 +49,7 @@ _SCALAR_TYPES = frozenset({"integer", "number", "boolean", "string"})
 
 @deal.pre(lambda types: isinstance(types, list))
 @deal.post(lambda result: isinstance(result, (str, list)))
-def _collapse_union_type(types: list) -> str | list:
+def _collapse_union_type(types: list[str]) -> str | list[str]:
     """Collapse messy unions for Gemini; preserve scalar+null pairs for Groq."""
     # crosshair: off
     if not types:
@@ -76,7 +76,7 @@ def _type_allows_null(type_val: Any) -> bool:
 
 
 @deal.ensure(lambda prop_schema, result: not isinstance(prop_schema, dict) or isinstance(result, dict))
-def _make_optional_scalar_nullable(prop_schema: dict) -> dict:
+def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any]:
     """Add null to optional scalar property types (strict providers reject bare null otherwise)."""
     # crosshair: off
     if not isinstance(prop_schema, dict):

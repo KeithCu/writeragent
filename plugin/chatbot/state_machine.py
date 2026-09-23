@@ -29,9 +29,9 @@ class SendHandlerState(BaseState):
     model: Any = None
     doc_type_str: str = ""
     round_num: int = 0
-    pending_tools: tuple = ()
+    pending_tools: tuple[Any, ...] = ()
     max_rounds: int = 10
-    recent_effects: tuple = ()
+    recent_effects: tuple[Any, ...] = ()
 
     # Simple error info
     last_error: Optional[str] = None
@@ -70,7 +70,7 @@ class StopRequestedEvent(NamedTuple):
 
 class ToolResultEvent(NamedTuple):
     tool_id: str
-    result: dict
+    result: dict[str, Any]
 
 
 SendHandlerEvent = StartEvent | StreamChunkEvent | StreamDoneEvent | ErrorEvent | StopRequestedEvent | ToolResultEvent

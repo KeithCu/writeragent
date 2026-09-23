@@ -179,7 +179,7 @@ class CompactionState:
     first_kept_index: int  # into session.messages; always >= 1
     tokens_before: int
     window: int
-    stubbed_tool_call_ids: tuple = ()  # view-only tail-pressure stubs
+    stubbed_tool_call_ids: tuple[Any, ...] = ()  # view-only tail-pressure stubs
 
 
 @dataclass(frozen=True)

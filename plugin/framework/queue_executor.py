@@ -229,7 +229,7 @@ def _marshal_thread_tag(executor: "QueueExecutor | None" = None) -> str:
     )
 
 
-def _fn_label(fn: Callable) -> str:
+def _fn_label(fn: Callable[..., Any]) -> str:
     return getattr(fn, "__qualname__", None) or getattr(fn, "__name__", None) or repr(fn)
 
 
@@ -528,7 +528,7 @@ class QueueExecutor:
             return True
         return False
 
-    def execute(self, fn: Callable, *args: Any, timeout: float = 30.0, **kwargs: Any) -> Any:
+    def execute(self, fn: Callable[..., Any], *args: Any, timeout: float = 30.0, **kwargs: Any) -> Any:
         """Execute function on main thread (blocking).
 
         If already on the main thread, calls directly (avoids deadlock).
@@ -594,7 +594,7 @@ class QueueExecutor:
         item = self._enqueue_work(fn, args, kwargs, blocking=True)
         return self._wait_for_result(item, timeout)
 
-    def post(self, fn: Callable, *args: Any, **kwargs: Any) -> None:
+    def post(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
         """Post function to main thread (non-blocking).
 
         Unlike execute, does not block or return a result.

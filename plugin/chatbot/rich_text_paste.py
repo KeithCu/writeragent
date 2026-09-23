@@ -286,7 +286,7 @@ def _is_ordered_numbering_type(num_type: Any) -> bool:
         return False
 
 
-def _list_prefix_for_paragraph(para: Any, order_counters: dict) -> str:
+def _list_prefix_for_paragraph(para: Any, order_counters: dict[Any, int]) -> str:
     """Bullet or number prefix for a Writer list paragraph.
 
     RichTextControl's EditEngine does not preserve Writer NumberingRules on insertString
@@ -469,7 +469,7 @@ def _copy_formatted_from_hidden_doc_to_control(
             src_text = src_doc.getText()
             para_enum = src_text.createEnumeration()
             first_para = True
-            order_counters: dict = {}
+            order_counters: dict[Any, int] = {}
             pending_links = list(cell_link_targets or [])
             while para_enum.hasMoreElements():
                 para = para_enum.nextElement()

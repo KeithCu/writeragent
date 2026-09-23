@@ -69,7 +69,7 @@ def _ensure_config_file(path: str) -> tuple[bool, str | None]:
 
 
 def _popen_detached(argv: list[str]) -> None:
-    kwargs: dict = {}
+    kwargs: dict[str, Any] = {}
     if sys.platform != "win32":
         kwargs["start_new_session"] = True
     subprocess.Popen(argv, close_fds=True, **kwargs)  # noqa: S603 — argv from resolve_editor_argv only

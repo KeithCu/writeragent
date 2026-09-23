@@ -218,7 +218,7 @@ TOOLS FOR COMPLETION:
 
     final_ans = None
 
-    run_stream = cast("Iterable", agent.run(task, stream=True))
+    run_stream = cast(Iterable[Any], agent.run(task, stream=True))
     for step in run_stream:
         if stop_checker and stop_checker():
             return format_error_payload(ToolExecutionError("Librarian stopped by user.", code="USER_STOPPED"))

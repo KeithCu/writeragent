@@ -35,7 +35,7 @@ _FINISH_TOOL = "specialized_workflow_finished"
 _GATEWAY_PREFIX = "delegate_to_specialized_"
 
 
-def _doc_filter(doc: Any) -> dict:
+def _doc_filter(doc: Any) -> dict[str, Any]:
     """Registry kwargs for the active document.
 
     With no open document the registry filters out every app-specific tool (by
@@ -99,7 +99,7 @@ def sidebar_only_tool_names(
     *,
     doc_type: str | None = None,
     uno_services_supported: frozenset[str] | None = None,
-) -> frozenset:
+) -> frozenset[str]:
     """Tool names in sidebar-only domains (brainstorming, writing_plan, ppt-master)."""
     try:
         from plugin.framework.prompts import IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS, WRITER_SIDEBAR_ONLY_DOMAINS
@@ -190,7 +190,7 @@ class FindTools(ToolBase):
             schemas = registry.get_schemas("mcp", doc=doc, active_domain=domain, **_doc_filter(doc))
 
         sidebar_only = sidebar_only_tool_names(registry, doc)
-        tools: list[dict] = []
+        tools: list[dict[str, Any]] = []
         for s in (schemas or []):
             if not isinstance(s, dict):
                 continue

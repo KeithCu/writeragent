@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, NamedTuple, Union
+from typing import Any, List, NamedTuple, Union
 
 from enum import Enum, auto
 
@@ -38,7 +38,7 @@ class SendEventKind(Enum):
 
 class SendEvent(NamedTuple):
     kind: SendEventKind
-    data: dict | None = None
+    data: dict[str, Any] | None = None
 
 
 # --- Effects ---
