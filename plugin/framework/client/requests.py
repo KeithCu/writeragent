@@ -3,9 +3,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from __future__ import annotations
+
 import json
 import logging
 import urllib.error
+from typing import Any
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 from plugin.framework.constants import USER_AGENT
@@ -18,7 +21,15 @@ from .errors import _format_http_error_response
 log = logging.getLogger(__name__)
 
 
-def sync_request(url, data=None, headers=None, parse_json=True, method=None, *, timeout):
+def sync_request(
+    url: str | Request,
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    parse_json: bool = True,
+    method: str | None = None,
+    *,
+    timeout: float,
+) -> Any:
     """
     Blocking HTTP GET or POST. Shared by LLM client and other code.
     url: str or urllib.request.Request. If Request, headers/data come from it.
@@ -56,7 +67,7 @@ def sync_request(url, data=None, headers=None, parse_json=True, method=None, *, 
     host = parsed.hostname or ""
     is_local_https = parsed.scheme.lower() == "https" and is_local_host(host)
 
-    def _read_with_context(context):
+    def _read_with_context(context: Any) -> Any:
         log.debug(f"About to open URL: {getattr(req, 'full_url', url)}")
         with urlopen(req, timeout=timeout, context=context) as resp:
             log.debug(f"URL opened, status={resp.getcode()}. Heading to read...")

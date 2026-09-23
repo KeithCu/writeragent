@@ -46,7 +46,7 @@ import json
 import logging
 import re
 import urllib.parse
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from .base_provider_shim import BaseProviderShim
@@ -122,7 +122,7 @@ from .requests import sync_request
 log = logging.getLogger(__name__)
 
 
-def _chat_request_payload_from_body(body):
+def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
     """Parse encoded chat JSON for diagnostics. Empty dict if unreadable."""
     if not body:
         return {}
@@ -133,12 +133,12 @@ def _chat_request_payload_from_body(body):
     return payload if isinstance(payload, dict) else {}
 
 
-def _request_model_from_body(body):
+def _request_model_from_body(body: Any) -> Any:
     """Extract model field from encoded chat request body for error diagnostics."""
     return _chat_request_payload_from_body(body).get("model")
 
 
-def _request_payload_byte_length(body):
+def _request_payload_byte_length(body: Any) -> int:
     """Byte length of the encoded request body for size diagnostics."""
     if isinstance(body, (bytes, bytearray)):
         return len(body)
@@ -147,14 +147,14 @@ def _request_payload_byte_length(body):
     return 0
 
 
-def _redact_secret_from_log_text(text, secret):
+def _redact_secret_from_log_text(text: str, secret: str) -> str:
     """Remove a configured credential from a log string. Empty secret is a no-op."""
     if not text or not secret:
         return text
     return text.replace(secret, "<redacted>")
 
 
-def _full_url_for_request_path(endpoint, path):
+def _full_url_for_request_path(endpoint: str, path: str) -> str:
     """Join stored endpoint host with relative API path for debug logs.
 
     Query string is dropped so a leftover ``?key=`` never appears in logs
@@ -172,7 +172,7 @@ def _full_url_for_request_path(endpoint, path):
     return path
 
 
-def _log_chat_request_body_diag(client, path, body, headers, tools):
+def _log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:
     """Log wire-level chat fields (no secrets) for provider debugging."""
     payload = _chat_request_payload_from_body(body)
     api_key = str(client.config.get("api_key") or "").strip()
@@ -188,7 +188,7 @@ def _log_chat_request_body_diag(client, path, body, headers, tools):
     )
 
 
-def _prompt_char_count(messages) -> int:
+def _prompt_char_count(messages: Any) -> int:
     """Sum of message text lengths for 500 diagnostics. Never logs the text."""
     if not isinstance(messages, list):
         return 0
@@ -221,7 +221,7 @@ def _exit_code_from_provider_body(err_body: str) -> str | None:
     return None
 
 
-def _peek_live_ollama_num_ctx(client) -> int | None:
+def _peek_live_ollama_num_ctx(client: Any) -> int | None:
     """Cached Ollama runtime num_ctx for crash copy / 500 logs. Never raises."""
     try:
         if client._get_provider() != "ollama":
@@ -237,7 +237,7 @@ def _peek_live_ollama_num_ctx(client) -> int | None:
         return None
 
 
-def _log_http_500_request_diag(client, response, path, body, err_body=""):
+def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "") -> None:
     """One ERROR-level safe request shape for HTTP 500. No prompts or secrets.
 
     Local llama-server / Ollama 500 bodies are often opaque. This is the
@@ -281,7 +281,7 @@ from .stream_normalizer import (
 class LlmClient:
     """LLM API client. Takes config dict from get_api_config() and UNO ctx."""
 
-    def __init__(self, config, ctx, cancellation_scope=None):
+    def __init__(self, config: dict[str, Any], ctx: Any, cancellation_scope: Any | None = None) -> None:
         self.config = config
         self.ctx = ctx
         self._transport = LlmHttpTransport(self._endpoint, self._timeout)
@@ -329,16 +329,16 @@ class LlmClient:
 
     def _retry_or_raise_http_error(
         self,
-        response,
-        body,
-        path,
+        response: Any,
+        body: Any,
+        path: str,
         *,
         retries_left: int,
         emitted_any: bool,
-        stop_checker,
-        status_callback=None,
+        stop_checker: Callable[[], bool] | None,
+        status_callback: Callable[[str], None] | None = None,
         attempt: int = 1,
-    ):
+    ) -> str | None:
         """On non-200: jittered 429/503 retry while attempts remain; else HTTP_ERROR.
 
         OpenClaw Retry-After + jitter. Never after tokens already reached the UI.
@@ -450,11 +450,20 @@ class LlmClient:
     def _current_host(self):
         return self._transport.current_host()
 
-    def _enable_local_ssl_fallback(self, err):
+    def _enable_local_ssl_fallback(self, err: Exception) -> bool:
         """Compatibility wrapper for the transport-owned certificate fallback."""
         return self._transport.enable_local_ssl_fallback(err)
 
-    def _send_request(self, method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def _send_request(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        *,
+        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Callable[[str], None] | None = None,
+    ) -> Any:
         """Send through the transport while honoring tests/debuggers that override ``_get_connection`` on the instance."""
         if self._stopped:
             raise NetworkError("LLM request aborted by Stop", code="STOPPED")
@@ -473,7 +482,7 @@ class LlmClient:
             status_callback=status_callback,
         )
 
-    def make_api_request(self, prompt, system_prompt="", max_tokens=70):
+    def make_api_request(self, prompt: str, system_prompt: str = "", max_tokens: int = 70) -> Any:
         """Build a streaming chat completions request (legacy/simple wrapper)."""
         messages = []
         if system_prompt:
@@ -481,11 +490,22 @@ class LlmClient:
         messages.append({"role": "user", "content": prompt})
         return self.make_chat_request(messages, max_tokens=max_tokens, stream=True)
 
-    def extract_content_from_response(self, chunk):
+    def extract_content_from_response(self, chunk: Any) -> Any:
         """Extract text content and optional thinking from response chunk (provider-aware)."""
         return self._get_shim().parse_response_chunk(chunk)
 
-    def make_chat_request(self, messages, max_tokens=512, tools=None, stream=False, model=None, response_format=None, chat_extra=None, *, prepend_dev_build_system_prefix: bool = True):
+    def make_chat_request(
+        self,
+        messages: list[Any],
+        max_tokens: int = 512,
+        tools: Any = None,
+        stream: bool = False,
+        model: str | None = None,
+        response_format: Any = None,
+        chat_extra: Any = None,
+        *,
+        prepend_dev_build_system_prefix: bool = True,
+    ) -> tuple[str, str, Any, dict[str, str]]:
         """Build a chat completions request from a full messages array (provider-aware)."""
         try:
             max_tokens = int(max_tokens)
@@ -606,12 +626,30 @@ class LlmClient:
 
         return method, path, body, headers
 
-    def make_image_request(self, prompt, model=None, width=1024, height=1024, steps=None, source_image=None, image_url=None):
+    def make_image_request(
+        self,
+        prompt: str,
+        model: str | None = None,
+        width: int = 1024,
+        height: int = 1024,
+        steps: int | None = None,
+        source_image: str | None = None,
+        image_url: str | None = None,
+    ) -> Any:
         """Build an image generation request (provider-aware)."""
         shim = self._get_shim()
         return shim.build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
 
-    def image_completion(self, prompt, model=None, width=1024, height=1024, steps=None, source_image=None, image_url=None):
+    def image_completion(
+        self,
+        prompt: str,
+        model: str | None = None,
+        width: int = 1024,
+        height: int = 1024,
+        steps: int | None = None,
+        source_image: str | None = None,
+        image_url: str | None = None,
+    ) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
         method, path, body, headers = self.make_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         endpoint = self._endpoint()
@@ -639,7 +677,7 @@ class LlmClient:
         shim = self._get_shim()
         return shim.parse_image_responses(res)
 
-    def transcribe_audio(self, wav_path, model=None):
+    def transcribe_audio(self, wav_path: str, model: str | None = None) -> str:
         """Transcribe audio via POST /v1/audio/transcriptions (or chat if STT model supports input_audio).
 
         STT-only models use the transcription endpoint only; chat+audio STT models may
@@ -706,7 +744,16 @@ class LlmClient:
         res = sync_request(url, data=body_bytes, headers=headers, timeout=self._timeout())
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
-    def stream_completion(self, prompt, system_prompt, max_tokens, append_callback, append_thinking_callback=None, stop_checker=None, status_callback=None):
+    def stream_completion(
+        self,
+        prompt: str,
+        system_prompt: str,
+        max_tokens: int,
+        append_callback: Callable[[str], None],
+        append_thinking_callback: Callable[[str], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Callable[[str], None] | None = None,
+    ) -> None:
         """Stream a chat completions response via callbacks."""
         method, path, body, headers = self.make_api_request(prompt, system_prompt, max_tokens)
         self.stream_request(
@@ -714,7 +761,19 @@ class LlmClient:
             stop_checker=stop_checker, status_callback=status_callback,
         )
 
-    def _run_streaming_loop(self, method, path, body, headers, on_content, on_thinking=None, on_delta=None, stop_checker=None, _retry=True, status_callback=None):
+    def _run_streaming_loop(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        on_content: Callable[[str], None] | None,
+        on_thinking: Callable[[str], None] | None = None,
+        on_delta: Callable[[Any], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+        _retry: bool = True,
+        status_callback: Callable[[str], None] | None = None,
+    ) -> Any:
         """Common low-level streaming engine."""
         init_logging(self.ctx)
         log.debug("=== Starting streaming loop (persistent, level=logging.INFO) ===")
@@ -965,7 +1024,17 @@ class LlmClient:
             # If we completed successfully without retry, return
             return last_finish_reason
 
-    def stream_request(self, method, path, body, headers, append_callback, append_thinking_callback=None, stop_checker=None, status_callback=None):
+    def stream_request(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        append_callback: Callable[[str], None],
+        append_thinking_callback: Callable[[str], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Callable[[str], None] | None = None,
+    ) -> None:
         """Streaming request for chat completions, using persistent connection."""
         init_logging(self.ctx)
         self._run_streaming_loop(
@@ -975,15 +1044,15 @@ class LlmClient:
 
     def stream_chat_response(
         self,
-        messages,
-        max_tokens,
-        append_callback,
-        append_thinking_callback=None,
-        stop_checker=None,
-        status_callback=None,
+        messages: list[Any],
+        max_tokens: int,
+        append_callback: Callable[[str], None],
+        append_thinking_callback: Callable[[str], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Callable[[str], None] | None = None,
         *,
         prepend_dev_build_system_prefix: bool = True,
-    ):
+    ) -> None:
         """Stream a final chat response (no tools) using the messages array."""
         method, path, body, headers = self.make_chat_request(
             messages,
@@ -999,20 +1068,20 @@ class LlmClient:
 
     def request_with_tools(
         self,
-        messages,
-        max_tokens=512,
-        tools=None,
-        append_callback=None,
-        append_thinking_callback=None,
-        stop_checker=None,
-        status_callback=None,
-        body_override=None,
-        model=None,
-        stream=False,
-        response_format=None,
-        chat_extra=None,
+        messages: list[Any],
+        max_tokens: int = 512,
+        tools: Any = None,
+        append_callback: Callable[[str], None] | None = None,
+        append_thinking_callback: Callable[[str], None] | None = None,
+        stop_checker: Callable[[], bool] | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        body_override: Any = None,
+        model: str | None = None,
+        stream: bool = False,
+        response_format: Any = None,
+        chat_extra: Any = None,
         prepend_dev_build_system_prefix: bool = True,
-    ):
+    ) -> dict[str, Any]:
         """Chat request with support for tools and streaming.
 
         If stream=True, uses callbacks to stream deltas & accumulates tool_calls.
@@ -1254,12 +1323,21 @@ class LlmClient:
         out.update(reasoning_replay)
         return out
 
-    def stream_request_with_tools(self, *args, **kwargs):
+    def stream_request_with_tools(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """Streaming chat request with tools. Wrapper around request_with_tools."""
         kwargs["stream"] = True
         return self.request_with_tools(*args, **kwargs)
 
-    def chat_completion_sync(self, messages, max_tokens=512, model=None, response_format=None, chat_extra=None, *, prepend_dev_build_system_prefix: bool = True):
+    def chat_completion_sync(
+        self,
+        messages: list[Any],
+        max_tokens: int = 512,
+        model: str | None = None,
+        response_format: Any = None,
+        chat_extra: Any = None,
+        *,
+        prepend_dev_build_system_prefix: bool = True,
+    ) -> str:
         """
         Synchronous chat completion (no streaming, no tools).
         Returns the assistant message content string.

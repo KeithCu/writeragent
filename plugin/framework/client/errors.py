@@ -9,6 +9,8 @@ Wire-specific formatting (HTTP response bodies, audio modality heuristics) and
 :func:`plugin.framework.errors.format_error_message` — import it from there.
 """
 
+from typing import Any
+
 from plugin.framework.i18n import _
 from plugin.framework.errors import format_error_message
 
@@ -23,7 +25,7 @@ _LLAMA_SERVER_CRASH_MARKERS = (
 )
 
 
-def format_context_window_label(num_ctx) -> str | None:
+def format_context_window_label(num_ctx: Any) -> str | None:
     """Human window size for the crash sentence (4096 → 4K). None if unknown."""
     try:
         window = int(num_ctx)
@@ -36,7 +38,7 @@ def format_context_window_label(num_ctx) -> str | None:
     return str(window)
 
 
-def local_model_overflow_message(context_window=None) -> str:
+def local_model_overflow_message(context_window: int | None = None) -> str:
     """Plain sidebar sentence: local llama-server died because the prompt overflowed."""
     label = format_context_window_label(context_window)
     if label:
@@ -48,7 +50,7 @@ def local_model_overflow_message(context_window=None) -> str:
     )
 
 
-def is_local_model_server_crash(text) -> bool:
+def is_local_model_server_crash(text: Any) -> bool:
     """True for llama-server death / access violation / prompt-overflow 500 bodies."""
     blob = str(text or "")
     if not blob:
@@ -63,7 +65,7 @@ def is_local_model_server_crash(text) -> bool:
     return False
 
 
-def _format_http_error_response(status, reason, err_body, context_window=None):  # pyright: ignore[reportUnusedFunction]  # shared by llm client tests and modality helpers
+def _format_http_error_response(status: int, reason: str, err_body: str, context_window: int | None = None) -> str:  # pyright: ignore[reportUnusedFunction]  # shared by llm client tests and modality helpers
     """Build error message including response body for display in chat/UI.
 
     This remains client-specific because it parses provider error JSON bodies
@@ -104,7 +106,7 @@ def _format_http_error_response(status, reason, err_body, context_window=None): 
     return base + ".\nProvider Response:\n" + snippet
 
 
-def append_zai_unknown_model_hint(message, err_body, path, provider, request_model=None):
+def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provider: Any, request_model: Any = None) -> str:
     """Append Coding Plan endpoint guidance when Z.ai returns unknown-model 400."""
     if (provider or "").lower() != "zai":
         return message
@@ -123,7 +125,7 @@ def append_zai_unknown_model_hint(message, err_body, path, provider, request_mod
     return message + hint
 
 
-def format_error_for_display(e):
+def format_error_for_display(e: Any) -> str:
     """Return user-friendly error string for display in cells or dialogs."""
     from plugin.framework.errors import format_error_payload
 
@@ -136,7 +138,7 @@ def format_error_for_display(e):
     return _("Error: {0}").format(payload.get("message", format_error_message(e)))
 
 
-def is_audio_unsupported_error(e):
+def is_audio_unsupported_error(e: Any) -> bool:
     """Try to determine if the error indicates that audio/modality is unsupported by the model."""
     msg = str(e).lower()
 

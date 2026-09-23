@@ -227,7 +227,7 @@ def reasoning_replay_from_assistant_response(response: Mapping[str, Any] | None)
     return extract_reasoning_replay_from_response(sync_message=response)
 
 
-def iterate_sse(stream):
+def iterate_sse(stream: Any):
     """
     Iterate over SSE (Server-Sent Events) data payloads from a stream of lines (bytes).
     Yields the payload string. Supports standard 'data:' prefix and raw JSON lines.
@@ -293,7 +293,7 @@ def _thinking_text_from_delta(delta: dict[str, Any]) -> str:
     return ""
 
 
-def _extract_thinking_from_delta(chunk_or_delta):  # pyright: ignore[reportUnusedFunction]  # used by stream normalizer tests
+def _extract_thinking_from_delta(chunk_or_delta: object):  # pyright: ignore[reportUnusedFunction]  # used by stream normalizer tests
     """Extract reasoning/thinking text from a stream chunk or bare delta for display in UI."""
     delta = _normalize_stream_delta(chunk_or_delta)
     result = _thinking_text_from_delta(delta)
@@ -306,7 +306,7 @@ def _extract_thinking_from_delta(chunk_or_delta):  # pyright: ignore[reportUnuse
     return result
 
 
-def _normalize_message_content(raw):  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
+def _normalize_message_content(raw: Any):  # pyright: ignore[reportUnusedFunction]  # used by llm_client / response_normalizers
     """Return a single string from API message content (string or list of parts)."""
     # crosshair: off
     # Unbounded str | list[dict[Any]] join (cover-all 35546602462: ~14k examples / largest stream_normalizer sink). Doable later with DEAL_MAX_SHAPE_DIM part list + short ASCII text domain.

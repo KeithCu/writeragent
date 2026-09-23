@@ -236,7 +236,7 @@ def endpoint_url_suitable_for_v1_models_fetch(endpoint: str) -> bool:
         return False
 
 
-def fetch_available_models(endpoint, api_key_override: str | None = None):
+def fetch_available_models(endpoint: str, api_key_override: str | None = None):
     """Fetch available models from endpoint/v1/models. Returns list of IDs or None on error.
 
     Sends the same auth headers as chat (Bearer / x-api-key per provider) using
@@ -311,7 +311,7 @@ def fetch_available_models(endpoint, api_key_override: str | None = None):
     return None
 
 
-def fetch_available_image_models(endpoint, api_key_override: str | None = None):
+def fetch_available_image_models(endpoint: str, api_key_override: str | None = None):
     """Image-output model IDs from /v1/models (architecture.output_modalities or type=image).
 
     Provider policy after shared fetch (see module comment above):
@@ -427,7 +427,7 @@ def get_endpoint_presets():
 # --- Model capability and audio support ---
 
 
-def get_model_capability(model_id, endpoint):
+def get_model_capability(model_id: str, endpoint: str):
     """Check the model catalog for capabilities bitmask."""
     provider = get_provider_from_endpoint(endpoint)
     model_id = str(model_id or "").strip()
@@ -446,7 +446,7 @@ def get_model_capability(model_id, endpoint):
     return ModelCapability.NONE
 
 
-def has_native_audio(model_id, endpoint):
+def has_native_audio(model_id: str, endpoint: str):
     """True if the model accepts input_audio on POST /v1/chat/completions.
 
     This is not the same as "can transcribe": STT-only models (Voxtral, Whisper)
@@ -481,7 +481,7 @@ def has_native_audio(model_id, endpoint):
     return None  # Unknown, allow trying native audio
 
 
-def set_native_audio_support(model_id, endpoint, supported):
+def set_native_audio_support(model_id: str, endpoint: str, supported: bool) -> None:
     """Save the audio support status for a model+endpoint pair."""
     model_id = str(model_id).lower()
     endpoint = normalize_endpoint_url(endpoint)
@@ -498,7 +498,7 @@ def set_native_audio_support(model_id, endpoint, supported):
 # --- Resolved model getters (text / STT / grammar / image) ---
 
 
-def _sanitize_stored_model_value(val):
+def _sanitize_stored_model_value(val: Any) -> str:
     """Drop combobox placeholder strings from persisted model config."""
     from plugin.chatbot.config_ui_helpers import _sanitize_model_combobox_value
 
@@ -546,7 +546,7 @@ def get_image_model():
     return str(defaults.get("image_model", "")).strip()
 
 
-def set_text_model(val, update_lru=True):
+def set_text_model(val: Any, update_lru: bool = True) -> None:
     """Set text/chat model and optionally update model_lru for the current endpoint."""
     if val is None:
         return
@@ -565,7 +565,7 @@ def set_text_model(val, update_lru=True):
         update_lru_history(val_str, "model_lru", get_current_endpoint())
 
 
-def set_image_model(val, update_lru=True):
+def set_image_model(val: Any, update_lru: bool = True) -> None:
     """Set image model and notify listeners."""
     if val is None:
         return
@@ -584,7 +584,7 @@ def set_image_model(val, update_lru=True):
         update_lru_history(val_str, "image_model_lru", get_current_endpoint())
 
 
-def has_native_vision(model_id, endpoint) -> bool:
+def has_native_vision(model_id: str, endpoint: str) -> bool:
     """Check if the model supports native multimodal vision input.
 
     Priority order:
@@ -647,7 +647,7 @@ def has_native_vision(model_id, endpoint) -> bool:
     return False
 
 
-def set_native_vision_support(model_id, endpoint, supported):
+def set_native_vision_support(model_id: str, endpoint: str, supported: bool) -> None:
     """Save the vision support status for a model+endpoint pair to config."""
     model_id_str = str(model_id).strip().lower()
     endpoint_str = normalize_endpoint_url(endpoint or "")
@@ -804,7 +804,7 @@ def cached_v1_context_tokens(endpoint: str, model_id: str, provider: str | None 
     return None
 
 
-def is_image_only_model(endpoint, model_id) -> bool:
+def is_image_only_model(endpoint: str, model_id: str) -> bool:
     """Check if the model outputs image but not text (dedicated image generator)."""
     if not endpoint or not model_id:
         return False
