@@ -69,6 +69,7 @@ class EndpointImageProvider(ImageProvider):
         # For OpenRouter edit (img2img): send multimodal message with text + source image
         source_image = kwargs.get("source_image")
         if self.client.config.get("is_openrouter"):
+            content: Any
             if source_image:
                 content = [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": "data:image/png;base64," + source_image}}]
             else:
@@ -187,7 +188,7 @@ class ImageService:
     def __init__(self, ctx: Any, config: Any) -> None:
         self.ctx = ctx
         self.config = config
-        self.providers = {}
+        self.providers: dict[str, Any] = {}
 
     def get_provider(self, name: str | None = None):
         if name and name not in ("endpoint", "openrouter"):
@@ -209,7 +210,6 @@ class ImageService:
         base_size = get_config_int("image_base_size")
         steps = get_config_int("image_steps")
 
-        from typing import Any
 
         defaults: dict[str, Any] = {
             "width": base_size,

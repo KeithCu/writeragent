@@ -564,7 +564,7 @@ def _annotation_name(field: Any):
 
 def _annotation_field_names(doc: Any):
     """Name of each Annotation on *doc* (empty string when Name is unreadable)."""
-    names = []
+    names: list[str] = []
     try:
         enum = doc.getTextFields().createEnumeration()
     except Exception:

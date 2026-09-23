@@ -458,7 +458,7 @@ def _insert_image_to_drawpage(ctx: Any, model: Any, inside: str, img_path: str, 
         image.setPosition(_position_on_draw_page(draw_page, width, height, x_mm, y_mm))
 
 
-def replace_graphic_source(ctx: Any, model: Any, graphic: Any, img_path: str, width_units: int | None = None, height_units: int | None = None, title: str | None = None, description: str | None = None):
+def replace_graphic_source(ctx: Any, model: Any, graphic: Any, img_path: str, width_units: Any = None, height_units: Any = None, title: str | None = None, description: str | None = None):
     """
     Replace an existing graphic's image source (by name), preserving object when possible.
     User paths are re-linked; temp/cache paths update GraphicURL (embed).

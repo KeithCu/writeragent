@@ -180,8 +180,8 @@ class IndexService(ServiceBase):
         self._tree_svc = services.writer_tree
         self._bm_svc = services.writer_bookmarks
         events = services.events
-        self._cache = {}  # doc_key -> _DocIndex
-        self._stemmers = {}  # lang -> StemmerInstance
+        self._cache: dict[str, Any] = {}  # doc_key -> _DocIndex
+        self._stemmers: dict[str, Any] = {}  # lang -> StemmerInstance
         events.subscribe("document:cache_invalidated", self._on_cache_invalidated)
 
     def _on_cache_invalidated(self, doc: Any = None, key: Any = None, **_kw: Any) -> None:

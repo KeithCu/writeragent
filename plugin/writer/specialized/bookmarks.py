@@ -158,7 +158,7 @@ class BookmarkService(ServiceBase):
 
     def get_mcp_bookmark_map(self, doc: Any):
         """Return {para_index: bookmark_name} for all _mcp_ bookmarks."""
-        result = {}
+        result: dict[int, str] = {}
         try:
             if not hasattr(doc, "getBookmarks"):
                 return result
