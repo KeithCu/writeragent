@@ -147,7 +147,8 @@ class ExecutePythonScript(ToolBaseDummy):
 
         result = executor.execute_with_return(code)
 
-        write_status = ""
+        # write_formula_range returns a summary string or an array-formula dict.
+        write_status: str | dict[str, Any] = ""
         if target_range and result is not None:
             try:
                 write_status = manipulator.write_formula_range(target_range, result)
