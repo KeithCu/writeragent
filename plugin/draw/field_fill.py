@@ -195,7 +195,7 @@ class FillDrawFields(ToolDrawShapeBase):
     is_mutation: bool | None = True
     required_core_tools: ClassVar[frozenset[str] | None] = frozenset(["get_draw_tree"])
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         fields = kwargs.get("fields") or []

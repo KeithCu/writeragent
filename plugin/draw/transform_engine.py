@@ -89,7 +89,7 @@ class SlideCommandEngine:
     def _page_count(self) -> int:
         return self.pages.getCount()
 
-    def _current_page(self):
+    def _current_page(self) -> Any:
         return self.pages.getByIndex(self.current_slide)
 
     def _apply_command(self, cmd: dict[str, Any]) -> None:
@@ -246,7 +246,7 @@ class SlideCommandEngine:
                     self._dispatch_uno_string(sv, cursor=cursor, shape=shape)
         self.applied.append("EditTextObject.%d" % shape_index)
 
-    def _select_text(self, xtext: Any, cursor: Any, spec: Any):
+    def _select_text(self, xtext: Any, cursor: Any, spec: Any) -> Any:
         if cursor is None or xtext is None:
             return cursor
         cursor.gotoStart(False)
@@ -282,7 +282,7 @@ class SlideCommandEngine:
             return cursor
         return cursor
 
-    def _select_paragraph(self, xtext: Any, cursor: Any, para_index: int):
+    def _select_paragraph(self, xtext: Any, cursor: Any, para_index: int) -> Any:
         return self._select_text(xtext, cursor, [para_index])
 
     def _apply_top_level_uno(self, uno_spec: Any) -> None:

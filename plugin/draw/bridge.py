@@ -34,16 +34,16 @@ class _SingleDrawPageContainer:
     def __init__(self, page: Any) -> None:
         self._page = page
 
-    def getCount(self):
+    def getCount(self) -> int:
         return 1
 
-    def getByIndex(self, index: int):
+    def getByIndex(self, index: int) -> Any:
         if index != 0:
             raise IndexError("Page index %s out of range." % index)
         return self._page
 
 
-def _draw_page_container(doc: Any):
+def _draw_page_container(doc: Any) -> Any | None:
     """Return an ``XDrawPages``-like object, or None if *doc* has no draw page."""
     if hasattr(doc, "getDrawPages"):
         return doc.getDrawPages()
@@ -75,10 +75,10 @@ class DrawBridge:
             raise RuntimeError("Provided document has no draw page (Draw/Impress, Writer, or Calc).")
         self._pages: Any = pages
 
-    def get_pages(self):
+    def get_pages(self) -> Any:
         return self._pages
 
-    def get_active_page(self):
+    def get_active_page(self) -> Any | None:
         controller = self.doc.getCurrentController()
         if controller is not None and hasattr(controller, "getCurrentPage"):
             page = controller.getCurrentPage()
@@ -91,7 +91,7 @@ class DrawBridge:
         return None
 
     @classmethod
-    def resolve_slide(cls, doc: Any, page_index: int | None = None):
+    def resolve_slide(cls, doc: Any, page_index: int | None = None) -> Any:
         """Resolve a slide (XDrawPage) by index or active slide."""
         bridge = cls(doc)
         if page_index is not None:
@@ -105,7 +105,7 @@ class DrawBridge:
         return page
 
     @classmethod
-    def get_slide_for_tool(cls, doc: Any, page_index: int | None = None):
+    def get_slide_for_tool(cls, doc: Any, page_index: int | None = None) -> Any:
         """Resolve a slide for tool ``execute()``.
 
         Re-raises UNO dispose so ``execute_safe`` maps it to ``DOCUMENT_DISPOSED``.
@@ -128,7 +128,7 @@ class DrawBridge:
                 raise
             raise ToolExecutionError(str(e)) from e
 
-    def create_shape(self, shape_type: str, x: int, y: int, width: int, height: int, page: Any | None = None):
+    def create_shape(self, shape_type: str, x: int, y: int, width: int, height: int, page: Any | None = None) -> Any:
         """
         Creates a shape of specified type and adds it to the page.
         shape_type: e.g. "com.sun.star.drawing.RectangleShape"
@@ -148,7 +148,7 @@ class DrawBridge:
         shape.setPosition(Point(x, y))
         return shape
 
-    def get_shapes(self, page: Any | None = None):
+    def get_shapes(self, page: Any | None = None) -> list[Any]:
         if page is None:
             page = self.get_active_page()
         if page is None:
@@ -158,7 +158,7 @@ class DrawBridge:
             shapes.append(page.getByIndex(i))
         return shapes
 
-    def create_slide(self, index: int | None = None, switch: bool = True):
+    def create_slide(self, index: int | None = None, switch: bool = True) -> Any:
         """Creates a new slide (page) at the specified index."""
         pages = self.get_pages()
         if index is None:
@@ -174,13 +174,13 @@ class DrawBridge:
                     log.debug("setCurrentPage after insert failed: %s", exc)
         return new_page
 
-    def delete_slide(self, index: int):
+    def delete_slide(self, index: int) -> None:
         """Deletes the slide at the specified index."""
         pages = self.get_pages()
         page = pages.getByIndex(index)
         pages.remove(page)
 
-    def duplicate_slide(self, index: int, switch: bool = True):
+    def duplicate_slide(self, index: int, switch: bool = True) -> Any:
         """Duplicate the slide via UNO ``XDrawPageDuplicator.duplicate`` (full shape copy)."""
         pages = self.get_pages()
         source = pages.getByIndex(index)
@@ -196,7 +196,7 @@ class DrawBridge:
         master_name: str | None = None,
         after_index: int | None = None,
         switch: bool = True,
-    ):
+    ) -> tuple[Any, int]:
         """Insert a slide after after_index (default: active), assign master, jump to new slide."""
         pages = self.get_pages()
         if after_index is None:
@@ -213,7 +213,7 @@ class DrawBridge:
             self.set_current_page_index(insert_at)
         return new_page, insert_at
 
-    def _resolve_master(self, master_index: int | None = None, master_name: str | None = None):
+    def _resolve_master(self, master_index: int | None = None, master_name: str | None = None) -> Any | None:
         if not hasattr(self.doc, "getMasterPages"):
             return None
         masters = self.doc.getMasterPages()
@@ -228,7 +228,7 @@ class DrawBridge:
                 return masters.getByIndex(master_index)
         return None
 
-    def move_slide(self, from_index: int, to_index: int):
+    def move_slide(self, from_index: int, to_index: int) -> bool:
         """Move slide from_index to to_index."""
         if from_index == to_index:
             return True
@@ -249,14 +249,14 @@ class DrawBridge:
                 return False
         return True
 
-    def rename_slide(self, index: int, name: str):
+    def rename_slide(self, index: int, name: str) -> bool:
         page = self.get_pages().getByIndex(index)
         if hasattr(page, "Name"):
             page.Name = name
             return True
         return False
 
-    def set_current_page_index(self, index: int):
+    def set_current_page_index(self, index: int) -> bool:
         pages = self.get_pages()
         if index < 0 or index >= pages.getCount():
             return False
@@ -295,7 +295,7 @@ class DrawBridge:
 
 
 @main_thread_only
-def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | None = None):
+def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | None = None) -> str:
     """Get context summary for a Draw/Impress document. ctx: unused, kept for signature compat."""
     try:
         check_disposed(model, "Document Model")

@@ -107,7 +107,7 @@ class CellInspector:
         return "unknown"
 
     @staticmethod
-    def _safe_prop(cell: Any, name: str, default: Any = None):
+    def _safe_prop(cell: Any, name: str, default: Any = None) -> Any:
         try:
             return cell.getPropertyValue(name)
         except Exception:

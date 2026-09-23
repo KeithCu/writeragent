@@ -14,7 +14,7 @@ import math
 import re
 import threading
 import time
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 from plugin.calc.calc_addin_data import (
     calc_addin_args_from_split,
@@ -368,7 +368,7 @@ SHEET_MODIFY_LISTENERS: dict[tuple[str, str], Any] = {}
 
 
 @contextmanager
-def _undo_lock(doc: Any):
+def _undo_lock(doc: Any) -> Iterator[Any]:
     """Temporarily hide or lock undo recording during background spill operations.
 
     If an undo action exists (e.g. user just typed =PY()), enterHiddenUndoContext()

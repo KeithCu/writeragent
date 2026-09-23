@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
 from plugin.framework.errors import WriterAgentException
@@ -42,7 +42,7 @@ class DrawError(WriterAgentException):
     code: str = "DRAW_ERROR"
 
 
-def _parse_color(color_str: Any):
+def _parse_color(color_str: Any) -> int | None:
     return parse_color_to_uno_int(color_str)
 
 
@@ -268,7 +268,7 @@ def _log_create_shape_page_context(doc: Any, bridge: Any, page: Any) -> None:
         log.debug("create_shape page_context: failed: %s", ex)
 
 
-def _page_index_for(bridge: Any, page: Any):
+def _page_index_for(bridge: Any, page: Any) -> int:
     """Index of ``page`` in the document's draw pages collection.
 
     Uses ``uno_same`` (``is`` → ``==`` → ``uno.isSame``). PyUNO can hand distinct
@@ -316,7 +316,7 @@ class GetDrawSummary(ToolDrawShapeBase):
     uno_services: list | None = _DRAW_SHAPE_DOCS
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -346,12 +346,12 @@ class GetDrawSummary(ToolDrawShapeBase):
 
 
 class DrawShapes:
-    def _is_valid_position(self, position: Any):
+    def _is_valid_position(self, position: Any) -> bool:
         if not hasattr(position, "X") or not hasattr(position, "Y"):
             return False
         return True
 
-    def _is_valid_size(self, size: Any):
+    def _is_valid_size(self, size: Any) -> bool:
         if not hasattr(size, "Width") or not hasattr(size, "Height"):
             return False
         if size.Width <= 0 or size.Height <= 0:
@@ -366,7 +366,7 @@ class DrawShapes:
         position: Any,
         size: Any,
         custom_shape_type: str | None = None,
-    ):
+    ) -> tuple[Any, bool | None, str | None]:
         """Safely create shape with error handling.
 
         Shapes are created via the document's factory (``doc.createInstance``);
@@ -444,7 +444,7 @@ def _clamp_shape_text_autogrow(shape: Any) -> None:
             pass
 
 
-def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]):
+def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> None:
     """Helper to apply rich formatting properties to a shape."""
     # "text" in kwargs (not truthy) so paper-form fills can write "" or keep a Name-only edit.
     if "text" in kwargs and hasattr(shape, "setString"):
@@ -598,7 +598,7 @@ class UpsertShape(ToolDrawShapeBase):
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
-    def validate(self, *, doc_type: str | None = None, **kwargs: Any):
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
         action = kwargs.get("action")
         if not action:
             return False, "Missing required parameter: 'action' must be 'create' or 'edit'"
@@ -778,7 +778,7 @@ class ConnectShapes(ToolDrawShapeBase):
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Point, Size
 
@@ -831,7 +831,7 @@ class GroupShapes(ToolDrawShapeBase):
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -878,7 +878,7 @@ def _apply_box(shape: Any, box: tuple[int, int, int, int]) -> None:
         shape.setPosition(Point(x, y))
 
 
-def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any]):
+def _resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any | None, Any, str | None]:
     from plugin.draw.bridge import DrawBridge
 
     bridge = DrawBridge(ctx.doc)
@@ -922,7 +922,7 @@ class AlignShapes(ToolDrawShapeBase):
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.layout import align_boxes
 
         indices = kwargs.get("indices") or []
@@ -972,7 +972,7 @@ class DistributeShapes(ToolDrawShapeBase):
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.layout import distribute_boxes
 
         indices = kwargs.get("indices") or []
@@ -1047,7 +1047,7 @@ class CreateDiagram(ToolDrawShapeBase):
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.layout import diagram_node_boxes
 
         nodes = kwargs.get("nodes") or []
@@ -1132,7 +1132,7 @@ class DeleteShape(ToolDrawShapeBase):
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)

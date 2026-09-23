@@ -175,7 +175,7 @@ class ScriptingVenvTestListener(BaseActionListener):
         path_ctrl = get_optional(self._dlg, "scripting__python_venv_path")
         raw = get_control_text(path_ctrl) if path_ctrl else ""
 
-        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]):
+        def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
             return probe_venv_path_with_progress(
                 raw,
                 on_display,

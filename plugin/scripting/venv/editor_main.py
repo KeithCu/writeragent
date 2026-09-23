@@ -422,7 +422,7 @@ def main() -> None:
     if not os.path.isfile(index_html):
         _fatal(f"Editor assets not found: {index_html}")
 
-    def wsgi_app(environ: dict[str, Any], start_response: Any):
+    def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         import mimetypes
         path = environ.get("PATH_INFO", "")
         if "?" in path:

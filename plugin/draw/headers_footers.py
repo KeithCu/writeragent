@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Iterator
 
 from plugin.framework.errors import WriterAgentException
 
@@ -90,7 +90,7 @@ def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
     return _doc_is_presentation(doc) and is_master_page
 
 
-def _iter_shapes_on_page(page: Any):
+def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
     try:
         n = int(page.getCount())
     except Exception:

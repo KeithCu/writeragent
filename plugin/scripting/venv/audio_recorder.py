@@ -26,7 +26,7 @@ SOUNDDEVICE_MISSING_HINT = (
 )
 
 
-def _import_sounddevice():
+def _import_sounddevice() -> Any:
     try:
         import sounddevice as sd  # type: ignore[import-untyped]
     except ImportError as exc:
@@ -58,7 +58,7 @@ def record_to_wav(
     wav_file = None
     stream = None
 
-    def callback(indata: Any, frames: int, time_info: Any, status: Any):
+    def callback(indata: Any, frames: int, time_info: Any, status: Any) -> None:
         nonlocal auto_stopped
         if status:
             print(status, file=sys.stderr)

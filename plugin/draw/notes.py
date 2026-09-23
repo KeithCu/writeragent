@@ -25,7 +25,7 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         notes_page = page.getNotesPage()
@@ -54,7 +54,7 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         text = kwargs.get("text", "")
         append = kwargs.get("append", False)
 

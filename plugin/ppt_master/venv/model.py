@@ -28,7 +28,7 @@ class HostRpcModel(Model):
         response_format: dict[str, str] | None = None,
         tools_to_call_from: Any = None,
         **kwargs: Any,
-    ):
+    ) -> ChatMessage:
         del response_format, kwargs
         if self._status_callback:
             try:

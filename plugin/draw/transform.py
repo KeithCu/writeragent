@@ -43,7 +43,7 @@ class TransformDocumentStructure(ToolBase, ToolBaseDummy):  # type: ignore[misc]
         "required": ["transform"],
     }
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         raw = kwargs.get("transform")
         transform_obj, err = parse_transform_argument(raw)
         if err:

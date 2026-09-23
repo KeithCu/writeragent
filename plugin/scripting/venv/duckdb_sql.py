@@ -22,7 +22,7 @@ import logging
 import os
 import re
 import threading
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, Iterator, cast
 
 from plugin.scripting.venv.coerce import (
     ok_result as _ok_result,
@@ -448,7 +448,7 @@ def _ok_sql_result(
 
 
 @contextlib.contextmanager
-def _scoped_cwd(path: str):
+def _scoped_cwd(path: str) -> Iterator[None]:
     """Temporarily chdir so relative filenames in user SQL resolve safely under scoped_dir."""
     old = os.getcwd()
     os.chdir(path)

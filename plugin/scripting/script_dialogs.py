@@ -70,7 +70,7 @@ def show_new_script_dialog(
         _outcome: list[tuple[str, bool] | None] | None = None
 
         class _OkListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 try:
                     ec = dlg.getControl("NameEdit")
@@ -89,16 +89,16 @@ def show_new_script_dialog(
                 _outcome = [(t, attach)]
                 dlg.endDialog(1)
 
-            def disposing(self, Source: EventObject):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         class _CancelListener(unohelper.Base, XActionListener):
-            def actionPerformed(self, rEvent: ActionEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 nonlocal _outcome
                 _outcome = [None]
                 dlg.endDialog(0)
 
-            def disposing(self, Source: EventObject):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         btn_ok = dlg.getControl("BtnOK")

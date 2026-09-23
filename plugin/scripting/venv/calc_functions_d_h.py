@@ -530,7 +530,7 @@ def euroconvert(value: Any, from_currency: Any, to_currency: Any, full_precision
     if from_curr == to_curr:
         return val
 
-    def round_sig(x: float, sig: int):
+    def round_sig(x: float, sig: int) -> float:
         if x == 0:
             return 0.0
         import math

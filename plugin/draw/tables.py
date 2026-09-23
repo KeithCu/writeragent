@@ -12,7 +12,7 @@ from typing import Any
 _A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
 
-def _table_model(shape: Any):
+def _table_model(shape: Any) -> Any | None:
     if hasattr(shape, "Model"):
         model = shape.Model
         if model is not None:

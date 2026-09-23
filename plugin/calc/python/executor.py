@@ -48,11 +48,11 @@ log = logging.getLogger("writeragent.calc.python.executor")
 class PythonExecutor:
     """Runs Python in LO's embedded interpreter with document helpers (stdlib-only imports)."""
 
-    def __init__(self, doc_url: str):
+    def __init__(self, doc_url: str) -> None:
         self.doc_url = doc_url
         self.executor = LocalPythonExecutor(additional_authorized_imports=list(CALC_AUTHORIZED_IMPORTS))
 
-    def inject_helpers(self, bridge: CalcBridge, manipulator: CellManipulator, inspector: CellInspector):
+    def inject_helpers(self, bridge: CalcBridge, manipulator: CellManipulator, inspector: CellInspector) -> None:
         """Injects document interaction helpers into the environment."""
 
         def lp_helper(addr: str) -> Any:
@@ -67,7 +67,7 @@ class PythonExecutor:
                 log.exception("lp_helper failed for address %s", addr)
                 return None
 
-        def set_range_helper(addr: str, data: Any):
+        def set_range_helper(addr: str, data: Any) -> str | dict[str, Any]:
             """Write values back to the spreadsheet."""
             return manipulator.write_formula_range(addr, data)
 

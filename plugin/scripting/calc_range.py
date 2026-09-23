@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import operator
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Iterator
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
@@ -211,7 +211,7 @@ class CalcRange:
         # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         return self.nrows
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[list[Any]]:
         # crosshair: off
         # cover-all 33689813185 leftover: combinatoric instance surface. Doable later: tiny 1x1 grid domain.
         """Iterate rows (each a list). Does not flatten to cells."""

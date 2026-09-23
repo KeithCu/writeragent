@@ -72,7 +72,7 @@ log = logging.getLogger("writeragent.calc")
 
 
 @deal.post(lambda result: result is None or (isinstance(result, int) and 0 <= result <= 0xFFFFFF))
-def _parse_color(color_str: Any):
+def _parse_color(color_str: Any) -> int | None:
     """Convert a hex colour string or named colour to an RGB integer.
 
     String-only wrapper around :func:`parse_color_to_uno_int` so Calc ``set_style``
@@ -624,7 +624,7 @@ class SetCellStyle(ToolBase):
         # Strict color validation: callers/tests expect invalid color strings
         # to produce a consistent `{status:"error"}` payload rather than
         # silently treating unparseable values as "no change".
-        def _parse_or_error(color_key: str):
+        def _parse_or_error(color_key: str) -> int | dict[str, str] | None:
             raw = kwargs.get(color_key)
             if raw is None:
                 return None

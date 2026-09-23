@@ -30,7 +30,7 @@ def _parse_cell_ref(cell_ref: str) -> tuple[int, int]:
 
 
 
-def _split_cell_sheet(cell_ref: str, sheet_name: str | None):
+def _split_cell_sheet(cell_ref: str, sheet_name: str | None) -> tuple[str, str | None]:
     """Let a sheet-qualified cell reference pick the sheet."""
     prefix, address = split_sheet_prefix(cell_ref)
     if prefix is not None and sheet_name and prefix != sheet_name:
@@ -41,7 +41,7 @@ def _split_cell_sheet(cell_ref: str, sheet_name: str | None):
     return address, (prefix or sheet_name)
 
 
-def _annotation_text(sheet: Any, col: int, row: int):
+def _annotation_text(sheet: Any, col: int, row: int) -> tuple[Any, str]:
     """Read a cell note's text, working around lazy captions on .xlsx.
 
     A workbook loaded from .xlsx has no caption object for its notes until

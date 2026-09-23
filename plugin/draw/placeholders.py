@@ -10,6 +10,8 @@ slide with specific presentation types. These tools provide direct access
 to placeholders by role rather than shape index.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any
 
@@ -40,7 +42,7 @@ _CLASS_ROLE_PRIORITY = (
 )
 
 
-def _role_from_label(label: Any):
+def _role_from_label(label: Any) -> str | None:
     """Map a ClassName or shape Name to a role. First matching token wins."""
     if not label:
         return None
@@ -51,7 +53,7 @@ def _role_from_label(label: Any):
     return None
 
 
-def _shape_class_name(shape: Any):
+def _shape_class_name(shape: Any) -> str:
     try:
         if hasattr(shape, "ClassName") and shape.ClassName:
             return str(shape.ClassName)
@@ -66,7 +68,7 @@ def _shape_class_name(shape: Any):
     return ""
 
 
-def _find_placeholder(page: Any, role: str):
+def _find_placeholder(page: Any, role: str) -> tuple[Any | None, int | None]:
     """Find a placeholder shape by role name.
 
     Tries multiple identification strategies:
@@ -110,7 +112,7 @@ def _find_placeholder(page: Any, role: str):
     return None, None
 
 
-def _list_placeholders(page: Any):
+def _list_placeholders(page: Any) -> list[dict[str, Any]]:
     """List all text-capable shapes on a page with role detection."""
     result = []
     for i in range(page.getCount()):
@@ -142,7 +144,7 @@ _EMPTY_PLACEHOLDER_HINT = (
 )
 
 
-def _shape_text_count(page: Any):
+def _shape_text_count(page: Any) -> int:
     """Count shapes that expose getString (same filter as _list_placeholders)."""
     count = 0
     for i in range(page.getCount()):
@@ -208,7 +210,7 @@ class ListPlaceholders(ToolBase):
     parameters: dict | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
     uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         placeholders = _list_placeholders(page)
@@ -235,7 +237,7 @@ class GetPlaceholderText(ToolBase):
     }
     uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         role = kwargs.get("role")
@@ -281,7 +283,7 @@ class SetPlaceholderText(ToolBase):
     uno_services: list | None = ["com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page_idx = kwargs.get("page")
         page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
         text = kwargs["text"]

@@ -57,11 +57,11 @@ class CalcBridge:
     def __init__(self, doc: Any) -> None:
         self.doc = doc
 
-    def get_active_document(self):
+    def get_active_document(self) -> Any:
         """Return the wrapped document."""
         return self.doc
 
-    def get_active_sheet(self):
+    def get_active_sheet(self) -> Any:
         """Return the currently active sheet.
 
         Falls back to the first sheet when the controller does not expose
@@ -84,7 +84,7 @@ class CalcBridge:
             raise RuntimeError("No active sheet found.")
         return sheet
 
-    def get_sheet(self, name: str):
+    def get_sheet(self, name: str) -> Any:
         """Return a sheet by name.
 
         Raises:
@@ -98,7 +98,7 @@ class CalcBridge:
             )
         return sheets.getByName(name)
 
-    def resolve(self, ref: str, sheet_name: str | None = None):
+    def resolve(self, ref: str, sheet_name: str | None = None) -> tuple[Any, str]:
         """Resolve a possibly sheet-qualified reference.
 
         Returns ``(sheet, address)`` where *address* has no prefix. A
@@ -115,17 +115,17 @@ class CalcBridge:
         sheet = self.get_sheet(name) if name else self.get_active_sheet()
         return sheet, address
 
-    def get_cell(self, sheet: Any, col: int, row: int):
+    def get_cell(self, sheet: Any, col: int, row: int) -> Any:
         """Return the cell object at *col*, *row* on *sheet*."""
         return sheet.getCellByPosition(col, row)
 
-    def get_cell_by_address(self, address: str):
+    def get_cell_by_address(self, address: str) -> Any:
         """Return the cell object for *address* (optionally sheet-qualified)."""
         sheet, address = self.resolve(address)
         col, row = parse_address(address)
         return self.get_cell(sheet, col, row)
 
-    def get_cell_range(self, sheet: Any, range_str: str):
+    def get_cell_range(self, sheet: Any, range_str: str) -> Any:
         """Return a cell range object from a range string like ``A1:D10``.
 
         A sheet prefix on *range_str* wins over the *sheet* argument, so a
@@ -138,7 +138,7 @@ class CalcBridge:
         start, end = parse_range_string(range_str)
         return sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
 
-    def resolve_range_or_address(self, range_or_address: str):
+    def resolve_range_or_address(self, range_or_address: str) -> Any:
         """Resolves a string identifier to a cell or cell range object.
 
         Supports:
@@ -202,7 +202,7 @@ class CalcBridge:
         return column_to_index(col_str)
 
     @staticmethod
-    def parse_range_string(range_str: str):
+    def parse_range_string(range_str: str) -> tuple[tuple[int, int], tuple[int, int]]:
         return parse_range_string(range_str)
 
     @staticmethod

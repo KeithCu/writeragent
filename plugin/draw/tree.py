@@ -446,7 +446,7 @@ class GetDrawTree(ToolBase):
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -467,5 +467,5 @@ class GetDrawTree(ToolBase):
 
         return {"status": "ok", "page": actual_idx, "tree": build_shape_tree(page)}
 
-    def _build_shape_tree(self, xshapes: Any, base_index: str | None = None):
+    def _build_shape_tree(self, xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:
         return build_shape_tree(xshapes, base_index)

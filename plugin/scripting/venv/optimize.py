@@ -145,7 +145,7 @@ def optimize_portfolio(
     num_assets = len(mean_returns)
 
     # Objective: Minimize portfolio variance
-    def portfolio_variance(weights: Any):
+    def portfolio_variance(weights: Any) -> Any:
         return weights.T @ cov_matrix @ weights
 
     # Constraints: sum of weights = 1

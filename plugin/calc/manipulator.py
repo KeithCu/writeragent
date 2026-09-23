@@ -92,7 +92,7 @@ def _uno_range_address(cell_or_range: Any) -> Any:
     return ra
 
 
-def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False):
+def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) -> list[Any] | None:
     """Parse *formula_or_values* when it arrives as a JSON string or as a
     raw semicolon-separated string.
 
@@ -267,7 +267,7 @@ class CellManipulator:
         if border_color is not None:
             self._apply_borders(obj, border_color)
 
-    def _apply_borders(self, obj: Any, color: int):
+    def _apply_borders(self, obj: Any, color: int) -> None:
         """Apply borders to a cell or range object."""
 
         line = BorderLine()
@@ -281,7 +281,7 @@ class CellManipulator:
 
     # ── Write operations ───────────────────────────────────────────────
 
-    def safe_get_cell_value(self, sheet: Any, cell_address: str):
+    def safe_get_cell_value(self, sheet: Any, cell_address: str) -> Any:
         """Safely get cell value with comprehensive error handling."""
         try:
             # Validate sheet
@@ -356,7 +356,7 @@ class CellManipulator:
         wrap_text: bool | None = None,
         border_color: int | None = None,
         number_format: str | None = None,
-    ):
+    ) -> None:
         """Apply style to a cell or range.
 
         Delegates to range-specific helpers when the target contains ``:``.
@@ -390,12 +390,12 @@ class CellManipulator:
             log.exception("Style application failed for %s", address_or_range)
             raise CalcError(str(e)) from e
 
-    def _set_range_style(self, range_str: str, bold: bool | None = None, italic: bool | None = None, bg_color: int | None = None, font_color: int | None = None, font_size: float | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: int | None = None):
+    def _set_range_style(self, range_str: str, bold: bool | None = None, italic: bool | None = None, bg_color: int | None = None, font_color: int | None = None, font_size: float | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: int | None = None) -> None:
         cell_range = self.bridge.resolve_range_or_address(range_str)
         self._apply_style_properties(cell_range, bold, italic, bg_color, font_color, font_size, h_align, v_align, wrap_text, border_color)
 
     @staticmethod
-    def _resolve_document_locale(doc: Any):
+    def _resolve_document_locale(doc: Any) -> Any:
         """Return document CharLocale, or en-US when Language is empty/unusable (M2)."""
         import uno
 
@@ -413,7 +413,7 @@ class CellManipulator:
         """Set NumberFormat from an integer registry key (detected keys, not format strings)."""
         target.setPropertyValue("NumberFormat", int(format_key))
 
-    def _set_range_number_format(self, range_str: str, format_str: str):
+    def _set_range_number_format(self, range_str: str, format_str: str) -> None:
         cell_range = self.bridge.resolve_range_or_address(range_str)
         doc = self.bridge.get_active_document()
         formats = doc.getNumberFormats()
@@ -423,7 +423,7 @@ class CellManipulator:
             format_id = formats.addNew(format_str, locale)
         cell_range.setPropertyValue("NumberFormat", format_id)
 
-    def _set_number_format(self, address: str, format_str: str):
+    def _set_number_format(self, address: str, format_str: str) -> None:
         cell = self.bridge.get_cell_by_address(address)
         doc = self.bridge.get_active_document()
         formats = doc.getNumberFormats()
@@ -435,7 +435,7 @@ class CellManipulator:
 
     # ── Range operations ───────────────────────────────────────────────
 
-    def clear_range(self, range_str: str):
+    def clear_range(self, range_str: str) -> None:
         """Clear all content in a cell range.
 
         Args:
@@ -450,7 +450,7 @@ class CellManipulator:
             log.exception("Range clear failed for %s", range_str)
             raise CalcError(str(e)) from e
 
-    def merge_cells(self, range_str: str, center: bool = True):
+    def merge_cells(self, range_str: str, center: bool = True) -> None:
         """Merge a cell range.
 
         Args:
@@ -469,7 +469,7 @@ class CellManipulator:
             log.exception("Cell merge failed for %s", range_str)
             raise CalcError(str(e)) from e
 
-    def sort_range(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True):
+    def sort_range(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True) -> str:
         """Sort a range.
 
         Args:
@@ -508,7 +508,7 @@ class CellManipulator:
             log.exception("Sort failed for %s", range_str)
             raise CalcError(str(e)) from e
 
-    def _make_number_formatter(self, doc: Any):
+    def _make_number_formatter(self, doc: Any) -> Any:
         """Attach a NumberFormatter to *doc* once per write invocation.
 
         Chat tools pass a Layer-A guarded document. ``attachNumberFormatsSupplier``
@@ -535,7 +535,7 @@ class CellManipulator:
             key = formats.addNew("[HH]:MM:SS", locale)
         return int(key)
 
-    def _classify_write_cell(self, value: Any, formatter: Any, std_key: Any, *, elapsed_format_key: int | None = None):
+    def _classify_write_cell(self, value: Any, formatter: Any, std_key: Any, *, elapsed_format_key: int | None = None) -> tuple[Any, str, dict[str, Any]]:
         """Classify one write input into data/formula/meta for the ISO write path.
 
         Returns ``(data_value, formula_or_empty, meta)`` where *meta* keys are:
@@ -666,7 +666,7 @@ class CellManipulator:
                     break
         return column_templates
 
-    def _apply_temporal_format_runs(self, sheet: Any, start: tuple[int, int], decisions: Any):
+    def _apply_temporal_format_runs(self, sheet: Any, start: tuple[int, int], decisions: Any) -> int:
         """Apply detected NumberFormat keys as coalesced 2D rectangles (S8/S25).
 
         Resolves empty-cell bridging per row, finds horizontal apply runs, then
@@ -682,7 +682,7 @@ class CellManipulator:
             applied += (r1 - r0 + 1) * (c1 - c0 + 1)
         return applied
 
-    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None):
+    def write_formula_range(self, range_str: str, formula_or_values: Any, array: Any = None) -> str | dict[str, Any]:
         """Write formula(s) or value(s) to a cell range.
 
         ISO date/time strings matching the wire gate become Calc serials with
@@ -979,7 +979,7 @@ class CellManipulator:
         return sizes[0], sizes[1]
 
     @staticmethod
-    def _array_block(sheet: Any, col: int, row: int):
+    def _array_block(sheet: Any, col: int, row: int) -> Any | None:
         """Range address of the array formula covering (*col*, *row*), or None."""
         try:
             cursor = sheet.createCursorByRange(
@@ -1136,7 +1136,7 @@ class CellManipulator:
 
     # ── Structure operations ───────────────────────────────────────────
 
-    def delete_rows(self, row_num: int, count: int = 1):
+    def delete_rows(self, row_num: int, count: int = 1) -> str:
         """Delete rows starting at *row_num* (1-based)."""
         try:
             sheet = self.bridge.get_active_sheet()
@@ -1148,7 +1148,7 @@ class CellManipulator:
             log.exception("Row deletion failed")
             raise CalcError(str(e)) from e
 
-    def delete_columns(self, col_letter: str, count: int = 1):
+    def delete_columns(self, col_letter: str, count: int = 1) -> str:
         """Delete columns starting at *col_letter*."""
         try:
             sheet = self.bridge.get_active_sheet()
@@ -1161,7 +1161,7 @@ class CellManipulator:
             log.exception("Column deletion failed")
             raise CalcError(str(e)) from e
 
-    def delete_structure(self, structure_type: str, start: Any, count: int = 1):
+    def delete_structure(self, structure_type: str, start: Any, count: int = 1) -> str:
         """Delete rows or columns.
 
         Args:

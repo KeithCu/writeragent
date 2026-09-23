@@ -98,7 +98,7 @@ def _writer_embed_is_chart(host: Any) -> bool:
     return False
 
 
-def _chart_document_from_host(host: Any):
+def _chart_document_from_host(host: Any) -> Any | None:
     """Chart model from a sheet chart, Writer embed, or Draw/Impress OLE2 shape.
     Handles the extra layer of com.sun.star.embed.XEmbeddedObject for Writer.
     """
@@ -461,7 +461,7 @@ def _get_all_calc_chart_names(doc: Any) -> set[str]:
 
 
 
-def _find_calc_chart_and_sheet(doc: Any, chart_name: str):
+def _find_calc_chart_and_sheet(doc: Any, chart_name: str) -> tuple[Any | None, Any | None]:
     """Find a chart object and its parent sheet across all sheets in a Calc document.
 
     Note: Chart names in Calc are document-wide objects (e.g. Chart_0, Chart_1).
@@ -480,7 +480,7 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str):
     return None, None
 
 
-def _resolve_chart(doc: Any, chart_name: str):
+def _resolve_chart(doc: Any, chart_name: str) -> Any | None:
     """Resolve a chart object by name across Calc, Writer, or Draw."""
     if supportsService(doc, "com.sun.star.sheet.SpreadsheetDocument"):
         chart_obj, _ = _find_calc_chart_and_sheet(doc, chart_name)
@@ -564,7 +564,7 @@ class ListCharts(ToolBaseDummy):
 
         return {"status": "ok", "charts": result, "count": len(result)}
 
-    def _get_summary(self, chart_obj: Any, name: str, sheet_name: str | None = None):
+    def _get_summary(self, chart_obj: Any, name: str, sheet_name: str | None = None) -> dict[str, Any]:
         entry = {"name": name}
         if sheet_name:
             entry["sheet_name"] = sheet_name
@@ -761,7 +761,7 @@ class UpsertChart(ToolBaseDummy):
 
         return self._tool_error(f"Unsupported action: '{action}'")
 
-    def _create_calc_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any):
+    def _create_calc_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         data_range = kwargs.get("data_range")
         if not data_range:
@@ -819,7 +819,7 @@ class UpsertChart(ToolBaseDummy):
         #_process_events() causes a hang in tests
         return {"status": "ok", "message": f"Chart '{name}' created on sheet '{sheet.getName()}'.", "name": name, "sheet": sheet.getName()}
 
-    def _create_writer_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any):
+    def _create_writer_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         """Insert a chart as inline ``TextEmbeddedObject`` (Writer body text).
         Using a retry loop and event pumping to ensure the embedded model is initialized.
         """
@@ -993,7 +993,7 @@ class UpsertChart(ToolBaseDummy):
         _process_events()
         return {"status": "ok", "message": f"Chart '{name}' inserted in Writer.", "name": name}
 
-    def _create_draw_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any):
+    def _create_draw_chart(self, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         controller = doc.getCurrentController()
         page = None

@@ -83,16 +83,16 @@ class TextAnalyticsDialog:
             owner = self
 
             class _TopWindowListener(unohelper.Base, XTopWindowListener):
-                def windowClosing(self, e: Any):
+                def windowClosing(self, e: Any) -> None:
                     owner.close()
 
-                def windowClosed(self, e: Any): pass
-                def windowOpened(self, e: Any): pass
-                def windowMinimized(self, e: Any): pass
-                def windowNormalized(self, e: Any): pass
-                def windowActivated(self, e: Any): pass
-                def windowDeactivated(self, e: Any): pass
-                def disposing(self, Source: EventObject): pass
+                def windowClosed(self, e: Any) -> None: pass
+                def windowOpened(self, e: Any) -> None: pass
+                def windowMinimized(self, e: Any) -> None: pass
+                def windowNormalized(self, e: Any) -> None: pass
+                def windowActivated(self, e: Any) -> None: pass
+                def windowDeactivated(self, e: Any) -> None: pass
+                def disposing(self, Source: EventObject) -> None: pass
 
             self._top_listener = _TopWindowListener()
             dlg.addTopWindowListener(self._top_listener)
@@ -106,16 +106,16 @@ class TextAnalyticsDialog:
         owner = self
 
         class _Btn(unohelper.Base, XActionListener):
-            def __init__(self, fn: Callable[[Any], Any]):
+            def __init__(self, fn: Callable[[Any], Any]) -> None:
                 self._fn = fn
 
-            def actionPerformed(self, rEvent: ActionEvent):
+            def actionPerformed(self, rEvent: ActionEvent) -> None:
                 try:
                     self._fn(dlg)
                 except Exception:
                     log.exception("Text analytics button failed")
 
-            def disposing(self, Source: EventObject):
+            def disposing(self, Source: EventObject) -> None:
                 pass
 
         dlg.getControl("BtnRead").addActionListener(_Btn(lambda d: owner._compute(d, "readability", "whole" if (d.getControl("ChkScope").State == 1) else "selection")))

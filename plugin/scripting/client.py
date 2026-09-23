@@ -79,7 +79,7 @@ def _make_spec_runner(
     error_code: str,
     error_label: str,
     long_timeout: bool = False,
-):
+) -> Callable[..., dict[str, Any]]:
     """Build a ``run_*(ctx, spec, data, context=)`` client using run_trusted_action RPC."""
 
     def _runner(

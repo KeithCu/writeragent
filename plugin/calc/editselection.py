@@ -23,7 +23,7 @@ from plugin.framework.config import get_config_int, get_config_str
 from plugin.framework.errors import format_error_message
 from plugin.chatbot.dialogs import msgbox
 from plugin.framework.i18n import _
-from plugin.chatbot.selection import StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
+from plugin.chatbot.selection import ApplyChunkFn, ErrorFn, StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
 
 
 def _build_calc_edit_prompt(original: str, instructions: str) -> str:
@@ -85,7 +85,7 @@ def do_calc_extend_edit(ctx: Any, model: Any, input_box_fn: Any, is_edit: bool) 
     if client is None:
         return
 
-    def prepare_task(task: StreamCompletionTask):
+    def prepare_task(task: StreamCompletionTask) -> tuple[ApplyChunkFn, ErrorFn]:
         col, row, original = task.payload
         cell = sheet.getCellByPosition(col, row)
 

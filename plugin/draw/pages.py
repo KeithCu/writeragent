@@ -25,7 +25,7 @@ from plugin.framework.tool import ToolBase, ToolContext
 _DEFAULT_IMPRESS_LAYOUT = "text"
 
 
-def _is_impress_doc(doc: Any):
+def _is_impress_doc(doc: Any) -> bool:
     """True for Impress. Draw shares add_slide; PyUNO hasattr is unreliable."""
     try:
         return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
@@ -60,7 +60,7 @@ class AddSlide(ToolBase):
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
         from plugin.draw.transitions import _LAYOUTS, apply_slide_layout, layout_id
 
@@ -117,7 +117,7 @@ class DeleteSlide(ToolBase):
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -140,7 +140,7 @@ class ListPages(ToolBase):
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -160,7 +160,7 @@ class ReadSlideText(ToolBase):
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     tier: str = "core"
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -213,7 +213,7 @@ class GetPresentationInfo(ToolBase):
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     tier: str = "core"
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         pages = doc.getDrawPages()
         count = pages.getCount()
@@ -256,7 +256,7 @@ class SetActivePage(ToolBase):
     uno_services: list | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
     is_mutation: bool | None = True
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         bridge = DrawBridge(ctx.doc)
@@ -303,7 +303,7 @@ class DuplicateSlide(ToolBase):
     is_mutation: bool | None = True
     tier: str = "core"
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         page_idx = kwargs.get("page")
@@ -343,7 +343,7 @@ class MoveSlide(ToolBase):
     is_mutation: bool | None = True
     tier: str = "core"
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         from_page = kwargs.get("from_page")
@@ -379,7 +379,7 @@ class RenameSlide(ToolBase):
     is_mutation: bool | None = True
     tier: str = "core"
 
-    def execute(self, ctx: ToolContext, **kwargs: Any):
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
 
         page_idx = kwargs.get("page")
