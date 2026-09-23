@@ -519,7 +519,9 @@ def get_menu_text(command: str):
     try:
         from plugin._manifest import MODULES
 
-        for m in MODULES:
+        # Generated manifest list is untyped; after get_menu_text gained a param
+        # annotation mypy checks this body and rejects indexing `object`.
+        for m in cast("list[dict[str, Any]]", MODULES):
             if m["name"] == mod_name:
                 # The manifest doesn't store action titles directly in a map,
                 # but it might have an action list. If we don't have a specific title,
