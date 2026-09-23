@@ -54,6 +54,8 @@ def filter_agent_sheet_names(names: Any) -> list[str]:
 class CalcBridge:
     """Bridge between the plugin layer and the UNO Calc document."""
 
+    doc: Any
+
     def __init__(self, doc: Any) -> None:
         self.doc = doc
 

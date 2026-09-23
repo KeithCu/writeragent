@@ -292,6 +292,9 @@ def maintain_folder_lancedb(
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
     class _HB:
+        _fn: Callable[[dict[str, Any]], None] | None
+        _last: float
+
         def __init__(self, fn: Callable[[dict[str, Any]], None] | None) -> None:
             self._fn = fn
             self._last = 0.0

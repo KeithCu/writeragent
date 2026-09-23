@@ -800,6 +800,9 @@ def _update_menu_icons() -> None:
 # Bootstrapper replaces the previous monolithic MainJob.
 # It acts as an OnStartApp hook (triggered on office startup) and a proxy for legacy toolbar triggers.
 class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
+    ctx: Any
+    sm: Any
+
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
         try:
@@ -917,6 +920,7 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
 
     IMPL_NAME: ClassVar[str] = f"{EXTENSION_ID}.DispatchHandler"
     SERVICE_NAMES: ClassVar[tuple[str, ...]] = ("com.sun.star.frame.ProtocolHandler",)
+    ctx: Any
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx

@@ -401,6 +401,9 @@ def maintain_folder_zvec(
 
     # Heartbeat helper (reuse the one from the caller if provided)
     class _HB:
+        _fn: Callable[[dict[str, Any]], None] | None
+        _last: float
+
         def __init__(self, fn: Callable[[dict[str, Any]], None] | None) -> None:
             self._fn = fn
             self._last = 0.0

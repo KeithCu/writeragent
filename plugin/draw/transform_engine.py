@@ -63,6 +63,12 @@ def _parse_slide_index(val: Any, current: int, page_count: int) -> int | None:
 class SlideCommandEngine:
     """Execute SlideCommands array against a Draw/Impress document."""
 
+    tctx: ToolContext
+    doc: Any
+    bridge: DrawBridge
+    pages: Any
+    current_slide: int
+
     def __init__(self, tctx: ToolContext) -> None:
         self.tctx = tctx
         self.doc = tctx.doc

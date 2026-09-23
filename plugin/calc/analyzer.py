@@ -35,6 +35,8 @@ log = logging.getLogger("writeragent.calc")
 class SheetAnalyzer:
     """Analyses the structure and data of a worksheet."""
 
+    bridge: Any
+
     def __init__(self, bridge: Any) -> None:
         """
         Args:

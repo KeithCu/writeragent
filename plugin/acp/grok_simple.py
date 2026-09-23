@@ -27,6 +27,7 @@ class GrokBackend(ACPBackend):
 
     backend_id: ClassVar[str] = "grok"
     default_extra_args: Tuple[str, ...] = ("--no-auto-update", "agent", "stdio")
+    _extra_args: list[str]
 
     def get_binary_name(self) -> str:
         """Primary executable for PATH lookup (``grok agent stdio`` is the supported install)."""

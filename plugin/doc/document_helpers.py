@@ -345,6 +345,11 @@ def _emit_cache_invalidated(*, doc: Any | None = None, key: str | None = None) -
 
 
 class _CacheListenerPair:
+    key: str
+    modify: Any
+    unload: Any
+    _model: Any
+
     def __init__(self, key: str, modify: Any, unload: Any, model: Any) -> None:
         self.key = key
         self.modify = modify
@@ -369,6 +374,8 @@ class _CacheModifyListener:
     half-dead model.
     """
 
+    _doc_key_val: str
+
     def __init__(self, key: str) -> None:
         self._doc_key_val = key
 
@@ -386,6 +393,8 @@ class _CacheModifyListener:
 
 
 class _CacheUnloadListener:
+    _doc_key_val: str
+
     def __init__(self, key: str) -> None:
         self._doc_key_val = key
 

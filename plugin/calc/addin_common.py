@@ -37,6 +37,9 @@ class CalcFunctionSpec:
 class SingleFunctionAddInBase(unohelper.Base):
     """XAddIn-style metadata for one or more Calc add-in functions on one component."""
 
+    ctx: Any
+    _specs: tuple[CalcFunctionSpec, ...]
+
     def __init__(self, ctx: Any, spec: CalcFunctionSpec | tuple[CalcFunctionSpec, ...]) -> None:
         self.ctx = ctx
         self._specs = (spec,) if isinstance(spec, CalcFunctionSpec) else spec

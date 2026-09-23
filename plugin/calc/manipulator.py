@@ -209,6 +209,8 @@ def _parse_formula_or_values_string(s: str, *, single_cell_range: bool = False) 
 class CellManipulator:
     """Manages data writing and style application to cells."""
 
+    bridge: Any
+
     def __init__(self, bridge: Any) -> None:
         """
         Args:

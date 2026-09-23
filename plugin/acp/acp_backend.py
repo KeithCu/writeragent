@@ -20,6 +20,8 @@ Extracts common ACP logic: connection management, session handling,
 notification processing, and prompt formatting.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import shutil
@@ -57,6 +59,9 @@ class ACPBackend(AgentBackend):
     """
 
     default_extra_args: Tuple[str, ...] = ()
+    _ctx: Any | None
+    _stop_requested: bool
+    _prompt_done: threading.Event
 
     def __init__(self, ctx: Any | None = None) -> None:
         self._ctx = ctx

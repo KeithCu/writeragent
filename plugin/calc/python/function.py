@@ -14,7 +14,7 @@ import math
 import re
 import threading
 import time
-from typing import Any, Iterator, cast
+from typing import Any, ClassVar, Iterator, cast
 
 from plugin.calc.calc_addin_data import (
     calc_addin_args_from_split,
@@ -310,7 +310,10 @@ def session_key(ctx: Any, code: str, doc: Any | None = None) -> tuple[str, ...]:
 class WorkerResultSession:
     """Caches one worker list result across multiple =PY() calls in a recalc pass."""
 
-    __slots__ = ("raw", "flat", "next_index")
+    __slots__: ClassVar[tuple[str, ...]] = ("raw", "flat", "next_index")
+    raw: Any
+    flat: tuple[Any, ...]
+    next_index: int
 
     def __init__(self, raw: Any, flat: list[Any]) -> None:
         self.raw = raw
@@ -427,6 +430,11 @@ class CalcSpillModifyListener(unohelper.Base, XModifyListener):
     formula cells). The registered listener is ``SheetModifyDispatcher``;
     this class stays the spill job. Do not add ``CalcGeometricModifyListener``.
     """
+
+    ctx: Any
+    doc_url: str
+    sheet_name: str
+
     def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
         self.ctx = ctx
         self.doc_url = doc_url

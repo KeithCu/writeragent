@@ -89,6 +89,10 @@ def get_calc_error_name(error_code: int) -> str:
 class ErrorDetector:
     """Detects and explains formula errors in the worksheet."""
 
+    bridge: Any
+    inspector: Any
+    ctx: Any
+
     def __init__(self, bridge: Any, inspector: Any, ctx: Any = None) -> None:
         """
         Args:

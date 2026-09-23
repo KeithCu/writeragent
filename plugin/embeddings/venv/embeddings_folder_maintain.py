@@ -51,6 +51,9 @@ __all__ = ["MaintainMode", "SearchMode", "maintain_folder_corpus", "maintain_fol
 
 
 class _HeartbeatThrottle:
+    _fn: Callable[[dict[str, Any]], None] | None
+    _last: float
+
     def __init__(self, heartbeat_fn: Callable[[dict[str, Any]], None] | None) -> None:
         self._fn = heartbeat_fn
         self._last = 0.0

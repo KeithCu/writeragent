@@ -30,6 +30,8 @@ __all__ = ["CalcError", "CalcModule"]
 class CalcModule(ModuleBase):
     """Registers Calc tools for cells, sheets, formulas, charts."""
 
+    services: Any
+
     def initialize(self, services: Any) -> None:
         self.services = services
 

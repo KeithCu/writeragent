@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import ast
 import re
-from typing import Any, Sequence, cast
+from typing import Any, ClassVar, Sequence, cast
 
 from plugin.calc.excel_py_convert.models import BindingInfo, ConvertedCell, ConversionReport, DepRole, HeaderMode
 from plugin.calc.excel_py_convert.to_dag import ast_source_offset
@@ -212,7 +212,10 @@ def _rewrite_data_names_ast(
         return None, issues
 
     class _Hit:
-        __slots__ = ("start", "end", "repl")
+        __slots__: ClassVar[tuple[str, ...]] = ("start", "end", "repl")
+        start: int
+        end: int
+        repl: str
 
         def __init__(self, start: int, end: int, repl: str) -> None:
             self.start = start

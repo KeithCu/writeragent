@@ -47,6 +47,9 @@ def format_cache_age(age_secs: float) -> str:
 class SearchDialog:
     """Modeless dialog to let users run search_nearby_files queries directly."""
 
+    _ctx: Any
+    _closed: bool
+
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
         self._dlg: Any | None = None

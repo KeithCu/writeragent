@@ -66,6 +66,9 @@ class DiagnosticEntry:
 class PythonDiagnosticsStore:
     """Thread-safe ring buffer of diagnostics keyed by workbook."""
 
+    _max: int
+    _lock: threading.Lock
+
     def __init__(self, *, max_entries: int = _MAX_ENTRIES_PER_WORKBOOK) -> None:
         self._max = max(1, int(max_entries))
         self._lock = threading.Lock()

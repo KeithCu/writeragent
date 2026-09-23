@@ -84,6 +84,8 @@ def _iso8601_from_serial(value: float, category: str, null_date: Any) -> str:
 class CellInspector:
     """Examines cell contents and properties."""
 
+    bridge: Any
+
     def __init__(self, bridge: Any) -> None:
         """
         Args:

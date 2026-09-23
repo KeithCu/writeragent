@@ -199,6 +199,10 @@ def compute_python_sidebar_layout(
 class _PanelResizeListener(BaseWindowListener):
     """Repositions Python sidebar controls when the panel root is resized."""
 
+    _c: dict[str, Any]
+    _in_relayout: bool
+    _root_window: Any
+
     def __init__(self, controls: dict[str, Any]) -> None:
         self._c = controls
         self._snapshot: dict[str, tuple[int, int, int, int]] | None = None
@@ -275,6 +279,8 @@ class _PanelResizeListener(BaseWindowListener):
 
 class _Activation(BaseActivationEventListener):
     """Sheet-activation listener that calls handler() whenever the active sheet changes."""
+
+    _handler: Any
 
     def __init__(self, handler: Any) -> None:
         super().__init__()
@@ -360,6 +366,14 @@ def _filter_from_combo(control: Any) -> DiagnosticFilter:
 
 class PythonSidebarController:
     """Wires XDL controls for the LibrePy Python sidebar panel."""
+
+    ctx: Any
+    root: Any
+    frame: Any
+    _calc_panel: bool
+    _store: Any
+    _on_diag: Any
+    _activation_listener: Any
 
     def __init__(self, ctx: Any, root_window: Any, frame: Any = None) -> None:
         self.ctx = ctx
@@ -671,6 +685,8 @@ class PythonSidebarController:
 
 
 class _Action(BaseActionListener):
+    _callback: Any
+
     def __init__(self, callback: Any) -> None:
         super().__init__()
         self._callback = callback
@@ -680,6 +696,8 @@ class _Action(BaseActionListener):
 
 
 class _Item(BaseItemListener):
+    _callback: Any
+
     def __init__(self, callback: Any) -> None:
         super().__init__()
         self._callback = callback

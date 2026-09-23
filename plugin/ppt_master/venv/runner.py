@@ -28,6 +28,10 @@ class _RpcHostTool(Tool):
     """Base for tools that call WriterAgent on the LO host."""
 
     skip_forward_signature_validation: bool = True
+    name: str
+    description: str
+    inputs: dict[str, dict[str, str | type[Any] | bool]]
+    output_type: str
 
     def __init__(self, host_tool_name: str, *, description: str, inputs: dict[str, dict[str, Any]]) -> None:
         self.name = host_tool_name

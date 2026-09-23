@@ -142,6 +142,8 @@ def extract_text(image: Any, params: dict[str, Any]) -> dict[str, Any]:
 class _HtmlTableParser(HTMLParser):
     """Minimal HTML table parser for PP-Structure table HTML output."""
 
+    _in_cell: bool
+
     def __init__(self) -> None:
         super().__init__()
         self.rows: list[list[str]] = []

@@ -30,6 +30,8 @@ from . import designs as designs
 class DrawModule(ModuleBase):
     """Registers Draw/Impress tools for shapes, pages/slides."""
 
+    services: Any
+
     def initialize(self, services: Any) -> None:
         self.services = services
 

@@ -383,6 +383,12 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
+    services: Any
+    queue_executor: Any
+    tool_registry: Any
+    event_bus: Any
+    version: str
+
     def __init__(self, services: Any) -> None:
         self.services = services
         self.queue_executor = services.get("main_thread") or QueueExecutor(ctx=services.get("uno") if services else None)

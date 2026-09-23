@@ -225,6 +225,14 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 class HttpServer:
     """Generic threaded HTTP server with optional TLS."""
 
+    route_registry: Any
+    port: int
+    host: str
+    use_ssl: bool
+    ssl_cert: str
+    ssl_key: str
+    _running: bool
+
     def __init__(self, route_registry: Any, port: int, host: str = "localhost", use_ssl: bool = False, ssl_cert: str = "", ssl_key: str = "") -> None:
         self.route_registry = route_registry
         self.port = port

@@ -322,6 +322,8 @@ def _drain_soffice_stderr(stream: Any) -> None:
 class _StderrMarkerTee:
     """Wrap ``sys.stderr`` during a TEST call so in-process SalAbort text is flagged."""
 
+    _inner: Any
+
     def __init__(self, inner: Any) -> None:
         self._inner = inner
 

@@ -15,6 +15,10 @@ from plugin.ppt_master.venv.ipc import rpc_llm
 class HostRpcModel(Model):
     """Venv-side model: HTTP/auth on host via llm_request IPC."""
 
+    model_id: str | None
+    max_tokens: int
+    _status_callback: Callable[[str], Any] | None
+
     def __init__(self, *, model_id: str | None, max_tokens: int, status_callback: Callable[[str], Any] | None = None) -> None:
         super().__init__()
         self.model_id = model_id

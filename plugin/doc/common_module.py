@@ -19,6 +19,8 @@ from plugin.framework.module_base import ModuleBase
 class CommonModule(ModuleBase):
     """Provides generic document tools (info, save, export)."""
 
+    services: Any
+
     def initialize(self, services: Any) -> None:
         self.services = services
 

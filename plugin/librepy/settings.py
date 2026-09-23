@@ -41,6 +41,9 @@ _LIBREPY_HIDDEN_SCRIPTING_CONTROLS = (
 class _DownloadVecPackListener(BaseActionListener):
     """Settings → Python: download Cython serialization binary (LibrePy; no audio deps)."""
 
+    _ctx: Any
+    _dlg: Any
+
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg

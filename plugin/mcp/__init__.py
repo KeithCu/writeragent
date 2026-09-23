@@ -586,6 +586,10 @@ class McpModule(ModuleBase):
             copy_btn = dlg.getControl("CopyBtn")
             if copy_btn is not None:
                 class _CopyListener(BaseActionListener):
+                    _dlg: Any
+                    _ctx: Any
+                    _text: str
+
                     def __init__(self, dialog: Any, context: Any, text: str) -> None:
                         self._dlg = dialog
                         self._ctx = context

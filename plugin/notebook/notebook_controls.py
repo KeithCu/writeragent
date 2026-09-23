@@ -619,6 +619,13 @@ def prune_dead_listeners() -> None:
 class NotebookRunButtonListener(BaseActionListener):
     """Run one notebook cell when the ▶ push button is pressed."""
 
+    _ctx: Any
+    _hex_id: str
+    _form_level: bool
+    _doc_key_val: str
+    _doc_url: str
+    _runtime_uid: str
+
     def __init__(self, ctx: Any, doc: Any, hex_id: str) -> None:
         self._ctx = ctx
         self._hex_id = hex_id
@@ -680,6 +687,8 @@ class NotebookRunButtonListener(BaseActionListener):
 class NotebookFormRunListener(NotebookRunButtonListener):
     """One listener for every ``nb_run_*`` PUSH button on a document."""
 
+    _form_level: bool
+
     def __init__(self, ctx: Any, doc: Any) -> None:
         super().__init__(ctx, doc, hex_id="")
         self._form_level = True
@@ -700,6 +709,10 @@ class NotebookFormRunListener(NotebookRunButtonListener):
 
 class NotebookFormContainerListener(BaseContainerListener):
     """When the form view realizes another control, attach the shared ▶ listener."""
+
+    _form_listener: NotebookFormRunListener
+    _doc_key_val: str
+    _form_level: bool
 
     def __init__(self, form_listener: NotebookFormRunListener) -> None:
         self._form_listener = form_listener
@@ -887,6 +900,8 @@ def _install_doc_event_listener(ctx: Any) -> None:
             return
     try:
         class NotebookDocumentEventListener(BaseDocumentEventListener):  # type: ignore[misc, valid-type]
+            _ctx: Any
+
             def __init__(self, ctx: Any) -> None:
                 self._ctx = ctx
 

@@ -52,6 +52,12 @@ def _lifecycle_key(doc: Any) -> str:
 
 
 class _CalcPythonUnloadListener(BaseDocumentEventListener):
+    _ctx: Any
+    _workbook_session_id: str
+    _lifecycle_key: str
+    _doc_url: str
+    _teardown_done: bool
+
     def __init__(
         self,
         ctx: Any,

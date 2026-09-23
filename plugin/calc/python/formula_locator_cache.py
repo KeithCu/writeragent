@@ -30,6 +30,8 @@ _PY_FORMULA_CODE_REGEX = re.compile(
 class DocumentFormulaCache:
     """Internal LRU/MRU formula coordinate cache for a single Calc document."""
 
+    _max_size: int
+
     def __init__(self, max_size: int = MAX_FORMULAS_PER_DOC) -> None:
         self._max_size = max_size
         self.last_accessed: float = time.monotonic()
@@ -102,6 +104,10 @@ class FormulaLocationCache:
     Supports any number of concurrently open documents (ideal for server/multi-session environments)
     while lifecycle hooks and a 5-minute idle TTL ensure automatic cleanup.
     """
+
+    _max_formulas_per_doc: int
+    _ttl_seconds: float
+    _lock: threading.Lock
 
     def __init__(
         self,

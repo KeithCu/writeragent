@@ -20,6 +20,8 @@ Supports initial handshakes, prompt sessions, and streaming notifications
 acting as an ACP client connected to a supporting agent binary backend.
 """
 
+from __future__ import annotations
+
 from plugin.framework.thread_guard import background
 import json
 import logging
@@ -47,6 +49,14 @@ _ACP_PROTOCOL_VERSION = 1
 
 class ACPConnection:
     """Manages a JSON-RPC stdio connection to an ACP subprocess."""
+
+    _cmd_line: list[str]
+    _env: dict[str, str] | None
+    _cwd: str | None
+    _lock: threading.Lock
+    _request_id: int
+    _running: bool
+    _notify_callback: Any
 
     def __init__(self, cmd_line: list[str], env: dict[str, str] | None = None, cwd: str | None = None) -> None:
         self._cmd_line = cmd_line

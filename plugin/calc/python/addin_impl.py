@@ -63,6 +63,10 @@ except ImportError:
 class PythonFunction(SingleFunctionAddInBase, _XPythonFunctionBase):  # pyright: ignore[reportGeneralTypeIssues, reportUntypedBaseClass]  # pyrefly: ignore[invalid-inheritance]
     """Calc add-in: org.extension.writeragent.PythonFunction (=PY / =PYTHON)."""
 
+    doc: Any
+    _true_strings: set[str]
+    _false_strings: set[str]
+
     def __init__(self, ctx: Any, doc: Any | None = None) -> None:
         log.debug("=== PythonFunction.__init__ ===")
         super().__init__(ctx, PYTHON_FUNCTION_SPECS)

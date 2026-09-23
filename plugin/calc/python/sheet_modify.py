@@ -255,6 +255,10 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
 class SheetModifyDispatcher(unohelper.Base, XModifyListener):
     """One ``XModifyListener`` per sheet. Schedules; does not own either job."""
 
+    ctx: Any
+    doc_url: str
+    sheet_name: str
+
     def __init__(self, ctx: Any, doc_url: str, sheet_name: str) -> None:
         self.ctx = ctx
         self.doc_url = doc_url

@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 class _SingleDrawPageContainer:
     """Writer/Calc expose one ``XDrawPage``, not ``XDrawPages``. Shape tools still use getCount/getByIndex."""
 
+    _page: Any
+
     def __init__(self, page: Any) -> None:
         self._page = page
 
@@ -68,6 +70,8 @@ def _draw_page_container(doc: Any) -> Any | None:
 
 
 class DrawBridge:
+    doc: Any
+
     def __init__(self, doc: Any) -> None:
         self.doc = doc
         pages = _draw_page_container(doc)

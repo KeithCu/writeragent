@@ -43,6 +43,8 @@ def _remaining_sec(deadline: float, *, floor: float = 0.01) -> float:
 class FormulaProcessPool(BaseProcessPool):
     """Bounded pool of persistent worker subprocesses for formula calculations."""
 
+    shared_kernel_ttl_sec: float
+
     def __init__(
         self,
         num_workers: int = 1,

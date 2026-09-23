@@ -48,6 +48,9 @@ log = logging.getLogger("writeragent.calc.python.executor")
 class PythonExecutor:
     """Runs Python in LO's embedded interpreter with document helpers (stdlib-only imports)."""
 
+    doc_url: str
+    executor: LocalPythonExecutor
+
     def __init__(self, doc_url: str) -> None:
         self.doc_url = doc_url
         self.executor = LocalPythonExecutor(additional_authorized_imports=list(CALC_AUTHORIZED_IMPORTS))

@@ -20,6 +20,8 @@ This backend allows external ACP clients (like Mistral Vibe) to connect
 to WriterAgent's MCP server by acting as an ACP-to-MCP protocol bridge.
 """
 
+from __future__ import annotations
+
 import logging
 import threading
 import requests
@@ -39,6 +41,11 @@ class MCPACPProxy(AgentBackend):
 
     backend_id: ClassVar[str] = "mcp_acp"
     display_name: ClassVar[str] = "WriterAgent MCP (ACP)"
+    _ctx: Any | None
+    _mcp_url: str
+    _stop_requested: bool
+    _prompt_done: threading.Event
+    _tools_cache_ttl: int
 
     def __init__(self, ctx: Any | None = None) -> None:
         self._ctx = ctx

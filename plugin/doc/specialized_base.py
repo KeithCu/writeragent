@@ -119,6 +119,7 @@ class DelegateToSpecializedBase(ToolBase):
     tier: str = "core"  # Available to the main agent
     is_mutation: bool | None = True
     long_running: bool = True
+    parameters: dict[str, Any] | None
 
     def __init__(self) -> None:
         super().__init__()

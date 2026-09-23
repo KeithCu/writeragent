@@ -77,6 +77,13 @@ def run_worker_stdio_loop(
 class BaseProcessWorker:
     """Wrapper around one persistent child subprocess communicating via Pickle 5 frames."""
 
+    worker_id: int
+    script_path: str
+    worker_name: str
+    max_payload_bytes: int
+    lock: threading.Lock
+    tasks_executed: int
+
     def __init__(
         self,
         worker_id: int,
@@ -278,6 +285,17 @@ class BaseProcessWorker:
 
 class BaseProcessPool:
     """Base supervisor for a bounded pool of child worker subprocesses."""
+
+    script_path: str
+    num_workers: int
+    default_timeout_sec: int
+    max_tasks: int
+    worker_name: str
+    idle_worker_ttl_sec: float | None
+    max_payload_bytes: int
+    _is_shutdown: bool
+    _lock: threading.Lock
+    _cond: threading.Condition
 
     def __init__(
         self,

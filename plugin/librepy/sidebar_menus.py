@@ -295,6 +295,9 @@ def show_librepy_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
 
 
 class _DispatchActionListener(BaseActionListener):
+    _action: str
+    _frame: Any
+
     def __init__(self, action: str, frame: Any = None) -> None:
         self._action = action
         self._frame = frame
@@ -304,6 +307,9 @@ class _DispatchActionListener(BaseActionListener):
 
 
 class _HamburgerListener(BaseActionListener):
+    ctx: Any
+    _frame: Any
+
     def __init__(self, ctx: Any, frame: Any) -> None:
         self.ctx = ctx
         self._frame = frame

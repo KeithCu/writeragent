@@ -383,6 +383,8 @@ from plugin.mcp.tunnel_state import (
 class TunnelManager:
     """Owns a single tunnel subprocess for the selected provider with pure FSM state."""
 
+    _lock: threading.RLock
+
     def __init__(self) -> None:
         self._state: TunnelState = TunnelState()
         self._process: Optional[AsyncProcess] = None

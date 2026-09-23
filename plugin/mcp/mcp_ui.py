@@ -76,6 +76,9 @@ def build_mcp_config_snippet(port: int | None = None, url: str | None = None) ->
 class CopyMcpConfigListener(BaseActionListener):
     """Settings → MCP: copy client JSON configuration snippet to clipboard."""
 
+    _ctx: Any
+    _dlg: Any
+
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
@@ -191,6 +194,8 @@ def sync_mcp_config_snippet(
 class McpTunnelEnabledListener(BaseListener, XItemListener):
     """Update MCP client config snippet when tunnel_enabled checkbox is toggled."""
 
+    _dlg: Any
+
     def __init__(self, dlg: Any) -> None:
         self._dlg = dlg
 
@@ -200,6 +205,8 @@ class McpTunnelEnabledListener(BaseListener, XItemListener):
 
 class McpTunnelProviderListener(BaseListener, XItemListener, XTextListener):
     """Update MCP client config snippet when tunnel provider dropdown is changed."""
+
+    _dlg: Any
 
     def __init__(self, dlg: Any) -> None:
         self._dlg = dlg
@@ -214,6 +221,8 @@ class McpTunnelProviderListener(BaseListener, XItemListener, XTextListener):
 class McpPortTextListener(BaseListener, XTextListener):
     """Update MCP client config snippet when MCP port is edited."""
 
+    _dlg: Any
+
     def __init__(self, dlg: Any) -> None:
         self._dlg = dlg
 
@@ -225,6 +234,8 @@ class TestTunnelListener(BaseActionListener):
     """Settings → MCP: test public tunnel connectivity / provider availability."""
 
     __test__: bool = False
+    _ctx: Any
+    _dlg: Any
 
     def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx

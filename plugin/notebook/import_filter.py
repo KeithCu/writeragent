@@ -62,6 +62,9 @@ IMPL_NAME = "org.extension.writeragent.JupyterNotebookImportFilter"
 
 
 class JupyterNotebookImportFilter(unohelper.Base, XFilter, XImporter, XServiceInfo, XExtendedFilterDetection):
+    ctx: Any
+    target_doc: Any
+
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
         self.target_doc = None
