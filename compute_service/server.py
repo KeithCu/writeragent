@@ -737,7 +737,8 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     executor: ThreadPoolExecutor
     socket: socket.socket
     address_family: int
-    server_address: tuple[str, int]
+    # Match TCPServer: tuple[str,int] is invariant vs the AF_INET/AF_INET6 union.
+    server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
 
     def __init__(
         self,
@@ -888,7 +889,7 @@ DualStackThreadingHTTPServer = DualStackThreadPoolHTTPServer
 class WSGIDualStackServer:
     """Wrapper that mixes DualStackThreadPoolHTTPServer with wsgiref.simple_server.WSGIServer."""
 
-    srv: DualStackThreadPoolHTTPServer
+    srv: Any
 
     def __init__(self, host: str, port: int, max_threads: int | None = None) -> None:
         from wsgiref.simple_server import WSGIRequestHandler, WSGIServer

@@ -142,18 +142,17 @@ class PythonPanelElement(unohelper.Base, XUIElement):
     ctx: Any
     xFrame: Any
     xParentWindow: Any
-    ResourceURL: str
-    Frame: Any
-    Type: Any
     m_panelRootWindow: Any
 
     def __init__(self, ctx: Any, frame: Any, parent_window: Any, resource_url: str) -> None:
         self.ctx = ctx
         self.xFrame = frame
         self.xParentWindow = parent_window
-        self.ResourceURL = resource_url
-        self.Frame = frame
-        self.Type = TOOLPANEL
+        # XUIElement exposes these as properties; assignment annotations avoid
+        # reportIncompatibleMethodOverride from a class-body instance attr.
+        self.ResourceURL: str = resource_url
+        self.Frame: Any = frame
+        self.Type: Any = TOOLPANEL
         self.toolpanel: Any = None
         self.m_panelRootWindow = None
         self.controller: Any = None
