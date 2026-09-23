@@ -22,7 +22,7 @@ import logging
 import os
 import re
 import threading
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from plugin.scripting.venv.coerce import (
     ok_result as _ok_result,
@@ -315,7 +315,7 @@ _REMAINDER_PATH_RE = re.compile(
 class ReadonlyViolation(ValueError):
     """COPY/escape blocked the same way as ``query_folder_sql`` (``READONLY_VIOLATION``)."""
 
-    code = "READONLY_VIOLATION"
+    code: ClassVar[str] = "READONLY_VIOLATION"
 
 
 class GuardedDuckDBConnection:

@@ -10,7 +10,7 @@ import logging
 import os
 import sys
 import threading
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 _this = os.path.abspath(__file__)
 for __ in range(2):
@@ -181,8 +181,8 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 
 
 class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitialization, XServiceInfo):
-    IMPL_NAME = f"{EXTENSION_ID}.DispatchHandler"
-    SERVICE_NAMES = ("com.sun.star.frame.ProtocolHandler",)
+    IMPL_NAME: ClassVar[str] = f"{EXTENSION_ID}.DispatchHandler"
+    SERVICE_NAMES: ClassVar[tuple[str, ...]] = ("com.sun.star.frame.ProtocolHandler",)
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx

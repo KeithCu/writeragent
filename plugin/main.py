@@ -51,7 +51,7 @@ except Exception:
     pass
 
 import unohelper
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, cast
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -915,8 +915,8 @@ class DispatchHandler(unohelper.Base, XDispatch, XDispatchProvider, XInitializat
     FeatureStateEvent / addStatusListener.
     """
 
-    IMPL_NAME = f"{EXTENSION_ID}.DispatchHandler"
-    SERVICE_NAMES = ("com.sun.star.frame.ProtocolHandler",)
+    IMPL_NAME: ClassVar[str] = f"{EXTENSION_ID}.DispatchHandler"
+    SERVICE_NAMES: ClassVar[tuple[str, ...]] = ("com.sun.star.frame.ProtocolHandler",)
 
     def __init__(self, ctx: Any):
         self.ctx = ctx

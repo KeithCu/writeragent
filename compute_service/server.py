@@ -20,7 +20,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import HTTPServer
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 # Ensure repo root is on sys.path to resolve plugin.* / compute_service imports
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -731,7 +731,7 @@ wsgi_app = create_wsgi_app(ComputeSettings())
 class DualStackThreadPoolHTTPServer(HTTPServer):
     """HTTPServer that listens on both IPv4 and IPv6 loopback (or a single host) using a ThreadPoolExecutor."""
 
-    request_queue_size = 128
+    request_queue_size: ClassVar[int] = 128
 
     def __init__(
         self,

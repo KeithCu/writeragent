@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 import operator
-from typing import Any
+from typing import Any, ClassVar
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
 from plugin.scripting.payload_codec import PAYLOAD_CALC_RANGE, is_calc_range_payload
@@ -159,7 +159,7 @@ class CalcRange:
         shape: ``(nrows, ncols)``.
     """
 
-    __slots__ = ("_values", "_address")
+    __slots__: ClassVar[tuple[str, ...]] = ("_values", "_address")
 
     def __init__(self, values: Any, *, address: str | None = None) -> None:
         # crosshair: off
@@ -289,7 +289,7 @@ class CalcRange:
 
     # --- Issue #412: Arithmetic, comparison, and scalar protocols ---
 
-    __hash__ = None  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType, reportGeneralTypeIssues]  # CalcRange is mutable / unhashable like ndarray
+    __hash__: ClassVar[None] = None  # type: ignore[assignment]  # pyright: ignore[reportAssignmentType, reportGeneralTypeIssues]  # CalcRange is mutable / unhashable like ndarray
 
     def __bool__(self) -> bool:
         # crosshair: off
