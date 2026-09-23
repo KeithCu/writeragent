@@ -146,8 +146,7 @@ class ToolCalcSpecialTracking(ToolCalcSpecialBase):
     """Track changes (shared tool classes with Writer via multiple inheritance)."""
     specialized_domain: ClassVar[str | None] = "tracking"
     specialized_domain_description: ClassVar[str | None] = "Manage and review tracked changes in the spreadsheet."
-    # Writer tracking infers str; ToolBase is str | None (invariant).
-    intent: str = "review"  # type: ignore[assignment]  # pyright: ignore[reportIncompatibleVariableOverride]
+    intent: str | None = "review"
 
 
 class ToolCalcPythonBase(ToolCalcSpecialBase):
