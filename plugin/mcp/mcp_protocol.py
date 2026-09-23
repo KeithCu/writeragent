@@ -20,6 +20,8 @@ Pure protocol logic — no HTTP server, no request handler class.
 Route handlers are registered with the HTTP route registry by MCPModule.
 """
 
+from __future__ import annotations
+
 import datetime
 import json
 import logging
@@ -30,6 +32,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.framework.queue_executor import QueueExecutor
@@ -52,7 +55,7 @@ log = logging.getLogger("writeragent.mcp.protocol")
 MCP_PROTOCOL_VERSION = wire_types.MCP_PROTOCOL_VERSION
 _SUPPORTED_HTTP_PROTOCOL_VERSIONS = frozenset({MCP_PROTOCOL_VERSION, "2024-11-05"})
 
-def _document_echo_payload(doc):
+def _document_echo_payload(doc: Any) -> dict[str, Any] | None:
     """{name, uid} of the resolved target document, or None. Reads UNO properties — call ONLY
     where UNO access is legal (the main thread); worker-thread callers must precompute this."""
     if doc is None:
@@ -75,7 +78,7 @@ MCP_DELEGATE_EXCLUDE_TIERS = frozenset({"specialized", "specialized_control", "c
 MCP_DIRECT_FLAT_EXCLUDE_TIERS = frozenset({"specialized_control", "chat"})
 
 
-def drop_unavailable_domains(schemas, registry, ctx):
+def drop_unavailable_domains(schemas: Any, registry: Any, ctx: Any) -> Any:
     """Remove tools whose specialized domain cannot run on this install.
 
     The discovery catalog has always hidden such a domain; without this the flat tool list
@@ -111,12 +114,12 @@ class _PreparedMcpCall:
     echo: dict | None
 
 
-def _attach_precomputed_echo(result, echo):
+def _attach_precomputed_echo(result: Any, echo: dict[str, Any] | None) -> None:
     if isinstance(result, dict) and echo and "document" not in result:
         result["document"] = echo
 
 
-def _attach_document_echo(result, doc):  # pyright: ignore[reportUnusedFunction]
+def _attach_document_echo(result: Any, doc: Any) -> None:  # pyright: ignore[reportUnusedFunction]
     """Echo the resolved target document ({name, uid}) in a tool result. Without an explicit
     document_url the target follows the USER'S window focus and can change between two calls —
     the echo lets the agent detect that instead of silently editing the wrong document.
@@ -194,7 +197,7 @@ def build_initialize_instructions(mode: str, *, now: datetime.datetime | None = 
     return _format_mcp_clock_context(now) + " " + base + mode_hint + _MCP_CALC_DATETIME_HINT + _MCP_GUIDANCE_POINTER
 
 
-def _get_request_protocol_version(handler) -> str | None:
+def _get_request_protocol_version(handler: Any) -> str | None:
     for name in ("Mcp-Protocol-Version", "mcp-protocol-version", "MCP-Protocol-Version"):
         value = handler.headers.get(name)
         if value:
@@ -202,7 +205,7 @@ def _get_request_protocol_version(handler) -> str | None:
     return None
 
 
-def _get_request_session_id(handler) -> str | None:
+def _get_request_session_id(handler: Any) -> str | None:
     for name in ("Mcp-Session-Id", "mcp-session-id", "MCP-Session-Id"):
         value = handler.headers.get(name)
         if value:
@@ -210,7 +213,7 @@ def _get_request_session_id(handler) -> str | None:
     return None
 
 
-def _validate_http_protocol_version(handler):
+def _validate_http_protocol_version(handler: Any) -> tuple[int, dict[str, Any]] | None:
     """Return (status, jsonrpc_body) when the HTTP Mcp-Protocol-Version header is unsupported."""
     requested = _get_request_protocol_version(handler)
     if requested is None or requested in _SUPPORTED_HTTP_PROTOCOL_VERSIONS:
@@ -219,7 +222,7 @@ def _validate_http_protocol_version(handler):
     return (400, wire_types.jsonrpc_failure(None, wire_types.INVALID_REQUEST, "Unsupported MCP-Protocol-Version: %s" % requested))
 
 
-def _send_mcp_response_headers(handler, *, session_id: str | None = None) -> None:
+def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -> None:
     """CORS plus streamable-HTTP MCP headers on every MCP transport response."""
     send_cors_headers(handler, preflight=False)
     handler.send_header("Mcp-Protocol-Version", MCP_PROTOCOL_VERSION)
@@ -239,7 +242,7 @@ _doc_gates: dict[str, threading.Lock] = {}
 _doc_gates_guard = threading.Lock()
 
 
-def _real_active_document(doc_svc):
+def _real_active_document(doc_svc: Any) -> Any:
     """The active document, or None when no real document is open.
 
     LibreOffice's Start Center is a live component but not a document, so
@@ -261,7 +264,7 @@ def _real_active_document(doc_svc):
     return doc
 
 
-def _resolve_mcp_doc_key(document_url, doc):
+def _resolve_mcp_doc_key(document_url: str | None, doc: Any) -> str:
     """Stable per-document key for the mutation gate, derived from the RESOLVED document (``doc``).
 
     Keying off the resolved document — not the raw request handle — is what makes addressing the
@@ -290,7 +293,7 @@ def _resolve_mcp_doc_key(document_url, doc):
     return _ACTIVE_DOCUMENT_SENTINEL
 
 
-def _get_document_mutation_gate(doc_key):
+def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
     # Future: prune _doc_gates[doc_key] on document OnUnload if a long-lived MCP server
     # opens enough unique URLs that this dict becomes measurable overhead.
     with _doc_gates_guard:
@@ -301,7 +304,7 @@ def _get_document_mutation_gate(doc_key):
         return gate
 
 
-def _tool_needs_document_mutation_gate(tool, arguments=None):
+def _tool_needs_document_mutation_gate(tool: Any, arguments: Any = None) -> bool:
     if tool is None:
         return True  # unknown tool -> be safe
     try:
@@ -311,7 +314,7 @@ def _tool_needs_document_mutation_gate(tool, arguments=None):
 
 
 @contextmanager
-def _document_mutation_gate(doc_key, *, enabled, timeout: float = 30.0):
+def _document_mutation_gate(doc_key: str, *, enabled: bool, timeout: float = 30.0):
     if not enabled:
         yield
         return
@@ -348,7 +351,7 @@ def _mint_session_id_once() -> str:
         return _mcp_session_id
 
 
-def _reject_stale_session(handler, msg=None) -> bool:
+def _reject_stale_session(handler: Any, msg: Any = None) -> bool:
     """Write HTTP 404 when Mcp-Session-Id is present and not the process id.
 
     Spec clients re-initialize on 404, not 409 or silent success. No header is
@@ -377,7 +380,7 @@ def _reject_stale_session(handler, msg=None) -> bool:
 class MCPProtocolHandler:
     """MCP JSON-RPC protocol — route handlers for the HTTP server."""
 
-    def __init__(self, services):
+    def __init__(self, services: Any) -> None:
         self.services = services
         self.queue_executor = services.get("main_thread") or QueueExecutor(ctx=services.get("uno") if services else None)
         self.tool_registry = services.tools
@@ -392,7 +395,7 @@ class MCPProtocolHandler:
 
     # ── Raw handlers (receive GenericRequestHandler) ─────────────────
 
-    def handle_mcp_post(self, handler):
+    def handle_mcp_post(self, handler: Any) -> None:
         """POST /mcp — MCP streamable-http (JSON-RPC 2.0)."""
         log_mcp_transport_entry(handler, "mcp")
         version_error = _validate_http_protocol_version(handler)
@@ -406,7 +409,7 @@ class MCPProtocolHandler:
         document_url = handler.headers.get("X-Document-URL") or None
         self._handle_mcp(body, handler, document_url=document_url)
 
-    def handle_mcp_sse(self, handler):
+    def handle_mcp_sse(self, handler: Any) -> None:
         """GET /mcp — SSE notification stream (keepalive)."""
         log_mcp_transport_entry(handler, "mcp-sse")
         if _reject_stale_session(handler):
@@ -422,7 +425,7 @@ class MCPProtocolHandler:
         handler.end_headers()
         self._run_sse_keepalive_loop(handler)
 
-    def handle_mcp_delete(self, handler):
+    def handle_mcp_delete(self, handler: Any) -> None:
         """DELETE /mcp — not supported: one process-wide session must stay alive."""
         # Bugfix: Nelson a3d69e68 / GitHub #38. Streamable HTTP lets a client
         # DELETE the session URL to end it. WriterAgent has one session id for
@@ -432,13 +435,13 @@ class MCPProtocolHandler:
         # here. They recover on 404 (stale id after restart), not 409 or 200.
         log_mcp_transport_entry(handler, "mcp")
 
-        def _headers(h):
+        def _headers(h: Any) -> None:
             _send_mcp_response_headers(h)
             h.send_header("Allow", "GET, POST, OPTIONS")
 
         write_http_empty(handler, 405, extra_headers=_headers)
 
-    def handle_sse_stream(self, handler):
+    def handle_sse_stream(self, handler: Any) -> None:
         """GET /sse — legacy SSE transport (keepalive only)."""
         if _reject_stale_session(handler):
             return
@@ -455,7 +458,7 @@ class MCPProtocolHandler:
         except (BrokenPipeError, ConnectionResetError, OSError):
             log.info("[SSE] GET stream disconnected")
 
-    def _run_sse_keepalive_loop(self, handler, interval=15):
+    def _run_sse_keepalive_loop(self, handler: Any, interval: float = 15) -> None:
         """Run a keepalive loop for an SSE stream without blocking the worker thread
         longer than necessary on disconnect.
         """
@@ -490,7 +493,7 @@ class MCPProtocolHandler:
         finally:
             log.info("[SSE] GET stream closed")
 
-    def handle_sse_post(self, handler):
+    def handle_sse_post(self, handler: Any) -> None:
         """POST /sse or /messages — streamable HTTP (same as /mcp)."""
         log_mcp_transport_entry(handler, "sse")
         version_error = _validate_http_protocol_version(handler)
@@ -506,7 +509,7 @@ class MCPProtocolHandler:
 
     # ── Simple handlers (body, headers, query) -> (status, dict) ─────
 
-    def handle_debug_info(self, body, headers, query):
+    def handle_debug_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
         """GET /debug — show available debug actions."""
         tools = list(self.tool_registry.tool_names) if self.tool_registry else []
         return (
@@ -524,7 +527,7 @@ class MCPProtocolHandler:
             },
         )
 
-    def handle_debug_post(self, handler):
+    def handle_debug_post(self, handler: Any) -> None:
         """POST /debug — execute debug actions."""
         # Security: restrict debug actions to localhost
         client_ip = handler.client_address[0]
@@ -558,7 +561,7 @@ class MCPProtocolHandler:
 
     # ── MCP protocol handler ─────────────────────────────────────────
 
-    def _handle_mcp(self, msg, handler, document_url=None):
+    def _handle_mcp(self, msg: Any, handler: Any, document_url: str | None = None) -> None:
         """Route MCP JSON-RPC request(s) — single or batch."""
         method = msg.get("method", "?") if isinstance(msg, dict) else "batch"
         req_id = msg.get("id") if isinstance(msg, dict) else None
@@ -604,7 +607,7 @@ class MCPProtocolHandler:
 
     # ── MCP method handlers ──────────────────────────────────────────
 
-    def _mcp_initialize(self, params):
+    def _mcp_initialize(self, params: Any) -> Any:
         client_version = params.get("protocolVersion", MCP_PROTOCOL_VERSION)
         return wire_types.initialize_result(
             protocol_version=MCP_PROTOCOL_VERSION,
@@ -613,17 +616,17 @@ class MCPProtocolHandler:
             instructions=build_initialize_instructions(self._tool_exposure_mode()),
         )
 
-    def _mcp_ping(self, params):
+    def _mcp_ping(self, params: Any) -> Any:
         return wire_types.ping_result()
 
-    def _tool_exposure_mode(self):
+    def _tool_exposure_mode(self) -> str:
         """Read mcp.tool_exposure_mode (delegate | direct_flat | direct_discovery)."""
         try:
             return self.services.config.get("mcp.tool_exposure_mode", "delegate") or "delegate"
         except Exception:
             return "delegate"
 
-    def _mcp_tools_list(self, params, document_url=None):
+    def _mcp_tools_list(self, params: Any, document_url: str | None = None) -> Any:
         mode = self._tool_exposure_mode()
         # Direct modes (direct_flat / direct_discovery) intentionally skip the delegate
         # sub-agent so MCP hosts work without a WriterAgent LLM endpoint configured.
@@ -710,13 +713,13 @@ class MCPProtocolHandler:
 
         return wire_types.list_tools_result(schemas)
 
-    def _mcp_resources_list(self, params):
+    def _mcp_resources_list(self, params: Any) -> Any:
         return wire_types.empty_resources_result()
 
-    def _mcp_prompts_list(self, params):
+    def _mcp_prompts_list(self, params: Any) -> Any:
         return wire_types.empty_prompts_result()
 
-    def _mcp_tools_call(self, params, document_url=None):
+    def _mcp_tools_call(self, params: Any, document_url: str | None = None) -> Any:
         state = MCPState(status=MCPStateStr.IDLE)
 
         call_params = wire_types.CallToolRequestParams.from_params(params)
@@ -818,7 +821,7 @@ class MCPProtocolHandler:
 
     # ── JSON-RPC processing ──────────────────────────────────────────
 
-    def _process_jsonrpc(self, msg, document_url=None):
+    def _process_jsonrpc(self, msg: Any, document_url: str | None = None) -> Any:
         """Process a JSON-RPC message.
 
         Returns (http_status, response_dict) or None for notifications (no ``id``).
@@ -875,7 +878,7 @@ class MCPProtocolHandler:
 
     # ── Backpressure execution ───────────────────────────────────────
 
-    def _execute_with_backpressure(self, tool_name, arguments, document_url=None):
+    def _execute_with_backpressure(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
         """Execute a tool on the VCL main thread with backpressure.
 
         Acquires _tool_semaphore then _execute_tool_on_main (which holds the per-doc
@@ -889,7 +892,7 @@ class MCPProtocolHandler:
         finally:
             _tool_semaphore.release()
 
-    def _prepare_mcp_execution(self, tool_name, arguments, document_url=None):
+    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.
 
         Returns ``_PreparedMcpCall`` or a structured error dict.
@@ -955,7 +958,7 @@ class MCPProtocolHandler:
             echo=_document_echo_payload(doc),
         )
 
-    def _run_prepared_mcp_execute(self, prepared: _PreparedMcpCall, tool_name, arguments):
+    def _run_prepared_mcp_execute(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
         """Gate + registry execute + elapsed/echo. ``prepared.echo`` must already be computed on main."""
         with _document_mutation_gate(prepared.doc_key, enabled=prepared.needs_gate):
             t0 = time.perf_counter()
@@ -966,7 +969,7 @@ class MCPProtocolHandler:
             _attach_precomputed_echo(result, prepared.echo)
         return result
 
-    def _execute_long_running(self, tool_name, arguments, document_url=None):
+    def _execute_long_running(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
         """Execute a long-running tool on the current background HTTP thread.
 
         Context resolution runs on the main thread. Mutating tools hold the same
@@ -978,7 +981,7 @@ class MCPProtocolHandler:
             return prepared
         return self._run_prepared_mcp_execute(prepared, tool_name, arguments)
 
-    def _execute_tool_on_main(self, tool_name, arguments, document_url=None):
+    def _execute_tool_on_main(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
         """Run a backpressure tool on the main thread; shares _document_mutation_gate with long-running path."""
         prepared = self._prepare_mcp_execution(tool_name, arguments, document_url)
         if not isinstance(prepared, _PreparedMcpCall):
@@ -987,13 +990,13 @@ class MCPProtocolHandler:
 
     # ── Debug helpers ────────────────────────────────────────────────
 
-    def _debug_call_tool(self, tool_name, arguments, document_url=None):
+    def _debug_call_tool(self, tool_name: str, arguments: Any, document_url: str | None = None) -> Any:
         if not tool_name:
             return {"error": "Missing 'tool' parameter"}
         result = self._execute_with_backpressure(tool_name, arguments, document_url=document_url)
         return result
 
-    def _debug_trigger(self, command):
+    def _debug_trigger(self, command: str) -> Any:
         from plugin.main import get_services
 
         if command == "settings":
@@ -1011,12 +1014,12 @@ class MCPProtocolHandler:
             return "Settings dialog shown"
         return {"triggered": command, "note": "Use menu for UI commands"}
 
-    def _debug_services(self):
+    def _debug_services(self) -> Any:
         if not self.services:
             return []
         return list(self.services._services.keys())
 
-    def _debug_config(self, key, value):
+    def _debug_config(self, key: Any, value: Any) -> Any:
         if not self.services:
             return {"error": "No service registry"}
         config_svc = self.services.config
@@ -1031,7 +1034,7 @@ class MCPProtocolHandler:
 
     # ── Helpers ───────────────────────────────────────────────────────
 
-    def _detect_active_doc_type(self):
+    def _detect_active_doc_type(self) -> Any:
         try:
             doc_svc = self.services.document
             doc = _real_active_document(doc_svc)
@@ -1042,7 +1045,7 @@ class MCPProtocolHandler:
             pass
         return None
 
-    def _read_body(self, handler):
+    def _read_body(self, handler: Any) -> Any:
         """Read and parse JSON body from an HTTP handler."""
         content_length = int(handler.headers.get("Content-Length", 0))
         if content_length == 0:
@@ -1058,6 +1061,6 @@ class MCPProtocolHandler:
             return None
         return data if data is not None else {}
 
-    def _send_json(self, handler, status, data):
+    def _send_json(self, handler: Any, status: int, data: Any) -> None:
         """Send a JSON response via an HTTP handler."""
         write_http_json(handler, status, data, extra_headers=_send_mcp_response_headers)

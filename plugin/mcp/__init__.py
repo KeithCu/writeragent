@@ -16,11 +16,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """HTTP server module — owns the HTTP server lifecycle."""
 
+from __future__ import annotations
+
 import logging
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.module_base import ModuleBase
+
+if TYPE_CHECKING:
+    from com.sun.star.awt import ActionEvent
+    from com.sun.star.lang import EventObject
 from plugin.mcp.cors import reload_cors_policy_from_config
 from plugin.mcp.server import mcp_endpoint_url, format_mcp_start_failure, is_port_in_use_error
 from plugin.mcp.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label
@@ -53,7 +59,7 @@ class McpModule(ModuleBase):
     This module starts the server in start_background() (phase 2b).
     """
 
-    def initialize(self, services):
+    def initialize(self, services: Any) -> None:
         global _primary_http_module, _shared_registry, _shared_http_server, _shared_tunnel
 
         from plugin.mcp.routes import HttpRouteRegistry
@@ -101,19 +107,19 @@ class McpModule(ModuleBase):
 
             _primary_http_module = self
 
-    def _bound_http_server(self):
+    def _bound_http_server(self) -> Any:
         """Server instance for this process: shared copy after primary starts, else this instance."""
         global _shared_http_server
         if _shared_http_server is not None:
             return _shared_http_server
         return self._server
 
-    def start_background(self, services):
+    def start_background(self, services: Any) -> None:
         # We start automatically if MCP is enabled.
         if services.config.proxy_for(self.name).get("mcp_enabled"):
             self._start_server(services)
 
-    def _on_config_changed(self, **data):
+    def _on_config_changed(self, **data: Any) -> None:
         key = data.get("key", "")
         prefix = f"{self.name}."
         # Ignore keys owned by other modules; empty key = bulk save (e.g. Settings OK).
@@ -191,7 +197,7 @@ class McpModule(ModuleBase):
             return True
         return not is_port_in_use_error(_last_start_error)
 
-    def _show_start_failure_dialog(self, ctx=None) -> None:
+    def _show_start_failure_dialog(self, ctx: Any | None = None) -> None:
         from plugin.chatbot.dialogs import msgbox_with_report
         from plugin.framework.i18n import _
         from plugin.framework.uno_context import get_ctx
@@ -213,7 +219,7 @@ class McpModule(ModuleBase):
             report_extra=detail,
         )
 
-    def _start_server(self, services) -> bool:
+    def _start_server(self, services: Any) -> bool:
         import os
         if os.environ.get("WRITERAGENT_TESTING"):
             return True
@@ -276,7 +282,7 @@ class McpModule(ModuleBase):
             return True
         return False
 
-    def _stop_server(self):
+    def _stop_server(self) -> None:
         global _shared_http_server
         # Stop tunnel first so we do not keep advertising a dead local port.
         self._stop_tunnel()
@@ -331,12 +337,12 @@ class McpModule(ModuleBase):
         if tunnel is not None:
             tunnel.stop()
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self._stop_server()
         if self._mcp_routes_registered:
             self._unregister_mcp_routes(self._services)
 
-    def _register_mcp_routes(self, services):
+    def _register_mcp_routes(self, services: Any) -> None:
         log.info("Registering MCP routes (SSE, /mcp, /debug)...")
         from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
@@ -361,7 +367,7 @@ class McpModule(ModuleBase):
         self._mcp_routes_registered = True
         log.info("MCP routes registered on HTTP server")
 
-    def _unregister_mcp_routes(self, services):
+    def _unregister_mcp_routes(self, services: Any) -> None:
         for method, path in [("POST", "/mcp"), ("GET", "/mcp"), ("DELETE", "/mcp"), ("POST", "/sse"), ("POST", "/messages"), ("GET", "/sse"), ("GET", "/debug"), ("POST", "/debug")]:
             try:
                 self._registry.remove(method, path)
@@ -373,7 +379,7 @@ class McpModule(ModuleBase):
 
     # ── Action dispatch ──────────────────────────────────────────────
 
-    def on_action(self, action):
+    def on_action(self, action: str) -> None:
         if action == "toggle_server":
             self._action_toggle_server()
         elif action == "server_status":
@@ -381,7 +387,7 @@ class McpModule(ModuleBase):
         else:
             super().on_action(action)
 
-    def get_menu_text(self, action):
+    def get_menu_text(self, action: str) -> str | None:
         from plugin.framework.i18n import _
 
         if action == "toggle_server":
@@ -391,14 +397,14 @@ class McpModule(ModuleBase):
             return _("Start MCP Server")
         return None
 
-    def get_menu_icon(self, action):
+    def get_menu_icon(self, action: str) -> str | None:
         if action != "server_status":
             return None
         b = self._bound_http_server()
         running = b and b.is_running()
         return "running" if running else "stopped"
 
-    def _tunnel_status_line(self, pname: str, tunnel, public_url: str | None, tunnel_enabled: bool) -> str | None:
+    def _tunnel_status_line(self, pname: str, tunnel: TunnelManager | None, public_url: str | None, tunnel_enabled: bool) -> str | None:
         """One Status/toast line for public tunnel state, or None if tunnel off."""
         from plugin.framework.i18n import _
 
@@ -415,7 +421,7 @@ class McpModule(ModuleBase):
             return _("Public tunnel via {0} starting…").format(pname)
         return _("Public tunnel via {0} not running (is the provider binary installed?)").format(pname)
 
-    def _action_toggle_server(self):
+    def _action_toggle_server(self) -> None:
         from plugin.chatbot.dialogs import msgbox
         from plugin.framework.uno_context import get_ctx
         from plugin.framework.i18n import _
@@ -475,7 +481,7 @@ class McpModule(ModuleBase):
             msg = msg + "\n" + first
         return msg
 
-    def _action_server_status(self):
+    def _action_server_status(self) -> None:
         import unohelper
         from com.sun.star.awt import XActionListener
         from plugin.chatbot.dialogs import msgbox, load_writeragent_dialog, copy_to_clipboard
@@ -570,12 +576,12 @@ class McpModule(ModuleBase):
             copy_btn = dlg.getControl("CopyBtn")
             if copy_btn is not None:
                 class _CopyListener(BaseActionListener):
-                    def __init__(self, dialog, context, text):
+                    def __init__(self, dialog: Any, context: Any, text: str) -> None:
                         self._dlg = dialog
                         self._ctx = context
                         self._text = text
 
-                    def on_action_performed(self, rEvent):
+                    def on_action_performed(self, rEvent: Any) -> None:
                         if copy_to_clipboard(self._ctx, self._text):
                             try:
                                 self._dlg.getModel().getByName("CopyBtn").Label = _("Copied!")
@@ -585,10 +591,10 @@ class McpModule(ModuleBase):
                 copy_btn.addActionListener(_CopyListener(dlg, ctx, active_url))
 
             class _OkListener(unohelper.Base, XActionListener):
-                def actionPerformed(self, rEvent):
+                def actionPerformed(self, rEvent: ActionEvent) -> None:
                     dlg.endDialog(1)
 
-                def disposing(self, Source):
+                def disposing(self, Source: EventObject) -> None:
                     pass
 
             ok_btn = dlg.getControl("OKBtn")
@@ -603,16 +609,16 @@ class McpModule(ModuleBase):
 
     # ---- Built-in route handlers ----
 
-    def _handle_health(self, body, headers, query):
+    def _handle_health(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
         from plugin.version import EXTENSION_VERSION
 
         return (200, {"status": "healthy", "server": "WriterAgent", "version": EXTENSION_VERSION})
 
-    def _mcp_endpoint_from_config(self):
+    def _mcp_endpoint_from_config(self) -> str:
         cfg = self._services.config.proxy_for(self.name)
         return mcp_endpoint_url(cfg.get("host") or "localhost", cfg.get("mcp_port"), bool(cfg.get("use_ssl")))
 
-    def _handle_info(self, body, headers, query):
+    def _handle_info(self, body: Any, headers: Any, query: Any) -> tuple[int, dict[str, Any]]:
         log.info("Request: GET / (info) from %s", headers.get("User-Agent"))
         from plugin.version import EXTENSION_VERSION
 

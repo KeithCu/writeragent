@@ -8,9 +8,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from com.sun.star.awt import XItemListener, XTextListener
+
+if TYPE_CHECKING:
+    from com.sun.star.awt import ItemEvent, TextEvent
 
 from plugin.framework.config import get_config_int
 from plugin.framework.i18n import _
@@ -73,11 +76,11 @@ def build_mcp_config_snippet(port: int | None = None, url: str | None = None) ->
 class CopyMcpConfigListener(BaseActionListener):
     """Settings → MCP: copy client JSON configuration snippet to clipboard."""
 
-    def __init__(self, ctx, dlg):
+    def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         snippet_ctrl = get_optional(self._dlg, "mcp__client_config_snippet")
         text = get_control_text(snippet_ctrl) if snippet_ctrl else ""
         if not text:
@@ -188,33 +191,33 @@ def sync_mcp_config_snippet(
 class McpTunnelEnabledListener(BaseListener, XItemListener):
     """Update MCP client config snippet when tunnel_enabled checkbox is toggled."""
 
-    def __init__(self, dlg):
+    def __init__(self, dlg: Any) -> None:
         self._dlg = dlg
 
-    def itemStateChanged(self, rEvent):
+    def itemStateChanged(self, rEvent: ItemEvent) -> None:
         sync_mcp_config_snippet(self._dlg)
 
 
 class McpTunnelProviderListener(BaseListener, XItemListener, XTextListener):
     """Update MCP client config snippet when tunnel provider dropdown is changed."""
 
-    def __init__(self, dlg):
+    def __init__(self, dlg: Any) -> None:
         self._dlg = dlg
 
-    def itemStateChanged(self, rEvent):
+    def itemStateChanged(self, rEvent: ItemEvent) -> None:
         sync_mcp_config_snippet(self._dlg)
 
-    def textChanged(self, rEvent):
+    def textChanged(self, rEvent: TextEvent) -> None:
         sync_mcp_config_snippet(self._dlg)
 
 
 class McpPortTextListener(BaseListener, XTextListener):
     """Update MCP client config snippet when MCP port is edited."""
 
-    def __init__(self, dlg):
+    def __init__(self, dlg: Any) -> None:
         self._dlg = dlg
 
-    def textChanged(self, rEvent):
+    def textChanged(self, rEvent: TextEvent) -> None:
         sync_mcp_config_snippet(self._dlg)
 
 
@@ -223,11 +226,11 @@ class TestTunnelListener(BaseActionListener):
 
     __test__ = False
 
-    def __init__(self, ctx, dlg):
+    def __init__(self, ctx: Any, dlg: Any) -> None:
         self._ctx = ctx
         self._dlg = dlg
 
-    def on_action_performed(self, rEvent):
+    def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.dialogs import msgbox
         from plugin.framework.worker_pool import run_in_background
         from plugin.framework.queue_executor import post_to_main_thread

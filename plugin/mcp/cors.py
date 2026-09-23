@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+from typing import Any
 from urllib.parse import urlparse
 
 log = logging.getLogger("writeragent.mcp.cors")
@@ -124,7 +125,7 @@ def normalize_cors_origin(value: str | None) -> str | None:
 )
 @deal.post(lambda result: isinstance(result, list) and all(isinstance(x, str) for x in result))
 @inverse_ensure(lambda value, result: len(result) == len(set(result)))
-def normalize_origins_list(value) -> list[str]:
+def normalize_origins_list(value: Any) -> list[str]:
     # crosshair: off  # list/str Any + unique-length post still combinatoric (cover-all 33569420452: ~4040s est / 5594 ex despite _deal_origin_ok). Doable later: closed origin enum.
     """Coerce config value to a deduped list of normalized origin strings."""
     if value is None:
@@ -182,7 +183,7 @@ def is_private_browser_origin(origin: str) -> bool:
         and all(_deal_origin_ok(x) for x in origins)
     )
 )
-def set_extra_allowed_origins(origins) -> None:
+def set_extra_allowed_origins(origins: Any) -> None:
     # crosshair: off  # frozenset(normalize_origins_list) leftover (cover-all 33569420452: ~4419s est / 6120 ex). Doable later.
     """Update explicit-origin cache used by is_safe_origin (HTTP threads, no ctx)."""
     global _extra_allowed_origins
@@ -230,7 +231,7 @@ def _is_loopback_origin(origin: str) -> bool:
     return host.lower() in _SAFE_LOOPBACK_HOSTS
 
 
-def reload_cors_policy_from_config(services) -> None:
+def reload_cors_policy_from_config(services: Any) -> None:
     """Refresh CORS caches from mcp config (explicit list + private-origin JSON setting)."""
     # crosshair: off
     try:
@@ -265,7 +266,7 @@ def is_safe_origin(origin: str) -> bool:
     return False
 
 
-def origin_is_forbidden(handler) -> bool:
+def origin_is_forbidden(handler: Any) -> bool:
     """True when Origin is present and not on the allow list.
 
     Missing Origin is allowed (CLI / curl / most MCP clients). Do not call
@@ -280,7 +281,7 @@ def origin_is_forbidden(handler) -> bool:
     return not is_safe_origin(origin)
 
 
-def reject_forbidden_origin(handler) -> bool:
+def reject_forbidden_origin(handler: Any) -> bool:
     """If Origin is present and unsafe, write 403 and return True.
 
     Bug: CORS only omitted Access-Control-Allow-Origin for unsafe browser
@@ -322,7 +323,7 @@ def merge_allow_headers(access_control_request_headers: str | None) -> str:
     return ", ".join(merged.values())
 
 
-def send_cors_headers(handler, *, preflight: bool = False) -> None:
+def send_cors_headers(handler: Any, *, preflight: bool = False) -> None:
     """Apply CORS headers to an HTTP request handler (GenericRequestHandler or MCP raw handler)."""
     # crosshair: off
     origin = handler.headers.get("Origin")

@@ -7,7 +7,10 @@
 # (at your option) any later version.
 """Structured MCP HTTP trace lines for writeragent_debug.log diagnosis."""
 
+from __future__ import annotations
+
 import logging
+from typing import Any
 
 from plugin.mcp.cors import (
     get_allow_private_origins,
@@ -20,19 +23,19 @@ from plugin.mcp.cors import (
 log = logging.getLogger("writeragent.mcp.http")
 
 
-def _client(handler) -> str:
+def _client(handler: Any) -> str:
     try:
         return "%s:%s" % handler.client_address[:2]
     except Exception:
         return "?"
 
 
-def _header(handler, name: str) -> str | None:
+def _header(handler: Any, name: str) -> str | None:
     value = handler.headers.get(name)
     return value.strip() if value else None
 
 
-def log_http_request(handler, method: str, path: str) -> None:
+def log_http_request(handler: Any, method: str, path: str) -> None:
     """Log every inbound HTTP hit before routing (confirms POST arrived vs OPTIONS-only)."""
     log.info(
         "[MCP-HTTP] %s %s from %s origin=%r ua=%r",
@@ -44,7 +47,7 @@ def log_http_request(handler, method: str, path: str) -> None:
     )
 
 
-def log_cors_preflight(handler, path: str) -> None:
+def log_cors_preflight(handler: Any, path: str) -> None:
     """Log OPTIONS preflight details — key for browser clients that stop after preflight."""
     origin = _header(handler, "Origin")
     requested_method = _header(handler, "Access-Control-Request-Method")
@@ -72,7 +75,7 @@ def log_cors_preflight(handler, path: str) -> None:
     )
 
 
-def log_forbidden_origin(handler) -> None:
+def log_forbidden_origin(handler: Any) -> None:
     """Origin present and not on the allow list — request rejected with HTTP 403."""
     origin = _header(handler, "Origin")
     method = handler.command if hasattr(handler, "command") else "?"
@@ -86,7 +89,7 @@ def log_forbidden_origin(handler) -> None:
     )
 
 
-def log_mcp_transport_entry(handler, transport: str) -> None:
+def log_mcp_transport_entry(handler: Any, transport: str) -> None:
     """Log when POST/GET/DELETE reaches an MCP protocol handler (past routing)."""
     log.info(
         "[MCP-HTTP] %s /%s from %s origin=%r protocol_version=%r session=%r content_length=%s",
@@ -100,7 +103,7 @@ def log_mcp_transport_entry(handler, transport: str) -> None:
     )
 
 
-def log_unsupported_protocol_version(handler, requested: str) -> None:
+def log_unsupported_protocol_version(handler: Any, requested: str) -> None:
     log.warning(
         "[MCP-HTTP] rejected unsupported Mcp-Protocol-Version %r from %s origin=%r",
         requested,
@@ -109,11 +112,11 @@ def log_unsupported_protocol_version(handler, requested: str) -> None:
     )
 
 
-def log_no_route(handler, method: str, path: str) -> None:
+def log_no_route(handler: Any, method: str, path: str) -> None:
     log.warning("[MCP-HTTP] no route for %s %s from %s", method, path, _client(handler))
 
 
-def _protocol_version(handler) -> str | None:
+def _protocol_version(handler: Any) -> str | None:
     for name in ("Mcp-Protocol-Version", "mcp-protocol-version", "MCP-Protocol-Version"):
         value = handler.headers.get(name)
         if value:

@@ -29,6 +29,8 @@ most UNO services must be posted through ``QueueExecutor``
 start and then only read — no lock.
 """
 
+from __future__ import annotations
+
 from plugin.framework.thread_guard import background
 import json
 import logging
@@ -63,7 +65,7 @@ _PORT_IN_USE_GUIDANCE = (
 _PORT_IN_USE_ERRNOS = frozenset({98, 48, 10048})
 
 
-def write_http_json(handler, status, data, extra_headers=None, indent=None) -> None:
+def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = None, indent: int | None = None) -> None:
     """Send a JSON body with Content-Length and flush.
 
     ThreadingMixIn closes the client socket when the request thread exits.
@@ -89,7 +91,7 @@ def write_http_json(handler, status, data, extra_headers=None, indent=None) -> N
             pass
 
 
-def write_http_empty(handler, status, extra_headers=None) -> None:
+def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> None:
     """Status-only response (204/202) with Content-Length: 0 so the client is not left reading to EOF."""
     handler.send_response(status)
     if extra_headers is not None:
@@ -136,23 +138,23 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 
     route_registry = None  # HttpRouteRegistry, set by HttpServer.start()
 
-    def do_GET(self):
+    def do_GET(self) -> None:
         self._dispatch("GET")
 
-    def do_POST(self):
+    def do_POST(self) -> None:
         self._dispatch("POST")
 
-    def do_DELETE(self):
+    def do_DELETE(self) -> None:
         self._dispatch("DELETE")
 
-    def do_OPTIONS(self):
+    def do_OPTIONS(self) -> None:
         if reject_forbidden_origin(self):
             return
         path = get_url_path(self.path)
         log_cors_preflight(self, path)
         write_http_empty(self, 204, extra_headers=lambda h: send_cors_headers(h, preflight=True))
 
-    def _dispatch(self, method):
+    def _dispatch(self, method: str) -> None:
         if reject_forbidden_origin(self):
             return
         path = get_url_path(self.path)
@@ -195,7 +197,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 
             self._send_json(500, format_error_payload(e))
 
-    def _read_body(self):
+    def _read_body(self) -> Any:
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
             return {}
@@ -210,7 +212,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             return None
         return data if data is not None else {}
 
-    def _send_json(self, status, data):
+    def _send_json(self, status: int, data: Any) -> None:
         write_http_json(self, status, data)
 
     def log_message(self, format: str, *args: object) -> None:
@@ -220,7 +222,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
 class HttpServer:
     """Generic threaded HTTP server with optional TLS."""
 
-    def __init__(self, route_registry, port, host="localhost", use_ssl=False, ssl_cert="", ssl_key=""):
+    def __init__(self, route_registry: Any, port: int, host: str = "localhost", use_ssl: bool = False, ssl_cert: str = "", ssl_key: str = "") -> None:
         self.route_registry = route_registry
         self.port = port
         self.host = host
@@ -231,7 +233,7 @@ class HttpServer:
         self._thread = None
         self._running = False
 
-    def start(self):
+    def start(self) -> None:
         if self._running:
             log.warning("HTTP server is already running")
             return
@@ -270,7 +272,7 @@ class HttpServer:
         url = "%s://%s:%s" % (scheme, self.host, self.port)
         log.info("HTTP server ready — %s (%d routes)", url, self.route_registry.route_count)
 
-    def stop(self):
+    def stop(self) -> None:
         if not self._running:
             return
         self._running = False
@@ -280,7 +282,7 @@ class HttpServer:
             log.info("HTTP server stopped")
 
     @background
-    def _run(self):
+    def _run(self) -> None:
         try:
             if self._server:
                 self._server.serve_forever()
@@ -290,10 +292,10 @@ class HttpServer:
         finally:
             self._running = False
 
-    def is_running(self):
+    def is_running(self) -> bool:
         return self._running
 
-    def get_status(self):
+    def get_status(self) -> dict[str, Any]:
         scheme = "https" if self.use_ssl else "http"
         base_url = "%s://%s:%s" % (scheme, self.host, self.port)
         return {

@@ -20,6 +20,8 @@ Stores route handlers keyed by (method, path). Modules register their
 handlers during initialize() and the HTTP server dispatches to them.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any, Callable, NamedTuple
 
@@ -49,10 +51,10 @@ class HttpRouteRegistry:
         routes.add("GET", "/doc-info", doc_handler, main_thread=True)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._routes = {}  # (method, path) -> Route
 
-    def add(self, method, path, handler, raw=False, main_thread=False):
+    def add(self, method: str, path: str, handler: Callable[..., Any], raw: bool = False, main_thread: bool = False) -> None:
         """Register a route handler.
 
         Args:
@@ -69,7 +71,7 @@ class HttpRouteRegistry:
         self._routes[key] = Route(handler=handler, raw=raw, main_thread=main_thread)
         log.debug("Route registered: %s %s (raw=%s, main_thread=%s)", method, path, raw, main_thread)
 
-    def remove(self, method, path):
+    def remove(self, method: str, path: str) -> bool:
         """Unregister a route."""
         key = (method.upper(), path)
         removed = self._routes.pop(key, None)
@@ -77,14 +79,14 @@ class HttpRouteRegistry:
             log.debug("Route removed: %s %s", method, path)
         return removed is not None
 
-    def match(self, method, path):
+    def match(self, method: str, path: str) -> Route | None:
         """Return Route(handler, raw, main_thread) or None."""
         return self._routes.get((method.upper(), path))
 
     @property
-    def route_count(self):
+    def route_count(self) -> int:
         return len(self._routes)
 
-    def list_routes(self):
+    def list_routes(self) -> list[tuple[str, str]]:
         """Return a list of (method, path) tuples."""
         return list(self._routes.keys())
